@@ -3,6 +3,11 @@ package dev.nodera.peer;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
+import dev.nodera.diagnostics.metric.MessageCounters;
+import dev.nodera.diagnostics.model.PeerLink;
+import dev.nodera.diagnostics.model.SessionInfo;
+import dev.nodera.diagnostics.source.DiagnosticsSource;
+import dev.nodera.diagnostics.source.SnapshotBuilder;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.membership.GatewayClaim;
@@ -56,7 +61,7 @@ import java.util.function.Supplier;
  * callbacks fire on that same thread. {@link #sessionView()} and the id/role accessors read a
  * {@code volatile} snapshot and are safe from any thread.
  */
-public final class PeerRuntime {
+public final class PeerRuntime implements DiagnosticsSource {
 
     private final NodeIdentity identity;
     private final NodeId selfId;
@@ -67,6 +72,7 @@ public final class PeerRuntime {
     private final PeerAddress bootstrapAddress; // null iff this runtime is the bootstrap
     private final PeerRuntimeConfig config;
     private final PeerEventListener listener;
+    private final MessageCounters messageCounters; // nullable; if null, per-type counting is off
 
     private final java.util.concurrent.ExecutorService stateExec;
     private final ScheduledExecutorService heartbeatExec;
@@ -76,12 +82,14 @@ public final class PeerRuntime {
     // ---- state confined to stateExec ----
     private final Map<NodeId, PeerEntry> members = new HashMap<>();
     private final Map<NodeId, Long> lastSeenNanos = new HashMap<>();
+    private final Map<NodeId, Long> keepAliveSeq = new HashMap<>();
     private final Set<NodeId> heard = new HashSet<>();
     private long epoch;
     private NodeId gatewayId;
-    private long keepAliveSeq;
+    private long keepAliveSeqCounter;
     private String selfRoute = "";
     private volatile SessionView currentView = new SessionView(0L, null, List.of());
+    private volatile List<PeerLink> peerLinks = List.of();
 
     private PeerRuntime(Builder b) {
         this.identity = b.identity;
@@ -93,6 +101,7 @@ public final class PeerRuntime {
         this.bootstrapAddress = b.bootstrapAddress;
         this.config = b.config;
         this.listener = b.listener != null ? b.listener : new PeerEventListener() {};
+        this.messageCounters = b.messageCounters;
         this.stateExec = Executors.newSingleThreadExecutor(named("nodera-peer-state-" + shortId()));
         this.heartbeatExec = Executors.newSingleThreadScheduledExecutor(
                 named("nodera-peer-hb-" + shortId()));
@@ -116,9 +125,22 @@ public final class PeerRuntime {
     public static PeerRuntime bootstrap(NodeIdentity identity, NodeCapabilities capabilities,
                                         PeerTransport transport, Supplier<String> selfRouteSupplier,
                                         PeerRuntimeConfig config, PeerEventListener listener) {
+        return bootstrap(identity, capabilities, transport, selfRouteSupplier, config, listener, null);
+    }
+
+    /**
+     * Bootstrap factory with per-type message counters enabled (Task 18). The runtime records TX/RX
+     * counts keyed by {@code MessageCodec} type name on every encoded send and decoded inbound
+     * message; the diagnostics collector reads them via {@link #messageCounters()}.
+     */
+    public static PeerRuntime bootstrap(NodeIdentity identity, NodeCapabilities capabilities,
+                                        PeerTransport transport, Supplier<String> selfRouteSupplier,
+                                        PeerRuntimeConfig config, PeerEventListener listener,
+                                        MessageCounters messageCounters) {
         PeerRuntime rt = new Builder(identity, capabilities, transport, selfRouteSupplier, config)
                 .bootstrapCapable(true)
                 .listener(listener)
+                .messageCounters(messageCounters)
                 .build();
         rt.start();
         return rt;
@@ -141,10 +163,20 @@ public final class PeerRuntime {
                                    PeerTransport transport, Supplier<String> selfRouteSupplier,
                                    PeerAddress bootstrapAddress, PeerRuntimeConfig config,
                                    PeerEventListener listener) {
+        return peer(identity, capabilities, transport, selfRouteSupplier, bootstrapAddress, config,
+                listener, null);
+    }
+
+    /** Player-peer factory with per-type message counters enabled (Task 18) — see {@link #bootstrap}. */
+    public static PeerRuntime peer(NodeIdentity identity, NodeCapabilities capabilities,
+                                   PeerTransport transport, Supplier<String> selfRouteSupplier,
+                                   PeerAddress bootstrapAddress, PeerRuntimeConfig config,
+                                   PeerEventListener listener, MessageCounters messageCounters) {
         PeerRuntime rt = new Builder(identity, capabilities, transport, selfRouteSupplier, config)
                 .bootstrapCapable(false)
                 .bootstrapAddress(Objects.requireNonNull(bootstrapAddress, "bootstrapAddress"))
                 .listener(listener)
+                .messageCounters(messageCounters)
                 .build();
         rt.start();
         return rt;
@@ -208,6 +240,29 @@ public final class PeerRuntime {
         return selfRoute;
     }
 
+    /** @return {@code true} if this runtime is the bootstrap/full-archival peer. */
+    public boolean isBootstrap() {
+        return bootstrapCapable;
+    }
+
+    /** @return the per-type message counters (null if counting was not enabled). */
+    public MessageCounters messageCounters() {
+        return messageCounters;
+    }
+
+    /**
+     * {@link DiagnosticsSource} contribution (Task 18): publish the session view + per-peer links.
+     * Reads only {@code volatile} snapshots, so it is safe to call from the collector's sample
+     * thread (the server tick thread) — not the runtime's state thread.
+     */
+    @Override
+    public void contribute(SnapshotBuilder b) {
+        SessionView v = currentView;
+        String role = bootstrapCapable ? "bootstrap" : "peer";
+        boolean selfGateway = selfId.equals(v.gatewayId());
+        b.session(new SessionInfo(v.epoch(), v.gatewayId(), selfGateway, v.size(), role, peerLinks));
+    }
+
     /**
      * Stop the runtime: best-effort broadcast a goodbye, tear down timers and the transport.
      * Idempotent. Safe from any thread; does not block on the state thread from within it.
@@ -244,6 +299,9 @@ public final class PeerRuntime {
                 msg = MessageCodec.decode(frame);
             } catch (RuntimeException e) {
                 return; // drop malformed frame
+            }
+            if (messageCounters != null) {
+                messageCounters.recordRx(MessageCodec.typeName(MessageCodec.typeTagOf(msg)));
             }
             submit(() -> dispatch(from, msg));
         }
@@ -340,6 +398,7 @@ public final class PeerRuntime {
         }
         markSeen(k.from());
         heard.add(k.from());
+        keepAliveSeq.merge(k.from(), k.seq(), Math::max);
         listener.onKeepAlive(k.from(), k.seq());
     }
 
@@ -359,8 +418,8 @@ public final class PeerRuntime {
     }
 
     private void onHeartbeatTick() {
-        keepAliveSeq++;
-        broadcast(new SessionKeepAlive(selfId, keepAliveSeq));
+        keepAliveSeqCounter++;
+        broadcast(new SessionKeepAlive(selfId, keepAliveSeqCounter));
         // Prune members we have an established link with but have not heard from within the window.
         long now = System.nanoTime();
         long timeoutNanos = config.failureTimeout().toNanos();
@@ -455,7 +514,30 @@ public final class PeerRuntime {
 
     private void publishView() {
         currentView = new SessionView(epoch, gatewayId, new ArrayList<>(members.values()));
+        peerLinks = buildPeerLinks();
         listener.onSessionChanged(currentView);
+    }
+
+    /**
+     * Build the per-peer link snapshot (Task 18) on the state thread, then publish it via the
+     * {@code volatile} {@link #peerLinks} field so the diagnostics collector can read it safely
+     * from the sample thread.
+     */
+    private List<PeerLink> buildPeerLinks() {
+        long now = System.nanoTime();
+        List<PeerLink> out = new ArrayList<>(members.size());
+        for (PeerEntry e : members.values()) {
+            NodeId id = e.nodeId();
+            boolean self = id.equals(selfId);
+            Long seen = lastSeenNanos.get(id);
+            long agoMillis = self || seen == null ? -1L : Math.max(0L, (now - seen) / 1_000_000L);
+            long kas = self ? keepAliveSeqCounter : keepAliveSeq.getOrDefault(id, 0L);
+            boolean gateway = id.equals(gatewayId);
+            String role = gateway ? "gateway" : (e.bootstrap() ? "bootstrap" : "peer");
+            boolean up = self || heard.contains(id);
+            out.add(new PeerLink(id, e.route(), e.bootstrap(), role, agoMillis, kas, up));
+        }
+        return List.copyOf(out);
     }
 
     /** Send to every member except self, subject to the single-dialer reachability rule. */
@@ -495,6 +577,9 @@ public final class PeerRuntime {
 
     private void sendTo(PeerAddress to, NoderaMessage msg) {
         try {
+            if (messageCounters != null) {
+                messageCounters.recordTx(MessageCodec.typeName(MessageCodec.typeTagOf(msg)));
+            }
             transport.send(to, MessageCodec.encode(msg));
         } catch (TransportException e) {
             // Send failed (peer unreachable / down). Liveness is handled by onPeerDown / timeout.
@@ -524,6 +609,7 @@ public final class PeerRuntime {
         private boolean bootstrapCapable;
         private PeerAddress bootstrapAddress;
         private PeerEventListener listener;
+        private MessageCounters messageCounters;
 
         Builder(NodeIdentity identity, NodeCapabilities capabilities, PeerTransport transport,
                 Supplier<String> selfRouteSupplier, PeerRuntimeConfig config) {
@@ -546,6 +632,11 @@ public final class PeerRuntime {
 
         Builder listener(PeerEventListener l) {
             this.listener = l;
+            return this;
+        }
+
+        Builder messageCounters(MessageCounters c) {
+            this.messageCounters = c;
             return this;
         }
 

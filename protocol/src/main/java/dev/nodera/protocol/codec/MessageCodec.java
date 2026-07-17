@@ -124,6 +124,60 @@ public final class MessageCodec {
     public static final int NEXT_TAG = 23;
 
     /**
+     * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
+     * constants: a new message type appends its tag here too. Used by diagnostics to enumerate
+     * the per-type traffic breakdown so a type with zero traffic still appears in the table.
+     *
+     * @Thread-context any thread; immutable list.
+     */
+    public static final java.util.List<Integer> KNOWN_TAGS = java.util.List.of(
+            TAG_CLIENT_HELLO, TAG_SERVER_HELLO, TAG_CHALLENGE_RESPONSE, TAG_WORKER_ACTIVATION,
+            TAG_REGION_ASSIGNED, TAG_REGION_REVOKED, TAG_LEASE_RENEWAL, TAG_SNAPSHOT_ANNOUNCE,
+            TAG_STREAM_CHUNK, TAG_ACTION_BATCH_MSG, TAG_REGION_PROPOSAL, TAG_VALIDATION_VOTE,
+            TAG_COMMIT_ANNOUNCE, TAG_RESYNC_REQUEST, TAG_HEARTBEAT, TAG_WORKER_LOAD,
+            TAG_ECHO_TEST, TAG_RELAY_ENVELOPE, TAG_PEER_JOIN, TAG_MEMBERSHIP_UPDATE,
+            TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE);
+
+    /**
+     * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
+     * message record that the tag decodes to. Purely additive: a new tag adds a {@code case} here.
+     * Used to label the per-type traffic breakdown in diagnostics views.
+     *
+     * @param tag a tag from the table above.
+     * @return the display name (e.g. {@code "SessionKeepAlive"}).
+     * @throws IllegalArgumentException if the tag is unknown.
+     * @Thread-context any thread.
+     */
+    public static String typeName(int tag) {
+        return switch (tag) {
+            case TAG_CLIENT_HELLO -> "ClientHello";
+            case TAG_SERVER_HELLO -> "ServerHello";
+            case TAG_CHALLENGE_RESPONSE -> "ChallengeResponse";
+            case TAG_WORKER_ACTIVATION -> "WorkerActivation";
+            case TAG_REGION_ASSIGNED -> "RegionAssigned";
+            case TAG_REGION_REVOKED -> "RegionRevoked";
+            case TAG_LEASE_RENEWAL -> "LeaseRenewal";
+            case TAG_SNAPSHOT_ANNOUNCE -> "SnapshotAnnounce";
+            case TAG_STREAM_CHUNK -> "StreamChunk";
+            case TAG_ACTION_BATCH_MSG -> "ActionBatchMsg";
+            case TAG_REGION_PROPOSAL -> "RegionProposal";
+            case TAG_VALIDATION_VOTE -> "ValidationVote";
+            case TAG_COMMIT_ANNOUNCE -> "CommitAnnounce";
+            case TAG_RESYNC_REQUEST -> "ResyncRequest";
+            case TAG_HEARTBEAT -> "Heartbeat";
+            case TAG_WORKER_LOAD -> "WorkerLoad";
+            case TAG_ECHO_TEST -> "EchoTest";
+            case TAG_RELAY_ENVELOPE -> "RelayEnvelope";
+            case TAG_PEER_JOIN -> "PeerJoin";
+            case TAG_MEMBERSHIP_UPDATE -> "MembershipUpdate";
+            case TAG_PEER_GOODBYE -> "PeerGoodbye";
+            case TAG_GATEWAY_CLAIM -> "GatewayClaim";
+            case TAG_SESSION_KEEP_ALIVE -> "SessionKeepAlive";
+            default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
+        };
+    }
+
+    /**
      * Canonical-encode {@code msg} into a fresh, caller-owned {@code byte[]}.
      *
      * @param msg the message to encode.

@@ -19,12 +19,12 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `18%`**
+**Overall system completion: `19%`**
 `████░░░░░░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
-| Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit + NeoForge mod skeleton | 🚧 `97%` (mod now wires a live bootstrap peer + `/nodera` cmd + session payload; `runServer`/`runClient` acceptance deferred to a GUI env) |
+| Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit + NeoForge mod skeleton | 🚧 `97%` (mod now wires a live bootstrap peer + the redesigned `/nodera` diagnostics tree + `/noderac` + in-game HUD surfaces + session payload; `runServer`/`runClient` acceptance deferred to a GUI env) |
 | Phase 1 — Shadow validation | capture mixins, worker runtime, divergence report | ⬜ `0%` |
 | Phase 2 — Coordinator | leases, epochs, client proposal + server verify | ⬜ `0%` |
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | ⬜ `0%` |
@@ -33,7 +33,7 @@
 | Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | 🚧 `25%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. NAT/libp2p, archival repair, multi-bootstrap pending) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `211 passing · 0 failing · 0 skipped` (adds the P2P continuity beta: real-socket transport, deterministic gateway election, base-peer-disconnection IT; see Tested.md).
+**Tests:** `253 passing · 0 failing · 0 skipped` (adds the **Task 18 diagnostics HUD**: a new Minecraft-free `diagnostics` module — traffic metering, rate window, per-type counters, zone classifier, snapshot/view-model — a metered peer transport + focused unit test, the `DiagnosticsIT`, and the redesigned `/nodera`/`/noderac` command tree + tab/boss-bar/action-bar surfaces; an adversarial review then caught + fixed a `formatBytes`/`formatRate` hot-path crash and added coverage; see Tested.md).
 
 > **P2P session-continuity beta** (this milestone): two players connect to a NeoForge dedicated
 > server acting as a **bootstrap peer**; the mod forms a direct peer mesh over
@@ -54,15 +54,16 @@
 |---|---|---|---|
 | `core` | domain types, crypto, canonical encoding (frozen wire/hash contract) | 92 | ✅ |
 | `simulation` | deterministic region engine (the determinism bet) | 28 | ✅ |
-| `protocol` | wire messages, MessageCodec, zstd chunked streams | 27 | ✅ |
+| `protocol` | wire messages, MessageCodec, zstd chunked streams | 28 | ✅ |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | ✅ |
 | `transport-api` | `PeerTransport` seam | 9 | ✅ |
 | `transport-socket` | real TCP `PeerTransport` — direct P2P data plane (Phase 6) | 4 | ✅ |
 | `storage-api` | `WorldStore`/content/checkpoint interfaces (stub) | 1 | 🚧 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
-| `peer-runtime` | `PeerRuntime`, membership/gossip, heartbeat, deterministic gateway migration (continuity beta) | 8 | 🚧 |
+| `peer-runtime` | `PeerRuntime`, membership/gossip, heartbeat, deterministic gateway migration, metered transport + DiagnosticsSource (continuity beta) | 14 | 🚧 |
+| `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, Panel/Row/Cell view model (Task 18) | 35 | ✅ |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, `/nodera` cmd, session payload | 1 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac`, tab/boss-bar/action-bar HUD, session payload | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
 | `storage-client` | bounded/quota'd client store | — | ⬜ |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` cross-NAT) | — | ⬜ |
@@ -102,8 +103,9 @@ nodera/
 ├── transport-socket/    real TCP PeerTransport — direct P2P data plane (Phase 6 continuity beta)
 ├── storage-api/         WorldStore interfaces
 ├── testkit/             LoopbackTransport, FakeRegion, FixtureWriter/Reader
-├── peer-runtime/        PeerRuntime, membership/gossip, heartbeat, deterministic gateway migration
-├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, /nodera cmd; runServer/runClient deferred
+├── peer-runtime/        PeerRuntime, membership/gossip, heartbeat, deterministic gateway migration, MeteredPeerTransport
+├── diagnostics/         (Task 18) Minecraft-free telemetry: TrafficMeter, RateWindow, MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView
+├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, redesigned /nodera diagnostics tree + /noderac + HUD surfaces; runServer/runClient deferred
 ├── transport-neoforge/  (Task 4) payload relay skeleton — onboarded (ModDevGradle), relay impl deferred
 └── docs/                Plan.md, LIMITATIONS.md, Task.0..16.md, Context/
 ```
@@ -185,7 +187,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 15 | Deterministic entity simulation (mob AI, projectiles) | 7 | `#15` | ⬜ |
 | 16 | Player lane & trustless closure (BFT, mod SDK) | 8 | `#16` | ⬜ |
 | 17 | **Debugger tool**: P2P comms + event/block/redstone harness, real server-instance emulation, live debug, coverage reports, log files | 0–8 | `#17` | ⬜ |
-| 18 | **In-game observability & diagnostics HUD**: tab list, boss bars, zone alerts, redesigned command tree + telemetry model | 0–8 | `#18` | 📋 (planned — `docs/Task.18.md`) |
+| 18 | **In-game observability & diagnostics HUD**: tab list, boss bars, zone alerts, redesigned command tree + telemetry model | 0–8 | `#18` | 🚧 (`diagnostics` pure module + metered transport + `DiagnosticsIT` + `/nodera`/`/noderac` trees + tab/boss/action-bar surfaces ship; region/entity panels are `UNASSIGNED` placeholders until Tasks 6/12 — L-31; live-server surface verification deferred with `runServer`) |
 
 Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.16.md`](docs/Task.16.md).
 

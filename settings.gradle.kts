@@ -27,6 +27,7 @@ include("transport-socket")
 include("storage-api")
 include("testkit")
 include("peer-runtime")
+include("diagnostics")
 
 // --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
 include("transport-neoforge")

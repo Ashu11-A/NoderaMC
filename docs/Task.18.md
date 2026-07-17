@@ -325,4 +325,63 @@ inside an owned region.
 
 ## Verification log
 
-_(filled during implementation — command transcripts, screenshots, soak TPS, test counts.)_
+Implementation landed on branch `feature/diagnostics-hud-#18`. `./gradlew check` green (243 tests,
++32 vs the prior 211).
+
+**Shipped (acceptance #1–#3, #6):**
+- New Minecraft-free `diagnostics` module: `metric` (`Direction`, `TrafficMeter`, `MessageCounters`,
+  `RateWindow`), `model` (`TelemetrySnapshot` + sub-records), `state` (`OwnershipState`, `Health`,
+  `Semantic`), `classify` (`ZoneClassifier`), `source` (`DiagnosticsSource` + `SnapshotBuilder` +
+  `RegionOwnershipProvider`/`EntityControlProvider` stubs), `view` (`DiagnosticsView`/`Panel`/`Row`/
+  `Cell` + `ViewBuilder`), `DiagnosticsCollector`. 30 unit tests (counter + rate math, per-type
+  tallies, negative-coord classification, Panel/Row/Cell + Semantic assertions, rate + health
+  derivation).
+- `protocol`: `MessageCodec.typeName(tag)` + `KNOWN_TAGS` (frozen, append-only; +1 registry test).
+- `peer-runtime`: `MeteredPeerTransport` decorator (TX bytes/frames on send, RX via handler wrap) +
+  per-type `MessageCounters` on `PeerRuntime` (TX in `sendTo`, RX in decode) + `PeerRuntime` as a
+  `DiagnosticsSource`. `DiagnosticsIT` over `LoopbackTransport` proves bytesTx/Rx > 0, framesTx/Rx >
+  0, `SessionKeepAlive` in the per-type breakdown, and correct member/gateway/epoch.
+- `neoforge-mod` `dev.nodera.mod.debug`: `Palette` (exhaustive Semantic→colour, compile-enforced
+  totality), `ComponentRenderer`, `TabListRenderer` (`ClientboundTabListPacket`), `BossBarManager`
+  (per-player diffed `ServerBossEvent`s), `ActionBarNotifier` (zone alerts), `ZoneWatcher`
+  (`PlayerTickEvent.Post` edge detection), `DiagnosticsService` (`ServerTickEvent.Post` sampler +
+  per-player HUD prefs), `command/CommandTree` + `NoderaCommand` (`/nodera session|status|peers|net
+  [type]|regions|zone|entities|health|server|hud|whois|debug`) + `NoderaClientCommand` (`/noderac
+  session|peers|net [type]`). Wired into `ServerBootstrap` (inline executors deleted; `status`/
+  `peers` kept as aliases) + `NoderaPeerService` (metered transport + collectors + `serverDiagnostics()`
+  accessor) + `ClientBootstrap` (`/noderac`).
+
+**Honest staging (acceptance #4 manual, #5 budget):**
+- Live now: session/peers/gateway, net tx/rx bytes+frames+rates + per-type breakdown, zone geometry,
+  all surfaces + colours. LIMITATIONS L-31 covers the placeholder region/entity panels (Tasks 6/12).
+- Deferred with `runServer`/`runClient`: the in-game surfaces are accepted by **compile against
+  NeoForge 21.1.77** + the MC-free `DiagnosticsIT`; the manual on-server surface pass (screenshots,
+  soak TPS) is pending a GUI env, consistent with Phase 0. `/noderac zone`/`hud` are deferred to that
+  pass (zone needs the local player's world position, which the layering rule keeps under
+  `dev.nodera.mod.client`). `whois` and the `ClientDiagnosticsReport` payload stay staged (off).
+- Budget (#5): surfaces diff/throttle by construction — tab + boss bars mutate only on a
+  signature change, zone alerts fire on region-change edges only, sampling defaults to 20 ticks.
+
+**Adversarial-review remediation:** a 6-dimension find→verify review workflow (23 agents, 17
+confirmed findings, 0 refuted) ran before commit and every finding was applied — `./gradlew check`
+re-green at 253 tests:
+
+- *Blocker:* `ViewBuilder.formatBytes`/`formatRate` threw `StringIndexOutOfBoundsException` for any
+  byte value in [1024, 2047] (off-by-one in the binary-unit exponent) — the tab/boss-bar/net HUD hot
+  path would have crashed ~1/s at 1–2 KiB/s. Fixed (`exp = unit / 10`) + boundary regression tests.
+- *Net bar:* was unreachable individually and diverged from the "opt-in via `/nodera hud bars on`"
+  spec. Adopted Design A — the net bar rides on `bars` (no separate `netBar` pref / `NET_BAR`
+  surface); `/nodera hud bars on` now shows it as documented. Net-bar progress switched from a
+  log1p formula (saturated at ~54 B/s) to a linear normalisation against a fixed 256 KiB/s ceiling.
+- *Tab clear:* `/nodera hud tab off` now sends one empty `ClientboundTabListPacket` on the
+  true→false edge so the stale header/footer is cleared (was asymmetric with the bars surface).
+- *Dead code removed:* `BossBarManager.HudPref`, `DiagnosticsService.verbose` field/accessors,
+  `DiagnosticsService.bossBars()`/`zoneWatcher()` accessors, the `barsMap()` indirection. The
+  spec'd `/nodera debug verbose` surface stays, replying honestly that finer logging is staged.
+- *DRY:* the MC→core dimension bridge (`player.level().dimension()` → `DimensionKey`) is now one
+  shared `dev.nodera.mod.debug.Dimensions.of` instead of three copies; `zonePanel` computes the
+  region once.
+- *Coverage:* `MeteredPeerTransportTest` (exact TX/stream/RX counts + onPeerDown pass-through),
+  `ViewBuilder` `formatRate`/`serverPanel`/populated `regions`+`entities`, `ZoneClassifier`↔
+  `RegionBounds` consistency (locks the region-granular, non-halo-aware contract Task 6 hands off),
+  and deterministic per-type TX (`PeerJoin`/`MembershipUpdate` == 1) in `DiagnosticsIT`.

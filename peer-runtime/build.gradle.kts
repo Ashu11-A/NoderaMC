@@ -11,6 +11,7 @@ dependencies {
     api(project(":core"))
     api(project(":transport-api"))
     implementation(project(":protocol"))
+    implementation(project(":diagnostics"))
 
     testImplementation(project(":transport-socket"))
     testImplementation(project(":testkit"))

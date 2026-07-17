@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Append-only type-tag registry snapshot for {@link MessageCodec} (Task 4 acceptance #5:
@@ -123,6 +124,23 @@ final class MessageCodecTypeTagTest {
                     .as("decode of encode(%s) must yield same class", cls.getSimpleName())
                     .isEqualTo(cls);
         }
+    }
+
+    @Test
+    void typeNameAndKnownTagsCoverEveryAssignedTag() {
+        assertThat(MessageCodec.KNOWN_TAGS).hasSize(MessageCodec.NEXT_TAG);
+        assertThat(MessageCodec.KNOWN_TAGS).doesNotHaveDuplicates();
+        for (int tag : MessageCodec.KNOWN_TAGS) {
+            assertThat(MessageCodec.typeName(tag))
+                    .as("typeName(%d)", tag)
+                    .isNotNull()
+                    .isNotEmpty();
+        }
+        assertThat(MessageCodec.typeName(MessageCodec.TAG_SESSION_KEEP_ALIVE)).isEqualTo("SessionKeepAlive");
+        assertThatThrownBy(() -> MessageCodec.typeName(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> MessageCodec.typeName(99))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

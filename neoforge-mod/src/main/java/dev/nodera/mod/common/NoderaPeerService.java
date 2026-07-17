@@ -3,10 +3,16 @@ package dev.nodera.mod.common;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
+import dev.nodera.diagnostics.DiagnosticsCollector;
+import dev.nodera.diagnostics.metric.MessageCounters;
+import dev.nodera.diagnostics.metric.TrafficMeter;
+import dev.nodera.diagnostics.source.EntityControlProvider;
+import dev.nodera.diagnostics.source.RegionOwnershipProvider;
 import dev.nodera.peer.PeerEventListener;
 import dev.nodera.peer.PeerRuntime;
 import dev.nodera.peer.PeerRuntimeConfig;
 import dev.nodera.peer.SessionView;
+import dev.nodera.peer.metric.MeteredPeerTransport;
 import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.socket.SocketPeerTransport;
 import org.slf4j.Logger;
@@ -42,10 +48,13 @@ public final class NoderaPeerService {
     private NodeIdentity serverIdentity;
     private SocketPeerTransport serverTransport;
     private PeerRuntime serverRuntime;
+    private DiagnosticsCollector serverCollector;
+    private dev.nodera.mod.debug.DiagnosticsService serverDiagnostics;
 
     private NodeIdentity clientIdentity;
     private SocketPeerTransport clientTransport;
     private PeerRuntime clientRuntime;
+    private DiagnosticsCollector clientCollector;
 
     private NoderaPeerService() {}
 
@@ -69,9 +78,17 @@ public final class NoderaPeerService {
         serverIdentity = NodeIdentity.generate();
         String advertise = resolveHost(advertiseHost);
         serverTransport = new SocketPeerTransport(serverIdentity.nodeId(), bindHost, port, advertise);
+        TrafficMeter serverMeter = new TrafficMeter();
+        MessageCounters serverCounts = new MessageCounters();
+        MeteredPeerTransport serverMetered = new MeteredPeerTransport(serverTransport, serverMeter);
         serverRuntime = PeerRuntime.bootstrap(serverIdentity, NodeCapabilities.initial(),
-                serverTransport, serverTransport::listenRoute, PeerRuntimeConfig.defaults(),
-                new LoggingListener("server"));
+                serverMetered, serverTransport::listenRoute, PeerRuntimeConfig.defaults(),
+                new LoggingListener("server"), serverCounts);
+        serverCollector = new DiagnosticsCollector(serverMeter, serverCounts)
+                .register(serverRuntime)
+                .register(RegionOwnershipProvider.stub())
+                .register(EntityControlProvider.stub());
+        serverDiagnostics = new dev.nodera.mod.debug.DiagnosticsService(serverRuntime, serverCollector);
         String route = serverRuntime.selfRoute();
         LOG.info("Nodera bootstrap peer online at {} (node {})", route, serverIdentity.nodeId());
         return route;
@@ -87,6 +104,26 @@ public final class NoderaPeerService {
         return serverRuntime;
     }
 
+    /** @return the server-side diagnostics collector (for the HUD), or {@code null}. */
+    public synchronized DiagnosticsCollector serverCollector() {
+        return serverCollector;
+    }
+
+    /** @return the server-side diagnostics HUD driver, or {@code null} before the server starts. */
+    public synchronized dev.nodera.mod.debug.DiagnosticsService serverDiagnostics() {
+        return serverDiagnostics;
+    }
+
+    /** @return the client-side runtime, or {@code null} if not meshed. */
+    public synchronized PeerRuntime clientRuntime() {
+        return clientRuntime;
+    }
+
+    /** @return the client-side diagnostics collector (for {@code /noderac}), or {@code null}. */
+    public synchronized DiagnosticsCollector clientCollector() {
+        return clientCollector;
+    }
+
     /** Stop the bootstrap peer. Idempotent. */
     public synchronized void stopServer() {
         if (serverRuntime != null) {
@@ -94,6 +131,8 @@ public final class NoderaPeerService {
             serverRuntime.stop();
             serverRuntime = null;
         }
+        serverCollector = null;
+        serverDiagnostics = null;
         serverTransport = null;
         serverIdentity = null;
     }
@@ -112,10 +151,17 @@ public final class NoderaPeerService {
         clientIdentity = NodeIdentity.generate();
         String advertise = resolveHost(advertiseHost);
         clientTransport = new SocketPeerTransport(clientIdentity.nodeId(), "0.0.0.0", 0, advertise);
+        TrafficMeter clientMeter = new TrafficMeter();
+        MessageCounters clientCounts = new MessageCounters();
+        MeteredPeerTransport clientMetered = new MeteredPeerTransport(clientTransport, clientMeter);
         PeerAddress bootstrapAddress = PeerAddress.of(null, bootstrapRoute); // socket routes by host:port
         clientRuntime = PeerRuntime.peer(clientIdentity, NodeCapabilities.initial(),
-                clientTransport, clientTransport::listenRoute, bootstrapAddress,
-                PeerRuntimeConfig.defaults(), new LoggingListener("client"));
+                clientMetered, clientTransport::listenRoute, bootstrapAddress,
+                PeerRuntimeConfig.defaults(), new LoggingListener("client"), clientCounts);
+        clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
+                .register(clientRuntime)
+                .register(RegionOwnershipProvider.stub())
+                .register(EntityControlProvider.stub());
         LOG.info("Nodera client peer joining session via {} (node {}, listening {})",
                 bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());
     }
@@ -127,6 +173,7 @@ public final class NoderaPeerService {
             clientRuntime.stop();
             clientRuntime = null;
         }
+        clientCollector = null;
         clientTransport = null;
         clientIdentity = null;
     }

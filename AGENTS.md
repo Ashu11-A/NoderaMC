@@ -21,15 +21,22 @@
 - `core` → JDK only. `simulation`/`protocol`/`consensus`/`transport-api`/`storage-api` → `core`.
 - `transport-socket` (real TCP `PeerTransport`) → `core` + `transport-api` (+ `protocol` for chunking).
 - `peer-runtime` (membership, heartbeat, deterministic gateway migration) → `core` + `transport-api`
-  + `protocol`. It depends only on the transport SEAM, never a concrete transport, so it runs over
-  both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
-  `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). Both are
-  Minecraft-free pure-Java modules.
+  + `protocol` + `diagnostics`. It depends only on the transport SEAM, never a concrete transport, so
+  it runs over both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
+  `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). `MeteredPeerTransport`
+  wraps any transport to feed a `TrafficMeter`, and `PeerRuntime` doubles as a `DiagnosticsSource`.
+  Both peer-runtime and diagnostics are Minecraft-free pure-Java modules.
+- `diagnostics` (Task 18 — the Minecraft-free telemetry/view-model core: `TrafficMeter`,
+  `RateWindow`, `MessageCounters`, `TelemetrySnapshot`, `ZoneClassifier`, `DiagnosticsView`) → `core`
+  only. Unit-testable without a server; the thin `neoforge-mod` `dev.nodera.mod.debug` renderers
+  consume it.
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
   compile and assemble a jar; `runServer`/`runClient` acceptance is deferred to a GUI env.
-  Later modules (`storage-rocksdb`, `storage-client`, `peer-runtime`, `transport-libp2p`,
+  `neoforge-mod` carries the redesigned `/nodera` + `/noderac` diagnostics command tree and the
+  in-game HUD surfaces (tab list, boss bars, zone alerts) under `dev.nodera.mod.debug`.
+  Later modules (`storage-rocksdb`, `storage-client`, `transport-libp2p`,
   `integration-tests`) are still declared as comments in `settings.gradle.kts`.
 
 ## Frozen contracts (do not change without a version bump)

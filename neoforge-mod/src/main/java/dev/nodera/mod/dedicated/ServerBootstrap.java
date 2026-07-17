@@ -1,37 +1,34 @@
 package dev.nodera.mod.dedicated;
 
-import com.mojang.brigadier.context.CommandContext;
-import dev.nodera.core.identity.NodeId;
 import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.mod.common.NoderaSessionPayload;
-import dev.nodera.peer.PeerRuntime;
-import dev.nodera.peer.SessionView;
-import dev.nodera.protocol.membership.PeerEntry;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
-import net.minecraft.network.chat.Component;
+import dev.nodera.mod.debug.DiagnosticsService;
+import dev.nodera.mod.debug.command.NoderaCommand;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.ApiStatus;
 
 /**
- * Dedicated-server wiring for the Nodera bootstrap peer (Phase 6 continuity beta).
+ * Dedicated-server wiring for the Nodera bootstrap peer + the in-game diagnostics HUD (Task 18).
  *
- * <p>On {@link ServerStartedEvent} it starts the bootstrap {@link PeerRuntime} (the "server acting
- * as a peer"); on {@link PlayerEvent.PlayerLoggedInEvent} it hands each joining player the P2P
- * bootstrap route via {@link NoderaSessionPayload} so the client can dial into the mesh; on
- * {@link ServerStoppingEvent} it tears the bootstrap peer down — the moment that triggers the
- * clients' deterministic gateway migration. It also registers {@code /nodera status|peers} for
- * operators to observe the mesh.
+ * <p>On {@link ServerStartedEvent} it starts the bootstrap {@code PeerRuntime} (the "server acting
+ * as a peer") and its {@link DiagnosticsService}; on {@link PlayerEvent.PlayerLoggedInEvent} it
+ * hands each joining player the P2P bootstrap route; on {@link ServerTickEvent.Post} it samples the
+ * HUD and renders tab/boss-bar surfaces; on {@link PlayerTickEvent.Post} it fires zone-edge alerts;
+ * on {@link ServerStoppingEvent} it tears everything down. Command registration delegates to
+ * {@link NoderaCommand} (the redesigned declarative {@code /nodera} tree; {@code status}/{@code peers}
+ * remain as aliases).
  *
- * <p>Thread context: {@code register} runs on the mod-loading thread; the subscribed events fire
- * on the server main thread.
+ * <p>Thread context: {@code register} runs on the mod-loading thread; the subscribed events fire on
+ * the server main thread.
  */
 @ApiStatus.Internal
 public final class ServerBootstrap {
@@ -44,6 +41,9 @@ public final class ServerBootstrap {
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStarted);
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStopping);
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(ServerBootstrap::onPlayerLoggedOut);
+        NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerTickPost);
+        NeoForge.EVENT_BUS.addListener(ServerBootstrap::onPlayerTickPost);
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onRegisterCommands);
     }
 
@@ -55,6 +55,10 @@ public final class ServerBootstrap {
     }
 
     private static void onServerStopping(ServerStoppingEvent event) {
+        DiagnosticsService d = NoderaPeerService.get().serverDiagnostics();
+        if (d != null) {
+            d.onServerStopping();
+        }
         NoderaPeerService.get().stopServer();
     }
 
@@ -65,44 +69,28 @@ public final class ServerBootstrap {
         }
     }
 
+    private static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        DiagnosticsService d = NoderaPeerService.get().serverDiagnostics();
+        if (d != null) {
+            d.onPlayerLoggedOut(event.getEntity());
+        }
+    }
+
+    private static void onServerTickPost(ServerTickEvent.Post event) {
+        DiagnosticsService d = NoderaPeerService.get().serverDiagnostics();
+        if (d != null) {
+            d.onServerTickPost(event);
+        }
+    }
+
+    private static void onPlayerTickPost(PlayerTickEvent.Post event) {
+        DiagnosticsService d = NoderaPeerService.get().serverDiagnostics();
+        if (d != null && event.getEntity() instanceof ServerPlayer player) {
+            d.onPlayerTickPost(player);
+        }
+    }
+
     private static void onRegisterCommands(RegisterCommandsEvent event) {
-        event.getDispatcher().register(
-                Commands.literal("nodera")
-                        .then(Commands.literal("status").executes(ServerBootstrap::status))
-                        .then(Commands.literal("peers").executes(ServerBootstrap::peers)));
-    }
-
-    private static int status(CommandContext<CommandSourceStack> ctx) {
-        CommandSourceStack src = ctx.getSource();
-        PeerRuntime rt = NoderaPeerService.get().serverRuntime();
-        if (rt == null) {
-            src.sendSuccess(() -> Component.literal("Nodera: bootstrap peer offline"), false);
-            return 0;
-        }
-        SessionView view = rt.sessionView();
-        src.sendSuccess(() -> Component.literal(
-                "Nodera bootstrap " + rt.selfRoute()
-                        + " | epoch " + view.epoch()
-                        + " | gateway " + view.gatewayId()
-                        + " | members " + view.size()), false);
-        return 1;
-    }
-
-    private static int peers(CommandContext<CommandSourceStack> ctx) {
-        CommandSourceStack src = ctx.getSource();
-        PeerRuntime rt = NoderaPeerService.get().serverRuntime();
-        if (rt == null) {
-            src.sendSuccess(() -> Component.literal("Nodera: bootstrap peer offline"), false);
-            return 0;
-        }
-        SessionView view = rt.sessionView();
-        NodeId gateway = view.gatewayId();
-        for (PeerEntry e : view.members()) {
-            String marker = e.nodeId().equals(gateway) ? " (gateway)" : "";
-            src.sendSuccess(() -> Component.literal(
-                    " - " + e.nodeId() + " @ " + e.route()
-                            + (e.bootstrap() ? " [bootstrap]" : "") + marker), false);
-        }
-        return view.size();
+        NoderaCommand.register(event.getDispatcher(), () -> NoderaPeerService.get().serverDiagnostics());
     }
 }
