@@ -1,0 +1,26 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.eclipse/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+
+# Nodera runtime artifacts
+nodera/
+divergences/
+world-store/
+
+# Third-party architecture-study clones (local reference only; not part of NoderaMC).
+# Our own analysis lives in docs/Context/*.md and docs/Context/docs/** — those ARE committed.
+docs/Context/MultiPaper/
+docs/Context/folia/

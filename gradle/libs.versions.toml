@@ -1,0 +1,35 @@
+[versions]
+junit             = "5.11.0"
+assertj           = "3.26.3"
+jqwik             = "1.9.0"
+mockito           = "5.14.2"
+mockitoJupiter    = "5.14.2"
+caffeine          = "3.1.8"
+zstd              = "1.5.6-3"
+roaringbitmap     = "1.3.0"
+fastutil          = "8.5.15"
+archunit          = "1.3.0"
+jmh               = "0.7.2"
+jetbrainsAnnotations = "26.0.1"
+
+[libraries]
+junit-jupiter       = { module = "org.junit.jupiter:junit-jupiter",       version.ref = "junit" }
+junit-platform      = { module = "org.junit.platform:junit-platform-launcher", version = "1.11.0" }
+assertj-core        = { module = "org.assertj:assertj-core",              version.ref = "assertj" }
+jqwik               = { module = "net.jqwik:jqwik",                       version.ref = "jqwik" }
+jqwik-api           = { module = "net.jqwik:jqwik-api",                   version.ref = "jqwik" }
+mockito-core        = { module = "org.mockito:mockito-core",              version.ref = "mockito" }
+mockito-jupiter     = { module = "org.mockito:mockito-junit-jupiter",     version.ref = "mockitoJupiter" }
+caffeine            = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
+zstd-jni            = { module = "com.github.luben:zstd-jni",             version.ref = "zstd" }
+roaringbitmap       = { module = "org.roaringbitmap:RoaringBitmap",       version.ref = "roaringbitmap" }
+fastutil            = { module = "it.unimi.dsi:fastutil",                 version.ref = "fastutil" }
+archunit            = { module = "com.tngtech.archunit:archunit",         version.ref = "archunit" }
+archunit-junit5     = { module = "com.tngtech.archunit:archunit-junit5",  version.ref = "archunit" }
+jetbrains-annotations = { module = "org.jetbrains:annotations",           version.ref = "jetbrainsAnnotations" }
+
+# Plugin coordinates (for build-logic)
+plugin-jmh = { module = "me.champeau.jmh:jmh-gradle-plugin", version.ref = "jmh" }
+
+[bundles]
+test-impl = ["assertj-core", "jqwik"]
