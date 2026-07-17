@@ -1,0 +1,271 @@
+package dev.nodera.simulation;
+
+import dev.nodera.core.action.ActionEnvelope;
+import dev.nodera.core.region.RegionBounds;
+import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkColumnState;
+import dev.nodera.core.state.NBlockPos;
+import dev.nodera.core.state.RegionDelta;
+import dev.nodera.core.state.RegionSnapshot;
+import dev.nodera.core.state.SnapshotVersion;
+import dev.nodera.core.state.StateRoot;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * The engine's mutable working copy over one {@link RegionSnapshot} (Task 3). Serves both sides of
+ * the replay loop: the read side via {@link RegionWorldView} (which the {@link
+ * dev.nodera.simulation.rules.RuleSet} validates against) and the write side via {@link #setBlock}
+ * (which rules call to mutate state and feed the {@link BlockMutationBuffer}).
+ *
+ * <p><b>Section-granularity state (MVP, dictated by the frozen core model).</b> The frozen
+ * {@link ChunkColumnState} holds exactly one palette state id per vertical 16-block section
+ * ({@code paletteStateIdsPerSection}); there is no per-block storage on the wire. The MVP
+ * "flat world" is therefore uniform per section, and {@code getBlock}/{@code setBlock} operate at
+ * that granularity: reading a position returns the palette id of its containing section, and
+ * setting a position paints that whole section. This is the only reading consistent with the
+ * frozen snapshot model; richer per-block state arrives when the NeoForge extractor (Task 5)
+ * extends {@code ChunkColumnState}. The {@link BlockMutation} delta still records the exact target
+ * {@code (x, y, z)} position (transport truth), and {@code expectedPreviousStateId} is captured
+ * from the <b>pre-batch</b> section, so the commit applier's CAS remains well-defined.
+ *
+ * <p><b>Storage layout.</b> Each chunk column is held in a {@link ColumnModel} (mutable
+ * {@code int[]} working palette + an immutable base palette copy for first-touch CAS capture),
+ * keyed losslessly by the packed {@code (chunkX, chunkZ)} pair in a {@code long}. Positions inside
+ * the footprint but absent from the snapshot (halo or uncovered chunks) read as AIR ({@code 0}),
+ * per the documented MVP halo behaviour; writing such a position throws.
+ *
+ * <p><b>Fail-hard halo.</b> {@link #setBlock} on a position outside the owned chunk square throws
+ * {@link IllegalStateException}. Engine bugs must never silently leak across region boundaries.
+ *
+ * @Thread-context thread-confined per {@code execute} call; not thread-safe, never shared.
+ */
+public final class MutableRegionState implements RegionWorldView {
+
+    private static final int CHUNK_SIZE = 16;
+    private static final int AIR = 0;
+
+    private final RegionId region;
+    private final RegionBounds bounds;
+    private final Map<Long, ColumnModel> columnsByChunk;
+    private final BlockMutationBuffer mutationBuffer = new BlockMutationBuffer();
+
+    /**
+     * Build a working copy over {@code snapshot} restricted by {@code bounds}. The snapshot's
+     * per-section palette arrays are defensively copied into fresh working arrays so the source
+     * snapshot is never mutated.
+     *
+     * @param snapshot the pre-batch state; must not be null.
+     * @param bounds   the region's owned + halo bounds; must not be null.
+     * @throws IllegalArgumentException if either argument is null.
+     * @Thread-context thread-confined per call.
+     */
+    public MutableRegionState(RegionSnapshot snapshot, RegionBounds bounds) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("snapshot must not be null");
+        }
+        if (bounds == null) {
+            throw new IllegalArgumentException("bounds must not be null");
+        }
+        this.region = snapshot.region();
+        this.bounds = bounds;
+        this.columnsByChunk = new HashMap<>(snapshot.chunks().size());
+        for (ChunkColumnState col : snapshot.chunks()) {
+            columnsByChunk.put(packChunk(col.chunkX(), col.chunkZ()), new ColumnModel(col));
+        }
+    }
+
+    @Override
+    public RegionId region() {
+        return region;
+    }
+
+    /**
+     * @return the bounds this state was constructed with.
+     * @Thread-context thread-confined per call.
+     */
+    public RegionBounds bounds() {
+        return bounds;
+    }
+
+    /**
+     * @return the underlying mutation buffer (for delta assembly).
+     * @Thread-context thread-confined per call.
+     */
+    public BlockMutationBuffer mutationBuffer() {
+        return mutationBuffer;
+    }
+
+    @Override
+    public boolean inOwnedRegion(NBlockPos pos) {
+        return bounds.ownsBlock(pos.x(), pos.z());
+    }
+
+    @Override
+    public boolean inHalo(NBlockPos pos) {
+        return bounds.isHaloBlock(pos.x(), pos.z());
+    }
+
+    /**
+     * Read the live block state at {@code pos} (reflecting any mutations already applied in this
+     * batch). Returns {@code AIR} (0) for positions outside the snapshot's covered chunks (halo or
+     * uncovered).
+     *
+     * @Thread-context thread-confined per call.
+     */
+    @Override
+    public int getBlock(NBlockPos pos) {
+        ColumnModel col = columnAt(pos);
+        if (col == null) {
+            return AIR;
+        }
+        int section = sectionIndex(col, pos.y());
+        if (section < 0 || section >= col.sectionCount) {
+            return AIR;
+        }
+        return col.workPalette[section];
+    }
+
+    /**
+     * Read the <b>pre-batch</b> block state at {@code pos} from the immutable base palette. Used to
+     * capture {@code expectedPreviousStateId} on first touch.
+     *
+     * @Thread-context thread-confined per call.
+     */
+    private int getBaseBlock(NBlockPos pos) {
+        ColumnModel col = columnAt(pos);
+        if (col == null) {
+            return AIR;
+        }
+        int section = sectionIndex(col, pos.y());
+        if (section < 0 || section >= col.sectionCount) {
+            return AIR;
+        }
+        return col.basePalette[section];
+    }
+
+    /**
+     * Apply a block change at {@code pos}: paints the containing section with {@code newStateId},
+     * captures the pre-batch {@code expectedPreviousStateId} via the mutation buffer (first-touch
+     * wins), and fails hard if {@code pos} is outside the owned chunk square.
+     *
+     * @param pos        the target position; must not be null.
+     * @param newStateId the new palette state id.
+     * @param cause      the action causing the change (retained for future per-cause metadata).
+     * @param rng        the per-action deterministic RNG (unused by MVP state painting; reserved for
+     *                   later rule sets that grow state stochastically).
+     * @throws IllegalStateException if {@code pos} is outside the owned chunk square (halo write).
+     * @Thread-context thread-confined per call.
+     */
+    public void setBlock(NBlockPos pos, int newStateId, ActionEnvelope cause, DeterministicRandom rng) {
+        if (pos == null) {
+            throw new IllegalArgumentException("pos must not be null");
+        }
+        if (!bounds.ownsBlock(pos.x(), pos.z())) {
+            throw new IllegalStateException(
+                    "setBlock outside owned region " + region + " at " + pos
+                            + " (halo/foreign writes are forbidden, Folia-style fail-hard)");
+        }
+        ColumnModel col = columnAt(pos);
+        if (col == null) {
+            throw new IllegalStateException(
+                    "setBlock on position " + pos + " inside owned bounds but absent from snapshot"
+                            + " (region " + region + "): snapshot must cover the owned footprint");
+        }
+        int section = sectionIndex(col, pos.y());
+        if (section < 0 || section >= col.sectionCount) {
+            throw new IllegalStateException(
+                    "setBlock at " + pos + " outside section range of column ("
+                            + col.minY + " .. " + (col.minY + col.sectionCount * CHUNK_SIZE - 1) + ")");
+        }
+        int expectedPrevious = getBaseBlock(pos);
+        col.workPalette[section] = newStateId;
+        mutationBuffer.record(pos, expectedPrevious, newStateId, 0);
+    }
+
+    /**
+     * Build the post-state snapshot from the working palettes. Chunks are re-emitted for every
+     * column in the base snapshot (in their original palette unless mutated); the
+     * {@link RegionSnapshot} compact constructor re-sorts by {@code (chunkX, chunkZ)} so the result
+     * is canonical.
+     *
+     * @param newVersion the version stamp for the post-state.
+     * @param tick       the post-state tick (typically {@code context.tickTo()}).
+     * @return a fresh, canonical {@link RegionSnapshot}.
+     * @Thread-context thread-confined per call.
+     */
+    public RegionSnapshot toSnapshot(SnapshotVersion newVersion, long tick) {
+        List<ChunkColumnState> out = new ArrayList<>(columnsByChunk.size());
+        for (Map.Entry<Long, ColumnModel> e : columnsByChunk.entrySet()) {
+            long key = e.getKey();
+            ColumnModel col = e.getValue();
+            out.add(new ChunkColumnState(
+                    unpackX(key),
+                    unpackZ(key),
+                    col.workPalette,
+                    col.minY,
+                    col.sectionCount));
+        }
+        return new RegionSnapshot(region, newVersion, tick, out);
+    }
+
+    /**
+     * Build the canonical {@link RegionDelta}. Mutations come from {@link #mutationBuffer()} in
+     * sorted {@code (y, z, x)} order; {@code resultingRoot} is the SHA-256 of the post-state
+     * snapshot, supplied by the engine (which owns the {@link dev.nodera.core.crypto.HashService}).
+     *
+     * <p><b>Deviation note:</b> the task sketch listed {@code toDelta(baseVersion, resultingVersion)}
+     * only, but the frozen {@link RegionDelta} record requires a non-null {@code resultingRoot}.
+     * The root is therefore passed in here rather than computed inside the state (which would couple
+     * a hashing service into this class).
+     *
+     * @param baseVersion     the pre-batch version.
+     * @param resultingVersion the post-batch version.
+     * @param resultingRoot   the post-state state root (consensus truth).
+     * @return a fresh, canonical {@link RegionDelta}.
+     * @Thread-context thread-confined per call.
+     */
+    public RegionDelta toDelta(SnapshotVersion baseVersion, SnapshotVersion resultingVersion, StateRoot resultingRoot) {
+        return new RegionDelta(region, baseVersion, resultingVersion, mutationBuffer.sortedMutations(), resultingRoot);
+    }
+
+    private ColumnModel columnAt(NBlockPos pos) {
+        int chunkX = Math.floorDiv(pos.x(), CHUNK_SIZE);
+        int chunkZ = Math.floorDiv(pos.z(), CHUNK_SIZE);
+        return columnsByChunk.get(packChunk(chunkX, chunkZ));
+    }
+
+    private static int sectionIndex(ColumnModel col, int y) {
+        return Math.floorDiv(y - col.minY, CHUNK_SIZE);
+    }
+
+    private static long packChunk(int chunkX, int chunkZ) {
+        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+    }
+
+    private static int unpackX(long key) {
+        return (int) (key >>> 32);
+    }
+
+    private static int unpackZ(long key) {
+        return (int) (key & 0xFFFFFFFFL);
+    }
+
+    /** Mutable working copy of one chunk column, retaining the immutable base palette for CAS. */
+    private static final class ColumnModel {
+        final int minY;
+        final int sectionCount;
+        final int[] basePalette;
+        final int[] workPalette;
+
+        ColumnModel(ChunkColumnState col) {
+            this.minY = col.minY();
+            this.sectionCount = col.sectionCount();
+            this.basePalette = col.paletteStateIdsPerSection();
+            this.workPalette = this.basePalette.clone();
+        }
+    }
+}

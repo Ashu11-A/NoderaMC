@@ -15,12 +15,16 @@ build/
 # OS
 .DS_Store
 
-# Nodera runtime artifacts
-nodera/
-divergences/
-world-store/
+# Nodera runtime artifacts (anchored to repo root — an unanchored `nodera/` would also
+# match the `dev/nodera/` source package in every module and silently hide new source files).
+/nodera/
+/divergences/
+/world-store/
 
 # Third-party architecture-study clones (local reference only; not part of NoderaMC).
 # Our own analysis lives in docs/Context/*.md and docs/Context/docs/** — those ARE committed.
 docs/Context/MultiPaper/
 docs/Context/folia/
+
+# jqwik property-test database (runtime artifact)
+.jqwik-database
