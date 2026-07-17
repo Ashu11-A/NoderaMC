@@ -153,6 +153,23 @@ public final class ChunkedStreams {
             c.payload().copyInto(compressed, off);
             off += c.payload().length();
         }
+        // Bound the decompression output buffer before allocating. originalLength is
+        // attacker-controlled (carried in a SnapshotAnnounce), and a zstd ratio bound is useless
+        // (zstd's ratio is unbounded for repetitive input), so we clamp against an absolute cap
+        // FIRST — the attacker-declared value can never exceed the cap. Then cross-check against
+        // the size the sender embedded in the zstd frame header (also attacker-forgeable, hence
+        // the cap first): a disagreement means a malformed/forged frame.
+        if (originalLength > NoderaConstants.MAX_STREAM_PAYLOAD) {
+            throw new IllegalArgumentException(
+                    "originalLength " + originalLength + " exceeds MAX_STREAM_PAYLOAD "
+                            + NoderaConstants.MAX_STREAM_PAYLOAD);
+        }
+        long frameSize = Zstd.getFrameContentSize(compressed);
+        if (frameSize > 0 && frameSize != originalLength) {
+            throw new IllegalArgumentException(
+                    "declared originalLength " + originalLength
+                            + " disagrees with zstd frame content size " + frameSize);
+        }
         return Zstd.decompress(compressed, originalLength);
     }
 }

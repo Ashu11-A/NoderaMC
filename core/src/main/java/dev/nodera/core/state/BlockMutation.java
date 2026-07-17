@@ -54,7 +54,7 @@ public record BlockMutation(
         if (tag != TypeTags.BLOCK_MUTATION) {
             throw new IllegalStateException("expected BLOCK_MUTATION tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         NBlockPos pos = NBlockPos.decode(r);
         int expectedPreviousStateId = (int) r.readU32();
         int newStateId = (int) r.readU32();

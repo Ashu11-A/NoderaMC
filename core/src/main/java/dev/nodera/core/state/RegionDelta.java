@@ -89,7 +89,7 @@ public record RegionDelta(
         if (tag != TypeTags.REGION_DELTA) {
             throw new IllegalStateException("expected REGION_DELTA tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         SnapshotVersion baseVersion = SnapshotVersion.decode(r);
         SnapshotVersion resultingVersion = SnapshotVersion.decode(r);

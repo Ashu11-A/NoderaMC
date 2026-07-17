@@ -92,7 +92,7 @@ public record ActionEnvelope(
         if (tag != TypeTags.ACTION_ENVELOPE) {
             throw new IllegalStateException("expected ACTION_ENVELOPE tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         NodeId actor = NodeId.decode(r);
         long playerSeq = r.readU64();
         long serverSeq = r.readU64();

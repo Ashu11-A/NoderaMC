@@ -47,7 +47,7 @@ public record RegionEpoch(long value) implements Encodable, Comparable<RegionEpo
         if (tag != TypeTags.REGION_EPOCH) {
             throw new IllegalStateException("expected REGION_EPOCH tag, got " + tag);
         }
-        r.readU16(); // version
+        r.readVersion(ENCODING_VERSION);
         return new RegionEpoch(r.readU64());
     }
 }

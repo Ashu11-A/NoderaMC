@@ -31,7 +31,7 @@ public sealed interface RegionEvent extends Encodable
      */
     static RegionEvent decodeEvent(CanonicalReader r) {
         int tag = r.readU16();
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         return switch (tag) {
             case TypeTags.BLOCK_CHANGED_EVENT -> BlockChangedEvent.decodeBody(r);
             default -> throw new IllegalStateException("unknown RegionEvent tag " + tag);

@@ -111,9 +111,13 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
      * //      group the ACCEPT votes by resultingRoot;
      * //      rootsWithQuorum = roots whose group size >= required;
      * //      if exactly one such root -> build QuorumCertificate from that group -> Commit;
-     * //      else (0: no root reached quorum despite >= required total accepts,
-     * //            i.e. disagreement; >1: impossible under strict majority, equivocation)
-     * //         -> Reject(NOT_ENOUGH_ACCEPT).
+     * //      else if >1 such root -> Reject(NOT_ENOUGH_ACCEPT)  // impossible under strict
+     * //                                                    majority => equivocation.
+     * //      else (0 such root: accepts split across roots, none at threshold):
+     * //          outstanding = committeeSize - acceptCount - rejectCount;
+     * //          if (largestGroup + outstanding >= required) -> Unresolved  // a root can still
+     * //                                                                reach threshold (liveness);
+     * //          else -> Reject(NOT_ENOUGH_ACCEPT)  // no root can ever reach threshold.
      * // 4. else if QuorumPolicyEvaluator.canEverCommit(...) is false -> Reject(NOT_ENOUGH_ACCEPT).
      * // 5. else -> Unresolved(key, acceptCount, required).
      * }</pre>
@@ -180,6 +184,25 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
                         committedRoot,
                         committedVotes);
                 return new Decision.Commit(cert);
+            }
+            if (rootsWithQuorum > 1) {
+                // Two distinct roots each reaching `required` is impossible under a strict
+                // majority (would need 2·required > committeeSize votes) — it implies
+                // equivocation. Reject defensively regardless.
+                return new Decision.Reject(key, Decision.Reject.RejectReason.NOT_ENOUGH_ACCEPT);
+            }
+            // rootsWithQuorum == 0: ACCEPT votes are split across roots and none has reached the
+            // threshold yet. This is NOT automatically fatal — a root can still reach `required`
+            // if outstanding (not-yet-voted) seats join its group. Only Reject when no root can
+            // possibly get there; otherwise stay Unresolved (liveness). Returning Reject here
+            // would prematurely abandon a proposal that a late vote could have committed.
+            int maxGroup = 0;
+            for (List<SignedVote> group : byRoot.values()) {
+                maxGroup = Math.max(maxGroup, group.size());
+            }
+            int outstanding = committeeSize - acceptCount - rejectCount;
+            if ((long) maxGroup + outstanding >= required) {
+                return new Decision.Unresolved(key, acceptCount, required);
             }
             return new Decision.Reject(key, Decision.Reject.RejectReason.NOT_ENOUGH_ACCEPT);
         }

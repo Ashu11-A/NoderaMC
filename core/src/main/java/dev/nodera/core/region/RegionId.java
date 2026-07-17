@@ -33,11 +33,16 @@ public record RegionId(DimensionKey dimension, int regionX, int regionZ) impleme
                 Math.floorDiv(chunkZ, NoderaConstants.REGION_SIZE_CHUNKS));
     }
 
-    /** The chunk X of the region's origin (min chunk in the region) — uses floorMod for negatives. */
+    /**
+     * The chunk X of the region's origin (min chunk in the region). {@code regionX} is already the
+     * floor-divided region index, so the origin is a plain multiplication (correct for negatives:
+     * region −1 → origin chunk −8).
+     */
     public int originChunkX() {
         return regionX * NoderaConstants.REGION_SIZE_CHUNKS;
     }
 
+    /** The chunk Z of the region's origin — see {@link #originChunkX()}. */
     public int originChunkZ() {
         return regionZ * NoderaConstants.REGION_SIZE_CHUNKS;
     }
@@ -69,7 +74,7 @@ public record RegionId(DimensionKey dimension, int regionX, int regionZ) impleme
         if (tag != TypeTags.REGION_ID) {
             throw new IllegalStateException("expected REGION_ID tag, got " + tag);
         }
-        r.readU16(); // version
+        r.readVersion(ENCODING_VERSION);
         DimensionKey dim = DimensionKey.decode(r);
         int rx = (int) r.readU32();
         int rz = (int) r.readU32();

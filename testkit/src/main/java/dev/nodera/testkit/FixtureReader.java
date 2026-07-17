@@ -51,6 +51,11 @@ public final class FixtureReader {
         StateRoot expectedRoot = StateRoot.decode(r);
         StateRoot gotRoot = StateRoot.decode(r);
         NodeId client = NodeId.decode(r);
+        int trailing = r.available();
+        if (trailing != 0) {
+            throw new IllegalStateException(
+                    "fixture has " + trailing + " unconsumed trailing byte(s) — corrupt or partial");
+        }
         return new Fixture(snapshot, batch, expectedRoot, gotRoot, client);
     }
 

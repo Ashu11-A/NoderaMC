@@ -42,7 +42,7 @@ public record NBlockPos(int x, int y, int z) implements Encodable, Comparable<NB
         if (tag != TypeTags.N_BLOCK_POS) {
             throw new IllegalStateException("expected N_BLOCK_POS tag, got " + tag);
         }
-        r.readU16(); // version
+        r.readVersion(ENCODING_VERSION);
         int x = (int) r.readU32();
         int y = (int) r.readU32();
         int z = (int) r.readU32();

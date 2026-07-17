@@ -33,7 +33,7 @@
 | Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | ⬜ `0%` |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `185 passing · 0 failing · 7 skipped` (skipped = `simulation/ForbiddenApiTest`; see Tested.md).
+**Tests:** `199 passing · 0 failing · 0 skipped` (ArchUnit determinism rules re-enabled; see Tested.md).
 
 ---
 
@@ -44,10 +44,10 @@
 
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
-| `core` | domain types, crypto, canonical encoding (frozen wire/hash contract) | 85 | ✅ |
+| `core` | domain types, crypto, canonical encoding (frozen wire/hash contract) | 92 | ✅ |
 | `simulation` | deterministic region engine (the determinism bet) | 28 | ✅ |
-| `protocol` | wire messages, MessageCodec, zstd chunked streams | 23 | ✅ |
-| `consensus` | quorum, votes, equivocation, adaptive spot-checks | 23 | ✅ |
+| `protocol` | wire messages, MessageCodec, zstd chunked streams | 27 | ✅ |
+| `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | ✅ |
 | `transport-api` | `PeerTransport` seam | 9 | ✅ |
 | `storage-api` | `WorldStore`/content/checkpoint interfaces (stub) | 1 | 🚧 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |

@@ -191,6 +191,14 @@ public final class LoopbackTransport implements PeerTransport {
     public void send(PeerAddress to, byte[] frame) {
         Objects.requireNonNull(to, "to");
         Objects.requireNonNull(frame, "frame");
+        // Guard the SENDER's own lifecycle, not just the destination's: a stopped transport must
+        // not be able to originate frames (it has deregistered and may be mid-teardown). This
+        // mirrors the deliver()-side check and the real-transport contract for a disconnected peer.
+        synchronized (lifecycleLock) {
+            if (executor == null) {
+                throw new TransportException("transport not started: " + self);
+            }
+        }
         NodeId target = to.nodeId();
         if (target == null) {
             throw new TransportException(

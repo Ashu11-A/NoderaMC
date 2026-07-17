@@ -41,7 +41,7 @@ public record SnapshotVersion(long value) implements Encodable, Comparable<Snaps
         if (tag != TypeTags.SNAPSHOT_VERSION) {
             throw new IllegalStateException("expected SNAPSHOT_VERSION tag, got " + tag);
         }
-        r.readU16(); // version
+        r.readVersion(ENCODING_VERSION);
         return new SnapshotVersion(r.readU64());
     }
 }

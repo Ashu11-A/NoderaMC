@@ -54,7 +54,7 @@ public record BlockChangedEvent(
         if (tag != TypeTags.BLOCK_CHANGED_EVENT) {
             throw new IllegalStateException("expected BLOCK_CHANGED_EVENT tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         return decodeBody(r);
     }
 

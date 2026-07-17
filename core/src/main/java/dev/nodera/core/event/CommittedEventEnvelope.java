@@ -95,7 +95,7 @@ public record CommittedEventEnvelope(
         if (tag != TypeTags.COMMITTED_EVENT_ENV) {
             throw new IllegalStateException("expected COMMITTED_EVENT_ENV tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);

@@ -61,7 +61,7 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
         if (tag != TypeTags.PLACE_BLOCK_ACTION) {
             throw new IllegalStateException("expected PLACE_BLOCK_ACTION tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         return decodeBody(r);
     }
 

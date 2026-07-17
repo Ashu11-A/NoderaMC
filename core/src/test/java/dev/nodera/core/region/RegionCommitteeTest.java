@@ -79,6 +79,22 @@ final class RegionCommitteeTest {
     }
 
     @Test
+    void swappedValidatorOrderIsEqualAndSameHash() {
+        // The validators list is canonically sorted in the compact constructor, so record
+        // equals/hashCode agree with the canonical wire identity: two committees that differ only
+        // in validator input order must be equal (they encode to identical bytes above).
+        RegionCommittee a = new RegionCommittee(
+                new RegionId(DimensionKey.overworld(), 0, 0), RegionEpoch.INITIAL,
+                primary, List.of(v1, v2), 2);
+        RegionCommittee b = new RegionCommittee(
+                new RegionId(DimensionKey.overworld(), 0, 0), RegionEpoch.INITIAL,
+                primary, List.of(v2, v1), 2);
+        assertThat(a).isEqualTo(b);
+        assertThat(a.hashCode()).isEqualTo(b.hashCode());
+        assertThat(a.validators()).containsExactly(v1, v2); // canonical (UUID-sorted) order
+    }
+
+    @Test
     void roundTripStability() {
         RegionCommittee c = sample();
         CanonicalWriter w1 = new CanonicalWriter();

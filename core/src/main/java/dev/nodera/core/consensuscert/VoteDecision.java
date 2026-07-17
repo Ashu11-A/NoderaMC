@@ -44,7 +44,7 @@ public enum VoteDecision implements Encodable {
         if (tag != TypeTags.VOTE_DECISION) {
             throw new IllegalStateException("expected VOTE_DECISION tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         int ord = r.readU8();
         VoteDecision[] values = values();
         if (ord < 0 || ord >= values.length) {

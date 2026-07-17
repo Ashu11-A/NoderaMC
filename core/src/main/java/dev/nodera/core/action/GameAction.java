@@ -31,7 +31,7 @@ public sealed interface GameAction extends Encodable
      */
     static GameAction decode(CanonicalReader r) {
         int tag = r.readU16();
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         return switch (tag) {
             case TypeTags.PLACE_BLOCK_ACTION -> PlaceBlockAction.decodeBody(r);
             case TypeTags.BREAK_BLOCK_ACTION -> BreakBlockAction.decodeBody(r);
