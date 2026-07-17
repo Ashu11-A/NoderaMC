@@ -28,3 +28,9 @@ docs/Context/folia/
 
 # jqwik property-test database (runtime artifact)
 .jqwik-database
+
+# Local API-token / env files — MUST never be committed (contain ANTHROPIC_AUTH_TOKEN etc.)
+claude_code_zai_env.sh
+/a
+*.env
+.env
