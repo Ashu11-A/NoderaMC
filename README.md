@@ -185,6 +185,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 15 | Deterministic entity simulation (mob AI, projectiles) | 7 | `#15` | ⬜ |
 | 16 | Player lane & trustless closure (BFT, mod SDK) | 8 | `#16` | ⬜ |
 | 17 | **Debugger tool**: P2P comms + event/block/redstone harness, real server-instance emulation, live debug, coverage reports, log files | 0–8 | `#17` | ⬜ |
+| 18 | **In-game observability & diagnostics HUD**: tab list, boss bars, zone alerts, redesigned command tree + telemetry model | 0–8 | `#18` | 📋 (planned — `docs/Task.18.md`) |
 
 Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.16.md`](docs/Task.16.md).
 

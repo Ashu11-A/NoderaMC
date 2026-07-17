@@ -72,6 +72,7 @@ observable in normal play.
 | L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T5/T9 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | OPEN |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | OPEN |
 | L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
+| L-31 | In-game diagnostics HUD ships session + net panels live; the region-ownership and entity-control panels/boss-bars render `UNASSIGNED` placeholders (zone geometry is real, ownership is not) | T18 | With a committee (T6) / entity lane (T12) active, `/nodera regions` shows `ownedChunks > 0` and the zone boss-bar turns GREEN inside an owned region; placeholder path deleted | OPEN |
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

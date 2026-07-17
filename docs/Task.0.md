@@ -25,6 +25,8 @@ other task. When a later task contradicts this file, fix the later task.
 | 14 | Environment lane: random ticks, fluids, fire, gravity, lighting, observer/QC | 7 | 11, 12, 13 |
 | 15 | Deterministic entity simulation: mob AI, spawning, projectiles, ghost retirement | 7 | 12, 14 |
 | 16 | Player lane & trustless closure: movement, inventory, combat, portals, worldgen, seamless view, BFT, mod SDK | 8 | 10, 15 |
+| 17 | Debugger tool: headless P2P harness, real server-instance emulation, live debug, coverage, logs | 0–8 (cross-cutting) | grows per lane |
+| 18 | In-game observability & diagnostics HUD: tab list, boss bars, redesigned command tree, telemetry model | 0–8 (cross-cutting) | `peer-runtime` (hard); 6, 12 (soft) |
 
 ```
 1 ──► 2 ──► 3 ──┐
@@ -40,6 +42,11 @@ Tasks 11–13 close the gaps found in the 2026-07-17 review: world-interference 
 and mod compatibility (11 — **required before Task 8 runs on non-flat worlds**), the
 entity/mob lane (12), and validated redstone with contraption ownership migration (13).
 Task 7's MVP gate does not require them (flat world, no mobs, no redstone).
+
+Tasks 17–18 are cross-cutting standing tasks (not in the linear dependency graph): 17 is the
+headless integration debugger; 18 is its player-facing counterpart — the in-game observability &
+diagnostics HUD (tab list, boss bars, redesigned command tree, one telemetry model). Spec:
+[`docs/Task.18.md`](Task.18.md).
 
 Tasks 14–16 are the parity program (Plan Phases 7–8): they burn `LIMITATIONS.md` §B down
 to empty — full vanilla parity under validation, no permanent exclusions.
