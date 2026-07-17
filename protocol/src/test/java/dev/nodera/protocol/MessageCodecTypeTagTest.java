@@ -9,6 +9,13 @@ import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.WorkerActivation;
 import dev.nodera.protocol.health.Heartbeat;
 import dev.nodera.protocol.health.WorkerLoad;
+import dev.nodera.protocol.membership.GatewayClaim;
+import dev.nodera.protocol.membership.MembershipUpdate;
+import dev.nodera.protocol.membership.PeerEntry;
+import dev.nodera.protocol.membership.PeerGoodbye;
+import dev.nodera.protocol.membership.PeerJoin;
+import dev.nodera.protocol.membership.SessionKeepAlive;
+import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.ResyncRequest;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
@@ -54,7 +61,12 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_WORKER_LOAD).isEqualTo(16);
         assertThat(MessageCodec.TAG_ECHO_TEST).isEqualTo(17);
         assertThat(MessageCodec.TAG_RELAY_ENVELOPE).isEqualTo(18);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(18);
+        assertThat(MessageCodec.TAG_PEER_JOIN).isEqualTo(19);
+        assertThat(MessageCodec.TAG_MEMBERSHIP_UPDATE).isEqualTo(20);
+        assertThat(MessageCodec.TAG_PEER_GOODBYE).isEqualTo(21);
+        assertThat(MessageCodec.TAG_GATEWAY_CLAIM).isEqualTo(22);
+        assertThat(MessageCodec.TAG_SESSION_KEEP_ALIVE).isEqualTo(23);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(23);
     }
 
     @Test
@@ -71,6 +83,11 @@ final class MessageCodecTypeTagTest {
         expected.put(StreamChunk.class, MessageCodec.TAG_STREAM_CHUNK);
         expected.put(RelayEnvelope.class, MessageCodec.TAG_RELAY_ENVELOPE);
         expected.put(EchoTest.class, MessageCodec.TAG_ECHO_TEST);
+        expected.put(PeerJoin.class, MessageCodec.TAG_PEER_JOIN);
+        expected.put(MembershipUpdate.class, MessageCodec.TAG_MEMBERSHIP_UPDATE);
+        expected.put(PeerGoodbye.class, MessageCodec.TAG_PEER_GOODBYE);
+        expected.put(GatewayClaim.class, MessageCodec.TAG_GATEWAY_CLAIM);
+        expected.put(SessionKeepAlive.class, MessageCodec.TAG_SESSION_KEEP_ALIVE);
 
         for (Map.Entry<Class<?>, Integer> e : expected.entrySet()) {
             assertThat(MessageCodec.typeTagOf(sampleOf(e.getKey())))
@@ -93,6 +110,11 @@ final class MessageCodecTypeTagTest {
                 StreamChunk.class,
                 RelayEnvelope.class,
                 EchoTest.class,
+                PeerJoin.class,
+                MembershipUpdate.class,
+                PeerGoodbye.class,
+                GatewayClaim.class,
+                SessionKeepAlive.class,
         };
         for (Class<?> cls : classes) {
             NoderaMessage original = sampleOf(cls);
@@ -124,6 +146,11 @@ final class MessageCodecTypeTagTest {
                 MessageCodec.TAG_WORKER_LOAD,
                 MessageCodec.TAG_ECHO_TEST,
                 MessageCodec.TAG_RELAY_ENVELOPE,
+                MessageCodec.TAG_PEER_JOIN,
+                MessageCodec.TAG_MEMBERSHIP_UPDATE,
+                MessageCodec.TAG_PEER_GOODBYE,
+                MessageCodec.TAG_GATEWAY_CLAIM,
+                MessageCodec.TAG_SESSION_KEEP_ALIVE,
         };
         long distinct = java.util.Arrays.stream(tags).distinct().count();
         assertThat(distinct).isEqualTo(tags.length);
@@ -178,6 +205,22 @@ final class MessageCodecTypeTagTest {
         }
         if (cls == EchoTest.class) {
             return new EchoTest(Bytes.fromHex("deadbeef"));
+        }
+        if (cls == PeerJoin.class) {
+            return new PeerJoin(nodeId, "127.0.0.1:25566", NodeCapabilities.initial(), true);
+        }
+        if (cls == MembershipUpdate.class) {
+            return new MembershipUpdate(3L, nodeId, java.util.List.of(
+                    new PeerEntry(nodeId, "127.0.0.1:25566", NodeCapabilities.initial(), true)));
+        }
+        if (cls == PeerGoodbye.class) {
+            return new PeerGoodbye(nodeId, 4L, "transport-down");
+        }
+        if (cls == GatewayClaim.class) {
+            return new GatewayClaim(nodeId, 5L);
+        }
+        if (cls == SessionKeepAlive.class) {
+            return new SessionKeepAlive(nodeId, 9L);
         }
         throw new IllegalArgumentException("no sample for " + cls);
     }

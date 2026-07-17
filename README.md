@@ -19,21 +19,29 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `13%`**
+**Overall system completion: `18%`**
 `████░░░░░░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
-| Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit + NeoForge mod skeleton | 🚧 `92%` (mod compiles + jar; `runServer`/`runClient` acceptance deferred to a GUI env) |
+| Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit + NeoForge mod skeleton | 🚧 `97%` (mod now wires a live bootstrap peer + `/nodera` cmd + session payload; `runServer`/`runClient` acceptance deferred to a GUI env) |
 | Phase 1 — Shadow validation | capture mixins, worker runtime, divergence report | ⬜ `0%` |
 | Phase 2 — Coordinator | leases, epochs, client proposal + server verify | ⬜ `0%` |
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | ⬜ `0%` |
 | Phase 4 — Server fallback only | cross-region router, soak metrics | ⬜ `0%` |
-| Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | ⬜ `0%` |
-| Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | ⬜ `0%` |
+| Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | 🚧 `15%` (`peer-runtime` membership + heartbeat + gateway migration shipped; event-sourced storage pending) |
+| Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | 🚧 `25%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. NAT/libp2p, archival repair, multi-bootstrap pending) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `199 passing · 0 failing · 0 skipped` (ArchUnit determinism rules re-enabled; see Tested.md).
+**Tests:** `211 passing · 0 failing · 0 skipped` (adds the P2P continuity beta: real-socket transport, deterministic gateway election, base-peer-disconnection IT; see Tested.md).
+
+> **P2P session-continuity beta** (this milestone): two players connect to a NeoForge dedicated
+> server acting as a **bootstrap peer**; the mod forms a direct peer mesh over
+> `transport-socket`, and when the bootstrap server goes offline the survivors run a **deterministic
+> gateway election** and stay connected to each other. The engine is proven headlessly over real TCP
+> by `peer-runtime`'s `SessionContinuityIT` (the Nodera debugger's `base-peer-disconnection`
+> scenario). The mod compiles and assembles a jar wiring this runtime; `runServer`/`runClient`
+> acceptance remains GUI-deferred, consistent with Phase 0.
 
 ---
 
@@ -49,14 +57,15 @@
 | `protocol` | wire messages, MessageCodec, zstd chunked streams | 27 | ✅ |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | ✅ |
 | `transport-api` | `PeerTransport` seam | 9 | ✅ |
+| `transport-socket` | real TCP `PeerTransport` — direct P2P data plane (Phase 6) | 4 | ✅ |
 | `storage-api` | `WorldStore`/content/checkpoint interfaces (stub) | 1 | 🚧 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
+| `peer-runtime` | `PeerRuntime`, membership/gossip, heartbeat, deterministic gateway migration (continuity beta) | 8 | 🚧 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints (common/dedicated/client) | 1 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, `/nodera` cmd, session payload | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
 | `storage-client` | bounded/quota'd client store | — | ⬜ |
-| `peer-runtime` | `PeerRuntime`, discovery, committees, archival, sync | — | ⬜ |
-| `transport-libp2p` | direct P2P behind `PeerTransport` | — | ⬜ |
+| `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` cross-NAT) | — | ⬜ |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ---
@@ -90,9 +99,11 @@ nodera/
 ├── simulation/          DeterministicRegionEngine, FlatWorldRules, DeterministicRandom
 ├── consensus/           QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
 ├── transport-api/       PeerTransport seam
+├── transport-socket/    real TCP PeerTransport — direct P2P data plane (Phase 6 continuity beta)
 ├── storage-api/         WorldStore interfaces
 ├── testkit/             LoopbackTransport, FakeRegion, FixtureWriter/Reader
-├── neoforge-mod/        (Task 1) @Mod entrypoints — onboarded, compiles + jar; runServer/runClient deferred
+├── peer-runtime/        PeerRuntime, membership/gossip, heartbeat, deterministic gateway migration
+├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, /nodera cmd; runServer/runClient deferred
 ├── transport-neoforge/  (Task 4) payload relay skeleton — onboarded (ModDevGradle), relay impl deferred
 └── docs/                Plan.md, LIMITATIONS.md, Task.0..16.md, Context/
 ```
@@ -165,8 +176,8 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 6 | Coordinator (leases, epochs, client proposal) | 2 | `#6` | ⬜ |
 | 7 | Committee validation — **MVP gate** | 3 | `#7` | ⬜ |
 | 8 | Server-fallback-only + cross-region router | 4 | `#8` | ⬜ |
-| 9 | Peer-runtime + event-sourced storage | 5 | `#9` | ⬜ |
-| 10 | Gateway migration, P2P, archival repair | 6 | `#10` | ⬜ |
+| 9 | Peer-runtime + event-sourced storage | 5 | `#9` | 🚧 (`peer-runtime` membership + gateway migration; storage pending) |
+| 10 | Gateway migration, P2P, archival repair | 6 | `#10` | 🚧 (`transport-socket` direct P2P + deterministic gateway migration; libp2p/NAT + archival repair pending) |
 | 11 | World-interference control, chunk lifecycle, mod compat | 2–4 | `#11` | ⬜ |
 | 12 | Entity & mob lane (ghosts, cross-region transfer) | 5+ | `#12` | ⬜ |
 | 13 | Validated redstone + contraption migration | 5+ | `#13` | ⬜ |

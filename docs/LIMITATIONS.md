@@ -68,6 +68,10 @@ observable in normal play.
 | L-24 | `mobCapture` ghost lane default-off until proven | T15 | Flips default per-species as validation ships | OPEN |
 | L-25 | Async world writes by other mods undefined under the guard | T16 | RuleSet SDK provides the legal async mutation API; guard rejects the rest with a documented error | OPEN |
 | L-26 | Redstone bounded to palette v2 | T13→T14→T16 | v2 (T13) → +observer/QC/daylight (T14) → +comparator/hopper/note (T16): full redstone parity | OPEN |
+| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T10 | `transport-libp2p` behind the same `PeerTransport` seam adds hole-punching + relay; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | OPEN |
+| L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T5/T9 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | OPEN |
+| L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | OPEN |
+| L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

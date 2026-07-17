@@ -36,6 +36,18 @@ public final class NoderaConfig {
     public static final ModConfigSpec.IntValue CLIENT_MAX_REPLICA =
             CLIENT_BUILDER.defineInRange("worker.maxReplica", 4, 0, 64);
 
+    // P2P direct-transport endpoint (Phase 6 continuity). The dedicated server listens here as a
+    // bootstrap peer; clients dial the advertised route and keep a direct mesh that outlives the
+    // server. Advertise host "auto" picks the best local site-local IPv4.
+    public static final ModConfigSpec.ConfigValue<String> P2P_BIND_HOST =
+            SERVER_BUILDER.define("p2p.bindHost", "0.0.0.0");
+    public static final ModConfigSpec.IntValue P2P_PORT =
+            SERVER_BUILDER.defineInRange("p2p.port", 25566, 1, 65535);
+    public static final ModConfigSpec.ConfigValue<String> P2P_ADVERTISE_HOST =
+            SERVER_BUILDER.define("p2p.advertiseHost", "auto");
+    public static final ModConfigSpec.ConfigValue<String> CLIENT_P2P_ADVERTISE_HOST =
+            CLIENT_BUILDER.define("p2p.advertiseHost", "auto");
+
     private static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
     private static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();
 

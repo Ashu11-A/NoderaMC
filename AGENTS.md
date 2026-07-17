@@ -19,6 +19,12 @@
 
 ## Layering (Task 0 §4)
 - `core` → JDK only. `simulation`/`protocol`/`consensus`/`transport-api`/`storage-api` → `core`.
+- `transport-socket` (real TCP `PeerTransport`) → `core` + `transport-api` (+ `protocol` for chunking).
+- `peer-runtime` (membership, heartbeat, deterministic gateway migration) → `core` + `transport-api`
+  + `protocol`. It depends only on the transport SEAM, never a concrete transport, so it runs over
+  both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
+  `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). Both are
+  Minecraft-free pure-Java modules.
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
@@ -65,7 +71,10 @@ A standing task (`#17`) owns the **Nodera debugger**: an integration harness tha
 instances over `LoopbackTransport`, drives P2P scenarios for every implemented lane (block-break
 validation, redstone, entities, …), does real-time execution debugging, counts passing tests, and
 emits debug logs + coverage reports — driving toward 100% coverage. Each lane task (5–16) adds
-scenarios to it.
+scenarios to it. First landed scenario: `peer-runtime/SessionContinuityIT` — three real-TCP peer
+runtimes (bootstrap + two players); kill the bootstrap; assert the players detect it, re-elect the
+same successor gateway deterministically, and keep exchanging keep-alives over their direct socket
+(the `base-peer-disconnection` continuity scenario).
 
 ## Base orientation prompt
 [`docs/Prompt.base.md`](docs/Prompt.base.md) is a paste-in base prompt: the ordered list of files

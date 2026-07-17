@@ -16,6 +16,12 @@ import dev.nodera.protocol.handshake.ServerHello;
 import dev.nodera.protocol.handshake.WorkerActivation;
 import dev.nodera.protocol.health.Heartbeat;
 import dev.nodera.protocol.health.WorkerLoad;
+import dev.nodera.protocol.membership.GatewayClaim;
+import dev.nodera.protocol.membership.MembershipUpdate;
+import dev.nodera.protocol.membership.PeerEntry;
+import dev.nodera.protocol.membership.PeerGoodbye;
+import dev.nodera.protocol.membership.PeerJoin;
+import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.RegionProposal;
@@ -73,6 +79,11 @@ import java.util.UUID;
  *  16   WorkerLoad
  *  17   EchoTest
  *  18   RelayEnvelope
+ *  19   PeerJoin
+ *  20   MembershipUpdate
+ *  21   PeerGoodbye
+ *  22   GatewayClaim
+ *  23   SessionKeepAlive
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -103,9 +114,14 @@ public final class MessageCodec {
     /** {@link WorkerLoad} tag. */ public static final int TAG_WORKER_LOAD         = 16;
     /** {@link EchoTest} tag. */ public static final int TAG_ECHO_TEST            = 17;
     /** {@link RelayEnvelope} tag. */ public static final int TAG_RELAY_ENVELOPE  = 18;
+    /** {@link PeerJoin} tag. */ public static final int TAG_PEER_JOIN            = 19;
+    /** {@link MembershipUpdate} tag. */ public static final int TAG_MEMBERSHIP_UPDATE = 20;
+    /** {@link PeerGoodbye} tag. */ public static final int TAG_PEER_GOODBYE       = 21;
+    /** {@link GatewayClaim} tag. */ public static final int TAG_GATEWAY_CLAIM     = 22;
+    /** {@link SessionKeepAlive} tag. */ public static final int TAG_SESSION_KEEP_ALIVE = 23;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 18;
+    public static final int NEXT_TAG = 23;
 
     /**
      * Canonical-encode {@code msg} into a fresh, caller-owned {@code byte[]}.
@@ -202,6 +218,11 @@ public final class MessageCodec {
         if (msg instanceof WorkerLoad) return TAG_WORKER_LOAD;
         if (msg instanceof EchoTest) return TAG_ECHO_TEST;
         if (msg instanceof RelayEnvelope) return TAG_RELAY_ENVELOPE;
+        if (msg instanceof PeerJoin) return TAG_PEER_JOIN;
+        if (msg instanceof MembershipUpdate) return TAG_MEMBERSHIP_UPDATE;
+        if (msg instanceof PeerGoodbye) return TAG_PEER_GOODBYE;
+        if (msg instanceof GatewayClaim) return TAG_GATEWAY_CLAIM;
+        if (msg instanceof SessionKeepAlive) return TAG_SESSION_KEEP_ALIVE;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -325,6 +346,35 @@ public final class MessageCodec {
                 m.target().encode(w);
                 w.writeBytes(m.innerFrame());
             }
+            case PeerJoin m -> {
+                w.writeU16(TAG_PEER_JOIN).writeU16(ENCODING_VERSION);
+                m.joiner().encode(w);
+                w.writeString(m.listenRoute());
+                m.capabilities().encode(w);
+                w.writeBoolean(m.bootstrap());
+            }
+            case MembershipUpdate m -> {
+                w.writeU16(TAG_MEMBERSHIP_UPDATE).writeU16(ENCODING_VERSION);
+                w.writeU64(m.epoch());
+                m.gatewayId().encode(w);
+                w.writeList(m.members(), MessageCodec::writePeerEntry);
+            }
+            case PeerGoodbye m -> {
+                w.writeU16(TAG_PEER_GOODBYE).writeU16(ENCODING_VERSION);
+                m.who().encode(w);
+                w.writeU64(m.epoch());
+                w.writeString(m.reason());
+            }
+            case GatewayClaim m -> {
+                w.writeU16(TAG_GATEWAY_CLAIM).writeU16(ENCODING_VERSION);
+                m.gatewayId().encode(w);
+                w.writeU64(m.epoch());
+            }
+            case SessionKeepAlive m -> {
+                w.writeU16(TAG_SESSION_KEEP_ALIVE).writeU16(ENCODING_VERSION);
+                m.from().encode(w);
+                w.writeU64(m.seq());
+            }
             default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
         }
     }
@@ -339,6 +389,29 @@ public final class MessageCodec {
         w.writeU32(Integer.toUnsignedLong(load.queueDepth()));
         w.writeU64(load.memBytes());
         w.writeU64(load.execNanos());
+    }
+
+    /**
+     * Write a {@link PeerEntry} body inline (used inside {@link MembershipUpdate}'s member list).
+     * Layout: {@code nodeId + route(string) + capabilities + bootstrap(bool)}. Kept as a private
+     * helper — like {@link #encodeWorkerLoadBody} — so {@link PeerEntry} does not need its own
+     * type tag; its bytes are only ever nested inside a tagged membership message.
+     */
+    private static void writePeerEntry(CanonicalWriter w, PeerEntry e) {
+        e.nodeId().encode(w);
+        w.writeString(e.route());
+        e.capabilities().encode(w);
+        w.writeBoolean(e.bootstrap());
+    }
+
+    /** Inverse of {@link #writePeerEntry}. */
+    private static PeerEntry readPeerEntry(CanonicalReader r) {
+        dev.nodera.core.identity.NodeId nodeId = dev.nodera.core.identity.NodeId.decode(r);
+        String route = r.readString();
+        dev.nodera.core.identity.NodeCapabilities capabilities =
+                dev.nodera.core.identity.NodeCapabilities.decode(r);
+        boolean bootstrap = r.readBoolean();
+        return new PeerEntry(nodeId, route, capabilities, bootstrap);
     }
 
     private static void writeUuid(CanonicalWriter w, UUID uuid) {
@@ -477,6 +550,36 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeId target = dev.nodera.core.identity.NodeId.decode(r);
                 Bytes innerFrame = r.readBytesValue();
                 yield new RelayEnvelope(target, innerFrame);
+            }
+            case TAG_PEER_JOIN -> {
+                dev.nodera.core.identity.NodeId joiner = dev.nodera.core.identity.NodeId.decode(r);
+                String listenRoute = r.readString();
+                dev.nodera.core.identity.NodeCapabilities capabilities =
+                        dev.nodera.core.identity.NodeCapabilities.decode(r);
+                boolean bootstrap = r.readBoolean();
+                yield new PeerJoin(joiner, listenRoute, capabilities, bootstrap);
+            }
+            case TAG_MEMBERSHIP_UPDATE -> {
+                long epoch = r.readU64();
+                dev.nodera.core.identity.NodeId gatewayId = dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<PeerEntry> members = r.readList(MessageCodec::readPeerEntry);
+                yield new MembershipUpdate(epoch, gatewayId, members);
+            }
+            case TAG_PEER_GOODBYE -> {
+                dev.nodera.core.identity.NodeId who = dev.nodera.core.identity.NodeId.decode(r);
+                long epoch = r.readU64();
+                String reason = r.readString();
+                yield new PeerGoodbye(who, epoch, reason);
+            }
+            case TAG_GATEWAY_CLAIM -> {
+                dev.nodera.core.identity.NodeId gatewayId = dev.nodera.core.identity.NodeId.decode(r);
+                long epoch = r.readU64();
+                yield new GatewayClaim(gatewayId, epoch);
+            }
+            case TAG_SESSION_KEEP_ALIVE -> {
+                dev.nodera.core.identity.NodeId from = dev.nodera.core.identity.NodeId.decode(r);
+                long seq = r.readU64();
+                yield new SessionKeepAlive(from, seq);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };
