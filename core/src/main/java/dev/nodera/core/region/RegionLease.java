@@ -18,10 +18,11 @@ import java.util.List;
  * {@code dev.nodera.core.NoderaConstants#LEASE_RENEW_TICKS} before expiry. A stale-epoch lease is
  * rejected by the consensus machinery (Invariant 9).
  *
- * <p>The {@code validators} list is defensively copied into an unmodifiable list and rejects
- * {@code null} elements. For canonical determinism the list is re-sorted by {@code NodeId.value}
- * (UUID bit-order: MSB then LSB) at encode time — two leases whose validators differ only in
- * input order encode to IDENTICAL bytes.
+ * <p>The {@code validators} list is defensively copied into an unmodifiable list, rejects
+ * {@code null} elements, and is canonically sorted by {@code NodeId.value} (UUID bit-order:
+ * MSB then LSB) at construction — so record {@code equals}/{@code hashCode} agree with the
+ * canonical wire identity, and two leases whose validators differ only in input order are equal
+ * AND encode to IDENTICAL bytes.
  *
  * <p>Thread-context: immutable, any thread.
  */
@@ -53,6 +54,7 @@ public record RegionLease(
             }
             defensive.add(v);
         }
+        defensive.sort(Comparator.comparing(NodeId::value));
         validators = Collections.unmodifiableList(defensive);
     }
 
@@ -90,9 +92,8 @@ public record RegionLease(
         writer.writeEncodable(region);
         writer.writeEncodable(epoch);
         writer.writeEncodable(primary);
-        List<NodeId> sorted = new ArrayList<>(validators);
-        sorted.sort(Comparator.comparing(NodeId::value));
-        writer.writeList(sorted, (ww, n) -> ww.writeEncodable(n));
+        // validators is already canonically sorted in the compact constructor.
+        writer.writeList(validators, (ww, n) -> ww.writeEncodable(n));
         writer.writeU64(validFromTick);
         writer.writeU64(expiresAtTick);
     }

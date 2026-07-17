@@ -65,7 +65,7 @@ public record StateRoot(Bytes hash) implements Encodable {
         if (tag != TypeTags.STATE_ROOT) {
             throw new IllegalStateException("expected STATE_ROOT tag, got " + tag);
         }
-        r.readU16(); // version
+        r.readVersion(ENCODING_VERSION);
         return new StateRoot(r.readBytesValue());
     }
 }

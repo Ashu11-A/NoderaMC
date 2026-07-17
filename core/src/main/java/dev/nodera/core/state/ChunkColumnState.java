@@ -45,6 +45,14 @@ public record ChunkColumnState(
         if (paletteStateIdsPerSection == null) {
             throw new IllegalArgumentException("paletteStateIdsPerSection must not be null");
         }
+        // The palette holds one entry per section (indexed 0..sectionCount-1), so its length must
+        // equal sectionCount — enforce the invariant at construction rather than letting a
+        // mismatched column hash/encode into a silently inconsistent wire form.
+        if (paletteStateIdsPerSection.length != sectionCount) {
+            throw new IllegalArgumentException(
+                    "paletteStateIdsPerSection.length " + paletteStateIdsPerSection.length
+                            + " must equal sectionCount " + sectionCount);
+        }
         paletteStateIdsPerSection = paletteStateIdsPerSection.clone();
     }
 
@@ -89,7 +97,7 @@ public record ChunkColumnState(
         if (tag != TypeTags.CHUNK_COLUMN_STATE) {
             throw new IllegalStateException("expected CHUNK_COLUMN_STATE tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         int chunkX = (int) r.readU32();
         int chunkZ = (int) r.readU32();
         int minY = (int) r.readU32();

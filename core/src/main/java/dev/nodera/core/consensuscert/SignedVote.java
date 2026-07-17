@@ -81,7 +81,7 @@ public record SignedVote(
         if (tag != TypeTags.SIGNED_VOTE) {
             throw new IllegalStateException("expected SIGNED_VOTE tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         NodeId voter = NodeId.decode(r);
         StateRoot resultingRoot = StateRoot.decode(r);
         VoteDecision decision = VoteDecision.decode(r);

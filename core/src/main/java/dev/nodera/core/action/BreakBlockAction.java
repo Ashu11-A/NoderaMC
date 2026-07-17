@@ -47,7 +47,7 @@ public record BreakBlockAction(NBlockPos pos) implements GameAction {
         if (tag != TypeTags.BREAK_BLOCK_ACTION) {
             throw new IllegalStateException("expected BREAK_BLOCK_ACTION tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         return decodeBody(r);
     }
 

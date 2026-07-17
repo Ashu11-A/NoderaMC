@@ -113,13 +113,67 @@ final class MajorityQuorumPolicyTest {
     }
 
     @Test
-    void mvp_conflictingAcceptRootsDoNotCommit() {
+    void mvp_conflictingAcceptRootsUnresolvedWhileQuorumReachable() {
+        // 2-of-3: A->r1, B->r2. acceptCount=2>=required, but split across roots so no group is
+        // at threshold. Outstanding voter C could still give r1 (or r2) a 2-of-3 quorum, so this
+        // must stay UNRESOLVED — not Reject. A premature Reject would abandon a committable
+        // proposal (liveness regression).
         MajorityQuorumPolicy policy = MajorityQuorumPolicy.mvp();
         StateRoot r1 = root(1);
         StateRoot r2 = root(2);
         Decision d = policy.evaluate(KEY, PREV, List.of(
                 accept(voter(1), r1), accept(voter(2), r2)));
-        assertThat(d).isNotInstanceOf(Decision.Commit.class);
+        assertThat(d).isInstanceOf(Decision.Unresolved.class);
+    }
+
+    @Test
+    void mvp_splitAcceptThenLateVoteCommits() {
+        // Same split as above, then C votes ACCEPT(r1): r1 now has 2-of-3 -> Commit.
+        // Guards the liveness fix end-to-end (the late vote must not arrive on a closed collector).
+        MajorityQuorumPolicy policy = MajorityQuorumPolicy.mvp();
+        StateRoot r1 = root(1);
+        StateRoot r2 = root(2);
+        NodeId a = voter(1), b = voter(2), c = voter(3);
+
+        Decision split = policy.evaluate(KEY, PREV, List.of(accept(a, r1), accept(b, r2)));
+        assertThat(split).isInstanceOf(Decision.Unresolved.class);
+
+        Decision resolved = policy.evaluate(KEY, PREV,
+                List.of(accept(a, r1), accept(b, r2), accept(c, r1)));
+        assertThat(resolved).isInstanceOf(Decision.Commit.class);
+        assertThat(((Decision.Commit) resolved).certificate().resultingRoot()).isEqualTo(r1);
+    }
+
+    @Test
+    void mvp_splitAcceptAllVotedThenReject() {
+        // 2-of-3: A->r1, B->r2, C->REJECT. acceptCount=2>=required, outstanding=0, maxGroup=1<2:
+        // no root can ever reach threshold now -> terminal Reject.
+        MajorityQuorumPolicy policy = MajorityQuorumPolicy.mvp();
+        StateRoot r1 = root(1);
+        StateRoot r2 = root(2);
+        Decision d = policy.evaluate(KEY, PREV, List.of(
+                accept(voter(1), r1), accept(voter(2), r2), reject(voter(3))));
+        assertThat(d).isInstanceOf(Decision.Reject.class);
+        assertThat(((Decision.Reject) d).reason())
+                .isEqualTo(Decision.Reject.RejectReason.NOT_ENOUGH_ACCEPT);
+    }
+
+    @Test
+    void peer_splitAcrossRootsUnresolvedThenCommit() {
+        // 3-of-4: A,B->r1, C->r2 (acceptCount=3>=required, maxGroup=2, outstanding=1 -> Unresolved);
+        // then D->r1 gives r1 3-of-4 -> Commit.
+        MajorityQuorumPolicy policy = MajorityQuorumPolicy.peer();
+        StateRoot r1 = root(1);
+        StateRoot r2 = root(2);
+        NodeId a = voter(1), b = voter(2), c = voter(3), d = voter(4);
+
+        Decision split = policy.evaluate(KEY, PREV,
+                List.of(accept(a, r1), accept(b, r1), accept(c, r2)));
+        assertThat(split).isInstanceOf(Decision.Unresolved.class);
+
+        Decision resolved = policy.evaluate(KEY, PREV,
+                List.of(accept(a, r1), accept(b, r1), accept(c, r2), accept(d, r1)));
+        assertThat(resolved).isInstanceOf(Decision.Commit.class);
     }
 
     @Test

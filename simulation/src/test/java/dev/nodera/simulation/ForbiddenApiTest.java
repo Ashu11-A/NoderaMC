@@ -4,7 +4,6 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.lang.ArchRule;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -17,23 +16,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * must be a pure function, so it is forbidden from touching wall clocks, entropy sources, or
  * filesystem/network/sql state. The one allowed source of randomness is {@link DeterministicRandom}.
  *
- * <p><b>Currently {@link Disabled}.</b> ArchUnit 1.3.0's bundled ASM cannot parse JDK 25 class
- * files (version 69), so {@code ClassFileImporter} silently imports zero classes and every rule
- * trips {@code failOnEmptyShould}. The rules are correct and re-enable unchanged once the Task 0
- * Java-21 toolchain pin is restored (the codebase uses only Java 21-era features). Until then the
- * determinism ground rules are enforced by:
- * <ul>
- *   <li>{@link DeterminismPropertyTest} — proves {@code execute} IS a pure function (same inputs
- *       ⇒ identical root + delta bytes across runs);</li>
- *   <li>code review — the engine's only entropy is {@link DeterministicRandom} (JDK-named
- *       {@code "L64X128MixRandom"} seeded from {@link dev.nodera.core.crypto.StableHash}); it never
- *       calls {@code System.currentTimeMillis/nanoTime}, {@code Math.random},
- *       {@code ThreadLocalRandom}, or {@code UUID.randomUUID}.</li>
- * </ul>
+ * <p><b>Re-enabled.</b> The repo now compiles to Java 21 bytecode (class file version 65) via
+ * {@code --release 21}, so ArchUnit 1.3.0's bundled ASM can once again parse the class files.
+ * Previously this was {@code @Disabled} because the JDK-25-compiled class files were version 69,
+ * which ArchUnit 1.3's ASM could not parse, causing {@code ClassFileImporter} to silently import
+ * zero classes. Determinism is also proven independently by {@link DeterminismPropertyTest}
+ * (same inputs produce identical root + delta bytes across runs).
  *
  * <p>Thread-context: single test thread.
  */
-@Disabled("ArchUnit 1.3 ASM cannot parse JDK 25 class files (v69); re-enable when the Task 0 Java-21 toolchain is restored. Determinism is covered by DeterminismPropertyTest meanwhile.")
 final class ForbiddenApiTest {
 
     private static JavaClasses classes;

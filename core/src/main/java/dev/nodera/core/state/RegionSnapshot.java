@@ -76,7 +76,7 @@ public record RegionSnapshot(
         if (tag != TypeTags.REGION_SNAPSHOT) {
             throw new IllegalStateException("expected REGION_SNAPSHOT tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);
         long tick = r.readU64();

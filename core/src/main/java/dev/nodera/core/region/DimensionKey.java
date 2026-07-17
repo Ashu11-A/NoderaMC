@@ -45,7 +45,7 @@ public record DimensionKey(String namespace, String path) implements Encodable {
         if (tag != TypeTags.DIMENSION_KEY) {
             throw new IllegalStateException("expected DIMENSION_KEY tag, got " + tag);
         }
-        r.readU16(); // version
+        r.readVersion(ENCODING_VERSION);
         return new DimensionKey(r.readString(), r.readString());
     }
 }

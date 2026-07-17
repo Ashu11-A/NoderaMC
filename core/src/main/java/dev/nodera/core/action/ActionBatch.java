@@ -75,7 +75,7 @@ public record ActionBatch(
         if (tag != TypeTags.ACTION_BATCH) {
             throw new IllegalStateException("expected ACTION_BATCH tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);
         SnapshotVersion baseVersion = SnapshotVersion.decode(r);

@@ -160,7 +160,17 @@ public final class MessageCodec {
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported message encoding version " + version);
         }
-        return decodeBody(r, tag);
+        NoderaMessage msg = decodeBody(r, tag);
+        // Reject frames with trailing bytes: a valid message followed by extra bytes must not
+        // decode silently (append-only wire contract — an over-long frame is malformed, and
+        // accepting it would let two distinct byte strings map to the same message, breaking the
+        // hash/sign-over-canonical-bytes assumption).
+        int trailing = r.available();
+        if (trailing != 0) {
+            throw new IllegalStateException(
+                    "message frame has " + trailing + " unconsumed trailing byte(s) after tag " + tag);
+        }
+        return msg;
     }
 
     /**

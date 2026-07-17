@@ -98,7 +98,7 @@ public record QuorumCertificate(
         if (tag != TypeTags.QUORUM_CERTIFICATE) {
             throw new IllegalStateException("expected QUORUM_CERTIFICATE tag, got " + tag);
         }
-        r.readU16();
+        r.readVersion(ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
         RegionEpoch epoch = RegionEpoch.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);

@@ -120,6 +120,44 @@ final class ChunkedStreamsTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void joinRejectsOriginalLengthAboveCap() {
+        // A tiny highly-compressible payload whose declared original length is absurdly large must
+        // be rejected before allocating the output buffer (memory-amplification DoS guard).
+        byte[] payload = deterministicFill(4096);
+        List<StreamChunk> chunks = ChunkedStreams.split(1L, payload);
+        assertThatThrownBy(() -> ChunkedStreams.join(chunks, NoderaConstants.MAX_STREAM_PAYLOAD + 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("MAX_STREAM_PAYLOAD");
+    }
+
+    @Test
+    void joinRejectsOriginalLengthDisagreeingWithFrame() {
+        // The zstd frame embeds the true content size; a declared originalLength that disagrees is
+        // a malformed/forged frame and must be rejected.
+        byte[] payload = deterministicFill(4096);
+        List<StreamChunk> chunks = ChunkedStreams.split(2L, payload);
+        assertThatThrownBy(() -> ChunkedStreams.join(chunks, payload.length + 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("disagrees");
+    }
+
+    @Test
+    void streamChunkRejectsOversizePayload() {
+        byte[] tooBig = new byte[NoderaConstants.MAX_STREAM_CHUNK + 1];
+        assertThatThrownBy(() -> new StreamChunk(1L, 0, 1, Bytes.unsafeWrap(tooBig)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("MAX_STREAM_CHUNK");
+    }
+
+    @Test
+    void streamChunkRejectsIndexOutOfRange() {
+        assertThatThrownBy(() -> new StreamChunk(1L, 3, 3, Bytes.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new StreamChunk(1L, 0, 0, Bytes.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static byte[] deterministicFill(int length) {
         byte[] b = new byte[length];
         for (int i = 0; i < length; i++) {

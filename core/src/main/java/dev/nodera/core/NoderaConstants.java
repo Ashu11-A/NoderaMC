@@ -66,4 +66,13 @@ public final class NoderaConstants {
     public static final int MAX_STREAM_CHUNK = 24 * 1024;
     public static final int NEOFORGE_CLIENTBOUND_CAP = 1 << 20; // 1 MiB
     public static final int NEOFORGE_SERVERBOUND_CAP = 32 * 1024; // < 32 KiB
+    /**
+     * Absolute upper bound on a reassembled logical stream payload (64 MiB). Used to bound the
+     * decompression output buffer in {@code ChunkedStreams.join}: the declared/​frame-embedded
+     * original length is rejected before allocation if it exceeds this cap, so a small malformed or
+     * maliciously-crafted highly-compressible frame cannot force an unbounded allocation
+     * (memory-amplification DoS guard). A zstd ratio bound is NOT usable here — zstd's ratio is
+     * effectively unbounded for repetitive input (an 8 MiB constant blob compresses to ~1 KiB).
+     */
+    public static final int MAX_STREAM_PAYLOAD = 64 * 1024 * 1024;
 }

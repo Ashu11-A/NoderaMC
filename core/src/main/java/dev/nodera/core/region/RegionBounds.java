@@ -39,6 +39,12 @@ public record RegionBounds(
         int minChunkZWithHalo,
         int maxChunkZWithHalo) implements Encodable {
 
+    public RegionBounds {
+        if (region == null) {
+            throw new IllegalArgumentException("region must not be null");
+        }
+    }
+
     /**
      * Build the bounds for a region from its grid coordinate (computes owned + halo ranges).
      *

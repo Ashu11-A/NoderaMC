@@ -27,11 +27,27 @@ public record StreamChunk(long streamId, int index, int total, Bytes payload)
         implements NoderaMessage {
 
     /**
-     * Compact constructor.
+     * Compact constructor. Enforces the documented invariants: non-null payload within the
+     * serverbound-chunk cap, and a sane {@code index}/{@code total} ({@code total >= 1},
+     * {@code 0 <= index < total}).
      *
-     * @throws IllegalArgumentException if {@code payload} is null.
+     * @throws IllegalArgumentException if {@code payload} is null, the payload exceeds
+     *                                  {@link NoderaConstants#MAX_STREAM_CHUNK}, or the
+     *                                  index/total are inconsistent.
      */
     public StreamChunk {
         Objects.requireNonNull(payload, "payload");
+        if (payload.length() > NoderaConstants.MAX_STREAM_CHUNK) {
+            throw new IllegalArgumentException(
+                    "StreamChunk payload " + payload.length()
+                            + " exceeds MAX_STREAM_CHUNK " + NoderaConstants.MAX_STREAM_CHUNK);
+        }
+        if (total < 1) {
+            throw new IllegalArgumentException("StreamChunk total must be >= 1: " + total);
+        }
+        if (index < 0 || index >= total) {
+            throw new IllegalArgumentException(
+                    "StreamChunk index " + index + " out of range for total " + total);
+        }
     }
 }
