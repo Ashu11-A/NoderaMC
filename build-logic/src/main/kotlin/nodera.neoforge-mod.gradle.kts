@@ -68,7 +68,7 @@ tasks.named<ProcessResources>("processResources") {
     inputs.property("modName", modName)
     inputs.property("modDescription", modDescription)
 
-    filesMatching("neoforge.mods.toml") {
+    filesMatching("META-INF/neoforge.mods.toml") {
         expand(mapOf(
             "modId" to modId,
             "modVersion" to modVersion,

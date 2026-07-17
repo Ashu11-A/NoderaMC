@@ -33,6 +33,13 @@ docs/Context/folia/
 # downloaded NeoForge libraries, world saves, logs, the copied mod jar — never committed.
 /run/
 
+# Stray Minecraft/NeoForge runtime logs if a server is ever launched from the repo root.
+/logs/
+/latest.log
+/debug.log
+/crash-reports/
+hs_err_pid*.log
+
 # Local API-token / env files — MUST never be committed (contain ANTHROPIC_AUTH_TOKEN etc.)
 claude_code_zai_env.sh
 /a
