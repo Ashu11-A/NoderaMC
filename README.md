@@ -19,12 +19,12 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `12%`**
+**Overall system completion: `13%`**
 `████░░░░░░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
-| Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit | 🚧 `85%` (NeoForge mod skeleton pending) |
+| Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit + NeoForge mod skeleton | 🚧 `92%` (mod compiles + jar; `runServer`/`runClient` acceptance deferred to a GUI env) |
 | Phase 1 — Shadow validation | capture mixins, worker runtime, divergence report | ⬜ `0%` |
 | Phase 2 — Coordinator | leases, epochs, client proposal + server verify | ⬜ `0%` |
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | ⬜ `0%` |
@@ -33,7 +33,7 @@
 | Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | ⬜ `0%` |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `183 passing · 0 failing · 7 skipped` (skipped = ArchUnit rules disabled under JDK 25; see AGENTS.md).
+**Tests:** `185 passing · 0 failing · 7 skipped` (skipped = `simulation/ForbiddenApiTest`; see Tested.md).
 
 ---
 
@@ -51,8 +51,8 @@
 | `transport-api` | `PeerTransport` seam | 9 | ✅ |
 | `storage-api` | `WorldStore`/content/checkpoint interfaces (stub) | 1 | 🚧 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
-| `transport-neoforge` | NeoForge payload relay transport | — | ⬜ |
-| `neoforge-mod` | `@Mod` entrypoints (common/dedicated/client) | — | ⬜ |
+| `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints (common/dedicated/client) | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
 | `storage-client` | bounded/quota'd client store | — | ⬜ |
 | `peer-runtime` | `PeerRuntime`, discovery, committees, archival, sync | — | ⬜ |
@@ -92,8 +92,8 @@ nodera/
 ├── transport-api/       PeerTransport seam
 ├── storage-api/         WorldStore interfaces
 ├── testkit/             LoopbackTransport, FakeRegion, FixtureWriter/Reader
-├── neoforge-mod/        (Task 1) @Mod entrypoints — not yet onboarded
-├── transport-neoforge/  (Task 4) payload relay — not yet onboarded
+├── neoforge-mod/        (Task 1) @Mod entrypoints — onboarded, compiles + jar; runServer/runClient deferred
+├── transport-neoforge/  (Task 4) payload relay skeleton — onboarded (ModDevGradle), relay impl deferred
 └── docs/                Plan.md, LIMITATIONS.md, Task.0..16.md, Context/
 ```
 
