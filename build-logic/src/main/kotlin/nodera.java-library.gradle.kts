@@ -6,17 +6,19 @@ plugins {
     `jvm-test-suite`
 }
 
-// Compile against the host JDK (env = JDK 25; Task 0 pins 21 — see gradle.properties).
-// We use only Java 21-era language features (records, sealed interfaces, virtual threads,
-// pattern matching) so the codebase remains Java 21 source-compatible when the pin is restored.
+// Target Java 21 (Task 0 §3 pin). The host JDK may be newer (env = JDK 25), so we compile
+// with --release 21: this emits Java 21 bytecode (v65) AND advertises
+// org.gradle.jvm.version = 21. That attribute MUST match across module boundaries — the
+// NeoForge modules (nodera.neoforge-mod convention) are forced to a Java 21 toolchain by
+// ModDevGradle, so a 25/21 mismatch breaks project dependency resolution.
 java {
-    val v = JavaVersion.toVersion(JavaVersion.current().getMajorVersion())
-    sourceCompatibility = v
-    targetCompatibility = v
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
+    options.release.set(21)
     options.compilerArgs.addAll(listOf("-parameters", "-Xlint:-options"))
     options.isDeprecation = false
 }

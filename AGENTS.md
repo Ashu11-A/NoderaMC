@@ -7,19 +7,24 @@
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
 
 ## Environment notes
-- Host JDK is **25**; Task 0 pins Java 21. The pure-Java modules compile against the host JDK and
-  use only Java 21-era features (records, sealed interfaces, virtual threads, pattern matching), so
-  they remain source-compatible when the 21 toolchain is restored.
-- `simulation/ForbiddenApiTest` is `@Disabled`: ArchUnit 1.3's bundled ASM cannot parse JDK 25 class
-  files (v69) and silently imports 0 classes. Re-enable when the Java-21 toolchain is pinned.
-  Determinism is still enforced by `simulation/DeterminismPropertyTest`.
+- Host JDK is **25**; Task 0 pins Java 21. All modules compile with `--release 21` (Java 21
+  bytecode, v65) so the `org.gradle.jvm.version` attribute is consistent across module
+  boundaries — the NeoForge modules are forced to a Java 21 toolchain by ModDevGradle, so a
+  25/21 mismatch breaks project dependency resolution. The test JVM is still the host JDK 25.
+- `simulation/ForbiddenApiTest` is `@Disabled`: it was originally disabled because ArchUnit 1.3's
+  bundled ASM could not parse JDK 25 class files (v69). The repo now emits v65 bytecode, so the
+  parseability blocker is gone — re-enabling is tracked as a follow-up (still needs a dedicated
+  verification pass because tests run on the JDK 25 JVM). Determinism is meanwhile enforced by
+  `simulation/DeterminismPropertyTest`.
 
 ## Layering (Task 0 §4)
 - `core` → JDK only. `simulation`/`protocol`/`consensus`/`transport-api`/`storage-api` → `core`.
 - `testkit` → all of the above.
-- NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) and later modules
-  (`storage-rocksdb`, `storage-client`, `peer-runtime`, `transport-libp2p`, `integration-tests`)
-  are declared as comments in `settings.gradle.kts`; not yet onboarded.
+- NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
+  `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
+  compile and assemble a jar; `runServer`/`runClient` acceptance is deferred to a GUI env.
+  Later modules (`storage-rocksdb`, `storage-client`, `peer-runtime`, `transport-libp2p`,
+  `integration-tests`) are still declared as comments in `settings.gradle.kts`.
 
 ## Frozen contracts (do not change without a version bump)
 - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` + `TypeTags`.
