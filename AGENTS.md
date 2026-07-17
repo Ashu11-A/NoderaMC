@@ -61,3 +61,8 @@ instances over `LoopbackTransport`, drives P2P scenarios for every implemented l
 validation, redstone, entities, …), does real-time execution debugging, counts passing tests, and
 emits debug logs + coverage reports — driving toward 100% coverage. Each lane task (5–16) adds
 scenarios to it.
+
+## Base orientation prompt
+[`docs/Prompt.base.md`](docs/Prompt.base.md) is a paste-in base prompt: the ordered list of files
+to read first, the project pattern, where progress lives, and how the issue workflow operates. Point
+new contributors/agents at it.

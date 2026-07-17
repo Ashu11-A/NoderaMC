@@ -189,3 +189,7 @@ The single source of agent instructions is [`AGENTS.md`](AGENTS.md). It is auto-
 agents (opencode, Cursor, Claude Code, …) and encodes: build/test commands, layering rules, the
 frozen contracts, the test-before-commit / update-README / commit-format disciplines, and the
 GitHub issue workflow. **Read it before doing anything.**
+
+A ready-to-paste **base orientation prompt** (which files are load-bearing, the project pattern,
+where progress lives, how to open/close issues) lives at
+[`docs/Prompt.base.md`](docs/Prompt.base.md).
