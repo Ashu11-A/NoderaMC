@@ -73,6 +73,11 @@ public final class SnapshotDeltaApplier {
             meta.put(key, col);
         }
 
+        // Two-pass compare-and-set: validate EVERY mutation's guard against the pre-delta state
+        // (no writes yet), then apply all. Since a mutation paints a whole 16-block section and the
+        // per-position delta can carry two positions in one section (both capturing the same
+        // pre-batch section value), a single interleaved pass would false-abort on the second one;
+        // validating all-against-base first is both the correct drift check and safe for that case.
         for (BlockMutation m : delta.blockMutations()) {
             NBlockPos pos = m.pos();
             long key = packChunk(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
@@ -89,7 +94,13 @@ public final class SnapshotDeltaApplier {
             if (current != m.expectedPreviousStateId()) {
                 throw new ReplicaDriftException(pos, m.expectedPreviousStateId(), current);
             }
-            palette[section] = m.newStateId();
+        }
+        for (BlockMutation m : delta.blockMutations()) {
+            NBlockPos pos = m.pos();
+            long key = packChunk(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
+            ChunkColumnState col = meta.get(key);
+            int section = Math.floorDiv(pos.y() - col.minY(), CHUNK_SIZE);
+            work.get(key)[section] = m.newStateId();
         }
 
         List<ChunkColumnState> out = new ArrayList<>(base.chunks().size());

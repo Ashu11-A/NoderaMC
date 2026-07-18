@@ -52,6 +52,21 @@ class SnapshotDeltaApplierTest {
     }
 
     @Test
+    void twoMutationsInOneSectionDoNotFalseAbort() {
+        // Two positions in the SAME 16-block section both capture the pre-batch section value; a
+        // naive interleaved CAS would abort on the second. The two-pass applier validates all guards
+        // against the pre-delta state first, so it applies cleanly.
+        RegionId region = Fixtures.region(0, 0);
+        RegionSnapshot base = Fixtures.fullUniformSnapshot(region, 0); // AIR
+        RegionExecutionResult res = run(base,
+                Fixtures.place(region, 1, 0, 5, 70, 5, 1),   // chunk (0,0), section 8
+                Fixtures.place(region, 2, 0, 6, 70, 6, 2));  // same chunk + section
+
+        RegionSnapshot advanced = SnapshotDeltaApplier.apply(base, res.delta(), 1L);
+        assertThat(Fixtures.rootOf(advanced)).isEqualTo(res.resultingRoot());
+    }
+
+    @Test
     void casMismatchThrowsReplicaDrift() {
         RegionId region = Fixtures.region(0, 0);
         RegionSnapshot air = Fixtures.fullUniformSnapshot(region, 0);
