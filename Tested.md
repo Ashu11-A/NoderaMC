@@ -19,13 +19,14 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
 | `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) | 14 | 0 | 0 | 🚧 | 2026-07-17 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
+| `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 24 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
 | `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **253** | **0** | **0** | ✅ | 2026-07-17 |
+| **TOTAL (implemented modules)** | | **277** | **0** | **0** | ✅ | 2026-07-17 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -51,6 +52,18 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (253 → 277) is **Task 5 — Phase 1 shadow validation** (+24, new Minecraft-free
+> `shadow-validation` module): `WorkerRuntimeTest` (INACTIVE/ACTIVE/STOPPED lifecycle, off-thread
+> determinism, two-runtime root equality), `SnapshotDeltaApplierTest` (applied delta re-hashes to the
+> engine's own root — the delta-transports-the-transition invariant — plus CAS drift + version-mismatch
+> guards), `ReplicaStoreTest` (LRU eviction bound), `ShadowWorkerTest` (Computed vs Resync on
+> missing/stale replica), `ServerRecomputeTest` (a deliberately flaky engine trips the intra-JVM
+> `NondeterminismException` self-check), `DivergenceTracker`/`InterferenceProbe` tests, and the
+> headless `ShadowValidationIT` — 3 worker runtimes × 250 random place/break batches with **zero
+> divergence**, and a lying worker (corrupted root) caught + its region re-snapshotted. This is the
+> executable stand-in for Task 5's manual multi-client soak; the NeoForge capture mixins, live
+> `runClient` soak, and bandwidth/interference numbers remain deferred (Phase 0 pattern).
 >
 > Test growth (243 → 253) is the **Task 18 adversarial-review remediation**: a 6-dimension
 > find→verify review workflow (23 agents, 17 confirmed findings, 0 refuted) surfaced a blocker —

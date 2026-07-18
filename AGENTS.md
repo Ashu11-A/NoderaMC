@@ -30,6 +30,13 @@
   `RateWindow`, `MessageCounters`, `TelemetrySnapshot`, `ZoneClassifier`, `DiagnosticsView`) → `core`
   only. Unit-testable without a server; the thin `neoforge-mod` `dev.nodera.mod.debug` renderers
   consume it.
+- `shadow-validation` (Task 5 — the Minecraft-free Phase 1 shadow lane: `WorkerRuntime`,
+  `ReplicaStore`, `SnapshotDeltaApplier`, `ShadowWorker`, `ShadowCoordinator`, `ServerRecompute`,
+  `DivergenceTracker`, `InterferenceProbe`) → `core` + `simulation` only. The whole determinism-proof
+  pipeline runs headlessly under JUnit (`ShadowValidationIT`); the NeoForge capture/stream shim is a
+  thin adapter that feeds `ShadowCoordinator`. `SnapshotDeltaApplier` measures timing OUTSIDE the
+  hashed path (nanoTime around the engine, never inside it) — the `simulation` forbidden-API ban is
+  scoped to `dev.nodera.simulation..` and does not apply here.
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They

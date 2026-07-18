@@ -19,13 +19,13 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `19%`**
-`████░░░░░░░░░░░░░░░░░░░░`
+**Overall system completion: `23%`**
+`█████░░░░░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
 | Phase 0 — Scaffolding | Gradle + pure-Java core/simulation/protocol/consensus/testkit + NeoForge mod skeleton | 🚧 `97%` (mod now wires a live bootstrap peer + the redesigned `/nodera` diagnostics tree + `/noderac` + in-game HUD surfaces + session payload; `runServer`/`runClient` acceptance deferred to a GUI env) |
-| Phase 1 — Shadow validation | capture mixins, worker runtime, divergence report | ⬜ `0%` |
+| Phase 1 — Shadow validation | capture mixins, worker runtime, divergence report | 🚧 `45%` (**determinism pipeline proven headlessly**: new Minecraft-free `shadow-validation` module — `WorkerRuntime` (virtual-thread), `ReplicaStore`, `SnapshotDeltaApplier` (CAS replica advance), `ShadowWorker`/`ShadowCoordinator`, `ServerRecompute` intra-JVM self-check, `DivergenceTracker` + `InterferenceProbe`. `ShadowValidationIT` runs 3 workers × 250 random place/break batches with **zero divergence** and catches a lying worker + re-snapshots. NeoForge capture mixins, live multi-client soak, bandwidth/interference numbers deferred) |
 | Phase 2 — Coordinator | leases, epochs, client proposal + server verify | ⬜ `0%` |
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | ⬜ `0%` |
 | Phase 4 — Server fallback only | cross-region router, soak metrics | ⬜ `0%` |
@@ -33,7 +33,7 @@
 | Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | 🚧 `25%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. NAT/libp2p, archival repair, multi-bootstrap pending) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `253 passing · 0 failing · 0 skipped` (adds the **Task 18 diagnostics HUD**: a new Minecraft-free `diagnostics` module — traffic metering, rate window, per-type counters, zone classifier, snapshot/view-model — a metered peer transport + focused unit test, the `DiagnosticsIT`, and the redesigned `/nodera`/`/noderac` command tree + tab/boss-bar/action-bar surfaces; an adversarial review then caught + fixed a `formatBytes`/`formatRate` hot-path crash and added coverage; see Tested.md).
+**Tests:** `277 passing · 0 failing · 0 skipped` (adds **Task 5 Phase 1 shadow validation**: a new Minecraft-free `shadow-validation` module (24 tests) — `WorkerRuntime` lifecycle + off-thread determinism, `SnapshotDeltaApplier` (applied delta re-hashes to the engine root; CAS drift caught), `ReplicaStore` LRU bound, `ShadowWorker` resync semantics, `ServerRecompute` nondeterminism self-check, `DivergenceTracker`/`InterferenceProbe`, and the headless `ShadowValidationIT` (3 workers × 250 random batches, zero divergence + lying-worker catch). See Tested.md).
 
 > **P2P session-continuity beta** (this milestone): two players connect to a NeoForge dedicated
 > server acting as a **bootstrap peer**; the mod forms a direct peer mesh over
@@ -62,6 +62,7 @@
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
 | `peer-runtime` | `PeerRuntime`, membership/gossip, heartbeat, deterministic gateway migration, metered transport + DiagnosticsSource (continuity beta) | 14 | 🚧 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, Panel/Row/Cell view model (Task 18) | 35 | ✅ |
+| `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe (Task 5) | 24 | ✅ |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac`, tab/boss-bar/action-bar HUD, session payload | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
@@ -174,7 +175,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 2 | `core`: domain types + crypto + canonical encoding | 0 | `#2` | ✅ |
 | 3 | `simulation`: deterministic region engine | 0 | `#3` | ✅ |
 | 4 | `protocol` + `transport-api` + `transport-neoforge` | 0 | `#4` | 🚧 |
-| 5 | Shadow validation (capture, worker, divergence) | 1 | `#5` | ⬜ |
+| 5 | Shadow validation (capture, worker, divergence) | 1 | `#5` | 🚧 (`shadow-validation` determinism pipeline + headless zero-divergence soak; NeoForge capture mixins + live soak deferred) |
 | 6 | Coordinator (leases, epochs, client proposal) | 2 | `#6` | ⬜ |
 | 7 | Committee validation — **MVP gate** | 3 | `#7` | ⬜ |
 | 8 | Server-fallback-only + cross-region router | 4 | `#8` | ⬜ |
