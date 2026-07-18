@@ -19,6 +19,7 @@ dependencies {
     api(project(":storage-api"))
     api(project(":protocol"))
     api(project(":transport-api"))
+    implementation(libs.bouncycastle)
 
     testImplementation(project(":simulation"))
     testImplementation(project(":testkit"))

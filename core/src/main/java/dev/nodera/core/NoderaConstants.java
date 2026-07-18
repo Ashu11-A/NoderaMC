@@ -45,6 +45,23 @@ public final class NoderaConstants {
     public static final String KEYPAIR_ALGORITHM = "Ed25519";
     /** State roots are 32 bytes (SHA-256). */
     public static final int STATE_ROOT_BYTES = 32;
+    /** Password KDF salts are generated at 128 bits; decoders reject shorter or oversized salts. */
+    public static final int PASSWORD_KDF_SALT_BYTES = 16;
+    public static final int PASSWORD_KDF_MAX_SALT_BYTES = 64;
+    /** Bounds password-derived work before allocating or invoking a KDF on remote metadata. */
+    public static final int PASSWORD_KDF_MAX_PASSWORD_CHARS = 1024;
+    public static final int PBKDF2_MIN_ITERATIONS = 100_000;
+    public static final int PBKDF2_DEFAULT_ITERATIONS = 600_000;
+    public static final int PBKDF2_MAX_ITERATIONS = 10_000_000;
+    public static final int ARGON2_MIN_MEMORY_KIB = 16 * 1024;
+    public static final int ARGON2_DEFAULT_MEMORY_KIB = 32 * 1024;
+    public static final int ARGON2_MAX_MEMORY_KIB = 256 * 1024;
+    public static final int ARGON2_MIN_ITERATIONS = 2;
+    public static final int ARGON2_DEFAULT_ITERATIONS = 3;
+    public static final int ARGON2_MAX_ITERATIONS = 10;
+    public static final int ARGON2_MIN_PARALLELISM = 1;
+    public static final int ARGON2_DEFAULT_PARALLELISM = 1;
+    public static final int ARGON2_MAX_PARALLELISM = 16;
 
     // --- Delegability / interference (Task 11 defaults) ---
     /** Regions within this ring must be palette-compatible. */

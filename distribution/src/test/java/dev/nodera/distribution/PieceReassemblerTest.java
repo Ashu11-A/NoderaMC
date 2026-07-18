@@ -1,6 +1,7 @@
 package dev.nodera.distribution;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.symmetric.ContentKey;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
@@ -46,6 +47,26 @@ final class PieceReassemblerTest {
         assertThat(r.assembledRoot())
                 .isEqualTo(StateRoot.of(DistFixtures.hashes().hash(layout.snapshot())))
                 .isEqualTo(layout.manifest().regionRoot());
+    }
+
+    @Test
+    void encryptedBlobMustBeDecryptedBeforeComputingCanonicalStateRoot() {
+        RegionSnapshotSplitter.Layout layout = layout();
+        ContentKey key = ContentKey.of(new byte[ContentKey.KEY_BYTES]);
+        EncryptedRegion encrypted = EncryptedRegion.encrypt(
+                layout,
+                key,
+                WorldKeyMaterial.defaultArgon2id(
+                        Bytes.fromHex("00112233445566778899aabbccddeeff")));
+        PieceReassembler reassembler = new PieceReassembler(encrypted.manifest());
+        for (int i = 0; i < encrypted.manifest().pieceCount(); i++) {
+            assertThat(reassembler.restore(i, encrypted.ciphertextPiece(i))).isTrue();
+        }
+
+        assertThat(reassembler.assemble()).isEqualTo(encrypted.ciphertextBlob());
+        assertThatThrownBy(reassembler::assembledRoot)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("must be decrypted");
     }
 
     @Test

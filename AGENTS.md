@@ -18,7 +18,9 @@
   `simulation/DeterminismPropertyTest`.
 
 ## Layering (Task 0 §4)
-- `core` → JDK only. `simulation`/`protocol`/`consensus`/`transport-api`/`storage-api` → `core`.
+- `core` → JDK only. Task 23's `core/crypto/symmetric` package follows the same rule: AES-GCM-256,
+  `ContentKey`, the `PasswordKeyDerivation` seam, and PBKDF2-HMAC-SHA256 use JDK crypto only.
+  `simulation`/`protocol`/`consensus`/`transport-api`/`storage-api` → `core`.
 - `transport-socket` (real TCP `PeerTransport`) → `core` + `transport-api` (+ `protocol` for chunking).
 - `peer-runtime` (membership, heartbeat, deterministic gateway migration, and — Task 20 — the
   `peer-runtime/discovery` package: `TrackerService`, `PeerDirectory`, `ArchiveInventory`,
@@ -80,27 +82,30 @@
   the read-side `EventReplayer` (verifies the certified `prevRoot→resultingRoot` chain; an uncertified
   suffix stops replay), and `PeerSyncFlow` (forward-only sync, Invariant 8). The RocksDB archival
   tier will implement the same seam later.
-- `distribution` (Task 19 — the Minecraft-free torrent data plane: `Piece`, `PieceManifest`,
-  `WorldKeyMaterial` (Task 23 slot reserved), `PieceSplitter`/`RegionSnapshotSplitter`,
-  `PieceSelector`, `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService`)
-  → `core` + `storage-api` + `protocol` + `transport-api`. It adds a PIECE layer *beneath* the
-  frozen region layer: `RegionSnapshot`/`StateRoot` (Task 2) and `ContentId`/`ContentStore` (Task 9)
-  are untouched. The blob the pieces slice is byte-for-byte `RegionSnapshot.encode`, so
-  `SHA-256(reassembled blob)` IS the region's `StateRoot` — a region rebuilt from untrusted partial
-  seeders is provably the state the committee committed. Hash-validate-before-accept is enforced
-  against the MANIFEST's hash for an index, never a hash carried alongside the payload
-  (`ContentChunk` deliberately has no hash field). Selection is deterministic (`StableHash`
-  rarest-first + rendezvous tie-break, no clocks/entropy); serve budgets are advanced by an explicit
-  `resetServeWindow()` call rather than a wall clock. Proven headlessly (`DistributionIT`: 3 seeders
-  each holding <40% of the pieces).
+- `distribution` (Tasks 19/23 — Minecraft-free torrent data plane + per-world encryption: `Piece`,
+  `PieceManifest`, `WorldKeyMaterial`, `PieceSplitter`/`RegionSnapshotSplitter`, `PieceSelector`,
+  `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService`,
+  `Argon2KeyDerivation`, `EncryptedPiece`, `EncryptedRegion`) → `core` + `storage-api` + `protocol` +
+  `transport-api`, plus pinned BouncyCastle for Argon2id only. It adds a PIECE layer *beneath* the
+  frozen region layer. Plaintext worlds slice byte-for-byte `RegionSnapshot.encode`, so
+  `SHA-256(reassembled blob)` is the region `StateRoot`. Encrypted worlds slice deterministic
+  AES-GCM ciphertext instead: piece hashes, `manifestRoot`, and `ContentId` cover ciphertext while
+  `PieceManifest.regionRoot` remains plaintext canonical truth; decryptors must root-check recovered
+  bytes before use. Seeders receive no password/key and verify only manifest-pinned ciphertext.
+  Hash-validate-before-accept is enforced against the MANIFEST's hash for an index, never a hash
+  carried alongside payload (`ContentChunk` deliberately has no hash field). Selection is
+  deterministic (`StableHash` rarest-first + rendezvous tie-break, no clocks/entropy); cryptographic
+  nonces use domain-separated truncated SHA-256 because placement's 64-bit `StableHash` is too short
+  for GCM. Serve budgets advance by explicit `resetServeWindow()`, not wall clock. Proven headlessly
+  by `DistributionIT` and keyless-seeder `EncryptedDistributionIT`.
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
   compile and assemble a jar; `runServer`/`runClient` acceptance is deferred to a GUI env.
   `neoforge-mod` carries the redesigned `/nodera` + `/noderac` diagnostics command tree and the
   in-game HUD surfaces (tab list, boss bars, zone alerts) under `dev.nodera.mod.debug`.
-  Later modules (`storage-rocksdb`, `storage-client`, `transport-libp2p`,
-  `integration-tests`) are still declared as comments in `settings.gradle.kts`.
+  Later modules (`storage-rocksdb`, `transport-libp2p`, `integration-tests`) remain declared as
+  comments in `settings.gradle.kts`; `storage-client` is now built.
 
 ## Frozen contracts (do not change without a version bump)
 - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` + `TypeTags`.

@@ -80,7 +80,7 @@ observable in normal play.
 | L-36 | Reliability is a single proposal-outcome EMA; connectivity/uptime/availability/worlds-seeded not weighted (Plan §3.5/§10) | T22 | Weighted multi-factor score drives placement/gateway/handoff; determinism property test green; offline-decay implemented | RETIRING |
 | L-37 | No client storage quota / eviction policy (`storage-client` unbuilt); remote-peered data can grow unbounded | T22 | `BoundedClientWorldStore` + `StorageQuotaManager` + `ArchiveEvictionPolicy` (never evicts assigned-region current state); unit tests | RETIRING |
 | L-38 | No retention-before-drop; worlds never garbage-collected, no coordinated 24 h decommission | T22 | Coordinated 24 h countdown (network-visible) on zero-seeder worlds; cancel-on-seeder-return; drop-at-expiry; `RetentionIT` | RETIRING |
-| L-39 | World content is plaintext on the P2P net; any connected peer can read any chunk; no per-world encryption | T23 | AES-GCM-256 content encryption under Argon2id(password)-derived key; seeders store ciphertext, verify by hash; join requires password; ciphertext-integrity + wrong-password + nonce-uniqueness tests green | OPEN |
+| L-39 | World content is plaintext on the P2P net; any connected peer can read any chunk; no per-world encryption | T23 | AES-GCM-256 content encryption under Argon2id(password)-derived key; seeders store ciphertext, verify by hash; join requires password; ciphertext-integrity + wrong-password + nonce-uniqueness tests green | RETIRING |
 | L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | OPEN |
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | OPEN |
@@ -128,6 +128,16 @@ observable in normal play.
 > three move to RETIRED once the mod side wires them into the live runtime — the scorer fed by
 > PeerLink/heartbeat/seed-share, the client runtime over the bounded store, the tracker surfacing
 > the countdown — gated on the NeoForge lane.
+>
+> **L-39 status (Task 23, 2026-07-18).** The Minecraft-free encryption path is green. AES-GCM-256
+> encrypts each piece under a password-derived content key; Argon2id is production-default behind
+> pinned `bcprov-jdk18on:1.78.1`, with JDK PBKDF2 fallback. KDF costs and input sizes are bounded
+> before allocation. Seeders receive only ciphertext and verify ciphertext hashes; joiners re-derive
+> nonces locally, reject wrong passwords/tamper, and prove decrypted bytes against the plaintext
+> engine `StateRoot` (`EncryptedDistributionIT`). Password/key material is never serialized and
+> there is no escrow: password loss means no recovery. Plaintext manifests still reveal structure
+> metadata (region ids, piece sizes/counts, KDF parameters, cadence), not block contents. L-39 moves
+> to RETIRED once opt-in create/join wiring and password-attempt throttling ship in the NeoForge lane.
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

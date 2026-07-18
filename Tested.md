@@ -9,7 +9,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, crypto, canonical encoding (frozen wire/hash contract) | 103 | 0 | 0 | ✅ | 2026-07-18 |
+| `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) | 117 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
 | `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd) | 28 | 0 | 0 | ✅ | 2026-07-17 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
@@ -24,14 +24,14 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT` (Task 7) | 12 | 0 | 0 | ✅ | 2026-07-17 |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics + `FallbackRoutingIT` (Task 8) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
-| `distribution` | Phase 5–6 torrent data plane (Minecraft-free): `Piece`/`PieceManifest`/`WorldKeyMaterial`, `PieceSplitter`/`RegionSnapshotSplitter`, `PieceSelector`, `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService` + `DistributionIT` (Task 19) | 49 | 0 | 0 | ✅ | 2026-07-18 |
+| `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id, encrypted manifests, ciphertext/root-checked `EncryptedRegion`, `DistributionIT` + `EncryptedDistributionIT` | 68 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22) | 8 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **523** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **556** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +57,18 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (523 → 556) is **Task 23 — per-world content encryption** (+33). `core` (+14)
+> adds JDK-only `ContentKey`, `PasswordKeyDerivation`, bounded PBKDF2-HMAC-SHA256, and AES-GCM-256
+> with domain-separated deterministic 96-bit nonces; tests cover convergence, 4,096 cross-manifest
+> nonce tuples, wrong-key/tamper rejection, input/cost bounds, and append-only type tag 80.
+> `distribution` (+19) adds pinned BouncyCastle Argon2id (correct UTF-8 including surrogate pairs,
+> temporary-secret clearing, bounded 16–256 MiB / 2–10 passes / 1–16 lanes), `EncryptedPiece`, and
+> `EncryptedRegion`. `EncryptedDistributionIT` obtains ciphertext from three keyless partial seeders,
+> derives the join key from plaintext manifest KDF metadata, rejects wrong password/tamper, and
+> recovers bytes that decode to the engine snapshot and hash to its plaintext `StateRoot`. Manifests
+> intentionally reveal geometry/KDF metadata; password loss has no escrow/recovery. Live opt-in
+> create/join wiring and attempt throttling remain in the NeoForge lane, so L-39 is RETIRING.
 >
 > Test growth (499 → 523) is **Task 22 — multi-factor reliability + client quotas + 24-h retention**
 > (+24). `coordinator` `ReliabilityScorerTest` (+8): the blend is pure integer arithmetic (same

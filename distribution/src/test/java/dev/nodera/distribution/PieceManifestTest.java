@@ -153,7 +153,7 @@ final class PieceManifestTest {
     @Test
     void encryptionSlotsAreReservedAndMustAgreeWithEachOther() {
         PieceManifest plain = manifestOf(blob(300), 100);
-        WorldKeyMaterial key = new WorldKeyMaterial("argon2id", Bytes.fromHex("0011223344556677"),
+        WorldKeyMaterial key = new WorldKeyMaterial("argon2id", Bytes.fromHex("00112233445566778899aabbccddeeff"),
                 65536L, 3, 1);
 
         // Reserved NOW (Task 23 fills the key path) so shipping encryption needs no version bump:

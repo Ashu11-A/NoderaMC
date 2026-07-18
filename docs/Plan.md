@@ -210,9 +210,9 @@ Minecraft-free (plain Java, unit-testable without a server). Only `neoforge-mod`
 **Required**: NeoForge (lifecycle, payloads + `StreamCodec`, attachments, `SavedData`,
 config); JDK crypto only — Ed25519 signatures, SHA-256 digests, `SecureRandom` identity
 generation; `java.util.concurrent` + virtual threads. (`core` stays JDK-crypto-only
-forever; the Task 23 Argon2id KDF adds a pinned BouncyCastle dependency in
-`distribution`, never in `core` — PBKDF2 is the JDK-built-in fallback behind the same
-seam.)
+forever; the Task 23 Argon2id KDF adds pinned
+`org.bouncycastle:bcprov-jdk18on:1.78.1` in `distribution`, never in `core` — PBKDF2 is the
+JDK-built-in fallback behind the same seam.)
 
 **Strongly recommended**: Caffeine (bounded caches, dedup); zstd-jni (snapshot/delta/
 checkpoint compression); RoaringBitmap (dirty-section/chunk masks); fastutil (primitive

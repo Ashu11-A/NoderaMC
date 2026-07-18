@@ -20,8 +20,8 @@ half of the user spec.
   keeps seeders able to verify + serve without the key. This is the key design move: **encryption
   composes with content-addressing** because the address is over the stored (ciphertext) form.
 - Integrity is layered: (a) AES-GCM auth-tag per piece (tamper evidence at decrypt), (b) piece hash
-  over ciphertext (seeder-side integrity without decrypt), (c) `manifestRoot` / `StateRoot` over the
-  plaintext region (canonical truth). All three must agree.
+  and `manifestRoot` over ciphertext (seeder-side integrity without decrypt), (c) plaintext
+  `StateRoot` checked after all pieces decrypt (canonical truth). All three must agree.
 
 ## Folder structure (additions)
 
@@ -30,11 +30,13 @@ core/src/main/java/dev/nodera/core/crypto/symmetric/   # new subpackage
 ├── package-info.java
 ├── PasswordKeyDerivation.java    # KDF seam + JDK PBKDF2 impl here; Argon2id impl in `distribution`
 ├── ContentCipher.java            # AES-GCM-256 encrypt/decrypt piece payloads (per-piece nonce)
-├── WorldKeyMaterial.java         # (Bytes salt, int kdfIters, Bytes wrappedKey?) — stored per world
 └── ContentKey.java               # the derived AES SecretKey handle (in-process only; never serialised)
 
 distribution/src/main/java/dev/nodera/distribution/
-└── EncryptedPiece.java           # wraps a piece: AES-GCM ciphertext + nonce + auth tag; hash over ciphertext
+├── WorldKeyMaterial.java         # public salt + bounded KDF parameters; reserved by Task 19
+├── Argon2KeyDerivation.java      # bounded Argon2id implementation behind BouncyCastle
+├── EncryptedPiece.java           # local ciphertext + deterministic-nonce wrapper
+└── EncryptedRegion.java          # ciphertext manifest/blob creation + root-checked decryption
 
 storage-api/src/main/java/dev/nodera/storage/
 └── (ContentId unchanged — hash is over whatever bytes are stored; under encryption that's ciphertext)
@@ -45,32 +47,36 @@ storage-api/src/main/java/dev/nodera/storage/
 - **KDF:** `PasswordKeyDerivation` is an interface in `core/crypto/symmetric` with the JDK-built-in
   `Pbkdf2KeyDerivation` (PBKDF2-HMAC-SHA256) beside it — `core` must stay JDK-only (Task 0 §4 rule
   1; a BouncyCastle dependency in `core` would break the layering contract). The preferred
-  `Argon2KeyDerivation` lives in `distribution` with the pinned dependency
-  (`org.bouncycastle:bcprov` in `gradle/libs.versions.toml`). `WorldKeyMaterial.kdfId` selects the
-  KDF so both sides agree; new worlds default to Argon2id (that is the L-39 exit test). Record the
-  pin in `Plan.md` §5 (libraries) + the cost params in `NoderaConstants`.
+  `Argon2KeyDerivation` lives in `distribution` with the pinned
+  `org.bouncycastle:bcprov-jdk18on:1.78.1` dependency. `WorldKeyMaterial.kdf` selects the
+  KDF so both sides agree; new worlds default to Argon2id (that is the L-39 exit test). The shared
+  cost/salt/password bounds live in `NoderaConstants`; remote metadata cannot request more than
+  256 MiB, 10 Argon2 passes, or 16 lanes. The pin is recorded in `Plan.md` §5.
 - **Per-piece nonce:** the nonce cannot be derived from `manifestRoot` — that is circular: the root
-  is computed from piece hashes, piece hashes are over ciphertext, and producing the ciphertext
-  needs the nonce. Derive it from the plaintext side instead: nonce = first 12 bytes of
-  `StableHash(regionRoot, snapshotVersion, pieceIndex)` — all three are known before encryption.
-  Uniqueness argument: under one key, a repeated `(regionRoot, version, index)` triple implies the
-  byte-identical plaintext piece, which produces the byte-identical ciphertext — nonce reuse on an
-  *equal* message leaks only equality, which content addressing reveals anyway. Distinct plaintexts
-  always get distinct nonces (different region state ⇒ different `regionRoot`). This is deliberate
-  convergent encryption; it is also what keeps ciphertext content-addressing deterministic (same
-  plaintext ⇒ same ciphertext ⇒ same `ContentId`, so dedup survives encryption; a random nonce
-  would break that). Nonce is public; it does not weaken the key.
-- **`WorldKeyMaterial`** (salt + KDF params + optional server-wrapped key) is stored per world in
-  the genesis/manifest metadata; the password is NOT stored. Deriving the key requires the password
-  at join time. The material travels with the manifest (ciphertext metadata is not secret).
+  is computed from piece hashes, piece hashes are over ciphertext, and producing ciphertext needs
+  the nonce. Derive it from the plaintext side instead: nonce = first 12 bytes of
+  `SHA-256(canonical("nodera.content-nonce.v1", regionRoot, snapshotVersion, pieceIndex))`. The
+  project `StableHash` is deliberately not used here: it is a 64-bit placement/RNG contract and
+  cannot supply a collision-resistant 96-bit GCM nonce. All tuple fields are known before
+  encryption. Under one key, a repeated tuple implies the byte-identical plaintext piece, which
+  produces byte-identical ciphertext; equality leakage is already public through content
+  addressing. Distinct tuples receive the full collision resistance of truncated SHA-256. This is
+  deliberate convergent encryption: same plaintext state produces the same ciphertext and
+  `ContentId`, so dedup survives encryption; a random nonce would break that. Nonces are public and
+  are re-derived by joiners rather than trusted from transported bytes.
+- **`WorldKeyMaterial`** (salt + bounded KDF params; no wrapped key) is stored per world in manifest
+  metadata; the password is NOT stored. Deriving the key requires the password at join time. The
+  material travels with the manifest because KDF metadata and ciphertext geometry are not secret.
 - **No floating-point, no clocks** in the crypto path (consistent with Nodera hygiene).
 
 ## Implementation details — integration with Tasks 19/21
 
-- `EncryptedPiece` is what `ContentChunk` (Task 19) carries when the world is encrypted; the piece
-  hash is over the ciphertext bytes, so `PieceReassembler`/`ChunkLockMap` verify and lock exactly as
-  before — **the data plane is encryption-agnostic**. Decryption happens only after a verified piece
-  is unlocked, on the joining/simulating peer that holds the key.
+- `ContentChunk` carries only ciphertext bytes for encrypted worlds. `EncryptedPiece` is the host/
+  joiner-side wrapper; its public nonce is deterministically re-derived from manifest context and is
+  never trusted from transport. Piece hashes are over ciphertext, so `PieceReassembler`/
+  `ChunkLockMap` verify and lock exactly as before — **the data plane is encryption-agnostic**.
+  Decryption happens only after the complete ciphertext blob verifies, on the joining/simulating
+  peer holding the key; decrypted bytes must then hash to the manifest's plaintext `StateRoot`.
 - Replication (Task 21) places ciphertext; the host (`FULL_ARCHIVE`) holds the ciphertext backup.
   A seeder never needs the password.
 - A world is either plaintext (default) or encrypted (torrent-hosting opted in); this task
@@ -89,13 +95,16 @@ storage-api/src/main/java/dev/nodera/storage/
 Security notes (this task handles secrets — the crypto must be correct, not improvised):
 - Never roll custom crypto; use AES-GCM and a standard KDF as-is.
 - Nonce uniqueness under a static content key is mandatory (GCM catastrophe on reuse of a nonce
-  with *different* plaintexts). The deterministic `StableHash(regionRoot, snapshotVersion,
-  pieceIndex)` nonce (see above — it cannot be derived from `manifestRoot`; that is circular) is
-  safe because a repeated (key, nonce) pair implies the byte-identical plaintext, which is the one
-  reuse GCM tolerates (it leaks only message equality — already public via content addressing).
-- The password is a human secret — rate-limit join attempts; consider that a holder-of-last-resort
-  (host) losing the password means the world becomes unrestorable (document this; it is the intended
-  trade of "encryption password" — there is no escrow).
+  with *different* plaintexts). The deterministic truncated-SHA-256 nonce over the domain-separated
+  canonical `(regionRoot, snapshotVersion, pieceIndex)` tuple is safe because a repeated tuple under
+  one content key implies byte-identical plaintext. `ContentCipherTest` exercises 4,096 distinct
+  tuples and pins deterministic convergence.
+- KDF costs and input sizes are bounded before work begins, so attacker-controlled manifest metadata
+  cannot request unbounded memory/CPU. The future NeoForge join surface must still rate-limit
+  repeated password attempts; this headless crypto layer exposes no network password endpoint.
+- The password is a human secret. Losing it means the world becomes unrestorable: no password, key,
+  wrapped key, or escrow copy is stored. Manifests remain plaintext and reveal region ids, piece
+  counts/sizes, KDF metadata, and update cadence, but not block contents.
 
 ## Acceptance criteria
 

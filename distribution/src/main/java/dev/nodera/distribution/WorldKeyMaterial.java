@@ -1,10 +1,12 @@
 package dev.nodera.distribution;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.crypto.Encodable;
 import dev.nodera.core.crypto.TypeTags;
+import dev.nodera.core.crypto.symmetric.PasswordKeyDerivation;
 
 import java.util.Objects;
 
@@ -13,10 +15,10 @@ import java.util.Objects;
  * 19</b>). It carries the KDF parameters and salt needed to re-derive the content key from a
  * password — never the key, and never the password.
  *
- * <p>This type exists now, and {@link PieceManifest} carries its optional slot now, precisely so
- * that shipping encryption later needs <b>no encoding-version bump</b>: the manifest wire form is
- * already shaped for it. Until Task 23, manifests are constructed with
- * {@code encrypted = false, keyMaterial = null} and every piece hash is over plaintext.
+ * <p>Task 19 reserved this type and {@link PieceManifest}'s optional slot before encryption shipped,
+ * avoiding an encoding-version bump when Task 23 populated it. Plaintext manifests use
+ * {@code encrypted = false, keyMaterial = null}; encrypted manifests carry this public metadata and
+ * pin ciphertext piece hashes. No password, content key, wrapped key, or escrow value is present.
  *
  * <p>The parameters are stored as integers (no floats — the canonical encoding has none by
  * design), which is exactly how Argon2id is parameterised anyway.
@@ -43,8 +45,9 @@ public record WorldKeyMaterial(
     /**
      * Compact constructor.
      *
-     * @throws IllegalArgumentException if a reference argument is null or a cost parameter is not
-     *                                  positive.
+     * @throws IllegalArgumentException if a reference argument is null, salt length is outside the
+     *                                  shared bound, or a cost parameter is outside its allocation/
+     *                                  CPU bound.
      */
     public WorldKeyMaterial {
         Objects.requireNonNull(kdf, "kdf");
@@ -52,15 +55,47 @@ public record WorldKeyMaterial(
         if (kdf.isBlank()) {
             throw new IllegalArgumentException("kdf must not be blank");
         }
-        if (memoryKib <= 0) {
-            throw new IllegalArgumentException("memoryKib must be positive: " + memoryKib);
+        if (salt.length() < NoderaConstants.PASSWORD_KDF_SALT_BYTES
+                || salt.length() > NoderaConstants.PASSWORD_KDF_MAX_SALT_BYTES) {
+            throw new IllegalArgumentException(
+                    "salt length must be in [" + NoderaConstants.PASSWORD_KDF_SALT_BYTES + ","
+                            + NoderaConstants.PASSWORD_KDF_MAX_SALT_BYTES + "] bytes");
         }
-        if (iterations <= 0) {
-            throw new IllegalArgumentException("iterations must be positive: " + iterations);
+        if (memoryKib <= 0 || memoryKib > NoderaConstants.ARGON2_MAX_MEMORY_KIB) {
+            throw new IllegalArgumentException(
+                    "memoryKib must be in [1," + NoderaConstants.ARGON2_MAX_MEMORY_KIB + "]: "
+                            + memoryKib);
         }
-        if (parallelism <= 0) {
-            throw new IllegalArgumentException("parallelism must be positive: " + parallelism);
+        if (iterations <= 0 || iterations > NoderaConstants.PBKDF2_MAX_ITERATIONS) {
+            throw new IllegalArgumentException(
+                    "iterations must be in [1," + NoderaConstants.PBKDF2_MAX_ITERATIONS + "]: "
+                            + iterations);
         }
+        if (parallelism <= 0 || parallelism > NoderaConstants.ARGON2_MAX_PARALLELISM) {
+            throw new IllegalArgumentException(
+                    "parallelism must be in [1," + NoderaConstants.ARGON2_MAX_PARALLELISM + "]: "
+                            + parallelism);
+        }
+    }
+
+    /**
+     * Build metadata for a new Argon2id world using production defaults.
+     *
+     * @param salt a freshly generated per-world salt.
+     * @return bounded Argon2id metadata.
+     */
+    public static WorldKeyMaterial defaultArgon2id(Bytes salt) {
+        return new WorldKeyMaterial(
+                PasswordKeyDerivation.ARGON2ID,
+                salt,
+                NoderaConstants.ARGON2_DEFAULT_MEMORY_KIB,
+                NoderaConstants.ARGON2_DEFAULT_ITERATIONS,
+                NoderaConstants.ARGON2_DEFAULT_PARALLELISM);
+    }
+
+    /** Build metadata for the JDK-only PBKDF2 fallback. */
+    public static WorldKeyMaterial pbkdf2(Bytes salt, int iterations) {
+        return new WorldKeyMaterial(PasswordKeyDerivation.PBKDF2, salt, 1, iterations, 1);
     }
 
     @Override

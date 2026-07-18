@@ -21,8 +21,9 @@ import java.util.Objects;
  *       field, because a hash shipped alongside attacker-supplied bytes proves nothing.</li>
  *   <li><b>On completion.</b> {@link #assemble()} re-checks that every index is present, that the
  *       assembled length equals {@code manifest.totalLength()}, and that the blob hashes to the
- *       manifest's {@code ContentId}. The last check is what ties the piece plane back to the
- *       committee's committed state: the same hash is the region's {@link StateRoot}.</li>
+ *       manifest's {@code ContentId}. For plaintext manifests that hash is also the region's
+ *       {@link StateRoot}; for encrypted manifests it proves ciphertext, and
+ *       {@link EncryptedRegion} separately proves decrypted bytes against the plaintext root.</li>
  * </ol>
  *
  * <p>A rejected piece leaves the reassembler completely unchanged, so a peer that feeds corrupt
@@ -174,15 +175,19 @@ public final class PieceReassembler {
     }
 
     /**
-     * The region state root implied by the assembled blob. Equal to {@code manifest.regionRoot()}
-     * for a well-formed manifest — the check that the swarm delivered the state the committee
-     * actually committed.
+     * The region state root implied by a plaintext assembled blob. Encrypted manifests address a
+     * ciphertext blob; callers must pass {@link #assemble()} through
+     * {@link EncryptedRegion#decrypt(PieceManifest, Bytes, dev.nodera.core.crypto.symmetric.ContentKey)}
+     * before comparing canonical state.
      *
-     * @return the assembled blob's state root.
-     * @throws IllegalStateException if the blob is incomplete or fails validation.
+     * @return the assembled plaintext blob's state root.
+     * @throws IllegalStateException if the blob is incomplete, fails validation, or is encrypted.
      * @Thread-context single-threaded per reassembler.
      */
     public StateRoot assembledRoot() {
+        if (manifest.encrypted()) {
+            throw new IllegalStateException("encrypted ciphertext must be decrypted before computing StateRoot");
+        }
         return StateRoot.of(hashes.sha256(assemble()));
     }
 }

@@ -53,9 +53,10 @@ import java.util.Objects;
  *       equality so the pair can never drift.</li>
  * </ul>
  *
- * <p>The {@code encrypted}/{@code keyMaterial} slots are reserved by this task and filled by Task
- * 23, so shipping per-world encryption needs no encoding-version bump. When encrypted, piece hashes
- * are over <b>ciphertext</b> — a seeder verifies and serves content it cannot read.
+ * <p>Task 19 reserved the {@code encrypted}/{@code keyMaterial} slots; Task 23 now fills them without
+ * an encoding-version bump. When encrypted, piece hashes and {@code blob} cover <b>ciphertext</b>,
+ * while {@code regionRoot} continues to commit the decrypted canonical region state. A seeder
+ * verifies and serves content it cannot read.
  *
  * <p>Wire form: {@code [u16 PIECE_MANIFEST][u16 ENCODING_VERSION][RegionId][SnapshotVersion]
  * [u64 tick][StateRoot regionRoot][bytes blobHash][u64 blobSize][u8 compressionOrdinal]
@@ -189,6 +190,40 @@ public record PieceManifest(
             List<Piece> pieces) {
         return new PieceManifest(region, version, tick, regionRoot, blob, totalLength,
                 false, null, pieces, computeRoot(pieces));
+    }
+
+    /**
+     * Build an <b>encrypted</b> manifest (Task 23): pieces carry ciphertext hashes, {@code blob} is
+     * the ciphertext content id, and {@code keyMaterial} carries the KDF params. {@code regionRoot}
+     * stays the plaintext StateRoot (canonical truth); {@code manifestRoot} is derived from the
+     * ciphertext-piece list.
+     *
+     * @param region      the region.
+     * @param version     the snapshot version.
+     * @param tick        the tick.
+     * @param regionRoot  the plaintext region state root.
+     * @param blob        the ciphertext blob's content id.
+     * @param totalLength the ciphertext total length.
+     * @param keyMaterial the KDF params (never null for an encrypted manifest).
+     * @param pieces      the ciphertext pieces (hashes over ciphertext), contiguous from offset 0.
+     * @return the encrypted manifest.
+     * @throws IllegalArgumentException if {@code keyMaterial} is null.
+     * @Thread-context any thread.
+     */
+    public static PieceManifest encrypted(
+            RegionId region,
+            SnapshotVersion version,
+            long tick,
+            StateRoot regionRoot,
+            ContentId blob,
+            long totalLength,
+            WorldKeyMaterial keyMaterial,
+            List<Piece> pieces) {
+        if (keyMaterial == null) {
+            throw new IllegalArgumentException("keyMaterial must not be null for an encrypted manifest");
+        }
+        return new PieceManifest(region, version, tick, regionRoot, blob, totalLength,
+                true, keyMaterial, pieces, computeRoot(pieces));
     }
 
     /**

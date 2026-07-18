@@ -82,8 +82,10 @@ final class TypeTagsTest {
         assertThat(TypeTags.ARCHIVE_REPLICA_ACK).isEqualTo(78);
         // reliability multi-factor signals (Task 22)
         assertThat(TypeTags.RELIABILITY_FACTORS).isEqualTo(79);
+        // per-world content encryption (Task 23)
+        assertThat(TypeTags.ENCRYPTED_PIECE).isEqualTo(80);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(79);
+        assertThat(TypeTags.NEXT).isEqualTo(80);
     }
 
     @Test

@@ -90,7 +90,9 @@ public final class TypeTags {
     public static final int ARCHIVE_REPLICA_ACK        = 78;
     /** Per-node multi-factor reliability signals, each in basis points (Task 22). */
     public static final int RELIABILITY_FACTORS        = 79;
+    /** An AES-GCM ciphertext piece (nonce + ciphertext + auth tag), Task 23. */
+    public static final int ENCRYPTED_PIECE            = 80;
 
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 79;
+    public static final int NEXT = 80;
 }
