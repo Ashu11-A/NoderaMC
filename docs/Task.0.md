@@ -27,13 +27,37 @@ other task. When a later task contradicts this file, fix the later task.
 | 16 | Player lane & trustless closure: movement, inventory, combat, portals, worldgen, seamless view, BFT, mod SDK | 8 | 10, 15 |
 | 17 | Debugger tool: headless P2P harness, real server-instance emulation, live debug, coverage, logs | 0–8 (cross-cutting) | grows per lane |
 | 18 | In-game observability & diagnostics HUD: tab list, boss bars, redesigned command tree, telemetry model | 0–8 (cross-cutting) | `peer-runtime` (hard); 6, 12 (soft) |
+| 19 | Torrent distribution data plane: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | 9 (storage-api), 4 (protocol/transport) |
+| 20 | Tracker, peer directory, archive inventory, multi-bootstrap | 6 | 19, 10 |
+| 21 | Archive placement (rendezvous, replication ×5/×4, ≥25%-seed, <5%-per-peer), audit, repair | 6 | 19, 20 |
+| 22 | Multi-factor reliability, client storage quotas, 24-hour retention-before-drop | 6 | 19, 21 |
+| 23 | Per-world content encryption (password → AES-GCM; seeders hold ciphertext) | 6 | 19 |
+| 24 | Crash safety + active-player continuous chunk stream (shutdown-hook flush; sidecar deferred) | 6 | 19, 21, 22 |
+| 25 | Tick-lag / TPS metric + low-TPS region handoff | 6–7 | 7 (committee), 22 |
+| 26 | Multiplayer GUI: torrent-host world creation, server list + search, red/gray health, network stats | 0–8 (cross-cutting, client) | 19, 20, 21, 22, 23 |
 
 ```
 1 ──► 2 ──► 3 ──┐
       └────► 4 ─┴─► 5 ─► 6 ─► 7 ─────► 8 ─► 9 ─► 10 ────────────► 16
                           └─► 11 ──────┘    ├─► 12 ──► 14 ─► 15 ─► 16
                                             └─► 13 ──► 14
+
+Distribution / torrent-hosting cluster (Tasks 19–26; "torrent hosting" feature):
+  4,9 ─► 19 ─►┬─► 20 ─► 21 ─► 22 ─► 24
+              └─► 23            │
+                                ├─► 25  (also ◄─ 7)
+  19,20,21,22,23 ─► 26  (client GUI; cross-cutting, GUI-deferred acceptance)
 ```
+
+Tasks 19–26 deliver the **"torrent hosting" feature**: a world becomes a shared,
+content-addressed, multi-seeder resource across the peer network, with a BitTorrent-style tracker,
+redundant replication, per-world encryption, crash-safe streaming, tick-lag-driven region handoff,
+and a multiplayer-page UI. They are additive to the committee-validation bet (Task 7): seeders
+(`PARTIAL_ARCHIVE` / `WORLD_SEEDER` roles) store + propagate only; the active region's committee
+still re-executes and commits. Each stages its limitations in `LIMITATIONS.md` §B (L-32 … L-43)
+with an owning task and an exit test — no permanent exclusions. Rule 7 (mob/entity/redstone exchange
+over P2P, batched away from 20 tps) is delivered by the existing parity lanes (Tasks 12–15) riding
+the Task 19 data plane, not a separate task.
 
 Tasks 2, 3, 4 are pure-Java modules (no Minecraft classes) and can be developed in
 parallel after Task 1, except Task 3 and 4 both consume Task 2 types.

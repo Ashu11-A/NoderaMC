@@ -24,7 +24,7 @@ demoted to a non-authoritative full archival bootstrap peer. The project's centr
 | [`docs/Plan.md`](Plan.md) | **Architecture & roadmap.** Locked decisions (§3), module layout (§4), phases (§6), invariants (§8). |
 | [`docs/Task.0.md`](Task.0.md) | **Conventions, definitions, task index & dependency graph.** Binding for all other tasks. |
 | [`docs/LIMITATIONS.md`](LIMITATIONS.md) | **The binding limitation register.** §A envelope constraints, §B staged-capability burn-down (each with an owning task + exit test). No permanent exclusions allowed. |
-| [`docs/Task.1.md` … `docs/Task.16.md`](Task.1.md) | **Per-task specs** (goal, folders, classes, mod/server split, acceptance criteria). Each maps 1:1 to a GitHub issue. |
+| [`docs/Task.1.md` … `docs/Task.26.md`](Task.1.md) | **Per-task specs** (goal, folders, classes, mod/server split, acceptance criteria). Each maps 1:1 to a GitHub issue. Tasks 19–26 are the **"torrent hosting" feature** (content-addressed multi-seeder worlds, tracker, replication, encryption, crash-safe streaming, tick-lag handoff, multiplayer GUI) — additive to committee validation. |
 
 Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.md`.
 

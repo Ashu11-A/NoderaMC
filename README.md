@@ -19,8 +19,8 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `40%`**
-`████████░░░░░░░░░░░░░░░`
+**Overall system completion: `33%`**
+`███████░░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -30,7 +30,7 @@
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | 🚧 `50%` (**MVP gate proven headlessly**: new Minecraft-free `committee` module wires the consensus primitives around real engine re-execution — every member re-executes + casts a signed ACCEPT vote on its own root, a 2-of-3 quorum commits the delta, a lying validator/primary is out-voted + penalised, equivocation slashes, and `SpotCheckAuditor` audits a deterministic sample. `CommitteeMvpIT` proves quorum-commit then primary-failover-under-bumped-epoch continuation. NeoForge wiring + live 3-client acceptance deferred) |
 | Phase 4 — Server fallback only | cross-region router, soak metrics | 🚧 `50%` (**router + fallback lane proven headlessly**: new Minecraft-free `fallback` module — `CrossRegionRouter` classifies each action into the committee lane or the server lane (unassigned / cross-region / disputed / collapsed), `FallbackExecutor` commits the server lane through the coordinator applier, `SoakMetrics` tracks the committee-commit ratio. `FallbackRoutingIT` proves a spread-out session clears the **>90% committee-commit** exit criterion. Real vanilla cross-region execution + live synthetic-client soak deferred) |
 | Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | 🚧 `45%` (`peer-runtime` membership + heartbeat + gateway migration shipped; **event-sourced `WorldStore` added** — `storage-api` seam + in-memory `storage-eventsourced` impl: content-addressed blobs, append-only certified event logs with chain validation, checkpoints, certificate store, certified-chain `EventReplayer`, and forward `PeerSyncFlow`. RocksDB archival tier + new-peer live sync deferred) |
-| Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | 🚧 `25%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. NAT/libp2p, archival repair, multi-bootstrap pending) |
+| Phase 6 — Gateway migration, P2P, torrent hosting | libp2p, archival repair, multi-bootstrap, content distribution, tracker, replication, encryption | 🚧 `13%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. **"Torrent hosting" feature scoped (Tasks 19–24, all ⬜)** — content-addressed multi-seeder distribution, tracker + archive inventory, rendezvous replication (×5/×4, ≥25%-seed, <5%-per-peer) + repair, multi-factor reliability + client quotas + 24-h retention, per-world encryption, crash-safe streaming. NAT/libp2p, archival repair, multi-bootstrap also still pending. L-32…L-41 open) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
 **Tests:** `364 passing · 0 failing · 0 skipped` (adds **Task 9 Phase 5 event-sourced storage**: `storage-api` filled out (4 — `ContentId`/`Compression`/`GenesisManifest`, the `WorldStore` seam + content/event/checkpoint/certificate interfaces) and a new in-memory `storage-eventsourced` impl (13 — content-addressed dedup, append-only certified event logs with chain + monotonic-id validation, checkpoint ordering, content-addressed certificates, the `EventReplayer` certified-chain verification, and forward `PeerSyncFlow` that discards an uncertified suffix); on top of Task 8's `fallback` (10). See Tested.md).
@@ -198,8 +198,20 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 16 | Player lane & trustless closure (BFT, mod SDK) | 8 | `#16` | ⬜ |
 | 17 | **Debugger tool**: P2P comms + event/block/redstone harness, real server-instance emulation, live debug, coverage reports, log files | 0–8 | `#17` | ⬜ |
 | 18 | **In-game observability & diagnostics HUD**: tab list, boss bars, zone alerts, redesigned command tree + telemetry model | 0–8 | `#18` | 🚧 (`diagnostics` pure module + metered transport + `DiagnosticsIT` + `/nodera`/`/noderac` trees + tab/boss/action-bar surfaces ship; region/entity panels are `UNASSIGNED` placeholders until Tasks 6/12 — L-31; live-server surface verification deferred with `runServer`) |
+| 19 | **Torrent distribution data plane**: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | `#19` | ⬜ (L-32, L-33) |
+| 20 | **Tracker, peer directory, archive inventory, multi-bootstrap** | 6 | `#20` | ⬜ (L-34; retires L-28) |
+| 21 | **Archive placement, replication (×5/×4), ≥25%-seed, <5%-per-peer, repair** | 6 | `#21` | ⬜ (L-35) |
+| 22 | **Multi-factor reliability, client storage quotas, 24-h retention-before-drop** | 6 | `#22` | ⬜ (L-36, L-37, L-38) |
+| 23 | **Per-world content encryption** (password → AES-GCM; seeders hold ciphertext) | 6 | `#23` | ⬜ (L-39) |
+| 24 | **Crash safety + active-player continuous chunk stream** (shutdown-hook flush; sidecar deferred) | 6 | `#24` | ⬜ (L-40; L-41 stretch) |
+| 25 | **Tick-lag / TPS metric + low-TPS region handoff** | 6–7 | `#25` | ⬜ (L-42) |
+| 26 | **Multiplayer GUI**: torrent-host world creation, server list + search, red/gray health, network stats | 0–8 | `#26` | ⬜ (L-43; GUI-deferred acceptance) |
 
-Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.16.md`](docs/Task.16.md).
+Tasks 19–26 deliver the **"torrent hosting" feature** (a world becomes a shared, content-addressed,
+multi-seeder resource). Additive to committee validation: seeders store/propagate only; the active
+region's committee still re-executes+commits. See `docs/Task.19.md` … `docs/Task.26.md`.
+
+Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.26.md`](docs/Task.26.md).
 
 ---
 
