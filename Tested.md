@@ -21,13 +21,14 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) | 48 | 0 | 0 | ✅ | 2026-07-17 |
+| `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT` (Task 7) | 12 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
 | `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **326** | **0** | **0** | ✅ | 2026-07-17 |
+| **TOTAL (implemented modules)** | | **338** | **0** | **0** | ✅ | 2026-07-17 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -53,6 +54,18 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (326 → 338) is **Task 7 — Phase 3 committee validation, the MVP gate** (+12, new
+> Minecraft-free `committee` module): `CommitteeSessionTest` (honest 2-of-3 quorum commits and the
+> committed world re-extracts to the engine's own root), `ByzantineWorkerTest` (a lone lying
+> validator lands in its own root group and is excluded + penalised; a lying primary is out-voted by
+> the honest validators; two colluding liars DO commit a wrong root — the case only the spot-check
+> auditor catches; an equivocating voter is slashed to zero), `SpotCheckAuditorTest` (deterministic
+> selective sampling; audit agrees on an honest commit and disputes a colluded wrong root),
+> `CommitteeFailoverTest` (primary loss promotes a validator under a bumped epoch; no-survivors
+> revokes), and `CommitteeMvpIT` — the MVP milestone: quorum commit, then primary disconnect →
+> validator promoted under epoch+1 → the surviving committee keeps committing. NeoForge wiring + the
+> live 3-client acceptance remain deferred (Phase 0 pattern).
 >
 > Test growth (277 → 326) is **Task 6 — Phase 2 coordinator** (+49): a new Minecraft-free
 > `coordinator` module (48 tests) plus a `shadow-validation` hardening (+1). The coordinator suite:

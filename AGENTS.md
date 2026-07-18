@@ -46,6 +46,13 @@
   `WorldMutationApplier` (two-pass compare-and-set, all-or-nothing). Durable coordinator state
   (`epochs` + `ReliabilityLedger`) persists via `PersistedCoordinatorState` (canonical encoding, tags
   `RELIABILITY_LEDGER`/`COORDINATOR_STATE` appended to the frozen `TypeTags` registry).
+- `committee` (Task 7 — the Minecraft-free Phase 3 MVP gate: `CommitteeMember`, `CommitteeSession`,
+  `SpotCheckAuditor`, `CommitteeFailover`) → `core` + `simulation` + `consensus` + `coordinator`. It
+  wires the existing consensus primitives (`VoteCollector`, `MajorityQuorumPolicy`,
+  `EquivocationDetector`, `SpotCheckPolicy`) around real engine re-execution: each member re-executes
+  and casts a signed ACCEPT vote on its own root; a 2-of-3 quorum on one root commits the delta
+  through the coordinator's `WorldMutationApplier`. The whole propose/vote/quorum/commit/failover
+  loop is proven headlessly (`CommitteeMvpIT`, `ByzantineWorkerTest`).
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
