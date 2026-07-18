@@ -37,6 +37,15 @@
   thin adapter that feeds `ShadowCoordinator`. `SnapshotDeltaApplier` measures timing OUTSIDE the
   hashed path (nanoTime around the engine, never inside it) — the `simulation` forbidden-API ban is
   scoped to `dev.nodera.simulation..` and does not apply here.
+- `coordinator` (Task 6 — the Minecraft-free Phase 2 coordinator: `NodeRegistry`,
+  `ReliabilityLedger`, `RendezvousPlacementPolicy` impl of `core RegionPlacementPolicy`,
+  `RegionAllocator`, `DelegabilityPolicy`, `LeaseManager`, `HeartbeatMonitor`, `RegionPipeline`,
+  `ProposalManager`, `ServerVerifier`, `WorldMutationApplier`) → `core` + `simulation` + `consensus`.
+  The real `ServerLevel` is behind the `MutableWorldView` seam, so the delegate→propose→verify→
+  commit→reassign pipeline is unit-tested headlessly (`CoordinatorIT`). All world writes go through
+  `WorldMutationApplier` (two-pass compare-and-set, all-or-nothing). Durable coordinator state
+  (`epochs` + `ReliabilityLedger`) persists via `PersistedCoordinatorState` (canonical encoding, tags
+  `RELIABILITY_LEDGER`/`COORDINATOR_STATE` appended to the frozen `TypeTags` registry).
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They

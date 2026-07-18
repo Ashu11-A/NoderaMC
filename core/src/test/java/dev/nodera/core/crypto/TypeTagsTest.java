@@ -65,8 +65,11 @@ final class TypeTagsTest {
         assertThat(TypeTags.COMMITTEE_CHANGE_CERT).isEqualTo(53);
         assertThat(TypeTags.SERVER_AUTH_CERT).isEqualTo(54);
         assertThat(TypeTags.GATEWAY_TRANSFER_CERT).isEqualTo(55);
+        // coordinator persistence
+        assertThat(TypeTags.RELIABILITY_LEDGER).isEqualTo(60);
+        assertThat(TypeTags.COORDINATOR_STATE).isEqualTo(61);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(55);
+        assertThat(TypeTags.NEXT).isEqualTo(61);
     }
 
     @Test

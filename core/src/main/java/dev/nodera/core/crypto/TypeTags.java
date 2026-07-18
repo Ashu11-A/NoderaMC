@@ -61,6 +61,10 @@ public final class TypeTags {
     public static final int SERVER_AUTH_CERT     = 54;   // Task 11 (reserved now)
     public static final int GATEWAY_TRANSFER_CERT = 55;  // Task 10 (reserved now)
 
+    // --- coordinator persistence (Task 6) ---
+    public static final int RELIABILITY_LEDGER   = 60;
+    public static final int COORDINATOR_STATE    = 61;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 55;
+    public static final int NEXT = 61;
 }
