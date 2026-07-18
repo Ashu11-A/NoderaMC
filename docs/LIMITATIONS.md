@@ -83,7 +83,7 @@ observable in normal play.
 | L-39 | World content is plaintext on the P2P net; any connected peer can read any chunk; no per-world encryption | T23 | AES-GCM-256 content encryption under Argon2id(password)-derived key; seeders store ciphertext, verify by hash; join requires password; ciphertext-integrity + wrong-password + nonce-uniqueness tests green | RETIRING |
 | L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | RETIRING |
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
-| L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | OPEN |
+| L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | OPEN |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
@@ -152,6 +152,17 @@ observable in normal play.
 > inventory, and client/server lifecycle registration use these seams. L-41 remains OPEN: no separate
 > OS sidecar exists; current proof establishes redundancy safety, not a crash-surviving quarantine
 > process.
+>
+> **L-42 status (Task 25, 2026-07-18).** The Minecraft-free lag path is green. `SessionKeepAlive`
+> tag 23 now emits v2 with canonical per-region assignment progress while accepting v1 as empty;
+> `TickSync` admits only locally verified certificates as region/network references and treats remote
+> reports as advisory. Integer-EMA `TickSkewMeter` exposes validator and region skew, `TpsMeter`
+> measures commit throughput using injected monotonic time, and `LagHandoffPolicy` requires skew
+> strictly above four ticks for consecutive windows with assignment resets and cooldown. Guarded
+> `CommitteeFailover` rejects stale decisions, applies one reliability penalty, and bumps exactly one
+> epoch. `LagHandoffIT` proves isolated promotion, continued commit, untouched neighbouring state,
+> and certified replay. L-42 retires when live committee commit feeds, coordinator policy scheduling,
+> diagnostics HUD exposure, and NeoForge runtime construction use these seams.
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

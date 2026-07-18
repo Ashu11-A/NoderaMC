@@ -44,6 +44,17 @@ class ReliabilityLedgerTest {
     }
 
     @Test
+    void lagHandoffPenaltyMakesEvenAHighlyReliableNodeIneligible() {
+        ReliabilityLedger ledger = new ReliabilityLedger(0.02, 0.95, 1.0);
+        NodeId n = CoordFixtures.node(4L);
+
+        double penalized = ledger.penalizeForLagHandoff(n);
+
+        assertThat(penalized).isLessThan(0.95);
+        assertThat(ledger.eligibleForAssignment(n)).isFalse();
+    }
+
+    @Test
     void persistenceRoundTrip() {
         ReliabilityLedger ledger = new ReliabilityLedger();
         ledger.record(CoordFixtures.node(1L), true);

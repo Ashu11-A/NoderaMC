@@ -74,6 +74,23 @@ public final class ReliabilityLedger implements Encodable {
         return updated;
     }
 
+    /**
+     * Apply the one-shot lag-handoff penalty. It begins with the normal failed-outcome EMA update,
+     * then caps the result immediately below the assignment floor when a highly reliable node would
+     * otherwise remain eligible. Callers must invoke this only after a lag decision has been
+     * validated and the handoff has actually changed the lease.
+     *
+     * @return the updated, assignment-ineligible score.
+     */
+    public double penalizeForLagHandoff(NodeId node) {
+        double updated = record(node, false);
+        if (updated >= assignmentFloor) {
+            updated = Math.nextDown(assignmentFloor);
+            scores.put(node, updated);
+        }
+        return updated;
+    }
+
     /** Slash a node's score to 0 (equivocation — Plan §10: "slash to 0 on equivocation"). */
     public void slash(NodeId node) {
         scores.put(node, 0.0);

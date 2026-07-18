@@ -3,6 +3,7 @@ package dev.nodera.peer;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
+import dev.nodera.core.region.RegionCommittee;
 import dev.nodera.diagnostics.metric.MessageCounters;
 import dev.nodera.diagnostics.model.PeerLink;
 import dev.nodera.diagnostics.model.SessionInfo;
@@ -15,6 +16,7 @@ import dev.nodera.protocol.membership.MembershipUpdate;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.membership.PeerGoodbye;
 import dev.nodera.protocol.membership.PeerJoin;
+import dev.nodera.protocol.membership.RegionProgress;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
@@ -73,6 +75,7 @@ public final class PeerRuntime implements DiagnosticsSource {
     private final PeerRuntimeConfig config;
     private final PeerEventListener listener;
     private final MessageCounters messageCounters; // nullable; if null, per-type counting is off
+    private final TickSync tickSync; // nullable; if null, heartbeats carry empty regional progress
 
     private final java.util.concurrent.ExecutorService stateExec;
     private final ScheduledExecutorService heartbeatExec;
@@ -102,6 +105,10 @@ public final class PeerRuntime implements DiagnosticsSource {
         this.config = b.config;
         this.listener = b.listener != null ? b.listener : new PeerEventListener() {};
         this.messageCounters = b.messageCounters;
+        this.tickSync = b.tickSync;
+        if (tickSync != null && !selfId.equals(tickSync.nodeId())) {
+            throw new IllegalArgumentException("tickSync nodeId must match runtime identity");
+        }
         this.stateExec = Executors.newSingleThreadExecutor(named("nodera-peer-state-" + shortId()));
         this.heartbeatExec = Executors.newSingleThreadScheduledExecutor(
                 named("nodera-peer-hb-" + shortId()));
@@ -137,10 +144,23 @@ public final class PeerRuntime implements DiagnosticsSource {
                                         PeerTransport transport, Supplier<String> selfRouteSupplier,
                                         PeerRuntimeConfig config, PeerEventListener listener,
                                         MessageCounters messageCounters) {
+        return bootstrap(identity, capabilities, transport, selfRouteSupplier, config, listener,
+                messageCounters, null);
+    }
+
+    /**
+     * Bootstrap factory with optional Task 18 counters and Task 25 regional tick synchronization.
+     * Existing factories delegate here with a null synchronizer, preserving empty progress behavior.
+     */
+    public static PeerRuntime bootstrap(NodeIdentity identity, NodeCapabilities capabilities,
+                                        PeerTransport transport, Supplier<String> selfRouteSupplier,
+                                        PeerRuntimeConfig config, PeerEventListener listener,
+                                        MessageCounters messageCounters, TickSync tickSync) {
         PeerRuntime rt = new Builder(identity, capabilities, transport, selfRouteSupplier, config)
                 .bootstrapCapable(true)
                 .listener(listener)
                 .messageCounters(messageCounters)
+                .tickSync(tickSync)
                 .build();
         rt.start();
         return rt;
@@ -172,11 +192,22 @@ public final class PeerRuntime implements DiagnosticsSource {
                                    PeerTransport transport, Supplier<String> selfRouteSupplier,
                                    PeerAddress bootstrapAddress, PeerRuntimeConfig config,
                                    PeerEventListener listener, MessageCounters messageCounters) {
+        return peer(identity, capabilities, transport, selfRouteSupplier, bootstrapAddress, config,
+                listener, messageCounters, null);
+    }
+
+    /** Player-peer factory with optional counters and regional tick synchronization. */
+    public static PeerRuntime peer(NodeIdentity identity, NodeCapabilities capabilities,
+                                   PeerTransport transport, Supplier<String> selfRouteSupplier,
+                                   PeerAddress bootstrapAddress, PeerRuntimeConfig config,
+                                   PeerEventListener listener, MessageCounters messageCounters,
+                                   TickSync tickSync) {
         PeerRuntime rt = new Builder(identity, capabilities, transport, selfRouteSupplier, config)
                 .bootstrapCapable(false)
                 .bootstrapAddress(Objects.requireNonNull(bootstrapAddress, "bootstrapAddress"))
                 .listener(listener)
                 .messageCounters(messageCounters)
+                .tickSync(tickSync)
                 .build();
         rt.start();
         return rt;
@@ -248,6 +279,31 @@ public final class PeerRuntime implements DiagnosticsSource {
     /** @return the per-type message counters (null if counting was not enabled). */
     public MessageCounters messageCounters() {
         return messageCounters;
+    }
+
+    /** @return the regional tick synchronizer, or {@code null} when not wired. */
+    public TickSync tickSync() {
+        return tickSync;
+    }
+
+    /**
+     * Feed one locally verified regional certificate into the optional Task 25 synchronizer.
+     * Runtime factories without a synchronizer remain source- and behavior-compatible.
+     *
+     * @return {@code true} if the certified assignment/progress snapshot advanced.
+     */
+    public boolean onCertifiedCommit(RegionCommittee assignment, long lastAppliedTick) {
+        return tickSync != null && tickSync.onCertifiedCommit(assignment, lastAppliedTick);
+    }
+
+    /**
+     * Feed a locally verified commit from elsewhere in the network into the lag reference without
+     * claiming local application progress for that region.
+     *
+     * @return {@code true} if the certified network reference advanced.
+     */
+    public boolean onCertifiedNetworkReference(long committedTick) {
+        return tickSync != null && tickSync.onCertifiedNetworkReference(committedTick);
     }
 
     /**
@@ -399,7 +455,10 @@ public final class PeerRuntime implements DiagnosticsSource {
         markSeen(k.from());
         heard.add(k.from());
         keepAliveSeq.merge(k.from(), k.seq(), Math::max);
-        listener.onKeepAlive(k.from(), k.seq());
+        if (tickSync != null) {
+            tickSync.onKeepAlive(k);
+        }
+        listener.onKeepAlive(k.from(), k.seq(), k.regionProgress());
     }
 
     // ---- failure detection & migration (state thread) ------------------------------------
@@ -419,7 +478,10 @@ public final class PeerRuntime implements DiagnosticsSource {
 
     private void onHeartbeatTick() {
         keepAliveSeqCounter++;
-        broadcast(new SessionKeepAlive(selfId, keepAliveSeqCounter));
+        List<RegionProgress> progress = tickSync == null
+                ? List.of()
+                : tickSync.localProgress();
+        broadcast(new SessionKeepAlive(selfId, keepAliveSeqCounter, progress));
         // Prune members we have an established link with but have not heard from within the window.
         long now = System.nanoTime();
         long timeoutNanos = config.failureTimeout().toNanos();
@@ -610,6 +672,7 @@ public final class PeerRuntime implements DiagnosticsSource {
         private PeerAddress bootstrapAddress;
         private PeerEventListener listener;
         private MessageCounters messageCounters;
+        private TickSync tickSync;
 
         Builder(NodeIdentity identity, NodeCapabilities capabilities, PeerTransport transport,
                 Supplier<String> selfRouteSupplier, PeerRuntimeConfig config) {
@@ -637,6 +700,11 @@ public final class PeerRuntime implements DiagnosticsSource {
 
         Builder messageCounters(MessageCounters c) {
             this.messageCounters = c;
+            return this;
+        }
+
+        Builder tickSync(TickSync sync) {
+            this.tickSync = sync;
             return this;
         }
 

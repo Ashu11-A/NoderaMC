@@ -48,13 +48,14 @@ coordinator/src/main/java/dev/nodera/coordinator/
   one that detects a laggard **primary**, which a committee-internal reference structurally cannot
   (the primary's own progress *defines* the region's committed tick): reference = the maximum
   committed tick across the peer's region/network view; a region whose committed tick falls behind
-  it is being held back by its primary. Each peer gossips its last-applied tick per region in the
-  existing heartbeat cadence: `SessionKeepAlive` gains a `lastAppliedTick` field — note this is an
-  encoding change to a frozen contract, so bump the message's `ENCODING_VERSION` (readers accept
-  both versions); `MessageCodec` *tags* are append-only, message *fields* are not. `TickSkewMeter`
+  it is being held back by its primary. Existing heartbeat cadence gossips each peer's last-applied
+  tick per region: `SessionKeepAlive` gains a per-region progress list — note this is an encoding
+  change to a frozen contract, so bump the message's `ENCODING_VERSION` (readers accept both
+  versions); `MessageCodec` *tags* are append-only, message *fields* are not. `TickSkewMeter`
   computes both skews as EMAs; `TpsMeter` computes commits/sec over a rolling window.
-- **Metric outside the hashed path.** `TickSkewMeter`/`TpsMeter` read wall-clock (they must — TPS is
-  a wall-clock quantity) but live in `diagnostics`/`peer-runtime`, never in `simulation`; they are
+- **Metric outside the hashed path.** Callers feed `TickSkewMeter`/`TpsMeter` applied ticks and, for
+  rolling TPS, injected monotonic nanoseconds; production adapters may read a clock, but the metrics
+  never do so implicitly. Both live in `diagnostics`/`peer-runtime`, never in `simulation`; they are
   excluded from `RegionExecutionContext`, `StateRoot`, and every certificate (the `simulation`
   forbidden-API ArchUnit rule is scoped to `dev.nodera.simulation..` and does not cover these
   packages — same precedent as `shadow-validation` timing).
@@ -68,6 +69,11 @@ coordinator/src/main/java/dev/nodera/coordinator/
   the failover — the dependency direction is unchanged. The boundary itself (neighbouring regions under different
   primaries) stays consistent because each region commits independently and cross-region effects go
   through the Task 8 fallback/router.
+- **Keep-alive compatibility and trust boundary.** `SessionKeepAlive` v2 carries a canonically sorted
+  per-region progress list (`RegionId`, epoch, primary, last-applied tick); the tag remains 23 and
+  readers accept v1 as an empty list. A peer measures progress only when region/epoch/primary match
+  its locally certified assignment. Remote reports are advisory and can never establish or advance
+  the committed reference tick.
 - **"Maximum synchronisation" aim.** The policy skews toward early handoff (small threshold) so
   boundaries rarely wait on a laggard; the diagnostics HUD (Task 18) surfaces per-peer skew live.
 
@@ -78,6 +84,24 @@ coordinator/src/main/java/dev/nodera/coordinator/
   `LagHandoffIT` proves a laggard primary is replaced and boundary state stays consistent.
 - **A-1** (consensus latency vs 50 ms tick budget) is partially addressed: a laggard no longer
   stalls its region's boundary.
+
+## Headless implementation status (2026-07-18)
+
+- `SessionKeepAlive` tag 23 emits encoding v2 with canonical per-region progress and still decodes
+  v1 as empty progress; tags remain append-only.
+- `TickSync` publishes locally applied certified progress, accepts a separate locally certified
+  network-reference high-water mark, rejects assignment-mismatched gossip, and never promotes a
+  remote report into reference state.
+- `TickSkewMeter` computes validator and region EMA skew with integer tick-basis-points;
+  `TpsMeter` computes commit throughput with injected monotonic nanoseconds. Neither enters
+  simulation, state roots, or certificates.
+- `LagHandoffPolicy` uses the four-tick default, strict-greater comparison, three consecutive
+  windows, assignment resets, and `DELEGABILITY_COOLDOWN_TICKS`. `CommitteeFailover.promoteOnLag`
+  revalidates region/epoch/primary, penalises once below the assignment floor, and reuses the
+  existing exactly-one-epoch promotion path.
+- `LagHandoffIT` proves isolated lagging-region promotion, continued commit at epoch+1, an untouched
+  neighbour, and certified event replay. Live commit feeds, coordinator scheduling, HUD rendering,
+  and NeoForge runtime construction remain deferred; L-42 is RETIRING.
 
 ## Acceptance criteria
 

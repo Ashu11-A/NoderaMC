@@ -11,17 +11,17 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 |---|---|---:|---:|---:|:---:|---|
 | `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) | 117 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
-| `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd) | 28 | 0 | 0 | ✅ | 2026-07-17 |
+| `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25) | 36 | 0 | 0 | ✅ | 2026-07-18 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-api` | `PeerTransport` seam | 9 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) | 103 | 0 | 0 | 🚧 | 2026-07-18 |
-| `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) | 108 | 0 | 0 | 🚧 | 2026-07-18 |
+| `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, integer-EMA TickSkewMeter/TpsMeter, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Tasks 18/25) | 45 | 0 | 0 | ✅ | 2026-07-18 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
-| `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) | 56 | 0 | 0 | ✅ | 2026-07-18 |
-| `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, vote-before-sign `VotePersistence`, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT`/`CrashRecoveryIT` (Tasks 7/24) | 15 | 0 | 0 | ✅ | 2026-07-18 |
+| `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) + sustained-skew `LagHandoffPolicy` (Task 25) | 61 | 0 | 0 | ✅ | 2026-07-18 |
+| `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, vote-before-sign `VotePersistence`, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, guarded CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT`/`CrashRecoveryIT`/`LagHandoffIT` (Tasks 7/24/25) | 16 | 0 | 0 | ✅ | 2026-07-18 |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics + `FallbackRoutingIT` (Task 8) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
 | `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id/encrypted ciphertext flow + Task 24 bounded `ActivePlayerStream`/`EmergencyFlush`, `DistributionIT` + `EncryptedDistributionIT` + stream/flush ITs | 78 | 0 | 0 | ✅ | 2026-07-18 |
@@ -31,7 +31,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **576** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **605** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +57,18 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (576 → 605) is **Task 25 — tick-lag / TPS handoff** (+29). `protocol` (+8)
+> upgrades `SessionKeepAlive` tag 23 to canonical per-region v2 progress while decoding v1 as empty.
+> `diagnostics` (+10) adds integer-EMA validator/region `TickSkewMeter` and injected-time
+> commit-throughput `TpsMeter`. `peer-runtime` (+5) adds `TickSync`, assignment-gated advisory
+> heartbeat progress, explicit locally certified network references, and loopback propagation.
+> `coordinator` (+5) adds strict-greater sustained-skew `LagHandoffPolicy`, assignment resets,
+> cooldown, and a one-shot below-floor reliability penalty. `committee` (+1) adds guarded stale-safe
+> failover and `LagHandoffIT`: only the lagging region moves, epoch bumps once, its new primary commits,
+> the neighbouring state remains unchanged, and the certified event replays to the committed root.
+> Live commit feeds, policy scheduling, HUD exposure, and NeoForge runtime construction remain
+> deferred, so L-42 is RETIRING.
 >
 > Test growth (556 → 576) is **Task 24 — active-player stream + crash safety** (+20).
 > `distribution` (+10) adds `ActivePlayerStream` (latest-per-region coalescing, cross-manifest hash

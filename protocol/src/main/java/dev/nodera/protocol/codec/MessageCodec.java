@@ -31,6 +31,7 @@ import dev.nodera.protocol.membership.MembershipUpdate;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.membership.PeerGoodbye;
 import dev.nodera.protocol.membership.PeerJoin;
+import dev.nodera.protocol.membership.RegionProgress;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
@@ -54,12 +55,13 @@ import java.util.UUID;
  * <h2>Wire contract (FROZEN — append-only)</h2>
  *
  * <p>Every frame begins with a {@code u16 typeTag} (see the constants below) followed by a
- * {@code u16 version} (currently always {@value #ENCODING_VERSION}). The body that follows is
- * message-specific; it composes core's big-endian fixed-width primitives (no varints, no
- * floats in hashed state). Nested {@code Encodable} values (e.g. {@code NodeId},
- * {@code RegionId}, {@code StateRoot}, {@code SignedVote}, {@code ActionBatch}) are written
- * via their own {@code encode} so their bytes are identical on the wire and in any signed
- * portion.
+ * {@code u16 version}. All tags except {@link SessionKeepAlive} use
+ * {@value #ENCODING_VERSION}; tag 23 is emitted as
+ * {@value #SESSION_KEEP_ALIVE_ENCODING_VERSION} and its decoder also accepts legacy version 1.
+ * The body that follows is message-specific; it composes core's big-endian fixed-width primitives
+ * (no varints, no floats in hashed state). Nested {@code Encodable} values (e.g. {@code NodeId},
+ * {@code RegionId}, {@code StateRoot}, {@code SignedVote}, {@code ActionBatch}) are written via
+ * their own {@code encode} so their bytes are identical on the wire and in any signed portion.
  *
  * <p><b>Tag assignment is permanent.</b> The constants below are a frozen wire contract:
  * assigning a tag is permanent; <b>never renumber or reuse an existing tag</b>. New message
@@ -111,8 +113,11 @@ public final class MessageCodec {
 
     private MessageCodec() {}
 
-    /** Canonical encoding version; bump only on a network-breaking change. */
+    /** Global encoding version used by every tag without a message-specific upgrade. */
     public static final int ENCODING_VERSION = 1;
+
+    /** Version emitted for tag 23; its decoder also accepts legacy version 1 frames. */
+    public static final int SESSION_KEEP_ALIVE_ENCODING_VERSION = 2;
 
     /** {@link ClientHello} tag. */ public static final int TAG_CLIENT_HELLO      = 1;
     /** {@link ServerHello} tag. */ public static final int TAG_SERVER_HELLO      = 2;
@@ -268,10 +273,16 @@ public final class MessageCodec {
         CanonicalReader r = new CanonicalReader(frame);
         int tag = r.readU16();
         int version = r.readU16();
-        if (version != ENCODING_VERSION) {
+        if (tag == TAG_SESSION_KEEP_ALIVE) {
+            if (version != ENCODING_VERSION
+                    && version != SESSION_KEEP_ALIVE_ENCODING_VERSION) {
+                throw new IllegalStateException(
+                        "unsupported SessionKeepAlive encoding version " + version);
+            }
+        } else if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported message encoding version " + version);
         }
-        NoderaMessage msg = decodeBody(r, tag);
+        NoderaMessage msg = decodeBody(r, tag, version);
         // Reject frames with trailing bytes: a valid message followed by extra bytes must not
         // decode silently (append-only wire contract — an over-long frame is malformed, and
         // accepting it would let two distinct byte strings map to the same message, breaking the
@@ -474,9 +485,18 @@ public final class MessageCodec {
                 w.writeU64(m.epoch());
             }
             case SessionKeepAlive m -> {
-                w.writeU16(TAG_SESSION_KEEP_ALIVE).writeU16(ENCODING_VERSION);
+                w.writeU16(TAG_SESSION_KEEP_ALIVE)
+                        .writeU16(SESSION_KEEP_ALIVE_ENCODING_VERSION);
                 m.from().encode(w);
                 w.writeU64(m.seq());
+                // The record constructor rejects duplicate regions and sorts by RegionId, so this
+                // list is canonical before it reaches the wire.
+                w.writeList(m.regionProgress(), (ww, progress) -> {
+                    progress.region().encode(ww);
+                    progress.epoch().encode(ww);
+                    progress.primary().encode(ww);
+                    ww.writeU64(progress.lastAppliedTick());
+                });
             }
             case ContentRequest m -> {
                 w.writeU16(TAG_CONTENT_REQUEST).writeU16(ENCODING_VERSION);
@@ -583,7 +603,7 @@ public final class MessageCodec {
         w.writeU64(uuid.getLeastSignificantBits());
     }
 
-    private static NoderaMessage decodeBody(CanonicalReader r, int tag) {
+    private static NoderaMessage decodeBody(CanonicalReader r, int tag, int encodingVersion) {
         return switch (tag) {
             case TAG_CLIENT_HELLO -> {
                 int protocolVersion = (int) r.readU32();
@@ -743,7 +763,16 @@ public final class MessageCodec {
             case TAG_SESSION_KEEP_ALIVE -> {
                 dev.nodera.core.identity.NodeId from = dev.nodera.core.identity.NodeId.decode(r);
                 long seq = r.readU64();
-                yield new SessionKeepAlive(from, seq);
+                if (encodingVersion == ENCODING_VERSION) {
+                    // Legacy v1 ended after seq; expose the new field as an immutable empty list.
+                    yield new SessionKeepAlive(from, seq);
+                }
+                java.util.List<RegionProgress> progress = r.readList(rr -> new RegionProgress(
+                        dev.nodera.core.region.RegionId.decode(rr),
+                        dev.nodera.core.region.RegionEpoch.decode(rr),
+                        dev.nodera.core.identity.NodeId.decode(rr),
+                        rr.readU64()));
+                yield new SessionKeepAlive(from, seq, progress);
             }
             case TAG_CONTENT_REQUEST -> {
                 Bytes manifestRoot = r.readBytesValue();

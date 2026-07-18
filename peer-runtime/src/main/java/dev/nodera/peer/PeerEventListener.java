@@ -1,6 +1,9 @@
 package dev.nodera.peer;
 
 import dev.nodera.core.identity.NodeId;
+import dev.nodera.protocol.membership.RegionProgress;
+
+import java.util.List;
 
 /**
  * Callback surface for observing a {@link PeerRuntime}'s session lifecycle (Phase 6 P2P
@@ -31,6 +34,14 @@ public interface PeerEventListener {
 
     /** A direct keep-alive arrived from {@code from} — the live "still connected" signal. */
     default void onKeepAlive(NodeId from, long seq) {}
+
+    /**
+     * Progress-aware keep-alive callback (Task 25). The default delegates to the original two-arg
+     * callback so existing listeners continue to receive every heartbeat unchanged.
+     */
+    default void onKeepAlive(NodeId from, long seq, List<RegionProgress> regionProgress) {
+        onKeepAlive(from, seq);
+    }
 
     /** A peer joined the session. */
     default void onPeerJoined(NodeId who) {}

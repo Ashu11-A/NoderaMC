@@ -326,6 +326,11 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
   spreads only physically-missing hashes under explicit byte windows; graceful emergency flush uses
   one absolute deadline and counts only verified destination storage acknowledgements. A shutdown
   hook is defence-in-depth — hard-crash safety comes from quorum-held state plus archival repair.
+- Task-25 lag-handoff invariant: only locally observed certified commits establish a region's
+  reference tick; per-region keep-alive progress is advisory and cannot advance that reference.
+  Handoff requires skew strictly above threshold for consecutive windows, pins the observed
+  region/epoch/primary, and reuses committee failover for exactly one epoch bump. Healthy windows,
+  assignment changes, and cooldown suppress flapping; clocks and metrics remain outside simulation.
 - **Milestone A (= §19 M1)**: server participates as ordinary validator while storing
   everything and seeding snapshots.
 - **Milestone B (= §19 M2, network continuity)**: kill the full peer → existing peers

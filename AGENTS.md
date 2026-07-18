@@ -25,16 +25,18 @@
   `BootstrapClient`, `InvitationCodec`, `CachedPeerStore`, `PersistentIdentityStore`; plus — Task 21
   — the `peer-runtime/archival` package: `ArchivePlacementPolicy`/`RendezvousArchivePolicy`,
   `ReplicationFactors`, `SeedFloorPolicy`, `ArchiveAuditTask`, `ArchiveRepairService`,
-  `ArchiveManager`; plus — Task 24 — deadline-bound `PeerShutdownHook`) → `core` + `transport-api`
+  `ArchiveManager`; plus — Task 24 — deadline-bound `PeerShutdownHook`; plus — Task 25 — `TickSync`
+  and optional per-region `SessionKeepAlive` v2 progress wiring) → `core` + `transport-api`
   + `protocol` + `diagnostics` + `distribution`. It depends only on the transport SEAM, never a
   concrete transport, so
   it runs over both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
   `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). `MeteredPeerTransport`
   wraps any transport to feed a `TrafficMeter`, and `PeerRuntime` doubles as a `DiagnosticsSource`.
   Both peer-runtime and diagnostics are Minecraft-free pure-Java modules.
-- `diagnostics` (Task 18 — the Minecraft-free telemetry/view-model core: `TrafficMeter`,
-  `RateWindow`, `MessageCounters`, `TelemetrySnapshot`, `ZoneClassifier`, `DiagnosticsView`) → `core`
-  only. Unit-testable without a server; the thin `neoforge-mod` `dev.nodera.mod.debug` renderers
+- `diagnostics` (Tasks 18/25 — the Minecraft-free telemetry/view-model core: `TrafficMeter`,
+  `RateWindow`, `MessageCounters`, integer-EMA `TickSkewMeter`/`TpsMeter`, `TelemetrySnapshot`,
+  `ZoneClassifier`, `DiagnosticsView`) → `core` only. Task-25 metrics accept injected monotonic time;
+  they never enter simulation, state roots, or certificates. Unit-testable without a server; the thin `neoforge-mod` `dev.nodera.mod.debug` renderers
   consume it.
 - `shadow-validation` (Task 5 — the Minecraft-free Phase 1 shadow lane: `WorkerRuntime`,
   `ReplicaStore`, `SnapshotDeltaApplier`, `ShadowWorker`, `ShadowCoordinator`, `ServerRecompute`,
@@ -54,17 +56,23 @@
   `RELIABILITY_LEDGER`/`COORDINATOR_STATE` appended to the frozen `TypeTags` registry). Task 22 adds the
   multi-factor `ReliabilityScorer` (correctness+connectivity+uptime+availability+worlds-seeded, pure
   basis-point math) ADDITIVELY — the Task-6 `ReliabilityLedger` EMA stays the frozen correctness source.
+  Task 25 adds `LagHandoffPolicy`: region skew must be strictly above four ticks for consecutive
+  windows, assignment changes reset the streak, cooldown prevents flapping, and only a guarded
+  handoff applies the one-shot below-floor reliability penalty.
 - `committee` (Task 7 — the Minecraft-free Phase 3 MVP gate: `CommitteeMember`, `CommitteeSession`,
   `SpotCheckAuditor`, `CommitteeFailover`) → `core` + `simulation` + `consensus` + `coordinator`. It
   wires the existing consensus primitives (`VoteCollector`, `MajorityQuorumPolicy`,
   `EquivocationDetector`, `SpotCheckPolicy`) around real engine re-execution: each member re-executes
   and casts a signed ACCEPT vote on its own root; Task 24 adds `VotePersistence`, so crash-safe
   members durably prepare the candidate before signing and certificate voters persist the quorum
-  certificate before canonical apply. A 2-of-3 quorum on one root commits the delta
+  certificate before canonical apply. Task 25 adds guarded lag handoff: the decision pins
+  region/epoch/primary, stale decisions are no-ops, and `CommitteeFailover` reuses its existing
+  exactly-one-epoch promotion path. A 2-of-3 quorum on one root commits the delta
   through the coordinator's `WorldMutationApplier`. The whole propose/vote/quorum/commit/failover
   loop is proven headlessly (`CommitteeMvpIT`, `ByzantineWorkerTest`); `CrashRecoveryIT` forcibly
   kills a JVM, drops the primary store, repairs physical snapshot replicas back to ×5, and replays a
-  surviving certified log.
+  surviving certified log. `LagHandoffIT` proves sustained-skew promotion, continued epoch+1 commit,
+  untouched neighbouring state, and certified replay.
 - `fallback` (Task 8 — the Minecraft-free Phase 4 server-fallback + cross-region router:
   `CrossRegionRouter`, `FallbackExecutor`, `SoakMetrics`, `FallbackRouter`) → `core` + `simulation` +
   `consensus` + `coordinator`. Classifies every action into the committee lane or the server lane
@@ -121,7 +129,9 @@
 - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` + `TypeTags`.
   Every `Encodable.encode` starts with `writeU16(typeTag); writeU16(ENCODING_VERSION);`.
 - `core/Bytes` is the single byte[] value type (use everywhere, never raw byte[] in records).
-- Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber).
+- Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber). `SessionKeepAlive` keeps tag
+  23 but emits body version 2 for canonical per-region progress; its decoder must continue accepting
+  v1 as empty progress while all unchanged tags remain on global version 1.
 - Hash/sign: `core/crypto/HashService` (SHA-256 over canonical encoding) + `SignatureService`
   (Ed25519 verify; signing lives on `core/identity/NodeIdentity`).
 
