@@ -73,6 +73,25 @@ public final class DiagnosticsService {
         return latest;
     }
 
+    /**
+     * @return the latest snapshot, or — if the periodic sampler has not ticked yet — a one-shot
+     *         sample taken now. Returns {@code null} only if the server peer is genuinely offline.
+     *         Lets commands ({@code /nodera zone} etc.) respond instantly during the first second
+     *         of server boot instead of reporting "diagnostics offline".
+     */
+    public TelemetrySnapshot snapshotOrSample() {
+        TelemetrySnapshot s = latest;
+        if (s != null) {
+            return s;
+        }
+        if (serverRuntime == null) {
+            return null;
+        }
+        latest = collector.sample(tickSeq, System.nanoTime(),
+                serverRuntime.nodeId(), serverRuntime.isBootstrap());
+        return latest;
+    }
+
     /** @return the HUD preference for {@code player} (defaults if unset). */
     public HudPref pref(UUID player) {
         return prefs.getOrDefault(player, HudPref.defaults());

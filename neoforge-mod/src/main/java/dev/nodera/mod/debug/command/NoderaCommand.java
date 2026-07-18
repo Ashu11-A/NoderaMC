@@ -45,7 +45,7 @@ public final class NoderaCommand {
                                 Supplier<DiagnosticsService> service) {
         Supplier<TelemetrySnapshot> snap = () -> {
             DiagnosticsService s = service.get();
-            return s == null ? null : s.latest();
+            return s == null ? null : s.snapshotOrSample();
         };
 
         dispatcher.register(literal("nodera")
