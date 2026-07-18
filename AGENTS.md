@@ -70,6 +70,19 @@
   the read-side `EventReplayer` (verifies the certified `prevRoot→resultingRoot` chain; an uncertified
   suffix stops replay), and `PeerSyncFlow` (forward-only sync, Invariant 8). The RocksDB archival
   tier will implement the same seam later.
+- `distribution` (Task 19 — the Minecraft-free torrent data plane: `Piece`, `PieceManifest`,
+  `WorldKeyMaterial` (Task 23 slot reserved), `PieceSplitter`/`RegionSnapshotSplitter`,
+  `PieceSelector`, `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService`)
+  → `core` + `storage-api` + `protocol` + `transport-api`. It adds a PIECE layer *beneath* the
+  frozen region layer: `RegionSnapshot`/`StateRoot` (Task 2) and `ContentId`/`ContentStore` (Task 9)
+  are untouched. The blob the pieces slice is byte-for-byte `RegionSnapshot.encode`, so
+  `SHA-256(reassembled blob)` IS the region's `StateRoot` — a region rebuilt from untrusted partial
+  seeders is provably the state the committee committed. Hash-validate-before-accept is enforced
+  against the MANIFEST's hash for an index, never a hash carried alongside the payload
+  (`ContentChunk` deliberately has no hash field). Selection is deterministic (`StableHash`
+  rarest-first + rendezvous tie-break, no clocks/entropy); serve budgets are advanced by an explicit
+  `resetServeWindow()` call rather than a wall clock. Proven headlessly (`DistributionIT`: 3 seeders
+  each holding <40% of the pieces).
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They

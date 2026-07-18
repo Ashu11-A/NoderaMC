@@ -24,13 +24,14 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT` (Task 7) | 12 | 0 | 0 | ✅ | 2026-07-17 |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics + `FallbackRoutingIT` (Task 8) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
+| `distribution` | Phase 5–6 torrent data plane (Minecraft-free): `Piece`/`PieceManifest`/`WorldKeyMaterial`, `PieceSplitter`/`RegionSnapshotSplitter`, `PieceSelector`, `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService` + `DistributionIT` (Task 19) | 49 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
 | `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **364** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **413** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +58,32 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
 >
+> Test growth (364 → 413) is **Task 19 — the torrent distribution data plane** (+49, new
+> Minecraft-free `distribution` module). `PieceManifestTest` pins the canonical round-trip and the
+> derived `manifestRoot`, and proves the root commits piece *position and length* — swapping two
+> pieces' hashes while keeping the layout changes the root, so a reordered manifest is detectable;
+> the `encrypted`/`keyMaterial` slots reserved for Task 23 round-trip today, so shipping encryption
+> needs no version bump. `PieceSplitterTest` pins the record-boundary rule (a cut never lands
+> mid-record, an over-target record stays whole) and the load-bearing invariant that the sliced blob
+> is **byte-for-byte** `RegionSnapshot.encode` — which is why `manifestRoot`'s sibling `regionRoot`
+> equals the committee's `StateRoot` with no extra agreement. `PieceSelectorTest` is the determinism
+> property (acceptance #5): two selectors given the same `(manifest, holderSet)` emit the identical
+> order regardless of holder-map iteration order, ties break by `StableHash` rather than index (so
+> concurrent fetchers do not all serialise on piece 0 of one seeder), and holder choice is a
+> reproducible rendezvous that spreads pieces across seeders. `PieceReassemblerTest` and
+> `ChunkLockMapTest` pin the safety defaults: a rejected piece leaves the reassembler bit-identical,
+> right-bytes-wrong-index fails, a corrupt *local cache* is refused exactly like corrupt network
+> bytes, an untracked region reads as **locked** (fail-closed), and a superseding manifest re-locks
+> rather than showing stale sections. `PieceDownloaderTest` covers the swarm state machine —
+> in-flight bound, racing holders with the loser's duplicate dropped (not counted as a rejection),
+> retry-away-from-the-liar, lost-holder re-selection, and piece-level resume that never re-requests
+> what is already on disk. `DistributionIT` is the acceptance proof: a region split into 13 pieces is
+> reassembled over a real loopback transport from 3 seeders **each holding under 40%**, and the
+> assembled blob hashes to the root the *engine* computed — a swarm data plane that required no new
+> trust from the consensus layer. It also proves corrupt-seeder rejection never unlocks a chunk,
+> resume-after-disconnect, and the seeder's bandwidth bound. Mod-side consumption of `ChunkLockMap`
+> (renderer / `WorldMutationApplier`) is deferred with the NeoForge lane.
+
 > Test growth (348 → 364) is **Task 9 — Phase 5 event-sourced storage** (+16): `storage-api` filled out
 > (+4 — `ContentId`/`Compression`/`GenesisManifest` value types + the `WorldStore` seam and its
 > content/event/checkpoint/certificate interfaces; replaces the placeholder smoke test) and a new

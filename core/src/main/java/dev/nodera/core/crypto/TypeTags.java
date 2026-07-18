@@ -65,6 +65,14 @@ public final class TypeTags {
     public static final int RELIABILITY_LEDGER   = 60;
     public static final int COORDINATOR_STATE    = 61;
 
+    // --- torrent distribution data plane (Task 19) ---
+    /** One addressable sub-region piece of a content blob. */
+    public static final int PIECE                = 70;
+    /** The piece-hash list binding a region's blob to its {@code StateRoot}. */
+    public static final int PIECE_MANIFEST       = 71;
+    /** Per-world KDF parameters carried by an encrypted manifest (Task 23 fills the key path). */
+    public static final int WORLD_KEY_MATERIAL   = 72;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 61;
+    public static final int NEXT = 72;
 }

@@ -33,10 +33,14 @@ peer-runtime/src/main/java/dev/nodera/peer/archival/
 ├── ArchivePlacementPolicy.java    # interface: expectedHolders(manifestRoot, eligible, networkSize)
 ├── RendezvousArchivePolicy.java   # impl: replication factor by object class; rendezvous order
 ├── ReplicationFactors.java        # snapshot=5, recentLog=4, compacted=3, checkpoint/genesis=all
-├── SeedFloorPolicy.java           # ≥25%-of-network-per-peer dynamic floor; <5%-per-peer cap when N large
+├── SeedFloorPolicy.java           # dynamic floor min(25%, R/N) + cap max(5%, 2·R/N) per peer (see below)
 ├── ArchiveManager.java            # decides what THIS peer should hold; triggers fetch/evict to match
 ├── ArchiveAuditTask.java          # periodic: expected vs inventory (Task 20) → repair list
 └── ArchiveRepairService.java      # for each missing replica: assign next-ranked peer → pull by hash → ack
+
+protocol/src/main/java/dev/nodera/protocol/content/
+├── ArchiveReplicaAssignment.java  # repair wire messages (moved from the Task 9 protocol list):
+└── ArchiveReplicaAck.java         #   (manifestRoot, pieceIndexes, assignee) / ack — appended tags
 ```
 
 ## Class relationships
@@ -59,15 +63,21 @@ ArchiveManager (local): reconcile THIS peer's holdings to its assigned shard
 
 - **Replication factor by object class** (`ReplicationFactors`): current snapshot ×5, recent log ×4,
   compacted history ×3, checkpoint/genesis = everyone. These are **floors**, not ceilings.
-- **≥25%-seed floor (rule 1, dynamic).** `SeedFloorPolicy` computes, per peer, a minimum share =
-  `max(assignedShard, 25% of network piece-set)` that shrinks as `N` grows (when the network is
-  small, 25% is large; as players join, each peer's absolute floor share drops but the floor count
-  stays meaningful). A peer below its floor is a "free-rider" and is deprioritised by the tracker
-  (Task 22 reliability penalty).
-- **<5%-per-peer cap (rule 3).** When `N ≥ 20` (so 5% × 20 = 100% is reachable), no peer is assigned
-  >5% of a world's current-snapshot pieces beyond its own assigned regions; excess redistributes via
-  the repair service. Below that population the cap is relaxed (documented) — you cannot enforce 5%
-  with 3 peers. The tracker reports whether the cap is currently enforceable.
+- **≥25%-seed floor (rule 1, dynamic).** With replication factor `R`, sustaining `R` full copies
+  needs an average per-peer share of `R/N` of a world's piece-set. `SeedFloorPolicy` sets each
+  peer's floor = `min(25%, R/N)` (plus whatever its assigned regions require): at small `N` the
+  floor is the spec's 25% (it equals `R/N` exactly at `N = 20`, `R = 5`), and it decays as `R/N`
+  once players join — the spec's "dynamically adjusted" clause. A peer below its floor is a
+  "free-rider" and is deprioritised by the tracker (Task 22 reliability penalty).
+- **<5%-per-peer cap (rule 3).** A flat 5% cap is arithmetically impossible until `N ≥ R/5%`: the
+  capped shares must cover `R` full copies, not one (at ×5 that is 100 peers — the old "5% × 20 =
+  100%" justification only funded a single copy). The cap is therefore dynamic too:
+  `max(5%, 2·R/N)` (headroom factor 2 over the average, config) — ~50% at `N = 20`, tightening to
+  the spec's 5% once `N ≥ 2R/5% = 200`. It binds `PARTIAL_ARCHIVE` peers beyond their own assigned
+  regions; the `FULL_ARCHIVE` host is exempt by design (rule 0: it IS the redundant physical
+  backup). Excess redistributes via the repair service. The floor `min(25%, R/N)` is always below
+  the cap `max(5%, 2·R/N)`, so the two policies can never conflict; the tracker reports the
+  currently effective floor/cap pair.
 - **Deterministic holder set.** `RendezvousArchivePolicy.expectedHolders` ranks eligible peers by
   `StableHash(manifestRoot, nodeId)` and takes the top-R (R = factor) as the **expected** holders;
   every peer computes the same set. `ArchiveAuditTask` (every `archive.auditIntervalTicks`) diffs
@@ -78,7 +88,9 @@ ArchiveManager (local): reconcile THIS peer's holdings to its assigned shard
   (config) rate-limit re-replication after a mass-disconnect.
 - **Host as backup (rule 0).** The `FULL_ARCHIVE` host is always in every expected-holder set; it
   continuously receives pieces (Task 24 stream) so it is the physical fallback. It does **not** get
-  extra consensus vote (Invariant 2).
+  extra consensus vote (Invariant 2). The host does not count toward `R`: the expected set is the
+  host **plus** the top-`R` ranked `PARTIAL_ARCHIVE` peers, so losing the host still leaves `R`
+  distributed replicas — no single point of loss, host included.
 
 ## Potential limitations (staged in `LIMITATIONS.md` §B)
 
@@ -94,7 +106,8 @@ ArchiveManager (local): reconcile THIS peer's holdings to its assigned shard
 2. `ArchiveRepairIT` (headless, 6 peers): kill 2 holders of a ×5 manifest → audit detects → repair
    re-replicates to 5 within `repair.maxConcurrent` budget; no piece drops below factor; data
    integrity (hash) preserved end-to-end.
-3. `SeedFloorIT`: a peer seeding <25% is flagged + reliability-penalised (Task 22 wiring); a peer
-   holding >5% (at N=20) triggers redistribution.
+3. `SeedFloorIT`: a peer below its floor (`min(25%, R/N)`) is flagged + reliability-penalised
+   (Task 22 wiring); a peer above the cap (`max(5%, 2·R/N)`) triggers redistribution; both
+   thresholds exercised at `N = 20` and `N = 200`; the `FULL_ARCHIVE` host is never flagged.
 4. Host (`FULL_ARCHIVE`) holds 100% and is in every expected set, with no extra vote.
 5. `./gradlew check` green; L-35 → RETIRING; README/Tested updated.

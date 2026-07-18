@@ -33,17 +33,25 @@ counts, and reliability.
 peer-runtime/src/main/java/dev/nodera/peer/discovery/
 ├── package-info.java
 ├── TrackerService.java           # per-world peer+seeder index; answers TrackerQuery
-├── PeerDirectory.java            # durable NodeId → last-known route/caps/lastSeen (CachedPeerStore backs it)
-├── ArchiveInventory.java         # manifestRoot → holder NodeId set; fed by ContentAvailability (Task 19)
-├── BootstrapClient.java          # tries configured list → CachedPeerStore redial → InvitationCodec
+├── PeerDirectory.java            # durable NodeId → last-known route/caps/lastSeen (extends the Task 9
+│                                 #   skeleton; CachedPeerStore backs it)
+├── ArchiveInventory.java         # manifestRoot → (holder NodeId → pieceBitmap); fed by
+│                                 #   ContentAvailability / InventoryAdvertisement (Task 19)
+├── BootstrapClient.java          # extends Task 9's single-bootstrap dial: configured list →
+│                                 #   CachedPeerStore redial → InvitationCodec
 ├── InvitationCodec.java          # signed base64 blob: networkId, genesis hash, addresses
-└── CachedPeerStore.java          # on-disk peer addresses (client game-dir / server world-dir)
+└── CachedPeerStore.java          # on-disk peer addresses (client game-dir / server world-dir;
+                                  #   extends the Task 9 skeleton)
 
 protocol/src/main/java/dev/nodera/protocol/discovery/
 ├── TrackerQuery.java             # (Bytes genesisHash) → TrackerResponse
-├── TrackerResponse.java          # (Bytes genesisHash, List<PeerEntry> peers, long worldPlayerCount,
-│                                 #   long storedChunks, double networkReliability, WorldHealth health)
-└── InventoryAdvertisement.java   # periodic gossip: my holdings (manifestRoot list) → ArchiveInventory
+├── TrackerResponse.java          # (Bytes genesisHash, String worldName, List<PeerEntry> peers,
+│                                 #   long worldPlayerCount, long storedChunks, int reliabilityBps,
+│                                 #   WorldHealth health, long retentionDeadlineEpochMillis /*0=none*/)
+│                                 #   reliability = quantised basis points 0..10000 — CanonicalWriter
+│                                 #   has no float/double on purpose (determinism discipline)
+└── InventoryAdvertisement.java   # periodic gossip: my holdings as (manifestRoot, pieceBitmap) pairs
+                                  #   (the Task 19 ContentAvailability shape) → ArchiveInventory
 
 core/identity additions:
 └── NodeCapabilities gains Set<PeerRole> roles (WORLD_SEEDER/FULL_ARCHIVE/...); frozen ordinals
@@ -72,10 +80,15 @@ BootstrapClient: configured-list → CachedPeerStore → InvitationCodec (≥3 m
 - **TrackerService** indexes membership by **world** (genesis hash), because a network may host
   several torrent-hosted worlds. A `TrackerQuery(genesisHash)` returns the online peers in that
   world plus, per manifest currently held by anyone, the holder set (from `ArchiveInventory`).
-  Aggregate fields for the UI: `worldPlayerCount` (online peers in-world), `storedChunks` (sum of
-  distinct pieces held across holders, from inventory), `networkReliability` (min/mean reliability
-  of holders, from Task 22), `WorldHealth` (`HEALTHY` / `DEGRADED`-red / `DEAD`-gray → rules the
-  UI red/gray colouring in Task 26).
+  Aggregate fields for the UI: `worldPlayerCount` (online peers in-world), `storedChunks` (count of
+  distinct pieces with ≥1 holder, computed from the inventory's piece bitmaps), `reliabilityBps`
+  (quantised mean holder reliability, Task 22), `WorldHealth` (`HEALTHY` / `DEGRADED`-red /
+  `DEAD`-gray → rules the UI red/gray colouring in Task 26). A world's display **name** is
+  directory metadata registered by the host (create-world screen Task 26, or server config), keyed
+  by genesis hash — `GenesisManifest` stays name-free and frozen. `WorldHealth` is a frozen-ordinal
+  enum in `core`, so `protocol` (wire) and the `diagnostics` view (Task 26) can both reference it
+  without a layering violation; its Palette rows are HEALTHY→GREEN, DEGRADED→RED, DEAD→GRAY —
+  deliberately distinct from the session `Health` enum, whose DEGRADED maps to YELLOW (Task 18).
 - **Health → 24h drop (rule end).** `WorldHealth.DEAD` is gated by Task 22's coordinated 24h
   countdown: a world flips DEAD (gray) only after zero seeders for the retention window. The tracker
   exposes the countdown so the UI can show it.
@@ -101,6 +114,9 @@ BootstrapClient: configured-list → CachedPeerStore → InvitationCodec (≥3 m
 - `NoderaPeerService` constructs `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers; the dedicated
   server enables it by default (`tracker.enabled`, default true). A client queries the tracker (via
   any reachable tracker peer) to populate the multiplayer list (Task 26).
+- `PublicBootstrapEndpoint` (moved here from Task 10): binds the Task 9 `BootstrapService` on the
+  dedicated server's public address; any `FULL_ARCHIVE`-capable community peer can enable it (config
+  flag) — "preferred but not only" bootstrap.
 - Config (`nodera-client.toml`): `bootstrap.list = []` (multi-entry), `tracker.preferred = ""`.
 
 ## Potential limitations (staged in `LIMITATIONS.md` §B)

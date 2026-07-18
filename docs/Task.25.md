@@ -43,20 +43,29 @@ coordinator/src/main/java/dev/nodera/coordinator/
 
 ## Implementation details
 
-- **Reference tick.** The region's reference tick = the highest committed `tickTo` among the
-  committee (the primary's progress). Each validator gossips its last-applied tick in the existing
-  heartbeat cadence (`SessionKeepAlive` gains a `lastAppliedTick` field — append-only). `TickSkewMeter`
-  computes `reference − peer` as an EMA; `TpsMeter` computes commits/sec over a rolling window.
+- **Two skews, two targets.** *Validator skew*: reference = the region's highest committed
+  `tickTo`; a validator behind it is slow to apply — a reliability signal only. *Region skew* — the
+  one that detects a laggard **primary**, which a committee-internal reference structurally cannot
+  (the primary's own progress *defines* the region's committed tick): reference = the maximum
+  committed tick across the peer's region/network view; a region whose committed tick falls behind
+  it is being held back by its primary. Each peer gossips its last-applied tick per region in the
+  existing heartbeat cadence: `SessionKeepAlive` gains a `lastAppliedTick` field — note this is an
+  encoding change to a frozen contract, so bump the message's `ENCODING_VERSION` (readers accept
+  both versions); `MessageCodec` *tags* are append-only, message *fields* are not. `TickSkewMeter`
+  computes both skews as EMAs; `TpsMeter` computes commits/sec over a rolling window.
 - **Metric outside the hashed path.** `TickSkewMeter`/`TpsMeter` read wall-clock (they must — TPS is
   a wall-clock quantity) but live in `diagnostics`/`peer-runtime`, never in `simulation`; they are
   excluded from `RegionExecutionContext`, `StateRoot`, and every certificate (the `simulation`
   forbidden-API ArchUnit rule is scoped to `dev.nodera.simulation..` and does not cover these
   packages — same precedent as `shadow-validation` timing).
-- **Handoff (rule 9).** `LagHandoffPolicy`: if a primary's tick-skew exceeds `handoff.skewThreshold`
-  (default 4 ticks ≈ 200 ms) for `handoff.windows` consecutive windows, lower its reliability (Task
-  22), and if it falls below the assignment floor, trigger `CommitteeFailover` — a validator is
-  promoted under a bumped epoch (Task 7), and boundary state is reconciled by replaying the certified
-  log forward (Task 9 `EventReplayer`). The boundary itself (neighbouring regions under different
+- **Handoff (rule 9).** `LagHandoffPolicy`: if a region's skew (committed tick vs the network
+  reference — i.e. a laggard primary) exceeds `handoff.skewThreshold` (default 4 ticks ≈ 200 ms)
+  for `handoff.windows` consecutive windows, lower the primary's reliability (Task 22), and if it
+  falls below the assignment floor, trigger `CommitteeFailover` — a validator is promoted under a
+  bumped epoch (Task 7), and boundary state is reconciled by replaying the certified log forward
+  (Task 9 `EventReplayer`). The policy lives in `coordinator` and only *emits* the demotion
+  decision; the `committee` module (which already depends on `coordinator`) consumes it and runs
+  the failover — the dependency direction is unchanged. The boundary itself (neighbouring regions under different
   primaries) stays consistent because each region commits independently and cross-region effects go
   through the Task 8 fallback/router.
 - **"Maximum synchronisation" aim.** The policy skews toward early handoff (small threshold) so

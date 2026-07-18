@@ -19,8 +19,8 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `33%`**
-`███████░░░░░░░░░░░░░░░░`
+**Overall system completion: `35%`**
+`████████░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -30,10 +30,10 @@
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | 🚧 `50%` (**MVP gate proven headlessly**: new Minecraft-free `committee` module wires the consensus primitives around real engine re-execution — every member re-executes + casts a signed ACCEPT vote on its own root, a 2-of-3 quorum commits the delta, a lying validator/primary is out-voted + penalised, equivocation slashes, and `SpotCheckAuditor` audits a deterministic sample. `CommitteeMvpIT` proves quorum-commit then primary-failover-under-bumped-epoch continuation. NeoForge wiring + live 3-client acceptance deferred) |
 | Phase 4 — Server fallback only | cross-region router, soak metrics | 🚧 `50%` (**router + fallback lane proven headlessly**: new Minecraft-free `fallback` module — `CrossRegionRouter` classifies each action into the committee lane or the server lane (unassigned / cross-region / disputed / collapsed), `FallbackExecutor` commits the server lane through the coordinator applier, `SoakMetrics` tracks the committee-commit ratio. `FallbackRoutingIT` proves a spread-out session clears the **>90% committee-commit** exit criterion. Real vanilla cross-region execution + live synthetic-client soak deferred) |
 | Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | 🚧 `45%` (`peer-runtime` membership + heartbeat + gateway migration shipped; **event-sourced `WorldStore` added** — `storage-api` seam + in-memory `storage-eventsourced` impl: content-addressed blobs, append-only certified event logs with chain validation, checkpoints, certificate store, certified-chain `EventReplayer`, and forward `PeerSyncFlow`. RocksDB archival tier + new-peer live sync deferred) |
-| Phase 6 — Gateway migration, P2P, torrent hosting | libp2p, archival repair, multi-bootstrap, content distribution, tracker, replication, encryption | 🚧 `13%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. **"Torrent hosting" feature scoped (Tasks 19–24, all ⬜)** — content-addressed multi-seeder distribution, tracker + archive inventory, rendezvous replication (×5/×4, ≥25%-seed, <5%-per-peer) + repair, multi-factor reliability + client quotas + 24-h retention, per-world encryption, crash-safe streaming. NAT/libp2p, archival repair, multi-bootstrap also still pending. L-32…L-41 open) |
+| Phase 6 — Gateway migration, P2P, torrent hosting | libp2p, archival repair, multi-bootstrap, content distribution, tracker, replication, encryption | 🚧 `22%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. **Task 19 landed** — new Minecraft-free `distribution` module turns a region into a *swarm*: `RegionSnapshotSplitter` cuts the frozen `RegionSnapshot` encoding into addressable, individually-hashed pieces at chunk-record boundaries; `PieceManifest` (root over index+length+hash) binds them to the committee's `StateRoot`; `PieceSelector` picks deterministic rarest-first with a rendezvous tie-break; `PieceDownloader`/`PieceReassembler` fetch from many seeders with hash-validate-before-accept + retry-away-from-the-liar + piece-level resume; `ChunkLockMap` locks un-arrived sections against render **and** edit; `ContentTransferService` serves under an inflight/bandwidth bound. `DistributionIT` reassembles a region from 3 seeders each holding <40% of the pieces and proves the result hashes to the *engine's* root. Remaining torrent tasks 20–26 ⬜; NAT/libp2p (T10) still pending. L-32/L-33 RETIRING; L-34…L-43 open) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `364 passing · 0 failing · 0 skipped` (adds **Task 9 Phase 5 event-sourced storage**: `storage-api` filled out (4 — `ContentId`/`Compression`/`GenesisManifest`, the `WorldStore` seam + content/event/checkpoint/certificate interfaces) and a new in-memory `storage-eventsourced` impl (13 — content-addressed dedup, append-only certified event logs with chain + monotonic-id validation, checkpoint ordering, content-addressed certificates, the `EventReplayer` certified-chain verification, and forward `PeerSyncFlow` that discards an uncertified suffix); on top of Task 8's `fallback` (10). See Tested.md).
+**Tests:** `413 passing · 0 failing · 0 skipped` (adds **Task 19 torrent distribution data plane**: a new `distribution` module (49 — manifest canonical round-trip + root-commits-layout, record-boundary splitting, rarest-first determinism, hash-validate-before-accept, lock-until-arrived defaults, bounded/racing/retrying downloader, and the headless `DistributionIT` swarm); on top of **Task 9 Phase 5 event-sourced storage**: `storage-api` filled out (4 — `ContentId`/`Compression`/`GenesisManifest`, the `WorldStore` seam + content/event/checkpoint/certificate interfaces) and a new in-memory `storage-eventsourced` impl (13 — content-addressed dedup, append-only certified event logs with chain + monotonic-id validation, checkpoint ordering, content-addressed certificates, the `EventReplayer` certified-chain verification, and forward `PeerSyncFlow` that discards an uncertified suffix); on top of Task 8's `fallback` (10). See Tested.md).
 
 > **P2P session-continuity beta** (this milestone): two players connect to a NeoForge dedicated
 > server acting as a **bootstrap peer**; the mod forms a direct peer mesh over
@@ -67,6 +67,7 @@
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, quorum commit over VoteCollector, byzantine handling, SpotCheckAuditor, CommitteeFailover (Task 7) | 12 | ✅ |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics (Task 8) | 10 | ✅ |
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | ✅ |
+| `distribution` | Phase 5–6 torrent data plane (Minecraft-free): Piece/PieceManifest, PieceSplitter/RegionSnapshotSplitter, PieceSelector, PieceDownloader/PieceReassembler, ChunkLockMap, ContentTransferService (Task 19) | 49 | ✅ |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac`, tab/boss-bar/action-bar HUD, session payload | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
@@ -108,6 +109,7 @@ nodera/
 ├── transport-socket/    real TCP PeerTransport — direct P2P data plane (Phase 6 continuity beta)
 ├── storage-api/         WorldStore seam + content/event/checkpoint/certificate interfaces
 ├── storage-eventsourced/ (Task 9) in-memory event-sourced WorldStore: certified-chain EventReplayer, forward PeerSyncFlow
+├── distribution/        (Task 19) torrent data plane: PieceManifest + piece splitting, rarest-first selection, multi-seeder download, ChunkLockMap
 ├── testkit/             LoopbackTransport, FakeRegion, FixtureWriter/Reader
 ├── peer-runtime/        PeerRuntime, membership/gossip, heartbeat, deterministic gateway migration, MeteredPeerTransport
 ├── diagnostics/         (Task 18) Minecraft-free telemetry: TrafficMeter, RateWindow, MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView
@@ -117,7 +119,7 @@ nodera/
 ├── fallback/            (Task 8) Phase 4 cross-region router + server-fallback lane + soak metrics
 ├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, redesigned /nodera diagnostics tree + /noderac + HUD surfaces; runServer/runClient deferred
 ├── transport-neoforge/  (Task 4) payload relay skeleton — onboarded (ModDevGradle), relay impl deferred
-└── docs/                Plan.md, LIMITATIONS.md, Task.0..16.md, Context/
+└── docs/                Plan.md, LIMITATIONS.md, Prompt.base.md, Task.0..26.md, Context/
 ```
 
 ---
@@ -198,7 +200,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 16 | Player lane & trustless closure (BFT, mod SDK) | 8 | `#16` | ⬜ |
 | 17 | **Debugger tool**: P2P comms + event/block/redstone harness, real server-instance emulation, live debug, coverage reports, log files | 0–8 | `#17` | ⬜ |
 | 18 | **In-game observability & diagnostics HUD**: tab list, boss bars, zone alerts, redesigned command tree + telemetry model | 0–8 | `#18` | 🚧 (`diagnostics` pure module + metered transport + `DiagnosticsIT` + `/nodera`/`/noderac` trees + tab/boss/action-bar surfaces ship; region/entity panels are `UNASSIGNED` placeholders until Tasks 6/12 — L-31; live-server surface verification deferred with `runServer`) |
-| 19 | **Torrent distribution data plane**: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | `#19` | ⬜ (L-32, L-33) |
+| 19 | **Torrent distribution data plane**: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | `#24` | 🚧 (headless `distribution` module + `DistributionIT` ship; mod-side renderer/applier consumption of `ChunkLockMap` deferred with the NeoForge lane — L-32/L-33 RETIRING) |
 | 20 | **Tracker, peer directory, archive inventory, multi-bootstrap** | 6 | `#20` | ⬜ (L-34; retires L-28) |
 | 21 | **Archive placement, replication (×5/×4), ≥25%-seed, <5%-per-peer, repair** | 6 | `#21` | ⬜ (L-35) |
 | 22 | **Multi-factor reliability, client storage quotas, 24-h retention-before-drop** | 6 | `#22` | ⬜ (L-36, L-37, L-38) |
@@ -212,6 +214,7 @@ multi-seeder resource). Additive to committee validation: seeders store/propagat
 region's committee still re-executes+commits. See `docs/Task.19.md` … `docs/Task.26.md`.
 
 Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.26.md`](docs/Task.26.md).
+Implementation order + priority + difficulty rankings: [`docs/Roadmap.md`](docs/Roadmap.md).
 
 ---
 

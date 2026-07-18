@@ -55,7 +55,11 @@ neoforge-mod/src/main/resources/
 - `TorrentWorldListView` builds a `Panel` of world `Row`s from tracker data: world name, online
   player count, stored-chunk count (distinct pieces held network-wide), mean reliability (Task 22),
   `WorldHealth` (HEALTHY / DEGRADED-red / DEAD-gray), and the 24 h countdown if active. Health →
-  `Semantic` → `Palette` colour, exactly like the existing HUD. Headlessly testable.
+  `Semantic` → `Palette` colour, exactly like the existing HUD. Headlessly testable. Layering: the
+  view model consumes plain values plus the `core` `WorldHealth` enum only (`diagnostics` → `core`,
+  nothing else), so `TrackerDataSource` (mod side) unpacks `TrackerResponse` before handing data
+  over; the display name comes from the tracker directory (Task 20) — `GenesisManifest` is
+  name-free.
 
 ## Implementation details — client GUI (`neoforge-mod/client`, Dist.CLIENT)
 
@@ -67,10 +71,16 @@ neoforge-mod/src/main/resources/
   `ServerSelectionList` is the fallback, declared in `nodera.mixins.json` only if needed.
 - **Create-world option:** extend `CreateWorldScreen` (event hook or mixin) with a "torrent hosting"
   toggle + password `EditBox`; on enable, the world is created with a `PieceManifest` (Task 19),
-  content encryption on (Task 23), and registered with the tracker (Task 20). The host is
-  `FULL_ARCHIVE` (physical backup) + a one-vote validator.
-- **Colouring:** HEALTHY = green, DEGRADED (lost some data / under-replicated) = red, DEAD
-  (zero seeders past 24 h) = gray — via `Palette`. The countdown renders in the row when active.
+  content encryption on **iff a password is set** (empty password = plaintext torrent hosting — the
+  toggle and the password are independent, matching L-43's "password option"), and its display name
+  is registered with the tracker (Task 20). The creating client's integrated server becomes the
+  world's host peer: `FULL_ARCHIVE` (physical backup) + bootstrap/tracker roles + a one-vote
+  validator — "player-hosted" means exactly this.
+- **Colouring:** `WorldHealth` (the `core` enum, Task 20) gets its own `Palette` rows — HEALTHY →
+  GREEN, DEGRADED (lost some data / under-replicated) → RED, DEAD (zero seeders past 24 h) → GRAY.
+  Deliberately distinct from the session `Health` enum, whose DEGRADED maps to YELLOW in the Task 18
+  palette — reusing it would silently recolour the HUD. `Palette` stays total over both enums. The
+  countdown renders in the row when active.
 - **Dist discipline (AGENTS.md):** all `net.minecraft.client.*` under `dev.nodera.mod.client`,
   reachable only via `NoderaClientMod` (Dist.CLIENT); never classloaded on a dedicated server.
 

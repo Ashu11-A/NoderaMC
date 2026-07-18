@@ -33,6 +33,7 @@ include("coordinator")
 include("committee")
 include("fallback")
 include("storage-eventsourced")
+include("distribution")
 
 // --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
 include("transport-neoforge")

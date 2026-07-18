@@ -1,4 +1,4 @@
-# Task 10 — Gateway Migration, Direct P2P Transport, Archival Repair, Multi-Bootstrap (Phase 6)
+# Task 10 — Gateway Migration + Direct P2P Transport (libp2p, NAT traversal) (Phase 6)
 
 **Phase:** 6 · **Depends on:** Task 9 · **Modules:** `peer-runtime`,
 `transport-libp2p` (new), `neoforge-mod`, `protocol`, `integration-tests`
@@ -8,9 +8,10 @@
 Remove the last hard dependencies on the full peer: (1) another peer can take over the
 Minecraft-facing **session gateway** role (short-reconnect migration, not seamless);
 (2) consensus/data traffic can flow **directly peer-to-peer** behind the existing
-`PeerTransport` seam; (3) lost archive replicas are **repaired automatically**;
-(4) peers can **discover the network without the original bootstrap peer**. These are
-Plan §6 Phase 6 = design-doc §19 milestones M3–M5.
+`PeerTransport` seam. The other two former goals moved into the torrent cluster —
+automatic archive repair is **Task 21**, multi-bootstrap discovery is **Task 20** — so
+Plan §6 Phase 6 = design-doc §19 milestones M3–M5 is delivered by Tasks 10 + 20 + 21
+together. This task keeps the full-peer-down end-to-end demo and the invariant audit.
 
 ---
 
@@ -25,11 +26,8 @@ peer-runtime/src/main/java/dev/nodera/peer/
 │   ├── GatewayElection.java           # deterministic candidate ranking + committee sign-off
 │   ├── GatewayTransferCertificate.java# (also add to core consensuscert + type tags)
 │   └── GatewayMigrationController.java# client-side: freeze actions, reconnect, resubmit
-├── archival/
-│   ├── ArchiveRepairService.java      # detect under-replication ⇒ assign ⇒ verify
-│   └── ArchiveAuditTask.java          # periodic inventory cross-check vs placement policy
-└── discovery/
-    └── InvitationCodec.java           # signed peer invitation blobs (addresses + networkId + genesis hash)
+├── archival/                          # → Task 21 (ArchiveRepairService, ArchiveAuditTask)
+└── discovery/                         # → Task 20 (InvitationCodec, multi-bootstrap)
 
 transport-libp2p/src/main/java/dev/nodera/transport/libp2p/
 ├── Libp2pTransport.java               # PeerTransport impl #2 (jvm-libp2p)
@@ -40,12 +38,13 @@ transport-libp2p/src/main/java/dev/nodera/transport/libp2p/
                                        #   per-peer, per-message-class (bulk vs consensus)
 
 neoforge-mod additions:
-├── dedicated/PublicBootstrapEndpoint.java  # BootstrapService bound to a public port (config)
 └── client/gateway/ClientGatewayAdapter.java# client hosting the gateway role for OTHER players
                                             #   (integrated-server-like lane — see scope cut below)
+                                            # (PublicBootstrapEndpoint → Task 20)
 
 integration-tests additions:
-    GatewayMigrationIT, ArchiveRepairIT, LatePeerCatchUpIT, MultiBootstrapIT
+    GatewayMigrationIT, LatePeerCatchUpIT
+    (ArchiveRepairIT → Task 21; MultiBootstrapIT → Task 20)
 ```
 
 ## Class relationships
@@ -53,7 +52,8 @@ integration-tests additions:
 ```
 PeerTransport (unchanged seam)
       ▲
-      ├── NeoForgeRelayTransport   (kept forever as fallback + vanilla-client lane)
+      ├── NeoForgeRelayTransport   (kept forever as the fallback lane — under A0 there
+      │                             is no vanilla-client population to serve)
       └── Libp2pTransport
               └── TransportSelector routes per (peer, messageClass):
                     consensus msgs  → lowest-latency available channel
@@ -69,11 +69,7 @@ SessionGateway lifecycle:
              handshake (existing Task 4 flow), resubmit signed pending actions
              (dedupe by (actor, playerSeq) — applier already idempotent per seq)
 
-ArchiveRepairService:
-    ArchiveAuditTask walks placement policy ⇒ expected holders per object
-    holder missing/timeout ⇒ next-ranked peer assigned (ArchiveReplicaAssignment)
-    assignee pulls content by hash from any seeder ⇒ verifies ⇒ acknowledges
-    repair storms rate-limited (config repair.maxConcurrent, repair.bandwidthBudget)
+Archive repair flow: unchanged design, moved wholesale to Task 21.
 ```
 
 ## Implementation details — transport (`transport-libp2p`)
@@ -112,24 +108,21 @@ ArchiveRepairService:
 
 ## Implementation details — discovery / multi-bootstrap
 
-- Three mechanisms shipped (Plan/design list): (1) configured bootstrap list
-  (`nodera-client.toml`, multiple entries), (2) `CachedPeerStore` redial (Task 9),
-  (3) `InvitationCodec` — base64 blob a player can paste (signed by any known peer;
-  contains networkId, genesis hash, addresses). LAN multicast + DNS seeds: backlog.
-- `BootstrapResponse` validation: genesis hash + certificate chain checked before
-  trusting anything else from that peer (malicious bootstrap can lie about peers, not
-  about state — checkpoints self-verify).
-- `PublicBootstrapEndpoint`: binds `BootstrapService` on the dedicated server's public
-  address; any FULL_ARCHIVE-capable community peer can also enable it (config flag) —
-  "preferred but not only" bootstrap.
+Moved to **Task 20** (tracker, peer directory, archive inventory, multi-bootstrap): the
+three mechanisms (configured list / `CachedPeerStore` redial / `InvitationCodec`),
+`BootstrapResponse` genesis-hash + certificate-chain validation, and
+`PublicBootstrapEndpoint`. This task only requires that discovery keeps working with
+the relay transport disabled (covered by the acceptance runs below).
 
 ## Implementation details — server peer
 
 Mostly *removal* of specialness: assert via tests that with `Libp2pTransport` active and
 the full peer offline, the following still function among remaining peers: action →
 batch (gateway) → committee → certificate → event log (each peer's own store) →
-replica/world-view update. The dedicated server's remaining unique duties: vanilla-lane
-regions and vanilla-client serving — both unavailable while it is down, by design.
+replica/world-view update. The dedicated server's remaining unique duty: the
+server-fallback lane for non-delegable/cross-region actions (Task 8) — paused while it
+is down (A-3: those regions wait, never fork; under A0 there are no vanilla clients to
+strand — ledger R-3).
 
 ## Acceptance criteria
 
@@ -139,14 +132,12 @@ regions and vanilla-client serving — both unavailable while it is down, by des
 2. Direct-P2P soak: two modded clients exchange committee traffic with relay disabled
    (config kill-switch) — quorum commits succeed over `Libp2pTransport`; NAT-blocked
    pair falls back to `RelayManager` circuit; `TransportSelector` metrics show the mix.
-3. `ArchiveRepairIT`: delete a peer holding replicas ⇒ audit detects under-replication
-   ⇒ re-replication completes ⇒ every object back to target factor, hash-verified.
-4. `MultiBootstrapIT`: fresh peer joins via (a) second configured bootstrap, (b) cached
-   peers, (c) pasted invitation — full peer offline in all three; peer reaches network
-   head (`LatePeerCatchUpIT` covers deep catch-up: 10k events behind).
-5. Full-peer-down end-to-end demo (manual, recorded): 3 modded peers keep building for
+3. `LatePeerCatchUpIT`: a peer 10k events behind joins over direct P2P with the full
+   peer offline and reaches network head (join mechanisms themselves are Task 20's
+   `MultiBootstrapIT`; repair is Task 21's `ArchiveRepairIT`).
+4. Full-peer-down end-to-end demo (manual, recorded): 3 modded peers keep building for
    15 minutes without the dedicated server; it returns; `ForwardSync` reconciles;
    world view identical across peers (root comparison command `/nodera roots`).
-6. Invariant audit: re-run the §18 invariant checklist (Plan §8) — each of the 12 now
+5. Invariant audit: re-run the §18 invariant checklist (Plan §8) — each of the 12 now
    has at least one automated test referencing it by number (grep-able tag
    `@Invariant(n)` on tests).

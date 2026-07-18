@@ -10,6 +10,10 @@ import dev.nodera.protocol.EchoTest;
 import dev.nodera.protocol.assignment.LeaseRenewal;
 import dev.nodera.protocol.assignment.RegionAssigned;
 import dev.nodera.protocol.assignment.RegionRevoked;
+import dev.nodera.protocol.content.ContentAvailability;
+import dev.nodera.protocol.content.ContentChunk;
+import dev.nodera.protocol.content.ContentRequest;
+import dev.nodera.protocol.content.ManifestHolding;
 import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.ClientHello;
 import dev.nodera.protocol.handshake.ServerHello;
@@ -84,6 +88,9 @@ import java.util.UUID;
  *  21   PeerGoodbye
  *  22   GatewayClaim
  *  23   SessionKeepAlive
+ *  24   ContentRequest
+ *  25   ContentChunk
+ *  26   ContentAvailability
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -119,9 +126,13 @@ public final class MessageCodec {
     /** {@link PeerGoodbye} tag. */ public static final int TAG_PEER_GOODBYE       = 21;
     /** {@link GatewayClaim} tag. */ public static final int TAG_GATEWAY_CLAIM     = 22;
     /** {@link SessionKeepAlive} tag. */ public static final int TAG_SESSION_KEEP_ALIVE = 23;
+    /** {@link ContentRequest} tag (Task 19). */ public static final int TAG_CONTENT_REQUEST = 24;
+    /** {@link ContentChunk} tag (Task 19). */ public static final int TAG_CONTENT_CHUNK    = 25;
+    /** {@link ContentAvailability} tag (Task 19). */
+    public static final int TAG_CONTENT_AVAILABILITY = 26;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 23;
+    public static final int NEXT_TAG = 26;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -136,7 +147,8 @@ public final class MessageCodec {
             TAG_STREAM_CHUNK, TAG_ACTION_BATCH_MSG, TAG_REGION_PROPOSAL, TAG_VALIDATION_VOTE,
             TAG_COMMIT_ANNOUNCE, TAG_RESYNC_REQUEST, TAG_HEARTBEAT, TAG_WORKER_LOAD,
             TAG_ECHO_TEST, TAG_RELAY_ENVELOPE, TAG_PEER_JOIN, TAG_MEMBERSHIP_UPDATE,
-            TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE);
+            TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE,
+            TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -173,6 +185,9 @@ public final class MessageCodec {
             case TAG_PEER_GOODBYE -> "PeerGoodbye";
             case TAG_GATEWAY_CLAIM -> "GatewayClaim";
             case TAG_SESSION_KEEP_ALIVE -> "SessionKeepAlive";
+            case TAG_CONTENT_REQUEST -> "ContentRequest";
+            case TAG_CONTENT_CHUNK -> "ContentChunk";
+            case TAG_CONTENT_AVAILABILITY -> "ContentAvailability";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -277,6 +292,9 @@ public final class MessageCodec {
         if (msg instanceof PeerGoodbye) return TAG_PEER_GOODBYE;
         if (msg instanceof GatewayClaim) return TAG_GATEWAY_CLAIM;
         if (msg instanceof SessionKeepAlive) return TAG_SESSION_KEEP_ALIVE;
+        if (msg instanceof ContentRequest) return TAG_CONTENT_REQUEST;
+        if (msg instanceof ContentChunk) return TAG_CONTENT_CHUNK;
+        if (msg instanceof ContentAvailability) return TAG_CONTENT_AVAILABILITY;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -428,6 +446,27 @@ public final class MessageCodec {
                 w.writeU16(TAG_SESSION_KEEP_ALIVE).writeU16(ENCODING_VERSION);
                 m.from().encode(w);
                 w.writeU64(m.seq());
+            }
+            case ContentRequest m -> {
+                w.writeU16(TAG_CONTENT_REQUEST).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.manifestRoot());
+                // The record's compact constructor already de-duplicated and sorted the indexes,
+                // so the encoded order is canonical without sorting again here.
+                w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
+            }
+            case ContentChunk m -> {
+                w.writeU16(TAG_CONTENT_CHUNK).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.manifestRoot());
+                w.writeU32(Integer.toUnsignedLong(m.index()));
+                w.writeBytes(m.payload());
+            }
+            case ContentAvailability m -> {
+                w.writeU16(TAG_CONTENT_AVAILABILITY).writeU16(ENCODING_VERSION);
+                m.holder().encode(w);
+                w.writeList(m.holdings(), (ww, h) -> {
+                    ww.writeBytes(h.manifestRoot());
+                    ww.writeBytes(h.pieceBitmap());
+                });
             }
             default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
         }
@@ -634,6 +673,26 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeId from = dev.nodera.core.identity.NodeId.decode(r);
                 long seq = r.readU64();
                 yield new SessionKeepAlive(from, seq);
+            }
+            case TAG_CONTENT_REQUEST -> {
+                Bytes manifestRoot = r.readBytesValue();
+                java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
+                yield new ContentRequest(manifestRoot, indexes);
+            }
+            case TAG_CONTENT_CHUNK -> {
+                Bytes manifestRoot = r.readBytesValue();
+                int index = (int) r.readU32();
+                Bytes payload = r.readBytesValue();
+                yield new ContentChunk(manifestRoot, index, payload);
+            }
+            case TAG_CONTENT_AVAILABILITY -> {
+                dev.nodera.core.identity.NodeId holder = dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<ManifestHolding> holdings = r.readList(rr -> {
+                    Bytes root = rr.readBytesValue();
+                    Bytes bitmap = rr.readBytesValue();
+                    return new ManifestHolding(root, bitmap);
+                });
+                yield new ContentAvailability(holder, holdings);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };

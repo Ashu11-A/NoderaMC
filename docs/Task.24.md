@@ -48,7 +48,8 @@ neoforge-mod/src/main/java/dev/nodera/mod/dedicated/
   `PieceManifest`, Task 19), the primary (and holders) immediately offer the **delta pieces** to the
   swarm — push to the expected holders (Task 21) proactively rather than waiting for a pull. This
   keeps replicas within `commit → stream` latency of the live state, so the failure window is one
-  batch, not an epoch.
+  batch, not an epoch. The commit signal reaches `distribution` through a `CommitListener` seam
+  registered by the peer-runtime/mod wiring — `distribution` gains no dependency on `committee`.
 - Stream is rate-bounded (`stream.bandwidthBudget`) and piggybacks on the `ContentAvailability` /
   `ContentChunk` messages (Task 19/20) — no new wire protocol, just a push trigger.
 - Rule 7 (batched exchange): the stream carries committed deltas (already batched at ~2 ticks by
@@ -62,10 +63,13 @@ neoforge-mod/src/main/java/dev/nodera/mod/dedicated/
   `ServerStoppingEvent` triggers the same path on graceful server stop. Bounded by a hard
   time budget (`flush.budgetMillis`, default 5 s) so a hanging peer cannot stall shutdown forever;
   unflushed pieces fall back to replication redundancy.
-- **Hard-crash safety (the real guarantee):** with Task 21 replication (×5 snapshot / ×4 log), a
-  `kill -9` or power loss loses no committed data because ≥R−1 other holders already have each
-  piece; the audit/repair service restores the factor. `CrashRecoveryIT` proves this. The flush is
-  belt-and-suspenders, not load-bearing.
+- **Hard-crash safety (the real guarantee):** committed state is redundant *by construction* even
+  before any streaming — a commit requires a committee quorum, so ≥2 peers have already re-executed
+  and hold the resulting state (Task 7). Task 21 replication (×5 snapshot / ×4 log) then spreads it
+  to archival holders, and audit/repair restores the factor. A `kill -9` or power loss on any single
+  peer therefore loses no committed data; the only exposure is uncommitted in-flight work, bounded
+  by one batch (~2 ticks). `CrashRecoveryIT` proves this. The flush is belt-and-suspenders, not
+  load-bearing.
 - **Separate OS-sidecar (rule 5 full form, DEFERRED — L-41).** A secondary process that survives a
   Minecraft JVM crash and flushes a quarantine buffer is a large, separate build (its own process,
   IPC, peer stack). This task ships the in-process flush + redundancy argument and **stages** the
@@ -89,7 +93,9 @@ neoforge-mod/src/main/java/dev/nodera/mod/dedicated/
    the new manifest within the configured latency window; replica staleness never exceeds one batch.
 2. `EmergencyFlushIT` (graceful): on shutdown, under-replicated pieces are pushed to next-ranked
    holders within `flush.budgetMillis`; the leaving peer's shard reaches factor R elsewhere.
-3. `CrashRecoveryIT` (hard): `kill -9` a peer holding unique pieces — no committed data is lost
-   (other holders + repair restore everything); certified log replays cleanly on restart.
+3. `CrashRecoveryIT` (hard): `kill -9` the primary immediately after a commit, before its stream
+   push — no committed data is lost: the quorum peers already hold the state, repair restores the
+   archival factor, and the certified log replays cleanly on restart. ("Uniquely held" committed
+   pieces cannot exist — quorum implies ≥2 holders by construction.)
 4. Shutdown hook does not stall past its budget even if a holder is unreachable.
 5. `./gradlew check` green; L-40 → RETIRING; L-41 stays OPEN with the documented exit path.

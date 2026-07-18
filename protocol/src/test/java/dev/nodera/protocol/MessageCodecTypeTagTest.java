@@ -5,6 +5,11 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.assignment.LeaseRenewal;
 import dev.nodera.protocol.assignment.RegionRevoked;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.content.ContentAvailability;
+import dev.nodera.protocol.content.ContentChunk;
+import dev.nodera.protocol.content.ContentRequest;
+import dev.nodera.protocol.content.ManifestHolding;
+import dev.nodera.protocol.content.PieceBitmap;
 import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.WorkerActivation;
 import dev.nodera.protocol.health.Heartbeat;
@@ -67,7 +72,10 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_PEER_GOODBYE).isEqualTo(21);
         assertThat(MessageCodec.TAG_GATEWAY_CLAIM).isEqualTo(22);
         assertThat(MessageCodec.TAG_SESSION_KEEP_ALIVE).isEqualTo(23);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(23);
+        assertThat(MessageCodec.TAG_CONTENT_REQUEST).isEqualTo(24);
+        assertThat(MessageCodec.TAG_CONTENT_CHUNK).isEqualTo(25);
+        assertThat(MessageCodec.TAG_CONTENT_AVAILABILITY).isEqualTo(26);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(26);
     }
 
     @Test
@@ -89,6 +97,9 @@ final class MessageCodecTypeTagTest {
         expected.put(PeerGoodbye.class, MessageCodec.TAG_PEER_GOODBYE);
         expected.put(GatewayClaim.class, MessageCodec.TAG_GATEWAY_CLAIM);
         expected.put(SessionKeepAlive.class, MessageCodec.TAG_SESSION_KEEP_ALIVE);
+        expected.put(ContentRequest.class, MessageCodec.TAG_CONTENT_REQUEST);
+        expected.put(ContentChunk.class, MessageCodec.TAG_CONTENT_CHUNK);
+        expected.put(ContentAvailability.class, MessageCodec.TAG_CONTENT_AVAILABILITY);
 
         for (Map.Entry<Class<?>, Integer> e : expected.entrySet()) {
             assertThat(MessageCodec.typeTagOf(sampleOf(e.getKey())))
@@ -116,6 +127,9 @@ final class MessageCodecTypeTagTest {
                 PeerGoodbye.class,
                 GatewayClaim.class,
                 SessionKeepAlive.class,
+                ContentRequest.class,
+                ContentChunk.class,
+                ContentAvailability.class,
         };
         for (Class<?> cls : classes) {
             NoderaMessage original = sampleOf(cls);
@@ -169,6 +183,9 @@ final class MessageCodecTypeTagTest {
                 MessageCodec.TAG_PEER_GOODBYE,
                 MessageCodec.TAG_GATEWAY_CLAIM,
                 MessageCodec.TAG_SESSION_KEEP_ALIVE,
+                MessageCodec.TAG_CONTENT_REQUEST,
+                MessageCodec.TAG_CONTENT_CHUNK,
+                MessageCodec.TAG_CONTENT_AVAILABILITY,
         };
         long distinct = java.util.Arrays.stream(tags).distinct().count();
         assertThat(distinct).isEqualTo(tags.length);
@@ -239,6 +256,17 @@ final class MessageCodecTypeTagTest {
         }
         if (cls == SessionKeepAlive.class) {
             return new SessionKeepAlive(nodeId, 9L);
+        }
+        if (cls == ContentRequest.class) {
+            return new ContentRequest(Bytes.fromHex("0badc0de"), java.util.List.of(3, 0, 7));
+        }
+        if (cls == ContentChunk.class) {
+            return new ContentChunk(Bytes.fromHex("0badc0de"), 2, Bytes.fromHex("cafebabe"));
+        }
+        if (cls == ContentAvailability.class) {
+            return new ContentAvailability(nodeId, java.util.List.of(
+                    new ManifestHolding(Bytes.fromHex("0badc0de"),
+                            PieceBitmap.of(java.util.List.of(0, 3, 9)))));
         }
         throw new IllegalArgumentException("no sample for " + cls);
     }

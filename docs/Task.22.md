@@ -1,7 +1,8 @@
 # Task 22 — Multi-Factor Reliability, Client Storage Quotas, 24-Hour Retention-Before-Drop (Phase 6)
 
 **Phase:** 6 · **Depends on:** Task 19 (pieces), Task 21 (placement) ·
-**Modules:** `coordinator/ReliabilityLedger` (widen); new `storage-client` module.
+**Modules:** `coordinator` (widen `ReliabilityLedger`); new `storage-client` module (spec moved
+here from Task 9 — this task owns L-37); `peer-runtime/archival` (`RetentionPolicy`).
 
 ## Goal
 
@@ -51,7 +52,10 @@ peer-runtime/src/main/java/dev/nodera/peer/archival/
   manifests held, from Task 21 `ArchiveManager`), plus the existing proposal-outcome EMA (kept as
   the "correctness" factor). `ReliabilityLedger.score(node)` becomes a weighted blend; weights are
   config (`ReliabilityConfig`), defaults from Plan §10 (`0.98·score + 0.02·outcome` stays the
-  correctness factor's contribution). Slash-to-0 on equivocation preserved.
+  correctness factor's contribution). Slash-to-0 on equivocation preserved. Signals cross modules
+  as plain values: `coordinator` defines the `ReliabilityFactors` sink interface; the
+  peer-runtime/mod wiring feeds it (`PeerLink`, keep-alive seq gaps, heartbeats) — no
+  `coordinator → peer-runtime` dependency appears.
 - The blend is **quantised before mixing** (same discipline as `RendezvousPlacementPolicy.tier` in
   Task 6) so no floating-point nondeterminism leaks into placement/gateway decisions.
 - Offline decay toward `RELIABILITY_OFFLINE_DECAY_TARGET = 0.5` (Plan §10) is actually implemented
@@ -74,8 +78,12 @@ peer-runtime/src/main/java/dev/nodera/peer/archival/
   At countdown expiry the world is dropped from the directory/tracker (gray in the UI) — its
   certified history can still be re-imported via an invitation (`InvitationCodec`, Task 20) if a
   holder returns out-of-band.
-- The countdown is **coordinated** (every online peer agrees on the deadline, derived from
-  `SnapshotVersion`/tick, not wall-clock where possible) so the network decides unanimously.
+- The countdown is **coordinated**: the peer that observes zero seeders proposes a deadline as an
+  explicit wall-clock timestamp in the gossiped countdown announcement, and every peer adopts the
+  earliest announced deadline for that world — one agreed number, no per-peer clock math.
+  Wall-clock is correct here, not a compromise: a zero-seeder world's committed tick cannot advance
+  (nobody holds the data to commit), and the countdown lives outside consensus state anyway — never
+  in a root or certificate (the same engine/operational boundary as the Task 25 metrics).
 
 ## Potential limitations (staged in `LIMITATIONS.md` §B)
 

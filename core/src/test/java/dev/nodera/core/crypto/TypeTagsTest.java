@@ -68,8 +68,12 @@ final class TypeTagsTest {
         // coordinator persistence
         assertThat(TypeTags.RELIABILITY_LEDGER).isEqualTo(60);
         assertThat(TypeTags.COORDINATOR_STATE).isEqualTo(61);
+        // torrent distribution data plane (Task 19)
+        assertThat(TypeTags.PIECE).isEqualTo(70);
+        assertThat(TypeTags.PIECE_MANIFEST).isEqualTo(71);
+        assertThat(TypeTags.WORLD_KEY_MATERIAL).isEqualTo(72);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(61);
+        assertThat(TypeTags.NEXT).isEqualTo(72);
     }
 
     @Test

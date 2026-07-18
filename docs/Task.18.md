@@ -1,7 +1,7 @@
 # Task 18 — In-Game Observability & Diagnostics HUD (commands, telemetry, presentation redesign)
 
 **Phase:** cross-cutting (0–8) · **Depends on:** current `peer-runtime` + `transport-socket`
-(hard); Tasks 6/11/12 (soft — they *populate* the region/entity panels) · **Modules:** new
+(hard); Tasks 6/12 (soft — they *populate* the region/entity panels) · **Modules:** new
 `diagnostics` (Minecraft-free), `neoforge-mod`, `peer-runtime`, `transport-socket`, `protocol` ·
 **Sibling of:** #17 (the headless debugger — this is its player-facing counterpart)
 
@@ -319,7 +319,7 @@ inside an owned region.
    the action-bar alert with the right colour on the edge; `/nodera net redstone`-style per-type
    works. Recorded in the Verification log with screenshots/log excerpts.
 5. **Budget:** with HUD on, sampling every 20 ticks adds no measurable TPS regression in a 3-peer
-   soak; tab/boss updates are diffed (no packet每-tick).
+   soak; tab/boss updates are diffed (no packet per tick).
 6. `./gradlew check` green; README module table + `Tested.md` + `docs/Task.0.md` index + roadmap +
    `LIMITATIONS.md` (L-31) updated in the same PR.
 

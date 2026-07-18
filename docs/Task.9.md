@@ -1,8 +1,9 @@
 # Task 9 — Peer Runtime + Event-Sourced Storage (Phase 5): Full Archival Bootstrap Peer
 
 **Phase:** 5 · **Depends on:** Task 8 · **Modules:** `peer-runtime` (new),
-`storage-api`, `storage-rocksdb` (new), `storage-client` (new), `neoforge-mod`,
-`consensus`, `protocol`
+`storage-api`, `storage-rocksdb` (new), `neoforge-mod`, `consensus`, `protocol`.
+(The quota'd `storage-client` module moved to Task 22; archival placement/inventory to
+Tasks 20/21; content wire messages to Task 19 — the torrent cluster owns them now.)
 
 ## Goal
 
@@ -31,10 +32,9 @@ peer-runtime/src/main/java/dev/nodera/peer/
 │   │                              #   CommitteeAssembler as the AUTHORITY-FREE path)
 │   ├── CommitteeChange.java       # proposal for next committee
 │   └── CommitteeRecovery.java     # too-many-members-lost path (recovery quorum over checkpoint)
-├── archival/
-│   ├── ArchiveManager.java        # what must I store? replicate? repair triggers (Task 10)
-│   ├── ArchivePlacementPolicy.java# rendezvous over ArchiveObjectId (interface + impl)
-│   └── ArchiveInventory.java      # local holdings advertisement
+├── archival/                      # → moved to the torrent cluster: ArchivePlacementPolicy +
+│                                  #   ArchiveManager = Task 21; ArchiveInventory = Task 20.
+│                                  #   This task ships no archival policy, only the storage seam.
 └── sync/
     ├── CheckpointSync.java        # fetch/verify checkpoints by certificate chain
     ├── EventReplay.java           # apply certified event ranges to local stores
@@ -56,10 +56,8 @@ storage-rocksdb/src/main/java/dev/nodera/storage/rocksdb/
 ├── FsContentStore.java            # content-addressed blobs: <store>/content/ab/cd/<hash>.zst
 └── RocksLifecycle.java            # open/close/repair; options tuned for append workload
 
-storage-client/src/main/java/dev/nodera/storage/client/
-├── BoundedClientWorldStore.java   # same WorldStore interface; quota'd
-├── StorageQuotaManager.java       # byte budget (config, default 2 GiB)
-└── ArchiveEvictionPolicy.java     # evict: never assigned-region current state; oldest cold shards first
+storage-client/                    # → moved to Task 22 (owns L-37): BoundedClientWorldStore,
+                                   #   StorageQuotaManager, ArchiveEvictionPolicy
 
 neoforge-mod restructure:
 ├── common/PeerRuntimeFactory.java # builds PeerRuntime for either dist from capabilities
@@ -72,9 +70,9 @@ neoforge-mod restructure:
 protocol additions:
     BootstrapRequest/Response, PeerExchangeRequest/Response,
     CheckpointAnnouncement/Request/Response, EventRangeRequest/Response,
-    ContentRequest/ContentChunk/ContentAvailability, ArchiveInventoryAdvertisement,
-    ArchiveReplicaAssignment/Acknowledgement,
     CommitteeChangeProposal/Approval  (all appended to type-tag registry)
+    (content/inventory/repair wire messages — ContentRequest/Chunk/Availability,
+     InventoryAdvertisement, ArchiveReplicaAssignment/Ack — moved to Tasks 19/20/21)
 
 core additions:
     consensuscert/CommitteeChangeCertificate.java   # prevEpoch, newEpoch, newCommittee, approvals
@@ -93,8 +91,9 @@ PeerRuntime (both dists — construction differs only in capabilities + store im
  ├─ CommitteeManager         (region committees WITHOUT central assembler authority:
  │                            change = CommitteeChangeProposal signed-off by old committee
  │                            ⇒ CommitteeChangeCertificate; coordinator only *nominates*)
- ├─ ArchiveManager ── ArchivePlacementPolicy (rendezvous; replication: snapshot×5,
- │                            recent log×4, compacted×3, checkpoints+genesis = everyone)
+ ├─ (archival placement/replication seam only — policy + manager land in Tasks 20/21;
+ │   the factors stay locked here: snapshot×5, recent log×4, compacted×3,
+ │   checkpoints+genesis = everyone)
  ├─ PeerDirectory ── BootstrapClient/Service ── CachedPeerStore
  └─ GatewayManager           (registers candidacy only; election is Task 10)
 
@@ -106,7 +105,7 @@ WorldStore (interface — the locked design):
     storeContent(ContentId, ByteBuffer) / readContent(ContentId)
     storeCertificate(QuorumCertificate)
         ▲                      ▲
-   RocksWorldStore        BoundedClientWorldStore
+   RocksWorldStore        BoundedClientWorldStore (Task 22)
 
 Canonical-state rule (Invariant 3): commit path now writes the event log FIRST
 (event + certificate durable in WorldStore) and only then applies to ServerLevel via
@@ -140,8 +139,9 @@ Every CHECKPOINT_INTERVAL_TICKS (100) per active region:
   `ModAttachments` registers `NoderaChunkMeta(regionId, committedVersion, rootPrefix,
   lastCheckpointTick)` — persistent chunk attachment; the recovery scan uses it.
 - **`ForwardSync`** (returning full peer): compare local vs network checkpoint
-  certificates; `local < network` ⇒ fetch manifests → content by hash (multi-seeder,
-  Task 10 parallelizes; serial ok here) → verify roots → replay events → resume.
+  certificates; `local < network` ⇒ fetch manifests → content by hash (multi-seeder
+  swarm fetch = Task 19's data plane; serial single-seeder ok here) → verify roots →
+  replay events → resume.
   `local > network-certified` ⇒ local uncertified suffix quarantined (kept, flagged,
   never served). Test both.
 - **3-of-4 committees**: `MajorityQuorumPolicy(committeeSize=4, required=3)`; server
@@ -153,9 +153,10 @@ Every CHECKPOINT_INTERVAL_TICKS (100) per active region:
 
 ## Implementation details — NeoForge mod (client peer)
 
-- `ClientPeerBootstrap`: `PeerRuntime` with `BoundedClientWorldStore`; stores: assigned
-  regions (snapshot + recent log), adjacent regions (snapshot), archival shards per
-  `ArchivePlacementPolicy`, genesis + latest checkpoints (always).
+- `ClientPeerBootstrap`: `PeerRuntime` with the bounded client store (Task 22 module; an
+  in-memory interim store here); stores: assigned regions (snapshot + recent log),
+  adjacent regions (snapshot), archival shards per the Task 21 placement policy (once it
+  exists), genesis + latest checkpoints (always).
 - Client keeps serving validator/primary exactly as before — the consensus code moved
   under `PeerRuntime` but the worker call-path is unchanged (refactor, not rewrite:
   `RegionWorker`/`ValidatorWorker` now get batches via `PeerRuntime` dispatch).
@@ -176,8 +177,8 @@ Every CHECKPOINT_INTERVAL_TICKS (100) per active region:
    ⇒ archives intact (replication assertions) ⇒ full peer catch-up verified.
 4. Committee-change certificates: every epoch bump in the run above carries approvals
    verifying against the previous committee's keys (walk the chain in the test).
-5. Quota: client store hits its byte budget ⇒ eviction order honored ⇒ assigned-region
-   data never evicted (unit tests on `ArchiveEvictionPolicy`).
+5. (Moved to Task 22 with the `storage-client` module — quota/eviction acceptance lives
+   there now.)
 6. RocksDB crash-recovery test (kill during WriteBatch storm ⇒ reopen clean, no torn
    state) and content-store hash verification on read (corrupt a blob file ⇒ read
    rejects).

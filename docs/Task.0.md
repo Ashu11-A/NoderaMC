@@ -1,6 +1,6 @@
 # Task 0 — Conventions, Definitions, Task Index
 
-Not an implementation task. Binding conventions for Tasks 1–10. Read before starting any
+Not an implementation task. Binding conventions for Tasks 1–26. Read before starting any
 other task. When a later task contradicts this file, fix the later task.
 
 ---
@@ -18,7 +18,7 @@ other task. When a later task contradicts this file, fix the later task.
 | 7 | Committee validation: votes, quorum, equivocation, failover — **MVP gate** | 3 | 6 |
 | 8 | Server-fallback-only execution + cross-region router | 4 | 7 |
 | 9 | `peer-runtime` + event-sourced storage: full archival bootstrap peer | 5 | 8 |
-| 10 | Gateway migration, direct P2P transport, archival repair, multi-bootstrap | 6 | 9 |
+| 10 | Gateway migration + direct P2P transport (libp2p/NAT); archival repair → T21, multi-bootstrap → T20 | 6 | 9 |
 | 11 | World-interference control, chunk lifecycle, delegability, mod compat | 2–4 hardening | 6 |
 | 12 | Entity & mob lane: entity state in roots, ghost mobs, cross-region transfer | 5+ | 9, 11 |
 | 13 | Validated redstone: engine scheduled ticks, contraption ownership migration | 5+ | 8, 9, 11 |
@@ -43,7 +43,7 @@ other task. When a later task contradicts this file, fix the later task.
                                             └─► 13 ──► 14
 
 Distribution / torrent-hosting cluster (Tasks 19–26; "torrent hosting" feature):
-  4,9 ─► 19 ─►┬─► 20 ─► 21 ─► 22 ─► 24
+  4,9 ─► 19 ─►┬─► 20 ─► 21 ─► 22 ─► 24        (20 also ◄─ 10)
               └─► 23            │
                                 ├─► 25  (also ◄─ 7)
   19,20,21,22,23 ─► 26  (client GUI; cross-cutting, GUI-deferred acceptance)
@@ -58,6 +58,23 @@ still re-executes and commits. Each stages its limitations in `LIMITATIONS.md` �
 with an owning task and an exit test — no permanent exclusions. Rule 7 (mob/entity/redstone exchange
 over P2P, batched away from 20 tps) is delivered by the existing parity lanes (Tasks 12–15) riding
 the Task 19 data plane, not a separate task.
+
+The cluster's "rule N" references resolve to the host-user torrent-hosting spec, catalogued here
+(the spec text itself lives in issue/commit history, not a repo file — do not renumber):
+
+| Rule | Paraphrase | Owner |
+|---|---|---|
+| 0 | The host is the world's physical backup (`FULL_ARCHIVE` holds everything) | 21 |
+| 1 | Every peer seeds ≥25% of the network's data, dynamically adjusted as players join | 21 |
+| 2 | Reliability = connectivity + uptime + availability + worlds-seeded, weighted | 22 |
+| 3 | Redundant backups spread across peers; <5% per peer when the network is large | 19, 21 |
+| 5 | On Minecraft close/crash, emergency-flush unshared pieces to the network (full form: OS sidecar) | 24 (sidecar: L-41) |
+| 6 | An active player continuously streams their chunks/data to the swarm | 24 |
+| 7 | Mob/entity/redstone exchange over P2P, batched away from 20 tps | 12–15 over the T19 plane |
+| 9 | Tick-lag metric governs region-boundary sync; low-TPS peers hand off their regions | 25 |
+| 10 | Async download: hash-validate before use, lock-until-arrived, timestamped-hash freshness | 19 |
+| — | Per-world encryption password; seeders hold ciphertext | 23 |
+| — | Tracker/server list + search, health colours, 24 h retention-before-drop, multiplayer GUI | 20, 22, 26 |
 
 Tasks 2, 3, 4 are pure-Java modules (no Minecraft classes) and can be developed in
 parallel after Task 1, except Task 3 and 4 both consume Task 2 types.

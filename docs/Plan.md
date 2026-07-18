@@ -174,12 +174,16 @@ nodera/
 │                                 #   DeterministicRandom, halo, border events
 ├── consensus/                    # Proposal, Vote, VoteCollector, QuorumPolicy,
 │                                 #   EquivocationDetector, certificates
+├── diagnostics/                  # (Task 18) Minecraft-free telemetry + view models
+│                                 #   (HUD surfaces + Task 26 GUI list read these)
+├── distribution/                 # (Tasks 19/23/24) piece manifests, multi-seeder swarm
+│                                 #   data plane, encryption wrapper, continuous stream
 ├── peer-runtime/                 # (Phase 5+) PeerRuntime, roles, discovery, routing,
 │                                 #   committee mgmt, gateway election, archival mgmt
 ├── storage-api/                  # WorldStore, RegionEventStore, SnapshotStore,
 │                                 #   ContentStore, CertificateStore
 ├── storage-rocksdb/              # full-archive implementation (server)
-├── storage-client/               # bounded/quota'd client implementation
+├── storage-client/               # bounded/quota'd client implementation (Task 22)
 ├── transport-api/                # PeerTransport, PeerConnection, MessageHandler
 ├── transport-neoforge/           # payload registration + relay transport (Phase 1)
 ├── transport-libp2p/             # (Phase 6) direct P2P behind the same interface
@@ -205,7 +209,10 @@ Minecraft-free (plain Java, unit-testable without a server). Only `neoforge-mod`
 
 **Required**: NeoForge (lifecycle, payloads + `StreamCodec`, attachments, `SavedData`,
 config); JDK crypto only — Ed25519 signatures, SHA-256 digests, `SecureRandom` identity
-generation; `java.util.concurrent` + virtual threads.
+generation; `java.util.concurrent` + virtual threads. (`core` stays JDK-crypto-only
+forever; the Task 23 Argon2id KDF adds a pinned BouncyCastle dependency in
+`distribution`, never in `core` — PBKDF2 is the JDK-built-in fallback behind the same
+seam.)
 
 **Strongly recommended**: Caffeine (bounded caches, dedup); zstd-jni (snapshot/delta/
 checkpoint compression); RoaringBitmap (dirty-section/chunk masks); fastutil (primitive
@@ -331,7 +338,16 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
 - Archival repair (kill peers → missing replicas re-created), ≥3 bootstrap mechanisms
   (configured peers, cached peer store, signed invitations; optionally DNS seeds / LAN
   multicast).
-- These are §19 milestones M3–M5.
+- These are §19 milestones M3–M5, delivered by Task 10 (gateway + libp2p) together with
+  Tasks 20 (multi-bootstrap, tracker) and 21 (archival repair).
+- The **"torrent hosting" cluster (Tasks 19–26)** lands in this phase: content-addressed
+  piece manifests + multi-seeder swarm fetch (19), tracker / peer directory / archive
+  inventory / multi-bootstrap (20), rendezvous replication with dynamic seed floor/cap +
+  audit/repair (21), multi-factor reliability + client storage quotas + 24 h
+  retention-before-drop (22), per-world password encryption over ciphertext
+  content-addressing (23), continuous active-player stream + crash-safe flush (24),
+  tick-lag/TPS handoff (25, spills into Phase 7), and the multiplayer GUI (26,
+  GUI-deferred acceptance).
 
 ### Phase 7 — Parity program (Tasks 13, 14, 15)
 
