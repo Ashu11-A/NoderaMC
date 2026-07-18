@@ -31,6 +31,7 @@ include("diagnostics")
 include("shadow-validation")
 include("coordinator")
 include("committee")
+include("fallback")
 
 // --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
 include("transport-neoforge")

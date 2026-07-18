@@ -53,6 +53,12 @@
   and casts a signed ACCEPT vote on its own root; a 2-of-3 quorum on one root commits the delta
   through the coordinator's `WorldMutationApplier`. The whole propose/vote/quorum/commit/failover
   loop is proven headlessly (`CommitteeMvpIT`, `ByzantineWorkerTest`).
+- `fallback` (Task 8 — the Minecraft-free Phase 4 server-fallback + cross-region router:
+  `CrossRegionRouter`, `FallbackExecutor`, `SoakMetrics`, `FallbackRouter`) → `core` + `simulation` +
+  `consensus` + `coordinator`. Classifies every action into the committee lane or the server lane
+  (unassigned / cross-region / disputed / collapsed), executes the server lane through the
+  coordinator applier, and measures the committee-commit ratio (Phase 4 exit: &gt;90%). Proven
+  headlessly (`FallbackRoutingIT`).
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They

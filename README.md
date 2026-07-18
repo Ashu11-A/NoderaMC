@@ -19,8 +19,8 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `32%`**
-`███████░░░░░░░░░░░░░░░░░`
+**Overall system completion: `36%`**
+`████████░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -28,12 +28,12 @@
 | Phase 1 — Shadow validation | capture mixins, worker runtime, divergence report | 🚧 `45%` (**determinism pipeline proven headlessly**: new Minecraft-free `shadow-validation` module — `WorkerRuntime` (virtual-thread), `ReplicaStore`, `SnapshotDeltaApplier` (CAS replica advance), `ShadowWorker`/`ShadowCoordinator`, `ServerRecompute` intra-JVM self-check, `DivergenceTracker` + `InterferenceProbe`. `ShadowValidationIT` runs 3 workers × 250 random place/break batches with **zero divergence** and catches a lying worker + re-snapshots. NeoForge capture mixins, live multi-client soak, bandwidth/interference numbers deferred) |
 | Phase 2 — Coordinator | leases, epochs, client proposal + server verify | 🚧 `50%` (**delegate→propose→verify→commit pipeline proven headlessly**: new Minecraft-free `coordinator` module — `NodeRegistry`, `ReliabilityLedger` (EMA + persistence), deterministic `RendezvousPlacementPolicy`, `RegionAllocator`, `DelegabilityPolicy`, `LeaseManager` (epoch bump/stale-epoch), `HeartbeatMonitor`, `RegionPipeline` state machine, `ProposalManager`, `ServerVerifier`, two-pass CAS `WorldMutationApplier` over a `MutableWorldView` seam. `CoordinatorIT` proves commit-on-match, forced-mismatch reject + world-uncorrupted, stale-epoch drop, and primary-death reassignment under a bumped epoch. NeoForge event capture/cancel, `ServerLevel` applier, live 2-client acceptance deferred) |
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | 🚧 `50%` (**MVP gate proven headlessly**: new Minecraft-free `committee` module wires the consensus primitives around real engine re-execution — every member re-executes + casts a signed ACCEPT vote on its own root, a 2-of-3 quorum commits the delta, a lying validator/primary is out-voted + penalised, equivocation slashes, and `SpotCheckAuditor` audits a deterministic sample. `CommitteeMvpIT` proves quorum-commit then primary-failover-under-bumped-epoch continuation. NeoForge wiring + live 3-client acceptance deferred) |
-| Phase 4 — Server fallback only | cross-region router, soak metrics | ⬜ `0%` |
+| Phase 4 — Server fallback only | cross-region router, soak metrics | 🚧 `50%` (**router + fallback lane proven headlessly**: new Minecraft-free `fallback` module — `CrossRegionRouter` classifies each action into the committee lane or the server lane (unassigned / cross-region / disputed / collapsed), `FallbackExecutor` commits the server lane through the coordinator applier, `SoakMetrics` tracks the committee-commit ratio. `FallbackRoutingIT` proves a spread-out session clears the **>90% committee-commit** exit criterion. Real vanilla cross-region execution + live synthetic-client soak deferred) |
 | Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | 🚧 `15%` (`peer-runtime` membership + heartbeat + gateway migration shipped; event-sourced storage pending) |
 | Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | 🚧 `25%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. NAT/libp2p, archival repair, multi-bootstrap pending) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `338 passing · 0 failing · 0 skipped` (adds **Task 7 Phase 3 committee validation — the MVP gate**: a new Minecraft-free `committee` module (12 tests) — honest quorum commit (world re-extracts to the engine root), byzantine cases (lone lying validator excluded + penalised, lying primary out-voted, equivocation slashed, colluding majority caught only by audit), deterministic spot-check sampling + dispute, primary-loss failover under a bumped epoch, and the `CommitteeMvpIT` quorum-commit→failover→continue scenario; on top of Task 6's `coordinator` (48). See Tested.md).
+**Tests:** `348 passing · 0 failing · 0 skipped` (adds **Task 8 Phase 4 server-fallback + cross-region router**: a new Minecraft-free `fallback` module (10 tests) — cross-region actions always fall back, unassigned/disputed/collapsed regions route to the server lane, the `FallbackExecutor` commits that lane to the engine root, and `FallbackRoutingIT` proves a spread-out session clears the >90% committee-commit exit criterion; on top of Task 7's `committee` (12). See Tested.md).
 
 > **P2P session-continuity beta** (this milestone): two players connect to a NeoForge dedicated
 > server acting as a **bootstrap peer**; the mod forms a direct peer mesh over
@@ -65,6 +65,7 @@
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe (Task 5) | 25 | ✅ |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier (Task 6) | 48 | ✅ |
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, quorum commit over VoteCollector, byzantine handling, SpotCheckAuditor, CommitteeFailover (Task 7) | 12 | ✅ |
+| `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics (Task 8) | 10 | ✅ |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac`, tab/boss-bar/action-bar HUD, session payload | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
@@ -180,7 +181,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 5 | Shadow validation (capture, worker, divergence) | 1 | `#5` | 🚧 (`shadow-validation` determinism pipeline + headless zero-divergence soak; NeoForge capture mixins + live soak deferred) |
 | 6 | Coordinator (leases, epochs, client proposal) | 2 | `#6` | 🚧 (`coordinator` delegate→propose→verify→commit pipeline + reassignment, headless `CoordinatorIT`; NeoForge capture/cancel + `ServerLevel` applier + live acceptance deferred) |
 | 7 | Committee validation — **MVP gate** | 3 | `#7` | 🚧 (`committee` 2-of-3 quorum re-execution + byzantine handling + spot-check + failover, headless `CommitteeMvpIT`; NeoForge wiring + live 3-client acceptance deferred) |
-| 8 | Server-fallback-only + cross-region router | 4 | `#8` | ⬜ |
+| 8 | Server-fallback-only + cross-region router | 4 | `#8` | 🚧 (`fallback` router + server lane + >90% committee-commit soak, headless `FallbackRoutingIT`; vanilla cross-region execution + live soak deferred) |
 | 9 | Peer-runtime + event-sourced storage | 5 | `#9` | 🚧 (`peer-runtime` membership + gateway migration; storage pending) |
 | 10 | Gateway migration, P2P, archival repair | 6 | `#10` | 🚧 (`transport-socket` direct P2P + deterministic gateway migration; libp2p/NAT + archival repair pending) |
 | 11 | World-interference control, chunk lifecycle, mod compat | 2–4 | `#11` | ⬜ |
