@@ -50,7 +50,9 @@
   commit→reassign pipeline is unit-tested headlessly (`CoordinatorIT`). All world writes go through
   `WorldMutationApplier` (two-pass compare-and-set, all-or-nothing). Durable coordinator state
   (`epochs` + `ReliabilityLedger`) persists via `PersistedCoordinatorState` (canonical encoding, tags
-  `RELIABILITY_LEDGER`/`COORDINATOR_STATE` appended to the frozen `TypeTags` registry).
+  `RELIABILITY_LEDGER`/`COORDINATOR_STATE` appended to the frozen `TypeTags` registry). Task 22 adds the
+  multi-factor `ReliabilityScorer` (correctness+connectivity+uptime+availability+worlds-seeded, pure
+  basis-point math) ADDITIVELY — the Task-6 `ReliabilityLedger` EMA stays the frozen correctness source.
 - `committee` (Task 7 — the Minecraft-free Phase 3 MVP gate: `CommitteeMember`, `CommitteeSession`,
   `SpotCheckAuditor`, `CommitteeFailover`) → `core` + `simulation` + `consensus` + `coordinator`. It
   wires the existing consensus primitives (`VoteCollector`, `MajorityQuorumPolicy`,
@@ -70,7 +72,10 @@
   API). Canonical state = genesis + certified per-region event logs + checkpoints + certificates +
   content blobs.
 - `storage-eventsourced` (Task 9 — the in-memory event-sourced `WorldStore` impl) → `core` +
-  `storage-api`. Content-addressed blobs, append-only certified event logs (chain + monotonic-id
+  `storage-api`.
+- `storage-client` (Task 22 — the bounded/quota'd client content store: `BoundedClientWorldStore`,
+  `StorageQuotaManager`, `ArchiveEvictionPolicy`) → `core` + `storage-api`. Never evicts an assigned
+  region's current state; signals Task 21 repair on eviction. Content-addressed blobs, append-only certified event logs (chain + monotonic-id
   validation at append, Invariant 3 on write), checkpoint index, content-addressed certificates,
   the read-side `EventReplayer` (verifies the certified `prevRoot→resultingRoot` chain; an uncertified
   suffix stops replay), and `PeerSyncFlow` (forward-only sync, Invariant 8). The RocksDB archival

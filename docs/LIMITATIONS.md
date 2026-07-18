@@ -77,9 +77,9 @@ observable in normal play.
 | L-33 | No async client chunk pipeline; a region renders only after its whole snapshot arrives, no lock-until-arrived guard | T19 | Pieces render on arrival; un-arrived section locked vs edit; manifest hash validates before render; `DistributionIT` reassembles from seeders each holding <40% | RETIRING |
 | L-34 | No tracker / archive-inventory / multi-bootstrap; a peer learns the mesh only via single-bootstrap gossip, cannot list worlds/peers/seeders by content | T20 | `TrackerQuery/Response` returns peers+seeders+counts+health; `ArchiveInventory` advertised+queried; `BootstrapClient` joins via configured-list / `CachedPeerStore` / `InvitationCodec` with the original bootstrap offline | RETIRING |
 | L-35 | No replication placement or repair; content held only where produced, no redundancy guarantee, no ≥25%-seed / <5%-per-peer enforcement | T21 | Rendezvous `ArchivePlacementPolicy` hits snap×5/log×4; dynamic seed floor `min(25%, R/N)` + per-peer cap `max(5%, 2·R/N)` enforced (5% asymptote at large N; `FULL_ARCHIVE` host exempt); `ArchiveRepairIT` re-creates missing replicas after a peer kill with no data loss | RETIRING |
-| L-36 | Reliability is a single proposal-outcome EMA; connectivity/uptime/availability/worlds-seeded not weighted (Plan §3.5/§10) | T22 | Weighted multi-factor score drives placement/gateway/handoff; determinism property test green; offline-decay implemented | OPEN |
-| L-37 | No client storage quota / eviction policy (`storage-client` unbuilt); remote-peered data can grow unbounded | T22 | `BoundedClientWorldStore` + `StorageQuotaManager` + `ArchiveEvictionPolicy` (never evicts assigned-region current state); unit tests | OPEN |
-| L-38 | No retention-before-drop; worlds never garbage-collected, no coordinated 24 h decommission | T22 | Coordinated 24 h countdown (network-visible) on zero-seeder worlds; cancel-on-seeder-return; drop-at-expiry; `RetentionIT` | OPEN |
+| L-36 | Reliability is a single proposal-outcome EMA; connectivity/uptime/availability/worlds-seeded not weighted (Plan §3.5/§10) | T22 | Weighted multi-factor score drives placement/gateway/handoff; determinism property test green; offline-decay implemented | RETIRING |
+| L-37 | No client storage quota / eviction policy (`storage-client` unbuilt); remote-peered data can grow unbounded | T22 | `BoundedClientWorldStore` + `StorageQuotaManager` + `ArchiveEvictionPolicy` (never evicts assigned-region current state); unit tests | RETIRING |
+| L-38 | No retention-before-drop; worlds never garbage-collected, no coordinated 24 h decommission | T22 | Coordinated 24 h countdown (network-visible) on zero-seeder worlds; cancel-on-seeder-return; drop-at-expiry; `RetentionIT` | RETIRING |
 | L-39 | World content is plaintext on the P2P net; any connected peer can read any chunk; no per-world encryption | T23 | AES-GCM-256 content encryption under Argon2id(password)-derived key; seeders store ciphertext, verify by hash; join requires password; ciphertext-integrity + wrong-password + nonce-uniqueness tests green | OPEN |
 | L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | OPEN |
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
@@ -117,6 +117,17 @@ observable in normal play.
 > loss. The row moves to RETIRED once the mod side runs the repair coordinator on a live mesh under
 > churn — gated on the NeoForge lane (and on Task 22's reliability scoring, which feeds the
 > free-rider penalty).
+
+> **L-36/L-37/L-38 status (Task 22, 2026-07-18).** The Minecraft-free halves are green. L-36: the
+> multi-factor `ReliabilityScorer` blends correctness+connectivity+uptime+availability+worlds-seeded
+> in pure-integer basis-point math (bit-identical across JVMs), with slash-to-0 and offline decay.
+> L-37: the new `storage-client` module (`BoundedClientWorldStore`/`StorageQuotaManager`/
+> `ArchiveEvictionPolicy`) honours a byte budget, evicts oldest-cold-first, never evicts an assigned
+> region's current state, and signals repair. L-38: `RetentionPolicy` runs a coordinated (earliest-
+> deadline) 24-h countdown on zero-seeder worlds, cancels on seeder return, drops at expiry. All
+> three move to RETIRED once the mod side wires them into the live runtime — the scorer fed by
+> PeerLink/heartbeat/seed-share, the client runtime over the bounded store, the tracker surfacing
+> the countdown — gated on the NeoForge lane.
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

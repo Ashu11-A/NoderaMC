@@ -17,10 +17,10 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/repair (Task 21) | 89 | 0 | 0 | 🚧 | 2026-07-18 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/repair (Task 21) + 24-h retention (Task 22) | 97 | 0 | 0 | 🚧 | 2026-07-18 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
-| `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) | 48 | 0 | 0 | ✅ | 2026-07-17 |
+| `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) | 56 | 0 | 0 | ✅ | 2026-07-18 |
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT` (Task 7) | 12 | 0 | 0 | ✅ | 2026-07-17 |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics + `FallbackRoutingIT` (Task 8) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
@@ -28,10 +28,10 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
-| `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
+| `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22) | 8 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **499** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **523** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -58,6 +58,22 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
 >
+> Test growth (499 → 523) is **Task 22 — multi-factor reliability + client quotas + 24-h retention**
+> (+24). `coordinator` `ReliabilityScorerTest` (+8): the blend is pure integer arithmetic (same
+> inputs ⇒ same score, pinned to 7850 bps for a known factor set under default weights), slash-to-0
+> on a correctness of 0, the 9500-bps assignment floor, and the no-single-factor-dominates property
+> (a high-correctness/poor-connectivity node scores below its inverse under a connectivity-heavy
+> config, and the reverse under a correctness-heavy one); offline decay converges to the 0.5 target;
+> factors round-trip canonically. New `storage-client` module `BoundedClientWorldStoreTest` (+8):
+> the store honours the byte budget, evicts oldest-cold-first, NEVER evicts a pinned assigned-region
+> current blob, refuses (QuotaException) when only pinned content remains, signals repair via the
+> eviction listener, and is idempotent on duplicate bytes. `peer-runtime/archival`
+> `RetentionPolicyTest` (+8): zero seeders start a visible countdown, a returning seeder cancels it,
+> expiry drops the world, and coordination adopts the earliest announced deadline so the network
+> counts down in lockstep. Mod-side wiring (feeding PeerLink/heartbeat/seed-share into the scorer,
+> the client runtime over the bounded store, the tracker surfacing the retention countdown) is
+> deferred with the NeoForge lane.
+
 > Test growth (473 → 499) is **Task 21 — archive placement, replication, repair** (+26, all
 > `peer-runtime/archival`). `RendezvousArchivePolicyTest` is the placement property (acceptance #1):
 > `expectedHolders` is a pure function agreed on by every peer regardless of input order, holds R

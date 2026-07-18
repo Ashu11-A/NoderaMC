@@ -88,7 +88,9 @@ public final class TypeTags {
     public static final int ARCHIVE_REPLICA_ASSIGNMENT = 77;
     /** Acknowledgement that an assigned peer now holds the requested pieces. */
     public static final int ARCHIVE_REPLICA_ACK        = 78;
+    /** Per-node multi-factor reliability signals, each in basis points (Task 22). */
+    public static final int RELIABILITY_FACTORS        = 79;
 
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 78;
+    public static final int NEXT = 79;
 }

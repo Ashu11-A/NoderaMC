@@ -80,8 +80,10 @@ final class TypeTagsTest {
         // archive replication / repair (Task 21)
         assertThat(TypeTags.ARCHIVE_REPLICA_ASSIGNMENT).isEqualTo(77);
         assertThat(TypeTags.ARCHIVE_REPLICA_ACK).isEqualTo(78);
+        // reliability multi-factor signals (Task 22)
+        assertThat(TypeTags.RELIABILITY_FACTORS).isEqualTo(79);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(78);
+        assertThat(TypeTags.NEXT).isEqualTo(79);
     }
 
     @Test
