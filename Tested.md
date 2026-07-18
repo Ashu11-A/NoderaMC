@@ -15,7 +15,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-api` | `PeerTransport` seam | 9 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
-| `storage-api` | `WorldStore` interfaces (stub — Task 9 fills it) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
+| `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
 | `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) | 14 | 0 | 0 | 🚧 | 2026-07-17 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
@@ -23,13 +23,14 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) | 48 | 0 | 0 | ✅ | 2026-07-17 |
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT` (Task 7) | 12 | 0 | 0 | ✅ | 2026-07-17 |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics + `FallbackRoutingIT` (Task 8) | 10 | 0 | 0 | ✅ | 2026-07-18 |
+| `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
 | `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **348** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **364** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -55,6 +56,19 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (348 → 364) is **Task 9 — Phase 5 event-sourced storage** (+16): `storage-api` filled out
+> (+4 — `ContentId`/`Compression`/`GenesisManifest` value types + the `WorldStore` seam and its
+> content/event/checkpoint/certificate interfaces; replaces the placeholder smoke test) and a new
+> in-memory `storage-eventsourced` impl (+13 — content-addressed dedup + integrity, append-only event
+> logs that reject non-monotonic ids and broken `prevRoot→resultingRoot` chains, checkpoint version
+> ordering, content-addressed certificates). `EventReplayerTest` proves the certified-chain walk: a
+> fully-certified chain replays to the final root, an uncertified suffix stops replay at the last
+> certified root (forward-only sync, Invariant 8), a chain break or a certificate that contradicts its
+> event is a hard error (tampered log), and the store's own append validation is the primary
+> Invariant-3 gate. `PeerSyncFlowTest` proves a new peer syncs from genesis with no checkpoint, a
+> returning peer resumes forward from a checkpoint, and an uncertified network tail never advances
+> the peer. The RocksDB archival tier and live multi-seeder fetch remain deferred.
 >
 > Test growth (338 → 348) is **Task 8 — Phase 4 server-fallback + cross-region router** (+10, new
 > Minecraft-free `fallback` module): `CrossRegionRouterTest` (a cross-region action always falls back

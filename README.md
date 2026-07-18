@@ -19,7 +19,7 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `36%`**
+**Overall system completion: `40%`**
 `████████░░░░░░░░░░░░░░░`
 
 | Phase | Scope | Status |
@@ -29,11 +29,11 @@
 | Phase 2 — Coordinator | leases, epochs, client proposal + server verify | 🚧 `50%` (**delegate→propose→verify→commit pipeline proven headlessly**: new Minecraft-free `coordinator` module — `NodeRegistry`, `ReliabilityLedger` (EMA + persistence), deterministic `RendezvousPlacementPolicy`, `RegionAllocator`, `DelegabilityPolicy`, `LeaseManager` (epoch bump/stale-epoch), `HeartbeatMonitor`, `RegionPipeline` state machine, `ProposalManager`, `ServerVerifier`, two-pass CAS `WorldMutationApplier` over a `MutableWorldView` seam. `CoordinatorIT` proves commit-on-match, forced-mismatch reject + world-uncorrupted, stale-epoch drop, and primary-death reassignment under a bumped epoch. NeoForge event capture/cancel, `ServerLevel` applier, live 2-client acceptance deferred) |
 | Phase 3 — Committee validation | **MVP gate** (3-client quorum) | 🚧 `50%` (**MVP gate proven headlessly**: new Minecraft-free `committee` module wires the consensus primitives around real engine re-execution — every member re-executes + casts a signed ACCEPT vote on its own root, a 2-of-3 quorum commits the delta, a lying validator/primary is out-voted + penalised, equivocation slashes, and `SpotCheckAuditor` audits a deterministic sample. `CommitteeMvpIT` proves quorum-commit then primary-failover-under-bumped-epoch continuation. NeoForge wiring + live 3-client acceptance deferred) |
 | Phase 4 — Server fallback only | cross-region router, soak metrics | 🚧 `50%` (**router + fallback lane proven headlessly**: new Minecraft-free `fallback` module — `CrossRegionRouter` classifies each action into the committee lane or the server lane (unassigned / cross-region / disputed / collapsed), `FallbackExecutor` commits the server lane through the coordinator applier, `SoakMetrics` tracks the committee-commit ratio. `FallbackRoutingIT` proves a spread-out session clears the **>90% committee-commit** exit criterion. Real vanilla cross-region execution + live synthetic-client soak deferred) |
-| Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | 🚧 `15%` (`peer-runtime` membership + heartbeat + gateway migration shipped; event-sourced storage pending) |
+| Phase 5 — Archival bootstrap peer | peer-runtime, event-sourced storage | 🚧 `45%` (`peer-runtime` membership + heartbeat + gateway migration shipped; **event-sourced `WorldStore` added** — `storage-api` seam + in-memory `storage-eventsourced` impl: content-addressed blobs, append-only certified event logs with chain validation, checkpoints, certificate store, certified-chain `EventReplayer`, and forward `PeerSyncFlow`. RocksDB archival tier + new-peer live sync deferred) |
 | Phase 6 — Gateway migration, P2P | libp2p, archival repair, multi-bootstrap | 🚧 `25%` (**P2P continuity beta**: `transport-socket` direct data plane + deterministic gateway migration; base-peer-disconnection continuity proven over real TCP. NAT/libp2p, archival repair, multi-bootstrap pending) |
 | Phase 7–8 — Parity program | redstone, environment, mobs, player lane, BFT, mod SDK | ⬜ `0%` |
 
-**Tests:** `348 passing · 0 failing · 0 skipped` (adds **Task 8 Phase 4 server-fallback + cross-region router**: a new Minecraft-free `fallback` module (10 tests) — cross-region actions always fall back, unassigned/disputed/collapsed regions route to the server lane, the `FallbackExecutor` commits that lane to the engine root, and `FallbackRoutingIT` proves a spread-out session clears the >90% committee-commit exit criterion; on top of Task 7's `committee` (12). See Tested.md).
+**Tests:** `364 passing · 0 failing · 0 skipped` (adds **Task 9 Phase 5 event-sourced storage**: `storage-api` filled out (4 — `ContentId`/`Compression`/`GenesisManifest`, the `WorldStore` seam + content/event/checkpoint/certificate interfaces) and a new in-memory `storage-eventsourced` impl (13 — content-addressed dedup, append-only certified event logs with chain + monotonic-id validation, checkpoint ordering, content-addressed certificates, the `EventReplayer` certified-chain verification, and forward `PeerSyncFlow` that discards an uncertified suffix); on top of Task 8's `fallback` (10). See Tested.md).
 
 > **P2P session-continuity beta** (this milestone): two players connect to a NeoForge dedicated
 > server acting as a **bootstrap peer**; the mod forms a direct peer mesh over
@@ -58,7 +58,7 @@
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | ✅ |
 | `transport-api` | `PeerTransport` seam | 9 | ✅ |
 | `transport-socket` | real TCP `PeerTransport` — direct P2P data plane (Phase 6) | 4 | ✅ |
-| `storage-api` | `WorldStore`/content/checkpoint interfaces (stub) | 1 | 🚧 |
+| `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | ✅ |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
 | `peer-runtime` | `PeerRuntime`, membership/gossip, heartbeat, deterministic gateway migration, metered transport + DiagnosticsSource (continuity beta) | 14 | 🚧 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, Panel/Row/Cell view model (Task 18) | 35 | ✅ |
@@ -66,6 +66,7 @@
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier (Task 6) | 48 | ✅ |
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, quorum commit over VoteCollector, byzantine handling, SpotCheckAuditor, CommitteeFailover (Task 7) | 12 | ✅ |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics (Task 8) | 10 | ✅ |
+| `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | ✅ |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac`, tab/boss-bar/action-bar HUD, session payload | 1 | 🚧 |
 | `storage-rocksdb` | full-archive RocksDB store | — | ⬜ |
@@ -105,10 +106,15 @@ nodera/
 ├── consensus/           QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
 ├── transport-api/       PeerTransport seam
 ├── transport-socket/    real TCP PeerTransport — direct P2P data plane (Phase 6 continuity beta)
-├── storage-api/         WorldStore interfaces
+├── storage-api/         WorldStore seam + content/event/checkpoint/certificate interfaces
+├── storage-eventsourced/ (Task 9) in-memory event-sourced WorldStore: certified-chain EventReplayer, forward PeerSyncFlow
 ├── testkit/             LoopbackTransport, FakeRegion, FixtureWriter/Reader
 ├── peer-runtime/        PeerRuntime, membership/gossip, heartbeat, deterministic gateway migration, MeteredPeerTransport
 ├── diagnostics/         (Task 18) Minecraft-free telemetry: TrafficMeter, RateWindow, MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView
+├── shadow-validation/   (Task 5) Phase 1 shadow lane: WorkerRuntime, ReplicaStore, ShadowCoordinator, DivergenceTracker
+├── coordinator/         (Task 6) Phase 2 coordinator: allocator, leases/epochs, pipeline, WorldMutationApplier
+├── committee/           (Task 7) Phase 3 MVP gate: committee re-execution + 2-of-3 quorum + byzantine handling
+├── fallback/            (Task 8) Phase 4 cross-region router + server-fallback lane + soak metrics
 ├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, redesigned /nodera diagnostics tree + /noderac + HUD surfaces; runServer/runClient deferred
 ├── transport-neoforge/  (Task 4) payload relay skeleton — onboarded (ModDevGradle), relay impl deferred
 └── docs/                Plan.md, LIMITATIONS.md, Task.0..16.md, Context/
@@ -182,7 +188,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 6 | Coordinator (leases, epochs, client proposal) | 2 | `#6` | 🚧 (`coordinator` delegate→propose→verify→commit pipeline + reassignment, headless `CoordinatorIT`; NeoForge capture/cancel + `ServerLevel` applier + live acceptance deferred) |
 | 7 | Committee validation — **MVP gate** | 3 | `#7` | 🚧 (`committee` 2-of-3 quorum re-execution + byzantine handling + spot-check + failover, headless `CommitteeMvpIT`; NeoForge wiring + live 3-client acceptance deferred) |
 | 8 | Server-fallback-only + cross-region router | 4 | `#8` | 🚧 (`fallback` router + server lane + >90% committee-commit soak, headless `FallbackRoutingIT`; vanilla cross-region execution + live soak deferred) |
-| 9 | Peer-runtime + event-sourced storage | 5 | `#9` | 🚧 (`peer-runtime` membership + gateway migration; storage pending) |
+| 9 | Peer-runtime + event-sourced storage | 5 | `#9` | 🚧 (`peer-runtime` membership + gateway migration; **event-sourced `WorldStore` seam + in-memory impl** with certified-chain replay + forward sync; RocksDB archival tier + new-peer live sync deferred) |
 | 10 | Gateway migration, P2P, archival repair | 6 | `#10` | 🚧 (`transport-socket` direct P2P + deterministic gateway migration; libp2p/NAT + archival repair pending) |
 | 11 | World-interference control, chunk lifecycle, mod compat | 2–4 | `#11` | ⬜ |
 | 12 | Entity & mob lane (ghosts, cross-region transfer) | 5+ | `#12` | ⬜ |

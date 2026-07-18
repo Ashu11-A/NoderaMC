@@ -59,6 +59,17 @@
   (unassigned / cross-region / disputed / collapsed), executes the server lane through the
   coordinator applier, and measures the committee-commit ratio (Phase 4 exit: &gt;90%). Proven
   headlessly (`FallbackRoutingIT`).
+- `storage-api` (Task 9 — the Minecraft-free storage seam: `WorldStore` + `ContentStore`/
+  `RegionEventStore`/`CheckpointStore`/`CertificateStore` interfaces + `ContentId`/`Compression`/
+  `Checkpoint`/`GenesisManifest` value types) → `core` (`api`, since core types appear in the public
+  API). Canonical state = genesis + certified per-region event logs + checkpoints + certificates +
+  content blobs.
+- `storage-eventsourced` (Task 9 — the in-memory event-sourced `WorldStore` impl) → `core` +
+  `storage-api`. Content-addressed blobs, append-only certified event logs (chain + monotonic-id
+  validation at append, Invariant 3 on write), checkpoint index, content-addressed certificates,
+  the read-side `EventReplayer` (verifies the certified `prevRoot→resultingRoot` chain; an uncertified
+  suffix stops replay), and `PeerSyncFlow` (forward-only sync, Invariant 8). The RocksDB archival
+  tier will implement the same seam later.
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
