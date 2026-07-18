@@ -52,7 +52,7 @@ final class CoordFixtures {
     }
 
     static NodeCapabilities caps(int cores, double reliability, int maxPrimary, int maxValidator) {
-        return new NodeCapabilities(cores, 4L << 30, 50, reliability, maxPrimary, maxValidator, true);
+        return NodeCapabilities.of(cores, 4L << 30, 50, reliability, maxPrimary, maxValidator, true);
     }
 
     static NodeCapabilities caps() {

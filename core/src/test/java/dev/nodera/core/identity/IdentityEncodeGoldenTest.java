@@ -32,10 +32,10 @@ final class IdentityEncodeGoldenTest {
      * Golden canonical hex for {@link NodeCapabilities#initial()}:
      * {@code tag=0002 ver=0001 cores=00000004 mem=0000000100000000 latency=00000032
      * reliability(0.95)=3fee666666666666 maxPrimary=00000004 maxValidator=00000008
-     * acceptsWorker=01}.
+     * acceptsWorker=01 roles=00000000 (empty set, appended by Task 20)}.
      */
     private static final String NODE_CAPABILITIES_INITIAL_HEX =
-            "00020001000000040000000100000000000000323fee666666666666000000040000000801";
+            "00020001000000040000000100000000000000323fee66666666666600000004000000080100000000";
 
     @Test
     void nodeCapabilitiesInitialEncodesToGoldenHex() {
@@ -44,7 +44,7 @@ final class IdentityEncodeGoldenTest {
         c.encode(w);
         byte[] expected = Bytes.fromHex(NODE_CAPABILITIES_INITIAL_HEX).toArray();
         assertThat(w.toByteArray()).isEqualTo(expected);
-        assertThat(w.size()).isEqualTo(37);
+        assertThat(w.size()).isEqualTo(41);
     }
 
     @Test

@@ -27,7 +27,7 @@ final class NodeCapabilitiesTest {
 
     @Test
     void encodeDecodeRoundTripEquals() {
-        NodeCapabilities c = new NodeCapabilities(8, 16L * 1024 * 1024 * 1024, 30, 0.99, 2, 4, false);
+        NodeCapabilities c = NodeCapabilities.of(8, 16L * 1024 * 1024 * 1024, 30, 0.99, 2, 4, false);
         CanonicalWriter w = new CanonicalWriter();
         c.encode(w);
         NodeCapabilities decoded = NodeCapabilities.decode(new CanonicalReader(w.toByteArray()));
@@ -43,5 +43,36 @@ final class NodeCapabilitiesTest {
         CanonicalWriter wb = new CanonicalWriter();
         b.encode(wb);
         assertThat(wa.toByteArray()).isEqualTo(wb.toByteArray());
+    }
+
+    @Test
+    void rolesRoundTripAndAreCanonicalRegardlessOfInputOrder() {
+        // A Set's iteration order is unspecified; the encoder must sort by frozen ordinal so two
+        // peers declaring the same roles produce byte-identical wire forms.
+        NodeCapabilities reverse = NodeCapabilities.initial().withRoles(java.util.EnumSet.of(
+                PeerRole.PARTIAL_ARCHIVE, PeerRole.FULL_ARCHIVE, PeerRole.RELAY));
+        NodeCapabilities sorted = NodeCapabilities.initial().withRoles(java.util.EnumSet.of(
+                PeerRole.RELAY, PeerRole.PARTIAL_ARCHIVE, PeerRole.FULL_ARCHIVE));
+
+        CanonicalWriter wa = new CanonicalWriter();
+        reverse.encode(wa);
+        CanonicalWriter wb = new CanonicalWriter();
+        sorted.encode(wb);
+        assertThat(wa.toByteArray()).isEqualTo(wb.toByteArray());
+
+        NodeCapabilities decoded = NodeCapabilities.decode(new CanonicalReader(wa.toByteArray()));
+        assertThat(decoded).isEqualTo(sorted);
+        assertThat(decoded.roles()).containsExactly(
+                PeerRole.RELAY, PeerRole.PARTIAL_ARCHIVE, PeerRole.FULL_ARCHIVE);
+        assertThat(decoded.hasRole(PeerRole.FULL_ARCHIVE)).isTrue();
+        assertThat(decoded.hasRole(PeerRole.WORLD_SEEDER)).isFalse();
+    }
+
+    @Test
+    void withRolesReturnsACopyLeavingTheOriginalUntouched() {
+        NodeCapabilities base = NodeCapabilities.initial();
+        NodeCapabilities roled = base.withRoles(java.util.EnumSet.of(PeerRole.BOOTSTRAP));
+        assertThat(base.roles()).isEmpty();
+        assertThat(roled.roles()).containsExactly(PeerRole.BOOTSTRAP);
     }
 }

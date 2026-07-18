@@ -73,6 +73,16 @@ public final class TypeTags {
     /** Per-world KDF parameters carried by an encrypted manifest (Task 23 fills the key path). */
     public static final int WORLD_KEY_MATERIAL   = 72;
 
+    // --- tracker / discovery (Task 20) ---
+    /** Per-world health class read by the tracker and the multiplayer UI. */
+    public static final int WORLD_HEALTH         = 73;
+    /** Persisted node identity (private material) — never a wire type; disk only. */
+    public static final int NODE_IDENTITY_SECRET = 74;
+    /** A signed invitation blob a friend pastes to join a world. */
+    public static final int INVITATION           = 75;
+    /** One remembered peer address in the on-disk cached-peer store. */
+    public static final int CACHED_PEER          = 76;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 72;
+    public static final int NEXT = 76;
 }

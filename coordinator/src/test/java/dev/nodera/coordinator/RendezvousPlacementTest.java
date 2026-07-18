@@ -40,8 +40,8 @@ class RendezvousPlacementTest {
 
     @Test
     void nonWorkerNodeIneligible() {
-        NodeCapabilities noWorker = new NodeCapabilities(4, 4L << 30, 50, 0.99, 4, 8, false);
-        NodeCapabilities noPrimary = new NodeCapabilities(4, 4L << 30, 50, 0.99, 0, 8, true);
+        NodeCapabilities noWorker = NodeCapabilities.of(4, 4L << 30, 50, 0.99, 4, 8, false);
+        NodeCapabilities noPrimary = NodeCapabilities.of(4, 4L << 30, 50, 0.99, 0, 8, true);
         assertThat(policy.eligible(CoordFixtures.caps())).isTrue();
         assertThat(policy.eligible(noWorker)).isFalse();
         assertThat(policy.eligible(noPrimary)).isFalse();

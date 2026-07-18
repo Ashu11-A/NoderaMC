@@ -72,8 +72,13 @@ final class TypeTagsTest {
         assertThat(TypeTags.PIECE).isEqualTo(70);
         assertThat(TypeTags.PIECE_MANIFEST).isEqualTo(71);
         assertThat(TypeTags.WORLD_KEY_MATERIAL).isEqualTo(72);
+        // tracker / discovery (Task 20)
+        assertThat(TypeTags.WORLD_HEALTH).isEqualTo(73);
+        assertThat(TypeTags.NODE_IDENTITY_SECRET).isEqualTo(74);
+        assertThat(TypeTags.INVITATION).isEqualTo(75);
+        assertThat(TypeTags.CACHED_PEER).isEqualTo(76);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(72);
+        assertThat(TypeTags.NEXT).isEqualTo(76);
     }
 
     @Test

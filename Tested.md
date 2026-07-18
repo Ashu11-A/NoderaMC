@@ -9,7 +9,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, crypto, canonical encoding (frozen wire/hash contract) | 92 | 0 | 0 | ✅ | 2026-07-17 |
+| `core` | domain types, crypto, canonical encoding (frozen wire/hash contract) | 103 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
 | `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd) | 28 | 0 | 0 | ✅ | 2026-07-17 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
@@ -17,7 +17,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) | 14 | 0 | 0 | 🚧 | 2026-07-17 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery`: tracker/directory/inventory/multi-bootstrap/persistent-identity (Task 20) | 63 | 0 | 0 | 🚧 | 2026-07-18 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) | 48 | 0 | 0 | ✅ | 2026-07-17 |
@@ -31,7 +31,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **413** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **473** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -58,6 +58,26 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
 >
+> Test growth (413 → 473) is **Task 20 — tracker, peer directory, archive inventory,
+> multi-bootstrap** (+60: +49 `peer-runtime`, +11 `core`). The `peer-runtime/discovery` package:
+> `PeerDirectoryTest` (per-world liveness with deterministic staleness, id-sorted online lists,
+> least-recently-seen eviction), `ArchiveInventoryTest` (piece-level holdings merge, the
+> later-advertisement-replaces-earlier-claim semantics, empty-bitmap-as-retraction, the 100k-
+> manifest bound), `TrackerServiceTest` (peers+seeders+counts from live state, the safety-critical
+> health rule that zero-seeders-inside-the-retention-window is DEGRADED-not-DEAD, reliability
+> clamping to basis points), `CachedPeerStoreTest` + `InvitationCodecTest` + `BootstrapClientTest`
+> (most-recently-seen ordering, atomic persistence round-trip, signature forgery rejection, 3-
+> mechanism join with freshness-ordered de-duplication), `PersistentIdentityStoreTest` (load-or-
+> generate keeps the same `NodeId` across restarts, restored identity still signs+verifies).
+> `TrackerIT` is acceptance #1 — a 5-peer mesh across 2 worlds answers a per-world query with
+> exactly that world's peers and their held manifests, counts/reliability matching live state.
+> `MultiBootstrapIT` is acceptance #2 — the original bootstrap offline, a new client reaches the
+> mesh via each of the three mechanisms in isolation. In `core`: `WorldHealthTest` (frozen
+> ordinals, round-trip, bad-ordinal/tag rejection), `PersistedNodeIdentityTest` (generate→restore
+> same id+keys, restored identity signs+verifies, `toString` redacts the private key),
+> `NodeCapabilitiesTest` roles round-trip canonicalisation. Mod-side tracker wiring and live-mesh
+> acceptance are deferred with the NeoForge lane.
+
 > Test growth (364 → 413) is **Task 19 — the torrent distribution data plane** (+49, new
 > Minecraft-free `distribution` module). `PieceManifestTest` pins the canonical round-trip and the
 > derived `manifestRoot`, and proves the root commits piece *position and length* — swapping two

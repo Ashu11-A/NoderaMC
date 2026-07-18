@@ -69,13 +69,13 @@ observable in normal play.
 | L-25 | Async world writes by other mods undefined under the guard | T16 | RuleSet SDK provides the legal async mutation API; guard rejects the rest with a documented error | OPEN |
 | L-26 | Redstone bounded to palette v2 | T13→T14→T16 | v2 (T13) → +observer/QC/daylight (T14) → +comparator/hopper/note (T16): full redstone parity | OPEN |
 | L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T10 | `transport-libp2p` behind the same `PeerTransport` seam adds hole-punching + relay; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | OPEN |
-| L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | OPEN |
+| L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | RETIRED |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | OPEN |
 | L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
 | L-31 | In-game diagnostics HUD ships session + net panels live; the region-ownership and entity-control panels/boss-bars render `UNASSIGNED` placeholders (zone geometry is real, ownership is not) | T18 | With a committee (T6) / entity lane (T12) active, `/nodera regions` shows `ownedChunks > 0` and the zone boss-bar turns GREEN inside an owned region; placeholder path deleted | OPEN |
 | L-32 | World data transfers whole-region only; chunking is transport-level frame-splitting, pieces are not addressable, no multi-seeder swarm fetch | T19 | Chunk-section `PieceManifest` + `ContentRequest/Chunk/Availability` + deterministic rarest-first selection; resume-after-partial test green; bad-piece hash-reject green | RETIRING |
 | L-33 | No async client chunk pipeline; a region renders only after its whole snapshot arrives, no lock-until-arrived guard | T19 | Pieces render on arrival; un-arrived section locked vs edit; manifest hash validates before render; `DistributionIT` reassembles from seeders each holding <40% | RETIRING |
-| L-34 | No tracker / archive-inventory / multi-bootstrap; a peer learns the mesh only via single-bootstrap gossip, cannot list worlds/peers/seeders by content | T20 | `TrackerQuery/Response` returns peers+seeders+counts+health; `ArchiveInventory` advertised+queried; `BootstrapClient` joins via configured-list / `CachedPeerStore` / `InvitationCodec` with the original bootstrap offline | OPEN |
+| L-34 | No tracker / archive-inventory / multi-bootstrap; a peer learns the mesh only via single-bootstrap gossip, cannot list worlds/peers/seeders by content | T20 | `TrackerQuery/Response` returns peers+seeders+counts+health; `ArchiveInventory` advertised+queried; `BootstrapClient` joins via configured-list / `CachedPeerStore` / `InvitationCodec` with the original bootstrap offline | RETIRING |
 | L-35 | No replication placement or repair; content held only where produced, no redundancy guarantee, no ≥25%-seed / <5%-per-peer enforcement | T21 | Rendezvous `ArchivePlacementPolicy` hits snap×5/log×4; dynamic seed floor `min(25%, R/N)` + per-peer cap `max(5%, 2·R/N)` enforced (5% asymptote at large N; `FULL_ARCHIVE` host exempt); `ArchiveRepairIT` re-creates missing replicas after a peer kill with no data loss | OPEN |
 | L-36 | Reliability is a single proposal-outcome EMA; connectivity/uptime/availability/worlds-seeded not weighted (Plan §3.5/§10) | T22 | Weighted multi-factor score drives placement/gateway/handoff; determinism property test green; offline-decay implemented | OPEN |
 | L-37 | No client storage quota / eviction policy (`storage-client` unbuilt); remote-peered data can grow unbounded | T22 | `BoundedClientWorldStore` + `StorageQuotaManager` + `ArchiveEvictionPolicy` (never evicts assigned-region current state); unit tests | OPEN |
@@ -95,6 +95,19 @@ observable in normal play.
 > move to RETIRED once the mod-side consumers exist — the renderer and `WorldMutationApplier`
 > actually consulting `ChunkLockMap.isChunkEditable` on a live server — which is gated on the same
 > NeoForge lane as Tasks 5–8's live halves.
+
+> **L-28 retired (Task 20, 2026-07-18).** `PersistentIdentityStore` persists a peer's `NodeIdentity`
+> (owner-only, atomic temp+move write) and reloads it on the next run, so a returning peer/server
+> keeps its `NodeId`. Verified by `PersistentIdentityStoreTest.loadOrGenerate...reloadsTheSameIdentity`.
+>
+> **L-34 status (Task 20, 2026-07-18).** The Minecraft-free control plane is green: `TrackerService`
+> answers per-world `TrackerQuery` with peers + per-manifest seeders + counts + reliability-in-basis-
+> points + `WorldHealth`; `ArchiveInventory` (piece-level, LRU-bounded) ingests
+> `InventoryAdvertisement` gossip; `BootstrapClient` joins via all three mechanisms (configured list,
+> `CachedPeerStore` redial, signed `InvitationCodec`) with the original bootstrap offline
+> (`TrackerIT`/`MultiBootstrapIT`). The row moves to RETIRED once the mod side constructs
+> `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers and the multiplayer UI (Task 26) reads it —
+> gated on the NeoForge lane.
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

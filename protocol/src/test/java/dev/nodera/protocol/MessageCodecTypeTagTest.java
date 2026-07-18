@@ -10,6 +10,10 @@ import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.protocol.content.ManifestHolding;
 import dev.nodera.protocol.content.PieceBitmap;
+import dev.nodera.protocol.discovery.InventoryAdvertisement;
+import dev.nodera.protocol.discovery.ManifestSeeders;
+import dev.nodera.protocol.discovery.TrackerQuery;
+import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.WorkerActivation;
 import dev.nodera.protocol.health.Heartbeat;
@@ -21,12 +25,14 @@ import dev.nodera.protocol.membership.PeerGoodbye;
 import dev.nodera.protocol.membership.PeerJoin;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.core.identity.NodeCapabilities;
+import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.ResyncRequest;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -75,7 +81,10 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_CONTENT_REQUEST).isEqualTo(24);
         assertThat(MessageCodec.TAG_CONTENT_CHUNK).isEqualTo(25);
         assertThat(MessageCodec.TAG_CONTENT_AVAILABILITY).isEqualTo(26);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(26);
+        assertThat(MessageCodec.TAG_TRACKER_QUERY).isEqualTo(27);
+        assertThat(MessageCodec.TAG_TRACKER_RESPONSE).isEqualTo(28);
+        assertThat(MessageCodec.TAG_INVENTORY_ADVERTISEMENT).isEqualTo(29);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(29);
     }
 
     @Test
@@ -100,6 +109,9 @@ final class MessageCodecTypeTagTest {
         expected.put(ContentRequest.class, MessageCodec.TAG_CONTENT_REQUEST);
         expected.put(ContentChunk.class, MessageCodec.TAG_CONTENT_CHUNK);
         expected.put(ContentAvailability.class, MessageCodec.TAG_CONTENT_AVAILABILITY);
+        expected.put(TrackerQuery.class, MessageCodec.TAG_TRACKER_QUERY);
+        expected.put(TrackerResponse.class, MessageCodec.TAG_TRACKER_RESPONSE);
+        expected.put(InventoryAdvertisement.class, MessageCodec.TAG_INVENTORY_ADVERTISEMENT);
 
         for (Map.Entry<Class<?>, Integer> e : expected.entrySet()) {
             assertThat(MessageCodec.typeTagOf(sampleOf(e.getKey())))
@@ -130,6 +142,9 @@ final class MessageCodecTypeTagTest {
                 ContentRequest.class,
                 ContentChunk.class,
                 ContentAvailability.class,
+                TrackerQuery.class,
+                TrackerResponse.class,
+                InventoryAdvertisement.class,
         };
         for (Class<?> cls : classes) {
             NoderaMessage original = sampleOf(cls);
@@ -186,6 +201,9 @@ final class MessageCodecTypeTagTest {
                 MessageCodec.TAG_CONTENT_REQUEST,
                 MessageCodec.TAG_CONTENT_CHUNK,
                 MessageCodec.TAG_CONTENT_AVAILABILITY,
+                MessageCodec.TAG_TRACKER_QUERY,
+                MessageCodec.TAG_TRACKER_RESPONSE,
+                MessageCodec.TAG_INVENTORY_ADVERTISEMENT,
         };
         long distinct = java.util.Arrays.stream(tags).distinct().count();
         assertThat(distinct).isEqualTo(tags.length);
@@ -267,6 +285,20 @@ final class MessageCodecTypeTagTest {
             return new ContentAvailability(nodeId, java.util.List.of(
                     new ManifestHolding(Bytes.fromHex("0badc0de"),
                             PieceBitmap.of(java.util.List.of(0, 3, 9)))));
+        }
+        if (cls == TrackerQuery.class) {
+            return new TrackerQuery(Bytes.fromHex("cafe"));
+        }
+        if (cls == TrackerResponse.class) {
+            return new TrackerResponse(Bytes.fromHex("cafe"), "world",
+                    List.of(new PeerEntry(nodeId, "127.0.0.1:25566", NodeCapabilities.initial(), true)),
+                    List.of(new ManifestSeeders(Bytes.fromHex("0badc0de"), List.of(nodeId))),
+                    1L, 42L, 9500, WorldHealth.HEALTHY, 0L);
+        }
+        if (cls == InventoryAdvertisement.class) {
+            return new InventoryAdvertisement(Bytes.fromHex("cafe"), nodeId, java.util.List.of(
+                    new ManifestHolding(Bytes.fromHex("0badc0de"),
+                            PieceBitmap.of(java.util.List.of(0, 1)))));
         }
         throw new IllegalArgumentException("no sample for " + cls);
     }

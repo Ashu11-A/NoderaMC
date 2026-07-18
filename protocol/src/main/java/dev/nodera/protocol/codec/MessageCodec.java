@@ -14,6 +14,10 @@ import dev.nodera.protocol.content.ContentAvailability;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.protocol.content.ManifestHolding;
+import dev.nodera.protocol.discovery.InventoryAdvertisement;
+import dev.nodera.protocol.discovery.ManifestSeeders;
+import dev.nodera.protocol.discovery.TrackerQuery;
+import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.ClientHello;
 import dev.nodera.protocol.handshake.ServerHello;
@@ -91,6 +95,9 @@ import java.util.UUID;
  *  24   ContentRequest
  *  25   ContentChunk
  *  26   ContentAvailability
+ *  27   TrackerQuery
+ *  28   TrackerResponse
+ *  29   InventoryAdvertisement
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -130,9 +137,13 @@ public final class MessageCodec {
     /** {@link ContentChunk} tag (Task 19). */ public static final int TAG_CONTENT_CHUNK    = 25;
     /** {@link ContentAvailability} tag (Task 19). */
     public static final int TAG_CONTENT_AVAILABILITY = 26;
+    /** {@link TrackerQuery} tag (Task 20). */ public static final int TAG_TRACKER_QUERY = 27;
+    /** {@link TrackerResponse} tag (Task 20). */ public static final int TAG_TRACKER_RESPONSE = 28;
+    /** {@link InventoryAdvertisement} tag (Task 20). */
+    public static final int TAG_INVENTORY_ADVERTISEMENT = 29;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 26;
+    public static final int NEXT_TAG = 29;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -148,7 +159,8 @@ public final class MessageCodec {
             TAG_COMMIT_ANNOUNCE, TAG_RESYNC_REQUEST, TAG_HEARTBEAT, TAG_WORKER_LOAD,
             TAG_ECHO_TEST, TAG_RELAY_ENVELOPE, TAG_PEER_JOIN, TAG_MEMBERSHIP_UPDATE,
             TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE,
-            TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY);
+            TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY,
+            TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -188,6 +200,9 @@ public final class MessageCodec {
             case TAG_CONTENT_REQUEST -> "ContentRequest";
             case TAG_CONTENT_CHUNK -> "ContentChunk";
             case TAG_CONTENT_AVAILABILITY -> "ContentAvailability";
+            case TAG_TRACKER_QUERY -> "TrackerQuery";
+            case TAG_TRACKER_RESPONSE -> "TrackerResponse";
+            case TAG_INVENTORY_ADVERTISEMENT -> "InventoryAdvertisement";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -295,6 +310,9 @@ public final class MessageCodec {
         if (msg instanceof ContentRequest) return TAG_CONTENT_REQUEST;
         if (msg instanceof ContentChunk) return TAG_CONTENT_CHUNK;
         if (msg instanceof ContentAvailability) return TAG_CONTENT_AVAILABILITY;
+        if (msg instanceof TrackerQuery) return TAG_TRACKER_QUERY;
+        if (msg instanceof TrackerResponse) return TAG_TRACKER_RESPONSE;
+        if (msg instanceof InventoryAdvertisement) return TAG_INVENTORY_ADVERTISEMENT;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -462,6 +480,34 @@ public final class MessageCodec {
             }
             case ContentAvailability m -> {
                 w.writeU16(TAG_CONTENT_AVAILABILITY).writeU16(ENCODING_VERSION);
+                m.holder().encode(w);
+                w.writeList(m.holdings(), (ww, h) -> {
+                    ww.writeBytes(h.manifestRoot());
+                    ww.writeBytes(h.pieceBitmap());
+                });
+            }
+            case TrackerQuery m -> {
+                w.writeU16(TAG_TRACKER_QUERY).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.genesisHash());
+            }
+            case TrackerResponse m -> {
+                w.writeU16(TAG_TRACKER_RESPONSE).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.genesisHash());
+                w.writeString(m.worldName());
+                w.writeList(m.peers(), MessageCodec::writePeerEntry);
+                w.writeList(m.seeders(), (ww, seeded) -> {
+                    ww.writeBytes(seeded.manifestRoot());
+                    ww.writeList(seeded.seeders(), CanonicalWriter::writeEncodable);
+                });
+                w.writeU64(m.worldPlayerCount());
+                w.writeU64(m.storedChunks());
+                w.writeU32(Integer.toUnsignedLong(m.reliabilityBps()));
+                m.health().encode(w);
+                w.writeU64(m.retentionDeadlineEpochMillis());
+            }
+            case InventoryAdvertisement m -> {
+                w.writeU16(TAG_INVENTORY_ADVERTISEMENT).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.genesisHash());
                 m.holder().encode(w);
                 w.writeList(m.holdings(), (ww, h) -> {
                     ww.writeBytes(h.manifestRoot());
@@ -693,6 +739,36 @@ public final class MessageCodec {
                     return new ManifestHolding(root, bitmap);
                 });
                 yield new ContentAvailability(holder, holdings);
+            }
+            case TAG_TRACKER_QUERY -> new TrackerQuery(r.readBytesValue());
+            case TAG_TRACKER_RESPONSE -> {
+                Bytes genesisHash = r.readBytesValue();
+                String worldName = r.readString();
+                java.util.List<PeerEntry> peers = r.readList(MessageCodec::readPeerEntry);
+                java.util.List<ManifestSeeders> seeders = r.readList(rr -> {
+                    Bytes root = rr.readBytesValue();
+                    java.util.List<dev.nodera.core.identity.NodeId> ids =
+                            rr.readList(dev.nodera.core.identity.NodeId::decode);
+                    return new ManifestSeeders(root, ids);
+                });
+                long playerCount = r.readU64();
+                long storedChunks = r.readU64();
+                int reliabilityBps = (int) r.readU32();
+                dev.nodera.core.identity.WorldHealth health =
+                        dev.nodera.core.identity.WorldHealth.decode(r);
+                long retentionDeadline = r.readU64();
+                yield new TrackerResponse(genesisHash, worldName, peers, seeders, playerCount,
+                        storedChunks, reliabilityBps, health, retentionDeadline);
+            }
+            case TAG_INVENTORY_ADVERTISEMENT -> {
+                Bytes genesisHash = r.readBytesValue();
+                dev.nodera.core.identity.NodeId holder = dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<ManifestHolding> holdings = r.readList(rr -> {
+                    Bytes root = rr.readBytesValue();
+                    Bytes bitmap = rr.readBytesValue();
+                    return new ManifestHolding(root, bitmap);
+                });
+                yield new InventoryAdvertisement(genesisHash, holder, holdings);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };
