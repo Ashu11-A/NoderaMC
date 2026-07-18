@@ -321,6 +321,11 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
   locally-newer-but-uncertified suffix is treated as uncommitted.
 - Deterministic archive placement (rendezvous hashing, replication factors: current
   snapshot ×5, recent log ×4, compacted history ×3, checkpoints + genesis everywhere).
+- Task-24 crash invariant: a committee member durably prepares its candidate before signing ACCEPT;
+  certificate voters persist the quorum certificate before canonical apply. Continuous stream then
+  spreads only physically-missing hashes under explicit byte windows; graceful emergency flush uses
+  one absolute deadline and counts only verified destination storage acknowledgements. A shutdown
+  hook is defence-in-depth — hard-crash safety comes from quorum-held state plus archival repair.
 - **Milestone A (= §19 M1)**: server participates as ordinary validator while storing
   everything and seeding snapshots.
 - **Milestone B (= §19 M2, network continuity)**: kill the full peer → existing peers

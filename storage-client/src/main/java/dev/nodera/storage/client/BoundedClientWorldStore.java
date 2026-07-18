@@ -31,7 +31,8 @@ import java.util.Optional;
  * <p>"Last access" is a caller-supplied tick ({@code long}), advanced by the runtime — never a wall
  * clock — so eviction order is deterministic and testable without sleeping.
  *
- * <p>Thread-context: thread-safe; all public methods synchronise on the store.
+ * <p>Thread-context: thread-safe; mutable state is guarded by the store monitor. Eviction callbacks
+ * run after the atomic mutation and outside that monitor.
  */
 public final class BoundedClientWorldStore implements ContentStore {
 
@@ -120,27 +121,30 @@ public final class BoundedClientWorldStore implements ContentStore {
     }
 
     @Override
-    public synchronized ContentId put(byte[] blob) {
+    public ContentId put(byte[] blob) {
         Objects.requireNonNull(blob, "blob");
         ContentId id = ContentId.of(hashes, blob);
-        if (blobs.containsKey(id)) {
-            // Idempotent: storing the same bytes is a no-op, but refreshes access.
-            meta.put(id, meta.get(id).withAccess(accessTick++));
-            return id;
+        List<Map.Entry<ContentId, byte[]>> evicted;
+        synchronized (this) {
+            if (blobs.containsKey(id)) {
+                // Idempotent: storing the same bytes is a no-op, but refreshes access.
+                meta.put(id, meta.get(id).withAccess(accessTick++));
+                return id;
+            }
+            long needed = blob.length;
+            if (needed > quota.budgetBytes()) {
+                // A single blob larger than the whole budget can never be stored; do not evict pinned
+                // content chasing the impossible.
+                throw new QuotaException(
+                        "blob " + needed + "B exceeds the budget " + quota.budgetBytes());
+            }
+            long over = usedBytes + needed - quota.budgetBytes();
+            evicted = over > 0 ? evictToFree(over, id) : List.of();
+            blobs.put(id, blob.clone());
+            meta.put(id, new Meta(blob.length, false, accessTick++));
+            usedBytes += needed;
         }
-        long needed = blob.length;
-        if (needed > quota.budgetBytes()) {
-            // A single blob larger than the whole budget can never be stored; do not evict pinned
-            // content chasing the impossible.
-            throw new QuotaException("blob " + needed + "B exceeds the budget " + quota.budgetBytes());
-        }
-        long over = usedBytes + needed - quota.budgetBytes();
-        if (over > 0) {
-            evictToFree(over, id);
-        }
-        blobs.put(id, blob.clone());
-        meta.put(id, new Meta(blob.length, false, accessTick++));
-        usedBytes += needed;
+        notifyEvictions(evicted);
         return id;
     }
 
@@ -179,7 +183,8 @@ public final class BoundedClientWorldStore implements ContentStore {
      * Evict cold content until at least {@code bytesNeeded} are free, never touching pinned blobs or
      * {@code protect} (the blob about to be stored).
      */
-    private void evictToFree(long bytesNeeded, ContentId protect) {
+    private List<Map.Entry<ContentId, byte[]>> evictToFree(
+            long bytesNeeded, ContentId protect) {
         List<ArchiveEvictionPolicy.Entry> entries = new ArrayList<>(blobs.size());
         for (Map.Entry<ContentId, Meta> e : meta.entrySet()) {
             if (e.getKey().equals(protect)) {
@@ -196,12 +201,16 @@ public final class BoundedClientWorldStore implements ContentStore {
             usedBytes -= blob.length;
             evicted.add(Map.entry(id, blob));
         }
-        // Notify outside the lock-free path is not possible here (we hold it), but the listener is
-        // called within the synchronized block: it must not call back into the store re-entrantly.
-        if (listener != null) {
-            for (Map.Entry<ContentId, byte[]> e : evicted) {
-                listener.onEvicted(e.getKey(), e.getValue());
-            }
+        return evicted;
+    }
+
+    /** Notify repair only after the atomic put/eviction mutation has released the store monitor. */
+    private void notifyEvictions(List<Map.Entry<ContentId, byte[]>> evicted) {
+        if (listener == null) {
+            return;
+        }
+        for (Map.Entry<ContentId, byte[]> e : evicted) {
+            listener.onEvicted(e.getKey(), e.getValue());
         }
     }
 

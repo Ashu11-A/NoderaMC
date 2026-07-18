@@ -25,15 +25,17 @@ import java.util.Optional;
  *
  * <h2>Trustless</h2>
  *
- * <p>Every fetched piece is verified by the {@link PieceVerifier} seam before it is recorded, so a
- * holder serving junk wastes bandwidth but cannot corrupt a replica. The coordinator re-audits
- * afterwards rather than trusting {@link ArchiveReplicaAck}s.
+ * <p>Every fetched piece is verified by the {@link PieceVerifier} seam and durably accepted by the
+ * destination through {@link PieceStorer} before it is recorded, so a holder serving junk wastes
+ * bandwidth but cannot corrupt a replica, and a failed disk write cannot create false inventory.
+ * The coordinator re-audits afterwards rather than trusting {@link ArchiveReplicaAck}s.
  *
  * <h2>Seams, not dependencies</h2>
  *
- * <p>The fetcher and verifier are seams: {@code peer-runtime} carries no {@code distribution}
- * dependency, so the actual piece-transfer path (Task 19's {@code ContentTransferService}) is
- * supplied by the runtime/integration. The headless IT wires them to real pieces.
+ * <p>The fetcher, verifier, and storer are seams: {@code peer-runtime} carries no
+ * {@code distribution} dependency, so the actual piece-transfer path (Task 19's
+ * {@code ContentTransferService}) is supplied by the runtime/integration. The headless IT wires
+ * them to real pieces and per-node physical stores.
  *
  * <p>Thread-context: the service is single-invocation (callers serialise repair ticks); it is safe
  * to construct from any thread but {@link #repair} is not re-entrant.
@@ -64,12 +66,26 @@ public final class ArchiveRepairService {
         boolean verify(Bytes manifestRoot, int pieceIndex, dev.nodera.core.Bytes payload);
     }
 
+    /** Persist one verified piece in the destination peer's physical store. */
+    @FunctionalInterface
+    public interface PieceStorer {
+        /**
+         * @param assignee     the destination peer.
+         * @param manifestRoot the blob.
+         * @param pieceIndex   the piece index.
+         * @param payload      bytes already accepted by {@link PieceVerifier}.
+         * @return {@code true} only after the destination has physically stored the piece.
+         */
+        boolean store(NodeId assignee, Bytes manifestRoot, int pieceIndex, Bytes payload);
+    }
+
     /**
      * The outcome of one repair tick.
      *
-     * @param piecesRepaired    how many pieces were fetched, verified, and recorded.
-     * @param piecesSkipped     how many were unavailable (no current holder served them) or failed
-     *                          verification.
+     * @param piecesRepaired    how many pieces were fetched, verified, physically stored, and
+     *                          recorded.
+     * @param piecesSkipped     how many were unavailable, failed verification, or failed physical
+     *                          storage.
      * @param bytesTransferred  the total verified bytes moved this tick.
      * @param budgetExhausted   {@code true} if the tick stopped because of a budget, not because
      *                          the plan was finished.
@@ -86,21 +102,28 @@ public final class ArchiveRepairService {
 
     private final PieceFetcher fetcher;
     private final PieceVerifier verifier;
+    private final PieceStorer storer;
     private final int maxConcurrent;
     private final long bandwidthBudget;
 
     /**
      * @param fetcher          how to pull a piece.
      * @param verifier         how to verify a fetched piece.
+     * @param storer           how the destination physically persists a verified piece.
      * @param maxConcurrent    cap on pieces fetched per tick; must be positive.
      * @param bandwidthBudget  cap on verified bytes per tick; must be positive.
      * @throws IllegalArgumentException if an argument is null or a bound is not positive.
      * @Thread-context any thread (construction only).
      */
     public ArchiveRepairService(
-            PieceFetcher fetcher, PieceVerifier verifier, int maxConcurrent, long bandwidthBudget) {
+            PieceFetcher fetcher,
+            PieceVerifier verifier,
+            PieceStorer storer,
+            int maxConcurrent,
+            long bandwidthBudget) {
         this.fetcher = Objects.requireNonNull(fetcher, "fetcher");
         this.verifier = Objects.requireNonNull(verifier, "verifier");
+        this.storer = Objects.requireNonNull(storer, "storer");
         if (maxConcurrent <= 0) {
             throw new IllegalArgumentException("maxConcurrent must be positive: " + maxConcurrent);
         }
@@ -166,10 +189,19 @@ public final class ArchiveRepairService {
                     skipped++;
                     continue;
                 }
-                bytes += payload.get().length();
-                if (bytes > bandwidthBudget) {
+                Bytes candidate = payload.get();
+                if (candidate.length() > bandwidthBudget - bytes) {
+                    // The fetched piece does not fit this tick. Leave both physical storage and
+                    // inventory untouched so the next tick can retry it with a fresh budget.
                     budgetHit = true;
                     break outer;
+                }
+                bytes += candidate.length();
+                if (!storer.store(target.assignee(), manifestRoot, index, candidate)) {
+                    // Verification is not persistence: a failed destination write must not turn
+                    // into an advertised replica.
+                    skipped++;
+                    continue;
                 }
                 assigneeBitmap.set(index);
                 inventory.record(world, manifestRoot, target.assignee(),

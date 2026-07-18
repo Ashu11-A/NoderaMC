@@ -1,11 +1,13 @@
 package dev.nodera.peer.archival;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.StableHash;
 import dev.nodera.core.identity.NodeId;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -49,6 +51,25 @@ final class RendezvousArchivePolicyTest {
         // SNAPSHOT factor = 5 → 5 distinct partial holders.
         assertThat(a).hasSize(5);
         assertThat(new HashSet<>(a)).hasSize(5);
+    }
+
+    @Test
+    void selectsTheHighestSignedScoresInDescendingOrder() {
+        RendezvousArchivePolicy policy = new RendezvousArchivePolicy();
+        Bytes manifest = ArchivalFixtures.manifestHash(0x5c0);
+        List<NodeId> eligible = partials(20);
+        long rootScore = StableHash.of(manifest.toHex());
+
+        List<NodeId> independentlyRanked = new ArrayList<>(eligible);
+        independentlyRanked.sort(Comparator
+                .comparingLong((NodeId peer) -> StableHash.of(
+                        rootScore, StableHash.of(peer.value())))
+                .reversed()
+                .thenComparing(peer -> peer.value().toString()));
+
+        assertThat(policy.expectedHolders(
+                manifest, ArchiveObjectClass.SNAPSHOT, eligible, Set.of()))
+                .containsExactlyElementsOf(independentlyRanked.subList(0, 5));
     }
 
     @Test

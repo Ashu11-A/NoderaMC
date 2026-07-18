@@ -6,6 +6,10 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -102,6 +106,33 @@ final class BoundedClientWorldStoreTest {
     }
 
     @Test
+    void evictionListenerCanCallBackFromAnotherThreadWithoutTheStoreMonitor() {
+        CountDownLatch callbackStarted = new CountDownLatch(1);
+        CountDownLatch callbackFinished = new CountDownLatch(1);
+        AtomicBoolean sawEvictedState = new AtomicBoolean();
+        AtomicReference<BoundedClientWorldStore> storeRef = new AtomicReference<>();
+        BoundedClientWorldStore store = new BoundedClientWorldStore(
+                new StorageQuotaManager(800, 0),
+                (id, bytes) -> {
+                    Thread callback = new Thread(() -> {
+                        callbackStarted.countDown();
+                        sawEvictedState.set(!storeRef.get().has(id));
+                        callbackFinished.countDown();
+                    }, "eviction-store-callback");
+                    callback.start();
+                    assertThat(await(callbackStarted)).isTrue();
+                    // If put still held the monitor, the callback's has(id) would block here.
+                    assertThat(await(callbackFinished)).isTrue();
+                });
+        storeRef.set(store);
+
+        store.put(blob(1, 500));
+        store.put(blob(2, 500));
+
+        assertThat(sawEvictedState).isTrue();
+    }
+
+    @Test
     void quotaManagerAccountingIsExact() {
         StorageQuotaManager q = new StorageQuotaManager(1000, 200);
         assertThat(q.remaining()).isEqualTo(800);
@@ -142,6 +173,15 @@ final class BoundedClientWorldStoreTest {
         assertThatThrownBy(() -> ArchiveEvictionPolicy.evictToFree(
                 List.of(new ArchiveEvictionPolicy.Entry(pinned, 100, true, 5)), 50))
                 .isInstanceOf(QuotaException.class);
+    }
+
+    private static boolean await(CountDownLatch latch) {
+        try {
+            return latch.await(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while awaiting callback", e);
+        }
     }
 
     private static ContentId id(int seed) {

@@ -86,6 +86,7 @@ public final class RendezvousArchivePolicy implements ArchivePlacementPolicy {
 
         partial.sort(Comparator
                 .comparingLong((NodeId peer) -> score(rootScore, peer))
+                .reversed()
                 .thenComparing(n -> n.value().toString()));
         List<NodeId> topPartial = partial.subList(0, take);
 

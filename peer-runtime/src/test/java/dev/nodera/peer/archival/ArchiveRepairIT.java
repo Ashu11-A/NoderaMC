@@ -59,7 +59,7 @@ final class ArchiveRepairIT {
                 ArchiveObjectClass.SNAPSHOT, eligible, fullArchive);
         assertThat(expected).hasSize(6).contains(host);
         for (NodeId h : expected) {
-            f.inventory.record(f.world, f.manifest.manifestRoot(), h, f.bitmap(allPieces(pieces)));
+            f.seed(h, allPieces(pieces));
         }
         assertThat(f.audit.audit(f.manifest.manifestRoot(), pieces, ArchiveObjectClass.SNAPSHOT,
                 eligible, fullArchive, f.inventory).isHealthy()).isTrue();
@@ -72,6 +72,8 @@ final class ArchiveRepairIT {
         survivors.remove(deadB);
         f.inventory.forgetHolder(deadA);
         f.inventory.forgetHolder(deadB);
+        f.physical.remove(deadA);
+        f.physical.remove(deadB);
 
         ArchiveAuditTask.AuditResult result = f.audit.audit(f.manifest.manifestRoot(), pieces,
                 ArchiveObjectClass.SNAPSHOT, survivors, fullArchive, f.inventory);
@@ -95,7 +97,9 @@ final class ArchiveRepairIT {
                     .containsExactlyInAnyOrderElementsOf(allPieces(pieces));
             // Every piece the holder now claims still verifies — no committed data was lost.
             for (Integer idx : f.inventory.holderSet(f.manifest.manifestRoot()).get(h)) {
-                assertThat(f.manifest.verifyPiece(idx, f.pieceBytes.get(idx))).isTrue();
+                Bytes stored = f.physical.getOrDefault(h, Map.of()).get(idx);
+                assertThat(stored).isNotNull();
+                assertThat(f.manifest.verifyPiece(idx, stored)).isTrue();
             }
         }
     }
@@ -112,7 +116,7 @@ final class ArchiveRepairIT {
         Set<NodeId> fullArchive = Set.of(host);
 
         // Only the host is seeded; all 5 partial expected holders need repair.
-        f.inventory.record(f.world, f.manifest.manifestRoot(), host, f.bitmap(allPieces(pieces)));
+        f.seed(host, allPieces(pieces));
 
         ArchiveAuditTask.AuditResult result = f.audit.audit(f.manifest.manifestRoot(), pieces,
                 ArchiveObjectClass.SNAPSHOT, eligible, fullArchive, f.inventory);
@@ -146,7 +150,7 @@ final class ArchiveRepairIT {
 
         List<NodeId> eligible = partials(0xC21L, 8);
         NodeId honest = eligible.get(0);
-        f.inventory.record(f.world, f.manifest.manifestRoot(), honest, f.bitmap(allPieces(pieces)));
+        f.seed(honest, allPieces(pieces));
 
         ArchiveAuditTask.AuditResult result = f.audit.audit(f.manifest.manifestRoot(), pieces,
                 ArchiveObjectClass.SNAPSHOT, eligible, Set.of(), f.inventory);
@@ -156,6 +160,7 @@ final class ArchiveRepairIT {
         ArchiveRepairService repair = new ArchiveRepairService(
                 f.fetcher(),
                 (root, idx, payload) -> false,
+                f.storer(),
                 Integer.MAX_VALUE, Long.MAX_VALUE);
         ArchiveRepairService.RepairOutcome outcome = repair.repair(
                 f.world, f.manifest.manifestRoot(), result, f.inventory, f.source());
@@ -166,6 +171,60 @@ final class ArchiveRepairIT {
             assertThat(f.inventory.holderSet(f.manifest.manifestRoot()).getOrDefault(t.assignee(), Set.of()))
                     .isEmpty();
         }
+    }
+
+    @Test
+    void aFailedPhysicalStoreIsSkippedAndNeverAdvertised() {
+        Fixture f = new Fixture("dd21");
+        int pieces = f.manifest.pieceCount();
+        List<NodeId> eligible = partials(0xD21L, 8);
+        NodeId honest = eligible.get(0);
+        f.seed(honest, allPieces(pieces));
+
+        ArchiveAuditTask.AuditResult result = f.audit.audit(f.manifest.manifestRoot(), pieces,
+                ArchiveObjectClass.SNAPSHOT, eligible, Set.of(), f.inventory);
+        ArchiveRepairService repair = new ArchiveRepairService(
+                f.fetcher(), f.verifier(), (assignee, root, idx, payload) -> false,
+                Integer.MAX_VALUE, Long.MAX_VALUE);
+
+        ArchiveRepairService.RepairOutcome outcome = repair.repair(
+                f.world, f.manifest.manifestRoot(), result, f.inventory, f.source());
+
+        assertThat(outcome.piecesRepaired()).isZero();
+        assertThat(outcome.piecesSkipped()).isEqualTo(result.missingPieces());
+        for (ArchiveAuditTask.RepairTarget target : result.repairTargets()) {
+            assertThat(f.inventory.holderSet(f.manifest.manifestRoot())
+                    .getOrDefault(target.assignee(), Set.of())).isEmpty();
+            assertThat(f.physical.getOrDefault(target.assignee(), Map.of())).isEmpty();
+        }
+    }
+
+    @Test
+    void aPieceThatDoesNotFitTheRemainingBandwidthIsNeitherCountedNorStored() {
+        Fixture f = new Fixture("ee21");
+        int pieces = f.manifest.pieceCount();
+        List<NodeId> eligible = partials(0xE21L, 8);
+        NodeId honest = eligible.get(0);
+        f.seed(honest, allPieces(pieces));
+
+        ArchiveAuditTask.AuditResult result = f.audit.audit(f.manifest.manifestRoot(), pieces,
+                ArchiveObjectClass.SNAPSHOT, eligible, Set.of(), f.inventory);
+        int[] storeCalls = {0};
+        long budget = f.manifest.piece(0).length() - 1;
+        assertThat(budget).isPositive();
+        ArchiveRepairService repair = new ArchiveRepairService(
+                f.fetcher(), f.verifier(), (assignee, root, idx, payload) -> {
+                    storeCalls[0]++;
+                    return true;
+                }, Integer.MAX_VALUE, budget);
+
+        ArchiveRepairService.RepairOutcome outcome = repair.repair(
+                f.world, f.manifest.manifestRoot(), result, f.inventory, f.source());
+
+        assertThat(outcome.piecesRepaired()).isZero();
+        assertThat(outcome.bytesTransferred()).isZero();
+        assertThat(outcome.budgetExhausted()).isTrue();
+        assertThat(storeCalls[0]).isZero();
     }
 
     // --- helpers ---------------------------------------------------------------------------
@@ -198,6 +257,7 @@ final class ArchiveRepairIT {
         final Bytes world;
         final PieceManifest manifest;
         final Map<Integer, Bytes> pieceBytes;
+        final Map<NodeId, Map<Integer, Bytes>> physical = new HashMap<>();
         final ArchiveInventory inventory = new ArchiveInventory();
         final RendezvousArchivePolicy policy = new RendezvousArchivePolicy();
         final ArchiveAuditTask audit = new ArchiveAuditTask(policy);
@@ -214,23 +274,34 @@ final class ArchiveRepairIT {
             }
         }
 
-        /** Serves a piece iff the source holds it (per inventory); returns the verified bytes. */
+        /** Serves bytes from the source's physical store; inventory is not treated as storage. */
         ArchiveRepairService.PieceFetcher fetcher() {
-            return (from, root, idx) -> {
-                Set<Integer> held = inventory.holderSet(root).getOrDefault(from, Set.of());
-                if (!held.contains(idx)) {
-                    return Optional.empty();
-                }
-                return Optional.of(pieceBytes.get(idx));
-            };
+            return (from, root, idx) -> Optional.ofNullable(
+                    physical.getOrDefault(from, Map.of()).get(idx));
         }
 
         ArchiveRepairService.PieceVerifier verifier() {
             return (root, idx, payload) -> manifest.verifyPiece(idx, payload);
         }
 
+        ArchiveRepairService.PieceStorer storer() {
+            return (assignee, root, idx, payload) -> {
+                physical.computeIfAbsent(assignee, ignored -> new HashMap<>()).put(idx, payload);
+                return true;
+            };
+        }
+
         ArchiveRepairService repair(int maxConcurrent, long bandwidth) {
-            return new ArchiveRepairService(fetcher(), verifier(), maxConcurrent, bandwidth);
+            return new ArchiveRepairService(
+                    fetcher(), verifier(), storer(), maxConcurrent, bandwidth);
+        }
+
+        void seed(NodeId holder, Set<Integer> indexes) {
+            Map<Integer, Bytes> stored = physical.computeIfAbsent(holder, ignored -> new HashMap<>());
+            for (Integer index : indexes) {
+                stored.put(index, pieceBytes.get(index));
+            }
+            inventory.record(world, manifest.manifestRoot(), holder, bitmap(indexes));
         }
 
         java.util.function.IntFunction<Optional<NodeId>> source() {

@@ -81,7 +81,7 @@ observable in normal play.
 | L-37 | No client storage quota / eviction policy (`storage-client` unbuilt); remote-peered data can grow unbounded | T22 | `BoundedClientWorldStore` + `StorageQuotaManager` + `ArchiveEvictionPolicy` (never evicts assigned-region current state); unit tests | RETIRING |
 | L-38 | No retention-before-drop; worlds never garbage-collected, no coordinated 24 h decommission | T22 | Coordinated 24 h countdown (network-visible) on zero-seeder worlds; cancel-on-seeder-return; drop-at-expiry; `RetentionIT` | RETIRING |
 | L-39 | World content is plaintext on the P2P net; any connected peer can read any chunk; no per-world encryption | T23 | AES-GCM-256 content encryption under Argon2id(password)-derived key; seeders store ciphertext, verify by hash; join requires password; ciphertext-integrity + wrong-password + nonce-uniqueness tests green | RETIRING |
-| L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | OPEN |
+| L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | RETIRING |
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | OPEN |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | OPEN |
@@ -138,6 +138,20 @@ observable in normal play.
 > there is no escrow: password loss means no recovery. Plaintext manifests still reveal structure
 > metadata (region ids, piece sizes/counts, KDF parameters, cadence), not block contents. L-39 moves
 > to RETIRED once opt-in create/join wiring and password-attempt throttling ship in the NeoForge lane.
+>
+> **L-40 status (Task 24, 2026-07-18).** The Minecraft-free durability path is green.
+> `ActivePlayerStream` coalesces each region to its newest committed manifest, reuses physically-held
+> hashes, counts only verified store/activation acknowledgements, and advances under explicit byte
+> windows; `ActivePlayerStreamIT` keeps ten versions across five holders within one batch.
+> `EmergencyFlush` prioritises lowest replication, excludes the departing peer, and uses one absolute
+> deadline; `PeerShutdownHook` runs it exactly once before goodbye/runtime stop. Committee
+> `VotePersistence` durably prepares state before ACCEPT and stores certificates before canonical
+> apply. `CrashRecoveryIT` forcibly kills a child JVM (proving no shutdown hook ran), discards the
+> primary, restores snapshot ×5 into actual destination stores, and replays/restarts from a surviving
+> certified root. L-40 retires when live NeoForge commit signals, content-message adapters, holder
+> inventory, and client/server lifecycle registration use these seams. L-41 remains OPEN: no separate
+> OS sidecar exists; current proof establishes redundancy safety, not a crash-surviving quarantine
+> process.
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

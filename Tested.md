@@ -17,21 +17,21 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/repair (Task 21) + 24-h retention (Task 22) | 97 | 0 | 0 | 🚧 | 2026-07-18 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) | 103 | 0 | 0 | 🚧 | 2026-07-18 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) | 56 | 0 | 0 | ✅ | 2026-07-18 |
-| `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT` (Task 7) | 12 | 0 | 0 | ✅ | 2026-07-17 |
+| `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, vote-before-sign `VotePersistence`, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT`/`CrashRecoveryIT` (Tasks 7/24) | 15 | 0 | 0 | ✅ | 2026-07-18 |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics + `FallbackRoutingIT` (Task 8) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
-| `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id, encrypted manifests, ciphertext/root-checked `EncryptedRegion`, `DistributionIT` + `EncryptedDistributionIT` | 68 | 0 | 0 | ✅ | 2026-07-18 |
+| `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id/encrypted ciphertext flow + Task 24 bounded `ActivePlayerStream`/`EmergencyFlush`, `DistributionIT` + `EncryptedDistributionIT` + stream/flush ITs | 78 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
-| `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22) | 8 | 0 | 0 | ✅ | 2026-07-18 |
+| `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **556** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **576** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +57,20 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (556 → 576) is **Task 24 — active-player stream + crash safety** (+20).
+> `distribution` (+10) adds `ActivePlayerStream` (latest-per-region coalescing, cross-manifest hash
+> reuse, physical receipt/activation acknowledgements, explicit bandwidth windows and oversize-piece
+> progress) plus deadline-bound `EmergencyFlush`; their ITs prove ten near-current versions across
+> five physical holders, bounded convergence/retry, verified replacement storage, replication-first
+> priority, and one shared timeout against an unreachable target. `peer-runtime` (+6) fixes
+> rendezvous placement to select highest scores, makes archive repair record only after destination
+> storage succeeds, and adds `PeerShutdownHook` ordering/idempotency/deadline proofs. `committee`
+> (+3) adds vote-before-sign `VotePersistence` and `CrashRecoveryIT`: a forcibly destroyed primary
+> runs no shutdown hook, surviving quorum stores retain the root/certificate, real physical repair
+> restores snapshot ×5, and certified replay/restart reaches the committed root. `storage-client`
+> (+1) proves eviction callbacks run outside the store monitor. Live NeoForge commit/content/lifecycle
+> adapters remain deferred, so L-40 is RETIRING; separate-OS-sidecar L-41 stays OPEN.
 >
 > Test growth (523 → 556) is **Task 23 — per-world content encryption** (+33). `core` (+14)
 > adds JDK-only `ContentKey`, `PasswordKeyDerivation`, bounded PBKDF2-HMAC-SHA256, and AES-GCM-256

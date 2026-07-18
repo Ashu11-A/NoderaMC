@@ -25,7 +25,7 @@ demoted to a non-authoritative full archival bootstrap peer. The project's centr
 | [`docs/Task.0.md`](Task.0.md) | **Conventions, definitions, task index & dependency graph.** Binding for all other tasks. |
 | [`docs/LIMITATIONS.md`](LIMITATIONS.md) | **The binding limitation register.** §A envelope constraints, §B staged-capability burn-down (each with an owning task + exit test). No permanent exclusions allowed. |
 | [`docs/Roadmap.md`](Roadmap.md) | **Implementation order, priority, difficulty.** Dependency waves grounded in current state, ranked priority/difficulty tables, two-lane staffing note. Update on every outcome-changing commit. |
-| [`docs/Task.1.md` … `docs/Task.26.md`](Task.1.md) | **Per-task specs** (goal, folders, classes, mod/server split, acceptance criteria). Each gets a GitHub issue, but **task number ≠ issue number** (e.g. issue #18 is a Phase-0 sub-issue and #19–#23 are bugs; Tasks 18–26 have no issues opened yet) — always find the real issue by its `Task N — <title>` title before writing `refs #N`/`Closes #N`. Tasks 19–26 are the **"torrent hosting" feature** (content-addressed multi-seeder worlds, tracker, replication, encryption, crash-safe streaming, tick-lag handoff, multiplayer GUI) — additive to committee validation. |
+| [`docs/Task.1.md` … `docs/Task.26.md`](Task.1.md) | **Per-task specs** (goal, folders, classes, mod/server split, acceptance criteria). Each gets a GitHub issue, but **task number ≠ issue number**: Tasks 19–23 are issues #24–#28, while Task 24 has no issue number yet — always find the real issue by its exact `Task N — <title>` before writing `refs #N`/`Closes #N`. Tasks 19–26 are the **"torrent hosting" feature** (content-addressed multi-seeder worlds, tracker, replication, encryption, crash-safe streaming, tick-lag handoff, multiplayer GUI) — additive to committee validation. |
 
 Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.md`.
 
@@ -35,7 +35,9 @@ Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.m
 
 - **Layered, Minecraft-free core.** `core` → JDK only. `simulation`, `protocol`, `consensus`,
   `transport-api`, `storage-api` → `core`. `testkit` → all of them. Minecraft/NeoForge types live
-  ONLY in `transport-neoforge` and `neoforge-mod` (not yet onboarded). This keeps the consensus- and
+  ONLY in `transport-neoforge` and `neoforge-mod`; both are onboarded through the NeoForge convention
+  plugin and compile/assemble, while live `runServer`/`runClient` acceptance remains GUI-deferred.
+  This keeps the consensus- and
   determinism-critical code unit-testable without a server.
 - **Frozen contracts — do not change without a version bump:**
   - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` +

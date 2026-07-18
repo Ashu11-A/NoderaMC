@@ -11,11 +11,9 @@
   bytecode, v65) so the `org.gradle.jvm.version` attribute is consistent across module
   boundaries — the NeoForge modules are forced to a Java 21 toolchain by ModDevGradle, so a
   25/21 mismatch breaks project dependency resolution. The test JVM is still the host JDK 25.
-- `simulation/ForbiddenApiTest` is `@Disabled`: it was originally disabled because ArchUnit 1.3's
-  bundled ASM could not parse JDK 25 class files (v69). The repo now emits v65 bytecode, so the
-  parseability blocker is gone — re-enabling is tracked as a follow-up (still needs a dedicated
-  verification pass because tests run on the JDK 25 JVM). Determinism is meanwhile enforced by
-  `simulation/DeterminismPropertyTest`.
+- `simulation/ForbiddenApiTest` is enabled: all modules emit Java-21 bytecode (v65), which ArchUnit
+  1.3 can parse even though tests execute on host JDK 25. It enforces the simulation ban on clocks,
+  entropy, IO, and concurrency APIs alongside `simulation/DeterminismPropertyTest`.
 
 ## Layering (Task 0 §4)
 - `core` → JDK only. Task 23's `core/crypto/symmetric` package follows the same rule: AES-GCM-256,
@@ -27,8 +25,9 @@
   `BootstrapClient`, `InvitationCodec`, `CachedPeerStore`, `PersistentIdentityStore`; plus — Task 21
   — the `peer-runtime/archival` package: `ArchivePlacementPolicy`/`RendezvousArchivePolicy`,
   `ReplicationFactors`, `SeedFloorPolicy`, `ArchiveAuditTask`, `ArchiveRepairService`,
-  `ArchiveManager`) → `core` + `transport-api`
-  + `protocol` + `diagnostics`. It depends only on the transport SEAM, never a concrete transport, so
+  `ArchiveManager`; plus — Task 24 — deadline-bound `PeerShutdownHook`) → `core` + `transport-api`
+  + `protocol` + `diagnostics` + `distribution`. It depends only on the transport SEAM, never a
+  concrete transport, so
   it runs over both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
   `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). `MeteredPeerTransport`
   wraps any transport to feed a `TrafficMeter`, and `PeerRuntime` doubles as a `DiagnosticsSource`.
@@ -59,9 +58,13 @@
   `SpotCheckAuditor`, `CommitteeFailover`) → `core` + `simulation` + `consensus` + `coordinator`. It
   wires the existing consensus primitives (`VoteCollector`, `MajorityQuorumPolicy`,
   `EquivocationDetector`, `SpotCheckPolicy`) around real engine re-execution: each member re-executes
-  and casts a signed ACCEPT vote on its own root; a 2-of-3 quorum on one root commits the delta
+  and casts a signed ACCEPT vote on its own root; Task 24 adds `VotePersistence`, so crash-safe
+  members durably prepare the candidate before signing and certificate voters persist the quorum
+  certificate before canonical apply. A 2-of-3 quorum on one root commits the delta
   through the coordinator's `WorldMutationApplier`. The whole propose/vote/quorum/commit/failover
-  loop is proven headlessly (`CommitteeMvpIT`, `ByzantineWorkerTest`).
+  loop is proven headlessly (`CommitteeMvpIT`, `ByzantineWorkerTest`); `CrashRecoveryIT` forcibly
+  kills a JVM, drops the primary store, repairs physical snapshot replicas back to ×5, and replays a
+  surviving certified log.
 - `fallback` (Task 8 — the Minecraft-free Phase 4 server-fallback + cross-region router:
   `CrossRegionRouter`, `FallbackExecutor`, `SoakMetrics`, `FallbackRouter`) → `core` + `simulation` +
   `consensus` + `coordinator`. Classifies every action into the committee lane or the server lane
@@ -77,15 +80,19 @@
   `storage-api`.
 - `storage-client` (Task 22 — the bounded/quota'd client content store: `BoundedClientWorldStore`,
   `StorageQuotaManager`, `ArchiveEvictionPolicy`) → `core` + `storage-api`. Never evicts an assigned
-  region's current state; signals Task 21 repair on eviction. Content-addressed blobs, append-only certified event logs (chain + monotonic-id
+  region's current state; signals Task 21 repair on eviction. Task-24 hardening runs eviction
+  callbacks only after the atomic store mutation releases its monitor, so repair/network adapters
+  must not be invoked under the quota lock. Content-addressed blobs, append-only certified event logs (chain + monotonic-id
   validation at append, Invariant 3 on write), checkpoint index, content-addressed certificates,
   the read-side `EventReplayer` (verifies the certified `prevRoot→resultingRoot` chain; an uncertified
   suffix stops replay), and `PeerSyncFlow` (forward-only sync, Invariant 8). The RocksDB archival
   tier will implement the same seam later.
-- `distribution` (Tasks 19/23 — Minecraft-free torrent data plane + per-world encryption: `Piece`,
+- `distribution` (Tasks 19/23/24 — Minecraft-free torrent data plane + per-world encryption +
+  durability stream: `Piece`,
   `PieceManifest`, `WorldKeyMaterial`, `PieceSplitter`/`RegionSnapshotSplitter`, `PieceSelector`,
   `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService`,
-  `Argon2KeyDerivation`, `EncryptedPiece`, `EncryptedRegion`) → `core` + `storage-api` + `protocol` +
+  `Argon2KeyDerivation`, `EncryptedPiece`, `EncryptedRegion`, `ActivePlayerStream`,
+  `EmergencyFlush`) → `core` + `storage-api` + `protocol` +
   `transport-api`, plus pinned BouncyCastle for Argon2id only. It adds a PIECE layer *beneath* the
   frozen region layer. Plaintext worlds slice byte-for-byte `RegionSnapshot.encode`, so
   `SHA-256(reassembled blob)` is the region `StateRoot`. Encrypted worlds slice deterministic
@@ -96,8 +103,11 @@
   carried alongside payload (`ContentChunk` deliberately has no hash field). Selection is
   deterministic (`StableHash` rarest-first + rendezvous tie-break, no clocks/entropy); cryptographic
   nonces use domain-separated truncated SHA-256 because placement's 64-bit `StableHash` is too short
-  for GCM. Serve budgets advance by explicit `resetServeWindow()`, not wall clock. Proven headlessly
-  by `DistributionIT` and keyless-seeder `EncryptedDistributionIT`.
+  for GCM. Serve budgets advance by explicit `resetServeWindow()`, not wall clock. Task 24's stream
+  similarly advances through explicit byte windows, reuses only physically-held hashes, and requires
+  destination store + full-manifest activation acknowledgements; emergency flush uses one absolute
+  deadline and never counts the departing peer. Proven headlessly by `DistributionIT`, keyless-seeder
+  `EncryptedDistributionIT`, `ActivePlayerStreamIT`, and `EmergencyFlushIT`.
 - `testkit` → all of the above.
 - NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
   `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They

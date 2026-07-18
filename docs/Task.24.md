@@ -87,6 +87,38 @@ neoforge-mod/src/main/java/dev/nodera/mod/dedicated/
   formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary
   for data safety (reclassify). OPEN, stretch owner.
 
+## Headless implementation status (2026-07-18)
+
+Landed:
+
+- `distribution/ActivePlayerStream`: newest-per-region coalescing, same-version conflict/stale
+  rejection, cross-manifest piece-hash reuse, physical store + full-manifest activation
+  acknowledgements, explicit byte windows, and one-oversize-piece progress.
+- `distribution/EmergencyFlush`: validates each local blob against its manifest, excludes the
+  departing peer, prioritises lowest surviving replication then newest version, counts only
+  completed physical-store acknowledgements, and shares one absolute monotonic deadline across all
+  targets.
+- `peer-runtime/PeerShutdownHook`: graceful and JVM-hook callers share one once-only future; flush
+  completes/times out before goodbye/runtime stop. `ArchiveRepairService` now records inventory only
+  after destination storage succeeds, rendezvous placement selects the documented highest scores,
+  and client eviction callbacks run outside the quota-store monitor.
+- `committee/VotePersistence`: candidates cross a durable prepare seam before ACCEPT is signed;
+  certificate voters persist the certificate before canonical apply. Compatibility callers may use
+  the explicit no-op seam, but crash-safe live wiring must inject a real store.
+- `ActivePlayerStreamIT`, `EmergencyFlushIT`, `PeerShutdownHookTest`, and `CrashRecoveryIT` cover the
+  headless criteria. `CrashRecoveryIT` forcibly destroys a child JVM (its hook does not run), drops
+  the primary store, proves quorum survivors retain the committed root, repairs snapshot ×5 into
+  actual destination stores, and verifies certified replay plus canonical snapshot restart.
+
+Still deferred with the live NeoForge lane:
+
+- committee commit registration into `ActivePlayerStream`;
+- `Receiver`/`PieceTransfer` adapters over multiplexed `ContentAvailability`/`ContentChunk` handling;
+- archive inventory/Task-21 placement adapters and bounded client-store ownership of partial pieces;
+- client and dedicated-server lifecycle registration in `ClientBootstrap`/`ServerBootstrap`.
+
+Therefore L-40 is **RETIRING**, not retired. L-41 stays **OPEN**: no separate OS-sidecar exists.
+
 ## Acceptance criteria
 
 1. `ActivePlayerStreamIT`: a primary commits 10 versions; after each, the holders' replicas reach

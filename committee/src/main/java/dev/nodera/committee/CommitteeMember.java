@@ -1,6 +1,7 @@
 package dev.nodera.committee;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.consensuscert.QuorumCertificate;
 import dev.nodera.core.consensuscert.SignedVote;
 import dev.nodera.core.consensuscert.VoteDecision;
 import dev.nodera.core.identity.NodeId;
@@ -23,16 +24,34 @@ public final class CommitteeMember {
 
     private final NodeIdentity identity;
     private final RegionEngine engine;
+    private final VotePersistence persistence;
 
+    /** Create a member using the compatibility no-op persistence seam. */
     public CommitteeMember(NodeIdentity identity, RegionEngine engine) {
+        this(identity, engine, VotePersistence.none());
+    }
+
+    /**
+     * Create a member whose accepted candidates cross {@code persistence} before voting.
+     *
+     * @param identity    the member identity.
+     * @param engine      the deterministic region engine.
+     * @param persistence the candidate/certificate durability seam.
+     */
+    public CommitteeMember(
+            NodeIdentity identity, RegionEngine engine, VotePersistence persistence) {
         if (identity == null) {
             throw new IllegalArgumentException("identity must not be null");
         }
         if (engine == null) {
             throw new IllegalArgumentException("engine must not be null");
         }
+        if (persistence == null) {
+            throw new IllegalArgumentException("persistence must not be null");
+        }
         this.identity = identity;
         this.engine = engine;
+        this.persistence = persistence;
     }
 
     /** @return this member's node id. */
@@ -49,8 +68,17 @@ public final class CommitteeMember {
      */
     public MemberBallot computeAndVote(RegionExecutionRequest request) {
         RegionExecutionResult result = engine.execute(request);
+        // Crash safety: an ACCEPT vote is emitted only after this member has retained the candidate.
+        // If persistence fails, the exception aborts the round rather than creating a root vote that
+        // exists nowhere outside transient executor memory.
+        persistence.prepare(request, result);
         SignedVote vote = sign(result.resultingRoot(), VoteDecision.ACCEPT);
         return new MemberBallot(nodeId(), result.resultingRoot(), result.delta(), vote);
+    }
+
+    /** Bind this member's prepared candidate to the certificate before canonical state advances. */
+    void markCommitted(QuorumCertificate certificate) {
+        persistence.commit(certificate);
     }
 
     /**

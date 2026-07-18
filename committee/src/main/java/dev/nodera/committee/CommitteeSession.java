@@ -7,6 +7,7 @@ import dev.nodera.consensus.ProposalKey;
 import dev.nodera.consensus.QuorumPolicy;
 import dev.nodera.consensus.VoteCollector;
 import dev.nodera.core.consensuscert.QuorumCertificate;
+import dev.nodera.core.consensuscert.SignedVote;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.StateRoot;
@@ -16,7 +17,9 @@ import dev.nodera.simulation.RegionExecutionRequest;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -89,14 +92,33 @@ public final class CommitteeSession {
 
         Decision decision = collector.decide();
         return switch (decision) {
-            case Decision.Commit c -> onCommit(c.certificate(), ballots, equivocators);
+            case Decision.Commit c -> onCommit(c.certificate(), ballots, members, equivocators);
             case Decision.Reject r -> CommitResult.rejected(r.reason().name(), equivocators);
             case Decision.Unresolved u -> CommitResult.pending();
         };
     }
 
-    private CommitResult onCommit(QuorumCertificate cert, List<MemberBallot> ballots,
-                                  Set<NodeId> equivocators) {
+    private CommitResult onCommit(
+            QuorumCertificate cert,
+            List<MemberBallot> ballots,
+            List<CommitteeMember> members,
+            Set<NodeId> equivocators) {
+        // A certified root must exist on every member whose vote the certificate carries before the
+        // canonical mutation is applied. One persistence failure aborts the apply: liveness may wait,
+        // but a certificate must never advance world state while existing only in transient memory.
+        Map<NodeId, CommitteeMember> membersById = new HashMap<>();
+        for (CommitteeMember member : members) {
+            membersById.put(member.nodeId(), member);
+        }
+        for (SignedVote vote : cert.votes()) {
+            CommitteeMember member = membersById.get(vote.voter());
+            if (member == null) {
+                throw new IllegalStateException(
+                        "certificate voter " + vote.voter() + " is not a committee member");
+            }
+            member.markCommitted(cert);
+        }
+
         StateRoot committed = cert.resultingRoot();
         Set<NodeId> penalized = new TreeSet<>(Comparator.comparing(NodeId::value));
         RegionDelta commitDelta = null;
