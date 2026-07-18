@@ -10,6 +10,8 @@ import dev.nodera.protocol.EchoTest;
 import dev.nodera.protocol.assignment.LeaseRenewal;
 import dev.nodera.protocol.assignment.RegionAssigned;
 import dev.nodera.protocol.assignment.RegionRevoked;
+import dev.nodera.protocol.content.ArchiveReplicaAck;
+import dev.nodera.protocol.content.ArchiveReplicaAssignment;
 import dev.nodera.protocol.content.ContentAvailability;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
@@ -98,6 +100,8 @@ import java.util.UUID;
  *  27   TrackerQuery
  *  28   TrackerResponse
  *  29   InventoryAdvertisement
+ *  30   ArchiveReplicaAssignment
+ *  31   ArchiveReplicaAck
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -141,9 +145,13 @@ public final class MessageCodec {
     /** {@link TrackerResponse} tag (Task 20). */ public static final int TAG_TRACKER_RESPONSE = 28;
     /** {@link InventoryAdvertisement} tag (Task 20). */
     public static final int TAG_INVENTORY_ADVERTISEMENT = 29;
+    /** {@link ArchiveReplicaAssignment} tag (Task 21). */
+    public static final int TAG_ARCHIVE_REPLICA_ASSIGNMENT = 30;
+    /** {@link ArchiveReplicaAck} tag (Task 21). */
+    public static final int TAG_ARCHIVE_REPLICA_ACK = 31;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 29;
+    public static final int NEXT_TAG = 31;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -160,7 +168,8 @@ public final class MessageCodec {
             TAG_ECHO_TEST, TAG_RELAY_ENVELOPE, TAG_PEER_JOIN, TAG_MEMBERSHIP_UPDATE,
             TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE,
             TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY,
-            TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT);
+            TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT,
+            TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -203,6 +212,8 @@ public final class MessageCodec {
             case TAG_TRACKER_QUERY -> "TrackerQuery";
             case TAG_TRACKER_RESPONSE -> "TrackerResponse";
             case TAG_INVENTORY_ADVERTISEMENT -> "InventoryAdvertisement";
+            case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> "ArchiveReplicaAssignment";
+            case TAG_ARCHIVE_REPLICA_ACK -> "ArchiveReplicaAck";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -313,6 +324,8 @@ public final class MessageCodec {
         if (msg instanceof TrackerQuery) return TAG_TRACKER_QUERY;
         if (msg instanceof TrackerResponse) return TAG_TRACKER_RESPONSE;
         if (msg instanceof InventoryAdvertisement) return TAG_INVENTORY_ADVERTISEMENT;
+        if (msg instanceof ArchiveReplicaAssignment) return TAG_ARCHIVE_REPLICA_ASSIGNMENT;
+        if (msg instanceof ArchiveReplicaAck) return TAG_ARCHIVE_REPLICA_ACK;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -513,6 +526,18 @@ public final class MessageCodec {
                     ww.writeBytes(h.manifestRoot());
                     ww.writeBytes(h.pieceBitmap());
                 });
+            }
+            case ArchiveReplicaAssignment m -> {
+                w.writeU16(TAG_ARCHIVE_REPLICA_ASSIGNMENT).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.manifestRoot());
+                m.assignee().encode(w);
+                w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
+            }
+            case ArchiveReplicaAck m -> {
+                w.writeU16(TAG_ARCHIVE_REPLICA_ACK).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.manifestRoot());
+                m.assignee().encode(w);
+                w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
             }
             default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
         }
@@ -769,6 +794,18 @@ public final class MessageCodec {
                     return new ManifestHolding(root, bitmap);
                 });
                 yield new InventoryAdvertisement(genesisHash, holder, holdings);
+            }
+            case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> {
+                Bytes manifestRoot = r.readBytesValue();
+                dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
+                yield new ArchiveReplicaAssignment(manifestRoot, assignee, indexes);
+            }
+            case TAG_ARCHIVE_REPLICA_ACK -> {
+                Bytes manifestRoot = r.readBytesValue();
+                dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
+                yield new ArchiveReplicaAck(manifestRoot, assignee, indexes);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };

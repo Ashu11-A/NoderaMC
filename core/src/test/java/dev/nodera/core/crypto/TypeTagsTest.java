@@ -77,8 +77,11 @@ final class TypeTagsTest {
         assertThat(TypeTags.NODE_IDENTITY_SECRET).isEqualTo(74);
         assertThat(TypeTags.INVITATION).isEqualTo(75);
         assertThat(TypeTags.CACHED_PEER).isEqualTo(76);
+        // archive replication / repair (Task 21)
+        assertThat(TypeTags.ARCHIVE_REPLICA_ASSIGNMENT).isEqualTo(77);
+        assertThat(TypeTags.ARCHIVE_REPLICA_ACK).isEqualTo(78);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(76);
+        assertThat(TypeTags.NEXT).isEqualTo(78);
     }
 
     @Test

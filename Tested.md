@@ -17,7 +17,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery`: tracker/directory/inventory/multi-bootstrap/persistent-identity (Task 20) | 63 | 0 | 0 | 🚧 | 2026-07-18 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/repair (Task 21) | 89 | 0 | 0 | 🚧 | 2026-07-18 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Task 18) | 35 | 0 | 0 | ✅ | 2026-07-17 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) | 48 | 0 | 0 | ✅ | 2026-07-17 |
@@ -31,7 +31,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-client` | bounded/quota'd client store | — | — | — | ⬜ | — |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **473** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **499** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -58,6 +58,23 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
 >
+> Test growth (473 → 499) is **Task 21 — archive placement, replication, repair** (+26, all
+> `peer-runtime/archival`). `RendezvousArchivePolicyTest` is the placement property (acceptance #1):
+> `expectedHolders` is a pure function agreed on by every peer regardless of input order, holds R
+> distinct partial peers, the `FULL_ARCHIVE` host is always in the set but does NOT count toward R
+> (so losing it still leaves R replicas — acceptance #4), and checkpoint/genesis replicate to
+> everyone. `SeedFloorPolicyTest` pins the floor `min(25%, R/N)` and cap `max(5%, 2·R/N)` at the
+> N=20 and N=200 crossover points, proves the floor is always below the cap, and that the host is
+> exempt even at 100% (acceptance #3). `ArchiveAuditTaskTest` pins the expected-vs-inventory diff:
+> a promoted peer (ranked into the expected set after a higher-ranked peer died) becomes a target
+> missing every piece, a satisfied holder is never a target. `ArchiveRepairIT` is acceptance #2 —
+> kill holders of a ×5 manifest, the audit detects the loss, repair re-replicates back to the
+> factor within budget, and every repaired piece still verifies against the manifest (no data
+> loss); plus the bounded/progressive path (one piece per tick converges) and the corrupt-seeder
+> path (a rejecting verifier records nothing). `ArchiveManagerTest` pins the per-peer reconcile
+> (never evicts assigned-region current state; evicts over-cap unassigned content; host never
+> evicts). Mod-side repair coordinator and live churn soak deferred with the NeoForge lane.
+
 > Test growth (413 → 473) is **Task 20 — tracker, peer directory, archive inventory,
 > multi-bootstrap** (+60: +49 `peer-runtime`, +11 `core`). The `peer-runtime/discovery` package:
 > `PeerDirectoryTest` (per-world liveness with deterministic staleness, id-sorted online lists,

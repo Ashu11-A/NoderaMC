@@ -5,6 +5,8 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.assignment.LeaseRenewal;
 import dev.nodera.protocol.assignment.RegionRevoked;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.content.ArchiveReplicaAck;
+import dev.nodera.protocol.content.ArchiveReplicaAssignment;
 import dev.nodera.protocol.content.ContentAvailability;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
@@ -84,7 +86,9 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_TRACKER_QUERY).isEqualTo(27);
         assertThat(MessageCodec.TAG_TRACKER_RESPONSE).isEqualTo(28);
         assertThat(MessageCodec.TAG_INVENTORY_ADVERTISEMENT).isEqualTo(29);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(29);
+        assertThat(MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT).isEqualTo(30);
+        assertThat(MessageCodec.TAG_ARCHIVE_REPLICA_ACK).isEqualTo(31);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(31);
     }
 
     @Test
@@ -112,6 +116,8 @@ final class MessageCodecTypeTagTest {
         expected.put(TrackerQuery.class, MessageCodec.TAG_TRACKER_QUERY);
         expected.put(TrackerResponse.class, MessageCodec.TAG_TRACKER_RESPONSE);
         expected.put(InventoryAdvertisement.class, MessageCodec.TAG_INVENTORY_ADVERTISEMENT);
+        expected.put(ArchiveReplicaAssignment.class, MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT);
+        expected.put(ArchiveReplicaAck.class, MessageCodec.TAG_ARCHIVE_REPLICA_ACK);
 
         for (Map.Entry<Class<?>, Integer> e : expected.entrySet()) {
             assertThat(MessageCodec.typeTagOf(sampleOf(e.getKey())))
@@ -145,6 +151,8 @@ final class MessageCodecTypeTagTest {
                 TrackerQuery.class,
                 TrackerResponse.class,
                 InventoryAdvertisement.class,
+                ArchiveReplicaAssignment.class,
+                ArchiveReplicaAck.class,
         };
         for (Class<?> cls : classes) {
             NoderaMessage original = sampleOf(cls);
@@ -204,6 +212,8 @@ final class MessageCodecTypeTagTest {
                 MessageCodec.TAG_TRACKER_QUERY,
                 MessageCodec.TAG_TRACKER_RESPONSE,
                 MessageCodec.TAG_INVENTORY_ADVERTISEMENT,
+                MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT,
+                MessageCodec.TAG_ARCHIVE_REPLICA_ACK,
         };
         long distinct = java.util.Arrays.stream(tags).distinct().count();
         assertThat(distinct).isEqualTo(tags.length);
@@ -299,6 +309,12 @@ final class MessageCodecTypeTagTest {
             return new InventoryAdvertisement(Bytes.fromHex("cafe"), nodeId, java.util.List.of(
                     new ManifestHolding(Bytes.fromHex("0badc0de"),
                             PieceBitmap.of(java.util.List.of(0, 1)))));
+        }
+        if (cls == ArchiveReplicaAssignment.class) {
+            return new ArchiveReplicaAssignment(Bytes.fromHex("f00d"), nodeId, List.of(2, 0));
+        }
+        if (cls == ArchiveReplicaAck.class) {
+            return new ArchiveReplicaAck(Bytes.fromHex("f00d"), nodeId, List.of(0, 2));
         }
         throw new IllegalArgumentException("no sample for " + cls);
     }

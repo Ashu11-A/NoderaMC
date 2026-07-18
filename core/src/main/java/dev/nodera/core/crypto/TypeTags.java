@@ -83,6 +83,12 @@ public final class TypeTags {
     /** One remembered peer address in the on-disk cached-peer store. */
     public static final int CACHED_PEER          = 76;
 
+    // --- archive replication / repair (Task 21) ---
+    /** A repair coordinator assigns a peer to re-replicate specific pieces. */
+    public static final int ARCHIVE_REPLICA_ASSIGNMENT = 77;
+    /** Acknowledgement that an assigned peer now holds the requested pieces. */
+    public static final int ARCHIVE_REPLICA_ACK        = 78;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 76;
+    public static final int NEXT = 78;
 }

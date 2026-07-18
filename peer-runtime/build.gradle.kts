@@ -15,4 +15,8 @@ dependencies {
 
     testImplementation(project(":transport-socket"))
     testImplementation(project(":testkit"))
+    // Test-only: ArchiveRepairIT wires real Task-19 pieces/manifests and a real fetcher/verifier
+    // so the repair loop proves data integrity end-to-end. peer-runtime main stays seam-based and
+    // carries no distribution dependency.
+    testImplementation(project(":distribution"))
 }

@@ -22,7 +22,10 @@
 - `transport-socket` (real TCP `PeerTransport`) → `core` + `transport-api` (+ `protocol` for chunking).
 - `peer-runtime` (membership, heartbeat, deterministic gateway migration, and — Task 20 — the
   `peer-runtime/discovery` package: `TrackerService`, `PeerDirectory`, `ArchiveInventory`,
-  `BootstrapClient`, `InvitationCodec`, `CachedPeerStore`, `PersistentIdentityStore`) → `core` + `transport-api`
+  `BootstrapClient`, `InvitationCodec`, `CachedPeerStore`, `PersistentIdentityStore`; plus — Task 21
+  — the `peer-runtime/archival` package: `ArchivePlacementPolicy`/`RendezvousArchivePolicy`,
+  `ReplicationFactors`, `SeedFloorPolicy`, `ArchiveAuditTask`, `ArchiveRepairService`,
+  `ArchiveManager`) → `core` + `transport-api`
   + `protocol` + `diagnostics`. It depends only on the transport SEAM, never a concrete transport, so
   it runs over both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
   `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). `MeteredPeerTransport`

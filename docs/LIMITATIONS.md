@@ -76,7 +76,7 @@ observable in normal play.
 | L-32 | World data transfers whole-region only; chunking is transport-level frame-splitting, pieces are not addressable, no multi-seeder swarm fetch | T19 | Chunk-section `PieceManifest` + `ContentRequest/Chunk/Availability` + deterministic rarest-first selection; resume-after-partial test green; bad-piece hash-reject green | RETIRING |
 | L-33 | No async client chunk pipeline; a region renders only after its whole snapshot arrives, no lock-until-arrived guard | T19 | Pieces render on arrival; un-arrived section locked vs edit; manifest hash validates before render; `DistributionIT` reassembles from seeders each holding <40% | RETIRING |
 | L-34 | No tracker / archive-inventory / multi-bootstrap; a peer learns the mesh only via single-bootstrap gossip, cannot list worlds/peers/seeders by content | T20 | `TrackerQuery/Response` returns peers+seeders+counts+health; `ArchiveInventory` advertised+queried; `BootstrapClient` joins via configured-list / `CachedPeerStore` / `InvitationCodec` with the original bootstrap offline | RETIRING |
-| L-35 | No replication placement or repair; content held only where produced, no redundancy guarantee, no ≥25%-seed / <5%-per-peer enforcement | T21 | Rendezvous `ArchivePlacementPolicy` hits snap×5/log×4; dynamic seed floor `min(25%, R/N)` + per-peer cap `max(5%, 2·R/N)` enforced (5% asymptote at large N; `FULL_ARCHIVE` host exempt); `ArchiveRepairIT` re-creates missing replicas after a peer kill with no data loss | OPEN |
+| L-35 | No replication placement or repair; content held only where produced, no redundancy guarantee, no ≥25%-seed / <5%-per-peer enforcement | T21 | Rendezvous `ArchivePlacementPolicy` hits snap×5/log×4; dynamic seed floor `min(25%, R/N)` + per-peer cap `max(5%, 2·R/N)` enforced (5% asymptote at large N; `FULL_ARCHIVE` host exempt); `ArchiveRepairIT` re-creates missing replicas after a peer kill with no data loss | RETIRING |
 | L-36 | Reliability is a single proposal-outcome EMA; connectivity/uptime/availability/worlds-seeded not weighted (Plan §3.5/§10) | T22 | Weighted multi-factor score drives placement/gateway/handoff; determinism property test green; offline-decay implemented | OPEN |
 | L-37 | No client storage quota / eviction policy (`storage-client` unbuilt); remote-peered data can grow unbounded | T22 | `BoundedClientWorldStore` + `StorageQuotaManager` + `ArchiveEvictionPolicy` (never evicts assigned-region current state); unit tests | OPEN |
 | L-38 | No retention-before-drop; worlds never garbage-collected, no coordinated 24 h decommission | T22 | Coordinated 24 h countdown (network-visible) on zero-seeder worlds; cancel-on-seeder-return; drop-at-expiry; `RetentionIT` | OPEN |
@@ -108,6 +108,15 @@ observable in normal play.
 > (`TrackerIT`/`MultiBootstrapIT`). The row moves to RETIRED once the mod side constructs
 > `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers and the multiplayer UI (Task 26) reads it —
 > gated on the NeoForge lane.
+
+> **L-35 status (Task 21, 2026-07-18).** The Minecraft-free durability layer is green: deterministic
+> rendezvous placement (snap×5/log×4/compacted×3, host exempt from R), the ≥25%-seed floor and
+> <5%-per-peer cap (both dynamic in R/N), an audit that diffs expected vs the live inventory, and a
+> bounded repair service that pulls pieces by hash, verifies before recording, and is re-audited
+> rather than trusted. `ArchiveRepairIT` re-creates missing replicas after a peer kill with no data
+> loss. The row moves to RETIRED once the mod side runs the repair coordinator on a live mesh under
+> churn — gated on the NeoForge lane (and on Task 22's reliability scoring, which feeds the
+> free-rider penalty).
 
 ## §C — Retired by assumption A0 (every player is a peer)
 
