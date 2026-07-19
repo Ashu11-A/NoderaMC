@@ -45,3 +45,9 @@ claude_code_zai_env.sh
 /a
 *.env
 .env
+
+# Rust build output (cargo workspace under rust/, Task 27).
+/rust/target/
+
+# Local agent/plugin settings (per-machine, not project config).
+/.claude/

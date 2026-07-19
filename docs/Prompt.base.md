@@ -24,8 +24,10 @@ demoted to a non-authoritative full archival bootstrap peer. The project's centr
 | [`docs/Plan.md`](Plan.md) | **Architecture & roadmap.** Locked decisions (§3), module layout (§4), phases (§6), invariants (§8). |
 | [`docs/Task.0.md`](Task.0.md) | **Conventions, definitions, task index & dependency graph.** Binding for all other tasks. |
 | [`docs/LIMITATIONS.md`](LIMITATIONS.md) | **The binding limitation register.** §A envelope constraints, §B staged-capability burn-down (each with an owning task + exit test). No permanent exclusions allowed. |
-| [`docs/Roadmap.md`](Roadmap.md) | **Implementation order, priority, difficulty.** Dependency waves grounded in current state, ranked priority/difficulty tables, two-lane staffing note. Update on every outcome-changing commit. |
-| [`docs/Task.1.md` … `docs/Task.26.md`](Task.1.md) | **Per-task specs** (goal, folders, classes, mod/server split, acceptance criteria). Each gets a GitHub issue, but **task number ≠ issue number**: Tasks 19–23 are issues #24–#28, while Tasks 24–26 have no issue number yet — always find the real issue by its exact `Task N — <title>` before writing `refs #N`/`Closes #N`. Tasks 19–26 are the **"torrent hosting" feature** (content-addressed multi-seeder worlds, tracker, replication, encryption, crash-safe streaming, tick-lag handoff, multiplayer GUI) — additive to committee validation. |
+| [`docs/Roadmap.md`](Roadmap.md) | **Implementation order, priority, difficulty.** Dependency waves grounded in current state, ranked priority/difficulty tables, three-lane staffing note. Update on every outcome-changing commit. |
+| [`MONOREPO.md`](./MONOREPO.md) | **Monorepo migration instructions** (executed by Task 27): target `java/` + `rust/` + `fixtures/` layout, ordered steps, task-spec rewrite note. Temporary — absorbed into AGENTS/README when Task 27 closes. **The move has landed**: Gradle modules live under `java/` (names unchanged), cargo crates under `rust/`, golden wire frames under `fixtures/wire/`. |
+| [`LEGACY.md`](./LEGACY.md) | **Legacy ledger** for the Rust-services transition (Tasks 27–29): which Java files are REMOVE/REWRITE/KEEP, which task specs were rewritten and why, removal discipline. Temporary. |
+| [`docs/Task.1.md` … `docs/Task.29.md`](Task.1.md) | **Per-task specs** (goal, folders, classes, mod/server split, acceptance criteria). Each gets a GitHub issue, but **task number ≠ issue number**: Tasks 19–23 are issues #24–#28 and Task 26 is #29, while Tasks 24–25 and 27–29 have no issue number yet — always find the real issue by its exact `Task N — <title>` before writing `refs #N`/`Closes #N`. Tasks 19–26 are the **"torrent hosting" feature** (content-addressed multi-seeder worlds, tracker, replication, encryption, crash-safe streaming, tick-lag handoff, multiplayer GUI) — additive to committee validation. Tasks 27–29 are the **Rust infrastructure cluster** (monorepo restructure, standalone `nodera-tracker`, `nodera-rendezvous` relay) — see `MONOREPO.md` + `LEGACY.md`. |
 
 Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.md`.
 
@@ -33,12 +35,17 @@ Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.m
 
 ## 2. The project pattern
 
+- **Two toolchains, one gate.** `./gradlew check` (Java, from the repo root — modules live under
+  `java/` since Task 27) **and** `cd rust && cargo test` must both be green; `scripts/build-all.sh`
+  runs both plus the lint gate. The cross-language conformance tests (`fixtures/wire/*.bin` +
+  the tag-registry mirror) are what keep the two canonical-encoding implementations honest.
 - **Layered, Minecraft-free core.** `core` → JDK only. `simulation`, `protocol`, `consensus`,
   `transport-api`, `storage-api` → `core`. `testkit` → all of them. Minecraft/NeoForge types live
   ONLY in `transport-neoforge` and `neoforge-mod`; both are onboarded through the NeoForge convention
   plugin and compile/assemble, while live `runServer`/`runClient` acceptance remains GUI-deferred.
   This keeps the consensus- and
-  determinism-critical code unit-testable without a server.
+  determinism-critical code unit-testable without a server. Rust service crates (`rust/`,
+  Tasks 27–29) are infrastructure only — peers verify, never trust them (Task 0 §4 rule 7).
 - **Frozen contracts — do not change without a version bump:**
   - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` +
     `TypeTags`. Every `Encodable.encode` starts with `writeU16(typeTag); writeU16(ENCODING_VERSION);`.

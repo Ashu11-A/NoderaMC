@@ -129,9 +129,14 @@ quorum certificates on top of a MultiPaper-like ownership model.
 10. **Transport**: Phase 1–4 = NeoForge payloads relayed through the server
     (`client → server → clients`). Everything behind a `PeerTransport` interface.
     NeoForge limits (≤1 MiB clientbound, <32 KiB serverbound) mean snapshots and large
-    deltas are chunked + zstd-compressed streams from day one. Direct P2P (jvm-libp2p —
-    experimental, or a Rust libp2p sidecar over authenticated local IPC) is Phase 6 and
-    must slot in without touching call sites.
+    deltas are chunked + zstd-compressed streams from day one. Direct P2P is Phase 6 and
+    must slot in without touching call sites: `transport-socket` for LAN/reachable
+    listeners, plus **standalone Rust rendezvous+relay infrastructure** (Task 29:
+    `nodera-rendezvous` service + `transport-rendezvous` client — signed
+    registration/discovery, hole-punch coordination, end-to-end-encrypted relay
+    fallback). *Decision 2026-07-19: this replaces the jvm-libp2p-first plan; the former
+    "Rust sidecar plan B" is now the plan.* The server-relay lane remains the permanent
+    fallback.
 11. **Cross-region operations** (pistons, explosions, hopper chains, entity border
     crossings): MVP routes them to the **server fallback executor** — correctness first.
     Second iteration: MultiPaper-style atomic multi-region ownership migration to one
@@ -186,7 +191,8 @@ nodera/
 ├── storage-client/               # bounded/quota'd client implementation (Task 22)
 ├── transport-api/                # PeerTransport, PeerConnection, MessageHandler
 ├── transport-neoforge/           # payload registration + relay transport (Phase 1)
-├── transport-libp2p/             # (Phase 6) direct P2P behind the same interface
+├── transport-rendezvous/         # (Phase 6, Task 29) direct-first / punch-upgrade / relay-fallback
+│                                 #   client of the Rust rendezvous service, same interface
 ├── neoforge-mod/                 # @Mod entrypoints; common/ dedicated/ client/ split
 │   ├── common/                   #   ModNetworking, ModAttachments, config, PeerRuntimeFactory
 │   ├── dedicated/                #   coordinator, routing, commit, persistence, fallback,
@@ -202,6 +208,12 @@ nodera/
 `core`, `protocol`, `simulation`, `consensus`, `storage-*`, `transport-api` are
 Minecraft-free (plain Java, unit-testable without a server). Only `neoforge-mod` and
 `transport-neoforge` touch NeoForge/NMS types.
+
+Task 27 ([`MONOREPO.md`](./MONOREPO.md)) re-roots this layout as a **polyglot monorepo**: the
+Gradle modules above move under `java/` (module names unchanged), and a cargo workspace under
+`rust/` adds `nodera-codec` (canonical-encoding conformance + Ed25519 verify), `nodera-tracker`
+(Task 28), and `nodera-rendezvous` (Task 29), with shared golden fixtures under `fixtures/`.
+Rust crates are infrastructure only — no game/consensus/storage logic (Task 0 §4 rule 7).
 
 ---
 
@@ -220,6 +232,12 @@ maps in the hot simulation path — shade our own version).
 
 **Server-side (Phase 5+)**: RocksDB JNI (atomic write batches, crash recovery);
 Reed-Solomon erasure coding (cold archives only; hot data uses full replicas).
+
+**Rust services (Phase 6, Tasks 27–29)**: `tokio` (async runtime), `ed25519-dalek` (signature
+*verification* only — services never hold signing keys), `thiserror`, `serde` + `toml` (config).
+Versions pinned in the workspace `Cargo.toml`, toolchain in `rust-toolchain.toml` (Task 0 §3).
+The wire contract is the same frozen canonical encoding, proven byte-exact by the shared
+`fixtures/` golden files (`nodera-codec`).
 
 **Testing**: JUnit 5, AssertJ, jqwik (property-based determinism tests), Mockito at
 boundaries only, JMH (hashing/encoding benchmarks).
@@ -342,14 +360,16 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
 - `SessionGateway` runtime on capable peers; deterministic gateway election;
   `GatewayTransferCertificate`; short-reconnect migration first (seamless is explicitly
   out of scope), pending signed actions resubmitted after migration.
-- Direct P2P data plane behind `PeerTransport` (jvm-libp2p experiment; Rust sidecar if it
-  disappoints): snapshots, action batches, proposals, votes peer-to-peer; server sends
-  only assignments + final commits.
+- Direct P2P data plane behind `PeerTransport` (`transport-socket` where reachable; the
+  Task 29 Rust rendezvous relay + `transport-rendezvous` for NAT reach — the 2026-07-19
+  decision that replaced the jvm-libp2p experiment): snapshots, action batches, proposals,
+  votes peer-to-peer; server sends only assignments + final commits.
 - Archival repair (kill peers → missing replicas re-created), ≥3 bootstrap mechanisms
   (configured peers, cached peer store, signed invitations; optionally DNS seeds / LAN
   multicast).
-- These are §19 milestones M3–M5, delivered by Task 10 (gateway + libp2p) together with
-  Tasks 20 (multi-bootstrap, tracker) and 21 (archival repair).
+- These are §19 milestones M3–M5, delivered by Task 10 (gateway migration) together with
+  Tasks 20 (multi-bootstrap, tracker) and 21 (archival repair), on the Task 28/29 service
+  infrastructure.
 - The **"torrent hosting" cluster (Tasks 19–26)** lands in this phase: content-addressed
   piece manifests + multi-seeder swarm fetch (19), tracker / peer directory / archive
   inventory / multi-bootstrap (20), rendezvous replication with dynamic seed floor/cap +
@@ -358,6 +378,11 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
   content-addressing (23), continuous active-player stream + crash-safe flush (24),
   tick-lag/TPS handoff (25, spills into Phase 7), and the multiplayer GUI (26,
   GUI-deferred acceptance).
+- **Standalone Rust infrastructure (Tasks 27–29)** backs this phase: the monorepo restructure +
+  `nodera-codec` conformance crate (27, [`MONOREPO.md`](./MONOREPO.md)), the standalone tracker
+  binary that replaces the embedded Java `TrackerService` (28, [`LEGACY.md`](./LEGACY.md)), and
+  the rendezvous+relay service delivering NAT reach (29). Peers verify — never trust — these
+  services (Task 0 §4 rule 7): an outage degrades discovery/reach, never correctness.
 
 ### Phase 7 — Parity program (Tasks 13, 14, 15)
 
@@ -435,7 +460,7 @@ thread via the commit applier.
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **Determinism is harder than planned** (it always is) | Critical — everything depends on it | Phase 1 is a hard gate; validated action set starts at 2 actions; purpose-built engine instead of reusing NMS tick code; canonical encoder frozen early with golden tests; divergences get regression tests |
-| jvm-libp2p not production-proven | High (Phase 6) | All networking behind `PeerTransport`; server-relay mode is permanent fallback; Rust libp2p sidecar as plan B |
+| Rust services add an ops surface (hosting/upgrading `nodera-tracker`/`nodera-rendezvous`) and a second wire implementation (was: jvm-libp2p not production-proven — superseded 2026-07-19) | Medium (Phase 6) | All networking behind `PeerTransport`; server-relay mode is permanent fallback; byte-exact `nodera-codec` conformance vs shared golden fixtures + CI tag-registry mirror; verify-never-trust services (outage degrades reach, never correctness) |
 | NeoForge payload caps (1 MiB / 32 KiB) vs snapshot sizes | Medium | Chunked zstd streams from Phase 1; content-addressed transfer in Phase 5 |
 | Cross-region mechanics correctness | High | MVP: everything cross-region → server fallback (correct by construction); MultiPaper's atomic-group-migration as the next step; distributed 2PC only if genuinely needed |
 | Committee collusion / Sybil nodes | Staged (L-18) | Semi-trusted membership early with rotation, reliability scores, equivocation detection, adaptive spot-checks; Task 16 ships BFT rotation, admission control, dynamic committee sizing |
@@ -461,6 +486,10 @@ thread via the commit applier.
 - **Reliability score**: EMA `score ← 0.98·score + 0.02·outcome`; slash to 0 on
   equivocation; assignment floor 0.95; offline decay toward 0.5 over 30 days. Defaults —
   all configurable (Task 6).
+- **Discovery/NAT infrastructure (2026-07-19)**: standalone Rust services — `nodera-tracker`
+  (Task 28) and `nodera-rendezvous` (Task 29) — speaking the frozen canonical wire encoding,
+  organized as a polyglot monorepo (Task 27, `MONOREPO.md`). Supersedes the jvm-libp2p-first
+  transport plan; the embedded Java tracker becomes interim legacy (`LEGACY.md`).
 
 Measurements still to record (they feed ledger exit tests, not decisions): Phase 1
 bandwidth + interference rates (Task 5), guard overhead ns/write (Task 11), ghost-mob

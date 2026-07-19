@@ -1,17 +1,27 @@
-# Task 10 — Gateway Migration + Direct P2P Transport (libp2p, NAT traversal) (Phase 6)
+# Task 10 — Gateway Migration + Direct P2P Transport (rendezvous relay, NAT reach) (Phase 6)
 
-**Phase:** 6 · **Depends on:** Task 9 · **Modules:** `peer-runtime`,
-`transport-libp2p` (new), `neoforge-mod`, `protocol`, `integration-tests`
+**Phase:** 6 · **Depends on:** Task 9; Task 29 for cross-NAT reach (`transport-rendezvous`) ·
+**Modules:** `peer-runtime`, `neoforge-mod`, `protocol`, `integration-tests`;
+consumes `transport-rendezvous` (Task 29) and `transport-socket`
+
+> **Rewritten 2026-07-19** (see [`LEGACY.md`](./LEGACY.md) §2): the former `transport-libp2p`
+> half (jvm-libp2p, `NatTraversalManager`, `RelayManager`, `TransportSelector`) is superseded by
+> **Task 29** — a standalone Rust rendezvous+relay service plus the Java `transport-rendezvous`
+> module. Plan §3.10's "Rust sidecar plan B" became the plan. This task keeps what was always its
+> core: the **session-gateway migration** machinery and the full-peer-down end-to-end proof, now
+> running over whichever `PeerTransport` paths exist (LAN socket, rendezvous-relayed, NeoForge
+> relay fallback).
 
 ## Goal
 
 Remove the last hard dependencies on the full peer: (1) another peer can take over the
 Minecraft-facing **session gateway** role (short-reconnect migration, not seamless);
-(2) consensus/data traffic can flow **directly peer-to-peer** behind the existing
-`PeerTransport` seam. The other two former goals moved into the torrent cluster —
-automatic archive repair is **Task 21**, multi-bootstrap discovery is **Task 20** — so
-Plan §6 Phase 6 = design-doc §19 milestones M3–M5 is delivered by Tasks 10 + 20 + 21
-together. This task keeps the full-peer-down end-to-end demo and the invariant audit.
+(2) consensus/data traffic flows **directly peer-to-peer** behind the existing `PeerTransport`
+seam — across the real Internet via Task 29's rendezvous/relay when no direct route exists. The
+other two former goals moved into the torrent cluster — automatic archive repair is **Task 21**,
+multi-bootstrap discovery is **Task 20** — so Plan §6 Phase 6 = design-doc §19 milestones M3–M5
+is delivered by Tasks 10 + 20 + 21 (+ 28/29 infrastructure) together. This task keeps the
+full-peer-down end-to-end demo and the invariant audit.
 
 ---
 
@@ -28,14 +38,12 @@ peer-runtime/src/main/java/dev/nodera/peer/
 │   └── GatewayMigrationController.java# client-side: freeze actions, reconnect, resubmit
 ├── archival/                          # → Task 21 (ArchiveRepairService, ArchiveAuditTask)
 └── discovery/                         # → Task 20 (InvitationCodec, multi-bootstrap)
+                                       #   → Task 28 (TrackerClient against the Rust tracker)
 
-transport-libp2p/src/main/java/dev/nodera/transport/libp2p/
-├── Libp2pTransport.java               # PeerTransport impl #2 (jvm-libp2p)
-├── PeerDiscoveryAdapter.java          # feeds PeerDirectory from libp2p discovery
-├── RelayManager.java                  # circuit relay fallback when NAT traversal fails
-├── NatTraversalManager.java           # hole punching config
-└── TransportSelector.java             # policy: prefer direct P2P, fall back to NeoForge relay
-                                       #   per-peer, per-message-class (bulk vs consensus)
+transport paths (all behind PeerTransport — no additions here):
+    transport-socket        LAN / directly-reachable TCP (exists)
+    transport-rendezvous    Task 29: direct-first, punch-upgrade, relay-fallback + TransportSelector
+    transport-neoforge      NeoForge server relay — permanent fallback lane
 
 neoforge-mod additions:
 └── client/gateway/ClientGatewayAdapter.java# client hosting the gateway role for OTHER players
@@ -44,7 +52,7 @@ neoforge-mod additions:
 
 integration-tests additions:
     GatewayMigrationIT, LatePeerCatchUpIT
-    (ArchiveRepairIT → Task 21; MultiBootstrapIT → Task 20)
+    (ArchiveRepairIT → Task 21; MultiBootstrapIT → Task 20; RendezvousRelayIT → Task 29)
 ```
 
 ## Class relationships
@@ -52,17 +60,18 @@ integration-tests additions:
 ```
 PeerTransport (unchanged seam)
       ▲
-      ├── NeoForgeRelayTransport   (kept forever as the fallback lane — under A0 there
-      │                             is no vanilla-client population to serve)
-      └── Libp2pTransport
-              └── TransportSelector routes per (peer, messageClass):
-                    consensus msgs  → lowest-latency available channel
-                    StreamChunk bulk→ direct P2P strongly preferred (relieves relay)
+      ├── NeoForgeRelayTransport     (kept forever as the fallback lane — under A0 there
+      │                               is no vanilla-client population to serve)
+      ├── SocketPeerTransport        (LAN / port-forwarded direct TCP)
+      └── RendezvousPeerTransport    (Task 29) — TransportSelector routes per (peer, messageClass):
+                consensus msgs  → lowest-latency available path (direct > punched > relayed)
+                StreamChunk bulk→ non-relayed path strongly preferred (spares relay bandwidth)
 
 SessionGateway lifecycle:
     every capable peer: SessionGatewayRuntime = DORMANT
     GatewayElection inputs: acceptsInbound, latency, reliability, memory, load
-       winner ⇐ deterministic ranking (StableHash tiebreak) + current committee majority sign-off
+       winner ⇐ capability-weighted deterministic ranking (Task 9, L-29 retired)
+                + current committee majority sign-off
        ⇒ GatewayTransferCertificate(old → new, atTick, playerSessions[])
     old gateway: stops admitting actions, flushes commits, hands session table
     clients: GatewayMigrationController — disconnect, redial new gateway address,
@@ -72,18 +81,20 @@ SessionGateway lifecycle:
 Archive repair flow: unchanged design, moved wholesale to Task 21.
 ```
 
-## Implementation details — transport (`transport-libp2p`)
+## Implementation details — transport consumption
 
-- jvm-libp2p pinned version behind our interface only — **no libp2p types escape the
-  module** (Plan risk table: not production-proven; Rust-sidecar plan B keeps the same
-  `PeerTransport` seam, would live in a sibling module `transport-sidecar`).
-- Identity: libp2p peer key = our Ed25519 `NodeIdentity` (one identity, both layers).
-- Channel security: libp2p noise/TLS default; message auth still ours (signatures) —
-  transport encryption is belt, message signatures are suspenders; don't drop either.
-- Address advertisement: `PeerDirectory` records multiaddrs from `ClientHello`
-  extension (protocol addition: `AdvertisedAddresses`) + libp2p identify.
-- `TransportSelector` health-checks direct channels (ping RTT, failure count) and
-  demotes to relay transparently; metric per peer-pair: direct vs relayed share.
+- All internet-reach mechanics (candidate dialing, hole-punch upgrade, relay circuits,
+  end-to-end encryption of relayed legs, path selection) live in **Task 29's**
+  `transport-rendezvous` + `rust/nodera-rendezvous`. This task's obligation is *consumption
+  proof*: gateway migration and committee traffic must be transport-agnostic — every acceptance
+  run below passes with the mesh forced onto (a) direct sockets, (b) pure relay, and (c) mixed
+  paths.
+- Identity: one Ed25519 `NodeIdentity` end-to-end — the rendezvous record, the transport
+  handshake, and message signatures all bind to the same `NodeId` (no second identity layer;
+  same rule the libp2p plan had).
+- Address advertisement: `PeerDirectory` records candidates from `ClientHello`'s
+  `AdvertisedAddresses` extension (protocol addition kept from the original spec) plus the
+  rendezvous service's observed-address reports (Task 29 `ObservedAddress`).
 
 ## Implementation details — gateway migration
 
@@ -108,15 +119,15 @@ Archive repair flow: unchanged design, moved wholesale to Task 21.
 
 ## Implementation details — discovery / multi-bootstrap
 
-Moved to **Task 20** (tracker, peer directory, archive inventory, multi-bootstrap): the
-three mechanisms (configured list / `CachedPeerStore` redial / `InvitationCodec`),
-`BootstrapResponse` genesis-hash + certificate-chain validation, and
-`PublicBootstrapEndpoint`. This task only requires that discovery keeps working with
-the relay transport disabled (covered by the acceptance runs below).
+Moved to **Task 20** (tracker-client side: **Task 28**): the three join mechanisms (configured
+list / `CachedPeerStore` redial / `InvitationCodec`), `BootstrapResponse` genesis-hash +
+certificate-chain validation, and `PublicBootstrapEndpoint`. This task only requires that
+discovery keeps working with the NeoForge relay transport disabled (covered by the acceptance
+runs below).
 
 ## Implementation details — server peer
 
-Mostly *removal* of specialness: assert via tests that with `Libp2pTransport` active and
+Mostly *removal* of specialness: assert via tests that with direct/relayed P2P active and
 the full peer offline, the following still function among remaining peers: action →
 batch (gateway) → committee → certificate → event log (each peer's own store) →
 replica/world-view update. The dedicated server's remaining unique duty: the
@@ -128,10 +139,12 @@ strand — ledger R-3).
 
 1. `GatewayMigrationIT`: kill gateway peer ⇒ election ⇒ certificate signed by committee
    majority ⇒ clients reconnect to new gateway within freeze cap ⇒ pending actions
-   resubmitted exactly-once (seq dedupe asserted) ⇒ commits continue.
-2. Direct-P2P soak: two modded clients exchange committee traffic with relay disabled
-   (config kill-switch) — quorum commits succeed over `Libp2pTransport`; NAT-blocked
-   pair falls back to `RelayManager` circuit; `TransportSelector` metrics show the mix.
+   resubmitted exactly-once (seq dedupe asserted) ⇒ commits continue. Run twice: mesh on
+   direct sockets, mesh on pure relay (Task 29 binary).
+2. Direct-P2P soak: two modded clients exchange committee traffic with the NeoForge relay
+   disabled (config kill-switch) — quorum commits succeed over the P2P lane; a
+   NAT-blocked pair (direct listeners disabled) falls back to the Task 29 relay circuit;
+   `TransportSelector` metrics show the direct/punched/relayed mix.
 3. `LatePeerCatchUpIT`: a peer 10k events behind joins over direct P2P with the full
    peer offline and reaches network head (join mechanisms themselves are Task 20's
    `MultiBootstrapIT`; repair is Task 21's `ArchiveRepairIT`).

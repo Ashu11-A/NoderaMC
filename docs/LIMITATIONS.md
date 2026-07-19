@@ -64,11 +64,11 @@ observable in normal play.
 | L-20 | Genesis is a single-signer trust root (server self-certifies) | T16 | Multi-party genesis re-certification signed by founding peer set | OPEN |
 | L-21 | Third-party mods excluded from validated regions (palette exclusion) | T16 | Deterministic RuleSet SDK: mods ship rule packs, covered by registryFingerprint; SDK sample mod validated in CI | OPEN |
 | L-22 | Fixed spot-check floor costs ~12.5% server re-execution | T7/T8 | Adaptive spot-check (N=4→64 by reliability); steady-state ≤ 2% for proven committees | RETIRING |
-| L-23 | jvm-libp2p maturity unproven | T10 | Direct-P2P soak green; `TransportSelector` fallback exercised; sidecar plan B documented | OPEN |
+| L-23 | Cross-NAT direct P2P unproven (was: the jvm-libp2p bet — superseded 2026-07-19 by the Rust rendezvous relay, Task 29) | T29 | `RendezvousRelayIT` cross-NAT soak green; `TransportSelector` direct/punched/relayed mix exercised; pure-relay gateway continuity green (Task 10 acceptance #1) | OPEN |
 | L-24 | `mobCapture` ghost lane default-off until proven | T15 | Flips default per-species as validation ships | OPEN |
 | L-25 | Async world writes by other mods undefined under the guard | T16 | RuleSet SDK provides the legal async mutation API; guard rejects the rest with a documented error | OPEN |
 | L-26 | Redstone bounded to palette v2 | T13→T14→T16 | v2 (T13) → +observer/QC/daylight (T14) → +comparator/hopper/note (T16): full redstone parity | OPEN |
-| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T10 | `transport-libp2p` behind the same `PeerTransport` seam adds hole-punching + relay; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | OPEN |
+| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T29 | `transport-rendezvous` behind the same `PeerTransport` seam adds hole-punch upgrade + end-to-end-encrypted relay circuits against the Rust `nodera-rendezvous` service; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | OPEN |
 | L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | RETIRED |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | RETIRED |
 | L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
@@ -85,6 +85,7 @@ observable in normal play.
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | RETIRING |
+| L-44 | Tracker is embedded in a Java peer (`TrackerService`, Task 20) — the world list / announce surface dies with its host peer; no always-on discovery infrastructure | T28 | `TrackerServiceIT`: the standalone Rust `nodera-tracker` binary serves the world list with every Java seeder of a world offline; peers announce/query it; embedded serving path deleted per `LEGACY.md` | OPEN |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
 > module ships the addressable piece plane (`PieceManifest`/`Piece`), the append-only
@@ -105,9 +106,11 @@ observable in normal play.
 > points + `WorldHealth`; `ArchiveInventory` (piece-level, LRU-bounded) ingests
 > `InventoryAdvertisement` gossip; `BootstrapClient` joins via all three mechanisms (configured list,
 > `CachedPeerStore` redial, signed `InvitationCodec`) with the original bootstrap offline
-> (`TrackerIT`/`MultiBootstrapIT`). The row moves to RETIRED once the mod side constructs
-> `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers and the multiplayer UI (Task 26) reads it —
-> gated on the NeoForge lane.
+> (`TrackerIT`/`MultiBootstrapIT`). The row moves to RETIRED once the mod side wires the tracker
+> feed and the multiplayer UI (Task 26) reads it — gated on the NeoForge lane. **Note (2026-07-19):**
+> the embedded `TrackerService` is interim — Task 28 moves the serving role into the standalone
+> Rust `nodera-tracker` (L-44), so the retiring mod-side wiring constructs a `TrackerClient`
+> against configured endpoints, not the embedded service.
 
 > **L-35 status (Task 21, 2026-07-18).** The Minecraft-free durability layer is green: deterministic
 > rendezvous placement (snap×5/log×4/compacted×3, host exempt from R), the ≥25%-seed floor and

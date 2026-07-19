@@ -54,9 +54,10 @@ nodera/
 └── .github/workflows/build.yml
 ```
 
-`storage-rocksdb`, `storage-client`, `peer-runtime`, `transport-libp2p`,
-`integration-tests` are **not** created yet (Tasks 8–10) — keep `settings.gradle.kts`
-comments marking where they will be included.
+`storage-rocksdb`, `storage-client`, `peer-runtime`, `transport-rendezvous` (Task 29 —
+replaced the planned `transport-libp2p`, see `LEGACY.md`), `integration-tests` are **not**
+created yet (Tasks 8–10/29) — keep `settings.gradle.kts` comments marking where they will
+be included.
 
 ## File-by-file
 

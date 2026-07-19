@@ -1,6 +1,6 @@
 # Task 0 — Conventions, Definitions, Task Index
 
-Not an implementation task. Binding conventions for Tasks 1–26. Read before starting any
+Not an implementation task. Binding conventions for Tasks 1–29. Read before starting any
 other task. When a later task contradicts this file, fix the later task.
 
 ---
@@ -18,7 +18,7 @@ other task. When a later task contradicts this file, fix the later task.
 | 7 | Committee validation: votes, quorum, equivocation, failover — **MVP gate** | 3 | 6 |
 | 8 | Server-fallback-only execution + cross-region router | 4 | 7 |
 | 9 | `peer-runtime` + event-sourced storage: full archival bootstrap peer | 5 | 8 |
-| 10 | Gateway migration + direct P2P transport (libp2p/NAT); archival repair → T21, multi-bootstrap → T20 | 6 | 9 |
+| 10 | Gateway migration + direct P2P transport (rendezvous relay/NAT via T29); archival repair → T21, multi-bootstrap → T20 | 6 | 9; 29 (cross-NAT) |
 | 11 | World-interference control, chunk lifecycle, delegability, mod compat | 2–4 hardening | 6 |
 | 12 | Entity & mob lane: entity state in roots, ghost mobs, cross-region transfer | 5+ | 9, 11 |
 | 13 | Validated redstone: engine scheduled ticks, contraption ownership migration | 5+ | 8, 9, 11 |
@@ -28,13 +28,16 @@ other task. When a later task contradicts this file, fix the later task.
 | 17 | Debugger tool: headless P2P harness, real server-instance emulation, live debug, coverage, logs | 0–8 (cross-cutting) | grows per lane |
 | 18 | In-game observability & diagnostics HUD: tab list, boss bars, redesigned command tree, telemetry model | 0–8 (cross-cutting) | `peer-runtime` (hard); 6, 12 (soft) |
 | 19 | Torrent distribution data plane: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | 9 (storage-api), 4 (protocol/transport) |
-| 20 | Tracker, peer directory, archive inventory, multi-bootstrap | 6 | 19, 10 |
+| 20 | Tracker, peer directory, archive inventory, multi-bootstrap (tracker serving role → T28) | 6 | 19, 10 |
 | 21 | Archive placement (rendezvous, replication ×5/×4, ≥25%-seed, <5%-per-peer), audit, repair | 6 | 19, 20 |
 | 22 | Multi-factor reliability, client storage quotas, 24-hour retention-before-drop | 6 | 19, 21 |
 | 23 | Per-world content encryption (password → AES-GCM; seeders hold ciphertext) | 6 | 19 |
 | 24 | Crash safety + active-player continuous chunk stream (shutdown-hook flush; sidecar deferred) | 6 | 19, 21, 22 |
 | 25 | Tick-lag / TPS metric + low-TPS region handoff | 6–7 | 7 (committee), 22 |
 | 26 | Multiplayer GUI: torrent-host world creation, server list + search, red/gray health, network stats | 0–8 (cross-cutting, client) | 19, 20, 21, 22, 23 |
+| 27 | Monorepo restructure + Rust workspace foundation (`rust/nodera-codec`, shared `fixtures/`) — executes `MONOREPO.md` | 0–8 (build, urgent) | — |
+| 28 | Standalone Rust tracker service (`nodera-tracker`) + Java `TrackerClient`; deletes the embedded Task 20 tracker | 6 | 27, 20, 19 |
+| 29 | Rust rendezvous+relay service (`nodera-rendezvous`) + `transport-rendezvous` (NAT reach; supersedes the libp2p plan) | 6 | 27, 9, 4 |
 
 ```
 1 ──► 2 ──► 3 ──┐
@@ -47,6 +50,10 @@ Distribution / torrent-hosting cluster (Tasks 19–26; "torrent hosting" feature
               └─► 23            │
                                 ├─► 25  (also ◄─ 7)
   19,20,21,22,23 ─► 26  (client GUI; cross-cutting, GUI-deferred acceptance)
+
+Rust service infrastructure (Tasks 27–29; peers verify it, never trust it):
+  27 ─►┬─► 28 ─► (20's tracker-client half · 26's live feed · L-44 exit)
+       └─► 29 ─► (10's cross-NAT reach · L-23/L-27 exits)
 ```
 
 Tasks 19–26 deliver the **"torrent hosting" feature**: a world becomes a shared,
@@ -74,7 +81,7 @@ The cluster's "rule N" references resolve to the host-user torrent-hosting spec,
 | 9 | Tick-lag metric governs region-boundary sync; low-TPS peers hand off their regions | 25 |
 | 10 | Async download: hash-validate before use, lock-until-arrived, timestamped-hash freshness | 19 |
 | — | Per-world encryption password; seeders hold ciphertext | 23 |
-| — | Tracker/server list + search, health colours, 24 h retention-before-drop, multiplayer GUI | 20, 22, 26 |
+| — | Tracker/server list + search, health colours, 24 h retention-before-drop, multiplayer GUI | 20, 22, 26, 28 |
 
 Tasks 2, 3, 4 are pure-Java modules (no Minecraft classes) and can be developed in
 parallel after Task 1, except Task 3 and 4 both consume Task 2 types.
@@ -91,6 +98,13 @@ diagnostics HUD (tab list, boss bars, redesigned command tree, one telemetry mod
 
 Tasks 14–16 are the parity program (Plan Phases 7–8): they burn `LIMITATIONS.md` §B down
 to empty — full vanilla parity under validation, no permanent exclusions.
+
+Tasks 27–29 are the **Rust infrastructure cluster**: Task 27 restructures the repo into the
+polyglot monorepo ([`MONOREPO.md`](./MONOREPO.md)) and delivers the `nodera-codec` conformance
+crate; Tasks 28/29 move the tracker and the rendezvous/relay out of the Java peer process into
+standalone Rust binaries speaking the frozen wire contract. They carry no game or consensus
+logic — authority stays with peers and committees (layering rule 7); [`LEGACY.md`](./LEGACY.md)
+ledgers the Java code they replace.
 
 **Assumption A0 (binding everywhere)**: every player runs the Nodera mod and joins as a
 network peer. There is no vanilla-client population and no second-class lane; the
@@ -120,13 +134,21 @@ simulation      → dev.nodera.simulation
 consensus       → dev.nodera.consensus
 transport-api   → dev.nodera.transport
 transport-neoforge → dev.nodera.transport.neoforge
-transport-libp2p   → dev.nodera.transport.libp2p
+transport-rendezvous → dev.nodera.transport.rendezvous   (Task 29; replaces the planned transport-libp2p)
 storage-api     → dev.nodera.storage
 storage-rocksdb → dev.nodera.storage.rocksdb
 storage-client  → dev.nodera.storage.client
 peer-runtime    → dev.nodera.peer
 neoforge-mod    → dev.nodera.mod
 testkit         → dev.nodera.testkit
+```
+
+Rust crates (cargo package names; live under `rust/` after Task 27 — see `MONOREPO.md`):
+
+```
+rust/nodera-codec       → nodera-codec        (canonical encoding + Ed25519 verify + tag mirror)
+rust/nodera-tracker     → nodera-tracker      (Task 28 service binary)
+rust/nodera-rendezvous  → nodera-rendezvous   (Task 29 service binary)
 ```
 
 ---
@@ -139,6 +161,8 @@ testkit         → dev.nodera.testkit
 - Gradle 8.x, Kotlin DSL, NeoGradle (or ModDevGradle — pick in Task 1 and record here).
 - Dependency versions live in `gradle/libs.versions.toml` (version catalog); no hardcoded
   versions in module build files.
+- Rust toolchain pinned in `rust/rust-toolchain.toml`; crate versions pinned in the workspace
+  `Cargo.toml` (Task 27). Same discipline: upgrades are single dedicated commits, never mid-task.
 
 ---
 
@@ -163,6 +187,10 @@ testkit         → dev.nodera.testkit
    other mods, vanilla mechanics bleeding across the lane boundary — is suppressed or
    converted into a certified `ExternalDelta` by the interference guard (Task 11).
    Violations are logged and converted, never silently passed.
+7. **Rust service crates carry no game, consensus, or storage logic** (Tasks 27–29). They are
+   discovery/forwarding infrastructure: peers verify everything a service says (Ed25519
+   signatures, content hashes) and never treat it as authority. A service outage may degrade
+   discovery or reachability — never correctness.
 
 ---
 

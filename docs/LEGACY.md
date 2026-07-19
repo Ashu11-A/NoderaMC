@@ -1,0 +1,61 @@
+# LEGACY.md — Legacy System Ledger (temporary)
+
+<!-- AI-AGENT-INSTRUCTION: Temporary ledger for the Rust-services transition (Tasks 27–29). Every
+     Java file whose responsibility moves to `nodera-tracker`/`nodera-rendezvous` is classified
+     here BEFORE it is touched. A REMOVE/REWRITE row is resolved only in the same commit that
+     lands its replacing task with `./gradlew check` + `cargo test` green. When §1 has no
+     unresolved rows and §2 is reflected in the task files, delete this file. -->
+
+Status values: `PENDING` (replacement not landed) → `RESOLVED` (removed/rewritten, commit cited).
+
+## §1 — Legacy Java inventory
+
+Classification: **REMOVE** (deleted outright) · **REWRITE** (file stays, serving/plan role
+stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop future scope creep).
+
+### Tracker system → Rust `nodera-tracker` (Task 28)
+
+| File | Classification | Why / replacement | Status |
+|---|---|---|---|
+| `peer-runtime/src/main/java/dev/nodera/peer/discovery/TrackerService.java` | **REMOVE** | The embedded per-world peer+seeder index and query answering move to the standalone Rust tracker; Java keeps only a `TrackerClient` (announce loop + query). | PENDING (T28) |
+| `peer-runtime/src/main/java/dev/nodera/peer/discovery/package-info.java` | **REWRITE** | Drops the "tracker role runs here" contract text; keeps directory/inventory/bootstrap docs. | PENDING (T28) |
+| `neoforge-mod/src/main/java/dev/nodera/mod/common/NoderaPeerService.java` | **REWRITE** | Stops constructing `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers; wires `TrackerClient` against configured `tracker.endpoints` instead (`tracker.enabled` flag retired). | PENDING (T28) |
+| `protocol/src/main/java/dev/nodera/protocol/discovery/{TrackerQuery,TrackerResponse,InventoryAdvertisement,ManifestSeeders}.java` | **KEEP** | Frozen wire family (tags 27–29) — the Rust tracker *answers these same messages*; deleting them would break the contract, not honor it. | — |
+| `peer-runtime/.../discovery/{PeerDirectory,ArchiveInventory}.java` | **KEEP** | Remain as peer-local caches: Task 21 audit/repair and rarest-first selection read them. Only the *serving* role moves out. | — |
+| `peer-runtime/.../discovery/{BootstrapClient,CachedPeerStore,InvitationCodec,PersistentIdentityStore}.java` | **KEEP** | Peer-side join mechanisms + persisted identity (L-28 exit). Tracker/rendezvous endpoints become *additional* bootstrap sources, not replacements. | — |
+| `neoforge-mod/.../client/multiplayer/TrackerDataSource.java` (+ `TorrentWorldListWidget`, `MultiplayerScreenAddon`, `WorldSearchBox`, `CreateTorrentWorldOption`) | **KEEP** | Task 26 GUI consumes `TrackerResponse` unchanged — after T28 the data simply originates from the Rust binary. | — |
+| `diagnostics/src/main/java/dev/nodera/diagnostics/view/TorrentWorldListView.java` | **KEEP** | Pure view model; data source swap is invisible to it. | — |
+
+### Rendezvous / relay / NAT → Rust `nodera-rendezvous` (Task 29)
+
+| File | Classification | Why / replacement | Status |
+|---|---|---|---|
+| `transport-libp2p` (planned module — never built; commented placeholder in `settings.gradle.kts`; spec'd in the pre-2026-07-19 Task 10) | **REMOVE** (from plans) | Superseded before birth: Plan §3.10's "Rust sidecar plan B" is promoted to the plan — `rust/nodera-rendezvous` + `java/transport-rendezvous` (Task 29). The commented settings line is deleted by Task 27 step 3. | PENDING (T27/T29) |
+| `transport-socket/src/main/java/dev/nodera/transport/socket/SocketPeerTransport.java` | **KEEP** | Stays the LAN/direct-TCP path (L-27 text always said so); `transport-rendezvous` composes around it, does not replace it. | — |
+| `protocol/src/main/java/dev/nodera/protocol/RelayEnvelope.java` + `transport-neoforge` | **KEEP** | The *NeoForge server relay* is the Phase 1–4 in-game lane and permanent fallback (Plan §3.10) — a different relay than the Task 29 internet relay. Name collision only. | — |
+| `peer-runtime/.../peer/{PeerRuntime,GatewayElection,SessionView,TickSync}.java` + `protocol/membership/*` | **KEEP** | Session/gateway roles are in-game peer responsibilities riding whatever transport exists; the rendezvous service coordinates *reachability*, never sessions. | — |
+| `coordinator/.../{RendezvousPlacementPolicy,NodeRegistry}.java`, `peer-runtime/archival/RendezvousArchivePolicy.java` | **KEEP** | "Rendezvous" here = rendezvous *hashing* (deterministic placement math), unrelated to the rendezvous *service*. Flagged to prevent an over-eager cleanup. | — |
+
+## §2 — Task-file ledger (rewrites / removals)
+
+No `Task.<N>.md` file is deleted in this transition, so **no renumbering is required** (the
+renumber-on-delete rule stays armed for any future deletion). Task 17 remains file-less (standing
+debugger issue), as before.
+
+| Task file | Action | Reason |
+|---|---|---|
+| `docs/Task.10.md` | **REWRITTEN** (2026-07-19) | Its `transport-libp2p` half (jvm-libp2p, `NatTraversalManager`, `RelayManager`, `TransportSelector`) is superseded by Task 29's Rust rendezvous+relay service and `transport-rendezvous`. Task 10 keeps gateway migration + the full-peer-down demo and now *consumes* the Task 29 transport. |
+| `docs/Task.20.md` | **REWRITTEN** (2026-07-19) | Its embedded `TrackerService` serving role is interim, superseded by Task 28's standalone Rust tracker. Task 20 keeps the Java-side discovery it already shipped (directory, inventory, 3-mechanism bootstrap, persistent identity). |
+| `docs/Task.0.md`, `README.md`, `docs/Roadmap.md`, `docs/Plan.md`, `docs/Prompt.base.md`, `docs/LIMITATIONS.md` | **UPDATED** (2026-07-19) | Index/graph/status/limitation rows extended for Tasks 27–29 and the Rust-services decision. |
+| Tasks 1–16, 18–26 (path references) | **REWRITE QUEUED** (after Task 27 lands) | Monorepo path-prefix pass per `MONOREPO.md` §"Task-spec rewrite note" — mechanical except Tasks 1/4 (build/transport layout sections). |
+
+## §3 — Removal discipline
+
+1. Nothing in §1 is deleted before its replacing task's acceptance criteria are green
+   (`./gradlew check` + `cargo clippy -D warnings` + `cargo test`, plus the task's ITs).
+2. The deleting commit flips the row to RESOLVED with the commit hash — same-commit discipline
+   as the LIMITATIONS ledger.
+3. A KEEP row may be re-classified only by editing this file first (review gate), never by a
+   drive-by deletion.
+4. When every REMOVE/REWRITE row is RESOLVED and the §2 queue is empty, delete `LEGACY.md`
+   itself (its history is the record).

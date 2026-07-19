@@ -1,13 +1,21 @@
 # Task 20 — Tracker, Peer Directory, Archive Inventory, Multi-Bootstrap (Phase 6)
 
-**Phase:** 6 · **Depends on:** Task 19 (pieces/manifest), Task 10 (gateway/libp2p plan) ·
-**Modules:** `peer-runtime/discovery` (new); `protocol` membership/content additions; a tracker
-role on the bootstrap/full-archive peer.
+**Phase:** 6 · **Depends on:** Task 19 (pieces/manifest), Task 10 (gateway plan) ·
+**Modules:** `peer-runtime/discovery` (new); `protocol` membership/content additions; an
+**interim** tracker role on the bootstrap/full-archive peer (→ standalone Rust service, Task 28).
+
+> **Rewritten 2026-07-19** (see [`LEGACY.md`](./LEGACY.md) §2): the embedded `TrackerService`
+> serving role shipped here is **interim** — Task 28 moves it into the standalone Rust
+> `nodera-tracker` binary answering the same frozen wire family (tags 27–29), deletes the Java
+> serving path, and replaces it with a `TrackerClient` announce/query loop. Everything else this
+> task shipped (peer directory, archive inventory, 3-mechanism bootstrap, persistent identity)
+> is permanent Java-side scope and stays.
 
 ## Goal
 
 Give the network a **BitTorrent-style tracker**: a service that, for a given world (genesis hash),
-returns the list of peers currently online in it plus the seeders holding each manifest. Add a
+returns the list of peers currently online in it plus the seeders holding each manifest (embedded
+in a capable peer at this stage; the serving role moves to the standalone Rust tracker in Task 28). Add a
 durable **peer directory** and **archive inventory** (who holds what), and the **≥3 multi-bootstrap
 mechanisms** so a brand-new client can discover the network even when the original host is offline.
 This is the control plane the multiplayer UI (Task 26) reads to list worlds, player counts, chunk
@@ -24,7 +32,9 @@ counts, and reliability.
   it; the dedicated server is the preferred but not only tracker (same "preferred but not only"
   discipline as the bootstrap peer). Tracker responses are **self-verifying**: a peer list can be
   lied about by a malicious tracker, but state cannot — manifests/checkpoints verify by hash
-  (Task 19 / Task 9).
+  (Task 19 / Task 9). The role model is the **interim** stage: L-44 records that a world list
+  embedded in a peer dies with its host — Task 28's always-on Rust service is the exit; the
+  self-verifying trust model carries over unchanged.
 - Membership gossip (Task 9/10 `PeerRuntime`) stays the liveness spine; the tracker indexes it.
 
 ## Folder structure (additions)
@@ -33,6 +43,7 @@ counts, and reliability.
 peer-runtime/src/main/java/dev/nodera/peer/discovery/
 ├── package-info.java
 ├── TrackerService.java           # per-world peer+seeder index; answers TrackerQuery
+│                                 #   (INTERIM — serving role deleted by Task 28)
 ├── PeerDirectory.java            # durable NodeId → last-known route/caps/lastSeen (extends the Task 9
 │                                 #   skeleton; CachedPeerStore backs it)
 ├── ArchiveInventory.java         # manifestRoot → (holder NodeId → pieceBitmap); fed by
@@ -113,7 +124,8 @@ BootstrapClient: configured-list → CachedPeerStore → InvitationCodec (≥3 m
 
 - `NoderaPeerService` constructs `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers; the dedicated
   server enables it by default (`tracker.enabled`, default true). A client queries the tracker (via
-  any reachable tracker peer) to populate the multiplayer list (Task 26).
+  any reachable tracker peer) to populate the multiplayer list (Task 26). Task 28 replaces this
+  wiring with `TrackerClient` against configured `tracker.endpoints` and retires `tracker.enabled`.
 - `PublicBootstrapEndpoint` (moved here from Task 10): binds the Task 9 `BootstrapService` on the
   dedicated server's public address; any `FULL_ARCHIVE`-capable community peer can enable it (config
   flag) — "preferred but not only" bootstrap.
@@ -128,7 +140,10 @@ BootstrapClient: configured-list → CachedPeerStore → InvitationCodec (≥3 m
   keeps `NodeId`).
 - **L-29** partial — roles + holdings now on the wire; full capability-weighted gateway election
   remains Task 9.
-- NAT traversal (L-27) stays Task 10 (libp2p); the tracker works LAN/port-forward/VPN today.
+- NAT traversal (L-27) is owned by Task 29 (rendezvous relay); the tracker works
+  LAN/port-forward/VPN today.
+- **L-44** — the tracker is embedded in a Java peer, so the world list dies with its host; staged
+  OPEN here, owned by Task 28 (standalone Rust `nodera-tracker`).
 
 ## Acceptance criteria
 
