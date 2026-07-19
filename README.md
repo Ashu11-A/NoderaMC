@@ -100,9 +100,22 @@
 
 cd rust && cargo test           # Rust unit + cross-language conformance tests (equally required)
 cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
-
-scripts/build-all.sh            # both toolchains + lint gate (--fast skips the release build)
 ```
+
+## Run the local stack
+
+One script builds everything and runs the whole stack — the Minecraft bootstrap server plus the
+`nodera-tracker` and `nodera-rendezvous` services:
+
+```bash
+scripts/dev --accept-eula       # build Rust + mod, install the server if needed, start all three
+scripts/dev --no-mc             # just the Rust services (tracker + rendezvous)
+scripts/dev --test              # run the full gate (gradlew build + cargo test) as part of the build
+scripts/dev --help              # options + env overrides (ports, heap, Java, server dir)
+```
+
+`--accept-eula` records your acceptance of the [Mojang EULA](https://aka.ms/MinecraftEULA); it is
+required once before the Minecraft server will start. Ctrl-C stops every server.
 
 Host runs JDK **25**; Task 0 pins Java 21. The pure-Java modules use only Java 21-era features
 (records, sealed interfaces, virtual threads, pattern matching) so they stay source-compatible when
@@ -144,7 +157,7 @@ nodera/
 │   ├── nodera-tracker/      (Task 28) standalone tracker service — placeholder until T28
 │   └── nodera-rendezvous/   (Task 29) rendezvous + relay service — placeholder until T29
 ├── fixtures/wire/       golden canonical frames, emitted by Java, re-encoded byte-exactly by Rust
-├── scripts/             build-all.sh (both toolchains), server setup/run helpers
+├── scripts/             dev (build Rust + mod, install server, run the whole stack)
 └── docs/                Plan.md, LIMITATIONS.md, Prompt.base.md, Roadmap.md, Task.0..29.md,
                          MONOREPO.md, LEGACY.md, torrent/ (tracker + rendezvous reference specs), Context/
 ```

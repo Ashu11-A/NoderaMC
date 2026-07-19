@@ -18,7 +18,8 @@
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
 - `cd rust && cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
 - `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
-- `scripts/build-all.sh`   — all of the above (append `--fast` to skip the release build)
+- `scripts/dev --test --no-mc` — build both toolchains + run the full gate without starting servers
+- `scripts/dev --accept-eula`  — build everything, install the server if needed, run the Minecraft + tracker + rendezvous stack
 
 A red cargo job blocks a commit exactly like a red `./gradlew check`: the Rust services speak the
 same frozen wire contract, so a codec regression is a consensus regression.

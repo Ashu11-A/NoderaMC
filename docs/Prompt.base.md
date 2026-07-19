@@ -36,8 +36,8 @@ Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.m
 ## 2. The project pattern
 
 - **Two toolchains, one gate.** `./gradlew check` (Java, from the repo root — modules live under
-  `java/` since Task 27) **and** `cd rust && cargo test` must both be green; `scripts/build-all.sh`
-  runs both plus the lint gate. The cross-language conformance tests (`fixtures/wire/*.bin` +
+  `java/` since Task 27) **and** `cd rust && cargo test` must both be green; `scripts/dev --test
+  --no-mc` runs both plus the lint gate. The cross-language conformance tests (`fixtures/wire/*.bin` +
   the tag-registry mirror) are what keep the two canonical-encoding implementations honest.
 - **Layered, Minecraft-free core.** `core` → JDK only. `simulation`, `protocol`, `consensus`,
   `transport-api`, `storage-api` → `core`. `testkit` → all of them. Minecraft/NeoForge types live
