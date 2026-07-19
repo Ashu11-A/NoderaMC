@@ -19,7 +19,7 @@
      (Plan §6). Phase 0 pure-Java slice is complete; later phases dominate total effort. Update the
      block count so that filled blocks / 20 ≈ the percentage. Keep the legend. -->
 
-**Overall system completion: `65%`**
+**Overall system completion: `67%`**
 `█████████████░░░░░░░`
 
 > **Scope re-base (2026-07-19):** Tasks 27–29 add the **Rust infrastructure cluster** — the
@@ -60,7 +60,7 @@
 |---|---|---|---|
 | `core` | domain types, JDK-only crypto (Ed25519/SHA-256 + Task 23 AES-GCM/PBKDF2), canonical encoding (frozen wire/hash contract) + `ServerAuthorityCertificate` (Task 11) + `CommitteeChangeCertificate` (Task 9) + entity-lane foundation `FixedVec3`/`NetworkEntityId`/`PersistedEntityState` + item actions/events (Task 12a) | 145 | ✅ |
 | `simulation` | deterministic region engine (the determinism bet) | 28 | ✅ |
-| `protocol` | wire messages, MessageCodec, zstd chunked streams; compatible `SessionKeepAlive` v2 per-region progress (Task 25); `ExternalDelta` tag 32 (Task 11); cross-language golden `WireFixtureTest` (Task 27) | 40 | ✅ |
+| `protocol` | wire messages, MessageCodec, zstd chunked streams; compatible `SessionKeepAlive` v2 per-region progress (Task 25); `ExternalDelta` tag 32 (Task 11); tracker announce family tags 33–34 (Task 28); cross-language golden `WireFixtureTest` (Task 27) | 40 | ✅ |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | ✅ |
 | `transport-api` | `PeerTransport` seam | 9 | ✅ |
 | `transport-socket` | real TCP `PeerTransport` — direct P2P data plane (Phase 6) | 4 | ✅ |
@@ -80,7 +80,7 @@
 | `storage-rocksdb` | full-archive durable `WorldStore`: `RocksWorldStore` (WAL-backed column families, log-tail head recovery), `FsContentStore` (atomic writes, hash-verified reads), forced-kill `RocksCrashRecoveryIT` (Task 9) | 10 | ✅ |
 | `transport-rendezvous` | (Task 29) direct-first / punch-upgrade / relay-fallback `PeerTransport` client of `nodera-rendezvous`; replaces the planned `transport-libp2p` (see `LEGACY.md`) | — | ⬜ |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag-registry mirror + socket framing, proven against shared `fixtures/wire/` golden files | 23 | ✅ |
-| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — announce/query per world, listing + health/countdown surface; deletes the embedded Java `TrackerService` (L-44) | — | ⬜ |
+| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 54 | ✅ |
 | `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, relay reservations + metered circuits, hole-punch coordination (L-23/L-27) | — | ⬜ |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
@@ -241,7 +241,7 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 | 25 | **Tick-lag / TPS metric + low-TPS region handoff** | 6–7 | — | 🚧 (compatible keep-alive v2 + `TickSync` + integer skew/TPS metrics + sustained `LagHandoffPolicy` + guarded epoch+1 `LagHandoffIT` green; live commit feed/policy scheduler/HUD/NeoForge construction deferred — L-42 RETIRING) |
 | 26 | **Multiplayer GUI**: torrent-host world creation, server list + search, red/gray health, network stats | 0–8 | `#29` | 🚧 (Minecraft-free `TorrentWorldListView` + world-health `Semantic`/`Palette` rows + `Dist.CLIENT` `client/multiplayer` screens compile against NeoForge 21.1.77, no mixin; live tracker feed + create-world pipeline + `runClient` GUI pass deferred — L-43 RETIRING; live feed will come from the Task 28 Rust tracker via `TrackerClient`) |
 | 27 | **Monorepo restructure + Rust workspace foundation** (`MONOREPO.md`; `nodera-codec` + shared `fixtures/`) | 0–8 | — | ✅ (Gradle modules moved under `java/` with names unchanged, `rust/` cargo workspace + pinned toolchain, `nodera-codec` byte-exact port with tag-registry mirror + golden `fixtures/wire/` conformance, CI runs both toolchains, `scripts/build-all.sh`; task-spec rewrite pass queued in `LEGACY.md` §2) |
-| 28 | **Standalone Rust tracker service** (`nodera-tracker` + Java `TrackerClient`; deletes the embedded tracker — L-44) | 6 | — | ⬜ |
+| 28 | **Standalone Rust tracker service** (`nodera-tracker` + Java `TrackerClient`; deletes the embedded tracker — L-44) | 6 | — | 🚧 (service + client + announce family (tags 33–34) ship; `TrackerServiceIT` drives the **real release binary** from Java peers — L-44 RETIRED. Mod-side `tracker.endpoints` config + client construction wired; the periodic announce loop schedules with the Task 26 live client pass. `STATS` wire message deferred — operator counters ship as a structured log line) |
 | 29 | **Rust rendezvous + relay service** (`nodera-rendezvous` + `transport-rendezvous`; NAT reach — L-23/L-27) | 6 | — | ⬜ |
 
 Tasks 19–26 deliver the **"torrent hosting" feature** (a world becomes a shared, content-addressed,

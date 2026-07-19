@@ -86,6 +86,13 @@ fn message_tag_registry_mirrors_java() {
         INVENTORY_ADVERTISEMENT,
         FILE,
     );
+    assert_mirrors(&source, "TAG_TRACKER_ANNOUNCE", TRACKER_ANNOUNCE, FILE);
+    assert_mirrors(
+        &source,
+        "TAG_TRACKER_ANNOUNCE_ACK",
+        TRACKER_ANNOUNCE_ACK,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 

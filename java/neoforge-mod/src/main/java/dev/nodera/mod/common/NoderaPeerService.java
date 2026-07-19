@@ -51,12 +51,41 @@ public final class NoderaPeerService {
     private DiagnosticsCollector serverCollector;
     private dev.nodera.mod.debug.DiagnosticsService serverDiagnostics;
 
+    private dev.nodera.peer.discovery.TrackerClient serverTrackerClient;
+
     private NodeIdentity clientIdentity;
     private SocketPeerTransport clientTransport;
     private PeerRuntime clientRuntime;
     private DiagnosticsCollector clientCollector;
+    private dev.nodera.peer.discovery.TrackerClient clientTrackerClient;
 
     private NoderaPeerService() {}
+
+    /**
+     * Build a {@link dev.nodera.peer.discovery.TrackerClient} from configured {@code host:port}
+     * routes (Task 28).
+     *
+     * <p>Malformed routes are skipped with a loud log rather than aborting startup: one typo in a
+     * config file must not stop a server from booting, and the config spec already rejects them at
+     * load time — this is the belt to that suspenders.
+     *
+     * @param routes   the configured endpoints.
+     * @param identity the peer identity that will sign announces.
+     * @return the client (possibly with no endpoints, which makes it a no-op).
+     */
+    private static dev.nodera.peer.discovery.TrackerClient trackerClient(
+            java.util.List<? extends String> routes, NodeIdentity identity) {
+        java.util.List<dev.nodera.peer.discovery.TrackerClient.Endpoint> endpoints =
+                new java.util.ArrayList<>();
+        for (String route : routes) {
+            try {
+                endpoints.add(dev.nodera.peer.discovery.TrackerClient.Endpoint.parse(route));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed tracker endpoint '{}': {}", route, e.getMessage());
+            }
+        }
+        return new dev.nodera.peer.discovery.TrackerClient(endpoints, identity);
+    }
 
     /** @return the singleton service for this JVM. */
     public static NoderaPeerService get() {
@@ -89,6 +118,12 @@ public final class NoderaPeerService {
                 .register(RegionOwnershipProvider.stub())
                 .register(EntityControlProvider.stub());
         serverDiagnostics = new dev.nodera.mod.debug.DiagnosticsService(serverRuntime, serverCollector);
+        // Task 28: the tracker is a separate process now. The bootstrap peer is the world's
+        // FULL_ARCHIVE host, so it is the peer whose announce carries the world's display name.
+        serverTrackerClient = trackerClient(NoderaConfig.TRACKER_ENDPOINTS.get(), serverIdentity);
+        if (!serverTrackerClient.endpoints().isEmpty()) {
+            LOG.info("Nodera tracker endpoints: {}", serverTrackerClient.endpoints());
+        }
         String route = serverRuntime.selfRoute();
         LOG.info("Nodera bootstrap peer online at {} (node {})", route, serverIdentity.nodeId());
         return route;
@@ -124,12 +159,33 @@ public final class NoderaPeerService {
         return clientCollector;
     }
 
+    /**
+     * @return the server-side tracker client (announce + query), or {@code null} before start.
+     * @Thread-context any thread.
+     */
+    public synchronized dev.nodera.peer.discovery.TrackerClient serverTrackerClient() {
+        return serverTrackerClient;
+    }
+
+    /**
+     * @return the client-side tracker client, used by the Task 26 multiplayer world list, or
+     *         {@code null} before the client peer joins.
+     * @Thread-context any thread.
+     */
+    public synchronized dev.nodera.peer.discovery.TrackerClient clientTrackerClient() {
+        return clientTrackerClient;
+    }
+
     /** Stop the bootstrap peer. Idempotent. */
     public synchronized void stopServer() {
         if (serverRuntime != null) {
             LOG.info("Nodera bootstrap peer shutting down");
             serverRuntime.stop();
             serverRuntime = null;
+        }
+        if (serverTrackerClient != null) {
+            serverTrackerClient.close();
+            serverTrackerClient = null;
         }
         serverCollector = null;
         serverDiagnostics = null;
@@ -158,6 +214,7 @@ public final class NoderaPeerService {
         clientRuntime = PeerRuntime.peer(clientIdentity, NodeCapabilities.initial(),
                 clientMetered, clientTransport::listenRoute, bootstrapAddress,
                 PeerRuntimeConfig.defaults(), new LoggingListener("client"), clientCounts);
+        clientTrackerClient = trackerClient(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get(), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
                 .register(clientRuntime)
                 .register(RegionOwnershipProvider.stub())
@@ -172,6 +229,10 @@ public final class NoderaPeerService {
             LOG.info("Nodera client peer leaving session");
             clientRuntime.stop();
             clientRuntime = null;
+        }
+        if (clientTrackerClient != null) {
+            clientTrackerClient.close();
+            clientTrackerClient = null;
         }
         clientCollector = null;
         clientTransport = null;

@@ -7,8 +7,11 @@ import dev.nodera.core.identity.PeerRole;
 import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.content.ManifestHolding;
+import dev.nodera.protocol.discovery.AnnounceEvent;
 import dev.nodera.protocol.discovery.InventoryAdvertisement;
 import dev.nodera.protocol.discovery.ManifestSeeders;
+import dev.nodera.protocol.discovery.TrackerAnnounce;
+import dev.nodera.protocol.discovery.TrackerAnnounceAck;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.membership.PeerEntry;
@@ -120,6 +123,44 @@ class WireFixtureTest {
                 WorldHealth.DEAD,
                 1L));
 
+        // Task 28 announce family. The signature is fixed filler: these fixtures pin the ENCODING,
+        // and a filler value keeps them reproducible without embedding a private key. The real
+        // cross-language signature check is exercised at runtime by TrackerServiceIT, where a Java
+        // peer signs with its NodeIdentity and the Rust binary verifies.
+        corpus.put("tracker-announce-started.bin", new TrackerAnnounce(
+                filled(32, 0x11),
+                seederEntry.nodeId(),
+                filled(44, 0x66),
+                AnnounceEvent.STARTED,
+                List.of("198.51.100.4:25599", "[2001:db8::4]:25599"),
+                capabilities(Set.of(PeerRole.FULL_ARCHIVE, PeerRole.WORLD_SEEDER)),
+                List.of(new ManifestHolding(filled(32, 0x22), Bytes.unsafeWrap(
+                        new byte[] {(byte) 0xFF, (byte) 0b1100_0000}))),
+                "nodera-overworld",
+                0L,
+                9_400,
+                1_700_000_000_000L,
+                filled(64, 0x77)));
+
+        // A STOPPED announce carries no routes and no holdings: it only asks to be forgotten.
+        corpus.put("tracker-announce-stopped.bin", new TrackerAnnounce(
+                filled(32, 0x11),
+                playerEntry.nodeId(),
+                filled(44, 0x66),
+                AnnounceEvent.STOPPED,
+                List.of(),
+                capabilities(Set.of(PeerRole.PARTIAL_ARCHIVE)),
+                List.of(),
+                "",
+                0L,
+                0,
+                1_700_000_060_000L,
+                filled(64, 0x88)));
+
+        corpus.put("tracker-announce-ack-accepted.bin", TrackerAnnounceAck.accepted(120));
+        corpus.put("tracker-announce-ack-rejected.bin",
+                TrackerAnnounceAck.rejected(300, "bad-signature"));
+
         corpus.put("inventory-advertisement.bin", new InventoryAdvertisement(
                 filled(32, 0x11),
                 seederEntry.nodeId(),
@@ -186,11 +227,14 @@ class WireFixtureTest {
         for (NoderaMessage msg : corpus().values()) {
             covered.add(MessageCodec.typeTagOf(msg));
         }
-        // Tags 27–29 are the frozen discovery family the Rust tracker answers (Task 28).
+        // Tags 27–29 are the frozen discovery family the Rust tracker answers; 33/34 are the
+        // announce family Task 28 appended for the out-of-process tracker.
         assertTrue(covered.containsAll(List.of(
                         MessageCodec.TAG_TRACKER_QUERY,
                         MessageCodec.TAG_TRACKER_RESPONSE,
-                        MessageCodec.TAG_INVENTORY_ADVERTISEMENT)),
+                        MessageCodec.TAG_INVENTORY_ADVERTISEMENT,
+                        MessageCodec.TAG_TRACKER_ANNOUNCE,
+                        MessageCodec.TAG_TRACKER_ANNOUNCE_ACK)),
                 "fixture corpus must cover every discovery tag; covered=" + covered);
     }
 }

@@ -17,9 +17,9 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 
 | File | Classification | Why / replacement | Status |
 |---|---|---|---|
-| `peer-runtime/src/main/java/dev/nodera/peer/discovery/TrackerService.java` | **REMOVE** | The embedded per-world peer+seeder index and query answering move to the standalone Rust tracker; Java keeps only a `TrackerClient` (announce loop + query). | PENDING (T28) |
-| `peer-runtime/src/main/java/dev/nodera/peer/discovery/package-info.java` | **REWRITE** | Drops the "tracker role runs here" contract text; keeps directory/inventory/bootstrap docs. | PENDING (T28) |
-| `neoforge-mod/src/main/java/dev/nodera/mod/common/NoderaPeerService.java` | **REWRITE** | Stops constructing `TrackerService` on `FULL_ARCHIVE`/`BOOTSTRAP` peers; wires `TrackerClient` against configured `tracker.endpoints` instead (`tracker.enabled` flag retired). | PENDING (T28) |
+| `java/peer-runtime/src/main/java/dev/nodera/peer/discovery/TrackerService.java` | **REMOVE** | The embedded per-world peer+seeder index and query answering move to the standalone Rust tracker; Java keeps only a `TrackerClient` (announce loop + query). | **RESOLVED** (2026-07-19, Task 28) — deleted with `TrackerServiceTest`/`TrackerIT`; replaced by `TrackerClient` + `TrackerServiceIT` against the real binary |
+| `java/peer-runtime/src/main/java/dev/nodera/peer/discovery/package-info.java` | **REWRITE** | Drops the "tracker role runs here" contract text; keeps directory/inventory/bootstrap docs. | **RESOLVED** (2026-07-19, Task 28) |
+| `java/neoforge-mod/src/main/java/dev/nodera/mod/common/NoderaPeerService.java` | **REWRITE** | Wires `TrackerClient` against configured `tracker.endpoints` (server + client specs). Note: it never actually constructed `TrackerService`, so this was an addition, not a removal — the audit row overstated the coupling. | **RESOLVED** (2026-07-19, Task 28) |
 | `protocol/src/main/java/dev/nodera/protocol/discovery/{TrackerQuery,TrackerResponse,InventoryAdvertisement,ManifestSeeders}.java` | **KEEP** | Frozen wire family (tags 27–29) — the Rust tracker *answers these same messages*; deleting them would break the contract, not honor it. | — |
 | `peer-runtime/.../discovery/{PeerDirectory,ArchiveInventory}.java` | **KEEP** | Remain as peer-local caches: Task 21 audit/repair and rarest-first selection read them. Only the *serving* role moves out. | — |
 | `peer-runtime/.../discovery/{BootstrapClient,CachedPeerStore,InvitationCodec,PersistentIdentityStore}.java` | **KEEP** | Peer-side join mechanisms + persisted identity (L-28 exit). Tracker/rendezvous endpoints become *additional* bootstrap sources, not replacements. | — |
@@ -30,7 +30,7 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 
 | File | Classification | Why / replacement | Status |
 |---|---|---|---|
-| `transport-libp2p` (planned module — never built; commented placeholder in `settings.gradle.kts`; spec'd in the pre-2026-07-19 Task 10) | **REMOVE** (from plans) | Superseded before birth: Plan §3.10's "Rust sidecar plan B" is promoted to the plan — `rust/nodera-rendezvous` + `java/transport-rendezvous` (Task 29). The commented settings line is deleted by Task 27 step 3. | PENDING (T27/T29) |
+| `transport-libp2p` (planned module — never built; commented placeholder in `settings.gradle.kts`; spec'd in the pre-2026-07-19 Task 10) | **REMOVE** (from plans) | Superseded before birth: Plan §3.10's "Rust sidecar plan B" is promoted to the plan — `rust/nodera-rendezvous` + `java/transport-rendezvous` (Task 29). | **RESOLVED** (2026-07-19, Task 27) — the commented `settings.gradle.kts` line is gone; `Tested.md` row renamed to `transport-rendezvous` |
 | `transport-socket/src/main/java/dev/nodera/transport/socket/SocketPeerTransport.java` | **KEEP** | Stays the LAN/direct-TCP path (L-27 text always said so); `transport-rendezvous` composes around it, does not replace it. | — |
 | `protocol/src/main/java/dev/nodera/protocol/RelayEnvelope.java` + `transport-neoforge` | **KEEP** | The *NeoForge server relay* is the Phase 1–4 in-game lane and permanent fallback (Plan §3.10) — a different relay than the Task 29 internet relay. Name collision only. | — |
 | `peer-runtime/.../peer/{PeerRuntime,GatewayElection,SessionView,TickSync}.java` + `protocol/membership/*` | **KEEP** | Session/gateway roles are in-game peer responsibilities riding whatever transport exists; the rendezvous service coordinates *reachability*, never sessions. | — |
@@ -47,7 +47,7 @@ debugger issue), as before.
 | `docs/Task.10.md` | **REWRITTEN** (2026-07-19) | Its `transport-libp2p` half (jvm-libp2p, `NatTraversalManager`, `RelayManager`, `TransportSelector`) is superseded by Task 29's Rust rendezvous+relay service and `transport-rendezvous`. Task 10 keeps gateway migration + the full-peer-down demo and now *consumes* the Task 29 transport. |
 | `docs/Task.20.md` | **REWRITTEN** (2026-07-19) | Its embedded `TrackerService` serving role is interim, superseded by Task 28's standalone Rust tracker. Task 20 keeps the Java-side discovery it already shipped (directory, inventory, 3-mechanism bootstrap, persistent identity). |
 | `docs/Task.0.md`, `README.md`, `docs/Roadmap.md`, `docs/Plan.md`, `docs/Prompt.base.md`, `docs/LIMITATIONS.md` | **UPDATED** (2026-07-19) | Index/graph/status/limitation rows extended for Tasks 27–29 and the Rust-services decision. |
-| Tasks 1–16, 18–26 (path references) | **REWRITE QUEUED** (after Task 27 lands) | Monorepo path-prefix pass per `MONOREPO.md` §"Task-spec rewrite note" — mechanical except Tasks 1/4 (build/transport layout sections). |
+| Tasks 1–16, 18–26 (path references) | **REWRITE QUEUED** (Task 27 landed 2026-07-19) | Monorepo path-prefix pass per `MONOREPO.md` §"Task-spec rewrite note" — mechanical except Tasks 1/4 (build/transport layout sections). |
 
 ## §3 — Removal discipline
 

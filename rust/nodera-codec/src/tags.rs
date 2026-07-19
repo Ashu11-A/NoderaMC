@@ -33,9 +33,13 @@ pub mod message_tags {
     pub const TRACKER_RESPONSE: u16 = 28;
     /// `InventoryAdvertisement` (Task 20).
     pub const INVENTORY_ADVERTISEMENT: u16 = 29;
+    /// `TrackerAnnounce` (Task 28).
+    pub const TRACKER_ANNOUNCE: u16 = 33;
+    /// `TrackerAnnounceAck` (Task 28).
+    pub const TRACKER_ANNOUNCE_ACK: u16 = 34;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 32;
+    pub const NEXT_TAG: u16 = 34;
 }
 
 /// The message tags this crate can decode today.
@@ -47,4 +51,6 @@ pub const SUPPORTED_MESSAGE_TAGS: &[u16] = &[
     message_tags::TRACKER_QUERY,
     message_tags::TRACKER_RESPONSE,
     message_tags::INVENTORY_ADVERTISEMENT,
+    message_tags::TRACKER_ANNOUNCE,
+    message_tags::TRACKER_ANNOUNCE_ACK,
 ];

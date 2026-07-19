@@ -21,14 +21,37 @@ pub enum SignatureError {
     Rejected,
 }
 
+/// The fixed DER prefix of an X.509 `SubjectPublicKeyInfo` wrapping an Ed25519 key.
+///
+/// `SEQUENCE { SEQUENCE { OID 1.3.101.112 } BIT STRING (32 bytes) }`. Java's
+/// `PublicKey.getEncoded()` emits this form, so peers put 44 bytes on the wire where the raw key
+/// is 32. Matching the constant prefix is a complete parse for this one algorithm — the encoding
+/// has no variable fields — and avoids pulling a DER library into a pre-auth code path.
+const X509_ED25519_PREFIX: [u8; 12] = [
+    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+];
+
+/// Extract the raw 32-byte Ed25519 key from either a raw key or Java's X.509 encoding.
+pub fn raw_public_key(public_key: &[u8]) -> Result<[u8; 32], SignatureError> {
+    match public_key.len() {
+        32 => public_key
+            .try_into()
+            .map_err(|_| SignatureError::BadPublicKey),
+        44 if public_key[..12] == X509_ED25519_PREFIX => public_key[12..]
+            .try_into()
+            .map_err(|_| SignatureError::BadPublicKey),
+        _ => Err(SignatureError::BadPublicKey),
+    }
+}
+
 /// Verify `signature` over `message` under `public_key`.
+///
+/// `public_key` may be the raw 32 bytes or Java's 44-byte X.509 encoding.
 ///
 /// `message` must be the exact canonical bytes the signer covered — never a re-encoding produced
 /// from a decoded value, which is why callers keep the received slice around.
 pub fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<(), SignatureError> {
-    let key_bytes: [u8; 32] = public_key
-        .try_into()
-        .map_err(|_| SignatureError::BadPublicKey)?;
+    let key_bytes = raw_public_key(public_key)?;
     let key = VerifyingKey::from_bytes(&key_bytes).map_err(|_| SignatureError::BadPublicKey)?;
     let sig_bytes: [u8; 64] = signature
         .try_into()
@@ -68,6 +91,21 @@ mod tests {
             verify(&PUBLIC_KEY, b"tampered", &SIGNATURE),
             Err(SignatureError::Rejected)
         );
+    }
+
+    #[test]
+    fn a_java_x509_encoded_key_verifies_identically_to_the_raw_key() {
+        let mut x509 = X509_ED25519_PREFIX.to_vec();
+        x509.extend_from_slice(&PUBLIC_KEY);
+        assert_eq!(raw_public_key(&x509).unwrap(), PUBLIC_KEY);
+        verify(&x509, b"", &SIGNATURE).unwrap();
+    }
+
+    #[test]
+    fn a_44_byte_key_with_the_wrong_prefix_is_refused() {
+        let mut bogus = vec![0u8; 12];
+        bogus.extend_from_slice(&PUBLIC_KEY);
+        assert_eq!(raw_public_key(&bogus), Err(SignatureError::BadPublicKey));
     }
 
     #[test]

@@ -16,8 +16,11 @@ import dev.nodera.protocol.content.ContentAvailability;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.protocol.content.ManifestHolding;
+import dev.nodera.protocol.discovery.AnnounceEvent;
 import dev.nodera.protocol.discovery.InventoryAdvertisement;
 import dev.nodera.protocol.discovery.ManifestSeeders;
+import dev.nodera.protocol.discovery.TrackerAnnounce;
+import dev.nodera.protocol.discovery.TrackerAnnounceAck;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.handshake.ChallengeResponse;
@@ -106,6 +109,8 @@ import java.util.UUID;
  *  30   ArchiveReplicaAssignment
  *  31   ArchiveReplicaAck
  *  32   ExternalDelta
+ *  33   TrackerAnnounce
+ *  34   TrackerAnnounceAck
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -158,9 +163,13 @@ public final class MessageCodec {
     public static final int TAG_ARCHIVE_REPLICA_ACK = 31;
     /** {@link ExternalDelta} tag (Task 11). */
     public static final int TAG_EXTERNAL_DELTA = 32;
+    /** {@link TrackerAnnounce} tag (Task 28). */
+    public static final int TAG_TRACKER_ANNOUNCE = 33;
+    /** {@link TrackerAnnounceAck} tag (Task 28). */
+    public static final int TAG_TRACKER_ANNOUNCE_ACK = 34;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 32;
+    public static final int NEXT_TAG = 34;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -178,7 +187,8 @@ public final class MessageCodec {
             TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE,
             TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY,
             TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT,
-            TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK, TAG_EXTERNAL_DELTA);
+            TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK, TAG_EXTERNAL_DELTA,
+            TAG_TRACKER_ANNOUNCE, TAG_TRACKER_ANNOUNCE_ACK);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -224,6 +234,8 @@ public final class MessageCodec {
             case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> "ArchiveReplicaAssignment";
             case TAG_ARCHIVE_REPLICA_ACK -> "ArchiveReplicaAck";
             case TAG_EXTERNAL_DELTA -> "ExternalDelta";
+            case TAG_TRACKER_ANNOUNCE -> "TrackerAnnounce";
+            case TAG_TRACKER_ANNOUNCE_ACK -> "TrackerAnnounceAck";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -343,6 +355,8 @@ public final class MessageCodec {
         if (msg instanceof ArchiveReplicaAssignment) return TAG_ARCHIVE_REPLICA_ASSIGNMENT;
         if (msg instanceof ArchiveReplicaAck) return TAG_ARCHIVE_REPLICA_ACK;
         if (msg instanceof ExternalDelta) return TAG_EXTERNAL_DELTA;
+        if (msg instanceof TrackerAnnounce) return TAG_TRACKER_ANNOUNCE;
+        if (msg instanceof TrackerAnnounceAck) return TAG_TRACKER_ANNOUNCE_ACK;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -571,6 +585,18 @@ public final class MessageCodec {
                 m.baseVersion().encode(w);
                 w.writeBytes(m.encodedDelta());
                 w.writeBytes(m.certificateBytes());
+            }
+            case TrackerAnnounce m -> {
+                // The record owns the signed-portion layout so the codec and the signer can never
+                // disagree about where the signature starts.
+                m.writeSignedPortion(w);
+                w.writeBytes(m.signature());
+            }
+            case TrackerAnnounceAck m -> {
+                w.writeU16(TAG_TRACKER_ANNOUNCE_ACK).writeU16(ENCODING_VERSION);
+                w.writeBoolean(m.accepted());
+                w.writeU32(Integer.toUnsignedLong(m.nextAnnounceAfterSeconds()));
+                w.writeString(m.reason());
             }
             default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
         }
@@ -856,6 +882,34 @@ public final class MessageCodec {
                 Bytes encodedDelta = r.readBytesValue();
                 Bytes certificateBytes = r.readBytesValue();
                 yield new ExternalDelta(region, baseVersion, encodedDelta, certificateBytes);
+            }
+            case TAG_TRACKER_ANNOUNCE -> {
+                Bytes genesisHash = r.readBytesValue();
+                dev.nodera.core.identity.NodeId peer = dev.nodera.core.identity.NodeId.decode(r);
+                Bytes publicKey = r.readBytesValue();
+                AnnounceEvent event = AnnounceEvent.decodeOrdinal(r);
+                java.util.List<String> routes = r.readList(CanonicalReader::readString);
+                dev.nodera.core.identity.NodeCapabilities capabilities =
+                        dev.nodera.core.identity.NodeCapabilities.decode(r);
+                java.util.List<ManifestHolding> holdings = r.readList(rr -> {
+                    Bytes root = rr.readBytesValue();
+                    Bytes bitmap = rr.readBytesValue();
+                    return new ManifestHolding(root, bitmap);
+                });
+                String worldName = r.readString();
+                long retentionDeadline = r.readU64();
+                int reliabilityBps = (int) r.readU32();
+                long announceEpochMillis = r.readU64();
+                Bytes signature = r.readBytesValue();
+                yield new TrackerAnnounce(genesisHash, peer, publicKey, event, routes, capabilities,
+                        holdings, worldName, retentionDeadline, reliabilityBps, announceEpochMillis,
+                        signature);
+            }
+            case TAG_TRACKER_ANNOUNCE_ACK -> {
+                boolean accepted = r.readBoolean();
+                int nextAnnounceAfterSeconds = (int) r.readU32();
+                String reason = r.readString();
+                yield new TrackerAnnounceAck(accepted, nextAnnounceAfterSeconds, reason);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };

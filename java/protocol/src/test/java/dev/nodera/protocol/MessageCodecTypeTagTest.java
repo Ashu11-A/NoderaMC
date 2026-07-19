@@ -90,7 +90,11 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT).isEqualTo(30);
         assertThat(MessageCodec.TAG_ARCHIVE_REPLICA_ACK).isEqualTo(31);
         assertThat(MessageCodec.TAG_EXTERNAL_DELTA).isEqualTo(32);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(32);
+        // Task 28 appended the tracker announce family; the Rust nodera-codec mirror pins the same
+        // numbers (rust/nodera-codec/tests/tag_mirror.rs), so a one-sided change fails both builds.
+        assertThat(MessageCodec.TAG_TRACKER_ANNOUNCE).isEqualTo(33);
+        assertThat(MessageCodec.TAG_TRACKER_ANNOUNCE_ACK).isEqualTo(34);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(34);
     }
 
     @Test

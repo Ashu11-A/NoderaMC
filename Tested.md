@@ -11,13 +11,13 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 |---|---|---:|---:|---:|:---:|---|
 | `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) + Task 12a entity-lane foundation (FixedVec3/NetworkEntityId/PersistedEntityState + item actions/events, tags 25/26/84-89) | 145 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
-| `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25), `ExternalDelta` tag 32 (Task 11), cross-language golden `WireFixtureTest` (Task 27) | 40 | 0 | 0 | ✅ | 2026-07-19 |
+| `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25), `ExternalDelta` tag 32 (Task 11), tracker announce family tags 33–34 (Task 28), cross-language golden `WireFixtureTest` (Task 27) | 40 | 0 | 0 | ✅ | 2026-07-19 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-api` | `PeerTransport` seam | 9 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` canonical encodings (tags 81–83) + `StorageException` (Task 9) | 7 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, capability-weighted gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) + `committee/CommitteeManager` (Task 9) | 120 | 0 | 0 | 🚧 | 2026-07-18 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, capability-weighted gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) + `committee/CommitteeManager` (Task 9) + `TrackerClient` announce/query against the standalone Rust tracker, incl. `TrackerServiceIT` spawning the real binary (Task 28; embedded `TrackerService` deleted) | 117 | 0 | 0 | 🚧 | 2026-07-19 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, integer-EMA TickSkewMeter/TpsMeter, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Tasks 18/25) + `TorrentWorldListView` multiplayer panel with world-health semantics (Task 26) | 51 | 0 | 0 | ✅ | 2026-07-18 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) + sustained-skew `LagHandoffPolicy` (Task 25) + Task 11 `interference` (MutationGuard/InterferenceBuffer/InterferenceStats/InterferenceCommitter) + `DelegabilityMonitor` hysteresis | 84 | 0 | 0 | ✅ | 2026-07-18 |
@@ -31,14 +31,14 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-rendezvous` | direct-first / punch-upgrade / relay-fallback `PeerTransport` over `nodera-rendezvous` (Task 29; supersedes the planned `transport-libp2p`) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **691** | **0** | **0** | ✅ | 2026-07-19 |
+| **TOTAL (implemented modules)** | | **688** | **0** | **0** | ✅ | 2026-07-19 |
 
 Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (Task 27):
 
 | Crate | Responsibility | Tests | Failures | Status | Last run |
 |---|---|---:|---:|:---:|---|
-| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify, frozen tag mirror, socket framing; cross-language conformance vs `fixtures/wire/*.bin` | 23 | 0 | ✅ | 2026-07-19 |
-| `nodera-tracker` | standalone tracker service (Task 28) — placeholder crate | 0 | 0 | ⬜ | 2026-07-19 |
+| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify (raw + Java X.509 keys), frozen tag mirror, socket framing; cross-language conformance vs `fixtures/wire/*.bin` | 28 | 0 | ✅ | 2026-07-19 |
+| `nodera-tracker` | standalone tracker service: signed announce lifecycle + TTL expiry, per-world registry + isolation, sampling with seeder floor, health/countdown, per-IP quotas, TCP wire (Task 28) | 54 | 0 | ✅ | 2026-07-19 |
 | `nodera-rendezvous` | rendezvous + relay service (Task 29) — placeholder crate | 0 | 0 | ⬜ | 2026-07-19 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21

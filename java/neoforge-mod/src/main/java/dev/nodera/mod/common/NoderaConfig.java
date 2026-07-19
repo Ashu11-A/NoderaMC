@@ -48,6 +48,40 @@ public final class NoderaConfig {
     public static final ModConfigSpec.ConfigValue<String> CLIENT_P2P_ADVERTISE_HOST =
             CLIENT_BUILDER.define("p2p.advertiseHost", "auto");
 
+    // Tracker endpoints (Task 28). Each entry is a `host:port` route of a standalone
+    // `nodera-tracker` service. Empty by default: a LAN game needs no tracker, and a peer with no
+    // endpoints simply announces nowhere and discovers through the Task 20 bootstrap mechanisms.
+    // Both sides carry the list — a dedicated server announces as the world's FULL_ARCHIVE host,
+    // and a client queries the same endpoints to populate its multiplayer world list.
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> TRACKER_ENDPOINTS =
+            SERVER_BUILDER.defineListAllowEmpty("tracker.endpoints", java.util.List.of(),
+                    NoderaConfig::isTrackerEndpoint);
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> CLIENT_TRACKER_ENDPOINTS =
+            CLIENT_BUILDER.defineListAllowEmpty("tracker.endpoints", java.util.List.of(),
+                    NoderaConfig::isTrackerEndpoint);
+
+    /**
+     * Validate one configured tracker route.
+     *
+     * <p>Rejecting a malformed route at config-load time beats discovering it as a silently dead
+     * endpoint hours later: the peer would look connected while announcing into nothing.
+     *
+     * @param raw the configured value.
+     * @return whether it parses as a {@code host:port} route.
+     * @Thread-context config-loading thread.
+     */
+    private static boolean isTrackerEndpoint(Object raw) {
+        if (!(raw instanceof String route)) {
+            return false;
+        }
+        try {
+            dev.nodera.peer.discovery.TrackerClient.Endpoint.parse(route);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     private static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
     private static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();
 

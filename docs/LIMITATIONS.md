@@ -85,7 +85,7 @@ observable in normal play.
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | RETIRING |
-| L-44 | Tracker is embedded in a Java peer (`TrackerService`, Task 20) — the world list / announce surface dies with its host peer; no always-on discovery infrastructure | T28 | `TrackerServiceIT`: the standalone Rust `nodera-tracker` binary serves the world list with every Java seeder of a world offline; peers announce/query it; embedded serving path deleted per `LEGACY.md` | OPEN |
+| L-44 | Tracker is embedded in a Java peer (`TrackerService`, Task 20) — the world list / announce surface dies with its host peer; no always-on discovery infrastructure | T28 | `TrackerServiceIT`: the standalone Rust `nodera-tracker` binary serves the world list with every Java seeder of a world offline; peers announce/query it; embedded serving path deleted per `LEGACY.md` | RETIRED |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
 > module ships the addressable piece plane (`PieceManifest`/`Piece`), the append-only
@@ -180,6 +180,19 @@ observable in normal play.
 > same GUI env as Tasks 1/4/18 — plus the live create-world pipeline (manifest + tracker
 > registration + host-peer roles).
 
+> **L-44 retired (Task 28, 2026-07-19).** The standalone Rust `nodera-tracker` serves the frozen
+> discovery family (tags 27–29) and the appended announce family (33–34). `TrackerServiceIT` spawns
+> the real release binary and drives it from Java peers: two peers announce two worlds with
+> per-world isolation, a JDK-`NodeIdentity`-signed announce is verified by `ed25519-dalek` inside
+> the service, a tampered record is refused with `bad-signature` and never reaches the registry, a
+> `STOPPED` announce removes a peer immediately, and — the row's actual exit — a world whose every
+> Java seeder has gone silent past the TTL is **still listed by name with its countdown and a DEAD
+> verdict**, which the embedded tracker could not do. The embedded `TrackerService` (+ its unit test
+> and `TrackerIT`) is deleted; `PeerDirectory`/`ArchiveInventory` stay as peer-local caches per
+> `LEGACY.md`. Remaining gap, tracked with the Task 26 live GUI work rather than here: the mod's
+> announce loop is constructed but not yet scheduled on a timer, so the endpoints are wired and the
+> query path is proven headlessly while the periodic announce lands with the live client pass.
+>
 > **L-29 retired (Task 9, 2026-07-18).** `GatewayElection` is now capability-weighted (Plan §3.5):
 > within a tier the peer with the highest pure-integer weight (cores + GiB memory + inverse
 > latency + reliability, each clamped to a bucket) wins; the rendezvous score only spreads duty
