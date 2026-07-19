@@ -1,6 +1,10 @@
 package dev.nodera.storage;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.CanonicalReader;
+import dev.nodera.core.crypto.CanonicalWriter;
+import dev.nodera.core.crypto.Encodable;
+import dev.nodera.core.crypto.TypeTags;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
@@ -30,11 +34,45 @@ public record Checkpoint(
         long tick,
         long lastEventId,
         Bytes certificateRef
-) {
+) implements Encodable {
     public Checkpoint {
         if (region == null || version == null || root == null || snapshotContent == null
                 || certificateRef == null) {
             throw new IllegalArgumentException("no field of Checkpoint may be null");
         }
+    }
+
+    @Override
+    public void encode(CanonicalWriter w) {
+        w.writeU16(TypeTags.CHECKPOINT).writeU16(ENCODING_VERSION);
+        region.encode(w);
+        version.encode(w);
+        root.encode(w);
+        snapshotContent.encode(w);
+        w.writeU64(tick);
+        w.writeU64(lastEventId); // two's-complement i64 in the u64 slot (-1 = genesis checkpoint)
+        w.writeBytes(certificateRef);
+    }
+
+    /**
+     * Full-frame decode.
+     *
+     * @throws IllegalStateException if the next tag is not {@code CHECKPOINT}.
+     * @Thread-context not thread-safe; one reader per decode call.
+     */
+    public static Checkpoint decode(CanonicalReader r) {
+        int tag = r.readU16();
+        if (tag != TypeTags.CHECKPOINT) {
+            throw new IllegalStateException("expected CHECKPOINT tag, got " + tag);
+        }
+        r.readVersion(ENCODING_VERSION);
+        RegionId region = RegionId.decode(r);
+        SnapshotVersion version = SnapshotVersion.decode(r);
+        StateRoot root = StateRoot.decode(r);
+        ContentId snapshotContent = ContentId.decode(r);
+        long tick = r.readU64();
+        long lastEventId = r.readU64();
+        Bytes certificateRef = r.readBytesValue();
+        return new Checkpoint(region, version, root, snapshotContent, tick, lastEventId, certificateRef);
     }
 }

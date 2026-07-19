@@ -93,6 +93,14 @@ public final class TypeTags {
     /** An AES-GCM ciphertext piece (nonce + ciphertext + auth tag), Task 23. */
     public static final int ENCRYPTED_PIECE            = 80;
 
+    // --- event-sourced storage persistence (Task 9) ---
+    /** A content-addressed blob id: hash + size + compression. */
+    public static final int CONTENT_ID                 = 81;
+    /** A finalised region checkpoint (version + root + snapshot content + certificate ref). */
+    public static final int CHECKPOINT                 = 82;
+    /** The world's genesis manifest (seed, rules version, registry fingerprint, genesis root). */
+    public static final int GENESIS_MANIFEST           = 83;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 80;
+    public static final int NEXT = 83;
 }

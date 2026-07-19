@@ -35,15 +35,13 @@ include("fallback")
 include("storage-eventsourced")
 include("distribution")
 include("storage-client")
+include("storage-rocksdb")
 
 // --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
 include("transport-neoforge")
 include("neoforge-mod")
 
-// --- Later-phase modules (Tasks 8-10, 12-16) ---
-// include("storage-rocksdb")
-// include("storage-client")
-// include("peer-runtime")
+// --- Later-phase modules (Tasks 10, 12-16) ---
 // include("transport-libp2p")
 // include("integration-tests")
 

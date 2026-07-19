@@ -84,8 +84,12 @@ final class TypeTagsTest {
         assertThat(TypeTags.RELIABILITY_FACTORS).isEqualTo(79);
         // per-world content encryption (Task 23)
         assertThat(TypeTags.ENCRYPTED_PIECE).isEqualTo(80);
+        // event-sourced storage persistence (Task 9)
+        assertThat(TypeTags.CONTENT_ID).isEqualTo(81);
+        assertThat(TypeTags.CHECKPOINT).isEqualTo(82);
+        assertThat(TypeTags.GENESIS_MANIFEST).isEqualTo(83);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(80);
+        assertThat(TypeTags.NEXT).isEqualTo(83);
     }
 
     @Test

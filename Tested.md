@@ -15,7 +15,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-api` | `PeerTransport` seam | 9 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
-| `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` (Task 9) | 4 | 0 | 0 | ✅ | 2026-07-18 |
+| `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` canonical encodings (tags 81–83) + `StorageException` (Task 9) | 7 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
 | `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) | 108 | 0 | 0 | 🚧 | 2026-07-18 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, integer-EMA TickSkewMeter/TpsMeter, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Tasks 18/25) | 45 | 0 | 0 | ✅ | 2026-07-18 |
@@ -27,11 +27,11 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id/encrypted ciphertext flow + Task 24 bounded `ActivePlayerStream`/`EmergencyFlush`, `DistributionIT` + `EncryptedDistributionIT` + stream/flush ITs | 78 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-17 |
-| `storage-rocksdb` | full-archive RocksDB store | — | — | — | ⬜ | — |
+| `storage-rocksdb` | full-archive durable `WorldStore`: `RocksWorldStore` (WAL-backed CFs, log-tail head recovery), `FsContentStore` (atomic writes, hash-verified reads), forced-kill `RocksCrashRecoveryIT` (Task 9) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **633** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **646** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +57,22 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (633 → 646) is **Task 9 — the RocksDB archival tier** (+13). The new
+> `storage-rocksdb` module (+10): `RocksWorldStoreTest` proves seam parity with the in-memory
+> event-sourced store ACROSS close/reopen — genesis persisted and a foreign genesis rejected
+> ("different world"), the event log's recovered head feeding append validation (gap and
+> broken-chain appends still throw after reopen, the true-head append lands), per-region log
+> isolation, checkpoint strictly-greater ordering with latest/at/all surviving reopen, and
+> content-addressed certificate idempotency. `FsContentStoreTest` pins dedup, count recovery, and
+> the acceptance-#6 corrupt-blob rejection (a tampered file throws on read, never returns bytes).
+> `RocksCrashRecoveryIT` is the crash-consistency proof: a child JVM appending chained events in a
+> tight storm is `destroyForcibly`'d, and the reopened store recovers a clean prefix — contiguous
+> ids from 0, unbroken `prevRoot→resultingRoot` chain, head equal to the tail event — and accepts
+> the next chained append. `storage-api` (+3) pins the canonical round-trips of the new
+> `ContentId`/`Checkpoint`/`GenesisManifest` encodings (appended TypeTags 81–83, incl. the
+> lastEventId = -1 genesis sentinel and negative world seeds). Live forward sync and
+> committee-change certificates remain deferred.
 >
 > Test growth (605 → 633) is **Task 11 — world-interference control, the headless half** (+28).
 > `core` (+4) adds `ServerAuthorityCertificate` (reserved tag 54): signed-portion strict-prefix,
