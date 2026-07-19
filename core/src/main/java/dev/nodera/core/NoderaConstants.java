@@ -72,6 +72,8 @@ public final class NoderaConstants {
     public static final int DELEGABILITY_COOLDOWN_TICKS = 200;
     /** Foreign-mutation rate (per minute) that demotes a region. */
     public static final int INTERFERENCE_REVOKE_RATE = 60;
+    /** The window {@link #INTERFERENCE_REVOKE_RATE} is measured over: one minute at 20 TPS. */
+    public static final int INTERFERENCE_RATE_WINDOW_TICKS = 1200;
 
     // --- Reliability score (Plan §10) ---
     public static final double RELIABILITY_EMA_ALPHA = 0.02; // score ← 0.98·score + 0.02·outcome

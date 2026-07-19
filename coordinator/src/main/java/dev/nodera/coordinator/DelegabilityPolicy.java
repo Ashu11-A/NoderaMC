@@ -1,5 +1,6 @@
 package dev.nodera.coordinator;
 
+import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.region.RegionId;
 
 import java.util.Collections;
@@ -47,7 +48,8 @@ public final class DelegabilityPolicy {
 
     /**
      * Per-region delegability inputs the coordinator gathers each evaluation cycle. The Task 11
-     * inputs are not present yet; their {@link Reason}s stay unevaluated until Task 11 lands.
+     * inputs (entity presence, neighbor-ring palette, fake players, interference rate) are gathered
+     * by the mod-side probes and the {@code interference} package.
      *
      * @param paletteSupported  every block in the footprint is in the MVP palette.
      * @param chunksLoaded      all of the region's chunks are loaded.
@@ -56,6 +58,12 @@ public final class DelegabilityPolicy {
      * @param terrainGenerated  the region lies inside generated terrain.
      * @param flatMvpProfile    the region matches the flat-world MVP profile (probe rate 0).
      * @param guardPresent      the Task 11 interference guard is installed.
+     * @param entityPresent     any entity is inside the region bounds (narrowed by Task 12).
+     * @param neighborUnsupported a region in the delegable neighbor ring fails the palette check.
+     * @param fakePlayerActive  a fake player mutated the region within the cooldown window.
+     * @param interferencePerWindow foreign writes in the last
+     *                              {@code INTERFERENCE_RATE_WINDOW_TICKS} (from
+     *                              {@code InterferenceStats.ratePerWindow}).
      */
     public record Inputs(
             boolean paletteSupported,
@@ -64,11 +72,16 @@ public final class DelegabilityPolicy {
             boolean crossRegionPending,
             boolean terrainGenerated,
             boolean flatMvpProfile,
-            boolean guardPresent
+            boolean guardPresent,
+            boolean entityPresent,
+            boolean neighborUnsupported,
+            boolean fakePlayerActive,
+            long interferencePerWindow
     ) {
         /** A region that satisfies every Task 6 gate (flat MVP, palette ok, chunks loaded, quorum). */
         public static Inputs delegableFlatMvp(int eligibleNodeCount) {
-            return new Inputs(true, true, eligibleNodeCount, false, true, true, false);
+            return new Inputs(true, true, eligibleNodeCount, false, true, true, false,
+                    false, false, false, 0);
         }
     }
 
@@ -101,7 +114,7 @@ public final class DelegabilityPolicy {
         this.requireGuard = requireGuard;
     }
 
-    /** Evaluate the Task 6 delegability reasons for {@code region}. */
+    /** Evaluate the full (Task 6 + Task 11) delegability reason set for {@code region}. */
     public Delegability evaluate(RegionId region, Inputs in) {
         EnumSet<Reason> reasons = EnumSet.noneOf(Reason.class);
         if (!in.paletteSupported()) {
@@ -121,6 +134,18 @@ public final class DelegabilityPolicy {
         }
         if (requireGuard && !in.guardPresent() && !in.flatMvpProfile()) {
             reasons.add(Reason.GUARD_REQUIRED);
+        }
+        if (NoderaConstants.ENTITY_EXCLUSION && in.entityPresent()) {
+            reasons.add(Reason.ENTITY_PRESENT);
+        }
+        if (in.neighborUnsupported()) {
+            reasons.add(Reason.NEIGHBOR_UNSUPPORTED);
+        }
+        if (in.fakePlayerActive()) {
+            reasons.add(Reason.FAKE_PLAYER_ACTIVE);
+        }
+        if (in.interferencePerWindow() > NoderaConstants.INTERFERENCE_REVOKE_RATE) {
+            reasons.add(Reason.INTERFERENCE_RATE_HIGH);
         }
         return new Delegability(region, reasons);
     }

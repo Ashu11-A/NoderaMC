@@ -1,5 +1,6 @@
 package dev.nodera.coordinator;
 
+import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.region.RegionId;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +22,8 @@ class DelegabilityPolicyTest {
     @Test
     void unsupportedPaletteBlocks() {
         DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
-        var in = new DelegabilityPolicy.Inputs(false, true, 3, false, true, true, false);
+        var in = new DelegabilityPolicy.Inputs(false, true, 3, false, true, true, false,
+                false, false, false, 0);
         assertThat(policy.evaluate(region, in).reasons())
                 .contains(DelegabilityPolicy.Reason.UNSUPPORTED_PALETTE);
     }
@@ -29,7 +31,8 @@ class DelegabilityPolicyTest {
     @Test
     void unloadedChunksBlock() {
         DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
-        var in = new DelegabilityPolicy.Inputs(true, false, 3, false, true, true, false);
+        var in = new DelegabilityPolicy.Inputs(true, false, 3, false, true, true, false,
+                false, false, false, 0);
         assertThat(policy.evaluate(region, in).reasons())
                 .contains(DelegabilityPolicy.Reason.CHUNKS_NOT_LOADED);
     }
@@ -46,7 +49,8 @@ class DelegabilityPolicyTest {
     void guardRequiredOnNonFlatWorldWithoutGuard() {
         DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
         // non-flat profile, no guard, requireGuard on → GUARD_REQUIRED
-        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, false);
+        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, false,
+                false, false, false, 0);
         assertThat(policy.evaluate(region, in).reasons())
                 .contains(DelegabilityPolicy.Reason.GUARD_REQUIRED);
     }
@@ -54,7 +58,50 @@ class DelegabilityPolicyTest {
     @Test
     void guardNotRequiredWhenGuardPresent() {
         DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
-        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, true); // guard present
+        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, true,
+                false, false, false, 0); // guard present
         assertThat(policy.evaluate(region, in).isDelegable()).isTrue();
+    }
+
+    // --- Task 11 reasons ---
+
+    @Test
+    void entityPresenceBlocks() {
+        DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
+        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
+                true, false, false, 0);
+        assertThat(policy.evaluate(region, in).reasons())
+                .containsExactly(DelegabilityPolicy.Reason.ENTITY_PRESENT);
+    }
+
+    @Test
+    void unsupportedNeighborBlocks() {
+        DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
+        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
+                false, true, false, 0);
+        assertThat(policy.evaluate(region, in).reasons())
+                .containsExactly(DelegabilityPolicy.Reason.NEIGHBOR_UNSUPPORTED);
+    }
+
+    @Test
+    void fakePlayerBlocks() {
+        DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
+        var in = new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
+                false, false, true, 0);
+        assertThat(policy.evaluate(region, in).reasons())
+                .containsExactly(DelegabilityPolicy.Reason.FAKE_PLAYER_ACTIVE);
+    }
+
+    @Test
+    void interferenceStrictlyAboveRevokeRateBlocks() {
+        DelegabilityPolicy policy = new DelegabilityPolicy(3, true);
+        var atRate = new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
+                false, false, false, NoderaConstants.INTERFERENCE_REVOKE_RATE);
+        assertThat(policy.evaluate(region, atRate).isDelegable()).isTrue();
+
+        var aboveRate = new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
+                false, false, false, NoderaConstants.INTERFERENCE_REVOKE_RATE + 1);
+        assertThat(policy.evaluate(region, aboveRate).reasons())
+                .containsExactly(DelegabilityPolicy.Reason.INTERFERENCE_RATE_HIGH);
     }
 }

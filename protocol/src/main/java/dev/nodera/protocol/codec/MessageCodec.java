@@ -35,6 +35,7 @@ import dev.nodera.protocol.membership.RegionProgress;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
+import dev.nodera.protocol.simulationmsg.ExternalDelta;
 import dev.nodera.protocol.simulationmsg.RegionProposal;
 import dev.nodera.protocol.simulationmsg.ResyncRequest;
 import dev.nodera.protocol.simulationmsg.SnapshotAnnounce;
@@ -104,6 +105,7 @@ import java.util.UUID;
  *  29   InventoryAdvertisement
  *  30   ArchiveReplicaAssignment
  *  31   ArchiveReplicaAck
+ *  32   ExternalDelta
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -154,9 +156,11 @@ public final class MessageCodec {
     public static final int TAG_ARCHIVE_REPLICA_ASSIGNMENT = 30;
     /** {@link ArchiveReplicaAck} tag (Task 21). */
     public static final int TAG_ARCHIVE_REPLICA_ACK = 31;
+    /** {@link ExternalDelta} tag (Task 11). */
+    public static final int TAG_EXTERNAL_DELTA = 32;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 31;
+    public static final int NEXT_TAG = 32;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -174,7 +178,7 @@ public final class MessageCodec {
             TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE,
             TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY,
             TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT,
-            TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK);
+            TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK, TAG_EXTERNAL_DELTA);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -219,6 +223,7 @@ public final class MessageCodec {
             case TAG_INVENTORY_ADVERTISEMENT -> "InventoryAdvertisement";
             case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> "ArchiveReplicaAssignment";
             case TAG_ARCHIVE_REPLICA_ACK -> "ArchiveReplicaAck";
+            case TAG_EXTERNAL_DELTA -> "ExternalDelta";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -337,6 +342,7 @@ public final class MessageCodec {
         if (msg instanceof InventoryAdvertisement) return TAG_INVENTORY_ADVERTISEMENT;
         if (msg instanceof ArchiveReplicaAssignment) return TAG_ARCHIVE_REPLICA_ASSIGNMENT;
         if (msg instanceof ArchiveReplicaAck) return TAG_ARCHIVE_REPLICA_ACK;
+        if (msg instanceof ExternalDelta) return TAG_EXTERNAL_DELTA;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -558,6 +564,13 @@ public final class MessageCodec {
                 w.writeBytes(m.manifestRoot());
                 m.assignee().encode(w);
                 w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
+            }
+            case ExternalDelta m -> {
+                w.writeU16(TAG_EXTERNAL_DELTA).writeU16(ENCODING_VERSION);
+                m.region().encode(w);
+                m.baseVersion().encode(w);
+                w.writeBytes(m.encodedDelta());
+                w.writeBytes(m.certificateBytes());
             }
             default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
         }
@@ -835,6 +848,14 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
                 java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
                 yield new ArchiveReplicaAck(manifestRoot, assignee, indexes);
+            }
+            case TAG_EXTERNAL_DELTA -> {
+                dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
+                dev.nodera.core.state.SnapshotVersion baseVersion =
+                        dev.nodera.core.state.SnapshotVersion.decode(r);
+                Bytes encodedDelta = r.readBytesValue();
+                Bytes certificateBytes = r.readBytesValue();
+                yield new ExternalDelta(region, baseVersion, encodedDelta, certificateBytes);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };

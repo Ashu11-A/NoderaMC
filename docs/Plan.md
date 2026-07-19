@@ -442,6 +442,7 @@ thread via the commit applier.
 | Deterministic mob AI cost (Task 15) | High | Nodera-defined behaviour instead of an NMS port; fixed-point integer pathfinding; species-by-species retirement with ghosts as a working fallback at every step |
 | Slow/hostile peers stalling regions | Medium | Leases with expiry; server fallback executor; bounded caches; MultiPaper lesson: timeouts on every barrier |
 | NeoForge/MC version churn breaking mixins | Medium | Mixins are observation-only for as long as possible; Minecraft-free core modules unaffected |
+| Third-party mods mutating delegated regions | High (Hole A) | Task 11 interference guard: single `setBlockState` choke point, CONVERT-to-certified-`ExternalDelta` default, STRICT for CI; the normative contract other mods can rely on is [`COMPATIBILITY.md`](../COMPATIBILITY.md) |
 | Scope creep toward vanilla parity | High | The §"Recommended first implementation scope" restrictions are binding until the MVP gate passes |
 
 ---

@@ -29,6 +29,7 @@ import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
+import dev.nodera.protocol.simulationmsg.ExternalDelta;
 import dev.nodera.protocol.simulationmsg.ResyncRequest;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
 import org.junit.jupiter.api.Test;
@@ -88,7 +89,8 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_INVENTORY_ADVERTISEMENT).isEqualTo(29);
         assertThat(MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT).isEqualTo(30);
         assertThat(MessageCodec.TAG_ARCHIVE_REPLICA_ACK).isEqualTo(31);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(31);
+        assertThat(MessageCodec.TAG_EXTERNAL_DELTA).isEqualTo(32);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(32);
     }
 
     @Test
@@ -118,6 +120,7 @@ final class MessageCodecTypeTagTest {
         expected.put(InventoryAdvertisement.class, MessageCodec.TAG_INVENTORY_ADVERTISEMENT);
         expected.put(ArchiveReplicaAssignment.class, MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT);
         expected.put(ArchiveReplicaAck.class, MessageCodec.TAG_ARCHIVE_REPLICA_ACK);
+        expected.put(ExternalDelta.class, MessageCodec.TAG_EXTERNAL_DELTA);
 
         for (Map.Entry<Class<?>, Integer> e : expected.entrySet()) {
             assertThat(MessageCodec.typeTagOf(sampleOf(e.getKey())))
@@ -153,6 +156,7 @@ final class MessageCodecTypeTagTest {
                 InventoryAdvertisement.class,
                 ArchiveReplicaAssignment.class,
                 ArchiveReplicaAck.class,
+                ExternalDelta.class,
         };
         for (Class<?> cls : classes) {
             NoderaMessage original = sampleOf(cls);
@@ -178,6 +182,13 @@ final class MessageCodecTypeTagTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> MessageCodec.typeName(99))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void externalDeltaRoundTripsAllFields() {
+        ExternalDelta original = (ExternalDelta) sampleOf(ExternalDelta.class);
+        ExternalDelta decoded = (ExternalDelta) MessageCodec.decode(MessageCodec.encode(original));
+        assertThat(decoded).isEqualTo(original);
     }
 
     @Test
@@ -214,6 +225,7 @@ final class MessageCodecTypeTagTest {
                 MessageCodec.TAG_INVENTORY_ADVERTISEMENT,
                 MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT,
                 MessageCodec.TAG_ARCHIVE_REPLICA_ACK,
+                MessageCodec.TAG_EXTERNAL_DELTA,
         };
         long distinct = java.util.Arrays.stream(tags).distinct().count();
         assertThat(distinct).isEqualTo(tags.length);
@@ -315,6 +327,13 @@ final class MessageCodecTypeTagTest {
         }
         if (cls == ArchiveReplicaAck.class) {
             return new ArchiveReplicaAck(Bytes.fromHex("f00d"), nodeId, List.of(0, 2));
+        }
+        if (cls == ExternalDelta.class) {
+            return new ExternalDelta(
+                    new dev.nodera.core.region.RegionId(
+                            dev.nodera.core.region.DimensionKey.overworld(), 0, 0),
+                    new dev.nodera.core.state.SnapshotVersion(6L),
+                    Bytes.fromHex("0011"), Bytes.fromHex("2233"));
         }
         throw new IllegalArgumentException("no sample for " + cls);
     }
