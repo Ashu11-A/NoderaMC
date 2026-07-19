@@ -9,7 +9,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) | 121 | 0 | 0 | ✅ | 2026-07-18 |
+| `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) | 127 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
 | `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25), `ExternalDelta` tag 32 (Task 11) | 37 | 0 | 0 | ✅ | 2026-07-18 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
@@ -17,7 +17,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` canonical encodings (tags 81–83) + `StorageException` (Task 9) | 7 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
-| `peer-runtime` | `PeerRuntime`, membership, heartbeat, deterministic gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) | 108 | 0 | 0 | 🚧 | 2026-07-18 |
+| `peer-runtime` | `PeerRuntime`, membership, heartbeat, capability-weighted gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) + `committee/CommitteeManager` (Task 9) | 120 | 0 | 0 | 🚧 | 2026-07-18 |
 | `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, integer-EMA TickSkewMeter/TpsMeter, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Tasks 18/25) + `TorrentWorldListView` multiplayer panel with world-health semantics (Task 26) | 51 | 0 | 0 | ✅ | 2026-07-18 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) + sustained-skew `LagHandoffPolicy` (Task 25) + Task 11 `interference` (MutationGuard/InterferenceBuffer/InterferenceStats/InterferenceCommitter) + `DelegabilityMonitor` hysteresis | 84 | 0 | 0 | ✅ | 2026-07-18 |
@@ -31,7 +31,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **652** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **670** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +57,22 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (652 → 670) is **Task 9 — committee-change certification + capability-weighted
+> gateway election** (+18). `core` (+6): `CommitteeChangeCertificateTest` pins the canonical
+> round-trip, the exactly-one-epoch rule, and approval verification against the OLD committee's
+> keys — the property that stops any single party (server included) rotating members: quorum of
+> old-committee approvals verifies, an outsider's valid signature does not count, a member entry
+> carrying someone else's signature fails, and a duplicated approver counts once. `peer-runtime`
+> (+12): `CommitteeManagerTest` — a change needs the old committee's quorum (3-of-4) of distinct
+> old-member approvals, a lost primary is replaced under a bumped epoch with the population intact,
+> a too-small population degrades loudly to a 2-of-3 committee, three survivors cannot staff a
+> second loss, a stale link fails chain verification, and a proposal must step exactly one epoch;
+> `GatewayElectionTest` (+4) — `capabilityWeight` is bounded pure-integer math (cores + GiB memory
+> + inverse latency + reliability, clamped), the most-capable peer wins on every epoch regardless
+> of order (rendezvous only spreads duty among equal-weight peers), equal-weight peers still rotate
+> across epochs, and a bootstrap peer still outranks a more capable player while alive. Live manager
+> wiring + new-peer forward sync remain deferred.
 >
 > Test growth (646 → 652) is **Task 26 — the multiplayer view model** (+6, `diagnostics`).
 > `TorrentWorldListViewTest` is acceptance #1: a tracker entry renders name/players/chunks/

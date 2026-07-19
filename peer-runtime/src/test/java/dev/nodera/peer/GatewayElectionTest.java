@@ -23,6 +23,14 @@ final class GatewayElectionTest {
         return new PeerEntry(id, "127.0.0.1:0", NodeCapabilities.initial(), bootstrap);
     }
 
+    private static PeerEntry entry(NodeCapabilities caps) {
+        return new PeerEntry(NodeId.random(), "127.0.0.1:0", caps, false);
+    }
+
+    private static NodeCapabilities caps(int cores, long gibMemory, int latencyMs, double reliability) {
+        return NodeCapabilities.of(cores, gibMemory << 30, latencyMs, reliability, 4, 8, true);
+    }
+
     @Test
     void electionIsIndependentOfIterationOrder() {
         List<PeerEntry> members = new ArrayList<>();
@@ -83,5 +91,58 @@ final class GatewayElectionTest {
     void emptyMemberSetIsRejected() {
         assertThatThrownBy(() -> GatewayElection.elect(List.of(), 0L))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // --- Plan §3.5 capability-weighted rendezvous (retires L-29) ---
+
+    @Test
+    void capabilityWeightIsBoundedPureIntegerMath() {
+        // Monotone and clamped: more cores/memory, lower latency, higher reliability ⇒ >= weight.
+        assertThat(GatewayElection.capabilityWeight(caps(16, 32, 0, 1.0)))
+                .isGreaterThan(GatewayElection.capabilityWeight(caps(1, 1, 200, 0.0)));
+        assertThat(GatewayElection.capabilityWeight(caps(-1, -1, -5, -0.1)))
+                .isEqualTo(GatewayElection.capabilityWeight(caps(0, 0, 0, 0.0)));
+        // Out-of-range inputs clamp to the same weight as the saturated reference (latency 999 →
+        // the floor bucket 200, so compare against latency 200, not 0).
+        assertThat(GatewayElection.capabilityWeight(caps(99, 999, 999, 5.0)))
+                .isEqualTo(GatewayElection.capabilityWeight(caps(16, 32, 200, 1.0)));
+        assertThat(GatewayElection.capabilityWeight(caps(0, 1, 0, 1.0)))
+                .isGreaterThan(GatewayElection.capabilityWeight(caps(0, 0, 0, 0.0)));
+    }
+
+    @Test
+    void mostCapablePeerWinsRegardlessOfEpoch() {
+        // A strongly-provisioned peer beats look-alike clients on every epoch (the best-provisioned
+        // peer carries the session); rendezvous only spreads duty among EQUAL-weight peers.
+        PeerEntry strong = entry(caps(16, 32, 1, 0.99));
+        List<PeerEntry> members = new ArrayList<>(List.of(
+                strong, entry(caps(2, 4, 50, 0.9)), entry(caps(2, 4, 50, 0.9))));
+        for (long epoch = 0; epoch < 20; epoch++) {
+            Collections.shuffle(members);
+            assertThat(GatewayElection.elect(members, epoch)).isEqualTo(strong.nodeId());
+        }
+    }
+
+    @Test
+    void equalWeightPeersStillRotateAcrossEpochs() {
+        // Among equals the rendezvous score spreads gateway duty on successive re-elections.
+        List<PeerEntry> members = List.of(
+                entry(caps(4, 8, 30, 0.95)),
+                entry(caps(4, 8, 30, 0.95)),
+                entry(caps(4, 8, 30, 0.95)),
+                entry(caps(4, 8, 30, 0.95)));
+        long distinctWinners = java.util.stream.LongStream.range(0, 50)
+                .mapToObj(e -> GatewayElection.elect(members, e))
+                .distinct()
+                .count();
+        assertThat(distinctWinners).isGreaterThan(1);
+    }
+
+    @Test
+    void capabilityWeightBeatsBootstrapOnlyWhenAbsent() {
+        // A bootstrap peer (dedicated server) still outranks a more capable player while alive.
+        PeerEntry boot = new PeerEntry(NodeId.random(), "127.0.0.1:0", caps(1, 1, 100, 0.5), true);
+        PeerEntry strong = entry(caps(16, 32, 1, 0.99));
+        assertThat(GatewayElection.elect(List.of(boot, strong), 0L)).isEqualTo(boot.nodeId());
     }
 }

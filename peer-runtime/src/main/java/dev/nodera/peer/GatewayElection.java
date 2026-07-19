@@ -28,14 +28,33 @@ import java.util.UUID;
  * </ol>
  *
  * <p>Because {@link StableHash} is a frozen cross-JVM contract, two peers with the same alive-set
- * and epoch always elect the same gateway. (Capability-weighted rendezvous — Plan §3.5 — is a
- * refinement that slots in here later without changing the determinism guarantee.)
+ * and epoch always elect the same gateway.
+ *
+ * <p><b>Capability weighting (Plan §3.5, retires L-29).</b> Within a tier the election is
+ * weight-first: the peer with the highest {@link #capabilityWeight} (cores + memory + latency +
+ * reliability, quantised to pure-integer buckets so the weight is bit-identical across JVMs) wins;
+ * the rendezvous score only spreads duty among peers of EQUAL weight. The best-provisioned peer
+ * therefore carries the session, and a fleet of look-alike clients still rotates fairly.
  *
  * <p>Thread-context: pure static function, safe for any thread.
  */
 public final class GatewayElection {
 
     private GatewayElection() {}
+
+    /**
+     * The deterministic capability weight of a peer — pure integer bucket maths over
+     * {@code (cores, memory, latency, reliability)}. Bounded and monotone: more cores/memory,
+     * lower latency, and higher reliability never lower the weight.
+     */
+    public static int capabilityWeight(dev.nodera.core.identity.NodeCapabilities caps) {
+        int coreScore = Math.min(Math.max(caps.logicalCores(), 0), 16);           // 0..16
+        int memScore = (int) Math.min(Math.max(caps.memoryBytes(), 0) >> 30, 32); // GiB, 0..32
+        int latencyScore = (200 - Math.min(Math.max(caps.latencyMs(), 0), 200)) / 10; // 0..20
+        int reliabilityScore = (int) Math.round(
+                Math.min(Math.max(caps.reliability(), 0.0), 1.0) * 10_000) / 500;      // 0..20
+        return coreScore + memScore + latencyScore + reliabilityScore;
+    }
 
     /**
      * Elect the gateway among {@code alive} for {@code epoch}.
@@ -69,11 +88,17 @@ public final class GatewayElection {
         if (cand.bootstrap() != cur.bootstrap()) {
             return cand.bootstrap();
         }
-        // 2. higher rendezvous score wins.
+        // 2. the more capable peer wins (Plan §3.5 capability-weighted rendezvous, L-29).
+        int candWeight = capabilityWeight(cand.capabilities());
+        int curWeight = capabilityWeight(cur.capabilities());
+        if (candWeight != curWeight) {
+            return candWeight > curWeight;
+        }
+        // 3. among equals, the higher rendezvous score wins (spreads duty across failures).
         if (candScore != curScore) {
             return Long.compareUnsigned(candScore, curScore) > 0;
         }
-        // 3. deterministic tie-break: larger UUID wins.
+        // 4. deterministic tie-break: larger UUID wins.
         return cand.nodeId().value().compareTo(cur.nodeId().value()) > 0;
     }
 }
