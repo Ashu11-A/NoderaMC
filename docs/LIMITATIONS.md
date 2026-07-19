@@ -84,7 +84,7 @@ observable in normal play.
 | L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | RETIRING |
 | L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
-| L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | OPEN |
+| L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | RETIRING |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
 > module ships the addressable piece plane (`PieceManifest`/`Piece`), the append-only
@@ -163,6 +163,19 @@ observable in normal play.
 > epoch. `LagHandoffIT` proves isolated promotion, continued commit, untouched neighbouring state,
 > and certified replay. L-42 retires when live committee commit feeds, coordinator policy scheduling,
 > diagnostics HUD exposure, and NeoForge runtime construction use these seams.
+
+> **L-43 status (Task 26, 2026-07-18).** The headless + compile halves are green. The Minecraft-free
+> `TorrentWorldListView` builds the multiplayer panel from tracker data (name/players/chunks/
+> reliability/health/countdown rows, case-insensitive search, deterministic order), with the
+> red/gray rule carried by three new dedicated `Semantic` world-health values — distinct from the
+> session `Health` trio, so the Task 18 HUD keeps its yellow DEGRADED. The `Dist.CLIENT`
+> `dev.nodera.mod.client.multiplayer` package compiles against NeoForge 21.1.77: a
+> `ScreenEvent.Init.Post` hook (no mixin — `nodera.mixins.json` stays empty) adds the search box +
+> list widget to `JoinMultiplayerScreen` and the torrent-hosting toggle + independent password field
+> to `CreateWorldScreen`; `TrackerDataSource` unpacks `TrackerResponse` outside `diagnostics`.
+> The row moves to RETIRED after the `runClient` GUI pass with live tracker data — gated on the
+> same GUI env as Tasks 1/4/18 — plus the live create-world pipeline (manifest + tracker
+> registration + host-peer roles).
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

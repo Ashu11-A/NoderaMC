@@ -1,5 +1,6 @@
 package dev.nodera.mod.client;
 
+import dev.nodera.mod.client.multiplayer.MultiplayerScreenAddon;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.mod.debug.command.NoderaClientCommand;
 import net.neoforged.bus.api.IEventBus;
@@ -32,6 +33,7 @@ public final class ClientBootstrap {
     public static void register(IEventBus modBus, ModContainer container) {
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onLoggingOut);
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onRegisterClientCommands);
+        NeoForge.EVENT_BUS.addListener(MultiplayerScreenAddon::onScreenInit);
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {

@@ -14,3 +14,14 @@ dependencies {
     api(project(":storage-api"))
     implementation(libs.rocksdbjni)
 }
+
+// rocksdbjni extracts its ~50 MB native library into java.io.tmpdir once per JVM, and the
+// forcibly-killed RocksCrashRecoveryIT victim never reaches its deleteOnExit hook. Point the test
+// tmpdir (inherited by the victim via the IT's ProcessBuilder) into the build directory so leaked
+// extractions and JUnit @TempDir data are bounded and removed by `gradlew clean` instead of
+// filling the system /tmp.
+tasks.test {
+    val testTmp = layout.buildDirectory.dir("test-tmp").get().asFile
+    doFirst { testTmp.mkdirs() }
+    systemProperty("java.io.tmpdir", testTmp.absolutePath)
+}

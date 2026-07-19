@@ -40,5 +40,15 @@ public enum Semantic {
     /** A unit label / secondary detail. */
     SECONDARY,
     /** Neutral default text. */
-    NEUTRAL
+    NEUTRAL,
+
+    // --- torrent-world health (Task 26). Deliberately distinct from the session Health trio:
+    //     a torrent world that lost data is RED and a dead one GRAY, while a degraded SESSION
+    //     stays YELLOW — sharing the values would silently recolour the Task 18 HUD.
+    /** Torrent world fully replicated. */
+    WORLD_HEALTHY,
+    /** Torrent world lost data / under-replicated (rendered red). */
+    WORLD_DEGRADED,
+    /** Torrent world unusable: zero seeders past retention (rendered gray). */
+    WORLD_DEAD
 }

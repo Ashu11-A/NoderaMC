@@ -23,11 +23,13 @@ public final class Palette {
     /** @return the {@link ChatFormatting} for {@code semantic}. */
     public static ChatFormatting chat(Semantic semantic) {
         return switch (semantic) {
-            case OWNED, HEALTHY -> ChatFormatting.GREEN;
+            case OWNED, HEALTHY, WORLD_HEALTHY -> ChatFormatting.GREEN;
             case VALIDATING, RX -> ChatFormatting.AQUA;
             case REPLICA -> ChatFormatting.BLUE;
-            case FOREIGN, CRITICAL -> ChatFormatting.RED;
-            case UNASSIGNED -> ChatFormatting.GRAY;
+            // A torrent world that lost data is RED, unlike the session DEGRADED's YELLOW
+            // (Task 26) — sharing the row would silently recolour the Task 18 HUD.
+            case FOREIGN, CRITICAL, WORLD_DEGRADED -> ChatFormatting.RED;
+            case UNASSIGNED, WORLD_DEAD -> ChatFormatting.GRAY;
             case GATEWAY, SELF -> ChatFormatting.GOLD;
             case DEGRADED -> ChatFormatting.YELLOW;
             case TX -> ChatFormatting.LIGHT_PURPLE;

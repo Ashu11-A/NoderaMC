@@ -30,6 +30,9 @@ class RocksCrashRecoveryIT {
         Process victim = new ProcessBuilder(
                 java,
                 "--enable-native-access=ALL-UNNAMED", // rocksdbjni loads its native library
+                // The kill skips deleteOnExit, so the victim's native-lib extraction must land in
+                // the build-dir tmpdir (see build.gradle.kts), never the system /tmp.
+                "-Djava.io.tmpdir=" + System.getProperty("java.io.tmpdir"),
                 "-cp",
                 System.getProperty("java.class.path"),
                 WriteStormMain.class.getName(),
