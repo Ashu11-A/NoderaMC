@@ -11,7 +11,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 |---|---|---:|---:|---:|:---:|---|
 | `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) + Task 12a entity-lane foundation (FixedVec3/NetworkEntityId/PersistedEntityState + item actions/events, tags 25/26/84-89) | 145 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
-| `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25), `ExternalDelta` tag 32 (Task 11) | 37 | 0 | 0 | ✅ | 2026-07-18 |
+| `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25), `ExternalDelta` tag 32 (Task 11), cross-language golden `WireFixtureTest` (Task 27) | 40 | 0 | 0 | ✅ | 2026-07-19 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-api` | `PeerTransport` seam | 9 | 0 | 0 | ✅ | 2026-07-17 |
 | `transport-socket` | real TCP `PeerTransport` (direct P2P data plane) | 4 | 0 | 0 | ✅ | 2026-07-17 |
@@ -29,9 +29,17 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload + Task 26 `client/multiplayer` screens (event hooks, no mixin) — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-18 |
 | `storage-rocksdb` | full-archive durable `WorldStore`: `RocksWorldStore` (WAL-backed CFs, log-tail head recovery), `FsContentStore` (atomic writes, hash-verified reads), forced-kill `RocksCrashRecoveryIT` (Task 9) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
-| `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
+| `transport-rendezvous` | direct-first / punch-upgrade / relay-fallback `PeerTransport` over `nodera-rendezvous` (Task 29; supersedes the planned `transport-libp2p`) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **688** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **691** | **0** | **0** | ✅ | 2026-07-19 |
+
+Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (Task 27):
+
+| Crate | Responsibility | Tests | Failures | Status | Last run |
+|---|---|---:|---:|:---:|---|
+| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify, frozen tag mirror, socket framing; cross-language conformance vs `fixtures/wire/*.bin` | 23 | 0 | ✅ | 2026-07-19 |
+| `nodera-tracker` | standalone tracker service (Task 28) — placeholder crate | 0 | 0 | ⬜ | 2026-07-19 |
+| `nodera-rendezvous` | rendezvous + relay service (Task 29) — placeholder crate | 0 | 0 | ⬜ | 2026-07-19 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The

@@ -1,12 +1,16 @@
 # Build & test on push/PR. JDK: host provides JDK 25 in this environment; CI uses Temurin 21
 # once the Task 0 pin is restored.
+#
+# Two toolchains, one gate (Task 27 / MONOREPO.md): the `java` job and the `rust` job are both
+# required. A red cargo job blocks merge exactly like a red `./gradlew check` — the Rust services
+# speak the same frozen wire contract, so a codec regression is a consensus regression.
 name: build
 on:
   push:
   pull_request:
 
 jobs:
-  build:
+  java:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,3 +20,46 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew check build --stacktrace
+      # The golden wire fixtures are committed; `:protocol:test` fails if the encoder drifts from
+      # them. Fail loudly if the run mutated a fixture (that can only happen with the deliberate
+      # -Dnodera.fixtures.regenerate flag, which must never be set in CI).
+      - name: Golden fixtures unchanged
+        run: git diff --exit-code -- fixtures/
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the channel; rustup honours it automatically.
+      - run: rustup component add rustfmt clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      # Includes the cross-language conformance tests: the tag-registry mirror is asserted against
+      # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
+      - run: cargo test
+
+  release-artifacts:
+    # Service binaries are published per tag: operators run `nodera-tracker` / `nodera-rendezvous`
+    # as standalone infrastructure, so they need built artifacts, not a source checkout.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [java, rust]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nodera-services-${{ github.ref_name }}
+          path: |
+            rust/target/release/nodera-tracker
+            rust/target/release/nodera-rendezvous
+          if-no-files-found: error

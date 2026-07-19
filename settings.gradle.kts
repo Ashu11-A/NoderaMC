@@ -15,34 +15,44 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "0.10.0"
 }
 
-includeBuild("build-logic")
+includeBuild("java/build-logic")
+
+// --- Monorepo layout (Task 27, see MONOREPO.md) ---
+// Every Gradle module lives under `java/`; the Rust service crates live under `rust/`.
+// Module NAMES are unchanged (`:core`, `:peer-runtime`, …) — only their directories moved,
+// so `./gradlew :core:test` and every `build.gradle.kts` keep working untouched.
+fun module(name: String) {
+    include(name)
+    project(":$name").projectDir = file("java/$name")
+}
 
 // Phase 0 — pure-Java (Minecraft-free) modules. Built and tested in CI.
-include("core")
-include("protocol")
-include("simulation")
-include("consensus")
-include("transport-api")
-include("transport-socket")
-include("storage-api")
-include("testkit")
-include("peer-runtime")
-include("diagnostics")
-include("shadow-validation")
-include("coordinator")
-include("committee")
-include("fallback")
-include("storage-eventsourced")
-include("distribution")
-include("storage-client")
-include("storage-rocksdb")
+module("core")
+module("protocol")
+module("simulation")
+module("consensus")
+module("transport-api")
+module("transport-socket")
+module("storage-api")
+module("testkit")
+module("peer-runtime")
+module("diagnostics")
+module("shadow-validation")
+module("coordinator")
+module("committee")
+module("fallback")
+module("storage-eventsourced")
+module("distribution")
+module("storage-client")
+module("storage-rocksdb")
 
 // --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
-include("transport-neoforge")
-include("neoforge-mod")
+module("transport-neoforge")
+module("neoforge-mod")
 
-// --- Later-phase modules (Tasks 10, 12-16) ---
-// include("transport-libp2p")
+// --- Later-phase modules (Tasks 12-16, 29) ---
+// The `transport-libp2p` placeholder was deleted by Task 27: the NAT/relay plan is superseded by
+// the Rust `nodera-rendezvous` service + `transport-rendezvous` (Task 29, see LEGACY.md).
 // include("integration-tests")
 
 // Version catalog: gradle/libs.versions.toml is auto-imported as `libs` by default.

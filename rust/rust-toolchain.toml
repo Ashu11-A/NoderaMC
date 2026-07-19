@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned exactly like the Java 21 toolchain pin (Task 0 §3): upgrades are single dedicated
+# commits, never mid-task.
+channel = "1.93.1"
+components = ["rustfmt", "clippy"]

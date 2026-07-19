@@ -1,10 +1,27 @@
 # AGENTS.md — NoderaMC
 
-## Build & test (pure-Java Phase 0 modules)
-- `./gradlew check`        — compile + all unit tests (the gate)
+## Repo layout (polyglot monorepo, Task 27)
+- `java/<module>/` — every Gradle module. **Module names are unchanged** (`:core`,
+  `:peer-runtime`, …): `settings.gradle.kts` maps names to the new dirs, so all Gradle
+  invocations and `build.gradle.kts` files work as before. Only paths moved.
+- `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
+  `nodera-tracker` (Task 28), `nodera-rendezvous` (Task 29). Channel pinned in
+  `rust/rust-toolchain.toml`; crate versions pinned in the workspace `Cargo.toml`.
+- `fixtures/wire/` — committed golden canonical frames. Java emits them
+  (`protocol/WireFixtureTest`), Rust decodes + re-encodes them byte-exactly. **Never edit a
+  fixture by hand**: a byte change there is a wire-contract change.
+
+## Build & test (both toolchains — one gate)
+- `./gradlew check`        — compile + all Java unit tests (the gate)
 - `./gradlew build`        — check + assemble jars
 - `./gradlew :core:test`   — one module's tests (substitute module name)
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
+- `cd rust && cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
+- `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
+- `scripts/build-all.sh`   — all of the above (append `--fast` to skip the release build)
+
+A red cargo job blocks a commit exactly like a red `./gradlew check`: the Rust services speak the
+same frozen wire contract, so a codec regression is a consensus regression.
 
 ## Environment notes
 - Host JDK is **25**; Task 0 pins Java 21. All modules compile with `--release 21` (Java 21
@@ -122,12 +139,22 @@
   compile and assemble a jar; `runServer`/`runClient` acceptance is deferred to a GUI env.
   `neoforge-mod` carries the redesigned `/nodera` + `/noderac` diagnostics command tree and the
   in-game HUD surfaces (tab list, boss bars, zone alerts) under `dev.nodera.mod.debug`.
-  Later modules (`storage-rocksdb`, `transport-libp2p`, `integration-tests`) remain declared as
-  comments in `settings.gradle.kts`; `storage-client` is now built.
+  `storage-rocksdb` and `storage-client` are now built; only `integration-tests` remains a
+  commented declaration in `settings.gradle.kts`. The `transport-libp2p` placeholder was deleted
+  by Task 27 — the NAT/relay plan is superseded by `transport-rendezvous` + the Rust
+  `nodera-rendezvous` service (Task 29, see `docs/LEGACY.md`).
+- **Rust crates carry no game, consensus, or storage logic** (Task 0 §4 rule 7). They are
+  discovery/forwarding infrastructure: peers verify every claim (Ed25519 signatures, content
+  hashes) and never treat a service as authority. A service outage degrades discovery or
+  reachability — never correctness.
 
 ## Frozen contracts (do not change without a version bump)
 - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` + `TypeTags`.
   Every `Encodable.encode` starts with `writeU16(typeTag); writeU16(ENCODING_VERSION);`.
+  Since Task 27 there is a **second implementation** — `rust/nodera-codec` — held to the same
+  contract by two mechanical checks: `tests/tag_mirror.rs` parses `TypeTags.java`/`MessageCodec.java`
+  and fails on any drift, and `tests/fixtures.rs` re-encodes every `fixtures/wire/*.bin`
+  byte-exactly. Appending a tag means appending it on BOTH sides in the same commit.
 - `core/Bytes` is the single byte[] value type (use everywhere, never raw byte[] in records).
 - Wire tags: `protocol/codec/MessageCodec` (append-only, never renumber). `SessionKeepAlive` keeps tag
   23 but emits body version 2 for canonical per-region progress; its decoder must continue accepting

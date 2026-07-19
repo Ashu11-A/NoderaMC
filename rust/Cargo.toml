@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["nodera-codec", "nodera-tracker", "nodera-rendezvous"]
+
+# Dependency versions are pinned here for the whole workspace — the Rust mirror of the
+# `gradle/libs.versions.toml` version-catalog discipline (Task 0 §3). Bumps are single dedicated
+# commits, never mixed into a feature task.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+nodera-codec = { path = "nodera-codec" }
+ed25519-dalek = { version = "2.1", default-features = false, features = ["alloc"] }
+thiserror = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+rand = "0.8"
+hmac = "0.12"
+sha2 = "0.10"
+
+[profile.release]
+lto = "thin"
+strip = true
