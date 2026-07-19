@@ -51,6 +51,9 @@ public record ActionRejection(ActionEnvelope envelope, Reason reason) {
         /** The action's target position is outside the reachable height/extent envelope. */
         OUT_OF_REACH,
         /** The action is structurally invalid (bad face, missing fields, etc.). */
-        MALFORMED
+        MALFORMED,
+        /** The rule set does not handle this action kind (e.g. entity actions under the block-only
+         *  MVP rules — the entity lane ships in its own rule set). */
+        UNSUPPORTED_ACTION
     }
 }

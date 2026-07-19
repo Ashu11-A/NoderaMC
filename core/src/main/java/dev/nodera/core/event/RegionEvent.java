@@ -11,13 +11,14 @@ import dev.nodera.core.crypto.TypeTags;
  * wire: each permit opens its encoded form with its own typeTag, so {@link #decodeEvent} reads the
  * next {@code u16} tag to know which concrete event follows.
  *
- * <p>Current permits: {@link BlockChangedEvent}. Later tasks append more permits against reserved
- * tags in {@link TypeTags}.
+ * <p>Current permits: {@link BlockChangedEvent}, {@link EntityCreatedEvent},
+ * {@link EntityUpdatedEvent}, {@link EntityRemovedEvent}. Later tasks append scheduled-tick and
+ * block-entity events against reserved tags in {@link TypeTags}.
  *
  * @Thread-context immutable, any thread.
  */
 public sealed interface RegionEvent extends Encodable
-        permits BlockChangedEvent {
+        permits BlockChangedEvent, EntityCreatedEvent, EntityUpdatedEvent, EntityRemovedEvent {
 
     /**
      * Decode a polymorphic {@code RegionEvent} by reading the next typeTag and dispatching to the
@@ -34,6 +35,9 @@ public sealed interface RegionEvent extends Encodable
         r.readVersion(ENCODING_VERSION);
         return switch (tag) {
             case TypeTags.BLOCK_CHANGED_EVENT -> BlockChangedEvent.decodeBody(r);
+            case TypeTags.ENTITY_CREATED_EVENT -> EntityCreatedEvent.decodeBody(r);
+            case TypeTags.ENTITY_UPDATED_EVENT -> EntityUpdatedEvent.decodeBody(r);
+            case TypeTags.ENTITY_REMOVED_EVENT -> EntityRemovedEvent.decodeBody(r);
             default -> throw new IllegalStateException("unknown RegionEvent tag " + tag);
         };
     }

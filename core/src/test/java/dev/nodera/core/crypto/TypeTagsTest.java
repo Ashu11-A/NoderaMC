@@ -88,8 +88,15 @@ final class TypeTagsTest {
         assertThat(TypeTags.CONTENT_ID).isEqualTo(81);
         assertThat(TypeTags.CHECKPOINT).isEqualTo(82);
         assertThat(TypeTags.GENESIS_MANIFEST).isEqualTo(83);
+        // entity lane foundation (Task 12a)
+        assertThat(TypeTags.FIXED_VEC3).isEqualTo(84);
+        assertThat(TypeTags.NETWORK_ENTITY_ID).isEqualTo(85);
+        assertThat(TypeTags.PERSISTED_ENTITY_STATE).isEqualTo(86);
+        assertThat(TypeTags.ENTITY_CREATED_EVENT).isEqualTo(87);
+        assertThat(TypeTags.ENTITY_UPDATED_EVENT).isEqualTo(88);
+        assertThat(TypeTags.ENTITY_REMOVED_EVENT).isEqualTo(89);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(83);
+        assertThat(TypeTags.NEXT).isEqualTo(89);
     }
 
     @Test

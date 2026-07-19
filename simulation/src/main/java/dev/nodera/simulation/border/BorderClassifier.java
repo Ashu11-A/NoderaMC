@@ -2,7 +2,9 @@ package dev.nodera.simulation.border;
 
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.BreakBlockAction;
+import dev.nodera.core.action.DropItemAction;
 import dev.nodera.core.action.GameAction;
+import dev.nodera.core.action.PickupItemAction;
 import dev.nodera.core.action.PlaceBlockAction;
 import dev.nodera.core.region.RegionBounds;
 import dev.nodera.core.region.RegionId;
@@ -43,6 +45,11 @@ public final class BorderClassifier {
         if (owningRegion == null) {
             throw new IllegalArgumentException("owningRegion must not be null");
         }
+        // A pickup targets an entity already tracked in this region — it has no block target and
+        // can never be cross-region by construction.
+        if (action instanceof PickupItemAction) {
+            return false;
+        }
         NBlockPos pos = targetPosition(action);
         RegionBounds bounds = RegionBounds.of(owningRegion);
         return !bounds.ownsBlock(pos.x(), pos.z());
@@ -67,6 +74,9 @@ public final class BorderClassifier {
         return switch (action) {
             case PlaceBlockAction p -> p.pos();
             case BreakBlockAction b -> b.pos();
+            case DropItemAction d -> new NBlockPos(d.origin().blockX(), d.origin().blockY(), d.origin().blockZ());
+            case PickupItemAction ignored -> throw new IllegalStateException(
+                    "PickupItemAction has no block target; handled before reaching targetPosition");
         };
     }
 }

@@ -2,6 +2,8 @@ package dev.nodera.simulation.rules;
 
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.BreakBlockAction;
+import dev.nodera.core.action.DropItemAction;
+import dev.nodera.core.action.PickupItemAction;
 import dev.nodera.core.action.PlaceBlockAction;
 import dev.nodera.core.crypto.StableHash;
 import dev.nodera.core.state.NBlockPos;
@@ -118,6 +120,10 @@ public final class FlatWorldRules implements RuleSet {
         return switch (env.action()) {
             case PlaceBlockAction p -> validatePlace(view, env, p);
             case BreakBlockAction b -> validateBreak(view, env, b);
+            // The block-only MVP rules do not implement the entity lane (Task 12a ships its own
+            // EntityRuleSet); item actions are rejected here rather than silently dropped.
+            case DropItemAction d -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
+            case PickupItemAction p -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
         };
     }
 
@@ -153,6 +159,12 @@ public final class FlatWorldRules implements RuleSet {
         switch (env.action()) {
             case PlaceBlockAction p -> state.setBlock(p.pos(), p.blockStateId(), env, rng);
             case BreakBlockAction b -> state.setBlock(b.pos(), AIR, env, rng);
+            // Drop/Pickup are validated as UNSUPPORTED_ACTION above, so apply never sees them;
+            // the entity lane (Task 12a EntityRuleSet) owns their application. Exhaustive by kind.
+            case DropItemAction d -> throw new IllegalStateException(
+                    "FlatWorldRules.apply received a DropItemAction (should be rejected in validate)");
+            case PickupItemAction p -> throw new IllegalStateException(
+                    "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)");
         }
     }
 

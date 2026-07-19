@@ -11,13 +11,14 @@ import dev.nodera.core.crypto.TypeTags;
  * a decoder reads the next {@code u16} tag to know which concrete action follows. New action kinds
  * are appended by adding a new permit and a new {@link TypeTags} constant (never renumber).
  *
- * <p>Current permits: {@link PlaceBlockAction}, {@link BreakBlockAction}. Later tasks append
- * item/entity/interaction actions against the reserved tags in {@link TypeTags}.
+ * <p>Current permits: {@link PlaceBlockAction}, {@link BreakBlockAction},
+ * {@link DropItemAction}, {@link PickupItemAction}. Later tasks append interaction/entity-attack
+ * actions against the reserved tags in {@link TypeTags}.
  *
  * @Thread-context immutable, any thread.
  */
 public sealed interface GameAction extends Encodable
-        permits PlaceBlockAction, BreakBlockAction {
+        permits PlaceBlockAction, BreakBlockAction, DropItemAction, PickupItemAction {
 
     /**
      * Decode a polymorphic {@code GameAction} by reading the next typeTag and dispatching to the
@@ -35,6 +36,8 @@ public sealed interface GameAction extends Encodable
         return switch (tag) {
             case TypeTags.PLACE_BLOCK_ACTION -> PlaceBlockAction.decodeBody(r);
             case TypeTags.BREAK_BLOCK_ACTION -> BreakBlockAction.decodeBody(r);
+            case TypeTags.DROP_ITEM_ACTION -> DropItemAction.decodeBody(r);
+            case TypeTags.PICKUP_ITEM_ACTION -> PickupItemAction.decodeBody(r);
             default -> throw new IllegalStateException("unknown GameAction tag " + tag);
         };
     }

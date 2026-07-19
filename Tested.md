@@ -9,7 +9,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) | 127 | 0 | 0 | ✅ | 2026-07-18 |
+| `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) + Task 12a entity-lane foundation (FixedVec3/NetworkEntityId/PersistedEntityState + item actions/events, tags 25/26/84-89) | 145 | 0 | 0 | ✅ | 2026-07-18 |
 | `simulation` | deterministic region engine (determinism property tests) | 28 | 0 | 0 | ✅ | 2026-07-17 |
 | `protocol` | wire messages, MessageCodec, ChunkedStreams (zstd), compatible `SessionKeepAlive` v2 per-region progress (Task 25), `ExternalDelta` tag 32 (Task 11) | 37 | 0 | 0 | ✅ | 2026-07-18 |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | 0 | 0 | ✅ | 2026-07-17 |
@@ -31,7 +31,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-libp2p` | NAT-traversing P2P behind `PeerTransport` (supersedes `transport-socket` for cross-NAT) | — | — | — | ⬜ | — |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **670** | **0** | **0** | ✅ | 2026-07-18 |
+| **TOTAL (implemented modules)** | | **688** | **0** | **0** | ✅ | 2026-07-18 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -57,6 +57,20 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (670 → 688) is **Task 12a — the entity-lane core foundation** (+18, `core`).
+> `FixedVec3Test` pins Q32.32 fixed-point arithmetic (ONE = 2³², pure-integer add/subtract,
+> negative block-part recovery, canonical round-trip, and same-bits-same-encode determinism — the
+> property that lets entity position live in the root). `EntityLaneTypesTest` pins
+> `NetworkEntityId.allocate` as a pure collision-free function (same region/version/seq ⇒ identical
+> id on every replica, never a random UUID; distinct seq/region ⇒ distinct id) plus
+> `PersistedEntityState` round-trip over both `EntityKind`s and the despawn/tick boundary.
+> `EntityActionsTest` round-trips `DropItemAction`/`PickupItemAction` through the polymorphic
+> `GameAction.decode` dispatch (no tag collision across all four permits) and rejects bad inputs.
+> `EntityEventsTest` round-trips the three entity-lifecycle `RegionEvent`s through
+> `RegionEvent.decodeEvent` alongside `BlockChangedEvent`. The simulation half (`EntityStore` in the
+> region root, item physics, `mobCapture`, 12c transfer) and the NeoForge capture bridge remain
+> deferred; the MVP `FlatWorldRules` rejects item actions as `UNSUPPORTED_ACTION`.
 >
 > Test growth (652 → 670) is **Task 9 — committee-change certification + capability-weighted
 > gateway election** (+18). `core` (+6): `CommitteeChangeCertificateTest` pins the canonical

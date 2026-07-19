@@ -101,6 +101,20 @@ public final class TypeTags {
     /** The world's genesis manifest (seed, rules version, registry fingerprint, genesis root). */
     public static final int GENESIS_MANIFEST           = 83;
 
+    // --- entity lane foundation (Task 12a) ---
+    /** A Q32.32 fixed-point 3-vector (entity position/velocity in hashed state). */
+    public static final int FIXED_VEC3                 = 84;
+    /** A deterministic, region-scoped entity id (StableHash-derived, not a random UUID). */
+    public static final int NETWORK_ENTITY_ID          = 85;
+    /** The canonical persisted state of one tracked entity (kind/type/pos/vel/age/payload). */
+    public static final int PERSISTED_ENTITY_STATE     = 86;
+    /** RegionEvent: an entity entered the validated entity table. */
+    public static final int ENTITY_CREATED_EVENT       = 87;
+    /** RegionEvent: an entity's persisted state changed. */
+    public static final int ENTITY_UPDATED_EVENT       = 88;
+    /** RegionEvent: an entity left the validated entity table. */
+    public static final int ENTITY_REMOVED_EVENT       = 89;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 83;
+    public static final int NEXT = 89;
 }
