@@ -1,8 +1,12 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.HashService;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * The host lifecycle for a world on the Nodera network (Task 30) — the server-side entry point the
@@ -41,13 +45,14 @@ public final class NoderaHost {
      */
     public static void activate(MinecraftServer server, ShareOptions options) {
         ShareOptions opts = options == null ? ShareOptions.playerDefault() : options;
+        String world = server.getWorldData().getLevelName();
+        Bytes worldId = worldId(world);
         boolean already = NoderaPeerService.get().isHosting();
         String route = NoderaPeerService.get().startHost(
                 NoderaConfig.P2P_BIND_HOST.get(),
                 NoderaConfig.P2P_PORT.get(),
                 NoderaConfig.P2P_ADVERTISE_HOST.get(),
-                opts);
-        String world = server.getWorldData().getLevelName();
+                opts, worldId, world);
         if (already) {
             LOG.info("Nodera: '{}' share options updated ({}) — route {}", world, opts, route);
         } else {
@@ -92,5 +97,18 @@ public final class NoderaHost {
             LOG.info("Nodera: stopping sharing of world '{}'", server.getWorldData().getLevelName());
         }
         NoderaPeerService.get().stopHosting();
+    }
+
+    /**
+     * Interim world identity: a stable SHA-256 over the save name, so the same world keeps the same
+     * tracker/rendezvous key across restarts. Replaced by the real {@code GenesisManifest} hash once
+     * the live genesis lane (Task 9/30c) extracts + self-certifies genesis from the world.
+     *
+     * @param worldName the world's save/display name.
+     * @return the interim world id.
+     */
+    private static Bytes worldId(String worldName) {
+        return new HashService().sha256(
+                ("nodera.dev-world.v1:" + worldName).getBytes(StandardCharsets.UTF_8));
     }
 }

@@ -9,6 +9,7 @@ dependencies {
     implementation(project(":consensus"))
     implementation(project(":transport-api"))
     implementation(project(":transport-socket"))
+    implementation(project(":transport-rendezvous"))
     implementation(project(":transport-neoforge"))
     implementation(project(":peer-runtime"))
     implementation(project(":diagnostics"))
@@ -21,7 +22,8 @@ dependencies {
 // jar of our own code only — never Minecraft/NeoForge, which the loader provides).
 val noderaBundled = listOf(
     ":core", ":protocol", ":simulation", ":consensus",
-    ":transport-api", ":transport-socket", ":storage-api", ":peer-runtime", ":diagnostics")
+    ":transport-api", ":transport-socket", ":transport-rendezvous",
+    ":storage-api", ":peer-runtime", ":diagnostics")
 
 tasks.named<Jar>("jar") {
     dependsOn(noderaBundled.map { "$it:jar" })
