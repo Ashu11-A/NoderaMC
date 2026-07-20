@@ -1,0 +1,35 @@
+# Task 32 — the Nodera companion app (Tauri: Rust backend + React frontend).
+#
+# EXCLUDED from the rust/ workspace (see rust/Cargo.toml): Tauri needs per-OS native webview deps
+# not present in the headless gate. Build it on a machine with the Tauri prerequisites installed:
+#   cd rust/nodera-app && cargo tauri dev      # dev run (window + tray + daemon supervisor)
+#   cd rust/nodera-app && cargo tauri build    # release installer
+#
+# Option B (locked): this app SUPERVISES a bundled headless Java Nodera peer (reusing all tested Java
+# peer/validation logic). The Rust side is the UI + tray + autostart + control endpoint + daemon
+# supervisor + metrics aggregation; it depends on nodera-codec for the shared wire types.
+[package]
+name = "nodera-app"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+description = "Nodera companion app: always-on headless peer + dashboard + system tray"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nodera-codec = { path = "../nodera-codec" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "process", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1.0"
+
+[features]
+# Tauri custom-protocol asset serving in release builds.
+custom-protocol = ["tauri/custom-protocol"]

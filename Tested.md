@@ -18,7 +18,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-api` | `WorldStore` + content/event/checkpoint/certificate seam + `ContentId`/`Compression`/`Checkpoint`/`GenesisManifest` canonical encodings (tags 81–83) + `StorageException` (Task 9) | 7 | 0 | 0 | ✅ | 2026-07-18 |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | 0 | 0 | ✅ | 2026-07-17 |
 | `peer-runtime` | `PeerRuntime`, membership, heartbeat, capability-weighted gateway migration, `MeteredPeerTransport` + `DiagnosticsIT` (continuity beta) + `discovery` (Task 20) + `archival`: placement/replication/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) + `committee/CommitteeManager` (Task 9) + `TrackerClient` announce/query against the standalone Rust tracker, incl. `TrackerServiceIT` spawning the real binary (Task 28; embedded `TrackerService` deleted) | 117 | 0 | 0 | 🚧 | 2026-07-19 |
-| `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, integer-EMA TickSkewMeter/TpsMeter, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Tasks 18/25) + `TorrentWorldListView` multiplayer panel with world-health semantics (Task 26) | 51 | 0 | 0 | ✅ | 2026-07-18 |
+| `diagnostics` | Minecraft-free telemetry: TrafficMeter/RateWindow/MessageCounters, integer-EMA TickSkewMeter/TpsMeter, TelemetrySnapshot, ZoneClassifier, DiagnosticsView (Tasks 18/25) + `TorrentWorldListView` multiplayer panel with world-health semantics (Task 26) + Task 31 GUI view models: `PublicWorldBadgeView` (31b), `PieceMapView` (31d), `TrackerStatusView`/`RendezvousStatusView` (31c) | 75 | 0 | 0 | ✅ | 2026-07-20 |
 | `shadow-validation` | Phase 1 shadow lane (Minecraft-free): WorkerRuntime, ReplicaStore, SnapshotDeltaApplier, ShadowWorker/Coordinator, ServerRecompute, DivergenceTracker, InterferenceProbe + `ShadowValidationIT` (Task 5) | 25 | 0 | 0 | ✅ | 2026-07-17 |
 | `coordinator` | Phase 2 coordinator (Minecraft-free): NodeRegistry, ReliabilityLedger, RendezvousPlacementPolicy, RegionAllocator, DelegabilityPolicy, LeaseManager, HeartbeatMonitor, RegionPipeline, ProposalManager, ServerVerifier, WorldMutationApplier + `CoordinatorIT` (Task 6) + multi-factor `ReliabilityScorer` (Task 22) + sustained-skew `LagHandoffPolicy` (Task 25) + Task 11 `interference` (MutationGuard/InterferenceBuffer/InterferenceStats/InterferenceCommitter) + `DelegabilityMonitor` hysteresis | 84 | 0 | 0 | ✅ | 2026-07-18 |
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, vote-before-sign `VotePersistence`, VoteCollector quorum commit, byzantine handling, SpotCheckAuditor, guarded CommitteeFailover + `ByzantineWorkerTest`/`CommitteeMvpIT`/`CrashRecoveryIT`/`LagHandoffIT` (Tasks 7/24/25) | 16 | 0 | 0 | ✅ | 2026-07-18 |
@@ -26,12 +26,12 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
 | `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id/encrypted ciphertext flow + Task 24 bounded `ActivePlayerStream`/`EmergencyFlush`, `DistributionIT` + `EncryptedDistributionIT` + stream/flush ITs | 78 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
-| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring on both dists (Task 30 — no dedicated-server gate), redesigned `/nodera` tree + `/noderac` + HUD surfaces, session payload, Task 26 `client/multiplayer` screens + Task 30 pause-menu `client/share` "Share to Nodera" screen + `ShareOptions`/`NoderaHost` (event hooks, no mixin) — compiles + jar; `runServer`/`runClient` deferred | 9 | 0 | 0 | 🚧 | 2026-07-20 |
+| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring on both dists (Task 30 — no dedicated-server gate), redesigned `/nodera` tree + `/noderac` + HUD surfaces, session payload, `client/multiplayer` screens + `client/share` "Share to Nodera" screen (Task 30) + Task 31 GUI redesign (`PauseScreenShareAddon` "Open to Nodera" replaces LAN, `SelectWorldScreenAddon` public-world badge, `NoderaMultiplayerScreen` tabbed Worlds/Trackers/Rendezvous + `PieceMapScreen`/`PieceMapWidget`) + Task 32 companion presence gate (`CompanionGate`/`CompanionClient`/`CompanionProtocol`) — event hooks, no mixin, compiles + jar; `runServer`/`runClient` deferred | 17 | 0 | 0 | 🚧 | 2026-07-20 |
 | `storage-rocksdb` | full-archive durable `WorldStore`: `RocksWorldStore` (WAL-backed CFs, log-tail head recovery), `FsContentStore` (atomic writes, hash-verified reads), forced-kill `RocksCrashRecoveryIT` (Task 9) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-rendezvous` | direct-first / punch-upgrade / X25519+AES-GCM relay-fallback `PeerTransport` over `nodera-rendezvous` (Task 29; supersedes the planned `transport-libp2p`): `TransportSelector` policy, `EndToEndCipher`, `CandidateDialer`, `HolePunchCoordinator`, and `RendezvousRelayIT` over the real binary | 16 | 0 | 0 | ✅ | 2026-07-19 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **712** | **0** | **0** | ✅ | 2026-07-20 |
+| **TOTAL (implemented modules)** | | **744** | **0** | **0** | ✅ | 2026-07-20 |
 
 Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (Task 27):
 
@@ -65,6 +65,21 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (712 → 744 Java) is **Task 31 GUI redesign + Task 32 companion app** (+32). `diagnostics`
+> (+24): `PublicWorldBadgeViewTest` (31b — shared-world "● N online" badge, screen summary, no badge
+> when unshared), `PieceMapViewTest` (31d — the torrent-chunk grid model: index-ordered cells, held
+> permille/counts, held=green/locked=critical policy, aggregates line), `TrackerStatusViewTest` +
+> `RendezvousStatusViewTest` (31c — per-endpoint online/registered rows, path labels, pure-integer
+> byte/ack formatting). `neoforge-mod` (+8): `CompanionGateTest` (Task 32 — the presence gate: absent
+> ⇒ actionable error naming the install URL + throws when enforced, a throwing probe reads as absent,
+> matching protocol proceeds, older daemon ⇒ "update the app" / newer ⇒ "update the mod", `host:port`
+> parsing, and a real loopback `ServerSocket` answering `NODERA-PROBE` ⇒ RUNNING). The GUI screens/
+> widgets themselves (`NoderaMultiplayerScreen` tabs, `PieceMapWidget`, `SelectWorldScreenAddon`,
+> "Open to Nodera") compile against NeoForge 21.1.77, no mixin; the `runClient` GUI pass is deferred
+> (L-45/L-46). The Tauri `rust/nodera-app` scaffold (backend + React dashboard + tray + autostart) is
+> EXCLUDED from the `cargo test` gate (Tauri native deps); its headless-peer jar + live metrics ride
+> the live lane (L-47). Companion enforcement (`companion.required`) defaults OFF until the app ships.
 >
 > Test growth (704 → 712 Java) is **Task 30 — decentralization (first increment)**: `neoforge-mod`
 > `ShareOptionsTest` (+8) pins the pause-menu "Share" value type — a non-blank password turns on Task

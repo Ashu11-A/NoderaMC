@@ -32,6 +32,7 @@ public final class TorrentWorldListWidget extends AbstractWidget {
 
     private List<TorrentWorldEntry> entries = List.of();
     private String search = "";
+    private int selectedIndex = -1;
 
     public TorrentWorldListWidget(int x, int y, int width, int height) {
         super(x, y, width, height, Component.translatable("nodera.multiplayer.torrent_worlds"));
@@ -40,11 +41,30 @@ public final class TorrentWorldListWidget extends AbstractWidget {
     /** Replace the tracker data (called when a tracker answer arrives). */
     public void setEntries(List<TorrentWorldEntry> entries) {
         this.entries = List.copyOf(entries);
+        this.selectedIndex = -1;
     }
 
     /** Update the search filter (wired to {@link WorldSearchBox}). */
     public void setSearch(String search) {
         this.search = search == null ? "" : search;
+        this.selectedIndex = -1;
+    }
+
+    /** @return the currently selected world (post-search/order), or {@code null}. */
+    public TorrentWorldEntry selected() {
+        List<TorrentWorldEntry> visible = TorrentWorldListView.panelEntries(entries, search);
+        if (selectedIndex < 0 || selectedIndex >= visible.size()) {
+            return null;
+        }
+        return visible.get(selectedIndex);
+    }
+
+    @Override
+    public void onClick(double mouseX, double mouseY) {
+        // Header occupies the first ROW_HEIGHT; rows follow.
+        int row = (int) ((mouseY - getY()) / ROW_HEIGHT) - 1;
+        int count = TorrentWorldListView.panelEntries(entries, search).size();
+        this.selectedIndex = (row >= 0 && row < count) ? row : -1;
     }
 
     @Override
@@ -55,9 +75,13 @@ public final class TorrentWorldListWidget extends AbstractWidget {
         graphics.drawString(font, getMessage().getString(), getX(), y,
                 colorOf(Palette.chat(dev.nodera.diagnostics.state.Semantic.HEADING)));
         y += ROW_HEIGHT;
+        int rowIndex = 0;
         for (Row row : panel.rows()) {
             if (y + ROW_HEIGHT > getY() + getHeight()) {
                 break; // clipped; scrolling arrives with the live GUI pass
+            }
+            if (rowIndex == selectedIndex) {
+                graphics.fill(getX() - 2, y - 1, getX() + getWidth(), y + ROW_HEIGHT - 1, 0x553B82F6);
             }
             int x = getX();
             for (Cell cell : row.cells()) {
@@ -65,6 +89,7 @@ public final class TorrentWorldListWidget extends AbstractWidget {
                 x += font.width(cell.text()) + CELL_GAP;
             }
             y += ROW_HEIGHT;
+            rowIndex++;
         }
     }
 

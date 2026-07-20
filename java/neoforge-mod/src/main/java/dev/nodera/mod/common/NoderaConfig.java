@@ -56,28 +56,37 @@ public final class NoderaConfig {
     public static final ModConfigSpec.ConfigValue<String> CLIENT_P2P_ADVERTISE_HOST =
             CLIENT_BUILDER.define("p2p.advertiseHost", "auto");
 
+    // Embedded default infrastructure endpoints (Task 30). The build ships with a KNOWN network of
+    // tracker + rendezvous services so a fresh install is functional out of the box rather than
+    // announcing into nothing. For localhost development these point at the embedded services that
+    // `scripts/dev.sh` runs (ports 25600 / 25601); a release build replaces these constants with the
+    // known public network. A user can still override or clear the lists in the generated config.
+    public static final java.util.List<String> DEFAULT_TRACKER_ENDPOINTS =
+            java.util.List.of("127.0.0.1:25600");
+    public static final java.util.List<String> DEFAULT_RENDEZVOUS_ENDPOINTS =
+            java.util.List.of("127.0.0.1:25601");
+
     // Tracker endpoints (Task 28). Each entry is a `host:port` route of a standalone
-    // `nodera-tracker` service. Empty by default: a LAN game needs no tracker, and a peer with no
-    // endpoints simply announces nowhere and discovers through the Task 20 bootstrap mechanisms.
-    // Both sides carry the list — a dedicated server announces as the world's FULL_ARCHIVE host,
-    // and a client queries the same endpoints to populate its multiplayer world list.
+    // `nodera-tracker` service. Defaults to the embedded dev network (above) so the host announces
+    // its world and a client queries the same endpoints to populate its multiplayer world list.
+    // Both sides carry the list — a host announces as the world's FULL_ARCHIVE peer.
     public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> TRACKER_ENDPOINTS =
-            SERVER_BUILDER.defineListAllowEmpty("tracker.endpoints", java.util.List.of(),
+            SERVER_BUILDER.defineListAllowEmpty("tracker.endpoints", DEFAULT_TRACKER_ENDPOINTS,
                     NoderaConfig::isTrackerEndpoint);
     public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> CLIENT_TRACKER_ENDPOINTS =
-            CLIENT_BUILDER.defineListAllowEmpty("tracker.endpoints", java.util.List.of(),
+            CLIENT_BUILDER.defineListAllowEmpty("tracker.endpoints", DEFAULT_TRACKER_ENDPOINTS,
                     NoderaConfig::isTrackerEndpoint);
 
     // Rendezvous endpoints (Task 29). Each entry is a `host:port` route of a standalone
-    // `nodera-rendezvous` service. Empty by default: a LAN game reaches peers directly, so the
-    // NAT-traversal + relay-fallback transport is only engaged when endpoints are configured. Both
-    // sides carry the list — a peer registers its candidates and discovers others, and either side
-    // reserves a relay slot when it cannot accept direct inbound connections.
+    // `nodera-rendezvous` service. Defaults to the embedded dev network (above): the host registers
+    // a signed record so peers can discover + reach it (NAT hole-punch / relay fallback), and either
+    // side reserves a relay slot when it cannot accept direct inbound connections. Both sides carry
+    // the list.
     public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> RENDEZVOUS_ENDPOINTS =
-            SERVER_BUILDER.defineListAllowEmpty("rendezvous.endpoints", java.util.List.of(),
+            SERVER_BUILDER.defineListAllowEmpty("rendezvous.endpoints", DEFAULT_RENDEZVOUS_ENDPOINTS,
                     NoderaConfig::isRendezvousEndpoint);
     public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> CLIENT_RENDEZVOUS_ENDPOINTS =
-            CLIENT_BUILDER.defineListAllowEmpty("rendezvous.endpoints", java.util.List.of(),
+            CLIENT_BUILDER.defineListAllowEmpty("rendezvous.endpoints", DEFAULT_RENDEZVOUS_ENDPOINTS,
                     NoderaConfig::isRendezvousEndpoint);
 
     /**
@@ -112,6 +121,22 @@ public final class NoderaConfig {
             return false;
         }
     }
+
+    // Companion app / headless-peer daemon (Task 32). The Nodera peer node runs in a separate,
+    // always-on companion process (Tauri, Option B: it supervises a bundled headless Java peer) so a
+    // node stays on the network even with Minecraft closed. The control endpoint is the loopback
+    // address the mod probes at startup. `companion.required` is the presence gate: when true, the mod
+    // ABORTS NeoForge startup if the daemon is absent (the request-#2 behaviour). It defaults to
+    // FALSE for now — the companion app is not shipped yet, so enforcing it would brick a working
+    // install; flip it to true once the app ships from https://github.com/Ashu11-A/NoderaMC.
+    public static final ModConfigSpec.ConfigValue<String> COMPANION_CONTROL_ENDPOINT =
+            CLIENT_BUILDER.define("companion.controlEndpoint", "127.0.0.1:25610");
+    public static final ModConfigSpec.BooleanValue COMPANION_REQUIRED =
+            CLIENT_BUILDER.define("companion.required", false);
+    public static final ModConfigSpec.ConfigValue<String> SERVER_COMPANION_CONTROL_ENDPOINT =
+            SERVER_BUILDER.define("companion.controlEndpoint", "127.0.0.1:25610");
+    public static final ModConfigSpec.BooleanValue SERVER_COMPANION_REQUIRED =
+            SERVER_BUILDER.define("companion.required", false);
 
     private static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
     private static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();
