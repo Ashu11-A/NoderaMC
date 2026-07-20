@@ -67,6 +67,20 @@ public final class TorrentWorldListView {
      * (case-insensitive; blank matches all), in deterministic name order.
      */
     public static Panel panel(List<TorrentWorldEntry> entries, String search) {
+        List<TorrentWorldEntry> matching = panelEntries(entries, search);
+        List<Row> rows = new ArrayList<>(matching.size());
+        for (TorrentWorldEntry entry : matching) {
+            rows.add(rowOf(entry));
+        }
+        return Panel.titled(PANEL_TITLE, Semantic.HEADING, rows);
+    }
+
+    /**
+     * The filtered (case-insensitive {@code search}; blank matches all) + deterministically
+     * name-ordered entries that back {@link #panel} — exposed so a widget can map a clicked row index
+     * back to its {@link TorrentWorldEntry} (selection).
+     */
+    public static List<TorrentWorldEntry> panelEntries(List<TorrentWorldEntry> entries, String search) {
         String needle = search == null ? "" : search.toLowerCase(Locale.ROOT).trim();
         List<TorrentWorldEntry> matching = new ArrayList<>();
         for (TorrentWorldEntry entry : entries) {
@@ -75,11 +89,7 @@ public final class TorrentWorldListView {
             }
         }
         matching.sort(NAME_ORDER);
-        List<Row> rows = new ArrayList<>(matching.size());
-        for (TorrentWorldEntry entry : matching) {
-            rows.add(rowOf(entry));
-        }
-        return Panel.titled(PANEL_TITLE, Semantic.HEADING, rows);
+        return matching;
     }
 
     /** One world row: name · players · chunks · reliability · health (+ countdown when active). */

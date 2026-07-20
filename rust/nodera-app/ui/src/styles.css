@@ -1,0 +1,23 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1115;
+  color: #e6e8ec;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.app { padding: 16px; }
+header { display: flex; align-items: center; gap: 12px; }
+header h1 { font-size: 20px; margin: 0; }
+.dot { font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.dot.up { background: #14351f; color: #4ade80; }
+.dot.down { background: #3a1720; color: #f87171; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+.panel { background: #171a21; border: 1px solid #232733; border-radius: 10px; padding: 12px; }
+.panel h3 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; color: #8b93a7; letter-spacing: .04em; }
+.panel-body big { display: block; font-size: 22px; font-weight: 600; }
+.panel-body small { color: #8b93a7; }
+.peers h2 { font-size: 14px; color: #8b93a7; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #232733; }
+td.empty { color: #8b93a7; text-align: center; }
