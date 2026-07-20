@@ -36,6 +36,14 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 | `peer-runtime/.../peer/{PeerRuntime,GatewayElection,SessionView,TickSync}.java` + `protocol/membership/*` | **KEEP** | Session/gateway roles are in-game peer responsibilities riding whatever transport exists; the rendezvous service coordinates *reachability*, never sessions. | — |
 | `coordinator/.../{RendezvousPlacementPolicy,NodeRegistry}.java`, `peer-runtime/archival/RendezvousArchivePolicy.java` | **KEEP** | "Rendezvous" here = rendezvous *hashing* (deterministic placement math), unrelated to the rendezvous *service*. Flagged to prevent an over-eager cleanup. | — |
 
+> **Task 29 landed (2026-07-19).** `rust/nodera-rendezvous` (signed-record registration, paged
+> discovery, HMAC relay reservations, tokio circuit bridging + metering, punch coordination) and
+> `java/transport-rendezvous` (the third `PeerTransport`: direct-first / punch-upgrade /
+> E2E-encrypted relay-fallback) shipped; wire family tags 35–43 + `PeerCandidate`/`SignedPeerRecord`
+> are byte-exact cross-language; L-23 and L-27 are RETIRED (`RendezvousRelayIT` drives the real
+> binary). Task 29 is **additive** — it removes no Java files beyond the already-resolved
+> `transport-libp2p` plan (row above), so there is nothing new to flip here. The `KEEP` rows stand.
+
 ## §2 — Task-file ledger (rewrites / removals)
 
 No `Task.<N>.md` file is deleted in this transition, so **no renumbering is required** (the

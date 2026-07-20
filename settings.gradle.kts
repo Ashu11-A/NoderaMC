@@ -50,9 +50,13 @@ module("storage-rocksdb")
 module("transport-neoforge")
 module("neoforge-mod")
 
-// --- Later-phase modules (Tasks 12-16, 29) ---
-// The `transport-libp2p` placeholder was deleted by Task 27: the NAT/relay plan is superseded by
-// the Rust `nodera-rendezvous` service + `transport-rendezvous` (Task 29, see LEGACY.md).
+// --- Rust-services transport (Task 29) ---
+// `transport-rendezvous` is the third PeerTransport: direct-first, punch-upgrade, E2E-encrypted
+// relay fallback over the standalone `nodera-rendezvous` service. It replaced the never-built
+// `transport-libp2p` placeholder (deleted by Task 27; superseded per LEGACY.md).
+module("transport-rendezvous")
+
+// --- Later-phase modules (Tasks 12-16) ---
 // include("integration-tests")
 
 // Version catalog: gradle/libs.versions.toml is auto-imported as `libs` by default.

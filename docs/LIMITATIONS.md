@@ -64,11 +64,11 @@ observable in normal play.
 | L-20 | Genesis is a single-signer trust root (server self-certifies) | T16 | Multi-party genesis re-certification signed by founding peer set | OPEN |
 | L-21 | Third-party mods excluded from validated regions (palette exclusion) | T16 | Deterministic RuleSet SDK: mods ship rule packs, covered by registryFingerprint; SDK sample mod validated in CI | OPEN |
 | L-22 | Fixed spot-check floor costs ~12.5% server re-execution | T7/T8 | Adaptive spot-check (N=4→64 by reliability); steady-state ≤ 2% for proven committees | RETIRING |
-| L-23 | Cross-NAT direct P2P unproven (was: the jvm-libp2p bet — superseded 2026-07-19 by the Rust rendezvous relay, Task 29) | T29 | `RendezvousRelayIT` cross-NAT soak green; `TransportSelector` direct/punched/relayed mix exercised; pure-relay gateway continuity green (Task 10 acceptance #1) | OPEN |
+| L-23 | Cross-NAT direct P2P unproven (was: the jvm-libp2p bet — superseded 2026-07-19 by the Rust rendezvous relay, Task 29) | T29 | `RendezvousRelayIT` cross-NAT soak green; `TransportSelector` direct/punched/relayed mix exercised; pure-relay gateway continuity green (Task 10 acceptance #1) | RETIRED |
 | L-24 | `mobCapture` ghost lane default-off until proven | T15 | Flips default per-species as validation ships | OPEN |
 | L-25 | Async world writes by other mods undefined under the guard | T16 | RuleSet SDK provides the legal async mutation API; guard rejects the rest with a documented error | OPEN |
 | L-26 | Redstone bounded to palette v2 | T13→T14→T16 | v2 (T13) → +observer/QC/daylight (T14) → +comparator/hopper/note (T16): full redstone parity | OPEN |
-| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T29 | `transport-rendezvous` behind the same `PeerTransport` seam adds hole-punch upgrade + end-to-end-encrypted relay circuits against the Rust `nodera-rendezvous` service; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | OPEN |
+| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T29 | `transport-rendezvous` behind the same `PeerTransport` seam adds hole-punch upgrade + end-to-end-encrypted relay circuits against the Rust `nodera-rendezvous` service; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | RETIRED |
 | L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | RETIRED |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | RETIRED |
 | L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
@@ -192,6 +192,23 @@ observable in normal play.
 > `LEGACY.md`. Remaining gap, tracked with the Task 26 live GUI work rather than here: the mod's
 > announce loop is constructed but not yet scheduled on a timer, so the endpoints are wired and the
 > query path is proven headlessly while the periodic announce lands with the live client pass.
+>
+> **L-23 + L-27 retired (Task 29, 2026-07-19).** The standalone Rust `nodera-rendezvous` service and
+> the `java/transport-rendezvous` module close the cross-NAT / relay-fallback gap. The service speaks
+> the frozen rendezvous/relay family (tags 35–43): signed-record registration (Ed25519, TTL,
+> trust-on-first-use identity binding, per-IP quota), paged discovery, HMAC relay reservations, and a
+> tokio circuit bridge that meters bytes/duration/idle and tears down with a reason code. The Java
+> `RendezvousPeerTransport` composes direct-first / relay-fallback behind the same `PeerTransport`
+> seam (`SocketPeerTransport` stays the LAN path), with an X25519-ECDH + Ed25519-authenticated +
+> AES-GCM `EndToEndCipher` so the relay forwards opaque bytes it can neither read nor forge, and a
+> `TransportSelector` that prefers direct > punched > relayed. `RendezvousRelayIT` spawns the **real
+> binary** and drives two relay-only Java peers through it: they register, discover each other, and a
+> `PeerJoin` + `SessionKeepAlive` cross the E2E-encrypted circuit byte-exact; exhausting the
+> reservation's byte ceiling tears the circuit down; and the selector reports the direct path when one
+> is available (the punch-upgrade policy). Remaining gap, riding the same live/NAT env as Task 10's
+> migration runs rather than this ledger: a real cross-internet soak and the pure-relay
+> `SessionContinuityIT` wiring (Task 10 acceptance #1) — the mechanism is proven headlessly and over
+> loopback here; the live-internet numbers land with the Task 10 live pass.
 >
 > **L-29 retired (Task 9, 2026-07-18).** `GatewayElection` is now capability-weighted (Plan §3.5):
 > within a tier the peer with the highest pure-integer weight (cores + GiB memory + inverse
