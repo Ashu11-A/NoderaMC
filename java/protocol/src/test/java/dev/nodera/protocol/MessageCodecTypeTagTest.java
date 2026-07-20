@@ -94,7 +94,18 @@ final class MessageCodecTypeTagTest {
         // numbers (rust/nodera-codec/tests/tag_mirror.rs), so a one-sided change fails both builds.
         assertThat(MessageCodec.TAG_TRACKER_ANNOUNCE).isEqualTo(33);
         assertThat(MessageCodec.TAG_TRACKER_ANNOUNCE_ACK).isEqualTo(34);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(34);
+        // Task 29 appended the rendezvous/relay family; the Rust nodera-codec mirror pins the same
+        // numbers (rust/nodera-codec/tests/tag_mirror.rs), so a one-sided change fails both builds.
+        assertThat(MessageCodec.TAG_RENDEZVOUS_REGISTER).isEqualTo(35);
+        assertThat(MessageCodec.TAG_RENDEZVOUS_DISCOVER).isEqualTo(36);
+        assertThat(MessageCodec.TAG_RENDEZVOUS_PEERS).isEqualTo(37);
+        assertThat(MessageCodec.TAG_RELAY_RESERVE).isEqualTo(38);
+        assertThat(MessageCodec.TAG_RELAY_RESERVATION).isEqualTo(39);
+        assertThat(MessageCodec.TAG_RELAY_CONNECT).isEqualTo(40);
+        assertThat(MessageCodec.TAG_RELAY_INCOMING).isEqualTo(41);
+        assertThat(MessageCodec.TAG_PUNCH_SYNC).isEqualTo(42);
+        assertThat(MessageCodec.TAG_OBSERVED_ADDRESS).isEqualTo(43);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(43);
     }
 
     @Test

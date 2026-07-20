@@ -15,6 +15,7 @@
 pub mod framing;
 pub mod messages;
 pub mod reader;
+pub mod rendezvous;
 pub mod sig;
 pub mod tags;
 pub mod types;

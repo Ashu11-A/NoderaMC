@@ -36,6 +36,18 @@ import dev.nodera.protocol.membership.PeerGoodbye;
 import dev.nodera.protocol.membership.PeerJoin;
 import dev.nodera.protocol.membership.RegionProgress;
 import dev.nodera.protocol.membership.SessionKeepAlive;
+import dev.nodera.protocol.rendezvous.ObservedAddress;
+import dev.nodera.protocol.rendezvous.PeerCandidate;
+import dev.nodera.protocol.rendezvous.PunchSync;
+import dev.nodera.protocol.rendezvous.RelayConnect;
+import dev.nodera.protocol.rendezvous.RelayIncoming;
+import dev.nodera.protocol.rendezvous.RelayReservation;
+import dev.nodera.protocol.rendezvous.RelayReserve;
+import dev.nodera.protocol.rendezvous.RendezvousDiscover;
+import dev.nodera.protocol.rendezvous.RendezvousPeers;
+import dev.nodera.protocol.rendezvous.RendezvousRegister;
+import dev.nodera.protocol.rendezvous.SignedPeerRecord;
+import dev.nodera.protocol.rendezvous.SignedRecord;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.ExternalDelta;
@@ -111,6 +123,15 @@ import java.util.UUID;
  *  32   ExternalDelta
  *  33   TrackerAnnounce
  *  34   TrackerAnnounceAck
+ *  35   RendezvousRegister
+ *  36   RendezvousDiscover
+ *  37   RendezvousPeers
+ *  38   RelayReserve
+ *  39   RelayReservation
+ *  40   RelayConnect
+ *  41   RelayIncoming
+ *  42   PunchSync
+ *  43   ObservedAddress
  * </pre>
  *
  * <p>Thread-context: stateless; all methods are safe to call from any thread. Each call
@@ -167,9 +188,27 @@ public final class MessageCodec {
     public static final int TAG_TRACKER_ANNOUNCE = 33;
     /** {@link TrackerAnnounceAck} tag (Task 28). */
     public static final int TAG_TRACKER_ANNOUNCE_ACK = 34;
+    /** {@link RendezvousRegister} tag (Task 29). */
+    public static final int TAG_RENDEZVOUS_REGISTER = 35;
+    /** {@link RendezvousDiscover} tag (Task 29). */
+    public static final int TAG_RENDEZVOUS_DISCOVER = 36;
+    /** {@link RendezvousPeers} tag (Task 29). */
+    public static final int TAG_RENDEZVOUS_PEERS = 37;
+    /** {@link RelayReserve} tag (Task 29). */
+    public static final int TAG_RELAY_RESERVE = 38;
+    /** {@link RelayReservation} tag (Task 29). */
+    public static final int TAG_RELAY_RESERVATION = 39;
+    /** {@link RelayConnect} tag (Task 29). */
+    public static final int TAG_RELAY_CONNECT = 40;
+    /** {@link RelayIncoming} tag (Task 29). */
+    public static final int TAG_RELAY_INCOMING = 41;
+    /** {@link PunchSync} tag (Task 29). */
+    public static final int TAG_PUNCH_SYNC = 42;
+    /** {@link ObservedAddress} tag (Task 29). */
+    public static final int TAG_OBSERVED_ADDRESS = 43;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 34;
+    public static final int NEXT_TAG = 43;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -188,7 +227,10 @@ public final class MessageCodec {
             TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY,
             TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT,
             TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK, TAG_EXTERNAL_DELTA,
-            TAG_TRACKER_ANNOUNCE, TAG_TRACKER_ANNOUNCE_ACK);
+            TAG_TRACKER_ANNOUNCE, TAG_TRACKER_ANNOUNCE_ACK,
+            TAG_RENDEZVOUS_REGISTER, TAG_RENDEZVOUS_DISCOVER, TAG_RENDEZVOUS_PEERS,
+            TAG_RELAY_RESERVE, TAG_RELAY_RESERVATION, TAG_RELAY_CONNECT, TAG_RELAY_INCOMING,
+            TAG_PUNCH_SYNC, TAG_OBSERVED_ADDRESS);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -236,6 +278,15 @@ public final class MessageCodec {
             case TAG_EXTERNAL_DELTA -> "ExternalDelta";
             case TAG_TRACKER_ANNOUNCE -> "TrackerAnnounce";
             case TAG_TRACKER_ANNOUNCE_ACK -> "TrackerAnnounceAck";
+            case TAG_RENDEZVOUS_REGISTER -> "RendezvousRegister";
+            case TAG_RENDEZVOUS_DISCOVER -> "RendezvousDiscover";
+            case TAG_RENDEZVOUS_PEERS -> "RendezvousPeers";
+            case TAG_RELAY_RESERVE -> "RelayReserve";
+            case TAG_RELAY_RESERVATION -> "RelayReservation";
+            case TAG_RELAY_CONNECT -> "RelayConnect";
+            case TAG_RELAY_INCOMING -> "RelayIncoming";
+            case TAG_PUNCH_SYNC -> "PunchSync";
+            case TAG_OBSERVED_ADDRESS -> "ObservedAddress";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -357,6 +408,15 @@ public final class MessageCodec {
         if (msg instanceof ExternalDelta) return TAG_EXTERNAL_DELTA;
         if (msg instanceof TrackerAnnounce) return TAG_TRACKER_ANNOUNCE;
         if (msg instanceof TrackerAnnounceAck) return TAG_TRACKER_ANNOUNCE_ACK;
+        if (msg instanceof RendezvousRegister) return TAG_RENDEZVOUS_REGISTER;
+        if (msg instanceof RendezvousDiscover) return TAG_RENDEZVOUS_DISCOVER;
+        if (msg instanceof RendezvousPeers) return TAG_RENDEZVOUS_PEERS;
+        if (msg instanceof RelayReserve) return TAG_RELAY_RESERVE;
+        if (msg instanceof RelayReservation) return TAG_RELAY_RESERVATION;
+        if (msg instanceof RelayConnect) return TAG_RELAY_CONNECT;
+        if (msg instanceof RelayIncoming) return TAG_RELAY_INCOMING;
+        if (msg instanceof PunchSync) return TAG_PUNCH_SYNC;
+        if (msg instanceof ObservedAddress) return TAG_OBSERVED_ADDRESS;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -598,6 +658,67 @@ public final class MessageCodec {
                 w.writeU32(Integer.toUnsignedLong(m.nextAnnounceAfterSeconds()));
                 w.writeString(m.reason());
             }
+            case RendezvousRegister m -> {
+                w.writeU16(TAG_RENDEZVOUS_REGISTER).writeU16(ENCODING_VERSION);
+                writeSignedRecord(w, m.signed());
+            }
+            case RendezvousDiscover m -> {
+                w.writeU16(TAG_RENDEZVOUS_DISCOVER).writeU16(ENCODING_VERSION);
+                writeUuid(w, m.networkId());
+                w.writeBytes(m.genesisHash());
+                w.writeU32(Integer.toUnsignedLong(m.cursor()));
+                w.writeU32(Integer.toUnsignedLong(m.limit()));
+            }
+            case RendezvousPeers m -> {
+                w.writeU16(TAG_RENDEZVOUS_PEERS).writeU16(ENCODING_VERSION);
+                w.writeU32(Integer.toUnsignedLong(m.nextCursor()));
+                w.writeList(m.records(), MessageCodec::writeSignedRecord);
+            }
+            case RelayReserve m -> {
+                w.writeU16(TAG_RELAY_RESERVE).writeU16(ENCODING_VERSION);
+                writeUuid(w, m.networkId());
+                w.writeBytes(m.genesisHash());
+                m.peer().encode(w);
+            }
+            case RelayReservation m -> {
+                w.writeU16(TAG_RELAY_RESERVATION).writeU16(ENCODING_VERSION);
+                w.writeBoolean(m.accepted());
+                w.writeString(m.relayRoute());
+                w.writeU64(m.expiresAtEpochMillis());
+                w.writeU64(m.maxBytes());
+                w.writeU64(m.maxDurationMillis());
+                w.writeBytes(m.proof());
+                w.writeString(m.reason());
+            }
+            case RelayConnect m -> {
+                w.writeU16(TAG_RELAY_CONNECT).writeU16(ENCODING_VERSION);
+                writeUuid(w, m.networkId());
+                w.writeBytes(m.genesisHash());
+                m.source().encode(w);
+                m.target().encode(w);
+            }
+            case RelayIncoming m -> {
+                w.writeU16(TAG_RELAY_INCOMING).writeU16(ENCODING_VERSION);
+                writeUuid(w, m.networkId());
+                w.writeBytes(m.genesisHash());
+                m.source().encode(w);
+                m.target().encode(w);
+                w.writeBytes(m.proof());
+            }
+            case PunchSync m -> {
+                w.writeU16(TAG_PUNCH_SYNC).writeU16(ENCODING_VERSION);
+                writeUuid(w, m.networkId());
+                w.writeBytes(m.genesisHash());
+                m.source().encode(w);
+                m.target().encode(w);
+                w.writeList(m.observedCandidates(), (ww, c) -> c.encode(ww));
+                w.writeU64(m.goSignalEpochMillis());
+            }
+            case ObservedAddress m -> {
+                w.writeU16(TAG_OBSERVED_ADDRESS).writeU16(ENCODING_VERSION);
+                m.peer().encode(w);
+                w.writeString(m.observedRoute());
+            }
             default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
         }
     }
@@ -640,6 +761,24 @@ public final class MessageCodec {
     private static void writeUuid(CanonicalWriter w, UUID uuid) {
         w.writeU64(uuid.getMostSignificantBits());
         w.writeU64(uuid.getLeastSignificantBits());
+    }
+
+    /**
+     * Write a {@link SignedRecord} body inline: the canonical {@link SignedPeerRecord} (its own
+     * tag-91 frame) followed by the signature over exactly those bytes. Used inside a
+     * {@link RendezvousRegister} and each element of a {@link RendezvousPeers} page, so the identical
+     * signature validates on both the relay and every discovering peer (Task 29).
+     */
+    private static void writeSignedRecord(CanonicalWriter w, SignedRecord signed) {
+        signed.record().encode(w);
+        w.writeBytes(signed.signature());
+    }
+
+    /** Inverse of {@link #writeSignedRecord}. */
+    private static SignedRecord readSignedRecord(CanonicalReader r) {
+        SignedPeerRecord record = SignedPeerRecord.decode(r);
+        Bytes signature = r.readBytesValue();
+        return new SignedRecord(record, signature);
     }
 
     private static NoderaMessage decodeBody(CanonicalReader r, int tag, int encodingVersion) {
@@ -910,6 +1049,65 @@ public final class MessageCodec {
                 int nextAnnounceAfterSeconds = (int) r.readU32();
                 String reason = r.readString();
                 yield new TrackerAnnounceAck(accepted, nextAnnounceAfterSeconds, reason);
+            }
+            case TAG_RENDEZVOUS_REGISTER -> new RendezvousRegister(readSignedRecord(r));
+            case TAG_RENDEZVOUS_DISCOVER -> {
+                UUID networkId = readUuid(r);
+                Bytes genesisHash = r.readBytesValue();
+                int cursor = (int) r.readU32();
+                int limit = (int) r.readU32();
+                yield new RendezvousDiscover(networkId, genesisHash, cursor, limit);
+            }
+            case TAG_RENDEZVOUS_PEERS -> {
+                int nextCursor = (int) r.readU32();
+                java.util.List<SignedRecord> records = r.readList(MessageCodec::readSignedRecord);
+                yield new RendezvousPeers(nextCursor, records);
+            }
+            case TAG_RELAY_RESERVE -> {
+                UUID networkId = readUuid(r);
+                Bytes genesisHash = r.readBytesValue();
+                dev.nodera.core.identity.NodeId peer = dev.nodera.core.identity.NodeId.decode(r);
+                yield new RelayReserve(networkId, genesisHash, peer);
+            }
+            case TAG_RELAY_RESERVATION -> {
+                boolean accepted = r.readBoolean();
+                String relayRoute = r.readString();
+                long expiresAt = r.readU64();
+                long maxBytes = r.readU64();
+                long maxDuration = r.readU64();
+                Bytes proof = r.readBytesValue();
+                String reason = r.readString();
+                yield new RelayReservation(accepted, relayRoute, expiresAt, maxBytes, maxDuration,
+                        proof, reason);
+            }
+            case TAG_RELAY_CONNECT -> {
+                UUID networkId = readUuid(r);
+                Bytes genesisHash = r.readBytesValue();
+                dev.nodera.core.identity.NodeId source = dev.nodera.core.identity.NodeId.decode(r);
+                dev.nodera.core.identity.NodeId target = dev.nodera.core.identity.NodeId.decode(r);
+                yield new RelayConnect(networkId, genesisHash, source, target);
+            }
+            case TAG_RELAY_INCOMING -> {
+                UUID networkId = readUuid(r);
+                Bytes genesisHash = r.readBytesValue();
+                dev.nodera.core.identity.NodeId source = dev.nodera.core.identity.NodeId.decode(r);
+                dev.nodera.core.identity.NodeId target = dev.nodera.core.identity.NodeId.decode(r);
+                Bytes proof = r.readBytesValue();
+                yield new RelayIncoming(networkId, genesisHash, source, target, proof);
+            }
+            case TAG_PUNCH_SYNC -> {
+                UUID networkId = readUuid(r);
+                Bytes genesisHash = r.readBytesValue();
+                dev.nodera.core.identity.NodeId source = dev.nodera.core.identity.NodeId.decode(r);
+                dev.nodera.core.identity.NodeId target = dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<PeerCandidate> observed = r.readList(PeerCandidate::decode);
+                long goSignal = r.readU64();
+                yield new PunchSync(networkId, genesisHash, source, target, observed, goSignal);
+            }
+            case TAG_OBSERVED_ADDRESS -> {
+                dev.nodera.core.identity.NodeId peer = dev.nodera.core.identity.NodeId.decode(r);
+                String observedRoute = r.readString();
+                yield new ObservedAddress(peer, observedRoute);
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };
