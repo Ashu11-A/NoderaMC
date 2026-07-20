@@ -15,6 +15,20 @@ import dev.nodera.protocol.discovery.TrackerAnnounceAck;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.membership.PeerEntry;
+import dev.nodera.protocol.rendezvous.CandidateKind;
+import dev.nodera.protocol.rendezvous.ObservedAddress;
+import dev.nodera.protocol.rendezvous.PeerCandidate;
+import dev.nodera.protocol.rendezvous.PunchSync;
+import dev.nodera.protocol.rendezvous.RegistrationEvent;
+import dev.nodera.protocol.rendezvous.RelayConnect;
+import dev.nodera.protocol.rendezvous.RelayIncoming;
+import dev.nodera.protocol.rendezvous.RelayReservation;
+import dev.nodera.protocol.rendezvous.RelayReserve;
+import dev.nodera.protocol.rendezvous.RendezvousDiscover;
+import dev.nodera.protocol.rendezvous.RendezvousPeers;
+import dev.nodera.protocol.rendezvous.RendezvousRegister;
+import dev.nodera.protocol.rendezvous.SignedPeerRecord;
+import dev.nodera.protocol.rendezvous.SignedRecord;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -168,6 +182,46 @@ class WireFixtureTest {
                         new ManifestHolding(filled(32, 0x22), Bytes.unsafeWrap(
                                 new byte[] {(byte) 0b1010_0000, (byte) 0xFF})),
                         new ManifestHolding(filled(32, 0x55), Bytes.unsafeWrap(new byte[] {0})))));
+
+        // --- Task 29 rendezvous / relay family (tags 35–43). Signature/proof fields are fixed
+        // filler: these fixtures pin the ENCODING; the real cross-language Ed25519 verification is
+        // exercised at runtime by RendezvousRelayIT, where a Java peer signs with its NodeIdentity
+        // and the Rust binary verifies the identical canonical bytes. ---
+        UUID networkId = new UUID(0x0102030405060708L, 0x1112131415161718L);
+        SignedPeerRecord record = new SignedPeerRecord(
+                networkId,
+                filled(32, 0x11),
+                seederEntry.nodeId(),
+                filled(44, 0x66),
+                RegistrationEvent.REGISTER,
+                List.of(
+                        new PeerCandidate(CandidateKind.HOST, "10.0.0.4:25566", 100),
+                        new PeerCandidate(CandidateKind.RELAY, "198.51.100.9:25601", 1)),
+                capabilities(Set.of(PeerRole.PARTIAL_ARCHIVE)),
+                1_700_000_000_000L,
+                1_700_000_300_000L);
+        SignedRecord signed = new SignedRecord(record, filled(64, 0x77));
+
+        corpus.put("rendezvous-register.bin", new RendezvousRegister(signed));
+        corpus.put("rendezvous-discover.bin",
+                new RendezvousDiscover(networkId, filled(32, 0x11), 0, 50));
+        corpus.put("rendezvous-peers.bin", new RendezvousPeers(7, List.of(signed)));
+        corpus.put("relay-reserve.bin",
+                new RelayReserve(networkId, filled(32, 0x11), seederEntry.nodeId()));
+        corpus.put("relay-reservation.bin", new RelayReservation(
+                true, "198.51.100.9:25601", 1_700_000_300_000L, 67_108_864L, 300_000L,
+                filled(32, 0x55), ""));
+        corpus.put("relay-connect.bin", new RelayConnect(
+                networkId, filled(32, 0x11), playerEntry.nodeId(), seederEntry.nodeId()));
+        corpus.put("relay-incoming.bin", new RelayIncoming(
+                networkId, filled(32, 0x11), playerEntry.nodeId(), seederEntry.nodeId(),
+                filled(32, 0x55)));
+        corpus.put("punch-sync.bin", new PunchSync(
+                networkId, filled(32, 0x11), playerEntry.nodeId(), seederEntry.nodeId(),
+                List.of(new PeerCandidate(CandidateKind.SERVER_REFLEXIVE, "198.51.100.7:40000", 50)),
+                1_700_000_001_000L));
+        corpus.put("observed-address.bin",
+                new ObservedAddress(playerEntry.nodeId(), "198.51.100.7:40000"));
 
         return corpus;
     }

@@ -70,6 +70,8 @@ fn type_tag_registry_mirrors_java() {
     assert_mirrors(&source, "NODE_CAPABILITIES", NODE_CAPABILITIES, FILE);
     assert_mirrors(&source, "PEER_ROLE", PEER_ROLE, FILE);
     assert_mirrors(&source, "WORLD_HEALTH", WORLD_HEALTH, FILE);
+    assert_mirrors(&source, "PEER_CANDIDATE", PEER_CANDIDATE, FILE);
+    assert_mirrors(&source, "SIGNED_PEER_RECORD", SIGNED_PEER_RECORD, FILE);
     assert_mirrors(&source, "NEXT", NEXT, FILE);
 }
 
@@ -93,6 +95,25 @@ fn message_tag_registry_mirrors_java() {
         TRACKER_ANNOUNCE_ACK,
         FILE,
     );
+    assert_mirrors(
+        &source,
+        "TAG_RENDEZVOUS_REGISTER",
+        RENDEZVOUS_REGISTER,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "TAG_RENDEZVOUS_DISCOVER",
+        RENDEZVOUS_DISCOVER,
+        FILE,
+    );
+    assert_mirrors(&source, "TAG_RENDEZVOUS_PEERS", RENDEZVOUS_PEERS, FILE);
+    assert_mirrors(&source, "TAG_RELAY_RESERVE", RELAY_RESERVE, FILE);
+    assert_mirrors(&source, "TAG_RELAY_RESERVATION", RELAY_RESERVATION, FILE);
+    assert_mirrors(&source, "TAG_RELAY_CONNECT", RELAY_CONNECT, FILE);
+    assert_mirrors(&source, "TAG_RELAY_INCOMING", RELAY_INCOMING, FILE);
+    assert_mirrors(&source, "TAG_PUNCH_SYNC", PUNCH_SYNC, FILE);
+    assert_mirrors(&source, "TAG_OBSERVED_ADDRESS", OBSERVED_ADDRESS, FILE);
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 

@@ -297,6 +297,229 @@ impl ManifestSeeders {
     }
 }
 
+/// A network id — a UUID encoded as two big-endian `u64`s with **no** type-tag frame.
+///
+/// Matches Java's `writeUuid` (raw `msb`/`lsb`), the same untagged form `ServerHello` uses for
+/// `networkId`. Distinct from [`NodeId`], which carries a type tag because it nests inside signed
+/// `Encodable` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NetworkId {
+    /// Most-significant 64 bits.
+    pub msb: u64,
+    /// Least-significant 64 bits.
+    pub lsb: u64,
+}
+
+impl NetworkId {
+    /// Build a network id from its two halves.
+    pub fn new(msb: u64, lsb: u64) -> Self {
+        Self { msb, lsb }
+    }
+
+    /// Encode the raw `msb + lsb` (no tag).
+    pub fn encode(&self, w: &mut CanonicalWriter) {
+        w.write_u64(self.msb);
+        w.write_u64(self.lsb);
+    }
+
+    /// Decode the inverse of [`NetworkId::encode`].
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+        Ok(Self {
+            msb: r.read_u64()?,
+            lsb: r.read_u64()?,
+        })
+    }
+}
+
+/// The category of a reachability candidate (frozen ordinals — the encoded form).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum CandidateKind {
+    /// A local interface address (LAN IP).
+    Host = 0,
+    /// A directly reachable public address.
+    Public = 1,
+    /// A public address observed through the relay (STUN-like, server-reflexive).
+    ServerReflexive = 2,
+    /// An address explicitly mapped through UPnP / NAT-PMP / PCP.
+    Mapped = 3,
+    /// An address reachable only through a relay circuit.
+    Relay = 4,
+}
+
+impl CandidateKind {
+    /// Map a frozen ordinal to its kind.
+    pub fn from_ordinal(ordinal: u8) -> Result<Self> {
+        Ok(match ordinal {
+            0 => Self::Host,
+            1 => Self::Public,
+            2 => Self::ServerReflexive,
+            3 => Self::Mapped,
+            4 => Self::Relay,
+            other => {
+                return Err(CodecError::Malformed(format!(
+                    "invalid CandidateKind ordinal {other}"
+                )))
+            }
+        })
+    }
+
+    /// Whether this candidate reaches the peer without a relay circuit.
+    pub fn is_direct(self) -> bool {
+        !matches!(self, Self::Relay)
+    }
+}
+
+/// One reachability candidate: how a peer might be reached, and how good it is thought to be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerCandidate {
+    /// The candidate category.
+    pub kind: CandidateKind,
+    /// The dial route (`host:port`), as the peer claims it.
+    pub address: String,
+    /// Preference — higher is better (ICE-style). A hint, never proof.
+    pub priority: u32,
+}
+
+impl PeerCandidate {
+    /// Encode `tag(90) + version + kind + address + priority`.
+    pub fn encode(&self, w: &mut CanonicalWriter) {
+        w.write_frame_header(type_tags::PEER_CANDIDATE, ENCODING_VERSION);
+        w.write_u8(self.kind as u8);
+        w.write_string(&self.address);
+        w.write_u32(self.priority);
+    }
+
+    /// Decode the inverse of [`PeerCandidate::encode`].
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+        r.read_frame_header(type_tags::PEER_CANDIDATE, ENCODING_VERSION)?;
+        let kind = CandidateKind::from_ordinal(r.read_u8()?)?;
+        let address = r.read_string()?;
+        let priority = r.read_u32()?;
+        Ok(Self {
+            kind,
+            address,
+            priority,
+        })
+    }
+}
+
+/// What a registration asks the rendezvous point to do (frozen ordinals).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RegistrationEvent {
+    /// First registration of a session: create or replace the record.
+    Register = 0,
+    /// Periodic refresh: extend the record's lease.
+    Refresh = 1,
+    /// Graceful departure: drop the record now instead of waiting for the TTL sweep.
+    Unregister = 2,
+}
+
+impl RegistrationEvent {
+    /// Map a frozen ordinal to its event.
+    pub fn from_ordinal(ordinal: u8) -> Result<Self> {
+        Ok(match ordinal {
+            0 => Self::Register,
+            1 => Self::Refresh,
+            2 => Self::Unregister,
+            other => {
+                return Err(CodecError::Malformed(format!(
+                    "invalid RegistrationEvent ordinal {other}"
+                )))
+            }
+        })
+    }
+}
+
+/// A peer's canonical, Ed25519-signable registration record.
+///
+/// The signature a peer produces covers exactly this value's [`SignedPeerRecord::encode`] output
+/// (tag 91), so a discovering peer verifies the *same bytes* the registering peer signed, whether
+/// the record arrives inside a `RendezvousRegister` (relay verifies) or a `RendezvousPeers` page (a
+/// discovering peer verifies). The relay carries records; peers authenticate them end-to-end
+/// (rendezvous.md §8.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignedPeerRecord {
+    /// The network this record belongs to.
+    pub network_id: NetworkId,
+    /// The world (swarm id) this record belongs to.
+    pub genesis_hash: Vec<u8>,
+    /// The registering peer.
+    pub peer: NodeId,
+    /// The peer's X.509 Ed25519 public key.
+    pub public_key: Vec<u8>,
+    /// What the registration asks for (covered by the signature so `Unregister` can't be forged).
+    pub event: RegistrationEvent,
+    /// Advertised reachability candidates, in preference order — claims, never proof.
+    pub candidates: Vec<PeerCandidate>,
+    /// The peer's declared capabilities.
+    pub capabilities: NodeCapabilities,
+    /// The peer's wall-clock at issue time — a freshness bound only.
+    pub issued_at_epoch_millis: u64,
+    /// When the record self-expires unless refreshed.
+    pub expires_at_epoch_millis: u64,
+}
+
+impl SignedPeerRecord {
+    /// Encode `tag(91) + version + body` — the exact bytes the signature covers.
+    pub fn encode(&self, w: &mut CanonicalWriter) {
+        w.write_frame_header(type_tags::SIGNED_PEER_RECORD, ENCODING_VERSION);
+        self.network_id.encode(w);
+        w.write_bytes(&self.genesis_hash);
+        self.peer.encode(w);
+        w.write_bytes(&self.public_key);
+        w.write_u8(self.event as u8);
+        w.write_list(&self.candidates, |ww, c| c.encode(ww));
+        self.capabilities.encode(w);
+        w.write_u64(self.issued_at_epoch_millis);
+        w.write_u64(self.expires_at_epoch_millis);
+    }
+
+    /// The canonical signed bytes of this record.
+    pub fn signed_bytes(&self) -> Vec<u8> {
+        let mut w = CanonicalWriter::with_capacity(256);
+        self.encode(&mut w);
+        w.into_vec()
+    }
+
+    /// Decode the inverse of [`SignedPeerRecord::encode`].
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+        r.read_frame_header(type_tags::SIGNED_PEER_RECORD, ENCODING_VERSION)?;
+        let network_id = NetworkId::decode(r)?;
+        let genesis_hash = r.read_bytes_vec()?;
+        let peer = NodeId::decode(r)?;
+        let public_key = r.read_bytes_vec()?;
+        let event = RegistrationEvent::from_ordinal(r.read_u8()?)?;
+        let candidates = r.read_list(PeerCandidate::decode)?;
+        let capabilities = NodeCapabilities::decode(r)?;
+        let issued_at_epoch_millis = r.read_u64()?;
+        let expires_at_epoch_millis = r.read_u64()?;
+        Ok(Self {
+            network_id,
+            genesis_hash,
+            peer,
+            public_key,
+            event,
+            candidates,
+            capabilities,
+            issued_at_epoch_millis,
+            expires_at_epoch_millis,
+        })
+    }
+
+    /// The peer's direct-dial candidates, best-priority first.
+    pub fn direct_candidates(&self) -> Vec<&PeerCandidate> {
+        let mut direct: Vec<&PeerCandidate> = self
+            .candidates
+            .iter()
+            .filter(|c| c.kind.is_direct())
+            .collect();
+        direct.sort_by(|a, b| b.priority.cmp(&a.priority));
+        direct
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +572,54 @@ mod tests {
             piece_bitmap: vec![0b1010_0000, 0xFF],
         };
         assert_eq!(holding.held_piece_count(), 10);
+    }
+
+    fn record() -> SignedPeerRecord {
+        SignedPeerRecord {
+            network_id: NetworkId::new(0x1122_3344_5566_7788, 0x99AA_BBCC_DDEE_FF00),
+            genesis_hash: vec![0x33; 32],
+            peer: NodeId::new(7, 9),
+            public_key: vec![0x66; 44],
+            event: RegistrationEvent::Register,
+            candidates: vec![
+                PeerCandidate {
+                    kind: CandidateKind::Host,
+                    address: "10.0.0.4:25566".to_owned(),
+                    priority: 100,
+                },
+                PeerCandidate {
+                    kind: CandidateKind::Relay,
+                    address: "relay.example:25601".to_owned(),
+                    priority: 1,
+                },
+            ],
+            capabilities: caps(),
+            issued_at_epoch_millis: 1_700_000_000_000,
+            expires_at_epoch_millis: 1_700_000_300_000,
+        }
+    }
+
+    #[test]
+    fn signed_peer_record_round_trips() {
+        let record = record();
+        let bytes = record.signed_bytes();
+        let mut r = CanonicalReader::new(&bytes);
+        let decoded = SignedPeerRecord::decode(&mut r).unwrap();
+        r.expect_end().unwrap();
+        assert_eq!(decoded, record);
+    }
+
+    #[test]
+    fn direct_candidates_exclude_relay_and_sort_by_priority() {
+        let record = record();
+        let direct = record.direct_candidates();
+        assert_eq!(direct.len(), 1);
+        assert_eq!(direct[0].kind, CandidateKind::Host);
+    }
+
+    #[test]
+    fn a_bad_candidate_kind_ordinal_is_rejected() {
+        assert!(CandidateKind::from_ordinal(9).is_err());
+        assert!(RegistrationEvent::from_ordinal(9).is_err());
     }
 }

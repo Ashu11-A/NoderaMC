@@ -1,0 +1,9 @@
+{
+  "nodera.multiplayer.torrent_worlds": "Torrent worlds",
+  "nodera.multiplayer.search": "Search torrent worlds",
+  "nodera.multiplayer.search.hint": "Search worlds…",
+  "nodera.multiplayer.create.torrent.off": "Torrent hosting: OFF",
+  "nodera.multiplayer.create.torrent.on": "Torrent hosting: ON",
+  "nodera.multiplayer.create.password": "Encryption password",
+  "nodera.multiplayer.create.password.hint": "Password (empty = plaintext)"
+}
