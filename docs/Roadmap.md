@@ -7,16 +7,16 @@
      README.md "Roadmap" + Tested.md. Task links are the specs; the GitHub issue for a task is
      found BY TITLE (`Task N — <title>`), never by assuming issue number == task number. -->
 
-Snapshot: 2026-07-19 · overall `67%` · 688 Java tests green (+82 Rust) · MVP gate ([Task 7](Task.7.md)) proven
+Snapshot: 2026-07-19 · overall `69%` · 704 Java tests green (+144 Rust) · MVP gate ([Task 7](Task.7.md)) proven
 headlessly, not yet live · lane B complete to its headless/compile edge: Tasks 19–25 headless +
 [Task 26](Task.26.md) view model + `Dist.CLIENT` screens (GUI pass pending) ·
 [Task 11](Task.11.md) interference guard landed headless (mixins/tickets live half pending) ·
 [Task 9](Task.9.md) RocksDB tier + committee-change certification + capability-weighted gateway
 election landed (live forward sync + manager wiring pending) ·
 [Task 12](Task.12.md) entity-lane core foundation landed (simulation + mod + transfer half pending) ·
-**Rust infrastructure cluster added** (Tasks [27](Task.27.md)/[28](Task.28.md)/[29](Task.29.md):
-monorepo + standalone tracker + rendezvous relay — [Task 10](Task.10.md)/[Task 20](Task.20.md)
-rewritten, ledger in [`LEGACY.md`](./LEGACY.md); overall % re-based for the new scope).
+**Rust infrastructure cluster complete** (Tasks [27](Task.27.md)/[28](Task.28.md)/[29](Task.29.md):
+monorepo + standalone tracker + rendezvous relay — all three landed; L-23/L-27/L-44 RETIRED;
+[Task 10](Task.10.md)/[Task 20](Task.20.md) rewritten, ledger in [`LEGACY.md`](./LEGACY.md)).
 
 ---
 
@@ -29,10 +29,11 @@ Ground truth: README "Progress" + `Tested.md`. Summary by completion class:
 | **Done (pure-Java scope)** | [2](Task.2.md) `core` · [3](Task.3.md) `simulation` |
 | **Done (Rust services)** | [28](Task.28.md) standalone tracker — real binary driven from Java peers by `TrackerServiceIT`, embedded `TrackerService` deleted, L-44 RETIRED (mod-side announce scheduling rides the Task 26 live pass) |
 | **Done (build architecture)** | [27](Task.27.md) monorepo + Rust workspace — `java/`+`rust/`+`fixtures/`, `nodera-codec` byte-exact against the Java golden frames, both toolchains gating CI |
+| **Done (Rust services)** | [29](Task.29.md) standalone rendezvous + relay — `nodera-rendezvous` (registration/discovery/reservations/circuit-bridging/punch-coordination) + `java/transport-rendezvous` (direct-first / punch-upgrade / E2E-relay-fallback `PeerTransport`); `RendezvousRelayIT` drives the real binary; L-23 + L-27 RETIRED |
 | **Shipped, GUI-env acceptance pending** | [1](Task.1.md) mod skeleton · [4](Task.4.md) protocol/transport (relay impl also pending) · [18](Task.18.md) diagnostics HUD (L-31 placeholders wait on 6/12) |
 | **Proven headless, live wiring pending** | [5](Task.5.md) shadow validation · [6](Task.6.md) coordinator · [7](Task.7.md) committee/MVP · [8](Task.8.md) fallback/router |
 | **Partially shipped** | [12](Task.12.md) entity lane (12a core foundation — `FixedVec3`/`NetworkEntityId`/`PersistedEntityState` + item actions/events landed headlessly; region-root `EntityStore` + item physics + `mobCapture` ghost stream + 12c transfer + NeoForge bridge deferred) · [26](Task.26.md) multiplayer GUI (`TorrentWorldListView` + world-health `Semantic`/`Palette` + `client/multiplayer` screens compile, issue #29; live tracker feed/create pipeline/`runClient` pass deferred — L-43 RETIRING) · [11](Task.11.md) interference guard (`coordinator/interference` + full `DelegabilityPolicy`/`DelegabilityMonitor` + `ServerAuthorityCertificate`/`ExternalDelta` + `COMPATIBILITY.md` landed headless; mixins, `ChunkTicketService`, `FakePlayerDetector`, live acceptance deferred with the NeoForge lane) · [9](Task.9.md) peer-runtime + event-sourced store (~~RocksDB tier~~ **landed** — `storage-rocksdb` crash-consistent store + `FsContentStore` + forced-kill recovery IT; ~~committee-change certification~~ **landed** — `CommitteeChangeCertificate` + authority-free `CommitteeManager` + capability-weighted gateway election (L-29 retired); live forward sync + live manager wiring missing) · [10](Task.10.md) gateway/P2P (`transport-socket` continuity beta shipped; cross-NAT reach now rides [29](Task.29.md)'s `transport-rendezvous` — spec rewritten 2026-07-19) · [19](Task.19.md) torrent data plane (`distribution` module + `DistributionIT` green; mod-side `ChunkLockMap` consumers deferred with the NeoForge lane) · [20](Task.20.md) tracker + multi-bootstrap (`peer-runtime/discovery` + `TrackerIT`/`MultiBootstrapIT` green; mod-side tracker wiring deferred with the NeoForge lane) · [21](Task.21.md) placement/replication/repair (`peer-runtime/archival` + `ArchiveRepairIT` green; mod-side repair coordinator deferred with the NeoForge lane) · [22](Task.22.md) reliability/quotas/retention (`ReliabilityScorer` + `storage-client` + `RetentionPolicy` green; mod-side wiring deferred with the NeoForge lane) · [23](Task.23.md) per-world content encryption (AES-GCM + bounded Argon2id/PBKDF2 + keyless-seeder `EncryptedDistributionIT` green; opt-in create/join wiring deferred with the NeoForge lane) · [24](Task.24.md) crash safety + active stream (`ActivePlayerStream`/`EmergencyFlush`/`PeerShutdownHook`, vote-before-sign persistence, physical repair, and forced-process `CrashRecoveryIT` green; live commit/content/lifecycle adapters deferred) · [25](Task.25.md) tick-lag/TPS handoff (compatible keep-alive v2, `TickSync`, integer metrics, sustained `LagHandoffPolicy`, guarded failover, and replaying `LagHandoffIT` green; live commit feeds/policy scheduling/HUD/NeoForge construction deferred) · 17\* debugger (first scenario `SessionContinuityIT` landed — README still shows ⬜) |
-| **Not started** | [13](Task.13.md) · [14](Task.14.md) · [15](Task.15.md) · [16](Task.16.md) · [29](Task.29.md) Rust rendezvous relay |
+| **Not started** | [13](Task.13.md) · [14](Task.14.md) · [15](Task.15.md) · [16](Task.16.md) |
 
 \* Task 17 has no `Task.17.md` spec file — it is the standing debugger issue (`Task 17 — Nodera
 debugger`); scope lives in the issue + `AGENTS.md`.
@@ -54,7 +55,7 @@ items inside a wave are parallelizable.
 | **1 — the gate** | [5](Task.5.md) live: NeoForge capture mixins, snapshot streaming on a real server, 3-client soak, divergence burn-down | Phase 1 exit is the project's hard gate — live determinism evidence decides everything downstream |
 | **2 — MVP** | [6](Task.6.md) live (capture/cancel + `ServerLevel` applier + 2-client run) → [7](Task.7.md) live 3-client quorum = **first playable milestone**; [11](Task.11.md) live half in parallel (~~headless guard/policy/monitor~~ **done** — mixins + tickets + fake-player detection remain) | 7 is the MVP gate; 11 is required before wave 3 runs on non-flat worlds |
 | **3 — demotion prep** | [8](Task.8.md) live soak (needs 11 on real worlds); [9](Task.9.md) completion: RocksDB tier, chunk attachments, live forward-sync, continuity milestone | Phase 4 exit numbers + Phase 5 canonical state |
-| **4 — network era** | [28](Task.28.md) Rust tracker ∥ [29](Task.29.md) Rust rendezvous relay (both after 27, Minecraft-free); [10](Task.10.md) gateway migration over the 29 transport (NAT reach); torrent chain ~~[20](Task.20.md)→[25](Task.25.md)~~ (headless); [26](Task.26.md) last (needs 19–25 + the 28 live feed) | 28/29 can start any time after 27 (like lane B, they don't wait on waves 1–3); 10's cross-NAT half rides 29; live Task-25 adapters also need 7 |
+| **4 — network era** | ~~[28](Task.28.md) Rust tracker~~ ∥ ~~[29](Task.29.md) Rust rendezvous relay~~ **both landed** (Minecraft-free); [10](Task.10.md) gateway migration over the 29 transport (NAT reach); torrent chain ~~[20](Task.20.md)→[25](Task.25.md)~~ (headless); [26](Task.26.md) last (needs 19–25 + the 28 live feed) | 28/29 done after 27 (like lane B, they didn't wait on waves 1–3); 10's cross-NAT half now rides 29's shipped `transport-rendezvous`; live Task-25 adapters also need 7 |
 | **5 — parity program** | [12](Task.12.md) → [13](Task.13.md) → [14](Task.14.md) → [15](Task.15.md) → [16](Task.16.md) | Burns `LIMITATIONS.md` §B to empty; 16 closes the ledger |
 
 Biggest schedule lever remains **wave 0(b)** — Tasks 19–25 are now proven Minecraft-free while
@@ -78,7 +79,7 @@ Importance = how much it unblocks + how directly it proves the central bet + pla
 | 6 | ~~[19](Task.19.md) torrent data plane~~ | **Landed headless** — the foundation the rest of 19–26 builds on; only its mod-side consumers remain |
 | 7 | [8](Task.8.md) live soak | Phase 4 exit (>90% committee-commit, honest CPU numbers) |
 | 8 | 17\* debugger | Multiplies confidence of every lane; standing investment |
-| 9 | [29](Task.29.md) rendezvous relay + [10](Task.10.md) migration over it | Real-internet play (NAT reach, L-23/L-27); removes last full-peer dependencies |
+| 9 | ~~[29](Task.29.md) rendezvous relay~~ + [10](Task.10.md) migration over it | **29 landed** — `nodera-rendezvous` + `transport-rendezvous` retire L-23/L-27 (`RendezvousRelayIT` over the real binary); 10's cross-NAT migration rides this transport in the live pass |
 | 10 | ~~[20](Task.20.md) tracker/multi-bootstrap~~ → ~~[28](Task.28.md) standalone Rust tracker~~ | **Landed 2026-07-19** — the always-on Rust service retired L-44: `TrackerServiceIT` lists a world by name, with its countdown and a DEAD verdict, after every Java seeder went silent |
 | 11 | ~~[21](Task.21.md) replication/repair~~ | **Landed headless** — the durability guarantee (rules 0/1/3) |
 | 12 | ~~[22](Task.22.md) reliability/quotas/retention~~ | **Landed headless** — the scoring placement/handoff depend on; unbounded-growth fixed |
@@ -106,7 +107,7 @@ Remaining work only (done scope excluded). Difficulty = technical risk × breadt
 | 4 | [13](Task.13.md) | Redstone semantic fidelity + contraption ownership migration across regions |
 | 5 | [5](Task.5.md) (live remainder) | Real-world divergence hunting — nondeterminism debugging on live servers is the project's riskiest grind |
 | 6 | [12](Task.12.md) | Entity state in roots, ghost lanes, cross-region transfer without dupes |
-| 7 | [29](Task.29.md) + [10](Task.10.md) (remainder) | NAT-traversal reality (punch success rates, relay abuse limits, E2E crypto over circuits) + migration UX under failure; first cross-language wire surface |
+| 7 | ~~[29](Task.29.md)~~ + [10](Task.10.md) (remainder) | **29 done** — signed-record registration, HMAC reservations, metered E2E relay circuits, punch coordination + `TransportSelector`, proven over the real binary; 10's migration UX under failure remains |
 | 8 | [11](Task.11.md) (live remainder) | Wide, subtle surface: every foreign write source must reach the one mixin choke point, cheaply; the headless classification/conversion machinery is done |
 | 9 | [9](Task.9.md) (remainder) | ~~RocksDB crash-consistency, replay-on-boot windows~~ done; live forward sync + committee-change certification remain |
 | 12 | ~~[28](Task.28.md)~~ | **Done.** Tracker semantics are well understood (`docs/torrent/trackers.md`); the work is the announce family + cross-language conformance + ops hardening — and deleting the embedded Java tracker safely (`LEGACY.md`) |

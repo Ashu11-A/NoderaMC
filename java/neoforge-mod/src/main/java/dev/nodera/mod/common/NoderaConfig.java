@@ -60,6 +60,29 @@ public final class NoderaConfig {
             CLIENT_BUILDER.defineListAllowEmpty("tracker.endpoints", java.util.List.of(),
                     NoderaConfig::isTrackerEndpoint);
 
+    // Rendezvous endpoints (Task 29). Each entry is a `host:port` route of a standalone
+    // `nodera-rendezvous` service. Empty by default: a LAN game reaches peers directly, so the
+    // NAT-traversal + relay-fallback transport is only engaged when endpoints are configured. Both
+    // sides carry the list — a peer registers its candidates and discovers others, and either side
+    // reserves a relay slot when it cannot accept direct inbound connections.
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> RENDEZVOUS_ENDPOINTS =
+            SERVER_BUILDER.defineListAllowEmpty("rendezvous.endpoints", java.util.List.of(),
+                    NoderaConfig::isRendezvousEndpoint);
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>> CLIENT_RENDEZVOUS_ENDPOINTS =
+            CLIENT_BUILDER.defineListAllowEmpty("rendezvous.endpoints", java.util.List.of(),
+                    NoderaConfig::isRendezvousEndpoint);
+
+    /**
+     * Validate one configured rendezvous route (same {@code host:port} grammar as a tracker route).
+     *
+     * @param raw the configured value.
+     * @return whether it parses as a {@code host:port} route.
+     * @Thread-context config-loading thread.
+     */
+    private static boolean isRendezvousEndpoint(Object raw) {
+        return isTrackerEndpoint(raw);
+    }
+
     /**
      * Validate one configured tracker route.
      *

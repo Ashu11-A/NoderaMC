@@ -29,17 +29,17 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload + Task 26 `client/multiplayer` screens (event hooks, no mixin) — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-18 |
 | `storage-rocksdb` | full-archive durable `WorldStore`: `RocksWorldStore` (WAL-backed CFs, log-tail head recovery), `FsContentStore` (atomic writes, hash-verified reads), forced-kill `RocksCrashRecoveryIT` (Task 9) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
-| `transport-rendezvous` | direct-first / punch-upgrade / relay-fallback `PeerTransport` over `nodera-rendezvous` (Task 29; supersedes the planned `transport-libp2p`) | — | — | — | ⬜ | — |
+| `transport-rendezvous` | direct-first / punch-upgrade / X25519+AES-GCM relay-fallback `PeerTransport` over `nodera-rendezvous` (Task 29; supersedes the planned `transport-libp2p`): `TransportSelector` policy, `EndToEndCipher`, `CandidateDialer`, `HolePunchCoordinator`, and `RendezvousRelayIT` over the real binary | 16 | 0 | 0 | ✅ | 2026-07-19 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **688** | **0** | **0** | ✅ | 2026-07-19 |
+| **TOTAL (implemented modules)** | | **704** | **0** | **0** | ✅ | 2026-07-19 |
 
 Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (Task 27):
 
 | Crate | Responsibility | Tests | Failures | Status | Last run |
 |---|---|---:|---:|:---:|---|
-| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify (raw + Java X.509 keys), frozen tag mirror, socket framing; cross-language conformance vs `fixtures/wire/*.bin` | 28 | 0 | ✅ | 2026-07-19 |
+| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify (raw + Java X.509 keys), frozen tag mirror, socket framing; cross-language conformance vs `fixtures/wire/*.bin`; rendezvous family (tags 35–43) + `PeerCandidate`/`SignedPeerRecord` (Task 29) | 35 | 0 | ✅ | 2026-07-19 |
 | `nodera-tracker` | standalone tracker service: signed announce lifecycle + TTL expiry, per-world registry + isolation, sampling with seeder floor, health/countdown, per-IP quotas, TCP wire (Task 28) | 54 | 0 | ✅ | 2026-07-19 |
-| `nodera-rendezvous` | rendezvous + relay service (Task 29) — placeholder crate | 0 | 0 | ⬜ | 2026-07-19 |
+| `nodera-rendezvous` | rendezvous + relay service (Task 29): signed-record registration (Ed25519, TTL, trust-on-first-use, per-IP quota), paged discovery, HMAC relay reservations, tokio circuit bridging with byte/duration/idle metering + teardown reasons, DCUtR punch coordination, TCP wire | 55 | 0 | ✅ | 2026-07-19 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -66,7 +66,14 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
 >
-> Test growth (670 → 688) is **Task 12a — the entity-lane core foundation** (+18, `core`).
+> Test growth (688 → 704 Java, 82 → 144 Rust) is **Task 29 — the rendezvous + relay service**: the
+> Java `transport-rendezvous` module (+16 — `TransportSelector` path policy, `EndToEndCipher`
+> X25519+AES-GCM loopback + identity-binding + tamper-reject, `CandidateDialer`,
+> `HolePunchCoordinator`, and `RendezvousRelayIT` bridging two relay-only peers through the **real
+> `nodera-rendezvous` binary**), the Rust `nodera-rendezvous` crate (+55), and the extended
+> `nodera-codec` rendezvous family (+7, byte-exact vs. Java golden fixtures). L-23 + L-27 RETIRED.
+>
+> Prior growth (670 → 688) was **Task 12a — the entity-lane core foundation** (+18, `core`).
 > `FixedVec3Test` pins Q32.32 fixed-point arithmetic (ONE = 2³², pure-integer add/subtract,
 > negative block-part recovery, canonical round-trip, and same-bits-same-encode determinism — the
 > property that lets entity position live in the root). `EntityLaneTypesTest` pins
