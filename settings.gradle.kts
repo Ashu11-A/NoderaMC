@@ -46,6 +46,11 @@ module("distribution")
 module("storage-client")
 module("storage-rocksdb")
 
+// Task 32 — the headless peer worker: a Minecraft-free, always-on network node (the "peer worker"
+// the Tauri companion app supervises and the Minecraft mod requires). Owns the loopback control
+// endpoint the mod probes. Runnable via the `application` plugin (installDist / run).
+module("nodera-headless")
+
 // --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
 module("transport-neoforge")
 module("neoforge-mod")

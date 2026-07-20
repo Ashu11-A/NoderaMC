@@ -73,14 +73,25 @@ public final class ClientBootstrap {
         if (required) {
             CompanionGate.GateResult result = CompanionGate.requireRunning(client); // throws if absent
             LOG.info("Nodera companion gate: {}", result.message());
+            linkWorker(client);
         } else {
             CompanionGate.GateResult result = CompanionGate.evaluate(client);
             if (result.ok()) {
                 LOG.info("Nodera companion gate: {}", result.message());
+                linkWorker(client);
             } else {
                 LOG.warn("Nodera companion gate (not enforced): {}", result.message());
             }
         }
+    }
+
+    /** Record the verified worker so the rest of the mod talks to the always-on node through it. */
+    private static void linkWorker(CompanionClient client) {
+        client.probe().ifPresent(info -> {
+            dev.nodera.mod.common.CompanionLink.set(client, info);
+            LOG.info("Nodera worker linked: protocol {}, version {}",
+                    info.protocolVersion(), info.daemonVersion());
+        });
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
