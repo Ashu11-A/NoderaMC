@@ -45,7 +45,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/nodera-headless.jar": "resources/nodera-headless.jar"
+      "resources/nodera-headless": "resources/nodera-headless"
     }
   }
 }

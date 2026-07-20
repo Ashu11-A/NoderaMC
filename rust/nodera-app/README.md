@@ -5,10 +5,15 @@ Nodera peer** so a node stays on the network even with Minecraft closed — this
 player-hosted world survive the host closing their game, and turns every install into a persistent
 network node.
 
-**Architecture — Option B (locked):** this app *supervises a bundled headless Java Nodera peer*
-(reusing all of the tested Java peer/validation logic — the determinism rule forbids a second region
-engine). The Rust side is the UI, system tray, autostart, the loopback **control endpoint** the mod
-probes, the **daemon supervisor**, and metrics aggregation.
+**Architecture — Option B (locked):** this app *supervises the bundled headless Java Nodera peer
+worker* (`nodera-headless`, reusing all of the tested Java peer/validation logic — the determinism
+rule forbids a second region engine). The **worker owns the loopback control endpoint** that the
+Minecraft mod probes; this app is the UI, system tray, autostart, the **worker supervisor**
+(`daemon.rs`), and a **control-endpoint monitor** (`control.rs`) that probes the worker for liveness.
+
+**Attach mode** (`NODERA_APP_ATTACH=1`): the app does not spawn its own worker — it attaches to one
+already running (e.g. started by `scripts/dev.sh`). Used so dev runs don't fight over the control
+port. In production the app supervises the worker itself.
 
 ## Why it is excluded from the `rust/` workspace
 
@@ -32,27 +37,30 @@ cargo tauri dev                  # window + tray + control endpoint + daemon sup
 cargo tauri build                # release installer (with autostart + tray)
 ```
 
-The supervised headless peer jar is resolved from `NODERA_HEADLESS_JAR` (dev) or the bundled
-`resources/nodera-headless.jar` (release); the Java runtime from `NODERA_JAVA` or `PATH`. Producing
-that headless jar (a Minecraft-free `main` over `peer-runtime`) is the Java-side half of Task 32.
+The supervised worker launcher is resolved from `NODERA_WORKER_BIN`, else the bundled
+`resources/nodera-headless/bin/nodera-headless` (the `:nodera-headless` `installDist` output, copied
+in at bundle time). Build the worker with `./gradlew :nodera-headless:installDist` and copy
+`java/nodera-headless/build/install/nodera-headless` to `resources/nodera-headless` before
+`cargo tauri build`.
 
 ## Control endpoint
 
-Binds `127.0.0.1:25610` and answers the mod's presence probe
-(`dev.nodera.mod.common.CompanionProtocol`):
+The **worker** (`nodera-headless`) owns `127.0.0.1:25610` and answers the presence probe
+(`dev.nodera.peer.control.ControlProtocol`, mirrored by the mod's `CompanionProtocol`):
 
 ```
-mod → daemon:  NODERA-PROBE <protocolVersion>
-daemon → mod:  NODERA-OK <protocolVersion> <daemonVersion>
+client → worker:  NODERA-PROBE <protocolVersion>
+worker → client:  NODERA-OK <protocolVersion> <workerVersion>
 ```
 
-Keep `PROTOCOL_VERSION` in `src/control.rs` in lockstep with the Java constant. The endpoint is
-loopback-only and non-authoritative: peers still verify everything the node serves on the real
-network (Task 0 rule 7).
+This app *connects* to that endpoint (`control::monitor`) for liveness; it does not bind it. Keep
+`PROTOCOL_VERSION` in `src/control.rs` in lockstep with the Java `ControlProtocol`. Loopback-only and
+non-authoritative: peers still verify everything the node serves on the real network (Task 0 rule 7).
 
 ## Status
 
 Scaffold: Rust backend (`main`/`control`/`daemon`/`metrics`) + React dashboard (the four required
-panels: maintained chunks/data, GB ↑/↓, peers, current world) + tray + autostart + single-instance.
-Deferred (the live lane): the headless-peer jar + its telemetry pump feeding real metrics, the
-host/join control verbs, per-OS installers, and app icons under `icons/`.
+panels: maintained chunks/data, GB ↑/↓, peers, current world) + tray + autostart + single-instance +
+attach mode. The **worker itself is real and runnable** (`java/nodera-headless`, proven to boot +
+answer the probe). Deferred (the live lane): the worker's telemetry pump feeding real dashboard
+metrics, the host/join control verbs, per-OS installers, and app icons under `icons/`.

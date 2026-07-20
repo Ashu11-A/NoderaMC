@@ -25,9 +25,13 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, WindowEvent};
 
-/// Loopback address the control endpoint binds and the mod probes. Keep in sync with the mod's
-/// `companion.controlEndpoint` default (127.0.0.1:25610).
-const CONTROL_BIND: &str = "127.0.0.1:25610";
+/// Loopback address of the WORKER's control endpoint (owned by `nodera-headless`, probed by both
+/// the mod and this app). Keep in sync with the mod's `companion.controlEndpoint` default. Override
+/// with `NODERA_CONTROL_PORT`.
+fn control_addr() -> String {
+    let port = std::env::var("NODERA_CONTROL_PORT").unwrap_or_else(|_| "25610".to_string());
+    format!("127.0.0.1:{port}")
+}
 
 /// Tauri command: the React UI pulls the latest dashboard snapshot.
 #[tauri::command]
@@ -67,16 +71,16 @@ fn main() {
             }
 
             // Background async work on Tauri's async runtime (tokio).
-            let metrics_ctl = Arc::clone(&metrics);
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = control::serve(CONTROL_BIND, metrics_ctl).await {
-                    eprintln!("nodera-app: control endpoint failed on {CONTROL_BIND}: {e}");
-                }
-            });
-
+            // Supervise the worker (unless attach mode, where scripts/dev.sh already runs it)...
             let metrics_daemon = Arc::clone(&metrics);
             tauri::async_runtime::spawn(async move {
                 daemon::supervise(metrics_daemon).await;
+            });
+
+            // ...and monitor the worker's control endpoint for liveness (the authoritative signal).
+            let metrics_ctl = Arc::clone(&metrics);
+            tauri::async_runtime::spawn(async move {
+                control::monitor(control_addr(), metrics_ctl).await;
             });
 
             // Push the dashboard snapshot to the frontend every second.

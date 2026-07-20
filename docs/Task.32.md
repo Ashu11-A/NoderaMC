@@ -16,6 +16,32 @@ a thin control client), `protocol`/`fixtures` (a small local control family), `s
 > player-hosted worlds survive the host closing their game (request #3's "host doesn't need to stay
 > connected") and turns every installer into a persistent network node.
 
+## Implementation status (2026-07-20 — worker + gate landed, gate green)
+
+`./gradlew check` (746 Java) + `cargo test` (144 Rust) green. Landed this pass:
+
+- **Peer worker (done, runnable):** new `java/nodera-headless` module — `HeadlessPeerMain` boots a
+  `PeerRuntime` over a real socket with a persistent identity (L-28) and serves the loopback
+  `ControlServer`. Verified live outside the gate: it boots, becomes gateway, and answers
+  `NODERA-PROBE 1` with `NODERA-OK 1 0.1.0-SNAPSHOT`. Runnable via the `application` plugin
+  (`installDist` / `run`).
+- **Control protocol (done):** `dev.nodera.peer.control.ControlProtocol` (single source of truth) +
+  `ControlServer` in `peer-runtime` (`ControlServerTest`, +2). The mod's `CompanionProtocol` and the
+  Rust `control.rs` both mirror it.
+- **Presence gate (done, enforced):** `CompanionGate`/`CompanionClient`/`CompanionLink`; the mod
+  probes the worker at client setup and — with `companion.required` now defaulting **ON** — aborts
+  NeoForge startup with an actionable error (install URL) if the worker is absent. `CompanionLink`
+  holds the verified connection for the rest of the mod.
+- **dev.sh (done):** builds + runs the worker (control-probe health check) alongside tracker +
+  rendezvous; `--with-app` builds + launches the Tauri app in attach mode; `--no-worker` opts out.
+- **Tauri app (scaffold):** `rust/nodera-app` supervises the worker (`daemon.rs`, attach-aware) and
+  monitors its control endpoint (`control.rs`); workspace-excluded (Tauri native deps).
+
+Still deferred (the live lane): the worker's telemetry pump feeding the dashboard's real metrics; the
+worker↔mod **host/join control verbs** (so hosting a world delegates to the worker instead of the
+in-JVM peer — needs the genesis/world-data extraction, Task 9/30c); per-OS installers + app icons;
+and the automated cross-machine continuity test (L-47).
+
 ## Goal
 
 1. **A required companion app.** Players install the Nodera companion (from

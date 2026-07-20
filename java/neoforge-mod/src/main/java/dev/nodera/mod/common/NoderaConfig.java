@@ -122,21 +122,22 @@ public final class NoderaConfig {
         }
     }
 
-    // Companion app / headless-peer daemon (Task 32). The Nodera peer node runs in a separate,
-    // always-on companion process (Tauri, Option B: it supervises a bundled headless Java peer) so a
-    // node stays on the network even with Minecraft closed. The control endpoint is the loopback
-    // address the mod probes at startup. `companion.required` is the presence gate: when true, the mod
-    // ABORTS NeoForge startup if the daemon is absent (the request-#2 behaviour). It defaults to
-    // FALSE for now — the companion app is not shipped yet, so enforcing it would brick a working
-    // install; flip it to true once the app ships from https://github.com/Ashu11-A/NoderaMC.
+    // Companion app / headless-peer worker (Task 32). The Nodera peer node runs in a separate,
+    // always-on process (the `nodera-headless` worker, supervised by the Tauri companion app) so a
+    // node stays on the network even with Minecraft closed. `companion.controlEndpoint` is the
+    // loopback address the mod probes at startup; `companion.required` is the presence gate: when
+    // true, the mod ABORTS NeoForge startup if the worker is absent, guaranteeing the player is a
+    // network node whenever Minecraft runs. It defaults to TRUE — the worker is started by
+    // `scripts/dev.sh` / the companion app; if you launch without it, install/start it from
+    // https://github.com/Ashu11-A/NoderaMC (or set this false to run the mod without the network node).
     public static final ModConfigSpec.ConfigValue<String> COMPANION_CONTROL_ENDPOINT =
             CLIENT_BUILDER.define("companion.controlEndpoint", "127.0.0.1:25610");
     public static final ModConfigSpec.BooleanValue COMPANION_REQUIRED =
-            CLIENT_BUILDER.define("companion.required", false);
+            CLIENT_BUILDER.define("companion.required", true);
     public static final ModConfigSpec.ConfigValue<String> SERVER_COMPANION_CONTROL_ENDPOINT =
             SERVER_BUILDER.define("companion.controlEndpoint", "127.0.0.1:25610");
     public static final ModConfigSpec.BooleanValue SERVER_COMPANION_REQUIRED =
-            SERVER_BUILDER.define("companion.required", false);
+            SERVER_BUILDER.define("companion.required", true);
 
     private static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
     private static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();
