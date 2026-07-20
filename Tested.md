@@ -26,12 +26,12 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage-eventsourced` | Phase 5 in-memory event-sourced `WorldStore`: content/event/checkpoint/certificate impls, certified-chain `EventReplayer`, forward `PeerSyncFlow` (Task 9) | 13 | 0 | 0 | ✅ | 2026-07-18 |
 | `distribution` | Phase 5–6 torrent data plane: Task 19 split/select/download/reassemble/locks/transfer + Task 23 bounded Argon2id/encrypted ciphertext flow + Task 24 bounded `ActivePlayerStream`/`EmergencyFlush`, `DistributionIT` + `EncryptedDistributionIT` + stream/flush ITs | 78 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-neoforge` | NeoForge payload relay transport (skeleton; relay deferred to Task 4) | 1 | 0 | 0 | 🚧 | 2026-07-17 |
-| `neoforge-mod` | `@Mod` entrypoints + bootstrap-peer wiring, redesigned `/nodera` diagnostics tree + `/noderac` + HUD surfaces, session payload + Task 26 `client/multiplayer` screens (event hooks, no mixin) — compiles + jar; `runServer`/`runClient` deferred | 1 | 0 | 0 | 🚧 | 2026-07-18 |
+| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring on both dists (Task 30 — no dedicated-server gate), redesigned `/nodera` tree + `/noderac` + HUD surfaces, session payload, Task 26 `client/multiplayer` screens + Task 30 pause-menu `client/share` "Share to Nodera" screen + `ShareOptions`/`NoderaHost` (event hooks, no mixin) — compiles + jar; `runServer`/`runClient` deferred | 9 | 0 | 0 | 🚧 | 2026-07-20 |
 | `storage-rocksdb` | full-archive durable `WorldStore`: `RocksWorldStore` (WAL-backed CFs, log-tail head recovery), `FsContentStore` (atomic writes, hash-verified reads), forced-kill `RocksCrashRecoveryIT` (Task 9) | 10 | 0 | 0 | ✅ | 2026-07-18 |
 | `storage-client` | bounded/quota'd client content store: `BoundedClientWorldStore`, `StorageQuotaManager`, `ArchiveEvictionPolicy` (Task 22); eviction repair callbacks execute outside the store monitor (Task 24 hardening) | 9 | 0 | 0 | ✅ | 2026-07-18 |
 | `transport-rendezvous` | direct-first / punch-upgrade / X25519+AES-GCM relay-fallback `PeerTransport` over `nodera-rendezvous` (Task 29; supersedes the planned `transport-libp2p`): `TransportSelector` policy, `EndToEndCipher`, `CandidateDialer`, `HolePunchCoordinator`, and `RendezvousRelayIT` over the real binary | 16 | 0 | 0 | ✅ | 2026-07-19 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **704** | **0** | **0** | ✅ | 2026-07-19 |
+| **TOTAL (implemented modules)** | | **712** | **0** | **0** | ✅ | 2026-07-20 |
 
 Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (Task 27):
 
@@ -65,6 +65,18 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > `DiagnosticsIT` (+1 `peer-runtime` — asserts real tx/rx bytes+frames, `SessionKeepAlive` in the
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
+>
+> Test growth (704 → 712 Java) is **Task 30 — decentralization (first increment)**: `neoforge-mod`
+> `ShareOptionsTest` (+8) pins the pause-menu "Share" value type — a non-blank password turns on Task
+> 23 content encryption while an empty one is plaintext, the dedicated/player defaults, immutable
+> copy-with helpers, positive-replication validation, equality over every field, and the discipline
+> that the password never appears in `toString`. The increment also removes the `Dist.DEDICATED_SERVER`
+> gate (an integrated server now runs the same host lane, waiting for "Share"), renames `dedicated/`→
+> `server/`, makes `NoderaPeerService` role-driven (`startHost`/`hostRoute`/`isHosting`/`stopHosting`),
+> adds the `client/share` `PauseScreenShareAddon`/`ShareWorldScreen` + `common/NoderaHost`, and
+> retires the dedicated-server launcher in `scripts/dev.sh` — all compile-clean against NeoForge
+> 21.1.77. Genesis-from-existing-world, the real re-manifest on password change, live
+> `RendezvousPeerTransport`/encryption, and the `runClient` GUI pass remain the deferred live lane.
 >
 > Test growth (688 → 704 Java, 82 → 144 Rust) is **Task 29 — the rendezvous + relay service**: the
 > Java `transport-rendezvous` module (+16 — `TransportSelector` path policy, `EndToEndCipher`

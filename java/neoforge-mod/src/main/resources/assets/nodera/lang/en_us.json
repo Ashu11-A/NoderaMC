@@ -5,5 +5,17 @@
   "nodera.multiplayer.create.torrent.off": "Torrent hosting: OFF",
   "nodera.multiplayer.create.torrent.on": "Torrent hosting: ON",
   "nodera.multiplayer.create.password": "Encryption password",
-  "nodera.multiplayer.create.password.hint": "Password (empty = plaintext)"
+  "nodera.multiplayer.create.password.hint": "Password (empty = plaintext)",
+  "nodera.share.button": "Share to Nodera…",
+  "nodera.share.button.sharing": "Nodera: Sharing options…",
+  "nodera.share.title": "Share world to Nodera",
+  "nodera.share.password": "Encryption password",
+  "nodera.share.password.hint": "Password (empty = plaintext)",
+  "nodera.share.delegate.on": "Region delegation: ON",
+  "nodera.share.delegate.off": "Region delegation: OFF",
+  "nodera.share.listed.on": "Visibility: Listed on tracker",
+  "nodera.share.listed.off": "Visibility: Invite-only",
+  "nodera.share.confirm": "Share to network",
+  "nodera.share.update": "Update sharing options",
+  "nodera.share.stop": "Stop sharing"
 }

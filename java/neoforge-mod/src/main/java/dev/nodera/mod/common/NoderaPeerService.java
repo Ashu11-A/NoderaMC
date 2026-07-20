@@ -27,11 +27,12 @@ import java.util.Enumeration;
  * beta). Bridges the NeoForge lifecycle to the Minecraft-free peer runtime:
  *
  * <ul>
- *   <li>on a dedicated server, {@link #startBootstrap} spins up the <b>bootstrap peer</b> that
- *       clients join through (the "server acting as a peer");</li>
- *   <li>on a client, {@link #onServerSessionInfo} spins up a <b>player peer</b> that dials the
- *       server's advertised P2P route and joins the mesh, so the two players form a direct link
- *       that outlives the server.</li>
+ *   <li>a <b>host</b> (a player's integrated server that pressed "Share", or a dedicated server that
+ *       auto-hosts) calls {@link #startHost} to spin up the host peer that joiners connect through —
+ *       the role, not the dist, decides who hosts (Task 30);</li>
+ *   <li>a <b>joiner</b> calls {@link #onServerSessionInfo} to spin up a player peer that dials the
+ *       host's advertised P2P route and joins the mesh, so the players form a direct link that
+ *       outlives the host.</li>
  * </ul>
  *
  * <p>The heavy lifting (membership, heartbeats, deterministic gateway migration) lives in
@@ -50,6 +51,7 @@ public final class NoderaPeerService {
     private PeerRuntime serverRuntime;
     private DiagnosticsCollector serverCollector;
     private dev.nodera.mod.debug.DiagnosticsService serverDiagnostics;
+    private ShareOptions hostOptions;
 
     private dev.nodera.peer.discovery.TrackerClient serverTrackerClient;
 
@@ -93,14 +95,19 @@ public final class NoderaPeerService {
     }
 
     /**
-     * Start the bootstrap peer (dedicated server). Idempotent.
+     * Start the host peer for this world (Task 30). Called by a dedicated server that auto-hosts, or
+     * by the pause-menu "Share" action on a player's integrated server — the role, not the dist,
+     * decides who calls this. Idempotent: re-calling while already hosting keeps the existing runtime
+     * and only refreshes the share options.
      *
      * @param bindHost      local bind address.
      * @param port          local P2P port.
-     * @param advertiseHost host clients dial ({@code "auto"} → best local non-loopback address).
-     * @return the advertised bootstrap route ({@code host:port}), never null once started.
+     * @param advertiseHost host that joiners dial ({@code "auto"} → best local non-loopback address).
+     * @param options       the share options (password, delegation, visibility); never {@code null}.
+     * @return the advertised host route ({@code host:port}), never null once started.
      */
-    public synchronized String startBootstrap(String bindHost, int port, String advertiseHost) {
+    public synchronized String startHost(String bindHost, int port, String advertiseHost, ShareOptions options) {
+        this.hostOptions = options == null ? ShareOptions.dedicatedDefault() : options;
         if (serverRuntime != null) {
             return serverRuntime.selfRoute();
         }
@@ -110,28 +117,51 @@ public final class NoderaPeerService {
         TrafficMeter serverMeter = new TrafficMeter();
         MessageCounters serverCounts = new MessageCounters();
         MeteredPeerTransport serverMetered = new MeteredPeerTransport(serverTransport, serverMeter);
+        // The host takes the bootstrap role in the peer mesh (Task 26 semantics: FULL_ARCHIVE +
+        // bootstrap/tracker + a one-vote validator). This is the same PeerRuntime every installation
+        // runs — the host peer just seeds the session.
         serverRuntime = PeerRuntime.bootstrap(serverIdentity, NodeCapabilities.initial(),
                 serverMetered, serverTransport::listenRoute, PeerRuntimeConfig.defaults(),
-                new LoggingListener("server"), serverCounts);
+                new LoggingListener("host"), serverCounts);
         serverCollector = new DiagnosticsCollector(serverMeter, serverCounts)
                 .register(serverRuntime)
                 .register(RegionOwnershipProvider.stub())
                 .register(EntityControlProvider.stub());
         serverDiagnostics = new dev.nodera.mod.debug.DiagnosticsService(serverRuntime, serverCollector);
-        // Task 28: the tracker is a separate process now. The bootstrap peer is the world's
-        // FULL_ARCHIVE host, so it is the peer whose announce carries the world's display name.
+        // Task 28: the tracker is a separate process now. The host peer is the world's FULL_ARCHIVE
+        // node, so it is the peer whose announce carries the world's display name.
         serverTrackerClient = trackerClient(NoderaConfig.TRACKER_ENDPOINTS.get(), serverIdentity);
         if (!serverTrackerClient.endpoints().isEmpty()) {
             LOG.info("Nodera tracker endpoints: {}", serverTrackerClient.endpoints());
         }
+        // Task 30 (30e, partial): consume the rendezvous endpoints so they are no longer dead config.
+        // Composing the RendezvousPeerTransport needs the world namespace (networkId + genesisHash),
+        // which is produced by the live genesis lane (Task 9); until that lands the endpoints are held
+        // and logged here, and the LAN/direct path stays on SocketPeerTransport.
+        var rendezvous = NoderaConfig.RENDEZVOUS_ENDPOINTS.get();
+        if (rendezvous != null && !rendezvous.isEmpty()) {
+            LOG.info("Nodera rendezvous endpoints configured (NAT-traversal engages in the live host lane): {}",
+                    rendezvous);
+        }
         String route = serverRuntime.selfRoute();
-        LOG.info("Nodera bootstrap peer online at {} (node {})", route, serverIdentity.nodeId());
+        LOG.info("Nodera host peer online at {} (node {}, encryption={})",
+                route, serverIdentity.nodeId(), this.hostOptions.encryptionEnabled());
         return route;
     }
 
-    /** @return the current bootstrap route to advertise to clients, or {@code null} if offline. */
-    public synchronized String bootstrapRoute() {
+    /** @return the current host route to advertise to joiners, or {@code null} if not hosting. */
+    public synchronized String hostRoute() {
         return serverRuntime == null ? null : serverRuntime.selfRoute();
+    }
+
+    /** @return whether this installation is currently hosting a world on the network (Task 30). */
+    public synchronized boolean isHosting() {
+        return serverRuntime != null;
+    }
+
+    /** @return the active share options while hosting, or {@code null} if not hosting. */
+    public synchronized ShareOptions hostOptions() {
+        return serverRuntime == null ? null : hostOptions;
     }
 
     /** @return the server-side runtime (for the {@code /nodera} command), or {@code null}. */
@@ -176,10 +206,10 @@ public final class NoderaPeerService {
         return clientTrackerClient;
     }
 
-    /** Stop the bootstrap peer. Idempotent. */
-    public synchronized void stopServer() {
+    /** Stop hosting this world (server stopping, or the "Stop sharing" action). Idempotent. */
+    public synchronized void stopHosting() {
         if (serverRuntime != null) {
-            LOG.info("Nodera bootstrap peer shutting down");
+            LOG.info("Nodera host peer shutting down");
             serverRuntime.stop();
             serverRuntime = null;
         }
@@ -191,6 +221,7 @@ public final class NoderaPeerService {
         serverDiagnostics = null;
         serverTransport = null;
         serverIdentity = null;
+        hostOptions = null;
     }
 
     /**

@@ -86,6 +86,7 @@ observable in normal play.
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | RETIRING |
 | L-44 | Tracker is embedded in a Java peer (`TrackerService`, Task 20) — the world list / announce surface dies with its host peer; no always-on discovery infrastructure | T28 | `TrackerServiceIT`: the standalone Rust `nodera-tracker` binary serves the world list with every Java seeder of a world offline; peers announce/query it; embedded serving path deleted per `LEGACY.md` | RETIRED |
+| L-45 | No automated real-client GUI acceptance harness. Task 30's decentralization is proven headlessly + compile-clean, but the pause-menu "Share" flow, integrated-server host activation, and a second client joining a shared world are only *manually* verifiable — the mod jar dropped into `~/.minecraft/` (NeoForge 21.1.x), driven by hand; there is no `neoforge { runs { register("client") } }` block, so `runClient` cannot even launch from Gradle | T30+ | A `runs` block ships; a headless `runClient` under Xvfb drives Share → a second client sees + joins the world through the tracker + rendezvous/socket, asserting the listing and mesh formation | OPEN |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
 > module ships the addressable piece plane (`PieceManifest`/`Piece`), the append-only
@@ -216,6 +217,18 @@ observable in normal play.
 > among equal-weight peers; the bootstrap-preference and deterministic UUID tie-break are
 > unchanged, so the order-independence property test still holds. Verified by
 > `GatewayElectionTest.capabilityWeightIsBoundedPureIntegerMath` and `mostCapablePeerWins*`.
+
+> **L-45 opened / decentralization (Task 30, 2026-07-20).** The first Task 30 increment finishes Plan
+> Phase 5's "demote the server" on the mod side: the `Dist.DEDICATED_SERVER` gate is removed, so a
+> player's integrated server runs the same host lane and shares a world from the pause-menu "Share to
+> Nodera" button; `NoderaPeerService` is role- not dist-driven; `scripts/dev.sh` no longer installs or
+> runs a Minecraft server. This is proven headlessly (`ShareOptionsTest`) + compile-clean against
+> NeoForge 21.1.77. What is NOT yet automatable is the live GUI flow itself — hence L-45 OPEN. The
+> live production it fronts (genesis-from-existing-world + self-cert, the password-change re-manifest,
+> `RendezvousPeerTransport` composition, per-piece encryption) rides the same NeoForge live lane as
+> Tasks 5–8/19/23/26 and stays deferred with them; **L-20 is unchanged** (genesis is still a
+> single-signer trust root — now the hosting player's identity rather than the dedicated server's —
+> with T16 owning multi-party re-certification).
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

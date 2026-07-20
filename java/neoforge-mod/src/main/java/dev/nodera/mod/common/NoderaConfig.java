@@ -36,9 +36,17 @@ public final class NoderaConfig {
     public static final ModConfigSpec.IntValue CLIENT_MAX_REPLICA =
             CLIENT_BUILDER.defineInRange("worker.maxReplica", 4, 0, 64);
 
-    // P2P direct-transport endpoint (Phase 6 continuity). The dedicated server listens here as a
-    // bootstrap peer; clients dial the advertised route and keep a direct mesh that outlives the
-    // server. Advertise host "auto" picks the best local site-local IPv4.
+    // Host auto-share (Task 30). A DEDICATED server may put its world on the network automatically at
+    // startup (an always-on FULL_ARCHIVE seeder — the classic "bootstrap server", now just a peer).
+    // An INTEGRATED (singleplayer/LAN) server ignores this: it stays private until the player uses
+    // the pause-menu "Share" action, so this flag can never auto-broadcast a private world.
+    public static final ModConfigSpec.BooleanValue HOST_AUTO_SHARE =
+            SERVER_BUILDER.define("host.autoShare", true);
+
+    // P2P direct-transport endpoint (Phase 6 continuity). A host peer (dedicated server or a player's
+    // integrated server that pressed "Share") listens here; joiners dial the advertised route and
+    // keep a direct mesh that outlives the host. Advertise host "auto" picks the best local
+    // site-local IPv4.
     public static final ModConfigSpec.ConfigValue<String> P2P_BIND_HOST =
             SERVER_BUILDER.define("p2p.bindHost", "0.0.0.0");
     public static final ModConfigSpec.IntValue P2P_PORT =

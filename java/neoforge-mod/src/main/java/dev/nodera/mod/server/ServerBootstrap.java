@@ -1,10 +1,13 @@
-package dev.nodera.mod.dedicated;
+package dev.nodera.mod.server;
 
 import dev.nodera.mod.common.NoderaConfig;
+import dev.nodera.mod.common.NoderaHost;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.mod.common.NoderaSessionPayload;
+import dev.nodera.mod.common.ShareOptions;
 import dev.nodera.mod.debug.DiagnosticsService;
 import dev.nodera.mod.debug.command.NoderaCommand;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -17,15 +20,20 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.ApiStatus;
 
 /**
- * Dedicated-server wiring for the Nodera bootstrap peer + the in-game diagnostics HUD (Task 18).
+ * Server-side wiring for the Nodera host peer + the in-game diagnostics HUD (Task 18). Registered on
+ * <b>both</b> dists (Task 30): the <i>integrated</i> server of a player who presses "Share" is a host
+ * exactly like a dedicated server — "the server is special in capacity and availability, not in
+ * authority" (Plan Invariants 1–2). The dist no longer decides whether Nodera runs; the host role
+ * does.
  *
- * <p>On {@link ServerStartedEvent} it starts the bootstrap {@code PeerRuntime} (the "server acting
- * as a peer") and its {@link DiagnosticsService}; on {@link PlayerEvent.PlayerLoggedInEvent} it
- * hands each joining player the P2P bootstrap route; on {@link ServerTickEvent.Post} it samples the
- * HUD and renders tab/boss-bar surfaces; on {@link PlayerTickEvent.Post} it fires zone-edge alerts;
- * on {@link ServerStoppingEvent} it tears everything down. Command registration delegates to
- * {@link NoderaCommand} (the redesigned declarative {@code /nodera} tree; {@code status}/{@code peers}
- * remain as aliases).
+ * <p>On {@link ServerStartedEvent} it starts the host {@link dev.nodera.peer.PeerRuntime} <i>only</i>
+ * for a dedicated server configured to auto-share (a plain always-on {@code FULL_ARCHIVE} seeder); a
+ * private singleplayer/LAN world is <b>never</b> auto-broadcast — it goes on the network only when
+ * the player uses the pause-menu {@code Share} action (Task 30b), which calls
+ * {@link NoderaHost#activate}. On {@link PlayerEvent.PlayerLoggedInEvent} it hands each joining
+ * player the P2P host route (when hosting); on {@link ServerTickEvent.Post} it samples the HUD; on
+ * {@link PlayerTickEvent.Post} it fires zone-edge alerts; on {@link ServerStoppingEvent} it tears
+ * everything down. Command registration delegates to {@link NoderaCommand}.
  *
  * <p>Thread context: {@code register} runs on the mod-loading thread; the subscribed events fire on
  * the server main thread.
@@ -36,7 +44,7 @@ public final class ServerBootstrap {
     private ServerBootstrap() {
     }
 
-    /** Called from {@link dev.nodera.mod.NoderaMod} only when {@code dist == DEDICATED_SERVER}. */
+    /** Called from {@link dev.nodera.mod.NoderaMod} on every dist (Task 30). */
     public static void register() {
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStarted);
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStopping);
@@ -48,10 +56,13 @@ public final class ServerBootstrap {
     }
 
     private static void onServerStarted(ServerStartedEvent event) {
-        NoderaPeerService.get().startBootstrap(
-                NoderaConfig.P2P_BIND_HOST.get(),
-                NoderaConfig.P2P_PORT.get(),
-                NoderaConfig.P2P_ADVERTISE_HOST.get());
+        MinecraftServer server = event.getServer();
+        // A dedicated server may auto-host (an always-on FULL_ARCHIVE peer). An integrated server
+        // never auto-broadcasts a private world — it waits for the pause-menu "Share" action so
+        // singleplayer stays private by default (Task 30a).
+        if (server.isDedicatedServer() && NoderaConfig.HOST_AUTO_SHARE.get()) {
+            NoderaHost.activate(server, ShareOptions.dedicatedDefault());
+        }
     }
 
     private static void onServerStopping(ServerStoppingEvent event) {
@@ -59,11 +70,11 @@ public final class ServerBootstrap {
         if (d != null) {
             d.onServerStopping();
         }
-        NoderaPeerService.get().stopServer();
+        NoderaPeerService.get().stopHosting();
     }
 
     private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        String route = NoderaPeerService.get().bootstrapRoute();
+        String route = NoderaPeerService.get().hostRoute();
         if (route != null && event.getEntity() instanceof ServerPlayer player) {
             PacketDistributor.sendToPlayer(player, new NoderaSessionPayload(route));
         }
