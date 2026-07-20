@@ -108,11 +108,19 @@ One script builds everything and runs the whole stack — the Minecraft bootstra
 `nodera-tracker` and `nodera-rendezvous` services:
 
 ```bash
-scripts/dev --accept-eula       # build Rust + mod, install the server if needed, start all three
-scripts/dev --no-mc             # just the Rust services (tracker + rendezvous)
-scripts/dev --test              # run the full gate (gradlew build + cargo test) as part of the build
-scripts/dev --help              # options + env overrides (ports, heap, Java, server dir)
+scripts/dev.sh --accept-eula     # build Rust + mod, install the server if needed, start all three
+scripts/dev.sh --build-only      # compile BOTH toolchains, collect artifacts into build/, then exit
+scripts/dev.sh --no-mc           # just the Rust services (tracker + rendezvous)
+scripts/dev.sh --test            # run the full gate (gradlew build + cargo test) as part of the build
+scripts/dev.sh --help            # options + env overrides (ports, heap, Java, server dir)
 ```
+
+Every build collects both toolchains' outputs — the `nodera-tracker` and `nodera-rendezvous`
+binaries and `neoforge-mod.jar` — together into the top-level `build/` directory, and the run phase
+starts the tracker + rendezvous from there, health-checks each on its port, and points the mod's
+`config/nodera-server.toml` at both. CI (`.github/workflows/release-latest.yml`) runs the same
+`scripts/dev.sh --build-only` on every push and attaches the three artifacts to a rolling `latest`
+GitHub **prerelease** (marked latest, not an officially published release).
 
 `--accept-eula` records your acceptance of the [Mojang EULA](https://aka.ms/MinecraftEULA); it is
 required once before the Minecraft server will start. Ctrl-C stops every server.

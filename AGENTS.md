@@ -18,8 +18,9 @@
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
 - `cd rust && cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
 - `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
-- `scripts/dev --test --no-mc` — build both toolchains + run the full gate without starting servers
-- `scripts/dev --accept-eula`  — build everything, install the server if needed, run the Minecraft + tracker + rendezvous stack
+- `scripts/dev.sh --build-only` — compile both toolchains + collect artifacts (2 binaries + the jar) into `build/`; the CI `release-latest` workflow runs this on every push and attaches them to a rolling `latest` prerelease
+- `scripts/dev.sh --test --no-mc` — build both toolchains + run the full gate without starting servers
+- `scripts/dev.sh --accept-eula`  — build everything, install the server if needed, run the Minecraft + tracker + rendezvous stack (started from `build/`, health-checked, mod wired to both endpoints)
 
 A red cargo job blocks a commit exactly like a red `./gradlew check`: the Rust services speak the
 same frozen wire contract, so a codec regression is a consensus regression.
