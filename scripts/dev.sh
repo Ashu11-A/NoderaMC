@@ -2,19 +2,24 @@
 # ===========================================================================
 # nodera dev — one script, whole local stack.
 #
-# Builds the Rust workspace (codec + tracker + rendezvous) and the NeoForge mod
-# jar, installs a dedicated Minecraft server if one is not already present, then
-# starts all three servers together: the Minecraft bootstrap peer, the
-# nodera-tracker, and the nodera-rendezvous relay. Ctrl-C stops all of them.
+# Compiles BOTH toolchains — the Rust workspace (codec + tracker + rendezvous)
+# and the NeoForge mod jar — and collects every artifact (the two service
+# binaries + the *.jar) together into the top-level build/ directory. It then
+# installs a dedicated Minecraft server if one is not already present and starts
+# all three servers together — the Minecraft bootstrap peer, the nodera-tracker,
+# and the nodera-rendezvous relay — wiring the mod's config at the tracker and
+# rendezvous endpoints and health-checking both services. Ctrl-C stops all.
 #
 # Usage:
-#   scripts/dev [--accept-eula] [options]
+#   scripts/dev.sh [--accept-eula] [options]
 #
 # Options:
 #   --accept-eula   Accept the Mojang EULA (https://aka.ms/MinecraftEULA). Required
 #                   once before the Minecraft server will start. Also via ACCEPT_EULA=true.
+#   --build-only    Compile both toolchains, collect artifacts into build/, then exit.
+#                   No server install, no run. This is what CI runs.
 #   --test          Run the full gate (gradlew build + cargo test) instead of a fast build.
-#   --no-build      Skip the build phase; use whatever is already built.
+#   --no-build      Skip the build phase; use whatever is already collected in build/.
 #   --no-mc         Run only the Rust services (tracker + rendezvous), no Minecraft server.
 #   -h, --help      Show this help.
 #
@@ -28,9 +33,18 @@ set -euo pipefail
 # --- paths ---------------------------------------------------------------
 NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_DIR="$NODERA_ROOT/rust"
+RUST_RELEASE="$RUST_DIR/target/release"
 SERVER_DIR="${NODERA_SERVER_DIR:-$NODERA_ROOT/run/server}"
 LOG_DIR="${NODERA_LOG_DIR:-$NODERA_ROOT/run/logs}"
-MOD_JAR="${NODERA_MOD_JAR:-$NODERA_ROOT/neoforge-mod/build/libs/neoforge-mod.jar}"
+
+# The shared artifact directory: both toolchains' outputs land here together.
+BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ROOT/build}"
+SRC_MOD_JAR="$NODERA_ROOT/java/neoforge-mod/build/libs/neoforge-mod.jar"
+
+# Runtime consumes the collected copies in build/ — never the per-toolchain output dirs.
+MOD_JAR="$BUILD_DIR/neoforge-mod.jar"
+TRACKER_BIN="$BUILD_DIR/nodera-tracker"
+RENDEZVOUS_BIN="$BUILD_DIR/nodera-rendezvous"
 
 # --- version pins (keep in sync with docs/Task.0.md §3 + gradle.properties) --
 NEOFORGE_VERSION="${NEOFORGE_VERSION:-21.1.77}"
@@ -45,25 +59,23 @@ P2P_PORT="${NODERA_P2P_PORT:-25566}"
 TRACKER_PORT="${NODERA_TRACKER_PORT:-25600}"
 RENDEZVOUS_PORT="${NODERA_RENDEZVOUS_PORT:-25601}"
 
-# --- rust service binaries ----------------------------------------------
-TRACKER_BIN="$RUST_DIR/target/release/nodera-tracker"
-RENDEZVOUS_BIN="$RUST_DIR/target/release/nodera-rendezvous"
-
 # --- logging -------------------------------------------------------------
 log()  { printf '\033[1;36m[nodera]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[nodera]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[nodera] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- args ----------------------------------------------------------------
 ACCEPT_EULA="${ACCEPT_EULA:-false}"
 DO_BUILD=1
+BUILD_ONLY=0
 RUN_TESTS=0
 RUN_MC=1
 for arg in "$@"; do
     case "$arg" in
         --accept-eula) ACCEPT_EULA=true ;;
+        --build-only)  BUILD_ONLY=1 ;;
         --test)        RUN_TESTS=1 ;;
         --no-build)    DO_BUILD=0 ;;
         --no-mc)       RUN_MC=0 ;;
@@ -105,7 +117,7 @@ download() { # url dest
 }
 
 # ---------------------------------------------------------------------------
-# 1. Build — Rust workspace + the mod jar.
+# 1. Build — Rust workspace + the mod jar — then collect BOTH into build/.
 # ---------------------------------------------------------------------------
 build_rust() {
     command -v cargo >/dev/null 2>&1 || die "cargo not found. Install the Rust toolchain (rustup)."
@@ -114,7 +126,7 @@ build_rust() {
         ( cd "$RUST_DIR" && cargo test )
     fi
     log "Rust: cargo build --release (codec + tracker + rendezvous)"
-    ( cd "$RUST_DIR" && cargo build --release )
+    ( cd "$RUST_DIR" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous )
 }
 
 build_mod() {
@@ -125,7 +137,17 @@ build_mod() {
         log "Mod: ./gradlew :neoforge-mod:jar (fast)"
         ( cd "$NODERA_ROOT" && ./gradlew :neoforge-mod:jar )
     fi
-    [[ -f "$MOD_JAR" ]] || die "expected mod jar not found: $MOD_JAR"
+    [[ -f "$SRC_MOD_JAR" ]] || die "expected mod jar not found: $SRC_MOD_JAR"
+}
+
+# Copy every build artifact into build/ so the binaries and the jar sit together.
+collect_artifacts() {
+    mkdir -p "$BUILD_DIR"
+    install -m 0755 "$RUST_RELEASE/nodera-tracker"    "$TRACKER_BIN"
+    install -m 0755 "$RUST_RELEASE/nodera-rendezvous" "$RENDEZVOUS_BIN"
+    install -m 0644 "$SRC_MOD_JAR"                    "$MOD_JAR"
+    log "Artifacts collected into $BUILD_DIR:"
+    log "  $(basename "$TRACKER_BIN")     $(basename "$RENDEZVOUS_BIN")     $(basename "$MOD_JAR")"
 }
 
 # ---------------------------------------------------------------------------
@@ -161,6 +183,15 @@ setup_server() {
             "$MC_PORT" > server.properties
     fi
 
+    # Point the mod at the local tracker + rendezvous services so the peer discovers and reaches
+    # others through the same stack this script runs. Written once; edit it to change endpoints.
+    mkdir -p config
+    if [[ ! -f config/nodera-server.toml ]]; then
+        log "Writing config/nodera-server.toml (tracker + rendezvous endpoints → localhost)"
+        printf '# Nodera server config — the local stack this dev script starts.\n[tracker]\nendpoints = ["127.0.0.1:%s"]\n\n[rendezvous]\nendpoints = ["127.0.0.1:%s"]\n' \
+            "$TRACKER_PORT" "$RENDEZVOUS_PORT" > config/nodera-server.toml
+    fi
+
     mkdir -p mods
     if ! cmp -s "$MOD_JAR" "mods/neoforge-mod.jar" 2>/dev/null; then
         find mods -maxdepth 1 -name 'neoforge-mod*.jar' -delete 2>/dev/null || true
@@ -190,22 +221,32 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-start_service() { # name binary log-file args...
-    local name="$1" binary="$2" logfile="$3"; shift 3
+start_service() { # name binary log-file port args...
+    local name="$1" binary="$2" logfile="$3" port="$4"; shift 4
     if [[ ! -x "$binary" ]]; then
-        warn "$name binary missing ($binary) — skipping. Build it with: (cd rust && cargo build --release)"
-        return
+        warn "$name binary missing ($binary) — skipping. Build it with: scripts/dev.sh --build-only"
+        return 1
     fi
     log "Starting $name → logging to $logfile"
     "$binary" "$@" >"$logfile" 2>&1 &
     local pid=$!
     SERVICE_PIDS+=("$pid")
-    # A placeholder crate (Task 27 scaffold) exits immediately; surface that instead of pretending
-    # the service is up.
-    sleep 1
-    if ! kill -0 "$pid" 2>/dev/null; then
-        warn "$name exited immediately (see $logfile) — likely a not-yet-implemented placeholder; continuing."
-    fi
+    # Health-check the service: it must actually answer a canonical frame on its port, not merely
+    # have been launched. Retries briefly while the listener binds.
+    local attempt
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            warn "$name exited immediately (see $logfile)."
+            return 1
+        fi
+        if "$binary" --healthcheck "127.0.0.1:$port" >/dev/null 2>&1; then
+            log "$name healthy on 127.0.0.1:$port"
+            return 0
+        fi
+        sleep 0.5
+    done
+    warn "$name did not answer a health check on 127.0.0.1:$port (see $logfile)."
+    return 1
 }
 
 start_stack() {
@@ -213,9 +254,9 @@ start_stack() {
     mkdir -p "$LOG_DIR"
 
     start_service "nodera-tracker" "$TRACKER_BIN" "$LOG_DIR/nodera-tracker.log" \
-        --bind "0.0.0.0:$TRACKER_PORT"
+        "$TRACKER_PORT" --bind "0.0.0.0:$TRACKER_PORT" || true
     start_service "nodera-rendezvous" "$RENDEZVOUS_BIN" "$LOG_DIR/nodera-rendezvous.log" \
-        --bind "0.0.0.0:$RENDEZVOUS_PORT"
+        "$RENDEZVOUS_PORT" --bind "0.0.0.0:$RENDEZVOUS_PORT" || true
 
     if [[ "$RUN_MC" -eq 0 ]]; then
         log "Rust services running (--no-mc). Ctrl-C to stop."
@@ -246,7 +287,13 @@ JAVA_BIN="$(resolve_java)"
 
 if [[ "$DO_BUILD" -eq 1 ]]; then
     build_rust
-    [[ "$RUN_MC" -eq 1 ]] && build_mod
+    build_mod
+    collect_artifacts
+fi
+
+if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    log "Build complete (--build-only). Artifacts are in $BUILD_DIR."
+    exit 0
 fi
 
 if [[ "$RUN_MC" -eq 1 ]]; then

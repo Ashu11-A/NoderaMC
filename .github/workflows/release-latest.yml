@@ -1,0 +1,55 @@
+# Rolling "latest" build. On every push, compile BOTH toolchains, collect the artifacts
+# (nodera-tracker + nodera-rendezvous binaries and the neoforge-mod.jar) into build/, and attach
+# them to a single GitHub release tagged `latest`. The release is flagged **prerelease** — it is
+# marked latest but is not an officially published release.
+#
+# This reuses `scripts/dev.sh --build-only`, the same build+collect path a developer runs locally,
+# so CI and local builds cannot drift.
+name: release-latest
+on:
+  push:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      # rust-toolchain.toml pins the channel; rustup (preinstalled on the runner) honours it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # One command builds the Rust workspace + the mod jar and collects all three artifacts into
+      # build/ — identical to a local `scripts/dev.sh --build-only`.
+      - name: Build both toolchains into build/
+        run: bash scripts/dev.sh --build-only
+
+      - name: List collected artifacts
+        run: ls -la build/
+
+      # Roll the `latest` prerelease to this commit. Delete-then-create keeps a single latest tag
+      # that always points at the newest build; `|| true` covers the first run when none exists.
+      - name: Publish rolling latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${GITHUB_SHA:0:7}"
+          gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest \
+            build/nodera-tracker \
+            build/nodera-rendezvous \
+            build/neoforge-mod.jar \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "latest ($short)" \
+            --notes "Rolling build from ${GITHUB_REF_NAME}@${short}. Marked latest (prerelease) — not an officially published release."
