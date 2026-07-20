@@ -1,6 +1,7 @@
 package dev.nodera.mod.client;
 
 import dev.nodera.mod.client.multiplayer.MultiplayerScreenAddon;
+import dev.nodera.mod.client.share.PauseScreenShareAddon;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.mod.debug.command.NoderaClientCommand;
 import net.neoforged.bus.api.IEventBus;
@@ -34,6 +35,7 @@ public final class ClientBootstrap {
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onLoggingOut);
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onRegisterClientCommands);
         NeoForge.EVENT_BUS.addListener(MultiplayerScreenAddon::onScreenInit);
+        NeoForge.EVENT_BUS.addListener(PauseScreenShareAddon::onScreenInit);  // Task 30b: pause-menu "Share"
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {

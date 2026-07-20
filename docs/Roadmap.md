@@ -7,7 +7,9 @@
      README.md "Roadmap" + Tested.md. Task links are the specs; the GitHub issue for a task is
      found BY TITLE (`Task N — <title>`), never by assuming issue number == task number. -->
 
-Snapshot: 2026-07-19 · overall `69%` · 704 Java tests green (+144 Rust) · MVP gate ([Task 7](Task.7.md)) proven
+Snapshot: 2026-07-20 · overall `70%` · 712 Java tests green (+144 Rust) · **Task 30 decentralization
+first increment landed** (dedicated-server gate removed, role-driven host lane, pause-menu "Share"
+screen, `scripts/dev.sh` infra-only; genesis/re-manifest/`runClient` deferred — new L-45) · MVP gate ([Task 7](Task.7.md)) proven
 headlessly, not yet live · lane B complete to its headless/compile edge: Tasks 19–25 headless +
 [Task 26](Task.26.md) view model + `Dist.CLIENT` screens (GUI pass pending) ·
 [Task 11](Task.11.md) interference guard landed headless (mixins/tickets live half pending) ·
