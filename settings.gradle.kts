@@ -28,8 +28,10 @@ fun module(name: String) {
 
 // Phase 0 — pure-Java (Minecraft-free) modules. Built and tested in CI.
 module("core")
-module("simulation")
-module("consensus")
+// Unified deterministic-engine + validation API (issue #30): absorbs the former simulation /
+// consensus / coordinator / committee / shadow-validation / fallback modules — packages
+// unchanged, so the ArchUnit determinism ban on dev.nodera.simulation.. still bites.
+module("engine")
 // Unified network API (issue #30): absorbs the former protocol / transport-api /
 // transport-socket / transport-rendezvous modules — packages unchanged. The empty
 // transport-neoforge placeholder was deleted; the in-game relay lane lands in neoforge-mod.
@@ -42,10 +44,6 @@ module("storage")
 // installDist launcher stays `nodera-headless` (rust/nodera-app + scripts/dev.sh depend on it).
 module("peer")
 module("testkit")
-module("shadow-validation")
-module("coordinator")
-module("committee")
-module("fallback")
 
 // --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
 module("neoforge-mod")
