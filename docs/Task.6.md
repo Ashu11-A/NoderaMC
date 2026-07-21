@@ -1,5 +1,10 @@
 # Task 6 — Peer Worker (module: `nodera-headless` + `peer-runtime/control`)
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 **Module:** the required always-on headless Java peer — a player's node when Minecraft is
 closed ·
 **Depends on:** Task 2 (it *is* the `PeerRuntime` run as a process), Task 3/4 (services it
@@ -52,24 +57,24 @@ process by construction, so a Minecraft crash cannot take the node down.
 ## Folder structure (monorepo default)
 
 ```
-java/nodera-headless/src/main/java/dev/nodera/headless/
+java/peer/src/main/java/dev/nodera/headless/
 ├── HeadlessPeerMain.java        boots PeerRuntime over a real socket; persistent identity;
 │                                serves the ControlServer; config from file/env
 ├── WorkerControlHandler.java    answers STATE/IDENTITY/HOST/WORLDID… from live runtime state
 └── WorkerState.java             maintained pieces/bytes, peers, hosted worlds snapshot
 
-java/peer-runtime/src/main/java/dev/nodera/peer/control/
+java/peer/src/main/java/dev/nodera/peer/control/
 ├── ControlProtocol.java         the wire: verbs, version (single source of truth)
 └── ControlServer.java           loopback listener + ControlHandler dispatch
 ```
 
 ## Related files
 
-- `java/nodera-headless/**` (module), `java/peer-runtime/.../control/{ControlProtocol,ControlServer}.java` (+ `ControlServerTest`)
+- `java/peer/**` (module), `java/peer/.../control/{ControlProtocol,ControlServer}.java` (+ `ControlServerTest`)
 - Mod mirror: `java/neoforge-mod/.../common/{CompanionProtocol,CompanionClient,CompanionGate,CompanionLink}.java` (5g)
 - Rust mirror: `rust/nodera-app/src/control.rs` (7b)
-- Identity: `java/peer-runtime/.../discovery/PersistentIdentityStore.java` (2e);
-  world identity types: `java/storage-api/.../{WorldIdentity,WorldPermissionGrant,WorldPermissions}.java` (2c)
+- Identity: `java/peer/.../discovery/PersistentIdentityStore.java` (2e);
+  world identity types: `java/storage/.../{WorldIdentity,WorldPermissionGrant,WorldPermissions}.java` (2c)
 - Runner: `scripts/dev.sh` (builds + runs the worker; `--no-worker` opts out)
 - Legacy specs: [`old/Task.32.md`](old/Task.32.md) (32b daemon + decision),
   [`old/Task.33.md`](old/Task.33.md) (verbs, identity, permissions), and

@@ -1,4 +1,9 @@
-# Task 4 — P2P Rendezvous (module: `rust/nodera-rendezvous` + `java/transport-rendezvous`)
+# Task 4 — P2P Rendezvous (module: `rust/nodera-rendezvous` + `java/transport`)
+
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
 
 **Module:** the standalone Rust rendezvous + relay service and the Java transport that consumes
 it — NAT reach for users with moderate or poor NAT ·
@@ -74,7 +79,7 @@ rust/nodera-rendezvous/src/
 ├── punch.rs        PUNCH_SYNC: observed addresses + coordinated go-signal (DCUtR-style)
 └── limits.rs       per-identity registrations, per-IP quotas, record-size caps
 
-java/transport-rendezvous/src/main/java/dev/nodera/transport/rendezvous/
+java/transport/src/main/java/dev/nodera/transport/rendezvous/
 ├── RendezvousPeerTransport.java   PeerTransport impl #3: register + discover + dial policy
 ├── CandidateDialer.java           direct candidates (host/public/reflexive) in order
 ├── RelayCircuitClient.java        RESERVE + incoming circuits; E2E-encrypted frames
@@ -83,19 +88,19 @@ java/transport-rendezvous/src/main/java/dev/nodera/transport/rendezvous/
 │                                  StreamChunk bulk strongly avoids relayed paths
 └── EndToEndCipher.java            X25519 + Ed25519-bound + AES-GCM (reuses 2h primitives)
 
-java/protocol/.../rendezvous/      tags 35–43 (appended, never renumbered)
+java/transport/.../rendezvous/      tags 35–43 (appended, never renumbered)
 java/neoforge-mod: config rendezvous.endpoints = [] (client + server toml)
 ```
 
 ## Related files
 
 - Service: `rust/nodera-rendezvous/src/*.rs` (62 unit tests)
-- Transport: `java/transport-rendezvous/src/main/java/dev/nodera/transport/rendezvous/*.java`
+- Transport: `java/transport/src/main/java/dev/nodera/transport/rendezvous/*.java`
   (16 tests incl. `RendezvousRelayIT` over the real binary)
-- Wire: `java/protocol/src/main/java/dev/nodera/protocol/rendezvous/*.java` +
+- Wire: `java/transport/src/main/java/dev/nodera/protocol/rendezvous/*.java` +
   `rust/nodera-codec` rendezvous family + `fixtures/wire/`
 - Consumers: `java/neoforge-mod/.../common/NoderaPeerService.java` (composes the transport,
-  5e), `java/nodera-headless/.../HeadlessPeerMain.java` (Task 6)
+  5e), `java/peer/.../HeadlessPeerMain.java` (Task 6)
 - Legacy spec: [`old/Task.29.md`](old/Task.29.md); superseded plan ledger:
   [`LEGACY.md`](LEGACY.md); gateway-migration consumer: [`old/Task.10.md`](old/Task.10.md)
 

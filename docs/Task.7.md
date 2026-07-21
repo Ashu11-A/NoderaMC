@@ -1,5 +1,10 @@
 # Task 7 — Tauri Companion App (module: `rust/nodera-app`)
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 **Module:** the desktop application (Tauri: Rust backend + React frontend) that supervises the
 peer worker and gives players an always-on dashboard ·
 **Depends on:** Task 6 (the worker it supervises + the control endpoint it reads), Task 2
@@ -69,7 +74,7 @@ rust/nodera-app/
 
 - `rust/nodera-app/**` (the module), `scripts/dev.sh` (`--with-app` build+launch in attach
   mode)
-- Worker side it reads: `java/nodera-headless/**`, `java/peer-runtime/.../control/ControlProtocol.java` (Task 6)
+- Worker side it reads: `java/peer/**`, `java/peer/.../control/ControlProtocol.java` (Task 6)
 - Gate that depends on the app keeping the worker alive: `java/neoforge-mod/.../common/CompanionGate.java` (5g)
 - Legacy specs: [`old/Task.32.md`](old/Task.32.md) (32a app, 32d integration analysis),
   [`old/Task.33.md`](old/Task.33.md) (live metrics pump)

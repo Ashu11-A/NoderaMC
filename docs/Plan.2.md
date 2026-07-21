@@ -1,5 +1,10 @@
 # Java API Unification & Refactor — Final Plan
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 ## Context
 
 NoderaMC's `java/` tree carries 22 Gradle modules grown per-increment (legacy Tasks 1–33). Many

@@ -51,9 +51,13 @@ Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.m
 
 - **Polyglot monorepo — the default architecture** (adopted; the former migration instruction
   file `MONOREPO.md` is retired, its durable content lives here and in `AGENTS.md`/`README.md`):
-  - `java/<module>/` — every Gradle module. Module **names** are unchanged (`:core`,
-    `:peer-runtime`, …): `settings.gradle.kts` maps names to dirs, so `./gradlew :core:test`
-    and every `build.gradle.kts` work untouched.
+  - `java/<module>/` — every Gradle module. **Since the Java API unification (issue #30,
+    2026-07-21) there are exactly seven**: `core` · `engine` · `transport` · `storage` · `peer` ·
+    `testing` · `neoforge-mod` (plus `build-logic`). The old fine-grained modules
+    (`protocol`, `transport-*`, `storage-*`, `peer-runtime`, `distribution`, `diagnostics`,
+    `nodera-headless`, `simulation`, `consensus`, `coordinator`, `committee`,
+    `shadow-validation`, `fallback`, `testkit`) merged into them with **packages unchanged** —
+    only the Gradle module boundaries moved (mapping: §5).
   - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding conformance), `nodera-tracker`
     (Task 3), `nodera-rendezvous` (Task 4), `nodera-app` (Task 7, workspace-excluded — Tauri
     native deps). Toolchain pinned in `rust/rust-toolchain.toml`, crate versions in the
@@ -64,11 +68,12 @@ Issue templates: `.github/ISSUE_TEMPLATE/bug.md`, `.github/ISSUE_TEMPLATE/task.m
   green; `scripts/dev.sh --test` runs both plus the lint gate. The cross-language conformance
   tests (`fixtures/wire/*.bin` + the tag-registry mirror) keep the two canonical-encoding
   implementations honest.
-- **Layered, Minecraft-free core.** `core` → JDK only. `simulation`, `protocol`, `consensus`,
-  `transport-api`, `storage-api` → `core`. `testkit` → all of them. Minecraft/NeoForge types
-  live ONLY in `transport-neoforge` and `neoforge-mod` (Task 5). Every capability is **proven
-  Minecraft-free first** (headless JUnit), then wired to NeoForge — the recurring pattern of
-  the whole build.
+- **Layered, Minecraft-free core.** `core` → JDK only. `engine`, `transport`, `storage` →
+  `core`. `peer` → `core` + `transport` + `storage`. `testing` → `core` + `engine` +
+  `transport`. Minecraft/NeoForge types live ONLY in `neoforge-mod` (Task 5; the empty
+  `transport-neoforge` placeholder was deleted — the in-game relay lane lands inside the mod).
+  Every capability is **proven Minecraft-free first** (headless JUnit), then wired to
+  NeoForge — the recurring pattern of the whole build.
 - **Frozen contracts — do not change without a version bump:**
   - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` +
     `TypeTags`. Every `Encodable.encode` starts with `writeU16(typeTag); writeU16(ENCODING_VERSION);`.
@@ -98,12 +103,12 @@ task file; a phase is referenced as `<task><letter>` (e.g. `2d` = Task 2 phase d
 
 | Task | Module | Scope | Depends on |
 |---|---|---|---|
-| [1](Task.1.md) | **Deterministic engine & committee validation** (`java/`: `core`, `simulation`, `consensus`, `committee`, `coordinator`, `shadow-validation`, `fallback`, `testkit`) | Domain types, crypto, canonical encoding, the region engine, shadow validation, coordinator, committee quorum/MVP gate, fallback router, interference guard, and the parity program (entities, redstone, environment, mobs, player lane, BFT) | — (root) |
-| [2](Task.2.md) | **P2P network** (`java/`: `protocol`, `transport-api`, `transport-socket`, `peer-runtime`, `storage-api`, `storage-eventsourced`, `storage-rocksdb`, `storage-client`, `distribution`, `diagnostics`) | Wire messages, transports, peer runtime/membership/gateway, event-sourced storage, torrent data plane, discovery, replication/repair, reliability/quotas/retention, encryption, crash safety, tick-lag handoff, telemetry core | 1 (types + engine) |
-| [3](Task.3.md) | **P2P network tracker** (`rust/nodera-tracker` + Java `TrackerClient`) | Always-on world/peer discovery service; announce/query lifecycle | 2 (wire + discovery seams) |
-| [4](Task.4.md) | **P2P rendezvous** (`rust/nodera-rendezvous` + `java/transport-rendezvous`) | NAT reach for users with moderate/poor NAT: signed registration/discovery, hole punching, E2E-encrypted relay fallback | 2 (transport seam) |
-| [5](Task.5.md) | **NeoForge Minecraft (Java) module** (`java/neoforge-mod`, `java/transport-neoforge`) | The mod: entrypoints, capture/mixins, live validation lane, HUD + commands, multiplayer/share GUI, decentralized host lane, world identity/permissions (mod half), companion gate, `runClient` harness | 1, 2, 3, 4, 6 |
-| [6](Task.6.md) | **Peer worker** (`java/nodera-headless`, `peer-runtime/control`) | The required always-on headless peer the mod probes: control protocol/verbs, telemetry, host/join delegation, worker seeding, out-of-game validation | 2; 3/4 (services it dials); 5e (genesis) for 6c |
+| [1](Task.1.md) | **Deterministic engine & committee validation** (`java/core`, `java/engine`, `java/testing`) | Domain types, crypto, canonical encoding, the region engine, shadow validation, coordinator, committee quorum/MVP gate, fallback router, interference guard, and the parity program (entities, redstone, environment, mobs, player lane, BFT) | — (root) |
+| [2](Task.2.md) | **P2P network** (`java/transport`, `java/storage`, `java/peer`) | Wire messages, transports, peer runtime/membership/gateway, event-sourced storage, torrent data plane, discovery, replication/repair, reliability/quotas/retention, encryption, crash safety, tick-lag handoff, telemetry core | 1 (types + engine) |
+| [3](Task.3.md) | **P2P network tracker** (`rust/nodera-tracker` + Java `TrackerClient` in `java/peer`) | Always-on world/peer discovery service; announce/query lifecycle | 2 (wire + discovery seams) |
+| [4](Task.4.md) | **P2P rendezvous** (`rust/nodera-rendezvous` + `dev.nodera.transport.rendezvous` in `java/transport`) | NAT reach for users with moderate/poor NAT: signed registration/discovery, hole punching, E2E-encrypted relay fallback | 2 (transport seam) |
+| [5](Task.5.md) | **NeoForge Minecraft (Java) module** (`java/neoforge-mod`) | The mod: entrypoints, capture/mixins, live validation lane, HUD + commands, multiplayer/share GUI, decentralized host lane, world identity/permissions (mod half), companion gate, `runClient` harness | 1, 2, 3, 4, 6 |
+| [6](Task.6.md) | **Peer worker** (`dev.nodera.headless` + `dev.nodera.peer.control` in `java/peer`) | The required always-on headless peer the mod probes: control protocol/verbs, telemetry, host/join delegation, worker seeding, out-of-game validation | 2; 3/4 (services it dials); 5e (genesis) for 6c |
 | [7](Task.7.md) | **Tauri companion app** (`rust/nodera-app`) | Desktop supervisor of the worker: tray, autostart, dashboard, installers | 6 (the worker it supervises) |
 
 ```
@@ -184,31 +189,31 @@ Any design that only makes sense "for vanilla clients" is dead code by definitio
 | Wire protocol version | `"1"` (NeoForge payload registrar version string) |
 | Config files | `nodera-server.toml` (server), `nodera-client.toml` (client) via NeoForge config API |
 
-Java package per module (all under `java/`):
+Packages per module (all under `java/`; the unification of issue #30 moved module boundaries,
+never packages — old module names map to packages inside the seven modules):
 
 ```
-core            → dev.nodera.core          (identity, region, action, state, event, crypto)
-protocol        → dev.nodera.protocol
-simulation      → dev.nodera.simulation
-consensus       → dev.nodera.consensus
-committee       → dev.nodera.committee
-coordinator     → dev.nodera.coordinator
-shadow-validation → dev.nodera.shadow
-fallback        → dev.nodera.fallback
-diagnostics     → dev.nodera.diagnostics
-distribution    → dev.nodera.distribution
-transport-api   → dev.nodera.transport
-transport-socket → dev.nodera.transport.socket
-transport-neoforge → dev.nodera.transport.neoforge
-transport-rendezvous → dev.nodera.transport.rendezvous
-storage-api     → dev.nodera.storage
-storage-eventsourced → dev.nodera.storage.eventsourced
-storage-rocksdb → dev.nodera.storage.rocksdb
-storage-client  → dev.nodera.storage.client
-peer-runtime    → dev.nodera.peer
-nodera-headless → dev.nodera.headless
-neoforge-mod    → dev.nodera.mod
-testkit         → dev.nodera.testkit
+core       → dev.nodera.core             (identity, region, action, state, event, crypto)
+engine     → dev.nodera.simulation       (THE region engine; determinism ban is package-scoped)
+             dev.nodera.consensus
+             dev.nodera.shadow           (was module shadow-validation)
+             dev.nodera.coordinator
+             dev.nodera.committee
+             dev.nodera.fallback
+transport  → dev.nodera.protocol         (frozen wire contract; was module protocol)
+             dev.nodera.transport        (PeerTransport seam + Frames/Reachability; was transport-api)
+             dev.nodera.transport.socket (was transport-socket)
+             dev.nodera.transport.rendezvous (was transport-rendezvous)
+storage    → dev.nodera.storage          (WorldStore seam + EventChainGuard/RegionOrder/io; was storage-api)
+             dev.nodera.storage.event    (was storage-eventsourced)
+             dev.nodera.storage.rocksdb  (was storage-rocksdb)
+             dev.nodera.storage.client   (was storage-client)
+peer       → dev.nodera.distribution     (was module distribution)
+             dev.nodera.peer             (was peer-runtime; control/ = the worker verb endpoint)
+             dev.nodera.diagnostics      (was module diagnostics)
+             dev.nodera.headless         (was nodera-headless; installDist launcher stays `nodera-headless`)
+testing    → dev.nodera.testkit          (was module testkit)
+neoforge-mod → dev.nodera.mod
 ```
 
 Rust crates (cargo package names, under `rust/`):
@@ -236,10 +241,13 @@ rust/nodera-app         → nodera-app          (Task 7 Tauri app; workspace-exc
 ## 7. Layering rules (enforced by module dependencies)
 
 1. `core` depends on nothing (JDK only) — including `core/crypto/symmetric` (AES-GCM/PBKDF2
-   are JDK crypto; Argon2id lives in `distribution` behind pinned BouncyCastle).
-2. `simulation`, `protocol`, `consensus`, `storage-api`, `transport-api` depend on `core`
-   only (plus each other where a task states it).
-3. **No Minecraft/NeoForge types outside `neoforge-mod` and `transport-neoforge`.**
+   are JDK crypto; Argon2id lives in `peer` (`dev.nodera.distribution`) behind pinned
+   BouncyCastle).
+2. `engine`, `transport`, `storage` depend on `core` only. `peer` depends on `core` +
+   `transport` + `storage`. `testing` depends on `core` + `engine` + `transport`. Inside a
+   unified module the old inter-package layering still holds (e.g. `dev.nodera.simulation`
+   never imports `dev.nodera.coordinator`).
+3. **No Minecraft/NeoForge types outside `neoforge-mod`.**
    Where a Minecraft concept is needed, `core` defines its own representation (`NBlockState`
    int id, `NBlockPos` record) and `neoforge-mod` owns the mapping.
 4. Client-only code (`net.minecraft.client.*`, screens, overlays) lives only under

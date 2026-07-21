@@ -1,5 +1,10 @@
 # Task 2 — P2P Network (module cluster: `protocol` · `transport-api`/`-socket` · `peer-runtime` · `storage-*` · `distribution` · `diagnostics`)
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 **Module:** the Minecraft-free Java networking + storage + torrent stack under `java/` ·
 **Depends on:** Task 1 (1a types, 1b engine, 1e committee for handoff) ·
 **Consumed by:** Task 3/4 (services speak its wire), Task 5 (live wiring), Task 6 (worker runs it)
@@ -80,23 +85,23 @@ repo file):
 ## Folder structure (monorepo default)
 
 ```
-java/protocol/             NoderaMessage + MessageCodec (append-only tags) + ChunkedStreams (zstd)
+java/transport/             NoderaMessage + MessageCodec (append-only tags) + ChunkedStreams (zstd)
                            + handshake/assignment/simulationmsg/content/discovery/rendezvous/membership
-java/transport-api/        PeerTransport seam (PeerAddress, MessageHandler)
-java/transport-socket/     real TCP PeerTransport — LAN/direct data plane
-java/peer-runtime/         PeerRuntime, membership/gossip, GatewayElection, TickSync,
+java/transport/        PeerTransport seam (PeerAddress, MessageHandler)
+java/transport/     real TCP PeerTransport — LAN/direct data plane
+java/peer/         PeerRuntime, membership/gossip, GatewayElection, TickSync,
                            discovery/ (directory, inventory, bootstrap, identity, TrackerClient)
                            archival/ (placement, seed floor, audit, repair, retention)
                            committee/CommitteeManager, control/ (Task 6 owns the verbs)
-java/storage-api/          WorldStore seam + ContentId/Checkpoint/GenesisManifest
+java/storage/          WorldStore seam + ContentId/Checkpoint/GenesisManifest
                            + WorldIdentity/WorldPermissionGrant/WorldPermissions (tags 92/93)
-java/storage-eventsourced/ in-memory event-sourced impl + EventReplayer + PeerSyncFlow
-java/storage-rocksdb/      RocksWorldStore (WAL column families) + FsContentStore
-java/storage-client/       BoundedClientWorldStore + StorageQuotaManager + ArchiveEvictionPolicy
-java/distribution/         Piece/PieceManifest, selector/downloader/reassembler, ChunkLockMap,
+java/storage/ in-memory event-sourced impl + EventReplayer + PeerSyncFlow
+java/storage/      RocksWorldStore (WAL column families) + FsContentStore
+java/storage/       BoundedClientWorldStore + StorageQuotaManager + ArchiveEvictionPolicy
+java/peer/         Piece/PieceManifest, selector/downloader/reassembler, ChunkLockMap,
                            ContentTransferService, Argon2id/EncryptedPiece/EncryptedRegion,
                            ActivePlayerStream, EmergencyFlush
-java/diagnostics/          TrafficMeter/RateWindow/MessageCounters, TickSkewMeter/TpsMeter,
+java/peer/          TrafficMeter/RateWindow/MessageCounters, TickSkewMeter/TpsMeter,
                            TelemetrySnapshot, ZoneClassifier, DiagnosticsView + GUI view models
 
 rust/nodera-codec/         (owned by 2a) byte-exact canonical-encoding port + Ed25519 verify +
@@ -108,18 +113,18 @@ fixtures/wire/             golden canonical frames: Java emits (WireFixtureTest)
 
 ## Related files
 
-- Wire contract: `java/protocol/src/main/java/dev/nodera/protocol/codec/MessageCodec.java`
+- Wire contract: `java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java`
   (+ `MessageCodecTypeTagTest` registry snapshot); Rust mirror: `rust/nodera-codec/src/*.rs` +
   `rust/nodera-codec/tests/{fixtures,tag_mirror}.rs` over `fixtures/wire/*.bin`
-- Transport seam: `java/transport-api/src/main/java/dev/nodera/transport/PeerTransport.java`;
-  `java/transport-socket/.../SocketPeerTransport.java`
-- Peer runtime: `java/peer-runtime/src/main/java/dev/nodera/peer/{PeerRuntime,GatewayElection,TickSync}.java`,
+- Transport seam: `java/transport/src/main/java/dev/nodera/transport/PeerTransport.java`;
+  `java/transport/.../SocketPeerTransport.java`
+- Peer runtime: `java/peer/src/main/java/dev/nodera/peer/{PeerRuntime,GatewayElection,TickSync}.java`,
   `discovery/*.java`, `archival/*.java`, `committee/CommitteeManager.java`
-- Storage: `java/storage-api/src/main/java/dev/nodera/storage/WorldStore.java`,
-  `java/storage-rocksdb/.../{RocksWorldStore,FsContentStore}.java`,
-  `java/storage-eventsourced/.../{EventReplayer,PeerSyncFlow}.java`
-- Torrent plane: `java/distribution/src/main/java/dev/nodera/distribution/*.java`
-- Telemetry: `java/diagnostics/src/main/java/dev/nodera/diagnostics/**`
+- Storage: `java/storage/src/main/java/dev/nodera/storage/WorldStore.java`,
+  `java/storage/.../{RocksWorldStore,FsContentStore}.java`,
+  `java/storage/.../{EventReplayer,PeerSyncFlow}.java`
+- Torrent plane: `java/peer/src/main/java/dev/nodera/distribution/*.java`
+- Telemetry: `java/peer/src/main/java/dev/nodera/diagnostics/**`
 - Legacy specs (class-level): [`old/Task.4.md`](old/Task.4.md), [`old/Task.9.md`](old/Task.9.md),
   [`old/Task.10.md`](old/Task.10.md), [`old/Task.18.md`](old/Task.18.md),
   [`old/Task.19.md`](old/Task.19.md) … [`old/Task.25.md`](old/Task.25.md)

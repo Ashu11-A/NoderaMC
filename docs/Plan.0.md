@@ -1,5 +1,10 @@
 # NoderaMC — Implementation Plan
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 > **Nodera** — "derived from node; clean, modern, and suitable for an engine or platform."
 >
 > A NeoForge-based system where the Minecraft world is partitioned into chunk regions,
