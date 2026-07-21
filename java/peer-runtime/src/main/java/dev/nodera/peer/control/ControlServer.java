@@ -28,22 +28,40 @@ public final class ControlServer implements AutoCloseable {
 
     private final String host;
     private final int requestedPort;
-    private final String workerVersion;
+    private final ControlHandler handler;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile ServerSocket serverSocket;
     private volatile Thread acceptThread;
 
     /**
-     * @param host          loopback bind address (e.g. {@code 127.0.0.1}); never a routable one.
-     * @param port          port to bind ({@code 0} picks a free port — read it back with
-     *                      {@link #boundPort}).
-     * @param workerVersion this worker's build version, reported on the probe reply.
+     * Full constructor: dispatch all control verbs to {@code handler}.
+     *
+     * @param host    loopback bind address (e.g. {@code 127.0.0.1}); never a routable one.
+     * @param port    port to bind ({@code 0} picks a free port — read it back with {@link #boundPort}).
+     * @param handler the worker behaviour behind the verbs.
      */
-    public ControlServer(String host, int port, String workerVersion) {
+    public ControlServer(String host, int port, ControlHandler handler) {
         this.host = host == null ? "127.0.0.1" : host;
         this.requestedPort = port;
-        this.workerVersion = workerVersion == null ? "unknown" : workerVersion;
+        this.handler = handler == null ? probeOnly("unknown") : handler;
+    }
+
+    /**
+     * Probe-only convenience constructor (answers {@link ControlProtocol#PROBE} with the given
+     * version; every other verb replies {@link ControlProtocol#ERR}).
+     *
+     * @param host          loopback bind address.
+     * @param port          port to bind (0 = pick free).
+     * @param workerVersion the version reported on the probe reply.
+     */
+    public ControlServer(String host, int port, String workerVersion) {
+        this(host, port, probeOnly(workerVersion));
+    }
+
+    private static ControlHandler probeOnly(String version) {
+        String v = version == null ? "unknown" : version;
+        return () -> v;
     }
 
     /** Bind + begin accepting. Idempotent. */
@@ -94,17 +112,91 @@ public final class ControlServer implements AutoCloseable {
             if (line == null) {
                 return;
             }
-            String verb = line.trim().split("\\s+", 2)[0];
-            if (ControlProtocol.PROBE.equals(verb)) {
+            String reply = dispatch(line.trim());
+            if (reply != null) {
                 OutputStream out = c.getOutputStream();
-                out.write((ControlProtocol.okLine(ControlProtocol.PROTOCOL_VERSION, workerVersion)
-                        + "\n").getBytes(StandardCharsets.UTF_8));
+                out.write((reply + "\n").getBytes(StandardCharsets.UTF_8));
                 out.flush();
             }
-            // Unknown verbs close quietly; future HOST/JOIN/STATE verbs branch here.
         } catch (IOException ignored) {
             // best-effort per-connection; a dropped client must never take the server down
         }
+    }
+
+    /** Parse the request line and produce the reply line (or null to close silently). */
+    private String dispatch(String line) {
+        String[] parts = line.split("\\s+");
+        String verb = parts[0];
+        try {
+            if (ControlProtocol.PROBE.equals(verb)) {
+                return ControlProtocol.okLine(ControlProtocol.PROTOCOL_VERSION, handler.workerVersion());
+            }
+            if (ControlProtocol.STATE.equals(verb)) {
+                return handler.stateJson();
+            }
+            if (ControlProtocol.IDENTITY.equals(verb)) {
+                String id = handler.identityLine();
+                return id == null ? err("no identity") : ControlProtocol.OK + " " + id;
+            }
+            // Verbs below carry the protocol version as the first token (index 1); the payload starts
+            // at index 2. NODERA-HOST <version> <worldId> <nameB64> <optionsJson...>
+            if (ControlProtocol.HOST.equals(verb)) {
+                return ackOrErr(handler.host(arg(parts, 2), arg(parts, 3), rest(line, 4)));
+            }
+            if (ControlProtocol.JOIN.equals(verb)) {
+                return ackOrErr(handler.join(arg(parts, 2)));
+            }
+            if (ControlProtocol.STOP.equals(verb)) {
+                return ackOrErr(handler.stop(arg(parts, 2)));
+            }
+            if (ControlProtocol.PASSWORD.equals(verb)) {
+                return ackOrErr(handler.password(arg(parts, 2), arg(parts, 3)));
+            }
+            if (ControlProtocol.STATUS.equals(verb)) {
+                return handler.statusJson(arg(parts, 2));
+            }
+            if (ControlProtocol.WORLDID.equals(verb)) {
+                // NODERA-WORLDID <ver> <genesisRootB64> <createdAt> <shared> <listed> <enc> <manifestRefB64>
+                String minted = handler.mintWorldIdentity(arg(parts, 2), parseLong(arg(parts, 3)),
+                        parseBool(arg(parts, 4)), parseBool(arg(parts, 5)), parseBool(arg(parts, 6)),
+                        arg(parts, 7));
+                return minted == null ? err("cannot mint world identity")
+                        : ControlProtocol.OK + " " + minted;
+            }
+            return err("unknown verb");
+        } catch (RuntimeException e) {
+            return err(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        }
+    }
+
+    private static String ackOrErr(String errorOrNull) {
+        return errorOrNull == null ? ControlProtocol.OK : err(errorOrNull);
+    }
+
+    private static String err(String message) {
+        return ControlProtocol.ERR + " " + (message == null ? "error" : message);
+    }
+
+    private static String arg(String[] parts, int i) {
+        return i < parts.length ? parts[i] : "";
+    }
+
+    private static long parseLong(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    private static boolean parseBool(String s) {
+        return "1".equals(s) || "true".equalsIgnoreCase(s);
+    }
+
+    /** The remainder of the request line starting at token index {@code from} (for JSON payloads). */
+    private static String rest(String line, int from) {
+        String[] parts = line.split("\\s+", from + 1);
+        return from < parts.length ? parts[from] : "";
     }
 
     @Override

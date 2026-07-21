@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":transport-rendezvous"))
     implementation(project(":peer-runtime"))
     implementation(project(":diagnostics"))
+    implementation(project(":storage-api"))
 
     // SLF4J API for the worker's own logs, plus a tiny binding so they surface when run standalone
     // (Minecraft provides a binding in-game, but a standalone process needs its own).

@@ -19,13 +19,44 @@ package dev.nodera.peer.control;
 public final class ControlProtocol {
 
     /** The control-protocol version. Bumped on any wire change; mirrored by the mod + the Rust app. */
-    public static final int PROTOCOL_VERSION = 1;
+    public static final int PROTOCOL_VERSION = 2;
 
     /** Probe request the client sends. */
     public static final String PROBE = "NODERA-PROBE";
 
     /** Probe reply the worker sends. */
     public static final String OK = "NODERA-OK";
+
+    /** Error reply prefix: {@code NODERA-ERR <message>}. */
+    public static final String ERR = "NODERA-ERR";
+
+    /** Dashboard/HUD metrics snapshot request; reply is one JSON line. */
+    public static final String STATE = "NODERA-STATE";
+
+    /** Worker identity request; reply is {@code NODERA-OK <nodeId> <publicKeyBase64>}. */
+    public static final String IDENTITY = "NODERA-IDENTITY";
+
+    /** Start hosting a world: {@code NODERA-HOST <worldId> <nameB64> <optionsJson>}. */
+    public static final String HOST = "NODERA-HOST";
+
+    /** Resolve + join a world: {@code NODERA-JOIN <worldId>}. */
+    public static final String JOIN = "NODERA-JOIN";
+
+    /** Stop hosting a world: {@code NODERA-STOP <worldId>}. */
+    public static final String STOP = "NODERA-STOP";
+
+    /** Author-only re-key: {@code NODERA-PASSWORD <worldId> <newPasswordHashB64>}. */
+    public static final String PASSWORD = "NODERA-PASSWORD";
+
+    /** Per-world status (players/health/permissions) request; reply is one JSON line. */
+    public static final String STATUS = "NODERA-STATUS";
+
+    /**
+     * Mint a signed world identity (the worker is the author):
+     * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted> <manifestRefB64>};
+     * reply is {@code NODERA-OK <worldIdentityBytesB64>}.
+     */
+    public static final String WORLDID = "NODERA-WORLDID";
 
     private ControlProtocol() {
     }

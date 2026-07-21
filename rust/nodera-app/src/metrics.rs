@@ -8,10 +8,10 @@
 
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// One connected peer this node is exchanging data with.
-#[derive(Clone, Debug, Serialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct PeerRow {
     pub node_id: String,
     pub route: String,
@@ -22,7 +22,7 @@ pub struct PeerRow {
 }
 
 /// The full dashboard snapshot pushed to the React frontend.
-#[derive(Clone, Debug, Serialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Metrics {
     /// Distinct content pieces this node currently seeds/holds for the network.
     pub maintained_pieces: u64,

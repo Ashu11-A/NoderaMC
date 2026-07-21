@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "dev.nodera.app",
   "build": {
-    "frontendDist": "../ui/dist",
+    "frontendDist": "ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ui run dev",
-    "beforeBuildCommand": "npm --prefix ui run build"
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build"
   },
   "app": {
     "windows": [
@@ -31,21 +31,17 @@
     }
   },
   "plugins": {
-    "autostart": {
-      "args": []
-    }
+    "autostart": null
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": "deb",
     "icon": [
       "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/128x128.png"
     ],
     "resources": {
-      "resources/nodera-headless": "resources/nodera-headless"
+      "../../build/nodera-headless/**/*": "resources/nodera-headless"
     }
   }
 }

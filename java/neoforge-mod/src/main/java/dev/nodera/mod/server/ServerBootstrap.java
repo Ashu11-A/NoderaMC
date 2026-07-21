@@ -62,6 +62,18 @@ public final class ServerBootstrap {
         // singleplayer stays private by default (Task 30a).
         if (server.isDedicatedServer() && NoderaConfig.HOST_AUTO_SHARE.get()) {
             NoderaHost.activate(server, ShareOptions.dedicatedDefault());
+            return;
+        }
+        // Task 33: a world previously "Opened to Nodera" auto-re-shares on load, so the original host
+        // always restores its shared status when returning to the world (no need to press Share again).
+        java.nio.file.Path saveRoot = server.getWorldPath(
+                net.minecraft.world.level.storage.LevelResource.ROOT);
+        if (dev.nodera.mod.common.NoderaWorldStore.isShared(saveRoot)) {
+            var id = dev.nodera.mod.common.NoderaWorldStore.read(saveRoot);
+            ShareOptions restored = id.map(w -> new ShareOptions(
+                            "", true, w.listedOnTracker(), 5))
+                    .orElse(ShareOptions.playerDefault());
+            NoderaHost.activate(server, restored);
         }
     }
 

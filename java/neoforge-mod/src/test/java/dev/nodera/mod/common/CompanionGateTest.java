@@ -74,11 +74,18 @@ final class CompanionGateTest {
     }
 
     @Test
-    void endpointParsingRejectsMalformed() {
+    void endpointParsingRejectsMalformed() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> CompanionClient.parse("nohost"));
         assertThrows(IllegalArgumentException.class, () -> CompanionClient.parse("h:0"));
         assertThrows(IllegalArgumentException.class, () -> CompanionClient.parse("h:99999"));
-        CompanionClient ok = CompanionClient.parse("127.0.0.1:25610");
+        // A well-formed endpoint with nothing listening probes as absent (not an exception). Pick a
+        // guaranteed-free port by opening then closing a socket, so this never collides with a real
+        // worker on the default 25610.
+        int freePort;
+        try (java.net.ServerSocket probe = new java.net.ServerSocket(0)) {
+            freePort = probe.getLocalPort();
+        }
+        CompanionClient ok = CompanionClient.parse("127.0.0.1:" + freePort);
         assertFalse(ok.probe().isPresent()); // nothing listening → absent, not an exception
     }
 

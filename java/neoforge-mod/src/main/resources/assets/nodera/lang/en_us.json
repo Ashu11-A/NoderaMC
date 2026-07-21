@@ -22,6 +22,7 @@
   "nodera.share.title": "Share world to Nodera",
   "nodera.share.password": "Encryption password",
   "nodera.share.password.hint": "Password (empty = plaintext)",
+  "nodera.share.password.locked": "Only the original host can change this",
   "nodera.share.delegate.on": "Region delegation: ON",
   "nodera.share.delegate.off": "Region delegation: OFF",
   "nodera.share.listed.on": "Visibility: Listed on tracker",

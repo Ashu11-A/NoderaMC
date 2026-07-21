@@ -64,14 +64,16 @@ public final class HeadlessPeerMain {
 
         SocketPeerTransport transport =
                 new SocketPeerTransport(identity.nodeId(), bindHost, p2pPort, advertise);
-        MeteredPeerTransport metered = new MeteredPeerTransport(transport, new TrafficMeter());
+        TrafficMeter meter = new TrafficMeter();
+        MeteredPeerTransport metered = new MeteredPeerTransport(transport, meter);
         MessageCounters counters = new MessageCounters();
 
         PeerRuntime runtime = PeerRuntime.bootstrap(identity, caps, metered,
                 transport::listenRoute, PeerRuntimeConfig.defaults(),
                 new LoggingListener(), counters);
 
-        ControlServer control = new ControlServer(controlHost, controlPort, WORKER_VERSION);
+        WorkerControlHandler handler = new WorkerControlHandler(WORKER_VERSION, identity, runtime, meter);
+        ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
         LOG.info("Nodera peer worker {} online — node {} listening {}, control {}:{}",

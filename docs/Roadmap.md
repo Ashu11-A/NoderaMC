@@ -7,8 +7,13 @@
      README.md "Roadmap" + Tested.md. Task links are the specs; the GitHub issue for a task is
      found BY TITLE (`Task N — <title>`), never by assuming issue number == task number. -->
 
-Snapshot: 2026-07-20 · overall `70%` · 744 Java tests green (+144 Rust) · **Task 31 GUI redesign +
-Task 32 companion app first increments landed** ("Open to Nodera" replaces LAN; public-world badge;
+Snapshot: 2026-07-21 · overall `70%` · 773 Java tests green (+144 Rust) · **Task 33 live worker data
++ world identity/authorship + P2P permissions landed** (worker `STATE`/`IDENTITY`/`HOST`/`WORLDID`
+verbs → live dashboard; author-signed `WorldIdentity` per-world file + auto-re-share + author-only
+password; `WorldRole`/`WorldPermissionGrant`/`WorldPermissions` signed permission model + host
+op-grant; multiplayer tracker/rendezvous tab bug fixed; +27 headless — live committee validation /
+world-list mixin / grant gossip / worker seeding documented in [`Task.33.md`](Task.33.md), new L-49) ·
+**Task 31 GUI redesign + Task 32 companion app first increments landed** ("Open to Nodera" replaces LAN; public-world badge;
 tabbed Nodera-only multiplayer screen + torrent piece-map view models (+24 `diagnostics`); Task 32
 mod-side presence gate `CompanionGate` (+8) + Tauri `rust/nodera-app` scaffold (Option B, workspace-
 excluded); `runClient`/live feeds/headless-peer jar deferred — new L-46/L-47/L-48, L-41 RETIRING) ·
