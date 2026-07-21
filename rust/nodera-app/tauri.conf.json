@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nodera",
+  "version": "0.1.0",
+  "identifier": "dev.nodera.app",
+  "build": {
+    "frontendDist": "ui/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "bun run dev",
+    "beforeBuildCommand": "bun run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Nodera",
+        "width": 900,
+        "height": 600,
+        "minWidth": 640,
+        "minHeight": 420,
+        "resizable": true,
+        "label": "main"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    },
+    "trayIcon": {
+      "id": "main",
+      "iconPath": "icons/icon.png",
+      "tooltip": "Nodera"
+    }
+  },
+  "plugins": {
+    "autostart": null
+  },
+  "bundle": {
+    "active": true,
+    "targets": "deb",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png"
+    ],
+    "resources": {
+      "../../build/nodera-headless/**/*": "resources/nodera-headless"
+    }
+  }
+}

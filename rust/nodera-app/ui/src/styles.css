@@ -1,0 +1,221 @@
+/* Task 32/33 — Nodera companion UI. Minecraft-launcher × VPN-client hybrid, dark only (on-brand for
+   both). No external assets: system fonts, CSS-only shield/cube, so the bundle stays self-contained. */
+
+:root {
+  color-scheme: dark;
+  --bg: #0b0e13;
+  --bg-2: #10141c;
+  --panel: #141924;
+  --panel-2: #182030;
+  --line: #232c3d;
+  --line-soft: #1b2230;
+  --text: #e8ecf3;
+  --muted: #8892a6;
+  --faint: #5a6478;
+  --emerald: #45c46a; /* Minecraft grass/emerald accent */
+  --emerald-deep: #1c7a3c;
+  --redstone: #e5484d;
+  --amber: #e2b23c;
+  --sky: #4aa8ff;
+  --font: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(1100px 600px at 50% -10%, #16203010 0%, transparent 60%),
+    linear-gradient(180deg, #0c1017 0%, var(--bg) 100%);
+}
+
+.app { min-height: 100%; display: flex; flex-direction: column; }
+main { padding: 18px clamp(14px, 3vw, 30px) 30px; max-width: 1180px; width: 100%; margin: 0 auto; }
+
+/* ---- title bar ---------------------------------------------------------------------------- */
+.titlebar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px clamp(14px, 3vw, 30px);
+  border-bottom: 1px solid var(--line-soft);
+  background: linear-gradient(180deg, #0e131c 0%, #0b0e1300 100%);
+  position: sticky; top: 0; z-index: 5; backdrop-filter: blur(6px);
+}
+.brand { display: flex; align-items: center; gap: 10px; }
+.cube {
+  width: 20px; height: 20px; border-radius: 4px;
+  background:
+    linear-gradient(135deg, var(--emerald) 0%, var(--emerald-deep) 100%);
+  box-shadow: inset 0 0 0 2px #0b0e13, 0 0 14px #45c46a55;
+}
+.wordmark { font-weight: 800; letter-spacing: .32em; font-size: 15px; }
+.titlebar-right { display: flex; align-items: center; gap: 14px; }
+.version { color: var(--faint); font-size: 12px; font-family: var(--mono); }
+
+.status-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line);
+}
+.status-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+.status-pill.up { color: var(--emerald); background: #12341f66; border-color: #1f6b3a; }
+.status-pill.up .dot { background: var(--emerald); box-shadow: 0 0 8px var(--emerald); animation: pulse 2s infinite; }
+.status-pill.down { color: var(--redstone); background: #3a161a66; border-color: #7a2a2f; }
+.status-pill.down .dot { background: var(--redstone); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* ---- connection hero (the VPN shield) ----------------------------------------------------- */
+.hero {
+  display: grid; grid-template-columns: 150px 1fr; gap: clamp(16px, 3vw, 34px);
+  align-items: center;
+  padding: clamp(18px, 3vw, 30px);
+  border-radius: 16px; border: 1px solid var(--line);
+  background:
+    radial-gradient(420px 220px at 12% 0%, #17321f55 0%, transparent 70%),
+    linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%);
+  margin-bottom: 18px;
+  position: relative; overflow: hidden;
+}
+.hero.down {
+  background:
+    radial-gradient(420px 220px at 12% 0%, #35171b55 0%, transparent 70%),
+    linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%);
+}
+
+.shield-wrap { display: flex; justify-content: center; }
+.shield {
+  width: 128px; height: 128px; position: relative;
+  display: grid; place-items: center;
+}
+.shield::before {
+  content: ""; position: absolute; inset: 0;
+  clip-path: polygon(50% 0%, 100% 16%, 100% 58%, 50% 100%, 0% 58%, 0% 16%);
+  background: linear-gradient(160deg, #1c2740, #101725);
+  border: 0;
+}
+.shield::after {
+  content: ""; position: absolute; inset: 6px;
+  clip-path: polygon(50% 0%, 100% 16%, 100% 58%, 50% 100%, 0% 58%, 0% 16%);
+  background: linear-gradient(160deg, #223458, #131b2b);
+}
+.hero.up .shield::before { background: linear-gradient(160deg, var(--emerald), var(--emerald-deep)); box-shadow: 0 0 34px #45c46a55; }
+.hero.down .shield::before { background: linear-gradient(160deg, #7a2a2f, #45161a); }
+.shield-glyph { position: relative; z-index: 1; font-size: 52px; line-height: 1; }
+.hero.up .shield-glyph { color: #eafff0; text-shadow: 0 0 16px #45c46a; }
+.hero.down .shield-glyph { color: #ffdfe1; }
+.shield-glow {
+  position: absolute; inset: -20%; z-index: 0;
+  background: radial-gradient(circle, #45c46a33 0%, transparent 62%);
+  animation: breathe 3.4s ease-in-out infinite;
+}
+.hero.down .shield-glow { background: radial-gradient(circle, #e5484d22 0%, transparent 62%); }
+@keyframes breathe { 0%,100% { transform: scale(.9); opacity: .55; } 50% { transform: scale(1.12); opacity: 1; } }
+
+.hero-body { min-width: 0; }
+.hero-state { font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: .06em; }
+.hero.up .hero-state { color: var(--emerald); }
+.hero.down .hero-state { color: var(--redstone); }
+.hero-sub { color: var(--muted); margin-top: 2px; font-size: 13px; }
+
+.identity {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;
+  margin: 18px 0 14px; padding: 0;
+}
+.identity div { background: #0d121b80; border: 1px solid var(--line-soft); border-radius: 10px; padding: 9px 11px; }
+.identity dt { color: var(--faint); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; margin-bottom: 3px; }
+.identity dd { margin: 0; font-size: 14px; font-weight: 600; }
+
+.roles { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line);
+  background: #0e1420; color: var(--muted);
+}
+.chip.gateway { color: #06210f; background: var(--emerald); border-color: var(--emerald); }
+.chip.muted { color: var(--faint); }
+
+/* ---- stat tiles --------------------------------------------------------------------------- */
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.tile {
+  display: flex; gap: 12px; align-items: center;
+  background: linear-gradient(180deg, var(--panel) 0%, #10151f 100%);
+  border: 1px solid var(--line); border-radius: 12px; padding: 14px 15px;
+}
+.tile-glyph { font-size: 22px; color: var(--faint); }
+.tile.up .tile-glyph { color: var(--emerald); }
+.tile.down .tile-glyph { color: var(--sky); }
+.tile-label { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; }
+.tile-value { font-size: 22px; font-weight: 700; margin: 1px 0; }
+.tile-sub { color: var(--muted); font-size: 11.5px; }
+
+/* ---- columns ------------------------------------------------------------------------------ */
+.columns { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 860px) { .columns { grid-template-columns: 1fr; } .hero { grid-template-columns: 1fr; } .shield-wrap { display: none; } }
+
+.card {
+  background: linear-gradient(180deg, var(--panel) 0%, #10151f 100%);
+  border: 1px solid var(--line); border-radius: 14px; padding: 15px 16px;
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; }
+.card-head h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--text); margin: 0; }
+.card-hint { color: var(--faint); font-size: 11px; margin-top: 1px; }
+.count {
+  font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--muted);
+  background: #0d121b; border: 1px solid var(--line-soft); border-radius: 999px; padding: 2px 10px;
+}
+.empty { color: var(--muted); font-size: 13px; line-height: 1.5; padding: 14px 4px; }
+.empty.small { padding: 8px 2px; font-size: 12px; }
+.empty b { color: var(--emerald); }
+
+/* ---- world cards (the Minecraft half) ----------------------------------------------------- */
+.world-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+.world-card {
+  display: flex; align-items: center; gap: 11px;
+  background: #0e1420; border: 1px solid var(--line-soft); border-left: 3px solid var(--emerald);
+  border-radius: 10px; padding: 10px 12px;
+}
+.world-thumb {
+  width: 42px; height: 42px; flex: none; border-radius: 8px; display: grid; place-items: center;
+  font-weight: 800; font-size: 19px; color: #06210f;
+  background: linear-gradient(135deg, var(--emerald), var(--emerald-deep));
+  box-shadow: inset 0 0 0 2px #0b0e13;
+}
+.world-meta { min-width: 0; flex: 1; }
+.world-name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.world-id { color: var(--faint); font-size: 11px; }
+.world-players { text-align: right; }
+.world-players .pnum { display: block; font-weight: 800; font-size: 17px; color: var(--emerald); }
+.world-players .plabel { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .08em; }
+
+/* ---- peers table -------------------------------------------------------------------------- */
+table.peers { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+table.peers th { text-align: left; color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.peers td { padding: 8px; border-bottom: 1px solid var(--line-soft); }
+table.peers .num { text-align: right; font-family: var(--mono); }
+.path {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  padding: 2px 7px; border-radius: 5px; background: #0d121b; border: 1px solid var(--line-soft); color: var(--muted);
+}
+.path.direct { color: var(--emerald); border-color: #1f6b3a; }
+.path.punched { color: var(--amber); border-color: #7a5f1f; }
+.path.relayed { color: var(--sky); border-color: #245a86; }
+
+/* ---- relay (discovery) lists — VPN server list feel --------------------------------------- */
+.relay-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.relay-list li {
+  display: flex; align-items: center; gap: 10px;
+  background: #0e1420; border: 1px solid var(--line-soft); border-radius: 9px; padding: 9px 11px;
+}
+.relay-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.relay-list li.up .relay-dot { background: var(--emerald); box-shadow: 0 0 8px var(--emerald); }
+.relay-list li.down .relay-dot { background: var(--redstone); }
+.relay-addr { flex: 1; font-size: 12.5px; }
+.relay-state { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.relay-list li.up .relay-state { color: var(--emerald); }
+.relay-list li.down .relay-state { color: var(--redstone); }
+
+.mono { font-family: var(--mono); }
+.side .card { position: sticky; }

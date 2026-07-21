@@ -95,8 +95,14 @@ final class TypeTagsTest {
         assertThat(TypeTags.ENTITY_CREATED_EVENT).isEqualTo(87);
         assertThat(TypeTags.ENTITY_UPDATED_EVENT).isEqualTo(88);
         assertThat(TypeTags.ENTITY_REMOVED_EVENT).isEqualTo(89);
+        // rendezvous / relay (Task 29)
+        assertThat(TypeTags.PEER_CANDIDATE).isEqualTo(90);
+        assertThat(TypeTags.SIGNED_PEER_RECORD).isEqualTo(91);
+        // world identity + permissions (Task 33)
+        assertThat(TypeTags.WORLD_IDENTITY).isEqualTo(92);
+        assertThat(TypeTags.WORLD_PERMISSION_GRANT).isEqualTo(93);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(89);
+        assertThat(TypeTags.NEXT).isEqualTo(93);
     }
 
     @Test

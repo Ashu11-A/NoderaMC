@@ -115,6 +115,18 @@ public final class TypeTags {
     /** RegionEvent: an entity left the validated entity table. */
     public static final int ENTITY_REMOVED_EVENT       = 89;
 
+    // --- rendezvous / relay (Task 29) ---
+    /** One reachability candidate (host / public / server-reflexive / mapped / relay). */
+    public static final int PEER_CANDIDATE             = 90;
+    /** The canonical, Ed25519-signed rendezvous registration body. */
+    public static final int SIGNED_PEER_RECORD         = 91;
+
+    // --- world identity + permissions (Task 33) ---
+    /** {@code WorldIdentity} — the author-signed per-world record (unique id + author + share state). */
+    public static final int WORLD_IDENTITY             = 92;
+    /** {@code WorldPermissionGrant} — an author/operator-signed role grant for a world. */
+    public static final int WORLD_PERMISSION_GRANT     = 93;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 89;
+    public static final int NEXT = 93;
 }

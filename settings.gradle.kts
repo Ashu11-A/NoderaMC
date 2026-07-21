@@ -28,31 +28,29 @@ fun module(name: String) {
 
 // Phase 0 — pure-Java (Minecraft-free) modules. Built and tested in CI.
 module("core")
-module("protocol")
-module("simulation")
-module("consensus")
-module("transport-api")
-module("transport-socket")
-module("storage-api")
-module("testkit")
-module("peer-runtime")
-module("diagnostics")
-module("shadow-validation")
-module("coordinator")
-module("committee")
-module("fallback")
-module("storage-eventsourced")
-module("distribution")
-module("storage-client")
-module("storage-rocksdb")
+// Unified deterministic-engine + validation API (issue #30): absorbs the former simulation /
+// consensus / coordinator / committee / shadow-validation / fallback modules — packages
+// unchanged, so the ArchUnit determinism ban on dev.nodera.simulation.. still bites.
+module("engine")
+// Unified network API (issue #30): absorbs the former protocol / transport-api /
+// transport-socket / transport-rendezvous modules — packages unchanged. The empty
+// transport-neoforge placeholder was deleted; the in-game relay lane lands in neoforge-mod.
+module("transport")
+// Unified storage API (issue #30): absorbs the former storage-api / storage-eventsourced /
+// storage-rocksdb / storage-client modules — packages unchanged (dev.nodera.storage.*).
+module("storage")
+// Unified peer API (issue #30): absorbs the former peer-runtime / distribution / diagnostics /
+// nodera-headless modules — packages unchanged. Carries the `application` plugin: the
+// installDist launcher stays `nodera-headless` (rust/nodera-app + scripts/dev.sh depend on it).
+module("peer")
+// Shared test library (issue #30): LoopbackTransport, FakeRegion, wire-fixture IO. The planned
+// multi-peer scenario suite (old integration-tests) lands here when Task 5's live lane needs it.
+module("testing")
 
-// --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
-module("transport-neoforge")
+// --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
 module("neoforge-mod")
 
-// --- Later-phase modules (Tasks 12-16, 29) ---
-// The `transport-libp2p` placeholder was deleted by Task 27: the NAT/relay plan is superseded by
-// the Rust `nodera-rendezvous` service + `transport-rendezvous` (Task 29, see LEGACY.md).
+// --- Later-phase modules (Tasks 12-16) ---
 // include("integration-tests")
 
 // Version catalog: gradle/libs.versions.toml is auto-imported as `libs` by default.
