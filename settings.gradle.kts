@@ -33,7 +33,9 @@ module("simulation")
 module("consensus")
 module("transport-api")
 module("transport-socket")
-module("storage-api")
+// Unified storage API (issue #30): absorbs the former storage-api / storage-eventsourced /
+// storage-rocksdb / storage-client modules — packages unchanged (dev.nodera.storage.*).
+module("storage")
 module("testkit")
 module("peer-runtime")
 module("diagnostics")
@@ -41,10 +43,7 @@ module("shadow-validation")
 module("coordinator")
 module("committee")
 module("fallback")
-module("storage-eventsourced")
 module("distribution")
-module("storage-client")
-module("storage-rocksdb")
 
 // Task 32 — the headless peer worker: a Minecraft-free, always-on network node (the "peer worker"
 // the Tauri companion app supervises and the Minecraft mod requires). Owns the loopback control
