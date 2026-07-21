@@ -5,8 +5,6 @@ import dev.nodera.diagnostics.view.RendezvousStatusView.RendezvousEndpointStatus
 import dev.nodera.diagnostics.view.TrackerStatusView.TrackerEndpointStatus;
 import dev.nodera.mod.common.NoderaConfig;
 
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -96,10 +94,8 @@ public final class MultiplayerStatusFeed {
         try {
             String host = endpoint.substring(0, colon);
             int port = Integer.parseInt(endpoint.substring(colon + 1));
-            try (Socket s = new Socket()) {
-                s.connect(new InetSocketAddress(host, port), PROBE_TIMEOUT_MS);
-                return true;
-            }
+            return dev.nodera.transport.Reachability.probe(
+                    host, port, java.time.Duration.ofMillis(PROBE_TIMEOUT_MS));
         } catch (Exception e) {
             return false;
         }
