@@ -26,6 +26,13 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 | `neoforge-mod/.../client/multiplayer/TrackerDataSource.java` (+ `TorrentWorldListWidget`, `MultiplayerScreenAddon`, `WorldSearchBox`, `CreateTorrentWorldOption`) | **KEEP** | Task 26 GUI consumes `TrackerResponse` unchanged — after T28 the data simply originates from the Rust binary. | — |
 | `diagnostics/src/main/java/dev/nodera/diagnostics/view/TorrentWorldListView.java` | **KEEP** | Pure view model; data source swap is invisible to it. | — |
 
+### Java API unification (issue #30, 2026-07-21)
+
+| File | Classification | Why / replacement | Status |
+|---|---|---|---|
+| `java/transport-neoforge` (whole module) | **REMOVE** | Placeholder with no main source (one classpath smoke test); the planned in-game relay lane lands inside `neoforge-mod` when it materializes (layering rule 3 — Minecraft types live only there). Its NeoForge toolchain slot is not needed by the unified `java/transport`. | **RESOLVED** (2026-07-21, issue #30) — deleted in the transport-unification commit; `settings.gradle.kts`/`neoforge-mod` no longer reference it |
+| `protocol`, `transport-api`, `transport-socket`, `transport-rendezvous`, `storage-api`, `storage-eventsourced`, `storage-rocksdb`, `storage-client` (modules) | **REWRITE** | Merged into the unified `java/transport` and `java/storage` modules — packages unchanged, only the Gradle module boundary moved. | **RESOLVED** (2026-07-21, issue #30) |
+
 ### Rendezvous / relay / NAT → Rust `nodera-rendezvous` (Task 29)
 
 | File | Classification | Why / replacement | Status |

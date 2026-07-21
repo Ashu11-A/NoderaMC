@@ -77,7 +77,7 @@ fn type_tag_registry_mirrors_java() {
 
 #[test]
 fn message_tag_registry_mirrors_java() {
-    const FILE: &str = "java/protocol/src/main/java/dev/nodera/protocol/codec/MessageCodec.java";
+    const FILE: &str = "java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java";
     let source = java_source(FILE);
     use nodera_codec::tags::message_tags::*;
     assert_mirrors(&source, "TAG_TRACKER_QUERY", TRACKER_QUERY, FILE);
@@ -119,7 +119,7 @@ fn message_tag_registry_mirrors_java() {
 
 #[test]
 fn encoding_version_mirrors_java() {
-    const FILE: &str = "java/protocol/src/main/java/dev/nodera/protocol/codec/MessageCodec.java";
+    const FILE: &str = "java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java";
     let source = java_source(FILE);
     assert_mirrors(
         &source,
