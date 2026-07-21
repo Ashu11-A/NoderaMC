@@ -24,6 +24,11 @@ dependencies {
     api(project(":core"))
     api(project(":transport"))
     api(project(":storage"))
+    // The validation lane (dev.nodera.peer.validation): the worker runs committee re-execution
+    // out-of-game — CommitteeMember/VoteCollector re-execute over the engine and vote over the
+    // PeerTransport (L-48/L-30). engine's test suite depends back on :peer at TEST scope only,
+    // so the main-configuration graph stays acyclic.
+    api(project(":engine"))
     // Argon2id (Task 23 bounded KDF) — the only BouncyCastle use in the codebase.
     implementation(libs.bouncycastle)
 

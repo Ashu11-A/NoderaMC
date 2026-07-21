@@ -14,6 +14,7 @@ import dev.nodera.peer.control.ControlServer;
 import dev.nodera.peer.discovery.PersistentIdentityStore;
 import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.peer.metric.MeteredPeerTransport;
+import dev.nodera.peer.validation.WorkerValidationService;
 import dev.nodera.transport.rendezvous.RendezvousEndpoint;
 import dev.nodera.transport.socket.SocketPeerTransport;
 import org.slf4j.Logger;
@@ -86,8 +87,27 @@ public final class HeadlessPeerMain {
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
                 trackerEndpoints, rendezvousEndpoints);
 
-        WorkerControlHandler handler =
-                new WorkerControlHandler(WORKER_VERSION, identity, caps, runtime, meter, hosting);
+        // The validation lane (L-48/L-30): this worker re-executes region batches out-of-game
+        // with THE engine and participates in committee quorum over the same PeerTransport its
+        // membership session rides. Regions activate via the host/join control verbs; the
+        // service idles (zero cost) until then.
+        WorkerValidationService validation = new WorkerValidationService(
+                identity, metered,
+                new dev.nodera.simulation.engine.FlatWorldRegionEngine(
+                        dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
+                        dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
+                        new dev.nodera.core.crypto.HashService()),
+                new dev.nodera.core.crypto.HashService(),
+                new dev.nodera.storage.event.InMemoryCertificateStore(
+                        new dev.nodera.core.crypto.HashService()),
+                envLong("NODERA_WORLD_SEED", 0x4E4F4445_5241L),
+                dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
+                dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
+                2000L);
+        runtime.onApplicationMessage(validation::onMessage);
+
+        WorkerControlHandler handler = new WorkerControlHandler(
+                WORKER_VERSION, identity, caps, runtime, meter, hosting, validation);
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
@@ -111,6 +131,19 @@ public final class HeadlessPeerMain {
     private static String env(String key, String fallback) {
         String v = System.getenv(key);
         return v == null || v.isBlank() ? fallback : v;
+    }
+
+    private static long envLong(String key, long fallback) {
+        String v = System.getenv(key);
+        if (v == null || v.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            LOG.warn("Bad long in {}='{}', using {}", key, v, fallback);
+            return fallback;
+        }
     }
 
     private static int envInt(String key, int fallback) {

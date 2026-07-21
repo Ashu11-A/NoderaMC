@@ -71,7 +71,7 @@ observable in normal play.
 | L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T29 | `transport-rendezvous` behind the same `PeerTransport` seam adds hole-punch upgrade + end-to-end-encrypted relay circuits against the Rust `nodera-rendezvous` service; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | RETIRED |
 | L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | RETIRED |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | RETIRED |
-| L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
+| L-30 | Continuity beta meshes peers full-mesh with gossiped membership; ~~no committee re-execution / quorum on the P2P lane~~ (committee validation now runs over the `PeerTransport` — the T9 forward event-sync half remains) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | RETIRING |
 | L-31 | In-game diagnostics HUD ships session + net panels live; the region-ownership and entity-control panels/boss-bars render `UNASSIGNED` placeholders (zone geometry is real, ownership is not) | T18 | With a committee (T6) / entity lane (T12) active, `/nodera regions` shows `ownedChunks > 0` and the zone boss-bar turns GREEN inside an owned region; placeholder path deleted | OPEN |
 | L-32 | World data transfers whole-region only; chunking is transport-level frame-splitting, pieces are not addressable, no multi-seeder swarm fetch | T19 | Chunk-section `PieceManifest` + `ContentRequest/Chunk/Availability` + deterministic rarest-first selection; resume-after-partial test green; bad-piece hash-reject green | RETIRING |
 | L-33 | No async client chunk pipeline; a region renders only after its whole snapshot arrives, no lock-until-arrived guard | T19 | Pieces render on arrival; un-arrived section locked vs edit; manifest hash validates before render; `DistributionIT` reassembles from seeders each holding <40% | RETIRING |
@@ -90,7 +90,7 @@ observable in normal play.
 | L-49 | Task 33 landed the world-identity/authorship + P2P permission model + live worker telemetry headlessly, but several enforcement/UX halves ride the live NeoForge/worker mesh: the singleplayer world-list per-row "server-like" player count needs the first mixin (`WorldSelectionListEntryMixin`) in a GUI env; live chunk/region validation + revalidation needs the `committee`/`coordinator` stack wired over the worker's `PeerRuntime` (the headless `CommitteeMvpIT` pipeline, now live); permission grants must be gossiped/announced and `BANNED` enforced at `JOIN`; password change re-encryption must propagate over the network (Task 23 live); the worker must seed extracted region pieces | T33 | `runClient`: a shared world shows a live player count on its row; a committee re-executes + commits a region delta over the worker mesh; a BANNED peer is refused at join; a re-keyed world's new ciphertext replaces the old across seeders | OPEN |
 | L-46 | Task 31 GUI redesign is proven by view-model tests + compile-clean screens, but the presentation itself is unverified live: "Open to Nodera" taking the vanilla LAN slot, the single-player public-world badge's per-row placement (screen-level summary only for now — vanilla `WorldSelectionList` row geometry is not cross-package accessible), the tabbed `NoderaMultiplayerScreen`, and the `PieceMapWidget` green-fill grid all wait on a GUI env; the feeds (own worlds, tracker/rendezvous status, per-piece state) are pluggable suppliers defaulting empty until the live wiring / Task 32 daemon lands | T31 | `runClient` (with L-45's harness) shows one "Open to Nodera" button in the LAN slot, a live public-world count on the world list, three working multiplayer tabs, and a piece-map that fills green as pieces arrive | OPEN |
 | L-47 | Task 32 peer worker + gate landed (`nodera-headless` boots a `PeerRuntime` + serves the `ControlServer` the mod probes — verified live; the mod's `companion.required` gate defaults ON so Minecraft aborts without the worker; `scripts/dev.sh` runs the worker; the Tauri app supervises/monitors it, workspace-excluded). Remaining: the worker's live telemetry pump feeding the dashboard's real metrics, the worker↔mod host/join control verbs (so hosting delegates to the worker rather than the in-JVM peer), per-OS installers, app icons, and an automated end-to-end installer + gate + cross-machine continuity test | T32 | A CI/tooling job builds the app, runs the gate both ways (worker present ⇒ start, absent ⇒ actionable abort), and proves a hosted world stays listed + joinable after the host closes Minecraft (the worker kept it alive) | OPEN |
-| L-48 | The always-on node cannot yet *validate* regions from the companion: Option A (a Rust-only seeder node) is forbidden from re-executing regions by the single-engine determinism rule, and the Option-B bundled headless *Java* peer (which can validate, reusing `committee`/`simulation`) is not yet built/bundled — so a companion-only node is currently seeder/relay/router-capable in design, not a committee member | T32/T16 | The bundled headless Java peer runs `committee` re-execution out-of-game and casts votes; a companion-only node participates in a quorum in a headless IT | OPEN |
+| L-48 | ~~The always-on node cannot validate regions from the companion~~ | T32/T16 | The bundled headless Java peer runs `committee` re-execution out-of-game and casts votes; a companion-only node participates in a quorum in a headless IT | RETIRED |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
 > module ships the addressable piece plane (`PieceManifest`/`Piece`), the append-only
@@ -221,6 +221,26 @@ observable in normal play.
 > among equal-weight peers; the bootstrap-preference and deterministic UUID tie-break are
 > unchanged, so the order-independence property test still holds. Verified by
 > `GatewayElectionTest.capabilityWeightIsBoundedPureIntegerMath` and `mostCapablePeerWins*`.
+
+> **L-48 retired / L-30 retiring (issue #30 goal pass, 2026-07-21).** The previously
+> runtime-unreferenced `engine` validation stack is wired into the worker:
+> `dev.nodera.peer.validation.WorkerValidationService` runs `CommitteeMember` re-execution
+> **out-of-game** and participates in quorum over the same `PeerTransport` the membership session
+> rides, consuming the previously unconsumed `simulationmsg` wire family
+> (`ActionBatchMsg`/`RegionProposal`/`ValidationVote`/`CommitAnnounce`).
+> `WorkerQuorumValidationIT` proves the L-48 exit: three **companion-only** worker nodes (no
+> Minecraft process) form a committee over `LoopbackTransport`-registered `PeerRuntime`s — the
+> primary proposes, validators re-execute with THE engine and vote over the wire, the 2-of-3
+> quorum commits, every worker converges on the byte-identical root **matching the reference
+> engine**, and each persists the co-signed `QuorumCertificate` in its own `CertificateStore`
+> (certified state flowing peer-to-peer). Primary loss promotes a validator under epoch+1
+> (`CommitteeFailover`) and the surviving 2-member committee keeps committing. The fallback lane
+> (`FallbackRouter`/`FallbackExecutor` — the formerly orphaned Task-8 runtime) executes an
+> unassigned-region action through the server lane and the Phase-4 soak ratio holds.
+> `HeadlessPeerMain` constructs the lane and the worker `STATE` JSON now reports live
+> `validation` counters (additive field; the Tauri parser uses serde defaults). L-30 stays
+> RETIRING: the T9 forward event-sync half (`PeerSyncFlow` over the transport) is the remaining
+> exit clause.
 
 > **L-45 opened / decentralization (Task 30, 2026-07-20).** The first Task 30 increment finishes Plan
 > Phase 5's "demote the server" on the mod side: the `Dist.DEDICATED_SERVER` gate is removed, so a

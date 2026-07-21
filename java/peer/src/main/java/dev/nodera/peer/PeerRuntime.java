@@ -385,8 +385,38 @@ public final class PeerRuntime implements DiagnosticsSource {
             case PeerGoodbye g -> onPeerGoodbye(g);
             case GatewayClaim c -> onGatewayClaim(c);
             case SessionKeepAlive k -> onKeepAlive(k);
-            default -> { /* not a membership message; ignored by this runtime */ }
+            default -> {
+                // Not a membership message: hand it to the application lane (e.g. the
+                // dev.nodera.peer.validation committee flow). Runs on the state thread like
+                // every other dispatch, so application handlers see serialized delivery.
+                ApplicationMessageHandler app = applicationHandler;
+                if (app != null) {
+                    app.onApplicationMessage(from, msg);
+                }
+            }
         }
+    }
+
+    /**
+     * Non-membership messages decoded off this runtime's transport (committee proposals, votes,
+     * commit announcements, content transfer, …). Called on the runtime's state thread —
+     * deliveries are serialized; do not block.
+     */
+    @FunctionalInterface
+    public interface ApplicationMessageHandler {
+        void onApplicationMessage(PeerAddress from, NoderaMessage message);
+    }
+
+    private volatile ApplicationMessageHandler applicationHandler;
+
+    /**
+     * Register the application-lane handler for non-membership messages. One handler; the last
+     * registration wins. Pass {@code null} to detach.
+     *
+     * @Thread-context any thread.
+     */
+    public void onApplicationMessage(ApplicationMessageHandler handler) {
+        this.applicationHandler = handler;
     }
 
     private void onPeerJoin(PeerJoin j) {

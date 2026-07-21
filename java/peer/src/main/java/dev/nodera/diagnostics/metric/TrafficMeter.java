@@ -42,6 +42,29 @@ public final class TrafficMeter {
         framesRx.increment();
     }
 
+    /**
+     * Record one frame of {@code byteCount} payload bytes in {@code direction} — the
+     * {@link Direction}-keyed form of {@link #recordTx}/{@link #recordRx}.
+     *
+     * @Thread-context any thread.
+     */
+    public void record(Direction direction, int byteCount) {
+        switch (direction) {
+            case TX -> recordTx(byteCount);
+            case RX -> recordRx(byteCount);
+        }
+    }
+
+    /** @return cumulative bytes in {@code direction}. @Thread-context any thread. */
+    public long bytes(Direction direction) {
+        return direction == Direction.TX ? bytesTx() : bytesRx();
+    }
+
+    /** @return cumulative frame count in {@code direction}. @Thread-context any thread. */
+    public long frames(Direction direction) {
+        return direction == Direction.TX ? framesTx() : framesRx();
+    }
+
     /** @return cumulative TX bytes. @Thread-context any thread. */
     public long bytesTx() {
         return bytesTx.sum();
