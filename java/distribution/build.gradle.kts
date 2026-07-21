@@ -16,7 +16,7 @@ plugins {
 // (DistributionIT).
 dependencies {
     api(project(":core"))
-    api(project(":storage-api"))
+    api(project(":storage"))
     api(project(":protocol"))
     api(project(":transport-api"))
     implementation(libs.bouncycastle)

@@ -13,7 +13,7 @@ dependencies {
     implementation(project(":transport-neoforge"))
     implementation(project(":peer-runtime"))
     implementation(project(":diagnostics"))
-    implementation(project(":storage-api"))
+    implementation(project(":storage"))
 }
 
 // Produce a *runnable* mod jar. The Minecraft-free Nodera modules are pure-Java project deps and
@@ -23,7 +23,7 @@ dependencies {
 val noderaBundled = listOf(
     ":core", ":protocol", ":simulation", ":consensus",
     ":transport-api", ":transport-socket", ":transport-rendezvous",
-    ":storage-api", ":peer-runtime", ":diagnostics")
+    ":storage", ":peer-runtime", ":diagnostics")
 
 tasks.named<Jar>("jar") {
     dependsOn(noderaBundled.map { "$it:jar" })
