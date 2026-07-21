@@ -97,10 +97,8 @@ of **Task 30 decentralization** (+8, `neoforge-mod` `ShareOptionsTest`): the pau
 |---|---|---|---|
 | `core` | domain types, JDK-only crypto (Ed25519/SHA-256 + Task 23 AES-GCM/PBKDF2), canonical encoding (frozen wire/hash contract) + `ServerAuthorityCertificate` (Task 11) + `CommitteeChangeCertificate` (Task 9) + entity-lane foundation `FixedVec3`/`NetworkEntityId`/`PersistedEntityState` + item actions/events (Task 12a) + `WorldRole` + tags 92/93 (Task 33) | 150 | ✅ |
 | `simulation` | deterministic region engine (the determinism bet) | 28 | ✅ |
-| `protocol` | wire messages, MessageCodec, zstd chunked streams; compatible `SessionKeepAlive` v2 per-region progress (Task 25); `ExternalDelta` tag 32 (Task 11); tracker announce family tags 33–34 (Task 28); cross-language golden `WireFixtureTest` (Task 27) | 40 | ✅ |
+| `transport` | **unified network API (issue #30)** — wire plane `dev.nodera.protocol.*` (append-only `MessageCodec` tags mirrored by `nodera-codec`, zstd `ChunkedStreams`, all message families, golden `WireFixtureTest`) · carrier plane (`PeerTransport` seam, `SocketPeerTransport` direct TCP, `RendezvousPeerTransport` punch/relay composite + `TransportSelector`/`EndToEndCipher`, `RendezvousRelayIT` vs the real binary) · shared `Frames`/`Reachability`. Absorbs `protocol`/`transport-api`/`transport-socket`/`transport-rendezvous`; empty `transport-neoforge` deleted | 75 | ✅ |
 | `consensus` | quorum, votes, equivocation, adaptive spot-checks | 26 | ✅ |
-| `transport-api` | `PeerTransport` seam | 9 | ✅ |
-| `transport-socket` | real TCP `PeerTransport` — direct P2P data plane (Phase 6) | 4 | ✅ |
 | `storage` | **unified storage API (issue #30)** — the `WorldStore` seam + value types (tags 81–83; `WorldIdentity`/`WorldPermissionGrant`/`WorldPermissions` tags 92/93, Task 33) · in-memory event-sourced tier (`event`: certified-chain `EventReplayer`, forward `PeerSyncFlow`) · durable RocksDB tier (`rocksdb`: WAL-backed CFs, log-tail head recovery, `FsContentStore`, forced-kill `RocksCrashRecoveryIT`) · bounded client tier (`client`: quota + eviction that never touches an assigned region) · shared `EventChainGuard`/`RegionOrder`/`AtomicFileWriter`. Absorbs `storage-api`/`storage-eventsourced`/`storage-rocksdb`/`storage-client` | 62 | ✅ |
 | `testkit` | `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
 | `peer-runtime` | `PeerRuntime`, membership/gossip, heartbeat, **capability-weighted** deterministic gateway migration, metered transport + DiagnosticsSource (continuity beta) + `discovery` (Task 20) + `archival`: placement/physical-store repair (Task 21) + 24-h retention (Task 22) + deadline-bound `PeerShutdownHook` (Task 24) + certified-reference `TickSync` (Task 25) + `committee/CommitteeManager` (Task 9) + `control` presence + verb endpoint (v2: STATE/IDENTITY/HOST/WORLDID, Task 32/33) | 120 | 🚧 |
@@ -110,10 +108,8 @@ of **Task 30 decentralization** (+8, `neoforge-mod` `ShareOptionsTest`): the pau
 | `committee` | Phase 3 committee validation / MVP gate (Minecraft-free): CommitteeMember/Session, vote-before-sign `VotePersistence`, quorum commit, byzantine handling, SpotCheckAuditor, guarded CommitteeFailover + `CrashRecoveryIT`/`LagHandoffIT` (Tasks 7/24/25) | 16 | ✅ |
 | `fallback` | Phase 4 server-fallback + cross-region router (Minecraft-free): CrossRegionRouter, FallbackExecutor, SoakMetrics (Task 8) | 10 | ✅ |
 | `distribution` | Phase 5–6 torrent data plane + encryption + durability stream (Minecraft-free): split/select/download/reassemble/locks/transfer (Task 19), bounded Argon2id ciphertext flow (Task 23), `ActivePlayerStream` + `EmergencyFlush` (Task 24) | 78 | ✅ |
-| `transport-neoforge` | NeoForge payload relay transport (skeleton) | 1 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + **role-driven host wiring on both dists** (Task 30 — no dedicated-server gate; integrated server hosts on "Share"), redesigned `/nodera` tree + `/noderac`, tab/boss-bar/action-bar HUD, session payload, `client/multiplayer` torrent screens (Task 26) + `client/share` "Share to Nodera" + `ShareOptions`/`NoderaHost` (Task 30) + **Task 31 GUI redesign** ("Open to Nodera" replaces LAN, public-world `SelectWorldScreenAddon`, tabbed `NoderaMultiplayerScreen` + `PieceMapScreen`/`PieceMapWidget`) + **Task 32 companion presence gate** (`CompanionGate`/`CompanionClient`) | 17 | 🚧 |
 | `nodera-headless` | (Task 32) the always-on peer worker: `HeadlessPeerMain` boots a `PeerRuntime` + serves the loopback `ControlServer` presence endpoint the mod requires; runnable `application` installDist (supervised by the Tauri app / run by `scripts/dev.sh`) | — | 🚧 |
-| `transport-rendezvous` | (Task 29) direct-first / punch-upgrade / X25519+AES-GCM relay-fallback `PeerTransport` over `nodera-rendezvous`; replaces the planned `transport-libp2p` (see `LEGACY.md`). `RendezvousPeerTransport`/`RelayCircuitClient`/`EndToEndCipher`/`TransportSelector`/`CandidateDialer`/`HolePunchCoordinator` | 16 | ✅ |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag-registry mirror + socket framing, proven against shared `fixtures/wire/` golden files | 23 | ✅ |
 | `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 54 | ✅ |
 | `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED) | 62 | ✅ |
@@ -186,11 +182,9 @@ nodera/
 ├── java/                ALL Gradle modules (names unchanged: `./gradlew :core:test` still works)
 │   ├── build-logic/         convention plugins (java-library)
 │   ├── core/                identity, region, action, state, event, certificates, JDK crypto (incl. AES-GCM/PBKDF2)
-│   ├── protocol/            wire messages + MessageCodec + ChunkedStreams (zstd), compatible keep-alive v2 region progress
 │   ├── simulation/          DeterministicRegionEngine, FlatWorldRules, DeterministicRandom
 │   ├── consensus/           QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
-│   ├── transport-api/       PeerTransport seam
-│   ├── transport-socket/    real TCP PeerTransport — direct P2P data plane (Phase 6 continuity beta)
+│   ├── transport/           unified network API (issue #30): protocol wire plane + PeerTransport carriers (socket, rendezvous) + Frames/Reachability
 │   ├── storage/             unified storage API (issue #30): WorldStore seam + event-sourced, RocksDB, and bounded-client tiers + EventChainGuard/RegionOrder/AtomicFileWriter
 │   ├── distribution/        (Tasks 19/23) torrent data plane + bounded Argon2id/AES-GCM ciphertext manifests and keyless seeding
 │   ├── testkit/             LoopbackTransport, FakeRegion, FixtureWriter/Reader
@@ -201,7 +195,6 @@ nodera/
 │   ├── committee/           (Task 7) Phase 3 MVP gate: committee re-execution + 2-of-3 quorum + byzantine handling
 │   ├── fallback/            (Task 8) Phase 4 cross-region router + server-fallback lane + soak metrics
 │   ├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, redesigned /nodera diagnostics tree + /noderac + HUD surfaces; runServer/runClient deferred
-│   └── transport-neoforge/  (Task 4) payload relay skeleton — onboarded (ModDevGradle), relay impl deferred
 ├── rust/                cargo workspace (rust-toolchain.toml pins the channel)
 │   ├── nodera-codec/        (Task 27) byte-exact canonical-encoding port + Ed25519 verify + tag mirror + framing
 │   ├── nodera-tracker/      (Task 28) standalone tracker service — announce/query, real binary driven by TrackerServiceIT

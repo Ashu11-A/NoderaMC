@@ -9,10 +9,7 @@ plugins {
 // companion app (rust/nodera-app) supervises this process; `scripts/dev.sh` can also run it directly.
 dependencies {
     implementation(project(":core"))
-    implementation(project(":protocol"))
-    implementation(project(":transport-api"))
-    implementation(project(":transport-socket"))
-    implementation(project(":transport-rendezvous"))
+    implementation(project(":transport"))
     implementation(project(":peer-runtime"))
     implementation(project(":diagnostics"))
     implementation(project(":storage"))

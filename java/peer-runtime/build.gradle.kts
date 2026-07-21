@@ -9,11 +9,9 @@ plugins {
 // unit tests) and SocketPeerTransport (real-socket integration tests).
 dependencies {
     api(project(":core"))
-    api(project(":transport-api"))
-    implementation(project(":protocol"))
+    api(project(":transport"))
     implementation(project(":diagnostics"))
     implementation(project(":distribution"))
 
-    testImplementation(project(":transport-socket"))
     testImplementation(project(":testkit"))
 }

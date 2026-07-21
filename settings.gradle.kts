@@ -28,11 +28,12 @@ fun module(name: String) {
 
 // Phase 0 — pure-Java (Minecraft-free) modules. Built and tested in CI.
 module("core")
-module("protocol")
 module("simulation")
 module("consensus")
-module("transport-api")
-module("transport-socket")
+// Unified network API (issue #30): absorbs the former protocol / transport-api /
+// transport-socket / transport-rendezvous modules — packages unchanged. The empty
+// transport-neoforge placeholder was deleted; the in-game relay lane lands in neoforge-mod.
+module("transport")
 // Unified storage API (issue #30): absorbs the former storage-api / storage-eventsourced /
 // storage-rocksdb / storage-client modules — packages unchanged (dev.nodera.storage.*).
 module("storage")
@@ -50,15 +51,8 @@ module("distribution")
 // endpoint the mod probes. Runnable via the `application` plugin (installDist / run).
 module("nodera-headless")
 
-// --- NeoForge-bound modules (Task 1 declares; enabled when the NeoForge toolchain is onboarded) ---
-module("transport-neoforge")
+// --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
 module("neoforge-mod")
-
-// --- Rust-services transport (Task 29) ---
-// `transport-rendezvous` is the third PeerTransport: direct-first, punch-upgrade, E2E-encrypted
-// relay fallback over the standalone `nodera-rendezvous` service. It replaced the never-built
-// `transport-libp2p` placeholder (deleted by Task 27; superseded per LEGACY.md).
-module("transport-rendezvous")
 
 // --- Later-phase modules (Tasks 12-16) ---
 // include("integration-tests")

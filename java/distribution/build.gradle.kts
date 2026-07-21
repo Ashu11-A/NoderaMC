@@ -17,8 +17,7 @@ plugins {
 dependencies {
     api(project(":core"))
     api(project(":storage"))
-    api(project(":protocol"))
-    api(project(":transport-api"))
+    api(project(":transport"))
     implementation(libs.bouncycastle)
 
     testImplementation(project(":simulation"))

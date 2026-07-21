@@ -4,13 +4,9 @@ plugins {
 
 dependencies {
     implementation(project(":core"))
-    implementation(project(":protocol"))
+    implementation(project(":transport"))
     implementation(project(":simulation"))
     implementation(project(":consensus"))
-    implementation(project(":transport-api"))
-    implementation(project(":transport-socket"))
-    implementation(project(":transport-rendezvous"))
-    implementation(project(":transport-neoforge"))
     implementation(project(":peer-runtime"))
     implementation(project(":diagnostics"))
     implementation(project(":storage"))
@@ -21,8 +17,7 @@ dependencies {
 // runtime and fail to load on a real server. Fold their compiled classes into the mod jar (a fat
 // jar of our own code only — never Minecraft/NeoForge, which the loader provides).
 val noderaBundled = listOf(
-    ":core", ":protocol", ":simulation", ":consensus",
-    ":transport-api", ":transport-socket", ":transport-rendezvous",
+    ":core", ":transport", ":simulation", ":consensus",
     ":storage", ":peer-runtime", ":diagnostics")
 
 tasks.named<Jar>("jar") {

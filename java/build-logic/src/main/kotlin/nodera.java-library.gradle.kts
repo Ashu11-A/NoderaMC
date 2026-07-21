@@ -1,6 +1,6 @@
 // Nodera plain-Java library conventions (Task 0 §2/§3).
 // Applies to every Minecraft-free module: core, protocol, simulation, consensus,
-// transport-api, storage-api, testkit.
+// transport, storage, testkit.
 plugins {
     `java-library`
     `jvm-test-suite`
