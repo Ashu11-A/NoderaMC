@@ -1,147 +1,214 @@
-# Task 1 — Build Scaffolding + NeoForge Mod Skeleton
+# Task 1 — Deterministic Engine & Committee Validation (module cluster: `core` · `simulation` · `consensus` · `committee` · `coordinator` · `shadow-validation` · `fallback`)
 
-**Phase:** 0 · **Depends on:** — · **Modules:** `build-logic`, root build, `neoforge-mod`
+**Module:** the Minecraft-free Java validation stack under `java/` ·
+**Depends on:** — (root task; everything else builds on it) ·
+**Consumed by:** Task 2 (types/engine), Task 5 (live wiring), Task 6 (out-of-game validation)
+
+## Implementation status
+
+Audited **2026-07-21**. ✅ completed · 🚧 pending (started/not started, no external blocker) ·
+⏳ waiting (blocked on another task's phase).
+
+| Phase | Deliverable | Status | Waiting on |
+|---|---|---|---|
+| 1a | `core`: domain types + crypto + canonical encoding (frozen contract) | ✅ | — |
+| 1b | `simulation`: deterministic region engine (flat-world rules) | ✅ | — |
+| 1c | Shadow validation pipeline (headless) — `ShadowValidationIT` zero-divergence soak | ✅ (live half → 5b) | — |
+| 1d | Coordinator: leases/epochs/assignment/propose→verify→commit — `CoordinatorIT` | ✅ (live half → 5b) | — |
+| 1e | Committee validation, 2-of-3 quorum — **MVP gate**, `CommitteeMvpIT` | ✅ (live 3-client run → 5b) | — |
+| 1f | Server-fallback lane + cross-region router — `FallbackRoutingIT` >90% committee-commit | ✅ (live soak → 5b) | — |
+| 1g | Interference guard + full delegability + `COMPATIBILITY.md` | ✅ headless (mixins/tickets/fake-player → 5b) | — |
+| 1h | Entity & mob lane (12a core foundation ✅; `EntityStore`/item physics, ghost stream, cross-region transfer) | 🚧 | 5b for the NeoForge capture bridge |
+| 1i | Validated redstone (palette v2) + contraption ownership migration | 🚧 | — (headless half unblocked) |
+| 1j | Environment lane: random ticks, fluids, fire, gravity, lighting, observer/QC | ⏳ | 1g live (5b), 1h, 1i |
+| 1k | Deterministic entity simulation: mob AI, spawning, projectiles, ghost retirement | ⏳ | 1h, 1j |
+| 1l | Player lane & trustless closure: movement, inventory, combat, portals, worldgen, BFT, mod SDK | ⏳ | 1k, 2b live, 5b |
 
 ## Goal
 
-A building, CI-green multi-module Gradle workspace with an installable NeoForge mod that
-loads on both a dedicated server and a client, with correctly split entrypoints and empty
-(but registered) networking/config/attachment scaffolding. No gameplay behaviour yet.
+The project's central bet, proven and enforced: a pure-Java, **bit-for-bit deterministic**
+simulator for one 8×8-chunk region — `(RegionSnapshot, ActionBatch, RegionExecutionContext) →
+(RegionDelta, StateRoot)` identical on every JVM — wrapped by the full validation stack:
+shadow validation (falsify determinism early), the coordinator (leases, epochs, compare-and-set
+world application), committee quorum validation with byzantine handling and failover (the MVP
+gate), the server-fallback/cross-region lane, and the interference guard that makes delegated
+regions safe on real worlds. The parity program (1h–1l) then burns `LIMITATIONS.md` §B down to
+empty — full vanilla parity under validation, no permanent exclusions.
 
----
+## Context (last audit: 2026-07-21)
 
-## Folder structure to create
+- Phases 1a–1g are green headlessly: 773 Java tests include the engine determinism property
+  tests, `ShadowValidationIT` (3 workers × 250 random batches, zero divergence, lying worker
+  caught), `CoordinatorIT` (commit-on-match, forced-mismatch reject, stale-epoch drop,
+  primary-death reassignment), `CommitteeMvpIT` (2-of-3 quorum, primary failover under epoch+1),
+  `ByzantineWorkerTest`, `FallbackRoutingIT` (>90% committee-commit), and the full
+  `coordinator/interference` guard suite (CONVERT/STRICT classification, held-while-voting
+  ordering — interference `STALE_BASE` impossible by construction, delegability hysteresis).
+- 1h first increment (old Task 12a) landed: `FixedVec3` Q32.32, deterministic
+  `NetworkEntityId`, `PersistedEntityState`, item actions (tags 25/26), entity lifecycle events.
+  The frozen region-root encoding is untouched.
+- Everything Minecraft-facing (capture mixins, `ServerLevel` applier, chunk tickets, live
+  multi-client acceptance) is deliberately **not here** — it is Task 5 phase 5b, the same
+  pattern for every phase: prove Minecraft-free first, wire live second.
+- Prior-art grounding: [`docs/minecraft/folia/`](minecraft/folia/) (regionised ticking,
+  `TickThread` fail-hard ownership guards, region-local time, halo sections) and
+  [`docs/minecraft/MultiPaper/`](minecraft/MultiPaper/) (single-owner ticks, atomic chunk-group
+  ownership takeover — the model 1i's contraption migration copies, write barriers, entity-ID
+  stability). Key contrast: neither validates anything — committee re-execution + quorum
+  certificates are Nodera's novel layer.
 
-```
-nodera/
-├── settings.gradle.kts
-├── build.gradle.kts
-├── gradle.properties
-├── gradle/
-│   ├── libs.versions.toml
-│   └── wrapper/
-├── build-logic/
-│   ├── settings.gradle.kts
-│   ├── build.gradle.kts
-│   └── src/main/kotlin/
-│       ├── nodera.java-library.gradle.kts      # plain-Java module conventions
-│       └── nodera.neoforge-mod.gradle.kts      # NeoForge module conventions
-├── core/                    build.gradle.kts + src/main/java, src/test/java   (empty pkg)
-├── protocol/                (same skeleton)
-├── simulation/              (same skeleton)
-├── consensus/               (same skeleton)
-├── transport-api/           (same skeleton)
-├── transport-neoforge/      (same skeleton, applies neoforge convention)
-├── storage-api/             (same skeleton)
-├── testkit/                 (same skeleton)
-├── neoforge-mod/
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── java/dev/nodera/mod/
-│       │   ├── NoderaMod.java
-│       │   ├── common/
-│       │   │   ├── NoderaConfig.java
-│       │   │   ├── ModNetworking.java
-│       │   │   └── ModAttachments.java
-│       │   ├── dedicated/
-│       │   │   └── ServerBootstrap.java
-│       │   └── client/
-│       │       ├── NoderaClientMod.java
-│       │       └── ClientBootstrap.java
-│       └── resources/
-│           ├── META-INF/neoforge.mods.toml
-│           └── nodera.mixins.json               # registered, empty mixin list
-└── .github/workflows/build.yml
-```
-
-`storage-rocksdb`, `storage-client`, `peer-runtime`, `transport-rendezvous` (Task 29 —
-replaced the planned `transport-libp2p`, see `LEGACY.md`), `integration-tests` are **not**
-created yet (Tasks 8–10/29) — keep `settings.gradle.kts` comments marking where they will
-be included.
-
-## File-by-file
-
-- **`settings.gradle.kts`** — `rootProject.name = "nodera"`, `includeBuild("build-logic")`,
-  `include(...)` for every module above; enable version catalog + typesafe accessors.
-- **`gradle/libs.versions.toml`** — pins: neoforge, junit5, assertj, jqwik, mockito,
-  caffeine, zstd-jni, roaringbitmap, fastutil, archunit, jmh. Single source of versions
-  (Task 0 §3).
-- **`build-logic/…/nodera.java-library.gradle.kts`** — `java-library`, Java 21 toolchain,
-  `options.release = 21`, UTF-8, JUnit platform, AssertJ + jqwik on `testImplementation`,
-  reproducible archives, `-parameters` compiler flag (record component names for codecs).
-- **`build-logic/…/nodera.neoforge-mod.gradle.kts`** — the java-library conventions +
-  NeoGradle/ModDevGradle plugin application, `runs` for `client`, `server`, `data`; mixin
-  config wiring; mod id constant injection.
-- **`neoforge-mod/build.gradle.kts`** — applies the neoforge convention; depends on
-  `core`, `protocol`, `simulation`, `consensus`, `transport-api`, `transport-neoforge`,
-  `storage-api`; `jarJar`/shade rules reserved (empty for now).
-- **`neoforge.mods.toml`** — modid `nodera`, loader version range, license, dependency on
-  neoforge/minecraft ranges from `gradle.properties`, points at `nodera.mixins.json`.
-- **`.github/workflows/build.yml`** — JDK 21 (Temurin), `./gradlew check build`
-  on push + PR; cache Gradle; upload the mod jar artifact.
-
-## Class relationships
+## Folder structure (monorepo default)
 
 ```
-@Mod("nodera")                          @Mod(value="nodera", dist=Dist.CLIENT)
-NoderaMod (both dists)                  NoderaClientMod (client only)
- ├─ registers ModNetworking (mod bus)    └─ ClientBootstrap.register(modBus, container)
- ├─ registers ModAttachments (mod bus)
- ├─ registers NoderaConfig (both specs)
- └─ if dist == DEDICATED_SERVER → ServerBootstrap.register()
+java/core/                 identity, region, action, state, event, certificates, JDK crypto
+java/simulation/           RegionEngine, FlatWorldRules, DeterministicRandom, border/halo
+java/consensus/            QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
+java/committee/            CommitteeMember/Session, VotePersistence, SpotCheckAuditor, CommitteeFailover
+java/coordinator/          NodeRegistry, ReliabilityLedger, allocator, leases, RegionPipeline,
+                           ProposalManager, ServerVerifier, WorldMutationApplier, interference/
+java/shadow-validation/    WorkerRuntime, ReplicaStore, ShadowWorker/Coordinator, DivergenceTracker
+java/fallback/             CrossRegionRouter, FallbackExecutor, SoakMetrics
+java/testkit/              LoopbackTransport, FakeRegion, FixtureWriter/Reader
 ```
 
-Skeleton code (matches the pattern locked in `Context/Readme.md`):
+Additions per pending phase (full class-level detail in the legacy specs): 1h →
+[`old/Task.12.md`](old/Task.12.md) (`simulation/entity/`, `EntityRuleSet`); 1i →
+[`old/Task.13.md`](old/Task.13.md) (`rules/RedstoneRules`, `ScheduledTickQueue`,
+`NeighborUpdateOrder`, `border/BorderSignal`, mod-side `contraption/`); 1j →
+[`old/Task.14.md`](old/Task.14.md) (`RandomTickRules`, `FluidRules`, `GravityRules`,
+`ObserverRules`, `lighting/`, `WorldTimeSlice`); 1k → [`old/Task.15.md`](old/Task.15.md)
+(`MobRules`, `ai/IntPathfinder`, `SpawnCycleRules`, `ProjectileRules`, `TntRules`, `RailRules`);
+1l → [`old/Task.16.md`](old/Task.16.md) (16a–16g sub-decomposition).
 
-```java
-@Mod(NoderaMod.MOD_ID)
-public final class NoderaMod {
-    public static final String MOD_ID = "nodera";
+## Related files
 
-    public NoderaMod(IEventBus modBus, ModContainer container, Dist dist) {
-        NoderaConfig.register(container);
-        ModNetworking.register(modBus);   // subscribes RegisterPayloadHandlersEvent; empty registrar for now
-        ModAttachments.register(modBus);  // DeferredRegister<AttachmentType<?>>; empty for now
-        if (dist == Dist.DEDICATED_SERVER) {
-            ServerBootstrap.register();   // NeoForge.EVENT_BUS game-event subscriptions; empty for now
-        }
-    }
-}
+- Frozen contracts: `java/core/src/main/java/dev/nodera/core/crypto/{CanonicalWriter,CanonicalReader,Encodable,TypeTags}.java`, `core/Bytes`, `core/crypto/{HashService,SignatureService,StableHash}.java`
+- Engine: `java/simulation/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`, `DeterministicRandom.java`, `rules/FlatWorldRules.java`
+- Determinism enforcement: `java/simulation/src/test/java/dev/nodera/simulation/{ForbiddenApiTest,DeterminismPropertyTest}.java`
+- Pipeline: `java/coordinator/src/main/java/dev/nodera/coordinator/{RegionPipeline,ProposalManager,ServerVerifier,WorldMutationApplier,LeaseManager,DelegabilityPolicy}.java` + `interference/{MutationGuard,InterferenceBuffer,InterferenceCommitter,InterferenceStats}.java`
+- Quorum: `java/committee/src/main/java/dev/nodera/committee/*.java`, `java/consensus/src/main/java/dev/nodera/consensus/*.java`
+- Mod-compat contract: `COMPATIBILITY.md` (repo root — normative, written by 1g)
+- Legacy specs (verbatim, class-level): [`old/Task.2.md`](old/Task.2.md) … [`old/Task.16.md`](old/Task.16.md)
 
-@Mod(value = NoderaMod.MOD_ID, dist = Dist.CLIENT)
-public final class NoderaClientMod {
-    public NoderaClientMod(IEventBus modBus, ModContainer container) {
-        ClientBootstrap.register(modBus, container);   // empty for now
-    }
-}
-```
+## Implementation details (phases)
 
-`ServerBootstrap` / `ClientBootstrap`: static `register()` holders so later tasks add
-listeners without touching entrypoints. `NoderaConfig`: two `ModConfigSpec`s (SERVER,
-CLIENT) exposing the Task 0 §5 constants as config values (unused until Task 5+).
+Every phase: Minecraft-free, unit-tested on the gate; live NeoForge wiring is a **Task 5 (5b)**
+deliverable that consumes the phase.
 
-## Implementation details — NeoForge mod
+- **1a — `core` domain types + crypto + canonical encoding.** ✅ Full spec:
+  [`old/Task.2.md`](old/Task.2.md). Identities (Ed25519 `NodeIdentity`), regions/leases/epochs,
+  sealed `GameAction`, `RegionSnapshot`/`RegionDelta`/`StateRoot`, votes + `QuorumCertificate` +
+  `CommitteeChangeCertificate` (tag 53) + `ServerAuthorityCertificate` (tag 54), the frozen
+  canonical encoding with golden files, `StableHash`. Related files above. Deps: none.
+- **1b — `simulation` deterministic region engine.** ✅ Full spec:
+  [`old/Task.3.md`](old/Task.3.md). Pure `execute()`; halo write ⇒ hard throw (Folia lesson);
+  `registryFingerprint`/`rulesVersion` guards; ArchUnit ban. Deps: 1a.
+- **1c — Shadow validation (headless).** ✅ Full spec: [`old/Task.5.md`](old/Task.5.md).
+  `WorkerRuntime` (virtual threads), `ReplicaStore`, `SnapshotDeltaApplier` (CAS replica
+  advance), `ServerRecompute` self-check, `DivergenceTracker`, `InterferenceProbe`. Live capture
+  events/mixins + multi-client soak + bandwidth numbers: **5b**. Deps: 1b, 2a (transport seam).
+- **1d — Coordinator.** ✅ Full spec: [`old/Task.6.md`](old/Task.6.md). Delegate→propose→
+  verify→commit over the `MutableWorldView` seam; two-pass CAS `WorldMutationApplier`;
+  `ReliabilityLedger` EMA; `NoderaSavedData` persistence design. Live `ServerLevel` applier +
+  capture/cancel: **5b**. Deps: 1c gate.
+- **1e — Committee validation, the MVP gate.** ✅ Full spec: [`old/Task.7.md`](old/Task.7.md).
+  2-of-3 quorum on re-executed roots, equivocation slash, adaptive `SpotCheckPolicy` (L-22),
+  guarded failover. Live 3-client acceptance: **5b**. Deps: 1d.
+- **1f — Server-fallback + cross-region router.** ✅ Full spec:
+  [`old/Task.8.md`](old/Task.8.md). Committee lane vs server lane classification, barrier-based
+  atomic cross-region apply (`PAUSED_FOR_XR`), `SoakMetrics` >90% exit. Live vanilla
+  cross-region execution + soak: **5b**. Deps: 1e, 1g.
+- **1g — Interference guard, chunk lifecycle, delegability, mod compat.** ✅ headless. Full
+  spec: [`old/Task.11.md`](old/Task.11.md). `MutationGuard` single choke point (CONVERT default,
+  STRICT for CI), coalescing `InterferenceBuffer`, certified `ExternalDelta` (tag 32),
+  held-while-voting ordering, full `DelegabilityPolicy` reason set + `DelegabilityMonitor`
+  hysteresis, `COMPATIBILITY.md`. The three mixins (`LevelChunkMixin` choke point,
+  random/scheduled-tick suppression), `ChunkTicketService`, `FakePlayerDetector`: **5b**.
+  Deps: 1d.
+- **1h — Entity & mob lane.** 🚧 Full spec: [`old/Task.12.md`](old/Task.12.md). 12a core
+  foundation ✅ (`FixedVec3`, `NetworkEntityId`, `PersistedEntityState`, item actions/events).
+  Remaining: `EntityStore` in the region root + deterministic item physics
+  (`EntityRuleSet`), `mobCapture` ghost stream through the 1g pipeline, 12c cross-region entity
+  transfer on the 1f barrier. NeoForge capture bridge + `NetworkEntityIdAttachment`: **5b**.
+  Deps: 1g, 2c (event log for transfer certificates).
+- **1i — Validated redstone + contraption migration.** 🚧 Full spec:
+  [`old/Task.13.md`](old/Task.13.md). Palette v2, `ScheduledTickQueue` in the root
+  (Invariant 10), fixed `NeighborUpdateOrder`, piston two-phase `BlockEventEntry`,
+  `BorderSignal` → MultiPaper-style whole-group ownership migration
+  ([`minecraft/MultiPaper/06-peer-to-peer.md`](minecraft/MultiPaper/)), `HaloUpdate`
+  version-checked halo reads. Deps: 1f, 1g, 2c; mod half **5b**.
+- **1j — Environment lane.** ⏳ Full spec: [`old/Task.14.md`](old/Task.14.md). Engine takes
+  ownership of everything 1g suppresses: deterministic random ticks, finite fluids on the 1i
+  queue, gravity (instant-settle v1), fire, incremental deterministic lighting (`LightField` in
+  the root — the load-bearing sub-lane), observer + quasi-connectivity (palette v3), committed
+  `WorldTimeSlice`. Retires L-1…L-6. Deps: 1g live (5b), 1h, 1i.
+- **1k — Deterministic entity simulation.** ⏳ Full spec: [`old/Task.15.md`](old/Task.15.md).
+  Species-by-species ghost retirement: integer A* pathfinding, seeded goal selection,
+  spawn cycles in the vanilla envelope, projectiles/TNT/rails. Nodera-defined behaviour, never
+  an NMS port. Retires L-7/L-8/L-9/L-24. Deps: 1h, 1j.
+- **1l — Player lane & trustless closure.** ⏳ Program-level; full decomposition (16a–16g):
+  [`old/Task.16.md`](old/Task.16.md). Prediction + local-replica view, inventory/containers,
+  validated movement/combat, portals/dimensions/commands/worldgen, HotStuff-style BFT membership
+  + dynamic committees + multi-party genesis, the deterministic RuleSet SDK for third-party
+  mods, closure audit (§B empty). Deps: 1k, 2b (P2P live), 5b.
 
-- Verify **dist isolation**: run `runServer` — the dedicated server must boot to "Done"
-  without classloading anything under `dev.nodera.mod.client`. Add a smoke assertion:
-  `ServerBootstrap` logs `Nodera server bootstrap (dist=DEDICATED_SERVER)`.
-- `nodera.mixins.json` registered with an empty `"mixins": []` — proves the mixin
-  pipeline works before Task 5 adds real mixins (`"required": true`,
-  `"minVersion": "0.8"`, package `dev.nodera.mod.mixin`).
-- `ModNetworking.register` subscribes `RegisterPayloadHandlersEvent` and creates
-  `event.registrar("1")` — registrar exists, zero payloads. Task 4 fills it.
+## Testing strategy
 
-## Implementation details — server peer
+- **Determinism first**: jqwik property tests (same input ⇒ same root, permuted ⇒ different),
+  golden-file encoding tests, cross-JVM fixture replay (Linux + Windows CI), ArchUnit
+  forbidden-API ban. Every divergence found becomes a committed `ReplayFixtureTest` fixture.
+- **Consensus safety**: stale-epoch reject, equivocation slash, lone liar cannot commit,
+  colluding liars caught by spot-check, applier atomicity (bad CAS mid-delta ⇒ zero applied).
+- **Headless ITs are the gate**: `ShadowValidationIT`, `CoordinatorIT`, `CommitteeMvpIT`,
+  `ByzantineWorkerTest`, `FallbackRoutingIT`, `CrashRecoveryIT`, `LagHandoffIT` — all over
+  `LoopbackTransport`/in-memory world views, no Minecraft.
+- **Standing debugger harness** (old issue #17): every phase adds scenarios; live multi-client
+  acceptance rides Task 5 (5b) per phase. The declared-but-unbuilt `integration-tests` module
+  (spec: [`old/Task.7.md`](old/Task.7.md) — `FakePeer` headless protocol-speaking client +
+  `ClusterHarness`) is the planned shared home for cross-module live scenarios; until 5b needs
+  it, scenarios stay in each module's own test tree.
+- Parity phases (1h–1l): per-capability determinism fixtures on 3 replicas × 10k ticks +
+  negative tests (drop state from the hash ⇒ divergence detected), statistical vanilla-envelope
+  acceptance, `@Invariant(n)` tags mapping tests to Plan §8 invariants.
 
-None yet (server peer = the dedicated-server role of the same jar). Only requirement:
-identical jar runs in both `runClient` and `runServer` dev runs.
+## Limitations
+
+Owned rows in [`LIMITATIONS.md`](LIMITATIONS.md) (legacy owner tags per the Task 0 §4 mapping):
+
+- §B L-1…L-6 (environment) → 1j · L-7/L-8/L-9/L-24 (entities/mobs) → 1k · L-10…L-21, L-25
+  (player lane, BFT, SDK) → 1l · L-26 (redstone chain) → 1i→1j→1l · L-22 (spot-check floor,
+  RETIRING) → 1e/1f · L-30 (no committee re-execution on the P2P lane yet) → 1e over 2b.
+- §A A-1/A-5/A-6 mechanisms live here (batching, fixed-point, primary selection).
+- The live halves of 1c–1g are tracked as Task 5's L-45/L-49 rows, not here.
 
 ## Acceptance criteria
 
-1. `./gradlew check build` green locally and in CI; produces `neoforge-mod` jar.
-2. `runServer` boots to console prompt; `runClient` reaches title screen; both log the
-   Nodera bootstrap lines; no dist-crossing classload errors.
-3. All empty modules compile and run an example unit test (one trivial test per module to
-   prove the test wiring).
-4. Version catalog is the only place versions appear (`git grep` for version literals in
-   module build files returns nothing).
+1. Phases 1a–1g: their legacy acceptance criteria hold and stay green
+   ([`old/Task.2.md`](old/Task.2.md)–[`old/Task.11.md`](old/Task.11.md)) — the headless suites
+   listed above pass on the gate.
+2. 1h: 3-replica item-physics determinism fixtures; pickup/drop credited exactly once;
+   delegability narrowing (ITEM-only delegable; `mobCapture` ghost stream root-consistent);
+   idempotent 12c transfer with no dupe/loss (`@Invariant(11)`).
+3. 1i: repeater-clock determinism over 10k ticks incl. the drop-queue-from-hash negative test
+   (`@Invariant(10)`); group migration certificate chain verified; vanilla-boundary demotion in
+   one pass; failover mid-piston resumes from the committed root.
+4. 1j: L-1…L-6 exit tests green (named per row in `LIMITATIONS.md`); interference probe rate ≈ 0
+   on a normal world with palette v3.
+5. 1k: per-species determinism + envelope soaks; ghost-share reaches 0 for laddered species;
+   forced divergence alarm auto-rolls back to ghost.
+6. 1l: `LIMITATIONS.md` §B empty; closure soak green (adversarial FakePeers, server absent for
+   extended windows); `@Invariant(1..12)` audit — every invariant has a green test.
+
+## Notes for the implementing model
+
+- **One engine.** The Java `simulation` module is the only code allowed to re-execute regions —
+  no Rust port, no second implementation (determinism bet; see Task 6/7 constraints).
+- Build each phase as specified; do not implement a §B entry early, but do not build anything
+  that structurally blocks its owner (same discipline as Plan §8 invariants).
+- Frozen contracts (1a) never change without a version bump; wire tags append-only on both
+  language sides in one commit.
+- The headless-first pattern is not optional: a phase without a Minecraft-free proof does not
+  merge. Live wiring goes to Task 5 (5b) — coordinate the seams (`MutableWorldView`,
+  `CommitListener`, capture sinks) so 5b is adapters, not rewrites.
+- Class-level detail intentionally lives in `docs/old/` — read the mapped legacy file before
+  implementing a pending phase; those specs are still the authoritative design.

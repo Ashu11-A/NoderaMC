@@ -1,0 +1,251 @@
+# Task 0 — Conventions, Definitions, Task Index
+
+Not an implementation task. Binding conventions for Tasks 1–29. Read before starting any
+other task. When a later task contradicts this file, fix the later task.
+
+---
+
+## 1. Task index and dependency graph
+
+| Task | Title | Plan phase | Depends on |
+|---|---|---|---|
+| 1 | Build scaffolding + NeoForge mod skeleton | 0 | — |
+| 2 | `core` module: domain types + crypto + canonical encoding | 0 | 1 |
+| 3 | `simulation` module: deterministic region engine | 0 | 2 |
+| 4 | `protocol` + `transport-api` + `transport-neoforge`: payloads, streaming, handshake | 0 | 2 |
+| 5 | Shadow validation: capture mixins, client `WorkerRuntime`, divergence report | 1 | 3, 4 |
+| 6 | Coordinator: leases, epochs, assignment, client proposal + server verification | 2 | 5 |
+| 7 | Committee validation: votes, quorum, equivocation, failover — **MVP gate** | 3 | 6 |
+| 8 | Server-fallback-only execution + cross-region router | 4 | 7 |
+| 9 | `peer-runtime` + event-sourced storage: full archival bootstrap peer | 5 | 8 |
+| 10 | Gateway migration + direct P2P transport (rendezvous relay/NAT via T29); archival repair → T21, multi-bootstrap → T20 | 6 | 9; 29 (cross-NAT) |
+| 11 | World-interference control, chunk lifecycle, delegability, mod compat | 2–4 hardening | 6 |
+| 12 | Entity & mob lane: entity state in roots, ghost mobs, cross-region transfer | 5+ | 9, 11 |
+| 13 | Validated redstone: engine scheduled ticks, contraption ownership migration | 5+ | 8, 9, 11 |
+| 14 | Environment lane: random ticks, fluids, fire, gravity, lighting, observer/QC | 7 | 11, 12, 13 |
+| 15 | Deterministic entity simulation: mob AI, spawning, projectiles, ghost retirement | 7 | 12, 14 |
+| 16 | Player lane & trustless closure: movement, inventory, combat, portals, worldgen, seamless view, BFT, mod SDK | 8 | 10, 15 |
+| 17 | Debugger tool: headless P2P harness, real server-instance emulation, live debug, coverage, logs | 0–8 (cross-cutting) | grows per lane |
+| 18 | In-game observability & diagnostics HUD: tab list, boss bars, redesigned command tree, telemetry model | 0–8 (cross-cutting) | `peer-runtime` (hard); 6, 12 (soft) |
+| 19 | Torrent distribution data plane: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | 9 (storage-api), 4 (protocol/transport) |
+| 20 | Tracker, peer directory, archive inventory, multi-bootstrap (tracker serving role → T28) | 6 | 19, 10 |
+| 21 | Archive placement (rendezvous, replication ×5/×4, ≥25%-seed, <5%-per-peer), audit, repair | 6 | 19, 20 |
+| 22 | Multi-factor reliability, client storage quotas, 24-hour retention-before-drop | 6 | 19, 21 |
+| 23 | Per-world content encryption (password → AES-GCM; seeders hold ciphertext) | 6 | 19 |
+| 24 | Crash safety + active-player continuous chunk stream (shutdown-hook flush; sidecar deferred) | 6 | 19, 21, 22 |
+| 25 | Tick-lag / TPS metric + low-TPS region handoff | 6–7 | 7 (committee), 22 |
+| 26 | Multiplayer GUI: torrent-host world creation, server list + search, red/gray health, network stats | 0–8 (cross-cutting, client) | 19, 20, 21, 22, 23 |
+| 27 | Monorepo restructure + Rust workspace foundation (`rust/nodera-codec`, shared `fixtures/`) — executes `MONOREPO.md` | 0–8 (build, urgent) | — |
+| 28 | Standalone Rust tracker service (`nodera-tracker`) + Java `TrackerClient`; deletes the embedded Task 20 tracker | 6 | 27, 20, 19 |
+| 29 | Rust rendezvous+relay service (`nodera-rendezvous`) + `transport-rendezvous` (NAT reach; supersedes the libp2p plan) | 6 | 27, 9, 4 |
+
+```
+1 ──► 2 ──► 3 ──┐
+      └────► 4 ─┴─► 5 ─► 6 ─► 7 ─────► 8 ─► 9 ─► 10 ────────────► 16
+                          └─► 11 ──────┘    ├─► 12 ──► 14 ─► 15 ─► 16
+                                            └─► 13 ──► 14
+
+Distribution / torrent-hosting cluster (Tasks 19–26; "torrent hosting" feature):
+  4,9 ─► 19 ─►┬─► 20 ─► 21 ─► 22 ─► 24        (20 also ◄─ 10)
+              └─► 23            │
+                                ├─► 25  (also ◄─ 7)
+  19,20,21,22,23 ─► 26  (client GUI; cross-cutting, GUI-deferred acceptance)
+
+Rust service infrastructure (Tasks 27–29; peers verify it, never trust it):
+  27 ─►┬─► 28 ─► (20's tracker-client half · 26's live feed · L-44 exit)
+       └─► 29 ─► (10's cross-NAT reach · L-23/L-27 exits)
+```
+
+Tasks 19–26 deliver the **"torrent hosting" feature**: a world becomes a shared,
+content-addressed, multi-seeder resource across the peer network, with a BitTorrent-style tracker,
+redundant replication, per-world encryption, crash-safe streaming, tick-lag-driven region handoff,
+and a multiplayer-page UI. They are additive to the committee-validation bet (Task 7): seeders
+(`PARTIAL_ARCHIVE` / `WORLD_SEEDER` roles) store + propagate only; the active region's committee
+still re-executes and commits. Each stages its limitations in `LIMITATIONS.md` §B (L-32 … L-43)
+with an owning task and an exit test — no permanent exclusions. Rule 7 (mob/entity/redstone exchange
+over P2P, batched away from 20 tps) is delivered by the existing parity lanes (Tasks 12–15) riding
+the Task 19 data plane, not a separate task.
+
+The cluster's "rule N" references resolve to the host-user torrent-hosting spec, catalogued here
+(the spec text itself lives in issue/commit history, not a repo file — do not renumber):
+
+| Rule | Paraphrase | Owner |
+|---|---|---|
+| 0 | The host is the world's physical backup (`FULL_ARCHIVE` holds everything) | 21 |
+| 1 | Every peer seeds ≥25% of the network's data, dynamically adjusted as players join | 21 |
+| 2 | Reliability = connectivity + uptime + availability + worlds-seeded, weighted | 22 |
+| 3 | Redundant backups spread across peers; <5% per peer when the network is large | 19, 21 |
+| 5 | On Minecraft close/crash, emergency-flush unshared pieces to the network (full form: OS sidecar) | 24 (sidecar: L-41) |
+| 6 | An active player continuously streams their chunks/data to the swarm | 24 |
+| 7 | Mob/entity/redstone exchange over P2P, batched away from 20 tps | 12–15 over the T19 plane |
+| 9 | Tick-lag metric governs region-boundary sync; low-TPS peers hand off their regions | 25 |
+| 10 | Async download: hash-validate before use, lock-until-arrived, timestamped-hash freshness | 19 |
+| — | Per-world encryption password; seeders hold ciphertext | 23 |
+| — | Tracker/server list + search, health colours, 24 h retention-before-drop, multiplayer GUI | 20, 22, 26, 28 |
+
+Tasks 2, 3, 4 are pure-Java modules (no Minecraft classes) and can be developed in
+parallel after Task 1, except Task 3 and 4 both consume Task 2 types.
+
+Tasks 11–13 close the gaps found in the 2026-07-17 review: world-interference control
+and mod compatibility (11 — **required before Task 8 runs on non-flat worlds**), the
+entity/mob lane (12), and validated redstone with contraption ownership migration (13).
+Task 7's MVP gate does not require them (flat world, no mobs, no redstone).
+
+Tasks 17–18 are cross-cutting standing tasks (not in the linear dependency graph): 17 is the
+headless integration debugger; 18 is its player-facing counterpart — the in-game observability &
+diagnostics HUD (tab list, boss bars, redesigned command tree, one telemetry model). Spec:
+[`docs/Task.18.md`](Task.18.md).
+
+Tasks 14–16 are the parity program (Plan Phases 7–8): they burn `LIMITATIONS.md` §B down
+to empty — full vanilla parity under validation, no permanent exclusions.
+
+Tasks 27–29 are the **Rust infrastructure cluster**: Task 27 restructures the repo into the
+polyglot monorepo ([`MONOREPO.md`](./MONOREPO.md)) and delivers the `nodera-codec` conformance
+crate; Tasks 28/29 move the tracker and the rendezvous/relay out of the Java peer process into
+standalone Rust binaries speaking the frozen wire contract. They carry no game or consensus
+logic — authority stays with peers and committees (layering rule 7); [`LEGACY.md`](./LEGACY.md)
+ledgers the Java code they replace.
+
+**Assumption A0 (binding everywhere)**: every player runs the Nodera mod and joins as a
+network peer. There is no vanilla-client population and no second-class lane; the
+handshake (Task 4) enforces it. Any design that only makes sense "for vanilla clients"
+is dead code by definition.
+
+---
+
+## 2. Naming and coordinates
+
+| Thing | Value |
+|---|---|
+| Root project name | `nodera` |
+| Maven group | `dev.nodera` |
+| Mod id | `nodera` |
+| Base package | `dev.nodera.<module>` |
+| Mod package | `dev.nodera.mod` (subpackages `common`, `dedicated`, `client`) |
+| Wire protocol version | `"1"` (NeoForge payload registrar version string) |
+| Config files | `nodera-server.toml` (server), `nodera-client.toml` (client) via NeoForge config API |
+
+Java package per module:
+
+```
+core            → dev.nodera.core          (identity, region, action, state, event, crypto)
+protocol        → dev.nodera.protocol
+simulation      → dev.nodera.simulation
+consensus       → dev.nodera.consensus
+transport-api   → dev.nodera.transport
+transport-neoforge → dev.nodera.transport.neoforge
+transport-rendezvous → dev.nodera.transport.rendezvous   (Task 29; replaces the planned transport-libp2p)
+storage-api     → dev.nodera.storage
+storage-rocksdb → dev.nodera.storage.rocksdb
+storage-client  → dev.nodera.storage.client
+peer-runtime    → dev.nodera.peer
+neoforge-mod    → dev.nodera.mod
+testkit         → dev.nodera.testkit
+```
+
+Rust crates (cargo package names; live under `rust/` after Task 27 — see `MONOREPO.md`):
+
+```
+rust/nodera-codec       → nodera-codec        (canonical encoding + Ed25519 verify + tag mirror)
+rust/nodera-tracker     → nodera-tracker      (Task 28 service binary)
+rust/nodera-rendezvous  → nodera-rendezvous   (Task 29 service binary)
+```
+
+---
+
+## 3. Version pins (change only via a commit that updates this file)
+
+- **Minecraft 1.21.1 + NeoForge 21.1.x (LTS line)**, Java **21** toolchain everywhere.
+  Rationale: stable mappings and payload API; the design needs virtual threads (Java 21+),
+  nothing newer. Re-pin later versions in one dedicated upgrade commit, never mid-task.
+- Gradle 8.x, Kotlin DSL, NeoGradle (or ModDevGradle — pick in Task 1 and record here).
+- Dependency versions live in `gradle/libs.versions.toml` (version catalog); no hardcoded
+  versions in module build files.
+- Rust toolchain pinned in `rust/rust-toolchain.toml`; crate versions pinned in the workspace
+  `Cargo.toml` (Task 27). Same discipline: upgrades are single dedicated commits, never mid-task.
+
+---
+
+## 4. Layering rules (enforced by module dependencies)
+
+1. `core` depends on nothing (JDK only).
+2. `simulation`, `protocol`, `consensus`, `storage-api`, `transport-api` depend on `core`
+   only (plus each other where stated in their task).
+3. **No Minecraft/NeoForge types outside `neoforge-mod` and `transport-neoforge`.**
+   `core`/`simulation`/`consensus` never import `net.minecraft.*` or `net.neoforged.*`.
+   Where a Minecraft concept is needed (block state, position), `core` defines its own
+   representation (`NBlockState` int id, `NBlockPos` record) and `neoforge-mod` owns the
+   mapping.
+4. Client-only code (`net.minecraft.client.*`, screens, overlays) lives only under
+   `dev.nodera.mod.client` and is guarded by `Dist.CLIENT` entrypoints — a dedicated
+   server must never classload it.
+5. All world mutation of the real `ServerLevel` happens in exactly one class
+   (`WorldMutationApplier`, Task 6) on the server main thread. Everything else produces
+   data (`RegionDelta`) and hands it off.
+6. A delegated region's chunks are mutated **only** by `WorldMutationApplier`. Every
+   other write source — random ticks, fluids, gravity blocks, fire, mobs, fake players,
+   other mods, vanilla mechanics bleeding across the lane boundary — is suppressed or
+   converted into a certified `ExternalDelta` by the interference guard (Task 11).
+   Violations are logged and converted, never silently passed.
+7. **Rust service crates carry no game, consensus, or storage logic** (Tasks 27–29). They are
+   discovery/forwarding infrastructure: peers verify everything a service says (Ed25519
+   signatures, content hashes) and never treat it as authority. A service outage may degrade
+   discovery or reachability — never correctness.
+
+---
+
+## 5. Shared constants (defined once in `core`, class `NoderaConstants`)
+
+```java
+REGION_SIZE_CHUNKS   = 8      // 8×8 chunks per region
+HALO_CHUNKS          = 1      // read-only ring around the region
+BATCH_TICKS          = 2      // execution batch length
+BATCH_MAX_MILLIS     = 100
+CHECKPOINT_INTERVAL_TICKS = 100
+LEASE_LENGTH_TICKS   = 200
+LEASE_RENEW_TICKS    = 40
+HEARTBEAT_TICKS      = 20
+QUORUM_MVP           = "2 of 3"   // Tasks 6–8
+QUORUM_PEER          = "3 of 4"   // Task 9+
+HASH_ALGORITHM       = SHA-256
+SIGNATURE_ALGORITHM  = Ed25519
+
+DELEGABLE_NEIGHBOR_RING     = 1       // regions within this ring must be palette-compatible (Task 11)
+ENTITY_EXCLUSION            = true    // entity presence ⇒ non-delegable, until Task 12 narrows it
+DELEGABILITY_COOLDOWN_TICKS = 200     // hysteresis against delegable/non-delegable flapping
+INTERFERENCE_REVOKE_RATE    = 60/min  // foreign-mutation rate that demotes a region (Task 11)
+```
+
+All of these are *defaults* surfaced through config; code reads config, tests read
+constants.
+
+---
+
+## 6. Determinism ground rules (apply to `simulation` and anything it calls)
+
+Forbidden inside the engine: `System.currentTimeMillis`, `System.nanoTime`,
+`ThreadLocalRandom`, `Math.random`, `UUID.randomUUID`, iteration over `HashMap`/`HashSet`
+(use sorted or insertion-ordered structures), `String.hashCode`-dependent ordering,
+filesystem/network access, static mutable state.
+
+Required: all randomness via `DeterministicRandom` (Task 3); all hashing via
+`HashService` over `CanonicalEncoder` output (Task 2); all collections in hashed state
+either sorted at encode time or order-stable by construction.
+
+Enforcement: ArchUnit test in `testkit` bans the forbidden APIs from
+`dev.nodera.simulation..` (Task 3 deliverable).
+
+---
+
+## 7. Definition of done (every task)
+
+- Code + unit tests green in CI (`./gradlew check`).
+- New public types have Javadoc stating thread-context expectations ("called on server
+  main thread", "any thread", "worker executor only").
+- Task's **Acceptance criteria** section demonstrably satisfied (each criterion is a test
+  or a scripted manual scenario recorded in the task's `## Verification log`).
+- No TODOs referencing the same task; leftover work becomes a bullet in the next task.
+- `Plan.md` updated if a locked decision changed (should be rare; call it out in review).
+- `LIMITATIONS.md` updated in the same commit whenever the task stages or retires a
+  limitation. Introducing a **permanent** exclusion is forbidden — any new limitation
+  enters the ledger OPEN with an elimination path, an owning task, and an exit test.

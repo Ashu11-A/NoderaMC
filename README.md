@@ -5,7 +5,7 @@
 > A NeoForge-based system where the Minecraft world is partitioned into chunk regions, each simulated
 > and validated by a small committee of player-run peers. **Any player can host a world directly** —
 > share an existing world to the network from the pause menu (like "Open to LAN"), and peers reach
-> each other through a tracker + rendezvous relay. **No central server is required** (Task 30); an
+> each other through a tracker + rendezvous relay. **No central server is required** (Task 5e); an
 > optional dedicated server is just a well-provisioned archival peer with a single, non-authoritative
 > vote.
 
@@ -25,10 +25,11 @@
 **Overall system completion: `70%`**
 `██████████████░░░░░░`
 
-> **Rust infrastructure cluster complete (2026-07-19):** Tasks 27–29 — the monorepo restructure
-> ([`MONOREPO.md`](docs/MONOREPO.md)), the standalone `nodera-tracker` service, and the
-> `nodera-rendezvous` relay for NAT reach — have **all three landed**. The embedded Java tracker and
-> the `transport-libp2p` plan they superseded are ledgered in [`LEGACY.md`](docs/LEGACY.md); L-23,
+> **Rust infrastructure cluster complete (2026-07-19):** the monorepo restructure (now the default
+> architecture — see [`docs/Task.0.md`](docs/Task.0.md) §3), the standalone `nodera-tracker` service
+> ([Task 3](docs/Task.3.md)), and the `nodera-rendezvous` relay for NAT reach
+> ([Task 4](docs/Task.4.md)) have **all landed**. The embedded Java tracker and the
+> `transport-libp2p` plan they superseded are ledgered in [`LEGACY.md`](docs/LEGACY.md); L-23,
 > L-27, and L-44 are RETIRED.
 
 > **Decentralization — Task 30 first increment (2026-07-20):** the central NeoForge dedicated server
@@ -38,7 +39,8 @@
 > runs only the tracker + rendezvous (no server install), and the new `client/share` screen +
 > `ShareOptions`/`NoderaHost` compile clean. Genesis-from-existing-world, the password-change
 > re-manifest, live `RendezvousPeerTransport`/encryption, and the `runClient` GUI pass remain the
-> deferred live lane. Spec: [`docs/Task.30.md`](docs/Task.30.md).
+> deferred live lane. Spec: [`docs/Task.5.md`](docs/Task.5.md) phase 5e (legacy detail:
+> [`docs/old/Task.30.md`](docs/old/Task.30.md)).
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -59,7 +61,7 @@ evaluator; `core` (+5) — `WorldRole` + tags; `peer-runtime` (+1) — `ControlS
 `STATE`/`IDENTITY`/`HOST`/`WORLDID` (dashboard shows live bytes/peers/worlds); fixes the multiplayer
 Trackers/Rendezvous tabs (were always "No … configured"); only the original author can change a world
 password; the sharing player becomes operator. Live lane (world-list mixin, committee validation over
-the worker mesh, grant gossip, password propagation, worker seeding) documented in `docs/Task.33.md`;
+the worker mesh, grant gossip, password propagation, worker seeding) documented in `docs/Task.5.md`/`docs/Task.6.md` (legacy `docs/old/Task.33.md`);
 on top of **Task 32 peer worker + control endpoint** (+2): new `nodera-headless` always-on worker (`HeadlessPeerMain` boots a `PeerRuntime` +
 serves the loopback `ControlServer` the mod probes — verified live: boots, becomes gateway, answers
 `NODERA-PROBE`→`NODERA-OK`), `peer-runtime` `control/ControlProtocol` (single source of truth) +
@@ -212,12 +214,17 @@ nodera/
 │   └── nodera-rendezvous/   (Task 29) rendezvous + relay service — registration/discovery/reservations/circuit bridging
 ├── fixtures/wire/       golden canonical frames, emitted by Java, re-encoded byte-exactly by Rust
 ├── scripts/             dev (build Rust + mod, run tracker + rendezvous; --install-mod for a real client)
-└── docs/                Plan.md, LIMITATIONS.md, Prompt.base.md, Roadmap.md, Task.0..29.md,
-                         MONOREPO.md, LEGACY.md, torrent/ (tracker + rendezvous reference specs), Context/
+└── docs/                Task.0.md (base doc: orientation + conventions + index),
+                         Task.1..7.md (one task per Nodera module), Plan.0.md, LIMITATIONS.md,
+                         Roadmap.md, LEGACY.md, torrent/ (tracker + rendezvous reference specs),
+                         minecraft/ (MultiPaper + Folia studies), old/ (legacy per-increment
+                         Task.0..33.md specs + Prompt.base.md + MONOREPO.md — preserved verbatim),
+                         Context/
 ```
 
-> **Restructure landed (Task 27):** [`docs/MONOREPO.md`](docs/MONOREPO.md) is the migration
-> instruction set; [`docs/LEGACY.md`](docs/LEGACY.md) ledgers the Java code the Rust services
+> **Monorepo is the default architecture** (restructure landed 2026-07-19; former migration file
+> `MONOREPO.md` retired — durable content lives in [`docs/Task.0.md`](docs/Task.0.md) §3 and
+> `AGENTS.md`): [`docs/LEGACY.md`](docs/LEGACY.md) ledgers the Java code the Rust services
 > replace. Module names did not change — only paths — so every `./gradlew` invocation and every
 > `build.gradle.kts` kept working untouched.
 
@@ -276,65 +283,40 @@ See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules
 
 ## Roadmap (tasks → issues)
 
-<!-- AI-AGENT-INSTRUCTION: This mirrors docs/Plan.md §6 and Task.0.md §1. When a task completes,
-     tick it here AND close its GitHub issue. -->
+<!-- AI-AGENT-INSTRUCTION: This mirrors docs/Task.0.md §4 (module-task index) and each
+     docs/Task.<n>.md "Implementation status" table. When a phase completes, tick it here, update
+     the owning task file's status table, AND close the phase's GitHub issue. Legacy per-increment
+     history (old Tasks 0–33 + their issue numbers) is preserved in docs/old/ and mapped in
+     docs/Task.0.md §4 — GitHub issues keep their legacy titles; find them by title, never by
+     number. -->
 
-| # | Task | Phase | Issue | Status |
-|---|---|---|---|---|
-| 1 | Build scaffolding + NeoForge mod skeleton | 0 | `#1` | 🚧 |
-| 2 | `core`: domain types + crypto + canonical encoding | 0 | `#2` | ✅ |
-| 3 | `simulation`: deterministic region engine | 0 | `#3` | ✅ |
-| 4 | `protocol` + `transport-api` + `transport-neoforge` | 0 | `#4` | 🚧 |
-| 5 | Shadow validation (capture, worker, divergence) | 1 | `#5` | 🚧 (`shadow-validation` determinism pipeline + headless zero-divergence soak; NeoForge capture mixins + live soak deferred) |
-| 6 | Coordinator (leases, epochs, client proposal) | 2 | `#6` | 🚧 (`coordinator` delegate→propose→verify→commit pipeline + reassignment, headless `CoordinatorIT`; NeoForge capture/cancel + `ServerLevel` applier + live acceptance deferred) |
-| 7 | Committee validation — **MVP gate** | 3 | `#7` | 🚧 (`committee` 2-of-3 quorum re-execution + byzantine handling + spot-check + failover, headless `CommitteeMvpIT`; NeoForge wiring + live 3-client acceptance deferred) |
-| 8 | Server-fallback-only + cross-region router | 4 | `#8` | 🚧 (`fallback` router + server lane + >90% committee-commit soak, headless `FallbackRoutingIT`; vanilla cross-region execution + live soak deferred) |
-| 9 | Peer-runtime + event-sourced storage | 5 | `#9` | 🚧 (`peer-runtime` membership + **capability-weighted** gateway migration; **event-sourced `WorldStore` seam + in-memory impl** with certified-chain replay + forward sync; **RocksDB archival tier shipped** — `storage-rocksdb` crash-consistent durable store + `FsContentStore` + forced-kill recovery IT; **committee-change certification shipped** — `CommitteeChangeCertificate` + authority-free `CommitteeManager` with chain verification; new-peer live sync + live manager wiring deferred) |
-| 10 | Gateway migration, P2P, archival repair | 6 | `#10` | 🚧 (`transport-socket` direct P2P + deterministic gateway migration; cross-NAT reach now consumed from Task 29's `transport-rendezvous` — **spec rewritten 2026-07-19**, see `LEGACY.md`; archival repair → T21) |
-| 11 | World-interference control, chunk lifecycle, mod compat | 2–4 | `#11` | 🚧 (headless `coordinator/interference` — `MutationGuard` choke-point classification, coalescing buffer, tick-window stats, certified `ExternalDelta` conversion with the held-while-voting ordering rule; full `DelegabilityPolicy` reason set + `DelegabilityMonitor` cooldown hysteresis; `ServerAuthorityCertificate` (tag 54) + `ExternalDelta` (tag 32); `COMPATIBILITY.md` contract. NeoForge mixins, `ChunkTicketService`, `FakePlayerDetector`, live acceptance deferred) |
-| 12 | Entity & mob lane (ghosts, cross-region transfer) | 5+ | `#12` | 🚧 (Task 12a core foundation landed headlessly — `FixedVec3` Q32.32, deterministic `NetworkEntityId`, `PersistedEntityState`, `DropItem`/`Pickup` actions (tags 25/26), entity lifecycle events; the frozen region-root encoding is untouched. `EntityStore`/item-physics simulation + `mobCapture` ghost stream + 12c transfer + NeoForge bridge deferred) |
-| 13 | Validated redstone + contraption migration | 5+ | `#13` | ⬜ |
-| 14 | Environment lane (random ticks, fluids, fire, light) | 7 | `#14` | ⬜ |
-| 15 | Deterministic entity simulation (mob AI, projectiles) | 7 | `#15` | ⬜ |
-| 16 | Player lane & trustless closure (BFT, mod SDK) | 8 | `#16` | ⬜ |
-| 17 | **Debugger tool**: P2P comms + event/block/redstone harness, real server-instance emulation, live debug, coverage reports, log files | 0–8 | `#17` | ⬜ |
-| 18 | **In-game observability & diagnostics HUD**: tab list, boss bars, zone alerts, redesigned command tree + telemetry model | 0–8 | `#18` | 🚧 (`diagnostics` pure module + metered transport + `DiagnosticsIT` + `/nodera`/`/noderac` trees + tab/boss/action-bar surfaces ship; region/entity panels are `UNASSIGNED` placeholders until Tasks 6/12 — L-31; live-server surface verification deferred with `runServer`) |
-| 19 | **Torrent distribution data plane**: chunk-section pieces, manifest, multi-seeder transfer, async download + hash-validate + lock-until-arrived | 5–6 | `#24` | 🚧 (headless `distribution` module + `DistributionIT` ship; mod-side renderer/applier consumption of `ChunkLockMap` deferred with the NeoForge lane — L-32/L-33 RETIRING) |
-| 20 | **Tracker, peer directory, archive inventory, multi-bootstrap** | 6 | `#25` | 🚧 (headless `peer-runtime/discovery` ships — `TrackerService` + `TrackerIT`/`MultiBootstrapIT` green; mod-side tracker wiring + live-mesh acceptance deferred with the NeoForge lane — L-34 RETIRING, L-28 RETIRED; embedded tracker is **interim** → Task 28 Rust service, **spec rewritten 2026-07-19**) |
-| 21 | **Archive placement, replication (×5/×4), ≥25%-seed, <5%-per-peer, repair** | 6 | `#26` | 🚧 (headless `peer-runtime/archival` ships — placement property + seed-floor + `ArchiveRepairIT` green; mod-side repair coordinator + live churn soak deferred with the NeoForge lane — L-35 RETIRING) |
-| 22 | **Multi-factor reliability, client storage quotas, 24-h retention-before-drop** | 6 | `#27` | 🚧 (headless ships — `ReliabilityScorer` + `storage-client` + `RetentionPolicy` green; mod-side wiring + live soak deferred with the NeoForge lane — L-36/L-37/L-38 RETIRING) |
-| 23 | **Per-world content encryption** (password → AES-GCM; seeders hold ciphertext) | 6 | `#28` | 🚧 (JDK-only AES-GCM/PBKDF2 + bounded Argon2id, ciphertext manifests/`ContentId`, keyless-seeder `EncryptedDistributionIT`; opt-in create/join wiring deferred — L-39 RETIRING) |
-| 24 | **Crash safety + active-player continuous chunk stream** (shutdown-hook flush; sidecar deferred) | 6 | — | 🚧 (headless `ActivePlayerStream`/`EmergencyFlush`/`PeerShutdownHook` + vote-before-sign persistence + forced-process `CrashRecoveryIT` green; live NeoForge commit/content/lifecycle adapters deferred — L-40 RETIRING, L-41 OPEN) |
-| 25 | **Tick-lag / TPS metric + low-TPS region handoff** | 6–7 | — | 🚧 (compatible keep-alive v2 + `TickSync` + integer skew/TPS metrics + sustained `LagHandoffPolicy` + guarded epoch+1 `LagHandoffIT` green; live commit feed/policy scheduler/HUD/NeoForge construction deferred — L-42 RETIRING) |
-| 26 | **Multiplayer GUI**: torrent-host world creation, server list + search, red/gray health, network stats | 0–8 | `#29` | 🚧 (Minecraft-free `TorrentWorldListView` + world-health `Semantic`/`Palette` rows + `Dist.CLIENT` `client/multiplayer` screens compile against NeoForge 21.1.77, no mixin; live tracker feed + create-world pipeline + `runClient` GUI pass deferred — L-43 RETIRING; live feed will come from the Task 28 Rust tracker via `TrackerClient`) |
-| 27 | **Monorepo restructure + Rust workspace foundation** (`MONOREPO.md`; `nodera-codec` + shared `fixtures/`) | 0–8 | — | ✅ (Gradle modules moved under `java/` with names unchanged, `rust/` cargo workspace + pinned toolchain, `nodera-codec` byte-exact port with tag-registry mirror + golden `fixtures/wire/` conformance, CI runs both toolchains, `scripts/build-all.sh`; task-spec rewrite pass queued in `LEGACY.md` §2) |
-| 28 | **Standalone Rust tracker service** (`nodera-tracker` + Java `TrackerClient`; deletes the embedded tracker — L-44) | 6 | — | 🚧 (service + client + announce family (tags 33–34) ship; `TrackerServiceIT` drives the **real release binary** from Java peers — L-44 RETIRED. Mod-side `tracker.endpoints` config + client construction wired; the periodic announce loop schedules with the Task 26 live client pass. `STATS` wire message deferred — operator counters ship as a structured log line) |
-| 29 | **Rust rendezvous + relay service** (`nodera-rendezvous` + `transport-rendezvous`; NAT reach — L-23/L-27 RETIRED, `RendezvousRelayIT` over the real binary) | 6 | — | ✅ |
-| 30 | **Decentralization**: retire the required dedicated server + player-hosted worlds + pause-menu "Share" | 5–6 | — | 🚧 (first increment: `Dist.DEDICATED_SERVER` gate removed, role-driven host lane, `client/share` Share screen + `ShareOptions`/`NoderaHost`, `scripts/dev.sh` infra-only — compile + headless `ShareOptionsTest` green; genesis-from-existing-world, password-change re-manifest, live `RendezvousPeerTransport`/encryption, `runClient` GUI pass deferred — new L-45) |
-| 31 | **Nodera-native GUI redesign**: "Open to Nodera" replaces LAN, public-world player counts, Nodera-only tabbed multiplayer screen, torrent piece-map | 6 | — | 🚧 (31a "Open to Nodera" takes the LAN slot; 31b `PublicWorldBadgeView` + `SelectWorldScreenAddon`; 31c tabbed `NoderaMultiplayerScreen` (Worlds/Trackers/Rendezvous) + `TrackerStatusView`/`RendezvousStatusView`; 31d `PieceMapView` + `PieceMapWidget`/`PieceMapScreen` — view models headless-tested (+24), screens compile-clean no mixin; `runClient` pass + live feeds deferred — new L-46) |
-| 33 | **Live worker data + world identity/authorship + P2P operator-permissions + chunk validation** | 6 | — | 🚧 (worker `STATE`/`IDENTITY`/`HOST`/`WORLDID` verbs → live dashboard; author-signed `WorldIdentity` (tag 92, per-world `nodera-world.dat` — unique hash + author + persisted shared state, auto-re-share on load); author-only password authority; `WorldRole`/`WorldPermissionGrant`/`WorldPermissions` signed P2P permission model + host op-grant; multiplayer tracker/rendezvous tab bug fixed — headless-tested (+27). Live lane: world-list mixin, committee validation over the worker mesh, grant gossip, password propagation, worker seeding — see [`docs/Task.33.md`](docs/Task.33.md)) |
-| 32 | **Companion app + peer worker**: required always-on headless node + mod presence gate (hosts no longer need to stay online) | 6 | — | 🚧 (Option B locked. **Peer worker built + runnable**: `nodera-headless` `HeadlessPeerMain` boots a `PeerRuntime` + serves the `ControlServer` presence endpoint (verified live: boots, becomes gateway, answers the probe). `peer-runtime` `control/ControlProtocol`+`ControlServer` (+2); mod `CompanionGate`/`CompanionClient`/`CompanionLink` presence gate, `companion.required` **defaults ON** (Minecraft refuses to launch without the worker). `scripts/dev.sh` builds+runs the worker (+`--with-app` Tauri attach); `rust/nodera-app` Tauri scaffold supervises+monitors the worker (workspace-excluded). Worker↔mod host/join control verbs + live telemetry + cross-machine continuity deferred — L-41 RETIRING, L-47/L-48) |
+**2026-07-21 consolidation:** the 33 per-increment specs were consolidated into **one task per
+Nodera module** (Tasks 0–7). The old files are preserved verbatim in
+[`docs/old/`](docs/old/); the legacy→new mapping lives in [`docs/Task.0.md`](docs/Task.0.md) §4.
 
-Tasks 19–26 deliver the **"torrent hosting" feature** (a world becomes a shared, content-addressed,
-multi-seeder resource). Additive to committee validation: seeders store/propagate only; the active
-region's committee still re-executes+commits. See `docs/Task.19.md` … `docs/Task.26.md`.
+| # | Task (module) | Spec | Status |
+|---|---|---|---|
+| 0 | **Base document** — orientation, conventions, task index (absorbs `Prompt.base.md` + old Task 0; monorepo default) | [`docs/Task.0.md`](docs/Task.0.md) | ✅ living doc |
+| 1 | **Deterministic engine & committee validation** — `core`/`simulation`/`consensus`/`committee`/`coordinator`/`shadow-validation`/`fallback` | [`docs/Task.1.md`](docs/Task.1.md) | 🚧 (1a–1g ✅ headless — engine, shadow, coordinator, MVP-gate committee, fallback, interference guard; parity program 1h–1l pending: 1h entity lane started, 1i redstone next, 1j/1k/1l waiting) |
+| 2 | **P2P network** — `protocol`/`transport-*`/`peer-runtime`/`storage-*`/`distribution`/`diagnostics` | [`docs/Task.2.md`](docs/Task.2.md) | 🚧 (2a/2c–2k ✅ headless — wire+transports, event-sourced+RocksDB storage, torrent data plane, discovery/multi-bootstrap, replication+repair, reliability/quotas/retention, encryption, crash safety+stream, tick-lag handoff, telemetry; 2b gateway-migration remainder + every live half rides Task 5) |
+| 3 | **P2P network tracker** — `rust/nodera-tracker` + Java `TrackerClient` | [`docs/Task.3.md`](docs/Task.3.md) | ✅ core (L-44 RETIRED; 3b announce scheduling rides 5d; 3c ops hardening 🚧) |
+| 4 | **P2P rendezvous** — `rust/nodera-rendezvous` + `transport-rendezvous` (NAT reach) | [`docs/Task.4.md`](docs/Task.4.md) | ✅ core (L-23/L-27 RETIRED; 4c live cross-internet soak ⏳ waits 5b) |
+| 5 | **NeoForge Minecraft (Java) module** — `neoforge-mod` + `transport-neoforge` | [`docs/Task.5.md`](docs/Task.5.md) | 🚧 (5g gate ✅; 5c HUD + 5d GUI + 5e host lane + 5f identity/permissions landed compile+headless; 5a `runClient` harness (L-45) and 5b live validation lane are the blockers) |
+| 6 | **Peer worker** — `nodera-headless` + `peer-runtime/control` (required always-on node) | [`docs/Task.6.md`](docs/Task.6.md) | 🚧 (6a boot+probe ✅, 6b control v2+telemetry ✅ verified live; 6c host/join delegation + seeding 🚧; 6d out-of-game validation ⏳ — L-41 RETIRING, L-48) |
+| 7 | **Tauri companion app** — `rust/nodera-app` | [`docs/Task.7.md`](docs/Task.7.md) | 🚧 (7a scaffold + 7b live metrics ✅; 7c installers/CI 🚧; 7d end-to-end continuity ⏳ — L-47) |
 
-Tasks 27–29 are the **Rust infrastructure cluster**: the monorepo restructure
-([`MONOREPO.md`](docs/MONOREPO.md)) plus two standalone service binaries — the tracker (28) and the
-rendezvous relay (29) — that peers verify but never trust. They supersede the embedded Java
-tracker and the `transport-libp2p` plan ([`LEGACY.md`](docs/LEGACY.md)).
+The **"torrent hosting" feature** (a world becomes a shared, content-addressed, multi-seeder
+resource) is Task 2 phases 2d–2j + the Task 5 GUI/host phases. Additive to committee validation:
+seeders store/propagate only; the active region's committee (1e) still re-executes+commits.
 
-**Tasks affected by 27–29** (updated 2026-07-19): **10** and **20** rewritten (relay/NAT and
-tracker halves superseded); **0** (index/graph/naming/layering), **21/22** (their
-placement/reliability/retention data now announces to the Rust tracker), **24** (the Rust lane
-reopens the L-41 sidecar door), **26** (live feed = Task 28 binary via `TrackerClient`);
-`Plan.md` §3.10/§4/§5/§6/§9/§10, `Roadmap.md`, `LIMITATIONS.md` (L-23/L-27 re-owned, L-44 new)
-updated. **After Task 27 lands, every implemented task spec (1–16, 18–26) must be rewritten for
-the monorepo architecture** — mechanical `java/` path-prefix pass, substantive for Tasks 1/4 —
-queue tracked in `LEGACY.md` §2 (do not rewrite before the move lands).
+The **Rust infrastructure services** (Tasks 3/4) are verified-never-trusted: an outage degrades
+discovery/reach, never correctness ([`LEGACY.md`](docs/LEGACY.md) ledgers the Java code they
+replaced).
 
-Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.29.md`](docs/Task.29.md).
-Implementation order + priority + difficulty rankings: [`docs/Roadmap.md`](docs/Roadmap.md).
+Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.7.md`](docs/Task.7.md);
+legacy class-level specs: [`docs/old/`](docs/old/).
+Implementation order + priority + difficulty rankings (legacy numbering):
+[`docs/Roadmap.md`](docs/Roadmap.md).
 
 ---
 
@@ -349,6 +331,6 @@ agents (opencode, Cursor, Claude Code, …) and encodes: build/test commands, la
 frozen contracts, the test-before-commit / update-README / commit-format disciplines, and the
 GitHub issue workflow. **Read it before doing anything.**
 
-A ready-to-paste **base orientation prompt** (which files are load-bearing, the project pattern,
-where progress lives, how to open/close issues) lives at
-[`docs/Prompt.base.md`](docs/Prompt.base.md).
+The **base document** (orientation prompt + conventions + task index — which files are
+load-bearing, the project pattern, where progress lives, how to open/close issues) is
+[`docs/Task.0.md`](docs/Task.0.md).

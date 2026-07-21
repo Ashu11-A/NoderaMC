@@ -12,7 +12,9 @@ import dev.nodera.peer.PeerRuntimeConfig;
 import dev.nodera.peer.SessionView;
 import dev.nodera.peer.control.ControlServer;
 import dev.nodera.peer.discovery.PersistentIdentityStore;
+import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.peer.metric.MeteredPeerTransport;
+import dev.nodera.transport.rendezvous.RendezvousEndpoint;
 import dev.nodera.transport.socket.SocketPeerTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,8 +22,10 @@ import org.slf4j.LoggerFactory;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -72,17 +76,30 @@ public final class HeadlessPeerMain {
                 transport::listenRoute, PeerRuntimeConfig.defaults(),
                 new LoggingListener(), counters);
 
-        WorkerControlHandler handler = new WorkerControlHandler(WORKER_VERSION, identity, runtime, meter);
+        // Discovery services this worker announces hosted worlds to (Task 32 live lane). Defaults
+        // match the mod's DEFAULT_TRACKER/RENDEZVOUS_ENDPOINTS so a fresh install is functional; the
+        // Tauri supervisor (or scripts/dev.sh) can override with the two env vars below.
+        List<TrackerClient.Endpoint> trackerEndpoints = parseTrackers(
+                env("NODERA_TRACKER_ENDPOINTS", "127.0.0.1:25600"));
+        List<RendezvousEndpoint> rendezvousEndpoints = parseRendezvous(
+                env("NODERA_RENDEZVOUS_ENDPOINTS", "127.0.0.1:25601"));
+        WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
+                trackerEndpoints, rendezvousEndpoints);
+
+        WorkerControlHandler handler =
+                new WorkerControlHandler(WORKER_VERSION, identity, caps, runtime, meter, hosting);
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
-        LOG.info("Nodera peer worker {} online — node {} listening {}, control {}:{}",
+        LOG.info("Nodera peer worker {} online — node {} listening {}, control {}:{}, "
+                        + "{} tracker(s) / {} rendezvous",
                 WORKER_VERSION, identity.nodeId(), runtime.selfRoute(), controlHost,
-                control.boundPort());
+                control.boundPort(), trackerEndpoints.size(), rendezvousEndpoints.size());
 
         CountDownLatch stop = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Nodera peer worker shutting down");
+            hosting.close();
             control.close();
             runtime.stop();
             stop.countDown();
@@ -107,6 +124,40 @@ public final class HeadlessPeerMain {
             LOG.warn("Bad integer in {}='{}', using {}", key, v, fallback);
             return fallback;
         }
+    }
+
+    /** Parse a comma-separated {@code host:port} list into tracker endpoints (malformed entries skipped). */
+    private static List<TrackerClient.Endpoint> parseTrackers(String csv) {
+        List<TrackerClient.Endpoint> out = new ArrayList<>();
+        for (String route : csv.split(",")) {
+            String trimmed = route.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(TrackerClient.Endpoint.parse(trimmed));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed tracker endpoint '{}': {}", trimmed, e.getMessage());
+            }
+        }
+        return out;
+    }
+
+    /** Parse a comma-separated {@code host:port} list into rendezvous endpoints (malformed skipped). */
+    private static List<RendezvousEndpoint> parseRendezvous(String csv) {
+        List<RendezvousEndpoint> out = new ArrayList<>();
+        for (String route : csv.split(",")) {
+            String trimmed = route.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(RendezvousEndpoint.parse(trimmed));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed rendezvous endpoint '{}': {}", trimmed, e.getMessage());
+            }
+        }
+        return out;
     }
 
     /** Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host. */

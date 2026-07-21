@@ -21,6 +21,9 @@ import dev.nodera.protocol.discovery.InventoryAdvertisement;
 import dev.nodera.protocol.discovery.ManifestSeeders;
 import dev.nodera.protocol.discovery.TrackerAnnounce;
 import dev.nodera.protocol.discovery.TrackerAnnounceAck;
+import dev.nodera.protocol.discovery.TrackerCatalogEntry;
+import dev.nodera.protocol.discovery.TrackerCatalogQuery;
+import dev.nodera.protocol.discovery.TrackerCatalogResponse;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.handshake.ChallengeResponse;
@@ -206,9 +209,13 @@ public final class MessageCodec {
     public static final int TAG_PUNCH_SYNC = 42;
     /** {@link ObservedAddress} tag (Task 29). */
     public static final int TAG_OBSERVED_ADDRESS = 43;
+    /** {@link TrackerCatalogQuery} tag (tracker directory / browse). */
+    public static final int TAG_TRACKER_CATALOG_QUERY = 44;
+    /** {@link TrackerCatalogResponse} tag (tracker directory / browse). */
+    public static final int TAG_TRACKER_CATALOG_RESPONSE = 45;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 43;
+    public static final int NEXT_TAG = 45;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -230,7 +237,8 @@ public final class MessageCodec {
             TAG_TRACKER_ANNOUNCE, TAG_TRACKER_ANNOUNCE_ACK,
             TAG_RENDEZVOUS_REGISTER, TAG_RENDEZVOUS_DISCOVER, TAG_RENDEZVOUS_PEERS,
             TAG_RELAY_RESERVE, TAG_RELAY_RESERVATION, TAG_RELAY_CONNECT, TAG_RELAY_INCOMING,
-            TAG_PUNCH_SYNC, TAG_OBSERVED_ADDRESS);
+            TAG_PUNCH_SYNC, TAG_OBSERVED_ADDRESS,
+            TAG_TRACKER_CATALOG_QUERY, TAG_TRACKER_CATALOG_RESPONSE);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -287,6 +295,8 @@ public final class MessageCodec {
             case TAG_RELAY_INCOMING -> "RelayIncoming";
             case TAG_PUNCH_SYNC -> "PunchSync";
             case TAG_OBSERVED_ADDRESS -> "ObservedAddress";
+            case TAG_TRACKER_CATALOG_QUERY -> "TrackerCatalogQuery";
+            case TAG_TRACKER_CATALOG_RESPONSE -> "TrackerCatalogResponse";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -417,6 +427,8 @@ public final class MessageCodec {
         if (msg instanceof RelayIncoming) return TAG_RELAY_INCOMING;
         if (msg instanceof PunchSync) return TAG_PUNCH_SYNC;
         if (msg instanceof ObservedAddress) return TAG_OBSERVED_ADDRESS;
+        if (msg instanceof TrackerCatalogQuery) return TAG_TRACKER_CATALOG_QUERY;
+        if (msg instanceof TrackerCatalogResponse) return TAG_TRACKER_CATALOG_RESPONSE;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -618,6 +630,14 @@ public final class MessageCodec {
                 m.health().encode(w);
                 w.writeU64(m.retentionDeadlineEpochMillis());
             }
+            case TrackerCatalogQuery m -> {
+                w.writeU16(TAG_TRACKER_CATALOG_QUERY).writeU16(ENCODING_VERSION);
+                w.writeU32(Integer.toUnsignedLong(m.limit()));
+            }
+            case TrackerCatalogResponse m -> {
+                w.writeU16(TAG_TRACKER_CATALOG_RESPONSE).writeU16(ENCODING_VERSION);
+                w.writeList(m.worlds(), MessageCodec::writeCatalogEntry);
+            }
             case InventoryAdvertisement m -> {
                 w.writeU16(TAG_INVENTORY_ADVERTISEMENT).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
@@ -756,6 +776,28 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeCapabilities.decode(r);
         boolean bootstrap = r.readBoolean();
         return new PeerEntry(nodeId, route, capabilities, bootstrap);
+    }
+
+    private static void writeCatalogEntry(CanonicalWriter w, TrackerCatalogEntry e) {
+        w.writeBytes(e.genesisHash());
+        w.writeString(e.worldName());
+        w.writeU64(e.worldPlayerCount());
+        w.writeU64(e.storedChunks());
+        w.writeU32(Integer.toUnsignedLong(e.reliabilityBps()));
+        e.health().encode(w);
+        w.writeU64(e.retentionDeadlineEpochMillis());
+    }
+
+    private static TrackerCatalogEntry readCatalogEntry(CanonicalReader r) {
+        Bytes genesisHash = r.readBytesValue();
+        String worldName = r.readString();
+        long playerCount = r.readU64();
+        long storedChunks = r.readU64();
+        int reliabilityBps = (int) r.readU32();
+        dev.nodera.core.identity.WorldHealth health = dev.nodera.core.identity.WorldHealth.decode(r);
+        long retentionDeadline = r.readU64();
+        return new TrackerCatalogEntry(genesisHash, worldName, playerCount, storedChunks,
+                reliabilityBps, health, retentionDeadline);
     }
 
     private static void writeUuid(CanonicalWriter w, UUID uuid) {
@@ -992,6 +1034,9 @@ public final class MessageCodec {
                 yield new TrackerResponse(genesisHash, worldName, peers, seeders, playerCount,
                         storedChunks, reliabilityBps, health, retentionDeadline);
             }
+            case TAG_TRACKER_CATALOG_QUERY -> new TrackerCatalogQuery((int) r.readU32());
+            case TAG_TRACKER_CATALOG_RESPONSE ->
+                    new TrackerCatalogResponse(r.readList(MessageCodec::readCatalogEntry));
             case TAG_INVENTORY_ADVERTISEMENT -> {
                 Bytes genesisHash = r.readBytesValue();
                 dev.nodera.core.identity.NodeId holder = dev.nodera.core.identity.NodeId.decode(r);

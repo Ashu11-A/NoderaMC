@@ -1,138 +1,145 @@
-# Task 3 — `simulation` Module: Deterministic Region Engine
+# Task 3 — P2P Network Tracker (module: `rust/nodera-tracker` + Java `TrackerClient`)
 
-**Phase:** 0 · **Depends on:** Task 2 · **Modules:** `simulation`, `testkit`
+**Module:** the standalone Rust tracker service + its Java client side ·
+**Depends on:** Task 2 (2a wire contract via `nodera-codec`, 2e discovery seams) ·
+**Consumed by:** Task 5 (5d multiplayer feed), Task 6 (worker announce loop), Task 7 (dashboard)
+
+**Reference spec:** [`docs/torrent/trackers.md`](torrent/trackers.md) — announce lifecycle,
+swarm model, expiry, sampling, abuse defenses. This file binds it to Nodera.
+
+## Implementation status
+
+Audited **2026-07-21**. ✅ completed · 🚧 pending · ⏳ waiting.
+
+| Phase | Deliverable | Status | Waiting on |
+|---|---|---|---|
+| 3a | `nodera-tracker` service binary: signed announce lifecycle, per-world registry, TTL expiry, sampling + seeder floor, health/countdown, quotas | ✅ (54 Rust tests; `TrackerServiceIT` drives the real binary) | — |
+| 3b | Java side: announce family (tags 33–34), `TrackerClient` announce loop + query API, embedded `TrackerService` deleted (L-44 RETIRED) | ✅ (periodic announce **scheduling** rides the live client pass) | ⏳ 5d (timer lands with the live GUI pass); 6c moves the loop into the worker |
+| 3c | Ops hardening: `STATS` wire message (operator counters currently ship as a structured log line), persistence polish, deployment docs | 🚧 | — |
 
 ## Goal
 
-A pure-Java, bit-for-bit deterministic simulator for one region: given
-`(RegionSnapshot, ActionBatch, RegionExecutionContext)` produce
-`(RegionDelta, StateRoot)` — identical on every JVM, every OS, every run. First rule set:
-flat-world block place/break on the restricted MVP block palette. This is the component
-the whole project bets on; Task 5 exists to falsify it early.
+Always-on world/peer discovery that does not die with any player: any operator runs the
+`nodera-tracker` binary on a public host; peers **announce** signed records (identity, roles,
+world genesis hash, routes, held manifests, reliability) and **query** per-world swarms; the
+multiplayer GUI lists worlds — with player/chunk counts, reliability, red/gray `WorldHealth`
+and the 24 h retention countdown — even when every seeder of a world is offline. The tracker is
+discovery infrastructure, never authority: peers verify state by hash/signature and treat every
+answer as a hint (Task 0 §3 rule 7).
 
----
+## Context (last audit: 2026-07-21)
 
-## Folder structure
+- Landed 2026-07-19 (legacy Task 28). The swarm identifier is the world's genesis hash (the
+  `info_hash` analog, trackers.md §1); the service answers the **frozen** discovery family
+  (tags 27–29) plus the appended announce family (33–34) over u32-length-framed TCP decoded by
+  `nodera-codec` — no HTTP, one wire contract, byte-exact cross-language conformance.
+- `TrackerServiceIT` spawns the real release binary from Java: two peers announce two worlds
+  with per-world isolation; a JDK-signed announce verifies inside the service via
+  `ed25519-dalek`; a tampered record is refused (`bad-signature`) and never reaches the
+  registry; `STOPPED` removes immediately; and — the L-44 exit — a world whose every Java
+  seeder has gone silent past the TTL is **still listed by name with its countdown and a DEAD
+  verdict**, which the embedded tracker could not do.
+- The embedded Java `TrackerService` (+ its tests) was deleted; `PeerDirectory`/
+  `ArchiveInventory` remain as peer-local caches — ledgered in [`LEGACY.md`](LEGACY.md).
+- Identity, not IP, keys a record; routes come from the signed record with the observed source
+  appended only as a low-priority hint (trackers.md §5 poisoning note). The ack paces announce
+  traffic (`nextAnnounceAfterSeconds`, §6). Abuse controls per §26: per-IP/per-identity quotas,
+  record-size caps, bounded world/peer counts, no full-scrape endpoint.
+- `WorldHealth`/retention: the tracker *surfaces* the 24 h countdown (2g rule); the peers'
+  `RetentionPolicy` owns the actual drop — authority stays in the network.
 
-```
-simulation/src/main/java/dev/nodera/simulation/
-├── RegionEngine.java              # THE interface
-├── RegionExecutionContext.java    # record: region, epoch, baseVersion, tickFrom/To,
-│                                  #   deterministicSeed, rulesVersion, registryFingerprint
-├── RegionExecutionRequest.java    # record: context + snapshot + batch
-├── RegionExecutionResult.java     # record: delta, resultingRoot, stats (actions applied/
-│                                  #   rejected, nanos — stats EXCLUDED from hash)
-├── DeterministicRandom.java       # L64X128MixRandom seeded via StableHash(worldSeed,
-│                                  #   dim, rx, rz, tick, actionSeq)
-├── RegionWorldView.java           # read interface over snapshot + halo
-├── MutableRegionState.java        # working copy: applies mutations, produces sorted delta
-├── BlockMutationBuffer.java       # collects BlockMutation, dedupes per position (last wins),
-│                                  #   records expectedPreviousStateId at FIRST touch
-├── rules/
-│   ├── RuleSet.java               # interface: validate + apply one GameAction
-│   ├── FlatWorldRules.java        # MVP: place/break, palette whitelist, reach/height checks
-│   └── ActionRejection.java       # record: envelope, reason enum (ILLEGAL_BLOCK, OUT_OF_REGION,
-│                                  #   BAD_PREVIOUS_STATE, OUT_OF_REACH, MALFORMED)
-├── border/
-│   ├── RegionHalo.java            # read-only halo view backed by neighbour snapshot slices
-│   └── BorderClassifier.java      # isCrossRegion(GameAction): touches blocks outside owned bounds?
-└── engine/
-    └── FlatWorldRegionEngine.java # RegionEngine impl wiring all of the above
-
-simulation/src/test/java/dev/nodera/simulation/
-├── DeterminismPropertyTest.java   # jqwik: random batches → same root twice; permuted batch → different root
-├── FlatWorldRulesTest.java
-├── BorderClassifierTest.java      # region-edge and negative-coordinate cases
-├── ReplayFixtureTest.java         # replays recorded fixtures (shared with Task 5 divergence hunts)
-└── ForbiddenApiTest.java          # ArchUnit: bans nondeterministic APIs from dev.nodera.simulation..
-```
-
-## Class relationships
+## Folder structure (monorepo default)
 
 ```
-RegionEngine (interface)
-  RegionExecutionResult execute(RegionExecutionRequest request);
-        ▲
-        └── FlatWorldRegionEngine
-              ├─ uses RuleSet (FlatWorldRules)        # validate/apply per action
-              ├─ uses MutableRegionState              # working state + BlockMutationBuffer
-              ├─ uses RegionWorldView                 #   ├─ owned region (mutable)
-              │                                      #   └─ RegionHalo (read-only; write = throw)
-              ├─ uses DeterministicRandom            # one instance per action, reseeded
-              └─ emits RegionDelta + StateRoot       # via HashService over canonical encoding
+rust/nodera-tracker/src/
+├── main.rs        CLI: --config nodera-tracker.toml (bind, TTLs, limits, log)
+├── config.rs      bind_addr, announce_interval, peer_ttl, max_worlds,
+│                  max_peers_per_world, per_ip_quota, sample_size
+├── registry.rs    swarms: Map<GenesisHash, Swarm>; PeerRecord{routes, roles, manifests,
+│                  reliabilityBps, lastSeen}
+├── announce.rs    started/heartbeat/stopped + Ed25519 signature check
+├── query.rs       TrackerQuery → TrackerResponse (counts, health, sampling + seeder floor)
+├── health.rs      WorldHealth derivation + retention-countdown surface
+├── expiry.rs      lastSeen sweep (TTL ≈ 2× announce interval)
+├── limits.rs      per-IP/per-identity quotas, record-size caps, world bounds
+└── wire.rs        u32-length framing, 16 MiB cap (mirrors SocketPeerTransport)
 
-RuleSet (interface)
-  Optional<ActionRejection> validate(RegionWorldView view, ActionEnvelope env);
-  void apply(MutableRegionState state, ActionEnvelope env, DeterministicRandom rng);
-        ▲
-        └── FlatWorldRules                            # more RuleSets in later tasks (containers, combat)
+java/protocol/.../discovery/{TrackerAnnounce,TrackerAnnounceAck}.java   (appended tags 33–34)
+java/peer-runtime/.../discovery/TrackerClient.java                      (announce loop + query)
+java/neoforge-mod: config tracker.endpoints = [] (client + server toml)
 ```
 
-Contract of `execute` (Javadoc + tests):
+## Related files
 
-1. Pure function of its arguments. No IO, no clocks, no statics.
-2. Actions applied in `ActionBatch` order (server sequence). Rejected actions produce
-   `ActionRejection` entries in the result and **do not** mutate state; rejections are
-   part of the hashed outcome? — **No**: rejections are deterministic consequences of
-   input, so all replicas compute the same list, but only the *state* is hashed. Record
-   this decision.
-3. Resulting root = hash of the post-state (`RegionSnapshot` canonical encoding at
-   `resultingVersion`), not of the delta. Delta is transport; root is truth.
-4. Halo mutation attempt ⇒ `IllegalStateException` (fail hard, Folia-style) — engine
-   bugs must never silently leak out of region bounds. Cross-region *actions* are
-   filtered before execution by `BorderClassifier` (the coordinator routes them
-   elsewhere; the engine asserts it never sees one).
+- Service: `rust/nodera-tracker/src/*.rs` (54 unit tests)
+- Conformance: `rust/nodera-codec/tests/{fixtures,tag_mirror}.rs` + `fixtures/wire/*.bin`
+- Java client: `java/peer-runtime/src/main/java/dev/nodera/peer/discovery/TrackerClient.java`
+- IT: `java/peer-runtime/src/test/.../TrackerServiceIT.java` (drives the real binary)
+- Consumers: `java/neoforge-mod/.../client/multiplayer/TrackerDataSource.java` (5d),
+  `java/diagnostics/.../view/TorrentWorldListView.java` (2k)
+- Run/ops: `scripts/dev.sh` (builds + runs + health-checks the binary), CI release job
+- Legacy specs: [`old/Task.28.md`](old/Task.28.md) (this service),
+  [`old/Task.20.md`](old/Task.20.md) (the superseded embedded stage)
 
-## Implementation details
+## Implementation details (phases)
 
-- **`MutableRegionState`**: wraps the snapshot's `ChunkColumnState`s in flat
-  `int[]`-backed sections (fastutil optional here; plain arrays fine for MVP palette).
-  `getBlock(NBlockPos)`, `setBlock(pos, newStateId)` → forwards to
-  `BlockMutationBuffer`. On `finish()`: mutations sorted `(y, z, x)` (matches canonical
-  encoding order), delta assembled, post-state re-encoded + hashed.
-- **`expectedPreviousStateId`** captured at the first write to a position within the
-  batch — the commit applier (Task 6) compare-and-sets against the *pre-batch* world.
-- **`DeterministicRandom`**: `RandomGeneratorFactory.of("L64X128MixRandom")` seeded from
-  `StableHash`. One instance per `(action)` — reseeding per action makes action-level
-  replay possible and kills cross-action order sensitivity of RNG draws.
-- **`registryFingerprint`**: hash of the ordered MVP block palette (id → name table).
-  Engine refuses to run when request fingerprint ≠ its own — protects against two
-  builds hashing different palettes.
-- **`rulesVersion`**: int bumped whenever `RuleSet` semantics change; mixed-version
-  committees must never validate each other (Task 6 enforces at assignment; engine
-  asserts).
-- **Threading**: engine is thread-confined per call; callers may run many engines in
-  parallel on different regions (client worker uses virtual threads, Task 5). No shared
-  mutable state between instances.
+- **3a — The service binary.** ✅ Full spec: [`old/Task.28.md`](old/Task.28.md). `tokio` TCP,
+  one task per connection; announce lifecycle (`started` registers, heartbeats refresh
+  lastSeen/holdings, `stopped` removes, sweep expires); reservoir-sampled query responses with
+  a seeder floor (`FULL_ARCHIVE`/`WORLD_SEEDER` always included up to the floor); aggregate
+  `worldPlayerCount`/`storedChunks`/`reliabilityBps`/`WorldHealth`/countdown; zero persistence
+  by default (peers re-announce within one interval after a restart; optional `--persist-dir`
+  for display-name metadata); graceful SIGTERM drain. Deps: 2a (codec/framing).
+- **3b — The Java client side.** ✅ Full spec: [`old/Task.28.md`](old/Task.28.md) §Java.
+  `TrackerAnnounce`/`TrackerAnnounceAck` appended; `TrackerClient` announces to every
+  configured endpoint (flat multi-tracker list, merged query results, backoff on unreachable)
+  and exposes the query API returning the existing `TrackerResponse` — `TrackerDataSource` and
+  `TorrentWorldListView` (2k) are unchanged consumers. A tracker endpoint is also bootstrap
+  mechanism #4 (2e). Remaining: the announce loop is constructed but **not yet scheduled on a
+  timer** — it lands with the Task 5 (5d) live client pass, and Task 6 (6c) moves the loop into
+  the always-on worker so a host's world stays listed with Minecraft closed. Deps: 2a, 2e.
+- **3c — Ops hardening.** 🚧 The deferred `STATS` wire message (operator counters currently a
+  structured log line), `--healthcheck`/`--version` polish, public-listing policy config, and
+  deployment notes for community operators. Deps: none.
 
-## Implementation details — NeoForge mod
+## Testing strategy
 
-Indirect only: `neoforge-mod` will need `SnapshotExtractor` (Task 5) to build
-`RegionSnapshot`/`ChunkColumnState` from a real `ServerLevel`. This task defines the
-snapshot model such that extraction is possible: `ChunkColumnState` holds
-`(chunkX, chunkZ, int[] paletteIds per section, heightRange)` for the restricted palette;
-unknown vanilla blocks map to a reserved `UNSUPPORTED` id — regions containing
-`UNSUPPORTED` are non-delegable (coordinator will keep them server-side; flag exists from
-day one).
+- Rust unit tests: announce lifecycle incl. re-announce replacement, TTL expiry,
+  stopped-removes, per-world isolation, sampling bounds + seeder floor, quota rejection,
+  invalid-signature rejection, health/countdown transitions.
+- **Cross-language conformance:** every announce/query message round-trips byte-exactly against
+  Java-emitted `fixtures/` files; tag-registry mirror assertion green (a tag appended on one
+  side only fails CI).
+- `TrackerServiceIT`: the real release binary driven from Java peers (the L-44 exit scenario).
+- Live feed acceptance (the periodic announce + GUI rows from a real binary) rides Task 5 (5d).
 
-## Implementation details — server peer
+## Limitations
 
-The dedicated server runs the **same** `FlatWorldRegionEngine` for verification (Task 6)
-and fallback execution (Task 8). No server-specific variant — one engine class, or the
-whole determinism claim dies. `ServerRegionExecutor`/`ClientRegionExecutor` (later tasks)
-are thin schedulers around this one engine.
+- **L-44 RETIRED** ([`LIMITATIONS.md`](LIMITATIONS.md)) — the always-on binary serves the world
+  list with every seeder offline; the embedded serving path is deleted.
+- Remaining gap tracked with 5d, not here: the mod's announce loop is wired but unscheduled.
+- Sybil resistance of announces remains L-18 (1l BFT admission) — signed records stop
+  impersonation, not identity farming.
+- The tracker can hide peers or invent unreachable ones; it cannot forge state or identities —
+  by design, peers never trust it (Task 0 §3 rule 7).
+- Reference: [`torrent/trackers.md`](torrent/trackers.md) §23 (persistence), §26 (abuse).
 
 ## Acceptance criteria
 
-1. jqwik: for random snapshots + random valid batches — `execute` twice ⇒ identical
-   `StateRoot` and identical delta bytes; permuting batch order ⇒ different root (unless
-   actions commute — generator avoids trivially commuting cases).
-2. Rejection determinism: invalid actions rejected with identical `ActionRejection`
-   lists across runs.
-3. Halo write attempt throws; `BorderClassifier` correct at region edges incl. negative
-   coordinates.
-4. ArchUnit forbidden-API test green (Task 0 §6 list).
-5. Cross-JVM check: CI job runs `ReplayFixtureTest` on Linux + Windows runners, roots
-   equal (fixtures committed as resources).
-6. JMH baseline: encode+hash of a full 8×8 region snapshot, and `execute` of a 100-action
-   batch — numbers recorded in `simulation/README.md` (Task 5 needs the budget).
+1. 3a/3b: legacy Task 28 acceptance holds — `cargo test` green (54), conformance green,
+   `TrackerServiceIT` green against the real binary, embedded tracker deleted with
+   `./gradlew check` green.
+2. 3b remainder (with 5d): the announce loop runs on its ack-paced timer from a live client;
+   `TorrentWorldListView` renders rows from a real binary's `TrackerResponse`.
+3. 3c: `STATS` answered over the wire; operator docs committed; quotas/bounds configurable.
+4. Both toolchains green; README/Tested + this status table updated in the same commit.
+
+## Notes for the implementing model
+
+- The peers' native canonical encoding **is** the protocol — no HTTP, no second serialization.
+  Any new message = Java record + tag + golden fixture + Rust mirror in one commit.
+- The service holds no signing keys (verify-only, `ed25519-dalek`); self-registration only.
+- Never let the tracker become authority: no endpoint may be load-bearing for correctness —
+  test degradation paths (tracker down ⇒ discovery degrades, mesh + state unaffected).
+- World display names are directory metadata keyed by genesis hash — `GenesisManifest` stays
+  name-free and frozen.

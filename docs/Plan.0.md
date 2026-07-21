@@ -104,10 +104,21 @@ quorum certificates on top of a MultiPaper-like ownership model.
 4. **Leases and epochs**: `RegionLease(region, epoch, primary, validators, validFromTick,
    expiresAtTick)`. Epoch increments on every reassignment; stale-epoch proposals are
    rejected. Lease ~200 ticks, renewal every ~40 ticks (configurable).
-5. **Assignment**: weighted rendezvous hashing over `NodeCapabilities` (cores, memory,
-   latency, reliability), with placement constraints: max 1–4 primary regions per player,
-   a player never validates a region containing only their own actions, validators on
-   distinct network addresses when possible.
+5. **Assignment — field-of-view ownership (revised 2026-07-21)**: the region *identity*
+   stays the static 8×8 grid (decision 2), but *which* regions are active and *who* owns them
+   is now driven by player view, not a server allocator. Each player loads a circular disc of
+   chunks of radius = render distance; they **activate and claim every grid region their disc
+   intersects** (`core.region.PlayerView` + `PlayerViewRegionResolver` — a true Euclidean disc,
+   so the owned regions trace a circle that grows with render distance). Where two players' discs
+   overlap, the overlapping players form the region's committee: the **closest player is primary,
+   the rest validate** (`core.region.ViewOwnershipPlanner` → `RegionClaim(primary, validators)`,
+   which maps 1:1 onto the coordinator `Committee`). Regions no player sees are not simulated
+   (like vanilla-unloaded chunks). This is the decentralized substitute for the server-side
+   `RegionAllocator`: the plan is a pure, deterministic function of the shared player-view set, so
+   every peer computes the same owners without a coordinator. The capability-weighted rendezvous
+   ranking is retained only as the tie-break/placement input for archival replication (Tasks 21–22),
+   not for live region ownership. Bounds: render distance is clamped to
+   `[MIN, MAX]_RENDER_DISTANCE_CHUNKS` so no client can claim an unbounded circle.
 6. **Execution model**: actions are signed (`ActionEnvelope` with player seq + server seq
    + tick + region), batched (~2 ticks / ≤100 ms per batch), executed by the committee
    against a common snapshot; primary emits `RegionProposal` (delta + state roots),
@@ -209,7 +220,7 @@ nodera/
 Minecraft-free (plain Java, unit-testable without a server). Only `neoforge-mod` and
 `transport-neoforge` touch NeoForge/NMS types.
 
-Task 27 ([`MONOREPO.md`](./MONOREPO.md)) re-roots this layout as a **polyglot monorepo**: the
+Task 27 ([`MONOREPO.md`](old/Task.27.md)) re-roots this layout as a **polyglot monorepo**: the
 Gradle modules above move under `java/` (module names unchanged), and a cargo workspace under
 `rust/` adds `nodera-codec` (canonical-encoding conformance + Ed25519 verify), `nodera-tracker`
 (Task 28), and `nodera-rendezvous` (Task 29), with shared golden fixtures under `fixtures/`.
@@ -379,7 +390,7 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
   tick-lag/TPS handoff (25, spills into Phase 7), and the multiplayer GUI (26,
   GUI-deferred acceptance).
 - **Standalone Rust infrastructure (Tasks 27–29)** backs this phase: the monorepo restructure +
-  `nodera-codec` conformance crate (27, [`MONOREPO.md`](./MONOREPO.md)), the standalone tracker
+  `nodera-codec` conformance crate (27, [`MONOREPO.md`](old/Task.27.md)), the standalone tracker
   binary that replaces the embedded Java `TrackerService` (28, [`LEGACY.md`](./LEGACY.md)), and
   the rendezvous+relay service delivering NAT reach (29). Peers verify — never trust — these
   services (Task 0 §4 rule 7): an outage degrades discovery/reach, never correctness.
@@ -488,7 +499,7 @@ thread via the commit applier.
   all configurable (Task 6).
 - **Discovery/NAT infrastructure (2026-07-19)**: standalone Rust services — `nodera-tracker`
   (Task 28) and `nodera-rendezvous` (Task 29) — speaking the frozen canonical wire encoding,
-  organized as a polyglot monorepo (Task 27, `MONOREPO.md`). Supersedes the jvm-libp2p-first
+  organized as a polyglot monorepo (Task 27, legacy spec `old/Task.27.md`). Supersedes the jvm-libp2p-first
   transport plan; the embedded Java tracker becomes interim legacy (`LEGACY.md`).
 
 Measurements still to record (they feed ledger exit tests, not decisions): Phase 1

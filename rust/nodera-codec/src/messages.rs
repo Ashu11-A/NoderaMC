@@ -39,6 +39,73 @@ pub struct TrackerResponse {
     pub retention_deadline_epoch_millis: u64,
 }
 
+/// "List the worlds you know" — the tracker directory / browse request (complement of the per-world
+/// `TrackerQuery`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackerCatalogQuery {
+    /// Max worlds to return; `0` = the tracker's default page.
+    pub limit: u32,
+}
+
+/// One world's summary in a `TrackerCatalogResponse` directory listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackerCatalogEntry {
+    /// The world's genesis hash (the id a client then queries/joins).
+    pub genesis_hash: Vec<u8>,
+    /// The host-registered display name.
+    pub world_name: String,
+    /// Players currently online in-world.
+    pub world_player_count: u64,
+    /// Distinct pieces held network-wide.
+    pub stored_chunks: u64,
+    /// Mean network reliability, basis points.
+    pub reliability_bps: u32,
+    /// The world's health class.
+    pub health: WorldHealth,
+    /// The decommission-countdown deadline (epoch millis), or `0`.
+    pub retention_deadline_epoch_millis: u64,
+}
+
+impl TrackerCatalogEntry {
+    /// Encode this entry inline (it has no tag of its own).
+    pub fn encode(&self, w: &mut CanonicalWriter) {
+        w.write_bytes(&self.genesis_hash);
+        w.write_string(&self.world_name);
+        w.write_u64(self.world_player_count);
+        w.write_u64(self.stored_chunks);
+        w.write_u32(self.reliability_bps);
+        self.health.encode(w);
+        w.write_u64(self.retention_deadline_epoch_millis);
+    }
+
+    /// Decode the inverse of [`TrackerCatalogEntry::encode`].
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+        let genesis_hash = r.read_bytes_vec()?;
+        let world_name = r.read_string()?;
+        let world_player_count = r.read_u64()?;
+        let stored_chunks = r.read_u64()?;
+        let reliability_bps = r.read_u32()?;
+        let health = WorldHealth::decode(r)?;
+        let retention_deadline_epoch_millis = r.read_u64()?;
+        Ok(Self {
+            genesis_hash,
+            world_name,
+            world_player_count,
+            stored_chunks,
+            reliability_bps,
+            health,
+            retention_deadline_epoch_millis,
+        })
+    }
+}
+
+/// The tracker's directory listing — every listed world it knows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackerCatalogResponse {
+    /// The listed worlds, in the tracker's order.
+    pub worlds: Vec<TrackerCatalogEntry>,
+}
+
 /// A holder gossiping which pieces it has for a world.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InventoryAdvertisement {
@@ -177,6 +244,10 @@ pub enum DiscoveryMessage {
     TrackerAnnounce(TrackerAnnounce),
     /// Tag 34.
     TrackerAnnounceAck(TrackerAnnounceAck),
+    /// Tag 44.
+    TrackerCatalogQuery(TrackerCatalogQuery),
+    /// Tag 45.
+    TrackerCatalogResponse(TrackerCatalogResponse),
 }
 
 impl DiscoveryMessage {
@@ -188,6 +259,8 @@ impl DiscoveryMessage {
             Self::InventoryAdvertisement(_) => message_tags::INVENTORY_ADVERTISEMENT,
             Self::TrackerAnnounce(_) => message_tags::TRACKER_ANNOUNCE,
             Self::TrackerAnnounceAck(_) => message_tags::TRACKER_ANNOUNCE_ACK,
+            Self::TrackerCatalogQuery(_) => message_tags::TRACKER_CATALOG_QUERY,
+            Self::TrackerCatalogResponse(_) => message_tags::TRACKER_CATALOG_RESPONSE,
         }
     }
 
@@ -255,6 +328,12 @@ impl DiscoveryMessage {
                 w.write_bool(m.accepted);
                 w.write_u32(m.next_announce_after_seconds);
                 w.write_string(&m.reason);
+            }
+            Self::TrackerCatalogQuery(m) => {
+                w.write_u32(m.limit);
+            }
+            Self::TrackerCatalogResponse(m) => {
+                w.write_list(&m.worlds, |ww, e| e.encode(ww));
             }
         }
     }

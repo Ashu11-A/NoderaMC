@@ -257,7 +257,8 @@ final class TrackerServiceIT {
                             response.storedChunks(),
                             response.reliabilityBps(),
                             response.health(),
-                            -1L);
+                            -1L,
+                            "");
 
             Panel panel = TorrentWorldListView.panel(List.of(entry), "");
             assertThat(panel.rows()).hasSize(1);
