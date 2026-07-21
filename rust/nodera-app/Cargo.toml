@@ -31,5 +31,6 @@ serde_json = "1"
 thiserror = "1.0"
 
 [features]
+default = ["custom-protocol"]
 # Tauri custom-protocol asset serving in release builds.
 custom-protocol = ["tauri/custom-protocol"]

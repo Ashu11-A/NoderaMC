@@ -1,0 +1,13 @@
+# Tauri / Rust build output
+/target/
+/gen/
+Cargo.lock
+
+# Frontend build output + deps
+/ui/node_modules/
+/ui/dist/
+/ui/package-lock.json
+/ui/bun.lock
+
+# Generated app icons (produced by `cargo tauri icon`)
+/icons/

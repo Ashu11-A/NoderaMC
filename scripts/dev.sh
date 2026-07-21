@@ -32,8 +32,8 @@
 #   --install-mod   After building, copy build/neoforge-mod.jar into the client mods/ dir
 #                   (NODERA_MC_DIR, default ~/.minecraft), then continue.
 #   --with-app      Also build + launch the Tauri companion app (rust/nodera-app) in attach
-#                   mode alongside the worker. Requires the Tauri toolchain (cargo tauri + npm);
-#                   skipped with a warning if absent.
+#                   mode alongside the worker. Uses plain cargo build (no .deb / no bundle);
+#                   skipped if cargo is absent.
 #   --no-worker     Do not run the peer worker (infra services only). The mod will refuse to
 #                   launch unless a worker is running elsewhere.
 #   -h, --help      Show this help.
@@ -147,17 +147,18 @@ collect_artifacts() {
 }
 
 # The Tauri companion app (rust/nodera-app), which supervises the worker + provides tray/dashboard.
-# Optional (--with-app): heavy per-OS webview deps, so build it only when asked and available.
+# Optional (--with-app): builds Rust binary + frontend, then runs in attach mode.
+# Uses plain cargo build (no --bundles/--deb), so no system packaging deps needed.
 build_app() {
-    if ! command -v cargo >/dev/null 2>&1 || ! cargo tauri --version >/dev/null 2>&1; then
-        warn "Tauri toolchain not found (need 'cargo tauri' + npm). Skipping the companion app build."
+    if ! command -v cargo >/dev/null 2>&1; then
+        warn "Rust toolchain not found (need cargo + bun). Skipping the companion app."
         warn "Install it per rust/nodera-app/README.md, or run without --with-app."
         WITH_APP=0
         return 0
     fi
-    log "App: npm install + cargo tauri build (rust/nodera-app)"
-    ( cd "$APP_DIR/ui" && npm install --silent )
-    ( cd "$APP_DIR" && cargo tauri build )
+    log "App: bun install + frontend build + cargo build --release (rust/nodera-app)"
+    ( cd "$APP_DIR/ui" && bun install && bun run build )
+    ( cd "$APP_DIR" && cargo build --release )
 }
 
 # Drop the mod jar into a real client's mods/ dir for live testing (--install-mod), and reset the
@@ -274,13 +275,12 @@ start_worker() {
     return 1
 }
 
-# Launch the Tauri companion app in ATTACH mode (it connects to the worker we already started rather
-# than spawning its own), so the app runs alongside the worker for the tray/dashboard UI.
+# Launch the Tauri companion app in ATTACH mode (connects to already-running worker).
+# Uses pre-built release binary — no bundling/install needed.
 start_app() {
-    local bin
-    bin="$(find "$APP_DIR/target/release" -maxdepth 1 -type f -name 'nodera*' -perm -u+x 2>/dev/null | head -n1 || true)"
-    if [[ -z "$bin" ]]; then
-        warn "companion app binary not found (build with --with-app). Skipping app launch."
+    local bin="$APP_DIR/target/release/nodera-app"
+    if [[ ! -x "$bin" ]]; then
+        warn "companion app binary not found ($bin) — build with --with-app. Skipping app launch."
         return 1
     fi
     log "Starting Tauri companion app (attach mode) → $bin"

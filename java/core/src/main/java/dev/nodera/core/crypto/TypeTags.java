@@ -121,6 +121,12 @@ public final class TypeTags {
     /** The canonical, Ed25519-signed rendezvous registration body. */
     public static final int SIGNED_PEER_RECORD         = 91;
 
+    // --- world identity + permissions (Task 33) ---
+    /** {@code WorldIdentity} — the author-signed per-world record (unique id + author + share state). */
+    public static final int WORLD_IDENTITY             = 92;
+    /** {@code WorldPermissionGrant} — an author/operator-signed role grant for a world. */
+    public static final int WORLD_PERMISSION_GRANT     = 93;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 91;
+    public static final int NEXT = 93;
 }

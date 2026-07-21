@@ -30,6 +30,7 @@ public final class ShareWorldScreen extends Screen {
     private final Screen parent;
 
     private EditBox password;
+    private boolean canEditPassword = true;
     private boolean delegate;
     private boolean listed;
     private int replicationHint;
@@ -54,9 +55,15 @@ public final class ShareWorldScreen extends Screen {
 
         this.password = new EditBox(this.font, x, y, WIDTH, 20,
                 Component.translatable("nodera.share.password"));
-        this.password.setHint(Component.translatable("nodera.share.password.hint"));
         this.password.setMaxLength(128);
         this.password.setValue(current.password());
+        // Task 33: only the world's original author may set/change the password. If this install's
+        // worker is not the author, the field is read-only with an explanatory hint.
+        var server = this.minecraft == null ? null : this.minecraft.getSingleplayerServer();
+        this.canEditPassword = server == null || dev.nodera.mod.common.NoderaHost.localWorkerIsAuthor(server);
+        this.password.setEditable(this.canEditPassword);
+        this.password.setHint(Component.translatable(this.canEditPassword
+                ? "nodera.share.password.hint" : "nodera.share.password.locked"));
         addRenderableWidget(this.password);
         y += 28;
 

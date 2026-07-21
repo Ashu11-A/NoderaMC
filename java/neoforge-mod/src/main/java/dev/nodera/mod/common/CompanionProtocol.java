@@ -16,8 +16,32 @@ public final class CompanionProtocol {
     /** Probe request the mod sends. */
     public static final String PROBE = ControlProtocol.PROBE;
 
-    /** Probe reply the worker sends. */
+    /** Probe/ack reply the worker sends. */
     public static final String OK = ControlProtocol.OK;
+
+    /** Error reply prefix. */
+    public static final String ERR = ControlProtocol.ERR;
+
+    /** Metrics snapshot request. */
+    public static final String STATE = ControlProtocol.STATE;
+
+    /** Worker identity request. */
+    public static final String IDENTITY = ControlProtocol.IDENTITY;
+
+    /** Start-hosting request. */
+    public static final String HOST = ControlProtocol.HOST;
+
+    /** Join request. */
+    public static final String JOIN = ControlProtocol.JOIN;
+
+    /** Stop-hosting request. */
+    public static final String STOP = ControlProtocol.STOP;
+
+    /** Author-only re-key request. */
+    public static final String PASSWORD = ControlProtocol.PASSWORD;
+
+    /** Mint-signed-world-identity request. */
+    public static final String WORLDID = ControlProtocol.WORLDID;
 
     private CompanionProtocol() {
     }

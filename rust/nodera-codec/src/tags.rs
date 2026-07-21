@@ -27,8 +27,14 @@ pub mod type_tags {
     /// `SignedPeerRecord` — the canonical, Ed25519-signed rendezvous registration body.
     pub const SIGNED_PEER_RECORD: u16 = 91;
 
+    // --- world identity + permissions (Task 33; Java-side records, mirrored for registry parity) ---
+    /// `WorldIdentity` — the author-signed per-world record (unique id + author + share state).
+    pub const WORLD_IDENTITY: u16 = 92;
+    /// `WorldPermissionGrant` — an author/operator-signed role grant for a world.
+    pub const WORLD_PERMISSION_GRANT: u16 = 93;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 91;
+    pub const NEXT: u16 = 93;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).

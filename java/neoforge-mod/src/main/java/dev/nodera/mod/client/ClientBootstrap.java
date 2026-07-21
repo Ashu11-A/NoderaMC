@@ -57,6 +57,14 @@ public final class ClientBootstrap {
      * bricked. Config reads are safe here (config is loaded by setup time).
      */
     private static void onClientSetup(FMLClientSetupEvent event) {
+        // Task 31/33 fix: feed the multiplayer Trackers/Rendezvous tabs from the configured endpoints
+        // (they were never wired, so they always said "No … configured").
+        dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed.start();
+        dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setTrackerSupplier(
+                dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::trackers);
+        dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRendezvousSupplier(
+                dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::rendezvous);
+
         String endpoint = NoderaConfig.COMPANION_CONTROL_ENDPOINT.get();
         boolean required = NoderaConfig.COMPANION_REQUIRED.get();
         CompanionClient client;
