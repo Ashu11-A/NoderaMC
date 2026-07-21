@@ -13,9 +13,8 @@ import dev.nodera.protocol.discovery.TrackerAnnounceAck;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.membership.PeerEntry;
+import dev.nodera.transport.Frames;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -56,9 +55,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * concurrent announces and queries never share connection state. {@link #close()} is idempotent.
  */
 public final class TrackerClient implements AutoCloseable {
-
-    /** Absolute cap on a single frame — mirrors {@code SocketPeerTransport.MAX_FRAME_BYTES}. */
-    private static final int MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
     /** Interval assumed before any tracker has answered. */
     public static final int DEFAULT_ANNOUNCE_INTERVAL_SECONDS = 120;
@@ -324,20 +320,10 @@ public final class TrackerClient implements AutoCloseable {
             socket.connect(new InetSocketAddress(endpoint.host(), endpoint.port()),
                     (int) connectTimeout.toMillis());
             socket.setSoTimeout((int) readTimeout.toMillis());
-            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-            out.writeInt(frame.length);
-            out.write(frame);
-            out.flush();
-
-            DataInputStream in = new DataInputStream(socket.getInputStream());
-            int length = in.readInt();
-            if (length < 0 || length > MAX_FRAME_BYTES) {
-                // A hostile or broken tracker must not be able to make a peer allocate a gigabyte.
-                throw new IOException("bad reply frame length: " + length);
-            }
-            byte[] reply = new byte[length];
-            in.readFully(reply);
-            return Optional.of(MessageCodec.decode(reply));
+            // Frames caps the reply length: a hostile or broken tracker must not be able to make
+            // a peer allocate a gigabyte.
+            Frames.write(socket.getOutputStream(), frame);
+            return Frames.read(socket.getInputStream()).map(MessageCodec::decode);
         } catch (IOException | RuntimeException e) {
             // Unreachable, slow, or misbehaving trackers are an expected steady state, not an
             // error to propagate: discovery degrades, the peer keeps playing.

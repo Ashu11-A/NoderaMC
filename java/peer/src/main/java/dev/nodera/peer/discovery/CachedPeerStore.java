@@ -6,12 +6,12 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.crypto.Encodable;
 import dev.nodera.core.crypto.TypeTags;
 import dev.nodera.core.identity.NodeId;
+import dev.nodera.storage.io.AtomicFileWriter;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -210,20 +210,9 @@ public final class CachedPeerStore {
             p.encode(w);
         }
         try {
-            Path parent = file.toAbsolutePath().getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Path temp = file.resolveSibling(file.getFileName() + ".tmp");
-            Files.write(temp, w.toByteArray());
             // Atomic where the filesystem supports it; a crash mid-save then leaves the previous
             // (still usable) file rather than a truncated one.
-            try {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING,
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
+            AtomicFileWriter.write(file, w.toByteArray());
         } catch (IOException e) {
             throw new UncheckedIOException("failed to save cached peer store to " + file, e);
         }

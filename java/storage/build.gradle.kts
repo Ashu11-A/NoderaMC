@@ -24,7 +24,7 @@ dependencies {
     api(project(":core"))
     implementation(libs.rocksdbjni)
 
-    testImplementation(project(":distribution"))
+    testImplementation(project(":peer"))
     testImplementation(project(":testkit"))
 }
 

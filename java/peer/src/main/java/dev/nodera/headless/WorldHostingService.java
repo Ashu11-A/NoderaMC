@@ -241,12 +241,8 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     private static boolean reachable(String host, int port) {
-        try (java.net.Socket s = new java.net.Socket()) {
-            s.connect(new java.net.InetSocketAddress(host, port), PROBE_TIMEOUT_MILLIS);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return dev.nodera.transport.Reachability.probe(
+                host, port, java.time.Duration.ofMillis(PROBE_TIMEOUT_MILLIS));
     }
 
     private static String key(String host, int port) {
