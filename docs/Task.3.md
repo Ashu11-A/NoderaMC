@@ -1,5 +1,10 @@
 # Task 3 — P2P Network Tracker (module: `rust/nodera-tracker` + Java `TrackerClient`)
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 **Module:** the standalone Rust tracker service + its Java client side ·
 **Depends on:** Task 2 (2a wire contract via `nodera-codec`, 2e discovery seams) ·
 **Consumed by:** Task 5 (5d multiplayer feed), Task 6 (worker announce loop), Task 7 (dashboard)
@@ -64,8 +69,8 @@ rust/nodera-tracker/src/
 ├── limits.rs      per-IP/per-identity quotas, record-size caps, world bounds
 └── wire.rs        u32-length framing, 16 MiB cap (mirrors SocketPeerTransport)
 
-java/protocol/.../discovery/{TrackerAnnounce,TrackerAnnounceAck}.java   (appended tags 33–34)
-java/peer-runtime/.../discovery/TrackerClient.java                      (announce loop + query)
+java/transport/.../discovery/{TrackerAnnounce,TrackerAnnounceAck}.java   (appended tags 33–34)
+java/peer/.../discovery/TrackerClient.java                      (announce loop + query)
 java/neoforge-mod: config tracker.endpoints = [] (client + server toml)
 ```
 
@@ -73,10 +78,10 @@ java/neoforge-mod: config tracker.endpoints = [] (client + server toml)
 
 - Service: `rust/nodera-tracker/src/*.rs` (54 unit tests)
 - Conformance: `rust/nodera-codec/tests/{fixtures,tag_mirror}.rs` + `fixtures/wire/*.bin`
-- Java client: `java/peer-runtime/src/main/java/dev/nodera/peer/discovery/TrackerClient.java`
-- IT: `java/peer-runtime/src/test/.../TrackerServiceIT.java` (drives the real binary)
+- Java client: `java/peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java`
+- IT: `java/peer/src/test/.../TrackerServiceIT.java` (drives the real binary)
 - Consumers: `java/neoforge-mod/.../client/multiplayer/TrackerDataSource.java` (5d),
-  `java/diagnostics/.../view/TorrentWorldListView.java` (2k)
+  `java/peer/.../view/TorrentWorldListView.java` (2k)
 - Run/ops: `scripts/dev.sh` (builds + runs + health-checks the binary), CI release job
 - Legacy specs: [`old/Task.28.md`](old/Task.28.md) (this service),
   [`old/Task.20.md`](old/Task.20.md) (the superseded embedded stage)

@@ -1,5 +1,10 @@
 # Task 5 — NeoForge Minecraft (Java) Module (module: `neoforge-mod` + `transport-neoforge`)
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 **Module:** everything that touches Minecraft/NeoForge types — the mod itself ·
 **Depends on:** Task 1 (the validation stack it wires live), Task 2 (the network stack it
 wires live), Task 3 (3b tracker feed), Task 4 (4b transport), Task 6 (the worker it requires) ·
@@ -71,7 +76,7 @@ java/neoforge-mod/src/main/java/dev/nodera/mod/
 ├── mixin/      (5b/5f) LevelChunkMixin choke point, tick suppression, WorldSelectionListEntryMixin
 └── resources/  META-INF/neoforge.mods.toml, nodera.mixins.json, assets/nodera/lang/en_us.json
 
-java/transport-neoforge/   NoderaPayload (single payload type), PayloadBridge, StreamReassembler,
+java/neoforge-mod (relay lane; former transport-neoforge deleted)/   NoderaPayload (single payload type), PayloadBridge, StreamReassembler,
                            NeoForgeRelayTransport (relay impl — 5b; permanent fallback lane)
 java/build-logic/          nodera.neoforge-mod.gradle.kts (ModDevGradle; needs the runs {} block — 5a)
 ```
@@ -81,7 +86,7 @@ java/build-logic/          nodera.neoforge-mod.gradle.kts (ModDevGradle; needs t
 - Entrypoints/config: `java/neoforge-mod/src/main/java/dev/nodera/mod/{NoderaMod,NoderaClientMod}.java`, `common/NoderaConfig.java`
 - Host lane: `common/{NoderaPeerService,NoderaHost,NoderaWorldStore}.java`, `client/share/*.java`
 - GUI: `client/multiplayer/*.java`, `client/worldlist/*.java` (+ view models in
-  `java/diagnostics` — owned by 2k)
+  `java/peer` — owned by 2k)
 - HUD/commands: `debug/**` (renderers over `TelemetrySnapshot`)
 - Gate: `common/{CompanionGate,CompanionClient,CompanionLink,CompanionProtocol}.java`
 - Build: `java/build-logic/src/main/kotlin/nodera.neoforge-mod.gradle.kts`, `scripts/dev.sh`

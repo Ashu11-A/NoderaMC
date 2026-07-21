@@ -1,5 +1,10 @@
 # Task 1 — Deterministic Engine & Committee Validation (module cluster: `core` · `simulation` · `consensus` · `committee` · `coordinator` · `shadow-validation` · `fallback`)
 
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
 **Module:** the Minecraft-free Java validation stack under `java/` ·
 **Depends on:** — (root task; everything else builds on it) ·
 **Consumed by:** Task 2 (types/engine), Task 5 (live wiring), Task 6 (out-of-game validation)
@@ -61,14 +66,14 @@ empty — full vanilla parity under validation, no permanent exclusions.
 
 ```
 java/core/                 identity, region, action, state, event, certificates, JDK crypto
-java/simulation/           RegionEngine, FlatWorldRules, DeterministicRandom, border/halo
-java/consensus/            QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
-java/committee/            CommitteeMember/Session, VotePersistence, SpotCheckAuditor, CommitteeFailover
-java/coordinator/          NodeRegistry, ReliabilityLedger, allocator, leases, RegionPipeline,
+java/engine/           RegionEngine, FlatWorldRules, DeterministicRandom, border/halo
+java/engine/            QuorumPolicy, VoteCollector, EquivocationDetector, SpotCheckPolicy
+java/engine/            CommitteeMember/Session, VotePersistence, SpotCheckAuditor, CommitteeFailover
+java/engine/          NodeRegistry, ReliabilityLedger, allocator, leases, RegionPipeline,
                            ProposalManager, ServerVerifier, WorldMutationApplier, interference/
-java/shadow-validation/    WorkerRuntime, ReplicaStore, ShadowWorker/Coordinator, DivergenceTracker
-java/fallback/             CrossRegionRouter, FallbackExecutor, SoakMetrics
-java/testkit/              LoopbackTransport, FakeRegion, FixtureWriter/Reader
+java/engine/    WorkerRuntime, ReplicaStore, ShadowWorker/Coordinator, DivergenceTracker
+java/engine/             CrossRegionRouter, FallbackExecutor, SoakMetrics
+java/testing/              LoopbackTransport, FakeRegion, FixtureWriter/Reader
 ```
 
 Additions per pending phase (full class-level detail in the legacy specs): 1h →
@@ -83,10 +88,10 @@ Additions per pending phase (full class-level detail in the legacy specs): 1h �
 ## Related files
 
 - Frozen contracts: `java/core/src/main/java/dev/nodera/core/crypto/{CanonicalWriter,CanonicalReader,Encodable,TypeTags}.java`, `core/Bytes`, `core/crypto/{HashService,SignatureService,StableHash}.java`
-- Engine: `java/simulation/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`, `DeterministicRandom.java`, `rules/FlatWorldRules.java`
-- Determinism enforcement: `java/simulation/src/test/java/dev/nodera/simulation/{ForbiddenApiTest,DeterminismPropertyTest}.java`
-- Pipeline: `java/coordinator/src/main/java/dev/nodera/coordinator/{RegionPipeline,ProposalManager,ServerVerifier,WorldMutationApplier,LeaseManager,DelegabilityPolicy}.java` + `interference/{MutationGuard,InterferenceBuffer,InterferenceCommitter,InterferenceStats}.java`
-- Quorum: `java/committee/src/main/java/dev/nodera/committee/*.java`, `java/consensus/src/main/java/dev/nodera/consensus/*.java`
+- Engine: `java/engine/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`, `DeterministicRandom.java`, `rules/FlatWorldRules.java`
+- Determinism enforcement: `java/engine/src/test/java/dev/nodera/simulation/{ForbiddenApiTest,DeterminismPropertyTest}.java`
+- Pipeline: `java/engine/src/main/java/dev/nodera/coordinator/{RegionPipeline,ProposalManager,ServerVerifier,WorldMutationApplier,LeaseManager,DelegabilityPolicy}.java` + `interference/{MutationGuard,InterferenceBuffer,InterferenceCommitter,InterferenceStats}.java`
+- Quorum: `java/engine/src/main/java/dev/nodera/committee/*.java`, `java/engine/src/main/java/dev/nodera/consensus/*.java`
 - Mod-compat contract: `COMPATIBILITY.md` (repo root — normative, written by 1g)
 - Legacy specs (verbatim, class-level): [`old/Task.2.md`](old/Task.2.md) … [`old/Task.16.md`](old/Task.16.md)
 

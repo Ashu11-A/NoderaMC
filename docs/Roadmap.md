@@ -1,5 +1,10 @@
 # Roadmap.md — implementation order, priority, difficulty
 
+> **Module-unification note (issue #30, 2026-07-21):** the Java tree now has seven unified
+> Gradle modules (`core` · `engine` · `transport` · `storage` · `peer` · `testing` ·
+> `neoforge-mod`); the fine-grained module names below live on as packages inside them
+> (mapping: [`Task.0.md`](Task.0.md) §5). Status/ordering analysis is unaffected.
+
 > **Task-numbering note (2026-07-21):** this file is written against the **legacy** per-increment
 > task numbering; its links point into [`docs/old/`](old/), where those specs are preserved
 > verbatim. The current module-task set is [`Task.0.md`](Task.0.md) … [`Task.7.md`](Task.7.md)
