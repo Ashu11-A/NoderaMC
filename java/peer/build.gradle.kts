@@ -32,11 +32,10 @@ dependencies {
     implementation("org.slf4j:slf4j-api:2.0.13")
     runtimeOnly("org.slf4j:slf4j-simple:2.0.13")
 
-    testImplementation(project(":simulation"))
+    testImplementation(project(":engine"))
     testImplementation(project(":testkit"))
     // Test-only: DistributionIT rebuilds the post-batch snapshot with the REAL Phase 1
     // SnapshotDeltaApplier, so the state it splits is the state a replica would actually hold.
-    testImplementation(project(":shadow-validation"))
 }
 
 application {

@@ -6,8 +6,7 @@ plugins {
 dependencies {
     implementation(project(":core"))
     implementation(project(":transport"))
-    implementation(project(":simulation"))
-    implementation(project(":consensus"))
+    implementation(project(":engine"))
     implementation(libs.caffeine)
 
     // testkit is itself a library consumed by integration-tests; its own tests use junit/assertj
