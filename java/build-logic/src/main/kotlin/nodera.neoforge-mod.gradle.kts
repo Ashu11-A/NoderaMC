@@ -1,5 +1,5 @@
 // Nodera NeoForge mod conventions (Task 1 §1/§3, Task 0 §3).
-// Applies to NeoForge-bound modules: neoforge-mod, transport-neoforge.
+// Applies to the NeoForge-bound module: neoforge-mod.
 // Uses ModDevGradle (net.neoforged.moddev) to provision the mojang-mapped NeoForge 21.1.x
 // compile classpath. NeoForge runs on Java 21; the host JDK is 25 (see AGENTS.md), so we
 // compile against the host JDK and target the SAME jvm.version as the pure-Java modules

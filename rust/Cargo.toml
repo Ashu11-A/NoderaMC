@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["nodera-codec", "nodera-tracker", "nodera-rendezvous"]
+# nodera-app (Task 32) is the Tauri companion app. It is EXCLUDED from the workspace build/test gate
+# on purpose: Tauri pulls heavy per-OS native deps (webkit2gtk/webview) that are not part of the
+# headless CI toolchain, so `cargo test`/`cargo build --workspace` must not try to compile it. Build
+# it separately with its own toolchain (`cd nodera-app && cargo tauri dev|build`). See its README.
+exclude = ["nodera-app"]
 
 # Dependency versions are pinned here for the whole workspace — the Rust mirror of the
 # `gradle/libs.versions.toml` version-catalog discipline (Task 0 §3). Bumps are single dedicated

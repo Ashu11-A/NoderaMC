@@ -1,7 +1,7 @@
 # Rendezvous and Relay Architecture
 
-> **Reference spec** — implemented for Nodera by **[Task 29](../Task.29.md)**
-> (`rust/nodera-rendezvous` + `java/transport-rendezvous`, on the [Task 27](../Task.27.md)
+> **Reference spec** — implemented for Nodera by **[Task 4](../Task.4.md)** (legacy [Task 29](../old/Task.29.md))
+> (`rust/nodera-rendezvous` + `java/transport-rendezvous`, on the [Task 27](../old/Task.27.md)
 > monorepo foundation). Binding protocol and architecture decisions live in the task file; this
 > document is the background architecture study it draws on.
 

@@ -64,11 +64,11 @@ observable in normal play.
 | L-20 | Genesis is a single-signer trust root (server self-certifies) | T16 | Multi-party genesis re-certification signed by founding peer set | OPEN |
 | L-21 | Third-party mods excluded from validated regions (palette exclusion) | T16 | Deterministic RuleSet SDK: mods ship rule packs, covered by registryFingerprint; SDK sample mod validated in CI | OPEN |
 | L-22 | Fixed spot-check floor costs ~12.5% server re-execution | T7/T8 | Adaptive spot-check (N=4→64 by reliability); steady-state ≤ 2% for proven committees | RETIRING |
-| L-23 | Cross-NAT direct P2P unproven (was: the jvm-libp2p bet — superseded 2026-07-19 by the Rust rendezvous relay, Task 29) | T29 | `RendezvousRelayIT` cross-NAT soak green; `TransportSelector` direct/punched/relayed mix exercised; pure-relay gateway continuity green (Task 10 acceptance #1) | OPEN |
+| L-23 | Cross-NAT direct P2P unproven (was: the jvm-libp2p bet — superseded 2026-07-19 by the Rust rendezvous relay, Task 29) | T29 | `RendezvousRelayIT` cross-NAT soak green; `TransportSelector` direct/punched/relayed mix exercised; pure-relay gateway continuity green (Task 10 acceptance #1) | RETIRED |
 | L-24 | `mobCapture` ghost lane default-off until proven | T15 | Flips default per-species as validation ships | OPEN |
 | L-25 | Async world writes by other mods undefined under the guard | T16 | RuleSet SDK provides the legal async mutation API; guard rejects the rest with a documented error | OPEN |
 | L-26 | Redstone bounded to palette v2 | T13→T14→T16 | v2 (T13) → +observer/QC/daylight (T14) → +comparator/hopper/note (T16): full redstone parity | OPEN |
-| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T29 | `transport-rendezvous` behind the same `PeerTransport` seam adds hole-punch upgrade + end-to-end-encrypted relay circuits against the Rust `nodera-rendezvous` service; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | OPEN |
+| L-27 | Direct-P2P `SocketPeerTransport` needs reachable listen endpoints (LAN / port-forward / VPN); no NAT hole-punching or relay fallback | T29 | `transport-rendezvous` behind the same `PeerTransport` seam adds hole-punch upgrade + end-to-end-encrypted relay circuits against the Rust `nodera-rendezvous` service; `SocketPeerTransport` stays the LAN path; cross-NAT continuity soak green | RETIRED |
 | L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | RETIRED |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | RETIRED |
 | L-30 | Continuity beta meshes peers full-mesh with gossiped membership; no committee re-execution / quorum on the P2P lane yet (it carries membership + keep-alives, not validated world state) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | OPEN |
@@ -82,10 +82,15 @@ observable in normal play.
 | L-38 | No retention-before-drop; worlds never garbage-collected, no coordinated 24 h decommission | T22 | Coordinated 24 h countdown (network-visible) on zero-seeder worlds; cancel-on-seeder-return; drop-at-expiry; `RetentionIT` | RETIRING |
 | L-39 | World content is plaintext on the P2P net; any connected peer can read any chunk; no per-world encryption | T23 | AES-GCM-256 content encryption under Argon2id(password)-derived key; seeders store ciphertext, verify by hash; join requires password; ciphertext-integrity + wrong-password + nonce-uniqueness tests green | RETIRING |
 | L-40 | No continuous active-player data stream and no shutdown-hook flush; crash safety is replay-only | T24 | `ActivePlayerStream` keeps replicas within one batch of live state; `EmergencyFlush` + shutdown hook drain under-replicated pieces on clean exit; `CrashRecoveryIT` proves no committed-data loss on `kill -9` via redundancy | RETIRING |
-| L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) | Sidecar ships, OR a formal argument + `CrashRecoveryIT` proves replication-redundancy makes the sidecar unnecessary for data safety (reclassify) | OPEN |
+| L-41 | No separate-OS-sidecar process for emergency chunk flush on a Minecraft crash (rule 5 full form) | T24 (stretch) → T32 | The Task 32 companion daemon **is** the separate always-on process: it runs the peer out-of-game, so a Minecraft `kill -9` cannot take the node down. RETIRED when the daemon's continuous seed/flush is proven to survive a game crash (a different process, by construction) | RETIRING |
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | RETIRING |
 | L-44 | Tracker is embedded in a Java peer (`TrackerService`, Task 20) — the world list / announce surface dies with its host peer; no always-on discovery infrastructure | T28 | `TrackerServiceIT`: the standalone Rust `nodera-tracker` binary serves the world list with every Java seeder of a world offline; peers announce/query it; embedded serving path deleted per `LEGACY.md` | RETIRED |
+| L-45 | No automated real-client GUI acceptance harness. Task 30's decentralization is proven headlessly + compile-clean, but the pause-menu "Share" flow, integrated-server host activation, and a second client joining a shared world are only *manually* verifiable — the mod jar dropped into `~/.minecraft/` (NeoForge 21.1.x), driven by hand; there is no `neoforge { runs { register("client") } }` block, so `runClient` cannot even launch from Gradle | T30+ | A `runs` block ships; a headless `runClient` under Xvfb drives Share → a second client sees + joins the world through the tracker + rendezvous/socket, asserting the listing and mesh formation | OPEN |
+| L-49 | Task 33 landed the world-identity/authorship + P2P permission model + live worker telemetry headlessly, but several enforcement/UX halves ride the live NeoForge/worker mesh: the singleplayer world-list per-row "server-like" player count needs the first mixin (`WorldSelectionListEntryMixin`) in a GUI env; live chunk/region validation + revalidation needs the `committee`/`coordinator` stack wired over the worker's `PeerRuntime` (the headless `CommitteeMvpIT` pipeline, now live); permission grants must be gossiped/announced and `BANNED` enforced at `JOIN`; password change re-encryption must propagate over the network (Task 23 live); the worker must seed extracted region pieces | T33 | `runClient`: a shared world shows a live player count on its row; a committee re-executes + commits a region delta over the worker mesh; a BANNED peer is refused at join; a re-keyed world's new ciphertext replaces the old across seeders | OPEN |
+| L-46 | Task 31 GUI redesign is proven by view-model tests + compile-clean screens, but the presentation itself is unverified live: "Open to Nodera" taking the vanilla LAN slot, the single-player public-world badge's per-row placement (screen-level summary only for now — vanilla `WorldSelectionList` row geometry is not cross-package accessible), the tabbed `NoderaMultiplayerScreen`, and the `PieceMapWidget` green-fill grid all wait on a GUI env; the feeds (own worlds, tracker/rendezvous status, per-piece state) are pluggable suppliers defaulting empty until the live wiring / Task 32 daemon lands | T31 | `runClient` (with L-45's harness) shows one "Open to Nodera" button in the LAN slot, a live public-world count on the world list, three working multiplayer tabs, and a piece-map that fills green as pieces arrive | OPEN |
+| L-47 | Task 32 peer worker + gate landed (`nodera-headless` boots a `PeerRuntime` + serves the `ControlServer` the mod probes — verified live; the mod's `companion.required` gate defaults ON so Minecraft aborts without the worker; `scripts/dev.sh` runs the worker; the Tauri app supervises/monitors it, workspace-excluded). Remaining: the worker's live telemetry pump feeding the dashboard's real metrics, the worker↔mod host/join control verbs (so hosting delegates to the worker rather than the in-JVM peer), per-OS installers, app icons, and an automated end-to-end installer + gate + cross-machine continuity test | T32 | A CI/tooling job builds the app, runs the gate both ways (worker present ⇒ start, absent ⇒ actionable abort), and proves a hosted world stays listed + joinable after the host closes Minecraft (the worker kept it alive) | OPEN |
+| L-48 | The always-on node cannot yet *validate* regions from the companion: Option A (a Rust-only seeder node) is forbidden from re-executing regions by the single-engine determinism rule, and the Option-B bundled headless *Java* peer (which can validate, reusing `committee`/`simulation`) is not yet built/bundled — so a companion-only node is currently seeder/relay/router-capable in design, not a committee member | T32/T16 | The bundled headless Java peer runs `committee` re-execution out-of-game and casts votes; a companion-only node participates in a quorum in a headless IT | OPEN |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
 > module ships the addressable piece plane (`PieceManifest`/`Piece`), the append-only
@@ -193,12 +198,41 @@ observable in normal play.
 > announce loop is constructed but not yet scheduled on a timer, so the endpoints are wired and the
 > query path is proven headlessly while the periodic announce lands with the live client pass.
 >
+> **L-23 + L-27 retired (Task 29, 2026-07-19).** The standalone Rust `nodera-rendezvous` service and
+> the `java/transport-rendezvous` module close the cross-NAT / relay-fallback gap. The service speaks
+> the frozen rendezvous/relay family (tags 35–43): signed-record registration (Ed25519, TTL,
+> trust-on-first-use identity binding, per-IP quota), paged discovery, HMAC relay reservations, and a
+> tokio circuit bridge that meters bytes/duration/idle and tears down with a reason code. The Java
+> `RendezvousPeerTransport` composes direct-first / relay-fallback behind the same `PeerTransport`
+> seam (`SocketPeerTransport` stays the LAN path), with an X25519-ECDH + Ed25519-authenticated +
+> AES-GCM `EndToEndCipher` so the relay forwards opaque bytes it can neither read nor forge, and a
+> `TransportSelector` that prefers direct > punched > relayed. `RendezvousRelayIT` spawns the **real
+> binary** and drives two relay-only Java peers through it: they register, discover each other, and a
+> `PeerJoin` + `SessionKeepAlive` cross the E2E-encrypted circuit byte-exact; exhausting the
+> reservation's byte ceiling tears the circuit down; and the selector reports the direct path when one
+> is available (the punch-upgrade policy). Remaining gap, riding the same live/NAT env as Task 10's
+> migration runs rather than this ledger: a real cross-internet soak and the pure-relay
+> `SessionContinuityIT` wiring (Task 10 acceptance #1) — the mechanism is proven headlessly and over
+> loopback here; the live-internet numbers land with the Task 10 live pass.
+>
 > **L-29 retired (Task 9, 2026-07-18).** `GatewayElection` is now capability-weighted (Plan §3.5):
 > within a tier the peer with the highest pure-integer weight (cores + GiB memory + inverse
 > latency + reliability, each clamped to a bucket) wins; the rendezvous score only spreads duty
 > among equal-weight peers; the bootstrap-preference and deterministic UUID tie-break are
 > unchanged, so the order-independence property test still holds. Verified by
 > `GatewayElectionTest.capabilityWeightIsBoundedPureIntegerMath` and `mostCapablePeerWins*`.
+
+> **L-45 opened / decentralization (Task 30, 2026-07-20).** The first Task 30 increment finishes Plan
+> Phase 5's "demote the server" on the mod side: the `Dist.DEDICATED_SERVER` gate is removed, so a
+> player's integrated server runs the same host lane and shares a world from the pause-menu "Share to
+> Nodera" button; `NoderaPeerService` is role- not dist-driven; `scripts/dev.sh` no longer installs or
+> runs a Minecraft server. This is proven headlessly (`ShareOptionsTest`) + compile-clean against
+> NeoForge 21.1.77. What is NOT yet automatable is the live GUI flow itself — hence L-45 OPEN. The
+> live production it fronts (genesis-from-existing-world + self-cert, the password-change re-manifest,
+> `RendezvousPeerTransport` composition, per-piece encryption) rides the same NeoForge live lane as
+> Tasks 5–8/19/23/26 and stays deferred with them; **L-20 is unchanged** (genesis is still a
+> single-signer trust root — now the hosting player's identity rather than the dedicated server's —
+> with T16 owning multi-party re-certification).
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

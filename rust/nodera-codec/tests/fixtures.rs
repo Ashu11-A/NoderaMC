@@ -6,7 +6,27 @@
 //! both sides, so a re-encoding that differs by one byte is a consensus break, not a nit.
 
 use nodera_codec::messages::DiscoveryMessage;
+use nodera_codec::rendezvous::RendezvousMessage;
+use nodera_codec::tags::message_tags;
 use std::path::{Path, PathBuf};
+
+/// Decode a golden frame with whichever family owns its tag, and re-encode it.
+///
+/// A fixture carries its wire tag in its first two big-endian bytes, so the corpus can mix the
+/// discovery family (Task 20/28) and the rendezvous family (Task 29) in one directory; each is
+/// routed to the codec that owns it.
+fn round_trip(golden: &[u8]) -> Result<Vec<u8>, String> {
+    let tag = u16::from_be_bytes([golden[0], golden[1]]);
+    if (message_tags::RENDEZVOUS_REGISTER..=message_tags::OBSERVED_ADDRESS).contains(&tag) {
+        RendezvousMessage::decode(golden)
+            .map(|m| m.encode())
+            .map_err(|e| e.to_string())
+    } else {
+        DiscoveryMessage::decode(golden)
+            .map(|m| m.encode())
+            .map_err(|e| e.to_string())
+    }
+}
 
 fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -40,9 +60,8 @@ fn every_java_fixture_round_trips_byte_exactly() {
     for path in files {
         let golden = std::fs::read(&path).expect("read fixture");
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let decoded = DiscoveryMessage::decode(&golden)
+        let reencoded = round_trip(&golden)
             .unwrap_or_else(|e| panic!("{name}: Java-emitted fixture failed to decode: {e}"));
-        let reencoded = decoded.encode();
         assert_eq!(
             reencoded, golden,
             "{name}: re-encoding differs from the Java golden bytes"

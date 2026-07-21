@@ -10,38 +10,39 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * The Task 26 screen hooks — a NeoForge {@link ScreenEvent.Init.Post} listener instead of a mixin
- * (an event suffices; {@code nodera.mixins.json} stays empty). On {@link JoinMultiplayerScreen} it
- * adds the {@link WorldSearchBox} + {@link TorrentWorldListWidget} pair alongside vanilla's server
- * list; on {@link CreateWorldScreen} it adds the {@link CreateTorrentWorldOption}. Tracker data
- * flows through {@link #setWorldSupplier} — the live tracker query wiring is the NeoForge live
- * lane; until it lands the list renders empty.
+ * Task 31c screen hooks (redesign of the Task 26 addon). Instead of adding widgets <em>beside</em>
+ * vanilla's server list, this now <b>replaces</b> {@link JoinMultiplayerScreen} entirely with the
+ * Nodera-only {@link NoderaMultiplayerScreen} (Worlds / Trackers / Rendezvous tabs) — "keep only the
+ * Nodera system". Vanilla Direct-Connect / Add-Server are gone from the player's path (the vanilla
+ * class is not modified — it is simply swapped out at open time). On {@link CreateWorldScreen} the
+ * Task 26 torrent-hosting toggle + password is still added.
+ *
+ * <p>Uses a {@link ScreenEvent.Init.Post} listener (no mixin; {@code nodera.mixins.json} stays
+ * empty). The world feed flows through {@link #setWorldSupplier} → {@link NoderaMultiplayerScreen}.
  *
  * <p>Thread-context: events fire on the client thread.
  */
 public final class MultiplayerScreenAddon {
 
-    private static volatile Supplier<List<TorrentWorldEntry>> worldSupplier = List::of;
-
     private MultiplayerScreenAddon() {
     }
 
-    /** Install the live tracker feed (player-hosted + friends' + recently-joined worlds). */
+    /**
+     * Install the live tracker feed (player-hosted + friends' + recently-joined worlds). Forwarded to
+     * {@link NoderaMultiplayerScreen}; kept for backward compatibility with existing callers.
+     */
     public static void setWorldSupplier(Supplier<List<TorrentWorldEntry>> supplier) {
-        worldSupplier = supplier == null ? List::of : supplier;
+        NoderaMultiplayerScreen.setWorldSupplier(supplier);
     }
 
     /** Registered on the NeoForge event bus by {@code ClientBootstrap}. */
     public static void onScreenInit(ScreenEvent.Init.Post event) {
-        if (event.getScreen() instanceof JoinMultiplayerScreen screen) {
-            var font = Minecraft.getInstance().font;
-            TorrentWorldListWidget list = new TorrentWorldListWidget(
-                    8, 56, Math.max(200, screen.width / 3), screen.height - 120);
-            list.setEntries(worldSupplier.get());
-            WorldSearchBox search = new WorldSearchBox(
-                    font, 8, 32, Math.max(200, screen.width / 3), 20, list::setSearch);
-            event.addListener(search);
-            event.addListener(list);
+        if (event.getScreen() instanceof JoinMultiplayerScreen) {
+            // Replace vanilla's multiplayer screen with the Nodera-only surface. The new screen is not
+            // a JoinMultiplayerScreen, so this listener does not re-fire for it (no loop). Parent is
+            // resolved to the title screen on close.
+            Minecraft mc = Minecraft.getInstance();
+            mc.setScreen(new NoderaMultiplayerScreen(null));
         } else if (event.getScreen() instanceof CreateWorldScreen screen) {
             var font = Minecraft.getInstance().font;
             CreateTorrentWorldOption option = new CreateTorrentWorldOption(

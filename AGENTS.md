@@ -1,14 +1,16 @@
 # AGENTS.md — NoderaMC
 
-## Repo layout (polyglot monorepo, Task 27)
-- `java/<module>/` — every Gradle module. **Module names are unchanged** (`:core`,
-  `:peer-runtime`, …): `settings.gradle.kts` maps names to the new dirs, so all Gradle
-  invocations and `build.gradle.kts` files work as before. Only paths moved.
+## Repo layout (polyglot monorepo; unified Java API since issue #30, 2026-07-21)
+- `java/<module>/` — **exactly seven Gradle modules** (plus `build-logic`): `core` · `engine` ·
+  `transport` · `storage` · `peer` · `testing` · `neoforge-mod`. The old fine-grained modules
+  merged into them with **packages unchanged** (mapping: `docs/Task.0.md` §5) — e.g.
+  `./gradlew :engine:test` runs what used to be `:simulation` + `:consensus` + `:coordinator` +
+  `:committee` + `:shadow-validation` + `:fallback`.
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
   `nodera-tracker` (Task 28), `nodera-rendezvous` (Task 29). Channel pinned in
   `rust/rust-toolchain.toml`; crate versions pinned in the workspace `Cargo.toml`.
 - `fixtures/wire/` — committed golden canonical frames. Java emits them
-  (`protocol/WireFixtureTest`), Rust decodes + re-encodes them byte-exactly. **Never edit a
+  (`transport`'s `WireFixtureTest`), Rust decodes + re-encodes them byte-exactly. **Never edit a
   fixture by hand**: a byte change there is a wire-contract change.
 
 ## Build & test (both toolchains — one gate)
@@ -18,8 +20,9 @@
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
 - `cd rust && cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
 - `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
-- `scripts/dev --test --no-mc` — build both toolchains + run the full gate without starting servers
-- `scripts/dev --accept-eula`  — build everything, install the server if needed, run the Minecraft + tracker + rendezvous stack
+- `scripts/dev.sh --build-only` — compile both toolchains + collect artifacts (2 binaries + the jar) into `build/`; the CI `release-latest` workflow runs this on every push and attaches them to a rolling `latest` prerelease
+- `scripts/dev.sh --test` — build both toolchains + run the full gate (no server to start; Task 30 retired it)
+- `scripts/dev.sh` — build everything, then run the two infrastructure services (tracker + rendezvous) from `build/`, health-checked; worlds are hosted by a player's client (pause-menu "Share"), not a dedicated server. `--install-mod` drops the jar into `~/.minecraft/mods` for a real-client test
 
 A red cargo job blocks a commit exactly like a red `./gradlew check`: the Rust services speak the
 same frozen wire contract, so a codec regression is a consensus regression.
@@ -33,117 +36,85 @@ same frozen wire contract, so a codec regression is a consensus regression.
   1.3 can parse even though tests execute on host JDK 25. It enforces the simulation ban on clocks,
   entropy, IO, and concurrency APIs alongside `simulation/DeterminismPropertyTest`.
 
-## Layering (Task 0 §4)
-- `core` → JDK only. Task 23's `core/crypto/symmetric` package follows the same rule: AES-GCM-256,
-  `ContentKey`, the `PasswordKeyDerivation` seam, and PBKDF2-HMAC-SHA256 use JDK crypto only.
-  `simulation`/`protocol`/`consensus`/`transport-api`/`storage-api` → `core`.
-- `transport-socket` (real TCP `PeerTransport`) → `core` + `transport-api` (+ `protocol` for chunking).
-- `peer-runtime` (membership, heartbeat, deterministic gateway migration, and — Task 20 — the
-  `peer-runtime/discovery` package: `TrackerService`, `PeerDirectory`, `ArchiveInventory`,
-  `BootstrapClient`, `InvitationCodec`, `CachedPeerStore`, `PersistentIdentityStore`; plus — Task 21
-  — the `peer-runtime/archival` package: `ArchivePlacementPolicy`/`RendezvousArchivePolicy`,
-  `ReplicationFactors`, `SeedFloorPolicy`, `ArchiveAuditTask`, `ArchiveRepairService`,
-  `ArchiveManager`; plus — Task 24 — deadline-bound `PeerShutdownHook`; plus — Task 25 — `TickSync`
-  and optional per-region `SessionKeepAlive` v2 progress wiring) → `core` + `transport-api`
-  + `protocol` + `diagnostics` + `distribution`. It depends only on the transport SEAM, never a
-  concrete transport, so
-  it runs over both `LoopbackTransport` (fast unit tests) and `SocketPeerTransport` (real-socket
-  `SessionContinuityIT` — the Phase 6 base-peer-disconnection continuity proof). `MeteredPeerTransport`
-  wraps any transport to feed a `TrafficMeter`, and `PeerRuntime` doubles as a `DiagnosticsSource`.
-  Both peer-runtime and diagnostics are Minecraft-free pure-Java modules.
-- `diagnostics` (Tasks 18/25 — the Minecraft-free telemetry/view-model core: `TrafficMeter`,
-  `RateWindow`, `MessageCounters`, integer-EMA `TickSkewMeter`/`TpsMeter`, `TelemetrySnapshot`,
-  `ZoneClassifier`, `DiagnosticsView`) → `core` only. Task-25 metrics accept injected monotonic time;
-  they never enter simulation, state roots, or certificates. Unit-testable without a server; the thin `neoforge-mod` `dev.nodera.mod.debug` renderers
-  consume it.
-- `shadow-validation` (Task 5 — the Minecraft-free Phase 1 shadow lane: `WorkerRuntime`,
-  `ReplicaStore`, `SnapshotDeltaApplier`, `ShadowWorker`, `ShadowCoordinator`, `ServerRecompute`,
-  `DivergenceTracker`, `InterferenceProbe`) → `core` + `simulation` only. The whole determinism-proof
-  pipeline runs headlessly under JUnit (`ShadowValidationIT`); the NeoForge capture/stream shim is a
-  thin adapter that feeds `ShadowCoordinator`. `SnapshotDeltaApplier` measures timing OUTSIDE the
-  hashed path (nanoTime around the engine, never inside it) — the `simulation` forbidden-API ban is
-  scoped to `dev.nodera.simulation..` and does not apply here.
-- `coordinator` (Task 6 — the Minecraft-free Phase 2 coordinator: `NodeRegistry`,
-  `ReliabilityLedger`, `RendezvousPlacementPolicy` impl of `core RegionPlacementPolicy`,
-  `RegionAllocator`, `DelegabilityPolicy`, `LeaseManager`, `HeartbeatMonitor`, `RegionPipeline`,
-  `ProposalManager`, `ServerVerifier`, `WorldMutationApplier`) → `core` + `simulation` + `consensus`.
-  The real `ServerLevel` is behind the `MutableWorldView` seam, so the delegate→propose→verify→
-  commit→reassign pipeline is unit-tested headlessly (`CoordinatorIT`). All world writes go through
-  `WorldMutationApplier` (two-pass compare-and-set, all-or-nothing). Durable coordinator state
-  (`epochs` + `ReliabilityLedger`) persists via `PersistedCoordinatorState` (canonical encoding, tags
-  `RELIABILITY_LEDGER`/`COORDINATOR_STATE` appended to the frozen `TypeTags` registry). Task 22 adds the
-  multi-factor `ReliabilityScorer` (correctness+connectivity+uptime+availability+worlds-seeded, pure
-  basis-point math) ADDITIVELY — the Task-6 `ReliabilityLedger` EMA stays the frozen correctness source.
-  Task 25 adds `LagHandoffPolicy`: region skew must be strictly above four ticks for consecutive
-  windows, assignment changes reset the streak, cooldown prevents flapping, and only a guarded
-  handoff applies the one-shot below-floor reliability penalty.
-- `committee` (Task 7 — the Minecraft-free Phase 3 MVP gate: `CommitteeMember`, `CommitteeSession`,
-  `SpotCheckAuditor`, `CommitteeFailover`) → `core` + `simulation` + `consensus` + `coordinator`. It
-  wires the existing consensus primitives (`VoteCollector`, `MajorityQuorumPolicy`,
-  `EquivocationDetector`, `SpotCheckPolicy`) around real engine re-execution: each member re-executes
-  and casts a signed ACCEPT vote on its own root; Task 24 adds `VotePersistence`, so crash-safe
-  members durably prepare the candidate before signing and certificate voters persist the quorum
-  certificate before canonical apply. Task 25 adds guarded lag handoff: the decision pins
-  region/epoch/primary, stale decisions are no-ops, and `CommitteeFailover` reuses its existing
-  exactly-one-epoch promotion path. A 2-of-3 quorum on one root commits the delta
-  through the coordinator's `WorldMutationApplier`. The whole propose/vote/quorum/commit/failover
-  loop is proven headlessly (`CommitteeMvpIT`, `ByzantineWorkerTest`); `CrashRecoveryIT` forcibly
-  kills a JVM, drops the primary store, repairs physical snapshot replicas back to ×5, and replays a
-  surviving certified log. `LagHandoffIT` proves sustained-skew promotion, continued epoch+1 commit,
-  untouched neighbouring state, and certified replay.
-- `fallback` (Task 8 — the Minecraft-free Phase 4 server-fallback + cross-region router:
-  `CrossRegionRouter`, `FallbackExecutor`, `SoakMetrics`, `FallbackRouter`) → `core` + `simulation` +
-  `consensus` + `coordinator`. Classifies every action into the committee lane or the server lane
-  (unassigned / cross-region / disputed / collapsed), executes the server lane through the
-  coordinator applier, and measures the committee-commit ratio (Phase 4 exit: &gt;90%). Proven
-  headlessly (`FallbackRoutingIT`).
-- `storage-api` (Task 9 — the Minecraft-free storage seam: `WorldStore` + `ContentStore`/
-  `RegionEventStore`/`CheckpointStore`/`CertificateStore` interfaces + `ContentId`/`Compression`/
-  `Checkpoint`/`GenesisManifest` value types) → `core` (`api`, since core types appear in the public
-  API). Canonical state = genesis + certified per-region event logs + checkpoints + certificates +
-  content blobs.
-- `storage-eventsourced` (Task 9 — the in-memory event-sourced `WorldStore` impl) → `core` +
-  `storage-api`.
-- `storage-client` (Task 22 — the bounded/quota'd client content store: `BoundedClientWorldStore`,
-  `StorageQuotaManager`, `ArchiveEvictionPolicy`) → `core` + `storage-api`. Never evicts an assigned
-  region's current state; signals Task 21 repair on eviction. Task-24 hardening runs eviction
-  callbacks only after the atomic store mutation releases its monitor, so repair/network adapters
-  must not be invoked under the quota lock. Content-addressed blobs, append-only certified event logs (chain + monotonic-id
-  validation at append, Invariant 3 on write), checkpoint index, content-addressed certificates,
-  the read-side `EventReplayer` (verifies the certified `prevRoot→resultingRoot` chain; an uncertified
-  suffix stops replay), and `PeerSyncFlow` (forward-only sync, Invariant 8). The RocksDB archival
-  tier will implement the same seam later.
-- `distribution` (Tasks 19/23/24 — Minecraft-free torrent data plane + per-world encryption +
-  durability stream: `Piece`,
-  `PieceManifest`, `WorldKeyMaterial`, `PieceSplitter`/`RegionSnapshotSplitter`, `PieceSelector`,
-  `PieceReassembler`, `PieceDownloader`, `ChunkLockMap`, `ContentTransferService`,
-  `Argon2KeyDerivation`, `EncryptedPiece`, `EncryptedRegion`, `ActivePlayerStream`,
-  `EmergencyFlush`) → `core` + `storage-api` + `protocol` +
-  `transport-api`, plus pinned BouncyCastle for Argon2id only. It adds a PIECE layer *beneath* the
-  frozen region layer. Plaintext worlds slice byte-for-byte `RegionSnapshot.encode`, so
-  `SHA-256(reassembled blob)` is the region `StateRoot`. Encrypted worlds slice deterministic
-  AES-GCM ciphertext instead: piece hashes, `manifestRoot`, and `ContentId` cover ciphertext while
-  `PieceManifest.regionRoot` remains plaintext canonical truth; decryptors must root-check recovered
-  bytes before use. Seeders receive no password/key and verify only manifest-pinned ciphertext.
-  Hash-validate-before-accept is enforced against the MANIFEST's hash for an index, never a hash
-  carried alongside payload (`ContentChunk` deliberately has no hash field). Selection is
-  deterministic (`StableHash` rarest-first + rendezvous tie-break, no clocks/entropy); cryptographic
-  nonces use domain-separated truncated SHA-256 because placement's 64-bit `StableHash` is too short
-  for GCM. Serve budgets advance by explicit `resetServeWindow()`, not wall clock. Task 24's stream
-  similarly advances through explicit byte windows, reuses only physically-held hashes, and requires
-  destination store + full-manifest activation acknowledgements; emergency flush uses one absolute
-  deadline and never counts the departing peer. Proven headlessly by `DistributionIT`, keyless-seeder
-  `EncryptedDistributionIT`, `ActivePlayerStreamIT`, and `EmergencyFlushIT`.
-- `testkit` → all of the above.
-- NeoForge-bound modules (`transport-neoforge`, `neoforge-mod`) are onboarded via the
-  `nodera.neoforge-mod` convention (ModDevGradle → NeoForge 21.1.77, Java 21 toolchain). They
-  compile and assemble a jar; `runServer`/`runClient` acceptance is deferred to a GUI env.
-  `neoforge-mod` carries the redesigned `/nodera` + `/noderac` diagnostics command tree and the
-  in-game HUD surfaces (tab list, boss bars, zone alerts) under `dev.nodera.mod.debug`.
-  `storage-rocksdb` and `storage-client` are now built; only `integration-tests` remains a
-  commented declaration in `settings.gradle.kts`. The `transport-libp2p` placeholder was deleted
-  by Task 27 — the NAT/relay plan is superseded by `transport-rendezvous` + the Rust
-  `nodera-rendezvous` service (Task 29, see `docs/LEGACY.md`).
+## Layering (Task 0 §7; module boundaries unified by issue #30 — inter-PACKAGE rules unchanged)
+- Module graph: `core` → JDK only. `engine`/`transport`/`storage` → `core`. `peer` → `core` +
+  `transport` + `storage`. `testing` → `core` + `engine` + `transport`. `neoforge-mod` → all of
+  them (the ONLY module with Minecraft/NeoForge types).
+- `core` — Task 23's `core/crypto/symmetric` follows the JDK-only rule: AES-GCM-256, `ContentKey`,
+  the `PasswordKeyDerivation` seam, and PBKDF2-HMAC-SHA256 use JDK crypto only.
+- `engine` (`dev.nodera.simulation` / `consensus` / `shadow` / `coordinator` / `committee` /
+  `fallback`):
+  - `simulation` is THE region engine; the ArchUnit forbidden-API ban (clocks/entropy/IO/
+    concurrency) is scoped to `dev.nodera.simulation..` and enforced by `ForbiddenApiTest` +
+    `DeterminismPropertyTest`. `shadow`'s `SnapshotDeltaApplier` measures timing OUTSIDE the
+    hashed path (nanoTime around the engine, never inside it).
+  - `coordinator`: the delegate→propose→verify→commit→reassign pipeline behind the
+    `MutableWorldView` seam (`CoordinatorIT`); ALL world writes go through `WorldMutationApplier`
+    (two-pass compare-and-set, all-or-nothing). Durable state via `PersistedCoordinatorState`.
+    Task 22's multi-factor `ReliabilityScorer` is ADDITIVE — the Task-6 `ReliabilityLedger` EMA
+    stays the frozen correctness source. Task 25's `LagHandoffPolicy`: skew strictly above four
+    ticks for consecutive windows, streak resets on assignment change, cooldown prevents
+    flapping, only a guarded handoff applies the one-shot reliability penalty. Task 11's
+    `interference` package is the single mutation-guard choke point.
+  - `committee`: consensus primitives around real engine re-execution; Task 24 `VotePersistence`
+    (durably prepare before signing, persist certificate before canonical apply); guarded lag
+    handoff pins region/epoch/primary (stale decisions are no-ops); 2-of-3 quorum commits through
+    the coordinator applier. Proven by `CommitteeMvpIT`/`ByzantineWorkerTest`/`CrashRecoveryIT`/
+    `LagHandoffIT`.
+  - `fallback`: committee-lane vs server-lane router + `SoakMetrics` (Phase 4 exit: >90%
+    committee-commit, `FallbackRoutingIT`). Wired live by Task 5's live lane.
+- `transport` (`dev.nodera.protocol` + `dev.nodera.transport{,.socket,.rendezvous}`):
+  - `protocol` is the frozen wire contract (see Frozen contracts below).
+  - Carriers implement the `PeerTransport` seam only — consumers never name a concrete
+    transport. `Frames` is the one 16 MiB length-prefix framing (socket transport mirrors its
+    cap; rendezvous legs and the tracker client call it directly); `Reachability` is the one TCP
+    probe.
+  - `rendezvous`: direct-first / punch-upgrade / X25519+AES-GCM relay-fallback over the Rust
+    `nodera-rendezvous` service (`RendezvousRelayIT` drives the real binary).
+- `storage` (`dev.nodera.storage{,.event,.rocksdb,.client}` + `EventChainGuard`/`RegionOrder`/
+  `io.AtomicFileWriter`):
+  - The seam: canonical state = genesis + certified per-region event logs + checkpoints +
+    certificates + content blobs. Append invariants (monotonic ids, unbroken
+    `prevRoot→resultingRoot` chain — Invariant 3) live once in `EventChainGuard`, used by both
+    the in-memory and RocksDB tiers. `EventReplayer` stops at an uncertified suffix;
+    `PeerSyncFlow` is forward-only (Invariant 8).
+  - `rocksdb`: WAL-backed column families, heads recovered from the log tail on open (no second
+    record that can disagree after a crash), `FsContentStore` atomic hash-verified blobs;
+    `RocksCrashRecoveryIT` forcibly kills a writer JVM. `rocksdbjni` stays
+    implementation-scoped.
+  - `client`: `BoundedClientWorldStore` never evicts an assigned region's current state; eviction
+    callbacks run only after the store monitor is released (Task 24 hardening).
+- `peer` (`dev.nodera.distribution` + `dev.nodera.peer` + `dev.nodera.diagnostics` +
+  `dev.nodera.headless`; carries the `application` plugin — launcher name `nodera-headless` is a
+  contract with `rust/nodera-app` (daemon.rs) and `scripts/dev.sh`):
+  - `distribution`: the PIECE layer beneath the frozen region layer. Plaintext worlds slice
+    byte-for-byte `RegionSnapshot.encode` so `SHA-256(reassembled blob)` IS the region
+    `StateRoot`; encrypted worlds slice deterministic AES-GCM ciphertext (piece hashes/
+    `manifestRoot`/`ContentId` cover ciphertext; `PieceManifest.regionRoot` stays plaintext
+    truth; decryptors root-check recovered bytes). Hash-validate-before-accept is against the
+    MANIFEST's hash for an index, never a hash carried beside payload (`ContentChunk` has no hash
+    field by design). Selection is deterministic (`StableHash` rarest-first + rendezvous
+    tie-break); GCM nonces use domain-separated truncated SHA-256. Serve/stream budgets advance
+    by explicit windows, never wall clock; emergency flush uses one absolute deadline and never
+    counts the departing peer. BouncyCastle (Argon2id) is this package's only external dep.
+  - `peer` runtime: membership/heartbeat/gateway election over the transport SEAM (runs
+    identically on `LoopbackTransport` and `SocketPeerTransport` — `SessionContinuityIT`);
+    `discovery` (TrackerClient/BootstrapClient/PeerDirectory/ArchiveInventory/CachedPeerStore/
+    PersistentIdentityStore), `archival` (placement/audit/repair, Tasks 21/22), deadline-bound
+    `PeerShutdownHook`, certified-reference `TickSync`, `control` — the loopback verb endpoint
+    (`ControlProtocol` v2), the single source the mod's `CompanionProtocol` and the Tauri app's
+    `control.rs` mirror.
+  - `diagnostics`: Minecraft-free telemetry/view models; metrics accept injected monotonic time
+    and never enter simulation, state roots, or certificates.
+  - `headless`: `HeadlessPeerMain` + `WorkerControlHandler` (NODERA-STATE JSON is the Rust
+    dashboard contract) + `WorldHostingService`.
+- `testing` (`dev.nodera.testkit`): `LoopbackTransport` (chunks streams exactly like the real
+  transports), `FakeRegion`, wire-fixture IO; future home of the multi-peer scenario suite.
+- `neoforge-mod` is onboarded via the `nodera.neoforge-mod` convention (ModDevGradle → NeoForge
+  21.1.77, Java 21 toolchain); compiles + assembles a fat mod jar of our own classes;
+  `runServer`/`runClient` acceptance deferred to a GUI env. Carries `/nodera` + `/noderac` +
+  HUD under `dev.nodera.mod.debug`. Client-only code stays under `dev.nodera.mod.client`
+  behind `Dist.CLIENT`.
 - **Rust crates carry no game, consensus, or storage logic** (Task 0 §4 rule 7). They are
   discovery/forwarding infrastructure: peers verify every claim (Ed25519 signatures, content
   hashes) and never treat a service as authority. A service outage degrades discovery or
@@ -181,8 +152,10 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
 
 ## GitHub issue workflow (see `.github/ISSUE_SYSTEM.md` for the full rules)
-- GitHub issues are the source of truth. Every `docs/Task.N.md` has an issue; every detected
-  problem becomes a `bug` issue before a regression reaches `main`.
+- GitHub issues are the source of truth. Every task phase has an issue; every detected
+  problem becomes a `bug` issue before a regression reaches `main`. Existing issues use the
+  **legacy** task numbering (old Tasks 1–33, preserved in `docs/old/`) — find issues by exact
+  title, never by number; the legacy→module-task mapping is `docs/Task.0.md` §4.
 - One task = one branch (`<type>/<slug>-#<issue>`) = one PR.
 - A task is "done" only when: `./gradlew check` green, acceptance criteria evidenced in the PR,
   README/Tested updated, and the issue closed via `Closes #N`.
@@ -199,7 +172,9 @@ runtimes (bootstrap + two players); kill the bootstrap; assert the players detec
 same successor gateway deterministically, and keep exchanging keep-alives over their direct socket
 (the `base-peer-disconnection` continuity scenario).
 
-## Base orientation prompt
-[`docs/Prompt.base.md`](docs/Prompt.base.md) is a paste-in base prompt: the ordered list of files
-to read first, the project pattern, where progress lives, and how the issue workflow operates. Point
-new contributors/agents at it.
+## Base document
+[`docs/Task.0.md`](docs/Task.0.md) is the base document (it absorbed the former
+`docs/Prompt.base.md` and the old conventions file): the ordered list of files to read first, the
+project pattern, the module-task index (Tasks 1–7, one per Nodera module) + dependency graph, the
+legacy→new task mapping, and how the issue workflow operates. Point new contributors/agents at it.
+Legacy per-increment specs (old Tasks 0–33) are preserved verbatim in `docs/old/`.

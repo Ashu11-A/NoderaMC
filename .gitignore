@@ -6,6 +6,8 @@ build/
 # IDE
 .idea/
 *.iml
+# IDE (Eclipse/VSCode-Java) compile output inside each module — never committed.
+java/*/bin/
 .vscode/
 .eclipse/
 .classpath

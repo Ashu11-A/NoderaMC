@@ -26,6 +26,13 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 | `neoforge-mod/.../client/multiplayer/TrackerDataSource.java` (+ `TorrentWorldListWidget`, `MultiplayerScreenAddon`, `WorldSearchBox`, `CreateTorrentWorldOption`) | **KEEP** | Task 26 GUI consumes `TrackerResponse` unchanged — after T28 the data simply originates from the Rust binary. | — |
 | `diagnostics/src/main/java/dev/nodera/diagnostics/view/TorrentWorldListView.java` | **KEEP** | Pure view model; data source swap is invisible to it. | — |
 
+### Java API unification (issue #30, 2026-07-21)
+
+| File | Classification | Why / replacement | Status |
+|---|---|---|---|
+| `java/transport-neoforge` (whole module) | **REMOVE** | Placeholder with no main source (one classpath smoke test); the planned in-game relay lane lands inside `neoforge-mod` when it materializes (layering rule 3 — Minecraft types live only there). Its NeoForge toolchain slot is not needed by the unified `java/transport`. | **RESOLVED** (2026-07-21, issue #30) — deleted in the transport-unification commit; `settings.gradle.kts`/`neoforge-mod` no longer reference it |
+| `protocol`, `transport-api`, `transport-socket`, `transport-rendezvous`, `storage-api`, `storage-eventsourced`, `storage-rocksdb`, `storage-client` (modules) | **REWRITE** | Merged into the unified `java/transport` and `java/storage` modules — packages unchanged, only the Gradle module boundary moved. | **RESOLVED** (2026-07-21, issue #30) |
+
 ### Rendezvous / relay / NAT → Rust `nodera-rendezvous` (Task 29)
 
 | File | Classification | Why / replacement | Status |
@@ -36,11 +43,27 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 | `peer-runtime/.../peer/{PeerRuntime,GatewayElection,SessionView,TickSync}.java` + `protocol/membership/*` | **KEEP** | Session/gateway roles are in-game peer responsibilities riding whatever transport exists; the rendezvous service coordinates *reachability*, never sessions. | — |
 | `coordinator/.../{RendezvousPlacementPolicy,NodeRegistry}.java`, `peer-runtime/archival/RendezvousArchivePolicy.java` | **KEEP** | "Rendezvous" here = rendezvous *hashing* (deterministic placement math), unrelated to the rendezvous *service*. Flagged to prevent an over-eager cleanup. | — |
 
+> **Task 29 landed (2026-07-19).** `rust/nodera-rendezvous` (signed-record registration, paged
+> discovery, HMAC relay reservations, tokio circuit bridging + metering, punch coordination) and
+> `java/transport-rendezvous` (the third `PeerTransport`: direct-first / punch-upgrade /
+> E2E-encrypted relay-fallback) shipped; wire family tags 35–43 + `PeerCandidate`/`SignedPeerRecord`
+> are byte-exact cross-language; L-23 and L-27 are RETIRED (`RendezvousRelayIT` drives the real
+> binary). Task 29 is **additive** — it removes no Java files beyond the already-resolved
+> `transport-libp2p` plan (row above), so there is nothing new to flip here. The `KEEP` rows stand.
+
 ## §2 — Task-file ledger (rewrites / removals)
 
-No `Task.<N>.md` file is deleted in this transition, so **no renumbering is required** (the
-renumber-on-delete rule stays armed for any future deletion). Task 17 remains file-less (standing
-debugger issue), as before.
+> **2026-07-21 consolidation note:** all legacy `Task.<N>.md` files (and `Prompt.base.md`) were
+> moved verbatim to [`docs/old/`](old/); the current specs are the module tasks
+> `docs/Task.0.md` … `docs/Task.7.md` (mapping: `Task.0.md` §4). `MONOREPO.md` was retired — the
+> monorepo is the default architecture (`Task.0.md` §3); its migration record survives as
+> [`old/MONOREPO.md`](old/MONOREPO.md) + [`old/Task.27.md`](old/Task.27.md). The path-prefix rewrite queue below is thereby **RESOLVED**:
+> the new module tasks are written against the monorepo layout. File references in this ledger's
+> tables use the legacy paths as historical record — resolve them under `docs/old/`.
+
+No legacy `Task.<N>.md` file was deleted in this transition, so **no renumbering is required**
+(the renumber-on-delete rule stays armed for any future deletion). Task 17 remains file-less
+(standing debugger issue), as before.
 
 | Task file | Action | Reason |
 |---|---|---|

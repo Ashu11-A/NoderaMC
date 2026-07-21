@@ -1,195 +1,159 @@
-# Task 6 — Coordinator (Phase 2): Leases, Epochs, Assignment, Client Proposal + Server Verification
+# Task 6 — Peer Worker (module: `nodera-headless` + `peer-runtime/control`)
 
-**Phase:** 2 · **Depends on:** Task 5 gate · **Modules:** `neoforge-mod` (dedicated),
-`protocol`, `core`, `consensus` (skeleton)
+> **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
+> mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
+> `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
+> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+
+**Module:** the required always-on headless Java peer — a player's node when Minecraft is
+closed ·
+**Depends on:** Task 2 (it *is* the `PeerRuntime` run as a process), Task 3/4 (services it
+dials), Task 1 (validation stack for 6d), Task 5 (5e genesis production for 6c) ·
+**Consumed by:** Task 5 (5g gate probes it; 5d/5f read it), Task 7 (the app supervises it)
+
+## Implementation status
+
+Audited **2026-07-21**. ✅ completed · 🚧 pending · ⏳ waiting.
+
+| Phase | Deliverable | Status | Waiting on |
+|---|---|---|---|
+| 6a | Worker boots + presence endpoint: `HeadlessPeerMain` runs a `PeerRuntime` with persistent identity; loopback `ControlServer` answers `NODERA-PROBE` | ✅ (verified live: boots, becomes gateway, answers probe) | — |
+| 6b | Control protocol v2 + live telemetry: `STATE`/`IDENTITY`/`HOST`/`JOIN`/`STOP`/`PASSWORD`/`STATUS`/`WORLDID` verbs; `WorldIdentity` minting; real bytes/peers/worlds JSON | ✅ (verified live) | — |
+| 6c | Host/join delegation + worker seeding: hosting rides the worker (announce loop, rendezvous registration, region-piece seeding), grant gossip | 🚧 (HOST records the world; seeding + gossip pending) | 5e (30c genesis/extraction), 2d (splitter reuse) |
+| 6d | Out-of-game committee validation: the worker re-executes regions + casts votes (the bundled Java peer — Option B) | ⏳ | 5b (live committee wiring), 1e over 2b |
 
 ## Goal
 
-Turn shadow lanes into the real pipeline for delegated regions: the assigned **primary
-client executes first** and submits a `RegionProposal`; the server re-executes,
-compares roots, and **commits the client's delta to the real world** on match. Full
-lease/epoch machinery, reassignment on failure, compare-and-set world application.
-Server still verifies 100% of batches (committee voting is Task 7).
+Decouple "being a Nodera node" from "running Minecraft." The worker is a Minecraft-free `main`
+that boots the full Java `PeerRuntime` — persistent identity, membership, gateway candidacy,
+tracker announce, rendezvous registration, distribution seeding, and (6d) committee
+validation — as a long-lived OS process, and serves the **loopback control endpoint**
+(`127.0.0.1:25610`) that the mod requires (5g gate), queries (5d/5f), and delegates hosting to
+(5e→6c). This is what makes player-hosted worlds survive the host closing their game, and it is
+the project's answer to the L-41 "separate OS sidecar" requirement: the worker is a different
+process by construction, so a Minecraft crash cannot take the node down.
 
----
+## Context (last audit: 2026-07-21)
 
-## Folder structure (additions)
+- Landed (legacy Tasks 32/33): the `nodera-headless` Gradle module (runnable `application`
+  installDist, run by `scripts/dev.sh` with a control-probe health check), the
+  `peer-runtime/control` package — `ControlProtocol` (the single source of truth for the
+  line-based wire, mirrored by the mod's `CompanionProtocol` and the Rust app's `control.rs`;
+  `PROTOCOL_VERSION = 2`), `ControlHandler` seam + dispatching `ControlServer` — and the
+  `WorkerControlHandler` answering `STATE` from the live `TrafficMeter` + session view + hosted
+  worlds. The worker is the **world author**: it holds the signing key and mints signed
+  `WorldIdentity` records via `WORLDID`; it enforces author-only `PASSWORD` re-key.
+- Verified live outside the gate: boots, becomes gateway, answers
+  `NODERA-PROBE 1` → `NODERA-OK 1 0.1.0-SNAPSHOT` and real `NODERA-STATE`/`IDENTITY`/`HOST`/
+  `WORLDID` replies.
+- The control channel is **loopback-only, versioned, non-authoritative**: peers still verify
+  everything the worker serves (Task 0 §3 rule 7). Requiring the worker is a persistence +
+  reachability convenience, never a new trust anchor.
+- The Option A/B decision is **locked (Option B)**: the worker is the existing, tested Java
+  peer run headlessly. A Rust-native peer is forbidden from re-executing regions by the
+  single-engine determinism rule (it could only seed/relay/route — L-48); it remains a possible
+  later lightweight-only mode, not this task.
 
-```
-neoforge-mod/src/main/java/dev/nodera/mod/dedicated/
-├── coordinator/
-│   ├── NodeRegistry.java            # authenticated nodes: identity, capabilities,
-│   │                                #   reliability score, connection state
-│   ├── RegionAllocator.java         # which regions are delegable + who runs them
-│   ├── DelegabilityPolicy.java      # single evaluator: DELEGABLE | reason set (this task:
-│   │                                #   palette, chunks loaded, eligible nodes; Task 11 adds
-│   │                                #   entity/neighbor/fake-player/interference checks + tickets)
-│   ├── ChunkLifecycleHooks.java     # ChunkEvent.Load/Unload wiring (stubs here, real in Task 11)
-│   ├── RendezvousPlacementPolicy.java  # implements core RegionPlacementPolicy
-│   ├── LeaseManager.java            # issue/renew/expire RegionLease; epoch bump on change
-│   ├── HeartbeatMonitor.java        # misses ⇒ lease revoke ⇒ reassignment
-│   └── ReliabilityLedger.java       # EMA success score per node (persisted Task 6 SavedData)
-├── routing/
-│   ├── ActionRouter.java            # replaces ShadowCoordinator routing: action → owning
-│   │                                #   region's primary (or server fallback if not delegated)
-│   └── RegionPipeline.java          # per-region state machine (see below)
-├── commit/
-│   ├── ProposalManager.java         # holds pending proposals; pairs with verification results
-│   ├── ServerVerifier.java          # re-executes batch via engine (async), yields root
-│   └── WorldMutationApplier.java    # THE ONLY world writer — main thread, compare-and-set
-└── persistence/
-    └── NoderaSavedData.java         # SavedData: networkId, assignments, epochs,
-                                     #   reliability scores, last committed versions
-
-core additions (region/):
-└── RegionPlacementPolicy.java       # interface (canAssign + score) — declared in core, impl above
-
-protocol additions: (already declared in Task 4 files)
-    RegionProposal, CommitAnnounce, ResyncRequest now flow for real; add
-    ProposalRejected.java            # region, epoch, baseVersion, reason enum
-
-consensus (skeleton this task):
-└── dev/nodera/consensus/
-    ├── ProposalKey.java             # (region, epoch, baseVersion)
-    └── VerificationOutcome.java     # MATCH / MISMATCH / TIMEOUT / STALE_EPOCH
-```
-
-## Class relationships
+## Folder structure (monorepo default)
 
 ```
-RegionPlacementPolicy (core, interface)
-      ▲
-      └── RendezvousPlacementPolicy      # StableHash(nodeId, regionId) × capability ×
-                                         #   reliability × latency weights + constraints
+java/peer/src/main/java/dev/nodera/headless/
+├── HeadlessPeerMain.java        boots PeerRuntime over a real socket; persistent identity;
+│                                serves the ControlServer; config from file/env
+├── WorkerControlHandler.java    answers STATE/IDENTITY/HOST/WORLDID… from live runtime state
+└── WorkerState.java             maintained pieces/bytes, peers, hosted worlds snapshot
 
-RegionPipeline — per delegated region, single-threaded state machine (server main thread):
-    IDLE ─assign─► SNAPSHOT_SYNC ─ack─► ACTIVE ─batch─► AWAITING_PROPOSAL
-      ▲                                                    │ proposal
-      │                                                    ▼
-      │                                          AWAITING_VERIFICATION ── MATCH ──► COMMIT ─► ACTIVE
-      │                                                    │ MISMATCH/TIMEOUT
-      └──────────── REVOKED ◄── lease expiry ◄─────────────┘ (penalize, resync or reassign)
-
-WorldMutationApplier.apply(RegionDelta) — server main thread:
-    for each BlockMutation: currentStateId == expectedPreviousStateId ? setBlock : abort → resync
-    (all-or-nothing per delta: dry-run pass over all mutations first, then apply pass)
+java/peer/src/main/java/dev/nodera/peer/control/
+├── ControlProtocol.java         the wire: verbs, version (single source of truth)
+└── ControlServer.java           loopback listener + ControlHandler dispatch
 ```
 
-Data flow (Phase 2 steady state):
+## Related files
 
-```
-player action ─► ActionCapture ─► ActionRouter ─► BatchAssembler(region)
-   batch ─► primary client (ActionBatchMsg) ─► client executes ─► RegionProposal
-   batch ─► ServerVerifier (async re-execute)          │
-                └────────────► ProposalManager ◄───────┘
-                                    │ roots equal?
-                          yes ─► WorldMutationApplier (main thread) ─► CommitAnnounce
-                          no  ─► ProposalRejected + ReliabilityLedger.penalize + resync
-```
+- `java/peer/**` (module), `java/peer/.../control/{ControlProtocol,ControlServer}.java` (+ `ControlServerTest`)
+- Mod mirror: `java/neoforge-mod/.../common/{CompanionProtocol,CompanionClient,CompanionGate,CompanionLink}.java` (5g)
+- Rust mirror: `rust/nodera-app/src/control.rs` (7b)
+- Identity: `java/peer/.../discovery/PersistentIdentityStore.java` (2e);
+  world identity types: `java/storage/.../{WorldIdentity,WorldPermissionGrant,WorldPermissions}.java` (2c)
+- Runner: `scripts/dev.sh` (builds + runs the worker; `--no-worker` opts out)
+- Legacy specs: [`old/Task.32.md`](old/Task.32.md) (32b daemon + decision),
+  [`old/Task.33.md`](old/Task.33.md) (verbs, identity, permissions), and
+  [`Plan.1.md`](Plan.1.md) (the phase plan that produced them)
 
-## Implementation details — server peer (the bulk of this task)
+## Implementation details (phases)
 
-- **Delegability**: centralized in `DelegabilityPolicy.evaluate(region) →
-  DELEGABLE | Set<Reason>`. Reasons implemented in this task: `UNSUPPORTED_PALETTE`,
-  `CHUNKS_NOT_LOADED`, `NO_ELIGIBLE_NODES`, `CROSS_REGION_PENDING`,
-  `OUTSIDE_GENERATED_TERRAIN`. Task 11 appends `ENTITY_PRESENT`,
-  `NEIGHBOR_UNSUPPORTED` (1-region ring), `FAKE_PLAYER_ACTIVE`,
-  `INTERFERENCE_RATE_HIGH` — the enum and the re-evaluation loop (every lease renewal +
-  on lifecycle events, with `DELEGABILITY_COOLDOWN_TICKS` hysteresis) are declared
-  **now** so Task 11 only adds evaluators. A region turning non-delegable revokes
-  gracefully: in-flight proposal resolves first, then lease revoke (`epoch++`), then
-  vanilla lane. Non-delegable regions keep vanilla execution untouched (vanilla is the
-  default; delegation is opt-in per region).
-- **Suppressing double execution**: for a *delegated* region, captured actions must not
-  also apply vanilla-side. MVP approach: cancel the vanilla `BlockEvent` (place/break)
-  for delegated regions and let the committed `RegionDelta` produce the effect 1–2
-  ticks later; send the acting player a transient "pending" state (client mod may render
-  a ghost block). This is the first behaviour-visible change — gate behind config
-  `delegation.enabled=false` by default until Task 7 stabilizes.
-- **Event-ordering contract (mod compatibility)**: the capture-and-cancel listener for
-  delegated regions registers at `EventPriority.LOW` with `receiveCanceled=false` —
-  protection/claim/anti-grief mods listening at higher priorities cancel first and
-  Nodera never turns the action into an `ActionEnvelope`; their veto always wins. Other
-  mods' `MONITOR` observers see the event canceled, exactly as for any server-side
-  rejection. The Task 5 shadow listener stays passive at `MONITOR`. This contract is
-  normative — document it in `COMPATIBILITY.md` (Task 11) and cover it with a
-  dummy-listener test.
-- **Fake players** (quarries, turrets, other mods' automation): any `Player` without a
-  Nodera handshake session — including `FakePlayer` instances — never produces an
-  `ActionEnvelope`. Their world effects inside delegated regions are foreign mutations,
-  handled by the Task 11 interference guard. Until Task 11 lands, `DelegabilityPolicy`
-  treats an active fake player in a region as `FAKE_PLAYER_ACTIVE` ⇒ non-delegable
-  (cheap detection: any non-session player mutation event in the region within the last
-  cooldown window).
-- **Guard prerequisite**: config `delegation.requireGuard` (default `true`). While the
-  Task 11 mutation guard is absent, delegation refuses any region that is not on the
-  flat-world MVP profile (probe rate from Task 5 = 0). Prevents silently running the
-  CAS-resync storm on normal worlds before the guard exists.
-- **`LeaseManager`**: leases issued `LEASE_LENGTH_TICKS`, renewed on heartbeat every
-  `LEASE_RENEW_TICKS` while pipeline healthy. Any reassignment ⇒ `epoch++` persisted in
-  `NoderaSavedData` (epochs never reused, survive restart — stale-proposal defense).
-  Messages carrying an old epoch are dropped with `STALE_EPOCH` outcome (test).
-- **Chunk lifecycle hook points** (`ChunkLifecycleHooks`): `ChunkEvent.Load`/`Unload`
-  listeners registered now. Unload of any chunk of a delegated region ⇒ immediate
-  graceful revoke (`epoch++`, pipeline → REVOKED) — the applier must never face an
-  unloaded chunk. Keep-loaded tickets (custom `TicketType`) and the full lifecycle
-  policy (chunk loaders, ender-pearl-loaded chunks) land in Task 11; until then
-  delegation is effectively limited to player-adjacent regions where vanilla view/sim
-  tickets keep chunks loaded anyway.
-- **`ServerVerifier`**: dedicated executor (`Executors.newFixedThreadPool(n, named)`,
-  n = config `verifier.threads`, default 2). Never main thread. Timeout
-  `verify.timeoutMillis` (default 2000): client proposal without server result in time ⇒
-  TIMEOUT ⇒ treat as mismatch-lite (no penalty, resync, execute server-side).
-- **`WorldMutationApplier`**: main thread (`server.execute` or tick-end hook). Two-pass
-  (validate-all-then-apply) so a delta never partially commits (Invariant 11 in spirit).
-  On abort: `ResyncRequest` path — fresh `SnapshotExtractor` run, version bump, region
-  pipeline back to SNAPSHOT_SYNC. Uses `Level.setBlock` with flags that suppress
-  neighbor-update cascades outside the MVP rule set (flag choice documented in-code;
-  physics stays server-vanilla for non-delegated mechanics).
-- **`ReliabilityLedger`**: `score ← 0.98·score + 0.02·outcome` per proposal
-  (outcome 1 match / 0 mismatch); floor for assignment `minReliability` (default 0.95,
-  config). Persisted.
-- **`NoderaSavedData`**: `SavedData` attached to the overworld; `setDirty()` on every
-  mutation; codec = canonical encoding of a `PersistedCoordinatorState` record (reuse
-  Task 2 infrastructure, do not hand-roll NBT for consensus state; wrap bytes in NBT).
+- **6a — Boot + presence.** ✅ Full spec: [`old/Task.32.md`](old/Task.32.md) §32b.
+  `HeadlessPeerMain` builds the same `PeerRuntime` the mod would (2b), holds the persistent
+  identity (2e — identity + cache survive Minecraft restarts; the node's continuity is the
+  worker's job now), and serves the probe the 5g gate requires. Deps: 2b, 2e.
+- **6b — Control v2 + telemetry.** ✅ Full spec: [`old/Task.33.md`](old/Task.33.md).
+  The verb table (line-based request → JSON/line reply): `STATE` (dashboard/HUD metrics),
+  `IDENTITY` (worker NodeId + public key — the author identity), `HOST`/`JOIN`/`STOP`
+  (world lifecycle), `PASSWORD` (author-only re-key), `STATUS` (per-world players/health/
+  permissions), `WORLDID` (mint + sign a `WorldIdentity`). Version bumps keep mod + Rust
+  mirrors in lockstep — the gate already classifies skew. Deps: 6a, 2k (meters), 2c (types).
+- **6c — Host/join delegation + seeding.** 🚧 The worker becomes the *primary* client of
+  Tasks 3/4: the tracker announce loop and rendezvous registration move here and persist
+  across game sessions (a host closing Minecraft is a player-session leave, not a node
+  leave). On `HOST`, the mod extracts region pieces (`RegionSnapshotSplitter`/`PieceManifest`,
+  2d) and hands the manifest + save path over; the worker seeds them
+  (`ContentTransferService`), announces, and gossips permission grants (5f). Keep the mod's
+  in-JVM path behind a fallback flag for worker-less environments. Deps: **5e** (30c
+  genesis/extraction production), 2d, 3b, 4b. Related: `WorkerControlHandler`,
+  `NoderaHost.activate` (mod side).
+- **6d — Out-of-game validation.** ⏳ The worker runs `committee` re-execution and casts
+  votes — a companion-only node participates in a quorum in a headless IT (the L-48 exit).
+  This is the same live wiring 5b builds for the mod, pointed at the worker's runtime; no new
+  consensus code. Deps: 5b, 1e over 2b.
 
-## Implementation details — NeoForge mod (client side)
+## Testing strategy
 
-- Client now signs its own `ActionEnvelope`s? — **No.** Action capture stays
-  server-side (actions originate from vanilla packets the server already validated).
-  What the client signs in Phase 2: its `RegionProposal` (`proposerSignature` over the
-  canonical proposal minus signature). Server verifies against the registered public
-  key before verification is even scheduled.
-- `ShadowWorker` generalizes to `RegionWorker`: same execute loop, but for PRIMARY
-  assignments it returns full `RegionProposal` (encoded delta included) instead of a
-  root-only `ShadowResult`. Shadow lane (Task 5) remains available for non-primary
-  regions — keep both code paths shared: `ResultSink` interface with `ShadowSink` /
-  `ProposalSink` impls.
-- Replica advancement: after `CommitAnnounce(version, root)` matching its own computed
-  root — advance replica; on mismatch with own root — the client itself resyncs
-  (defensive: server is authoritative in Phase 2).
+- `ControlServerTest` (headless, on the gate): probe → `NODERA-OK`; v2 verb dispatch
+  (`STATE`/`IDENTITY`/`HOST`); a bad connection never takes the server down.
+- Manual live verification per increment: `printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610`
+  returns the real JSON snapshot; the worker boots, becomes gateway, survives mod restarts.
+- 6c: a headless IT proving the request-#3 property — the worker keeps a world announced +
+  seeded after the driving "game" client disconnects (extends `SessionContinuityIT` /
+  `ArchiveManager` paths).
+- 6d: a headless IT where a committee quorum includes a worker-hosted validator
+  (`CommitteeMvpIT` over the worker mesh).
+- Cross-machine continuity (host closes Minecraft, a second machine still sees + joins the
+  world) is the Task 7 (7d) CI acceptance — shared.
+
+## Limitations
+
+- **L-41** RETIRING ([`LIMITATIONS.md`](LIMITATIONS.md)): the worker **is** the always-on
+  out-of-game process; RETIRED when its continuous seed/flush is proven to survive a game
+  `kill -9` (different process, by construction — the proof is the 6c IT).
+- **L-48** OPEN: a companion-only node is seeder/relay/router-capable until 6d ships
+  validation (single-engine rule forbids a Rust validator).
+- **L-47** (shared with Task 7): no automated installer + gate + cross-machine continuity CI.
+- The worker is untrusted by peers like any node — everything it serves verifies by
+  hash/signature.
 
 ## Acceptance criteria
 
-1. Two-client dev session, `delegation.enabled=true`: block placed by player A in A's
-   primary region appears in the world **via the commit path** (log-verified: capture →
-   batch → proposal → verification MATCH → applier) with end-to-end latency ≤ 150 ms
-   at BATCH_TICKS=2.
-2. Kill the primary client: lease expires ⇒ region reassigned (second client or
-   revoked to server) under `epoch+1`; in-flight proposal with old epoch rejected
-   STALE_EPOCH (integration test).
-3. Forced-mismatch build (client patched to corrupt one mutation): proposal rejected,
-   reliability drops, region resynced, world state provably uncorrupted (root of
-   re-extracted snapshot equals server-computed root).
-4. Applier atomicity test: delta with a bad `expectedPreviousStateId` in the middle ⇒
-   zero mutations applied.
-5. Restart persistence: epochs and reliability survive server restart
-   (`NoderaSavedData` round-trip test).
-6. `/nodera regions` shows per-region: state machine state, primary, epoch, lease
-   remaining, last commit version, delegability reason set.
-7. Forced chunk unload of a delegated region (teleport all players away, flush unload)
-   ⇒ lease revoked cleanly before unload completes; applier provably never writes to an
-   unloaded chunk (assertion in applier + test).
-8. Event-ordering test: dummy listener at `NORMAL` cancels a place event in a delegated
-   region ⇒ no `ActionEnvelope` produced, no committee traffic, vanilla cancel semantics
-   preserved. Fake-player mutation test: no envelope, region flips `FAKE_PLAYER_ACTIVE`.
+1. 6a/6b: gate green (`ControlServerTest`); live probe + v2 verbs answered with real data
+   (bytes/peers/worlds ≠ zeros); the 5g gate passes against a running worker and fails closed
+   without one.
+2. 6c: a hosted world stays listed + seeded + joinable after the driving client disconnects
+   (headless IT); announce/rendezvous loops live in the worker and persist across game
+   sessions; grants gossip.
+3. 6d: a committee quorum containing a worker validator commits a region delta headlessly
+   (L-48 exit).
+4. Both toolchains green; README/Tested + this status table updated; issues per
+   `.github/ISSUE_SYSTEM.md`.
+
+## Notes for the implementing model
+
+- **Option B is locked**: the worker reuses the tested Java peer wholesale. Do not port peer
+  logic to Rust; do not create a second region engine under any circumstances (determinism
+  bet — Task 1 notes).
+- `ControlProtocol` is the single source of truth; the mod's `CompanionProtocol` and the Rust
+  `control.rs` are mirrors — change all three in one commit, bump the version, and rely on the
+  gate's skew classification.
+- The control channel carries no secret material beyond the loopback trust boundary; passwords
+  are hashed/derived before they reach a verb, never logged, never serialized.
+- The worker owns identity + author authority: `PASSWORD` must verify self == author before
+  any re-key; `WORLDID` signatures are the per-world trust root (L-20 single-signer — moving
+  it to multi-party is 1l's job, not yours).
