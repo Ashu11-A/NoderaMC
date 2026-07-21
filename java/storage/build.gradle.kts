@@ -25,7 +25,7 @@ dependencies {
     implementation(libs.rocksdbjni)
 
     testImplementation(project(":peer"))
-    testImplementation(project(":testkit"))
+    testImplementation(project(":testing"))
 }
 
 // rocksdbjni extracts its ~50 MB native library into java.io.tmpdir once per JVM, and the

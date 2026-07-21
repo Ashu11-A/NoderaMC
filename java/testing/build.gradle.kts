@@ -2,7 +2,9 @@ plugins {
     id("nodera.java-library")
 }
 
-// testkit: shared test fakes + the ArchUnit forbidden-API policy used across modules.
+// testing: the shared test library (issue #30; formerly `testkit` — package dev.nodera.testkit
+// unchanged). LoopbackTransport, FakeRegion, FixtureWriter/Reader; the future home of the
+// multi-peer scenario suite (the commented `integration-tests` declaration).
 dependencies {
     implementation(project(":core"))
     implementation(project(":transport"))

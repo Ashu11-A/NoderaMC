@@ -43,7 +43,9 @@ module("storage")
 // nodera-headless modules — packages unchanged. Carries the `application` plugin: the
 // installDist launcher stays `nodera-headless` (rust/nodera-app + scripts/dev.sh depend on it).
 module("peer")
-module("testkit")
+// Shared test library (issue #30): LoopbackTransport, FakeRegion, wire-fixture IO. The planned
+// multi-peer scenario suite (old integration-tests) lands here when Task 5's live lane needs it.
+module("testing")
 
 // --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
 module("neoforge-mod")
