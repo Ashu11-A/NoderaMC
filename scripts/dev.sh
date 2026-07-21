@@ -56,7 +56,7 @@ BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ROOT/build}"
 SRC_MOD_JAR="$NODERA_ROOT/java/neoforge-mod/build/libs/neoforge-mod.jar"
 
 # The headless peer worker (Task 32): built via the `application` plugin's installDist.
-WORKER_SRC_DIST="$NODERA_ROOT/java/nodera-headless/build/install/nodera-headless"
+WORKER_SRC_DIST="$NODERA_ROOT/java/peer/build/install/nodera-headless"
 APP_DIR="$RUST_DIR/nodera-app"
 
 # Runtime consumes the collected copies in build/ — never the per-toolchain output dirs.
@@ -128,8 +128,8 @@ build_mod() {
 
 # The headless peer worker — a runnable distribution (bin + all deps on the classpath).
 build_worker() {
-    log "Worker: ./gradlew :nodera-headless:installDist"
-    ( cd "$NODERA_ROOT" && ./gradlew :nodera-headless:installDist )
+    log "Worker: ./gradlew :peer:installDist"
+    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist )
     [[ -x "$WORKER_SRC_DIST/bin/nodera-headless" ]] \
         || die "expected worker launcher not found: $WORKER_SRC_DIST/bin/nodera-headless"
 }

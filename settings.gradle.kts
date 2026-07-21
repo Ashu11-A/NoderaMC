@@ -37,19 +37,15 @@ module("transport")
 // Unified storage API (issue #30): absorbs the former storage-api / storage-eventsourced /
 // storage-rocksdb / storage-client modules — packages unchanged (dev.nodera.storage.*).
 module("storage")
+// Unified peer API (issue #30): absorbs the former peer-runtime / distribution / diagnostics /
+// nodera-headless modules — packages unchanged. Carries the `application` plugin: the
+// installDist launcher stays `nodera-headless` (rust/nodera-app + scripts/dev.sh depend on it).
+module("peer")
 module("testkit")
-module("peer-runtime")
-module("diagnostics")
 module("shadow-validation")
 module("coordinator")
 module("committee")
 module("fallback")
-module("distribution")
-
-// Task 32 — the headless peer worker: a Minecraft-free, always-on network node (the "peer worker"
-// the Tauri companion app supervises and the Minecraft mod requires). Owns the loopback control
-// endpoint the mod probes. Runnable via the `application` plugin (installDist / run).
-module("nodera-headless")
 
 // --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
 module("neoforge-mod")

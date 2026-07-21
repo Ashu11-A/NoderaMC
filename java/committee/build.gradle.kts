@@ -16,7 +16,6 @@ dependencies {
     api(project(":coordinator"))
 
     // Task-24 CrashRecoveryIT crosses the real piece/repair/event-replay seams headlessly.
-    testImplementation(project(":distribution"))
-    testImplementation(project(":peer-runtime"))
+    testImplementation(project(":peer"))
     testImplementation(project(":storage"))
 }
