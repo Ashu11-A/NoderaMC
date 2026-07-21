@@ -9,6 +9,7 @@ import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
+import dev.nodera.simulation.border.RegionHalo;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,6 +50,7 @@ public final class MutableRegionState implements RegionWorldView {
     private static final int AIR = 0;
 
     private final RegionId region;
+    private final RegionHalo halo;
     private final RegionBounds bounds;
     private final Map<Long, ColumnModel> columnsByChunk;
     private final BlockMutationBuffer mutationBuffer = new BlockMutationBuffer();
@@ -71,6 +73,7 @@ public final class MutableRegionState implements RegionWorldView {
             throw new IllegalArgumentException("bounds must not be null");
         }
         this.region = snapshot.region();
+        this.halo = new RegionHalo(this.region);
         this.bounds = bounds;
         this.columnsByChunk = new HashMap<>(snapshot.chunks().size());
         for (ChunkColumnState col : snapshot.chunks()) {
@@ -120,7 +123,10 @@ public final class MutableRegionState implements RegionWorldView {
     public int getBlock(NBlockPos pos) {
         ColumnModel col = columnAt(pos);
         if (col == null) {
-            return AIR;
+            // Outside the snapshot's covered chunks: consult the typed halo view (the Task-13
+            // seam for neighbour-backed border reads; the MVP stub reads AIR, so committed
+            // roots are unchanged).
+            return halo.getBlock(pos);
         }
         int section = sectionIndex(col, pos.y());
         if (section < 0 || section >= col.sectionCount) {

@@ -36,16 +36,25 @@ public final class WorkerControlHandler implements ControlHandler {
     private final PeerRuntime runtime;
     private final TrafficMeter meter;
     private final WorldHostingService hosting;
+    private final dev.nodera.peer.validation.WorkerValidationService validation;
     private final long startedAtMillis;
 
+    /** Compatibility constructor without a validation lane (tests, minimal embeddings). */
     public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
                                 PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting) {
+        this(version, identity, capabilities, runtime, meter, hosting, null);
+    }
+
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation) {
         this.version = version;
         this.identity = identity;
         this.capabilities = capabilities;
         this.runtime = runtime;
         this.meter = meter;
         this.hosting = hosting;
+        this.validation = validation;
         this.startedAtMillis = System.currentTimeMillis();
     }
 
@@ -104,8 +113,28 @@ public final class WorkerControlHandler implements ControlHandler {
                 + "\"connected_worlds\":[" + String.join(",", worldJson) + "],"
                 + "\"trackers\":[" + endpointArray(hosting.trackerHealth()) + "],"
                 + "\"rendezvous\":[" + endpointArray(hosting.rendezvousHealth()) + "],"
+                + validationJson()
                 + "\"daemon_up\":true"
                 + "}";
+    }
+
+    /**
+     * The validation-lane counters as an additive STATE fragment (empty when the lane is not
+     * wired). Additive fields are safe: the Tauri parser deserializes with serde defaults.
+     */
+    private String validationJson() {
+        if (validation == null) {
+            return "";
+        }
+        var s = validation.snapshot();
+        return "\"validation\":{"
+                + "\"active_regions\":" + s.activeRegions() + ","
+                + "\"proposals_sent\":" + s.proposalsSent() + ","
+                + "\"votes_cast\":" + s.votesCast() + ","
+                + "\"votes_received\":" + s.votesReceived() + ","
+                + "\"committee_commits\":" + s.committeeCommits() + ","
+                + "\"fallback_commits\":" + s.fallbackCommits()
+                + "},";
     }
 
     @Override

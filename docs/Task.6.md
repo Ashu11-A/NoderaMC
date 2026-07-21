@@ -20,7 +20,7 @@ Audited **2026-07-21**. ✅ completed · 🚧 pending · ⏳ waiting.
 | 6a | Worker boots + presence endpoint: `HeadlessPeerMain` runs a `PeerRuntime` with persistent identity; loopback `ControlServer` answers `NODERA-PROBE` | ✅ (verified live: boots, becomes gateway, answers probe) | — |
 | 6b | Control protocol v2 + live telemetry: `STATE`/`IDENTITY`/`HOST`/`JOIN`/`STOP`/`PASSWORD`/`STATUS`/`WORLDID` verbs; `WorldIdentity` minting; real bytes/peers/worlds JSON | ✅ (verified live) | — |
 | 6c | Host/join delegation + worker seeding: hosting rides the worker (announce loop, rendezvous registration, region-piece seeding), grant gossip | 🚧 (HOST records the world; seeding + gossip pending) | 5e (30c genesis/extraction), 2d (splitter reuse) |
-| 6d | Out-of-game committee validation: the worker re-executes regions + casts votes (the bundled Java peer — Option B) | ⏳ | 5b (live committee wiring), 1e over 2b |
+| 6d | Out-of-game committee validation: the worker re-executes regions + casts votes (the bundled Java peer — Option B) | ✅ headless (issue #30 goal pass, 2026-07-21: `dev.nodera.peer.validation.WorkerValidationService` + `WorkerQuorumValidationIT` — 3 companion-only workers quorum-commit over the transport via the `simulationmsg` family, fail over to epoch+1, run the fallback lane; certificates persisted per member; `STATE` reports live `validation` counters; L-48 RETIRED) | live half: 5b (real-world region feed) |
 
 ## Goal
 

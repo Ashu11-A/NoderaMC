@@ -1,5 +1,6 @@
 package dev.nodera.peer.metric;
 
+import dev.nodera.diagnostics.metric.Direction;
 import dev.nodera.diagnostics.metric.TrafficMeter;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
@@ -49,14 +50,14 @@ public final class MeteredPeerTransport implements PeerTransport {
 
     @Override
     public void send(PeerAddress to, byte[] frame) {
-        meter.recordTx(frame.length);
+        meter.record(Direction.TX, frame.length);
         delegate.send(to, frame);
     }
 
     @Override
     public void sendStream(PeerAddress to, long streamId, byte[] payload) {
         // Logical bytes + one logical frame (chunking happens inside the delegate).
-        meter.recordTx(payload.length);
+        meter.record(Direction.TX, payload.length);
         delegate.sendStream(to, streamId, payload);
     }
 
@@ -77,7 +78,7 @@ public final class MeteredPeerTransport implements PeerTransport {
 
         @Override
         public void onMessage(PeerAddress from, byte[] frame) {
-            meter.recordRx(frame.length);
+            meter.record(Direction.RX, frame.length);
             real.onMessage(from, frame);
         }
 
