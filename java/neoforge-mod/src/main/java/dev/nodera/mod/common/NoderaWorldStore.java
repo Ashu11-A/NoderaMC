@@ -8,7 +8,6 @@ import dev.nodera.storage.WorldIdentity;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 
 /**
@@ -51,17 +50,9 @@ public final class NoderaWorldStore {
 
     /** Atomically write a {@link WorldIdentity} into the save's root directory. */
     public static void write(Path saveRoot, WorldIdentity identity) throws IOException {
-        Files.createDirectories(saveRoot);
         CanonicalWriter w = new CanonicalWriter();
         identity.encode(w);
-        Path file = fileIn(saveRoot);
-        Path tmp = file.resolveSibling(FILE_NAME + ".tmp");
-        Files.write(tmp, w.toBytes().toArray());
-        try {
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException atomicUnsupported) {
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        dev.nodera.storage.io.AtomicFileWriter.write(fileIn(saveRoot), w.toBytes().toArray());
     }
 
     /** @return whether this save has been opened to Nodera (a persisted, shared identity exists). */
