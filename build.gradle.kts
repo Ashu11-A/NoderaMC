@@ -10,3 +10,21 @@ allprojects {
         maven("https://maven.neoforged.net/releases")
     }
 }
+
+// Line coverage on every Java module (XML for aggregation, HTML for humans). Applied here
+// rather than in the precompiled convention scripts: naming `jacoco` inside a precompiled
+// script plugin's plugins{} block breaks kotlin-dsl accessor generation on this toolchain.
+subprojects {
+    plugins.withId("java") {
+        apply(plugin = "jacoco")
+        tasks.withType<org.gradle.testing.jacoco.tasks.JacocoReport>().configureEach {
+            reports {
+                xml.required.set(true)
+                html.required.set(true)
+            }
+        }
+        tasks.named("check") {
+            dependsOn("jacocoTestReport")
+        }
+    }
+}
