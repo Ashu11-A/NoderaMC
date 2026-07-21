@@ -182,8 +182,10 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
 
 ## GitHub issue workflow (see `.github/ISSUE_SYSTEM.md` for the full rules)
-- GitHub issues are the source of truth. Every `docs/Task.N.md` has an issue; every detected
-  problem becomes a `bug` issue before a regression reaches `main`.
+- GitHub issues are the source of truth. Every task phase has an issue; every detected
+  problem becomes a `bug` issue before a regression reaches `main`. Existing issues use the
+  **legacy** task numbering (old Tasks 1–33, preserved in `docs/old/`) — find issues by exact
+  title, never by number; the legacy→module-task mapping is `docs/Task.0.md` §4.
 - One task = one branch (`<type>/<slug>-#<issue>`) = one PR.
 - A task is "done" only when: `./gradlew check` green, acceptance criteria evidenced in the PR,
   README/Tested updated, and the issue closed via `Closes #N`.
@@ -200,7 +202,9 @@ runtimes (bootstrap + two players); kill the bootstrap; assert the players detec
 same successor gateway deterministically, and keep exchanging keep-alives over their direct socket
 (the `base-peer-disconnection` continuity scenario).
 
-## Base orientation prompt
-[`docs/Prompt.base.md`](docs/Prompt.base.md) is a paste-in base prompt: the ordered list of files
-to read first, the project pattern, where progress lives, and how the issue workflow operates. Point
-new contributors/agents at it.
+## Base document
+[`docs/Task.0.md`](docs/Task.0.md) is the base document (it absorbed the former
+`docs/Prompt.base.md` and the old conventions file): the ordered list of files to read first, the
+project pattern, the module-task index (Tasks 1–7, one per Nodera module) + dependency graph, the
+legacy→new task mapping, and how the issue workflow operates. Point new contributors/agents at it.
+Legacy per-increment specs (old Tasks 0–33) are preserved verbatim in `docs/old/`.

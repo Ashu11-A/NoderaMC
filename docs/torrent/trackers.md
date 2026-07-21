@@ -1,7 +1,7 @@
 # BitTorrent-Style Trackers
 
-> **Reference spec** — implemented for Nodera by **[Task 28](../Task.28.md)**
-> (`rust/nodera-tracker` + Java `TrackerClient`, on the [Task 27](../Task.27.md) monorepo
+> **Reference spec** — implemented for Nodera by **[Task 3](../Task.3.md)** (legacy [Task 28](../old/Task.28.md))
+> (`rust/nodera-tracker` + Java `TrackerClient`, on the [Task 27](../old/Task.27.md) monorepo
 > foundation). Binding protocol and architecture decisions live in the task file; this document
 > is the background architecture study it draws on.
 

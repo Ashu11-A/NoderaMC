@@ -32,7 +32,8 @@ public final class TrackerDataSource {
                 response.storedChunks(),
                 response.reliabilityBps(),
                 response.health(),
-                secondsRemaining);
+                secondsRemaining,
+                ""); // owner unknown from a bare tracker answer; the directory query carries it
     }
 
     /** Map a batch of tracker answers. */

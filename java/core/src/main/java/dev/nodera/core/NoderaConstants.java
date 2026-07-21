@@ -19,6 +19,19 @@ public final class NoderaConstants {
     /** Total chunk span of a region plus its halo on one axis (owned + 2·halo). */
     public static final int REGION_SPAN_WITH_HALO = REGION_SIZE_CHUNKS + 2 * HALO_CHUNKS;
 
+    // --- Player-view region activation (decentralized FOV ownership) ---
+    /**
+     * Default render/view distance in chunks — the radius of the circular disc of chunks each player
+     * loads around themselves. A player <em>activates and claims</em> every static grid region whose
+     * cell intersects this disc, so a larger render distance grows the owned circle. Matches vanilla's
+     * common default view distance.
+     */
+    public static final int DEFAULT_RENDER_DISTANCE_CHUNKS = 10;
+    /** Minimum accepted render distance (vanilla floor); a smaller disc still owns the center region. */
+    public static final int MIN_RENDER_DISTANCE_CHUNKS = 2;
+    /** Maximum accepted render distance (vanilla ceiling) — bounds how large one player's circle grows. */
+    public static final int MAX_RENDER_DISTANCE_CHUNKS = 32;
+
     // --- Batch / execution budget (Plan §3.6) ---
     public static final int BATCH_TICKS = 2;
     public static final int BATCH_MAX_MILLIS = 100;

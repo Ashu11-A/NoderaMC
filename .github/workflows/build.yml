@@ -1,7 +1,7 @@
 # Build & test on push/PR. JDK: host provides JDK 25 in this environment; CI uses Temurin 21
 # once the Task 0 pin is restored.
 #
-# Two toolchains, one gate (Task 27 / MONOREPO.md): the `java` job and the `rust` job are both
+# Two toolchains, one gate (Task 27, legacy spec docs/old/Task.27.md): the `java` job and the `rust` job are both
 # required. A red cargo job blocks merge exactly like a red `./gradlew check` — the Rust services
 # speak the same frozen wire contract, so a codec regression is a consensus regression.
 name: build

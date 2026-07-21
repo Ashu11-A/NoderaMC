@@ -64,6 +64,11 @@ public final class ClientBootstrap {
                 dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::trackers);
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRendezvousSupplier(
                 dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::rendezvous);
+        // Worlds tab: feed the worlds this install's always-on worker is hosting (survives game close),
+        // so a shared world actually appears in the Multiplayer list with the local player as owner.
+        dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed.start();
+        dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setWorldSupplier(
+                dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::snapshot);
 
         String endpoint = NoderaConfig.COMPANION_CONTROL_ENDPOINT.get();
         boolean required = NoderaConfig.COMPANION_REQUIRED.get();

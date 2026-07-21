@@ -69,9 +69,13 @@ pub mod message_tags {
     pub const PUNCH_SYNC: u16 = 42;
     /// `ObservedAddress` — the relay reports a caller's reflexive address (STUN-ish).
     pub const OBSERVED_ADDRESS: u16 = 43;
+    /// `TrackerCatalogQuery` — list every listed world (tracker directory / browse).
+    pub const TRACKER_CATALOG_QUERY: u16 = 44;
+    /// `TrackerCatalogResponse` — the directory listing answer.
+    pub const TRACKER_CATALOG_RESPONSE: u16 = 45;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 43;
+    pub const NEXT_TAG: u16 = 45;
 }
 
 /// The message tags this crate can decode today.
@@ -94,4 +98,6 @@ pub const SUPPORTED_MESSAGE_TAGS: &[u16] = &[
     message_tags::RELAY_INCOMING,
     message_tags::PUNCH_SYNC,
     message_tags::OBSERVED_ADDRESS,
+    message_tags::TRACKER_CATALOG_QUERY,
+    message_tags::TRACKER_CATALOG_RESPONSE,
 ];

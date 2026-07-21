@@ -46,9 +46,17 @@ stripped) · **KEEP** (explicitly audited as *not* legacy — listed to stop fut
 
 ## §2 — Task-file ledger (rewrites / removals)
 
-No `Task.<N>.md` file is deleted in this transition, so **no renumbering is required** (the
-renumber-on-delete rule stays armed for any future deletion). Task 17 remains file-less (standing
-debugger issue), as before.
+> **2026-07-21 consolidation note:** all legacy `Task.<N>.md` files (and `Prompt.base.md`) were
+> moved verbatim to [`docs/old/`](old/); the current specs are the module tasks
+> `docs/Task.0.md` … `docs/Task.7.md` (mapping: `Task.0.md` §4). `MONOREPO.md` was retired — the
+> monorepo is the default architecture (`Task.0.md` §3); its migration record survives as
+> [`old/MONOREPO.md`](old/MONOREPO.md) + [`old/Task.27.md`](old/Task.27.md). The path-prefix rewrite queue below is thereby **RESOLVED**:
+> the new module tasks are written against the monorepo layout. File references in this ledger's
+> tables use the legacy paths as historical record — resolve them under `docs/old/`.
+
+No legacy `Task.<N>.md` file was deleted in this transition, so **no renumbering is required**
+(the renumber-on-delete rule stays armed for any future deletion). Task 17 remains file-less
+(standing debugger issue), as before.
 
 | Task file | Action | Reason |
 |---|---|---|

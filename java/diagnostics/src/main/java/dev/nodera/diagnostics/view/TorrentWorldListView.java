@@ -36,6 +36,8 @@ public final class TorrentWorldListView {
      * @param health                    the tracker's {@link WorldHealth} classification.
      * @param retentionSecondsRemaining seconds left on the 24 h decommission countdown (Task 22);
      *                                  negative when no countdown is running.
+     * @param hostName                  the world owner/host's display name (the author who shared it);
+     *                                  empty when unknown (e.g. a bare tracker answer with no owner).
      */
     public record TorrentWorldEntry(
             String name,
@@ -43,7 +45,8 @@ public final class TorrentWorldListView {
             long storedChunks,
             int reliabilityBps,
             WorldHealth health,
-            long retentionSecondsRemaining
+            long retentionSecondsRemaining,
+            String hostName
     ) {
         public TorrentWorldEntry {
             if (name == null) {
@@ -52,6 +55,12 @@ public final class TorrentWorldListView {
             if (health == null) {
                 throw new IllegalArgumentException("health must not be null");
             }
+            hostName = hostName == null ? "" : hostName;
+        }
+
+        /** @return whether an owner/host name is known for this world. */
+        public boolean hasHost() {
+            return !hostName.isBlank();
         }
     }
 
@@ -95,8 +104,11 @@ public final class TorrentWorldListView {
     /** One world row: name · players · chunks · reliability · health (+ countdown when active). */
     static Row rowOf(TorrentWorldEntry entry) {
         Semantic health = semanticOf(entry.health());
-        List<Cell> cells = new ArrayList<>(6);
+        List<Cell> cells = new ArrayList<>(7);
         cells.add(Cell.bold(entry.name(), health));
+        if (entry.hasHost()) {
+            cells.add(Cell.of("by " + entry.hostName(), Semantic.SECONDARY));
+        }
         cells.add(Cell.of(entry.playerCount() + " players", Semantic.NEUTRAL));
         cells.add(Cell.of(entry.storedChunks() + " chunks", Semantic.SECONDARY));
         cells.add(Cell.of(formatReliability(entry.reliabilityBps()), Semantic.SECONDARY));

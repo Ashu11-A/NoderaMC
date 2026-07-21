@@ -7,6 +7,12 @@
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
+> **Task-numbering note (2026-07-21):** the task numbers cited throughout this file ("Task 19",
+> "Task 33", …) are the **legacy** per-increment task numbering. Those specs now live verbatim in
+> [`docs/old/`](docs/old/); the current module-task set is `docs/Task.0.md` … `docs/Task.7.md`,
+> with the legacy→new mapping in [`docs/Task.0.md`](docs/Task.0.md) §4. The history below is kept
+> as-is — it is the test-growth record.
+
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
 | `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) + Task 12a entity-lane foundation (tags 84-89) + Task 33 `WorldRole` + tags 92/93 | 150 | 0 | 0 | ✅ | 2026-07-21 |
@@ -80,7 +86,7 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > configured" despite correct config — the suppliers were never wired; `MultiplayerStatusFeed` now
 > feeds them from the config with live TCP reachability). The live lane (world-list mixin, committee
 > validation over the worker mesh, grant gossip, password network propagation, worker seeding) is
-> documented in `docs/Task.33.md`.
+> documented in `docs/old/Task.33.md` (now Task 5f/6b).
 >
 > Test growth (744 → 746 Java) is **Task 32 — the peer worker + control endpoint** (+2). The new
 > `nodera-headless` module is the always-on peer worker (`HeadlessPeerMain`): a Minecraft-free `main`

@@ -16,13 +16,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 final class TorrentWorldListViewTest {
 
     private static TorrentWorldEntry world(String name, WorldHealth health) {
-        return new TorrentWorldEntry(name, 3, 4096, 9750, health, -1);
+        return new TorrentWorldEntry(name, 3, 4096, 9750, health, -1, "");
     }
 
     @Test
     void rowCarriesCountsReliabilityAndHealthCells() {
         Panel panel = TorrentWorldListView.panel(
-                List.of(new TorrentWorldEntry("SkyBlock", 7, 12_345, 9750, WorldHealth.HEALTHY, -1)), "");
+                List.of(new TorrentWorldEntry("SkyBlock", 7, 12_345, 9750, WorldHealth.HEALTHY, -1, "")), "");
         assertThat(panel.title()).isEqualTo(TorrentWorldListView.PANEL_TITLE);
         assertThat(panel.rows()).hasSize(1);
         List<Cell> cells = panel.rows().get(0).cells();
@@ -52,14 +52,28 @@ final class TorrentWorldListViewTest {
     @Test
     void countdownCellAppearsOnlyWhileTheClockRuns() {
         Panel counting = TorrentWorldListView.panel(List.of(
-                new TorrentWorldEntry("Fading", 0, 10, 5000, WorldHealth.DEGRADED, 86_340)), "");
+                new TorrentWorldEntry("Fading", 0, 10, 5000, WorldHealth.DEGRADED, 86_340, "")), "");
         List<Cell> cells = counting.rows().get(0).cells();
         assertThat(cells.get(5).text()).isEqualTo("drops in 23h59m");
         assertThat(cells.get(5).semantic()).isEqualTo(Semantic.WORLD_DEGRADED);
 
         Panel subMinute = TorrentWorldListView.panel(List.of(
-                new TorrentWorldEntry("Fading", 0, 10, 5000, WorldHealth.DEGRADED, 30)), "");
+                new TorrentWorldEntry("Fading", 0, 10, 5000, WorldHealth.DEGRADED, 30, "")), "");
         assertThat(subMinute.rows().get(0).cells().get(5).text()).isEqualTo("drops in <1m");
+    }
+
+    @Test
+    void ownerCellAppearsAfterTheNameWhenAHostIsKnown() {
+        Panel panel = TorrentWorldListView.panel(List.of(
+                new TorrentWorldEntry("MyWorld", 2, 100, 9750, WorldHealth.HEALTHY, -1, "Steve")), "");
+        List<Cell> cells = panel.rows().get(0).cells();
+        assertThat(cells.get(0).text()).isEqualTo("MyWorld");
+        assertThat(cells.get(1).text()).isEqualTo("by Steve"); // owner cell inserted right after name
+        assertThat(cells.get(2).text()).isEqualTo("2 players");
+        // A blank host inserts no owner cell (indices stay as the other tests assume).
+        Panel noHost = TorrentWorldListView.panel(List.of(
+                new TorrentWorldEntry("MyWorld", 2, 100, 9750, WorldHealth.HEALTHY, -1, "")), "");
+        assertThat(noHost.rows().get(0).cells().get(1).text()).isEqualTo("2 players");
     }
 
     @Test

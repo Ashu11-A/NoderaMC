@@ -1,152 +1,144 @@
-# Task 7 — Committee Validation (Phase 3): Votes, Quorum, Equivocation, Failover — MVP Gate
+# Task 7 — Tauri Companion App (module: `rust/nodera-app`)
 
-**Phase:** 3 · **Depends on:** Task 6 · **Modules:** `consensus`, `neoforge-mod`,
-`protocol`, `testkit`, `integration-tests` (new)
+**Module:** the desktop application (Tauri: Rust backend + React frontend) that supervises the
+peer worker and gives players an always-on dashboard ·
+**Depends on:** Task 6 (the worker it supervises + the control endpoint it reads), Task 2
+(2a `nodera-codec` wire types where needed) ·
+**Consumed by:** players (install target); Task 5's gate (5g) assumes the app keeps the worker
+running.
+
+## Implementation status
+
+Audited **2026-07-21**. ✅ completed · 🚧 pending · ⏳ waiting.
+
+| Phase | Deliverable | Status | Waiting on |
+|---|---|---|---|
+| 7a | Tauri scaffold: window + system tray + autostart + single-instance + worker supervisor (`daemon.rs`, attach-aware) + React dashboard shell | ✅ scaffold (workspace-EXCLUDED from the `cargo test` gate — Tauri native deps; built separately / `scripts/dev.sh --with-app`) | — |
+| 7b | Live metrics: `control.rs fetch_state` polls `NODERA-STATE` each second and pumps the real snapshot (bytes/peers/worlds/world) to the dashboard | ✅ (landed with legacy Task 33) | — |
+| 7c | Per-OS packaging: installers, app icons, autostart acceptance on Windows/macOS/Linux, workspace/CI integration | 🚧 | — |
+| 7d | Automated end-to-end acceptance: installer + gate both ways + cross-machine continuity (host closes Minecraft, world stays joinable) — the L-47 exit | ⏳ | 6c (worker seeding/announce), 5a (client harness for the joining side) |
 
 ## Goal
 
-Replace 100% server re-execution with committee validation: **primary + 2 validators**
-execute every batch; server collects `ValidationVote`s, forms a **2-of-3 quorum** on the
-resulting state root, commits, and only **spot-checks** a sample itself. Primary failover
-under a new epoch. This task ends at the **MVP gate** — the canonical three-client
-scenario from `Plan.md` §6 Phase 3.
+Make the always-on node a product: players install the Nodera companion from
+`https://github.com/Ashu11-A/NoderaMC`; it launches at login, sits in the system tray, runs and
+supervises the bundled headless Java peer (Task 6 — Option B locked), and shows a live
+dashboard — **chunks/data this node maintains for the network, GB sent/received, the peers
+currently exchanging data, and the world(s) this node hosts or is connected to**. The mod
+refuses to start without the worker (5g), so the app is the thing every player actually runs;
+it must be boring, small, and reliable.
 
----
+## Context (last audit: 2026-07-21)
 
-## Folder structure (additions)
+- Landed (legacy Tasks 32/33): the `rust/nodera-app` scaffold — `main.rs` (tray + window +
+  single-instance + autostart registration), `daemon.rs` (supervises the worker; **attach
+  mode** reuses an externally-started worker, which is how `scripts/dev.sh --with-app` runs
+  it), `control.rs` (probes the control endpoint; `fetch_state` parses the `STATE` JSON via
+  `serde_json`), `metrics.rs` (the `Metrics` struct the React `App.tsx` renders), `tray.rs`;
+  React/Vite UI under `ui/` with the four dashboard panels. The metrics pump emits
+  `nodera://metrics` each second with real worker data plus `daemon_up` from the probe.
+- The crate is **workspace-excluded** (Tauri's native webkit deps would break the headless
+  `cargo test` gate); it builds separately. This exclusion is deliberate and stays until 7c
+  wires a CI job that can build it.
+- The control protocol mirror lives in `control.rs` and must stay in lockstep with
+  `ControlProtocol` (Task 6) and the mod's `CompanionProtocol` — version 2 today; the 5g gate
+  classifies skew.
+- The app is a supervisor + UI, **not** a peer: all network behaviour lives in the worker
+  (Java) and the Rust service binaries (Tasks 3/4). The app holds no signing keys and serves
+  nothing to the network.
 
-```
-consensus/src/main/java/dev/nodera/consensus/
-├── QuorumPolicy.java              # interface: int required(int committeeSize);
-│                                  #   Decision evaluate(Proposal, Collection<SignedVote>)
-├── MajorityQuorumPolicy.java      # 2-of-3 (MVP); parameterized for 3-of-4 later
-├── VoteCollector.java             # per ProposalKey: gathers votes, timeout, yields Decision
-├── Decision.java                  # sealed: Commit(QuorumCertificate) | Reject(reason) | Unresolved
-├── EquivocationDetector.java      # same (node, region, epoch, version) + different root ⇒ flag
-├── EquivocationRecord.java
-└── SpotCheckPolicy.java           # deterministic sampling: recheck batch iff
-                                   #   StableHash(region, version, serverSecret) % N == 0
-
-neoforge-mod/src/main/java/dev/nodera/mod/dedicated/
-├── coordinator/CommitteeAssembler.java   # builds RegionCommittee: 1 primary + 2 validators
-│                                         #   (server itself eligible as validator seat)
-├── commit/QuorumCommitService.java       # wires VoteCollector → WorldMutationApplier
-└── validator/ServerValidatorWorker.java  # server acting as ordinary validator (one vote)
-
-neoforge-mod client additions:
-└── client/worker/ValidatorWorker.java    # VALIDATOR role: execute batch, send ValidationVote
-                                          #   (root + decision + signature), keep replica advanced
-
-integration-tests/            (new module; JUnit tags = scenario names)
-├── build.gradle.kts          # depends on testkit + protocol + consensus; drives fake clients
-└── src/test/java/dev/nodera/it/
-    ├── ThreeClientQuorumIT.java
-    ├── PeerDisconnectionIT.java
-    ├── InvalidStateRootIT.java
-    └── harness/
-        ├── FakePeer.java             # headless protocol-speaking client (no Minecraft):
-        │                             #   handshake, snapshots, engine execution, votes
-        └── ClusterHarness.java       # boots dedicated server (GameTestServer or dev run)
-                                      #   + N FakePeers; scripted actions; assertions
-```
-
-## Class relationships
+## Folder structure (monorepo default)
 
 ```
-CommitteeAssembler ── uses RendezvousPlacementPolicy (Task 6) with constraints:
-    validators ≠ primary; distinct nodes; actor-only regions get ≥1 independent validator;
-    server fills a validator seat when eligible nodes < 3 (config committee.serverSeat=true)
-
-RegionPipeline (Task 6) states change:
-    AWAITING_PROPOSAL ─proposal+votes─► VOTING ─Decision.Commit─► COMMIT ─► ACTIVE
-                                          │ Decision.Reject / timeout
-                                          ▼
-                                   DISPUTED ─► ServerVerifier re-executes (authoritative tiebreak)
-                                              ─► penalize the liar(s), resync, maybe reassign
-
-VoteCollector (one per in-flight ProposalKey)
-    ├─ inputs: RegionProposal (primary, counts as its own signed vote) + ValidationVotes
-    ├─ QuorumPolicy.evaluate on each arrival
-    ├─ timeout voting.timeoutMillis (default 1500) ⇒ Unresolved ⇒ DISPUTED path
-    └─ output: Decision.Commit carries assembled QuorumCertificate (votes embedded)
-
-EquivocationDetector — fed every root claim (proposals + votes), Caffeine-bounded history;
-    hit ⇒ ReliabilityLedger.slash + committee removal + log/certificate for Task 9 storage.
-
-ServerValidatorWorker / ValidatorWorker(client) — same role contract:
-    interface RegionValidator { void onBatch(ActionBatch, RegionSnapshot ref); }
-    both delegate to the ONE engine; server's vote carries no special weight (Invariant 2
-    rehearsed early even though the server still owns commits until Task 9).
+rust/nodera-app/
+├── Cargo.toml            tauri, tauri-plugin-autostart, tokio, serde_json; workspace-excluded
+├── tauri.conf.json       tray, autostart, single-instance, window config
+├── src/
+│   ├── main.rs           tray + window + single-instance + autostart + metrics pump
+│   ├── daemon.rs         worker supervisor (spawn bundled JVM | attach to external worker)
+│   ├── control.rs        loopback control client: probe + fetch_state (NODERA-STATE)
+│   ├── metrics.rs        Metrics struct → UI (chunks, GB ↑/↓, peers, current world)
+│   └── tray.rs           status icon, quick actions (open window, pause seeding, quit)
+└── ui/                   React + Vite
+    ├── src/App.tsx       dashboard: maintained-chunks, GB↑/↓, peer list, current world
+    ├── src/panels/{Chunks,Bandwidth,Peers,World}.tsx
+    └── src/ipc.ts        tauri invoke/event bridge
 ```
 
-## Implementation details — server peer
+## Related files
 
-- **`QuorumCommitService`**: subscribes proposal + vote messages (Task 4 dispatch
-  table). On `Decision.Commit`: schedule `WorldMutationApplier` (unchanged from Task 6);
-  broadcast `CommitAnnounce` (now including certificate bytes); store certificate
-  in-memory ring buffer (persistence comes with Task 9 storage; for now
-  `/nodera cert <region> <version>` can print the latest ones).
-- **Spot-checks**: `SpotCheckPolicy` is **adaptive** per committee — 1/N sampling with
-  N tied to the committee's minimum reliability: N=4 (25%) for new or suspect
-  committees, N=8 default, N=64 (~1.6%) once reliability ≥ 0.99 is sustained. Selection
-  stays deterministic (`StableHash(region, version, serverSecret) % N`). Verification
-  cost decays toward zero instead of paying a fixed floor (ledger L-22; sampled batches
-  re-executed by `ServerVerifier`). Spot-check mismatch against a quorum-committed root
-  = **loud
-  alarm** (means committee collusion or engine nondeterminism): log FATAL-level marker,
-  freeze delegation for that region (back to server execution), dump fixture. Config
-  `spotcheck.freezeOnMismatch=true`.
-- **Failover (the MVP scenario)**: `HeartbeatMonitor` primary miss ⇒ `LeaseManager`
-  promotes validator with highest reliability to primary, drafts replacement validator,
-  `epoch++`, `RegionAssigned` to all members, pipeline → SNAPSHOT_SYNC (members already
-  hold the replica at the committed version — snapshot sync is a version check, not a
-  full stream, when roots match).
-- **Batch fan-out**: `ActionBatchMsg` now goes to all 3 committee members (relay
-  transport). Validators receive the primary's `RegionProposal` too? — **No** in MVP:
-  validators vote on their *own* computed root; server compares. (Direct
-  proposal-to-validator flow becomes relevant in Task 9/10 P2P mode.)
+- `rust/nodera-app/**` (the module), `scripts/dev.sh` (`--with-app` build+launch in attach
+  mode)
+- Worker side it reads: `java/nodera-headless/**`, `java/peer-runtime/.../control/ControlProtocol.java` (Task 6)
+- Gate that depends on the app keeping the worker alive: `java/neoforge-mod/.../common/CompanionGate.java` (5g)
+- Legacy specs: [`old/Task.32.md`](old/Task.32.md) (32a app, 32d integration analysis),
+  [`old/Task.33.md`](old/Task.33.md) (live metrics pump)
 
-## Implementation details — NeoForge mod (client)
+## Implementation details (phases)
 
-- `ValidatorWorker`: identical execute path as primary, different sink — sends
-  `ValidationVote(decision=ACCEPT, root=own)` or
-  `REJECT_INVALID_ACTION`/`RESYNC_REQUIRED` when the batch fails preconditions
-  (version mismatch, bad signature — verified client-side too, defense in depth).
-- Vote signature: Ed25519 over canonical `(region, epoch, version, resultingRoot,
-  decision)` — exactly the `SignedVote.signedPortion()` from Task 2.
-- HUD: role badge per region (P/V), vote latencies, last quorum outcome.
+- **7a — Scaffold.** ✅ Full spec: [`old/Task.32.md`](old/Task.32.md) §32a. Tauri 2.x; tray
+  with status + menu (Open dashboard / Pause seeding / Quit); window minimizes to tray instead
+  of quitting; `tauri-plugin-autostart` with a settings toggle + first-run prompt;
+  `tauri-plugin-single-instance` (second launch focuses the window); `daemon.rs` supervises
+  the worker — spawn-bundled or attach-external. Deps: 6a.
+- **7b — Live metrics.** ✅ Full spec: [`old/Task.33.md`](old/Task.33.md) Phase B. One-second
+  pump: probe → `daemon_up`; `fetch_state` → `Metrics` → `emit("nodera://metrics")`; React
+  renders real chunks/GB/peers/world. Deps: 6b. Related: `control.rs`, `main.rs`,
+  `metrics.rs`, `ui/src/App.tsx`.
+- **7c — Packaging + CI.** 🚧 Per-OS installers (`tauri build` bundles; the bundled-or-located
+  Java 21 runtime decision for the worker ships here), app icons, autostart acceptance on each
+  OS (A-7-style per-platform care), and a CI job that builds the app so the workspace
+  exclusion stops meaning "never compiled in CI". Deps: 6a. Related: `tauri.conf.json`,
+  `.github/workflows/`.
+- **7d — End-to-end acceptance (L-47 exit).** ⏳ A CI/tooling job that: installs the app,
+  verifies the 5g gate both ways (worker present ⇒ Minecraft starts; absent ⇒ actionable
+  abort), and proves **cross-machine continuity** — host a world, close Minecraft, and from a
+  second machine/instance the world is still listed and joinable because the worker kept it
+  alive. Deps: **6c** (worker announce/seeding), **5a** (the joining client harness).
 
-## Implementation details — integration harness (critical deliverable)
+## Testing strategy
 
-`FakePeer` makes CI-able what dev-client testing cannot: a plain-Java peer that speaks
-the Task 4 protocol over a socket… **but** the NeoForge relay transport is Minecraft's
-connection. Two options; implement (a):
+- Rust unit tests (once 7c brings the crate into CI): daemon lifecycle (start/stop/supervise/
+  attach), metrics parsing (`fetch_state` against golden `STATE` JSON), autostart idempotency,
+  single-instance guard.
+- The dashboard's data path is already testable end-to-end without the app: the worker's
+  `STATE` verb is asserted headlessly in Task 6 — the app only renders it. Keep it that way:
+  no logic in the UI worth testing beyond parsing.
+- Manual smoke per increment: `scripts/dev.sh --with-app` (attach mode) shows live data;
+  quitting the app leaves the externally-started worker untouched (attach semantics).
+- 7d is the shared cross-machine continuity proof with Task 6 — one CI job, two owners.
 
-  a. **Test transport**: `transport-api` gets a second impl `LoopbackTransport` in
-     `testkit` (in-JVM message bus). `ClusterHarness` boots the *coordinator +
-     consensus + engine* stack (all Minecraft-free: Tasks 2/3/consensus + a
-     `FakeWorldAdapter` implementing the few server hooks — capture feed, applier sink)
-     against N FakePeers over loopback. Real-Minecraft path stays covered by manual dev
-     sessions + Task 5 soak.
-  b. (rejected for now) genuine headless MC clients — too heavy.
+## Limitations
 
-This forces the Task 6/7 server logic to depend on interfaces (`WorldAdapter`:
-`extractSnapshot`, `applyDelta`, `currentTick`) rather than `MinecraftServer` directly —
-refactor `ShadowCoordinator`/pipeline accordingly (small, pays forever).
+- **L-47** OPEN ([`LIMITATIONS.md`](LIMITATIONS.md)): no automated installer + gate +
+  cross-machine continuity test — the 7d exit.
+- **L-48** (Task 6): the app supervises a validation-capable **Java** worker; a Rust-native
+  lightweight seeder mode stays a possible later addition, never a validator (single-engine
+  rule).
+- Workspace exclusion: `cargo test` at `rust/` does not cover this crate until 7c; do not
+  read the green Rust gate as covering the app.
+- Per-OS surface (tray/autostart/installers) needs per-platform acceptance — no shortcut.
 
-## Acceptance criteria — the MVP gate
+## Acceptance criteria
 
-1. **`ThreeClientQuorumIT`**: flat world, regions ≥ 4, peers A/B/C. A=primary of
-   region (0,0), B/C validators. Scripted place action ⇒ all three roots equal ⇒
-   2-of-3 quorum ⇒ delta applied ⇒ `CommitAnnounce` with valid certificate (signatures
-   verify against A/B/C keys).
-2. **`PeerDisconnectionIT`**: kill A mid-stream ⇒ B promoted under epoch+1 ⇒ next
-   action commits with B as proposer; stale-epoch proposal from a resurrected A is
-   rejected.
-3. **`InvalidStateRootIT`** (byzantine): C votes a corrupted root ⇒ quorum still forms
-   from A+B ⇒ C slashed in ReliabilityLedger; C alone can never commit (assert
-   `QuorumPolicy` on 1-of-3).
-4. Equivocation unit tests: two roots for one key ⇒ detected, slashed.
-5. Manual dev-session replay of scenario 1–2 with real clients recorded in the
-   verification log (video or log capture).
-6. Spot-check alarm path tested (forced: corrupt server engine build flag).
+1. 7a/7b: the app builds + runs on the primary dev OS; tray + autostart + single-instance
+   work; the dashboard renders the four panels from live worker metrics (not zeros); attach
+   mode leaves external workers untouched.
+2. 7c: installers produced for the target OSes with icons; CI builds the app; autostart
+   verified per OS.
+3. 7d: the CI job proves install → gate-both-ways → host → close Minecraft → world still
+   joinable from a second instance (L-47 RETIRED).
+4. README/Tested + this status table updated; issues per `.github/ISSUE_SYSTEM.md`.
+
+## Notes for the implementing model
+
+- The app is deliberately thin: supervisor + tray + renderer. Any behaviour that touches the
+  network belongs in the worker (Task 6) or the services (Tasks 3/4) — if you find yourself
+  adding peer logic here, stop.
+- Keep `control.rs` a strict mirror of `ControlProtocol` — verbs, version, framing — and bump
+  all three sides in one commit.
+- The worker must keep working without the app (dev mode: `scripts/dev.sh` runs it bare);
+  the app must degrade gracefully when the worker is down (tray shows offline, dashboard
+  shows `daemon_up = false`, no crash loops).
+- Bundling a JVM is a 7c decision with size consequences — document the choice (bundle vs
+  locate) and keep it reversible.

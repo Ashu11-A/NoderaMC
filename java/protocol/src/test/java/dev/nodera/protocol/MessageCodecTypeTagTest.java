@@ -105,7 +105,9 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_RELAY_INCOMING).isEqualTo(41);
         assertThat(MessageCodec.TAG_PUNCH_SYNC).isEqualTo(42);
         assertThat(MessageCodec.TAG_OBSERVED_ADDRESS).isEqualTo(43);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(43);
+        assertThat(MessageCodec.TAG_TRACKER_CATALOG_QUERY).isEqualTo(44);
+        assertThat(MessageCodec.TAG_TRACKER_CATALOG_RESPONSE).isEqualTo(45);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(45);
     }
 
     @Test
@@ -142,6 +144,20 @@ final class MessageCodecTypeTagTest {
                     .as("typeTagOf for %s", e.getKey().getSimpleName())
                     .isEqualTo(e.getValue());
         }
+    }
+
+    @Test
+    void trackerCatalogMessagesRoundTrip() {
+        var query = new dev.nodera.protocol.discovery.TrackerCatalogQuery(25);
+        assertThat(MessageCodec.decode(MessageCodec.encode(query))).isEqualTo(query);
+
+        var entry = new dev.nodera.protocol.discovery.TrackerCatalogEntry(
+                Bytes.fromHex("deadbeef"), "My World", 3, 4096, 9750,
+                dev.nodera.core.identity.WorldHealth.HEALTHY, 0L);
+        var response = new dev.nodera.protocol.discovery.TrackerCatalogResponse(
+                java.util.List.of(entry));
+        var decoded = MessageCodec.decode(MessageCodec.encode(response));
+        assertThat(decoded).isEqualTo(response);
     }
 
     @Test
