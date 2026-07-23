@@ -99,6 +99,13 @@ public final class FlatWorldRules implements RuleSet {
     /** Stone button: OFF placeable; interact presses it (ON, 15 omni) with a 10-tick auto-off. */
     public static final int BUTTON_OFF = 38;
     public static final int BUTTON_ON = 39;
+    /** Pistons (non-sticky MVP): facing index f in 0..3 = N,S,W,E. RETRACTED bases placeable;
+     * EXTENDED bases and HEADS are network-computed (motion is the engine's decision). */
+    public static final int PISTON_RETRACTED_BASE = 40;
+    public static final int PISTON_EXTENDED_BASE = 44;
+    public static final int PISTON_HEAD_BASE = 48;
+    /** Highest piston id ({@code PISTON_HEAD_BASE + 3}). */
+    public static final int PISTON_MAX = 51;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -131,6 +138,18 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(REPEATER_EAST_ON, "repeater_east_on"),
             new PaletteEntry(BUTTON_OFF, "stone_button_off"),
             new PaletteEntry(BUTTON_ON, "stone_button_on"),
+            new PaletteEntry(PISTON_RETRACTED_BASE, "piston_north"),
+            new PaletteEntry(PISTON_RETRACTED_BASE + 1, "piston_south"),
+            new PaletteEntry(PISTON_RETRACTED_BASE + 2, "piston_west"),
+            new PaletteEntry(PISTON_RETRACTED_BASE + 3, "piston_east"),
+            new PaletteEntry(PISTON_EXTENDED_BASE, "piston_north_extended"),
+            new PaletteEntry(PISTON_EXTENDED_BASE + 1, "piston_south_extended"),
+            new PaletteEntry(PISTON_EXTENDED_BASE + 2, "piston_west_extended"),
+            new PaletteEntry(PISTON_EXTENDED_BASE + 3, "piston_east_extended"),
+            new PaletteEntry(PISTON_HEAD_BASE, "piston_head_north"),
+            new PaletteEntry(PISTON_HEAD_BASE + 1, "piston_head_south"),
+            new PaletteEntry(PISTON_HEAD_BASE + 2, "piston_head_west"),
+            new PaletteEntry(PISTON_HEAD_BASE + 3, "piston_head_east"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -164,6 +183,10 @@ public final class FlatWorldRules implements RuleSet {
         s.clear(REPEATER_WEST_ON);
         s.clear(REPEATER_EAST_ON);
         s.clear(BUTTON_ON);
+        for (int f = 0; f < 4; f++) {
+            s.clear(PISTON_EXTENDED_BASE + f);
+            s.clear(PISTON_HEAD_BASE + f);
+        }
         for (int p = 1; p <= 15; p++) {
             s.clear(WIRE_0 + p);
         }

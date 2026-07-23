@@ -346,6 +346,11 @@ public final class MutableRegionState implements RegionWorldView {
         blockEvents.add(java.util.Objects.requireNonNull(event, "event"));
     }
 
+    /** The pending block events in producer order (read-only view for dedupe checks). */
+    public List<dev.nodera.core.state.BlockEventEntry> blockEvents() {
+        return List.copyOf(blockEvents);
+    }
+
     /** Remove and return all pending block events in producer order. */
     public List<dev.nodera.core.state.BlockEventEntry> drainBlockEvents() {
         List<dev.nodera.core.state.BlockEventEntry> out = List.copyOf(blockEvents);
