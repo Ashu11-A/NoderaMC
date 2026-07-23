@@ -77,6 +77,34 @@ A-4 → delivered, A-5 → delivered, A-7 → process). No §A entry blocks a §
 
 ---
 
+## Dead-code sweep (goal addendum, audited 2026-07-23)
+
+A whole-repo reference scan (474 main `.java` files; simple-name grep across all main
+sources so same-package use counts, cross-checked against Roadmap/PROGRESS/Task specs)
+found **no genuinely dead production code**:
+
+- **0 orphans.** Every zero-main-reference class is either the process entrypoint
+  (`HeadlessPeerMain`, launched by scripts — a framework false-positive) or a
+  **TEST-ONLY seam whose documented consumer has not landed yet** (17 classes), each
+  mapped to its owning task/limitation row: `LocalReplicaView`→T16 renderer (#35),
+  `EventSyncService`→T9 live wiring, `GenesisRecertification`→L-20 share flow,
+  `JoinAttemptThrottle`/`Argon2KeyDerivation`→L-39 join flow, `ChunkLockEditability`→L-33
+  mod wiring, `ActivePlayerStream`/`PeerShutdownHook`→L-40 live signals (the shutdown
+  hook's worker wiring needs a piece PUSH transfer design — noted for round 2),
+  `ArchiveManager`→T21 runtime, `InterferenceProbe`→T5 mixins,
+  `PersistedCoordinatorState`→NoderaSavedData, `DelegabilityMonitor`→T11 tickets,
+  `ProposalManager`→T6 live loop, `SpotCheckAuditor`→T7/T8 server lane,
+  `JointTransferApprover`→transfer host wiring.
+- **2 intentional reference implementations, not legacy orphans:** `CommitteeSession`
+  (the in-JVM committee harness — the live path reassembles its pieces in
+  `WorkerValidationService`) and `EventSourcedWorldStore` (the in-memory `WorldStore`
+  double behind 6 test suites; production uses `RocksWorldStore`). Both stay.
+- **Consumer implemented this pass:** `PasswordKeyDerivations.production()` — the KDF
+  selection point that makes Argon2id the wired production default (PBKDF2 only when
+  BouncyCastle is absent), pinned by `PasswordKeyDerivationsTest` including the
+  no-silent-downgrade assertion. The remaining seams are consumed by their owning
+  round-1/2/3 items above — implementing them out of order would duplicate this plan.
+
 ## Execution order
 
 **Round 1 — headless-completable now (this program):**
@@ -270,6 +298,34 @@ transfer lane. Spec: `docs/old/Task.15.md`.
 `EntityLaneSoakIT`/`EntityLaneSoakMetricsTest` (extend with ghost-share).
 
 ---
+
+## Dead-code sweep (goal addendum, audited 2026-07-23)
+
+A whole-repo reference scan (474 main `.java` files; simple-name grep across all main
+sources so same-package use counts, cross-checked against Roadmap/PROGRESS/Task specs)
+found **no genuinely dead production code**:
+
+- **0 orphans.** Every zero-main-reference class is either the process entrypoint
+  (`HeadlessPeerMain`, launched by scripts — a framework false-positive) or a
+  **TEST-ONLY seam whose documented consumer has not landed yet** (17 classes), each
+  mapped to its owning task/limitation row: `LocalReplicaView`→T16 renderer (#35),
+  `EventSyncService`→T9 live wiring, `GenesisRecertification`→L-20 share flow,
+  `JoinAttemptThrottle`/`Argon2KeyDerivation`→L-39 join flow, `ChunkLockEditability`→L-33
+  mod wiring, `ActivePlayerStream`/`PeerShutdownHook`→L-40 live signals (the shutdown
+  hook's worker wiring needs a piece PUSH transfer design — noted for round 2),
+  `ArchiveManager`→T21 runtime, `InterferenceProbe`→T5 mixins,
+  `PersistedCoordinatorState`→NoderaSavedData, `DelegabilityMonitor`→T11 tickets,
+  `ProposalManager`→T6 live loop, `SpotCheckAuditor`→T7/T8 server lane,
+  `JointTransferApprover`→transfer host wiring.
+- **2 intentional reference implementations, not legacy orphans:** `CommitteeSession`
+  (the in-JVM committee harness — the live path reassembles its pieces in
+  `WorkerValidationService`) and `EventSourcedWorldStore` (the in-memory `WorldStore`
+  double behind 6 test suites; production uses `RocksWorldStore`). Both stay.
+- **Consumer implemented this pass:** `PasswordKeyDerivations.production()` — the KDF
+  selection point that makes Argon2id the wired production default (PBKDF2 only when
+  BouncyCastle is absent), pinned by `PasswordKeyDerivationsTest` including the
+  no-silent-downgrade assertion. The remaining seams are consumed by their owning
+  round-1/2/3 items above — implementing them out of order would duplicate this plan.
 
 ## Execution order
 
