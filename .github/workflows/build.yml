@@ -47,12 +47,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
-      - name: Build the companion app
-        run: cd rust/nodera-app && cargo build --release
       - name: Build service binaries + worker dist
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist
+          mkdir -p build
+          cp -r java/peer/build/install/nodera-headless build/
+      - name: Build the companion app
+        run: cd rust/nodera-app && cargo build --release
       - name: Gate both ways (worker present => start, absent => actionable abort)
         run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
