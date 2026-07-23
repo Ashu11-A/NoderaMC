@@ -39,13 +39,15 @@ tasks.withType<AbstractArchiveTask>().configureEach {
     isReproducibleFileOrder = true
 }
 
-// Shared test dependencies for every module (Task 0 §5 testing stack).
+// Shared test dependencies for every module (Task 0 §5 testing stack). Versions come from the
+// build-logic-local `libs` catalog (same file as the root catalog; see build-logic settings).
+val libs = the<VersionCatalogsExtension>().named("libs")
 dependencies {
-    testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.0")
-    testImplementation("org.assertj:assertj-core:3.26.3")
-    testImplementation("net.jqwik:jqwik:1.9.0")
-    testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
+    testImplementation(libs.findLibrary("junit-jupiter").get())
+    testRuntimeOnly(libs.findLibrary("junit-platform").get())
+    testImplementation(libs.findLibrary("assertj-core").get())
+    testImplementation(libs.findLibrary("jqwik").get())
+    testImplementation(libs.findLibrary("archunit-junit5").get())
 
-    compileOnlyApi("org.jetbrains:annotations:26.0.1")
+    compileOnlyApi(libs.findLibrary("jetbrains-annotations").get())
 }

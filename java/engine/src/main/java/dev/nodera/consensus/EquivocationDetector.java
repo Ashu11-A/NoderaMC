@@ -118,7 +118,8 @@ public final class EquivocationDetector {
      * Observe one root claim. If {@code vote}'s {@code resultingRoot} differs from the root this
      * voter previously claimed for {@code key} — whether that previous claim is still in the live
      * history or was evicted into the retention cache — the voter is marked equivoked and a record
-     * is captured (overwriting any prior record for the voter). Same-root re-observation is a
+     * is captured once (the first captured record for a voter is retained; later conflicts never
+     * overwrite it). Same-root re-observation is a
      * no-op.
      *
      * @param key  the proposal the vote pertains to; not null.
@@ -147,7 +148,10 @@ public final class EquivocationDetector {
                     ? previous.transitionRoot() : previous.resultingRoot();
             StateRoot secondEvidence = previous.resultingRoot().equals(claim.resultingRoot())
                     ? claim.transitionRoot() : claim.resultingRoot();
-            records.put(voter, new EquivocationRecord(
+            // Capture-once: the first conflicting pair this replica convicts on is retained;
+            // later conflicts (or concurrent observes on other keys) must not overwrite the
+            // evidence a slash/removal certificate may already reference.
+            records.putIfAbsent(voter, new EquivocationRecord(
                     voter, key, firstEvidence, secondEvidence, clock.getAsLong()));
         }
     }
@@ -165,8 +169,8 @@ public final class EquivocationDetector {
 
     /**
      * @param voter the voter to look up; not null.
-     * @return the most recent {@link EquivocationRecord} for {@code voter}, or empty if the voter
-     *         has not been flagged. Once flagged, the record is retained independent of cache
+     * @return the first-captured {@link EquivocationRecord} for {@code voter}, or empty if the
+     *         voter has not been flagged. Once flagged, the record is retained independent of cache
      *         eviction. Pre-flag first votes survive live-history eviction inside the
      *         {@link #EVICTED_CLAIM_RETENTION_FACTOR}× pair-cache budget.
      */

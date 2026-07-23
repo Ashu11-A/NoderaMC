@@ -38,18 +38,30 @@ public final class HashService {
     /**
      * Hash the given bytes and return the result wrapped as an immutable {@link Bytes}. The
      * returned array is freshly allocated by the digest and adopted without an additional copy.
+     *
+     * <p><b>NOT a consensus hash entry point.</b> Raw-byte hashing exists for content/crypto
+     * plumbing — challenge nonces, content ids, piece digests, archive digests. A hash that
+     * participates in consensus MUST be produced by {@link #hash(Encodable)} so the input is a
+     * canonical encoding; the only legitimate exception is hashing bytes that are <em>already</em>
+     * the canonical encoding of an {@link Encodable} (e.g. a persisted canonical blob), which is
+     * byte-identical to calling {@code hash} on the decoded value. Never feed ad-hoc,
+     * non-canonical bytes into a value that flows into a state root or certificate.
      */
     public Bytes sha256(byte[] data) {
         return Bytes.unsafeWrap(sha256Bytes(data));
     }
 
-    /** {@link Bytes}-accepting variant of {@link #sha256(byte[])}. */
+    /**
+     * {@link Bytes}-accepting variant of {@link #sha256(byte[])}. Same contract: not a consensus
+     * hash entry point — see {@link #sha256(byte[])}.
+     */
     public Bytes sha256(Bytes data) {
         return sha256(data.toArray());
     }
 
     /**
-     * Hash the given bytes and return a fresh, caller-owned byte array (length 32).
+     * Hash the given bytes and return a fresh, caller-owned byte array (length 32). Same
+     * contract: not a consensus hash entry point — see {@link #sha256(byte[])}.
      */
     public byte[] sha256Bytes(byte[] data) {
         MessageDigest md = digest.get();

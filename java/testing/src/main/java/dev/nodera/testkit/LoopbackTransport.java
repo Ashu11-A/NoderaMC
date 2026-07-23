@@ -45,8 +45,11 @@ import java.util.concurrent.TimeUnit;
  *       synchronously). This deliberately mirrors the off-network-thread delivery contract
  *       documented on {@link MessageHandler}.</li>
  *   <li>The {@link MessageHandler} field is {@code volatile}; the executor field is guarded by the
- *       transport's lifecycle lock. Delivery snapshots both under/around the lock so a concurrent
- *       {@link #stop()} cannot observe a half-torn-down state.</li>
+ *       transport's lifecycle lock. Delivery snapshots the executor under the lock but submits
+ *       outside it, so a concurrent {@link #stop()} can shut the executor down between snapshot
+ *       and submit; that race is handled by catching the resulting
+ *       {@link java.util.concurrent.RejectedExecutionException} and dropping the delivery
+ *       silently — the same observable outcome as the frame arriving just after the stop.</li>
  * </ul>
  *
  * <h2>Lifecycle</h2>
@@ -244,7 +247,12 @@ public final class LoopbackTransport implements PeerTransport {
         if (h == null) {
             return;
         }
-        exec.execute(() -> h.onMessage(from, frame));
+        try {
+            exec.execute(() -> h.onMessage(from, frame));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // Concurrent stop() shut the executor down between the snapshot above and this
+            // submit; a frame racing a disconnect is dropped silently, matching real transports.
+        }
     }
 
     /**
@@ -263,7 +271,12 @@ public final class LoopbackTransport implements PeerTransport {
         if (h == null) {
             return;
         }
-        exec.execute(() -> h.onPeerDown(down));
+        try {
+            exec.execute(() -> h.onPeerDown(down));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // Concurrent stop() raced the submit; a notification to a stopping transport is
+            // dropped silently.
+        }
     }
 
     private Thread newWorkerThread(Runnable r) {

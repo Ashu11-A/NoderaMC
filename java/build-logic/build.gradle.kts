@@ -12,7 +12,7 @@ repositories {
 
 dependencies {
     // jmh convention plugin (used by simulation benchmarks; resolved via portal).
-    implementation("me.champeau.jmh:jmh-gradle-plugin:0.7.2")
+    implementation(libs.plugin.jmh)
     // NeoForge toolchain: provides the mojang-mapped compile classpath for neoforge-mod /
     // transport-neoforge. Pinned here (single source, like jmh). Task 0 §3.
     implementation("net.neoforged:moddev-gradle:2.0.142")
