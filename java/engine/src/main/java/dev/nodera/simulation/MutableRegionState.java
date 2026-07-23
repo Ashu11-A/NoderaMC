@@ -72,6 +72,10 @@ public final class MutableRegionState implements RegionWorldView {
     private final List<dev.nodera.core.state.BlockEventEntry> blockEvents = new ArrayList<>();
     private long nextTickSeq;
     private final boolean baseHadScheduledState;
+    // Border signals: deterministic execution OUTPUT (never hashed, never loaded from the
+    // snapshot) — effects that targeted outside owned bounds instead of mutating halo state.
+    private final java.util.LinkedHashSet<dev.nodera.simulation.border.BorderSignal>
+            borderSignals = new java.util.LinkedHashSet<>();
 
     /**
      * Build a working copy over {@code snapshot} restricted by {@code bounds}. The snapshot's
@@ -339,6 +343,18 @@ public final class MutableRegionState implements RegionWorldView {
         List<dev.nodera.core.state.ScheduledTickEntry> copy = new ArrayList<>(scheduledTicks);
         copy.sort(dev.nodera.core.state.ScheduledTickEntry.EXECUTION_ORDER);
         return copy;
+    }
+
+    /** Record a refused border crossing (the engine never mutates halo state). */
+    public void emitBorderSignal(dev.nodera.simulation.border.BorderSignal signal) {
+        borderSignals.add(java.util.Objects.requireNonNull(signal, "signal"));
+    }
+
+    /** The collected border signals in canonical order (replica-identical). */
+    public List<dev.nodera.simulation.border.BorderSignal> borderSignals() {
+        List<dev.nodera.simulation.border.BorderSignal> out = new ArrayList<>(borderSignals);
+        out.sort(dev.nodera.simulation.border.BorderSignal.CANONICAL_ORDER);
+        return List.copyOf(out);
     }
 
     /** Append a pending block event (piston two-phase progress). */
