@@ -38,8 +38,8 @@ jobs:
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
       - name: Continuity series under Xvfb
-        run: xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-             scripts/e2e-continuity.sh --no-build
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-continuity.sh --no-build
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -74,8 +74,8 @@ jobs:
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
       - name: Clean-slate pickup drive under Xvfb
-        run: xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-             scripts/e2e-pickup.sh --no-build
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-pickup.sh --no-build
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
