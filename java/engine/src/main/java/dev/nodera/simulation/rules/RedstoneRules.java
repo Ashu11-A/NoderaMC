@@ -100,6 +100,62 @@ public final class RedstoneRules {
         return new NBlockPos(pos.x() - FACING_DX[f], pos.y(), pos.z() - FACING_DZ[f]);
     }
 
+    // --- Pistons (increment 7: the BlockEventEntry two-phase consumer) ----------------------
+
+    /** Block-event type: extend the piston. */
+    public static final int PISTON_EVENT_EXTEND = 0;
+    /** Block-event type: retract the piston. */
+    public static final int PISTON_EVENT_RETRACT = 1;
+    /** Vanilla push limit: a line of more than 12 blocks refuses to move. */
+    public static final int PISTON_PUSH_LIMIT = 12;
+
+    /** @return whether {@code id} is a piston base (retracted or extended, any facing). */
+    public static boolean isPistonBase(int id) {
+        return id >= FlatWorldRules.PISTON_RETRACTED_BASE
+                && id < FlatWorldRules.PISTON_HEAD_BASE;
+    }
+
+    /** @return whether {@code id} is a piston head (any facing). */
+    public static boolean isPistonHead(int id) {
+        return id >= FlatWorldRules.PISTON_HEAD_BASE && id <= FlatWorldRules.PISTON_MAX;
+    }
+
+    /** @return whether a piston base id is the extended variant. */
+    public static boolean pistonIsExtended(int id) {
+        return id >= FlatWorldRules.PISTON_EXTENDED_BASE && id < FlatWorldRules.PISTON_HEAD_BASE;
+    }
+
+    /** The facing index (0..3 = N,S,W,E) of any piston id (base or head). */
+    public static int pistonFacing(int id) {
+        return (id - FlatWorldRules.PISTON_RETRACTED_BASE) & 3;
+    }
+
+    /** The block position directly in front of a piston (where its head lives when extended). */
+    public static NBlockPos pistonFront(int id, NBlockPos pos) {
+        int f = pistonFacing(id);
+        return new NBlockPos(pos.x() + FACING_DX[f], pos.y(), pos.z() + FACING_DZ[f]);
+    }
+
+    /**
+     * The piston's input: any neighbor EXCEPT its front drives it (a piston never reads power
+     * through the face it pushes out of).
+     */
+    public static boolean pistonInputPowered(MutableRegionState state, NBlockPos piston) {
+        int id = state.getBlock(piston);
+        NBlockPos front = pistonFront(id, piston);
+        for (NBlockPos n : NeighborUpdateOrder.neighborsOf(piston)) {
+            if (n.equals(front)) {
+                continue;
+            }
+            int nid = state.getBlock(n);
+            if ((isWire(nid) && wirePower(nid) > 0)
+                    || emittedPowerTowards(nid, n, piston) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The repeater's input: whether the block BEHIND it drives it (wire power or emitter). */
     public static boolean repeaterInputPowered(MutableRegionState state, NBlockPos repeater) {
         int id = state.getBlock(repeater);
@@ -118,7 +174,8 @@ public final class RedstoneRules {
     public static boolean isRedstoneFamily(int id) {
         return isWire(id) || emittedPower(id) > 0 || isRepeater(id)
                 || id == FlatWorldRules.LEVER_OFF || id == FlatWorldRules.TORCH_OFF
-                || id == FlatWorldRules.BUTTON_OFF;
+                || id == FlatWorldRules.BUTTON_OFF
+                || isPistonBase(id) || isPistonHead(id);
     }
 
     /** The torch's input: whether its SUPPORT block (directly below) carries power. */
@@ -157,10 +214,45 @@ public final class RedstoneRules {
                 state.scheduleTick(pos, current, currentTick + 1, 0);
             }
         }
+        schedulePistonUpdates(state, around);
     }
 
     private static boolean isTimingComponent(int id) {
         return isTorch(id) || isRepeater(id);
+    }
+
+    /**
+     * Enqueue two-phase motion events for every piston around the changed set whose desired
+     * extension state disagrees with its current one. The pending event is HASHED region state
+     * ({@code BlockEventEntry}, tag 37) — replicas agree on in-flight motion, not just outcomes.
+     */
+    private static void schedulePistonUpdates(
+            MutableRegionState state, Set<NBlockPos> around) {
+        Set<NBlockPos> pistons = new LinkedHashSet<>();
+        for (NBlockPos pos : around) {
+            for (NBlockPos n : NeighborUpdateOrder.neighborsOf(pos)) {
+                if (isPistonBase(state.getBlock(n))) {
+                    pistons.add(n);
+                }
+            }
+            if (isPistonBase(state.getBlock(pos))) {
+                pistons.add(pos);
+            }
+        }
+        for (NBlockPos pos : pistons) {
+            int current = state.getBlock(pos);
+            boolean powered = pistonInputPowered(state, pos);
+            if (powered == pistonIsExtended(current)) {
+                continue;
+            }
+            boolean alreadyPending = state.blockEvents().stream()
+                    .anyMatch(event -> event.pos().equals(pos));
+            if (!alreadyPending) {
+                state.enqueueBlockEvent(new dev.nodera.core.state.BlockEventEntry(
+                        pos, powered ? PISTON_EVENT_EXTEND : PISTON_EVENT_RETRACT,
+                        pistonFacing(current), 0));
+            }
+        }
     }
 
     /** What a timing component WANTS to be given its current input (its settled target). */
@@ -181,6 +273,9 @@ public final class RedstoneRules {
      * (clocks oscillate deterministically).
      */
     public static void tick(MutableRegionState state, long tick, DeterministicRandom rng) {
+        for (var event : state.drainBlockEvents()) {
+            firePistonEvent(state, event, tick, rng);
+        }
         for (var entry : state.drainDueTicks(tick)) {
             NBlockPos pos = entry.pos();
             int current = state.getBlock(pos);
@@ -196,6 +291,74 @@ public final class RedstoneRules {
                 recomputeNetwork(state, pos, null, rng, tick);
             }
             // Any other id: the block changed since scheduling — stale entry no-ops.
+        }
+    }
+
+    /**
+     * Fire one piston motion event: re-validate the power state AT FIRE TIME (flap-back cancels
+     * the motion, same discipline as every timing component), then move. An extension pushes the
+     * contiguous line in front (up to {@link #PISTON_PUSH_LIMIT} plain blocks; redstone
+     * components, other pistons, region borders and over-long lines all fail CLOSED — the
+     * piston simply stays retracted). A retraction removes the head; the non-sticky MVP pulls
+     * nothing back.
+     */
+    private static void firePistonEvent(
+            MutableRegionState state, dev.nodera.core.state.BlockEventEntry event,
+            long tick, DeterministicRandom rng) {
+        NBlockPos pos = event.pos();
+        int current = state.getBlock(pos);
+        if (!isPistonBase(current)) {
+            return; // the piston is gone: stale event no-ops
+        }
+        boolean powered = pistonInputPowered(state, pos);
+        int facing = pistonFacing(current);
+        if (event.type() == PISTON_EVENT_EXTEND) {
+            if (!powered || pistonIsExtended(current)) {
+                return; // input flapped back (or already extended) before the motion fired
+            }
+            NBlockPos front = pistonFront(current, pos);
+            // Gather the contiguous push line starting at the head position.
+            java.util.List<NBlockPos> line = new java.util.ArrayList<>();
+            NBlockPos cursor = front;
+            while (true) {
+                if (!state.inOwnedRegion(cursor)) {
+                    return; // motion would cross the region border: fail closed (BorderSignal lane)
+                }
+                int id = state.getBlock(cursor);
+                if (id == FlatWorldRules.AIR) {
+                    break;
+                }
+                if (line.size() >= PISTON_PUSH_LIMIT || isRedstoneFamily(id)
+                        || isPistonBase(id) || isPistonHead(id)) {
+                    return; // immovable or over the push limit: the piston stays retracted
+                }
+                line.add(cursor);
+                cursor = new NBlockPos(cursor.x() + FACING_DX[facing], cursor.y(),
+                        cursor.z() + FACING_DZ[facing]);
+            }
+            if (!state.inOwnedRegion(cursor)) {
+                return; // the destination cell itself is out of region
+            }
+            // Shift the line one step forward, far end first, then place the head.
+            for (int i = line.size() - 1; i >= 0; i--) {
+                NBlockPos from = line.get(i);
+                NBlockPos to = new NBlockPos(from.x() + FACING_DX[facing], from.y(),
+                        from.z() + FACING_DZ[facing]);
+                state.setBlock(to, state.getBlock(from), null, rng);
+            }
+            state.setBlock(front, FlatWorldRules.PISTON_HEAD_BASE + facing, null, rng);
+            state.setBlock(pos, FlatWorldRules.PISTON_EXTENDED_BASE + facing, null, rng);
+            recomputeNetwork(state, pos, null, rng, tick);
+        } else {
+            if (powered || !pistonIsExtended(current)) {
+                return; // still powered (or already retracted): no motion
+            }
+            NBlockPos front = pistonFront(current, pos);
+            if (state.inOwnedRegion(front) && isPistonHead(state.getBlock(front))) {
+                state.setBlock(front, FlatWorldRules.AIR, null, rng);
+            }
+            state.setBlock(pos, FlatWorldRules.PISTON_RETRACTED_BASE + facing, null, rng);
+            recomputeNetwork(state, pos, null, rng, tick);
         }
     }
 
