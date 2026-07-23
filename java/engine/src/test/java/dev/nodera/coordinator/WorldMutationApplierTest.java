@@ -56,6 +56,33 @@ class WorldMutationApplierTest {
     }
 
     @Test
+    void lockedChunkFailsClosedBeforeAnyWrite() {
+        // L-33: an un-arrived/un-verified chunk (piece-locked) must reject a delta touching it —
+        // the whole delta aborts in the verify pass, nothing lands anywhere.
+        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        InMemoryWorldView world = new InMemoryWorldView();
+        world.load(base);
+        ActionBatch batch = CoordFixtures.batch(region, RegionEpoch.INITIAL, SnapshotVersion.INITIAL, 0, 1,
+                List.of(
+                        CoordFixtures.place(region, 1, 0, 5, 70, 5, 1),
+                        CoordFixtures.place(region, 2, 0, 40, 100, 40, 4)));
+        RegionExecutionResult engineResult =
+                CoordFixtures.engine().execute(CoordFixtures.request(base, batch));
+
+        // The chunk containing (40,*,40) has not arrived: lock it.
+        WorldMutationApplier applier = new WorldMutationApplier(world,
+                (r, pos) -> !(Math.floorDiv(pos.x(), 16) == 2 && Math.floorDiv(pos.z(), 16) == 2));
+        WorldMutationApplier.ApplyResult result = applier.apply(engineResult.delta());
+
+        assertThat(result.committed()).isFalse();
+        assertThat(result.failure()).isEqualTo("CHUNK_LOCKED");
+        assertThat(result.applied()).isZero();
+        assertThat(world.getBlock(region, new NBlockPos(5, 70, 5)))
+                .as("the delta aborted atomically — the unlocked chunk's write did not land either")
+                .isZero();
+    }
+
+    @Test
     void badGuardInMiddleAppliesNothing() {
         RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0); // AIR everywhere
         InMemoryWorldView world = new InMemoryWorldView();
