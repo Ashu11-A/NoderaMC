@@ -55,6 +55,11 @@ pub mod type_tags {
     /// `GenesisRecertification` — founding-peer-set multi-party genesis endorsement (L-20).
     pub const GENESIS_RECERTIFICATION: u16 = 104;
 
+    /// `ScheduledTickEntry` — Task 13 hashed scheduled-tick queue entry (reserved 36, live 2026-07-23).
+    pub const SCHEDULED_TICK_ENTRY: u16 = 36;
+    /// `BlockEventEntry` — Task 13 hashed piston two-phase event entry (reserved 37, live 2026-07-23).
+    pub const BLOCK_EVENT_ENTRY: u16 = 37;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
     pub const NEXT: u16 = 104;
 }

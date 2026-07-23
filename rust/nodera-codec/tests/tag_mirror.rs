@@ -105,6 +105,13 @@ fn type_tag_registry_mirrors_java() {
         GENESIS_RECERTIFICATION,
         FILE,
     );
+    assert_mirrors(
+        &source,
+        "SCHEDULED_TICK_ENTRY",
+        SCHEDULED_TICK_ENTRY,
+        FILE,
+    );
+    assert_mirrors(&source, "BLOCK_EVENT_ENTRY", BLOCK_EVENT_ENTRY, FILE);
     assert_mirrors(&source, "NEXT", NEXT, FILE);
 }
 

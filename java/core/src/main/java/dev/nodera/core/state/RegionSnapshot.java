@@ -19,7 +19,9 @@ import java.util.List;
  * body version 1 as an empty entity table.
  *
  * <p>Wire form: {@code [u16 REGION_SNAPSHOT][u16 ENCODING_VERSION][RegionId][SnapshotVersion]
- * [u64 tick][list ChunkColumnState][list PersistedEntityState]}.
+ * [u64 tick][list ChunkColumnState][list PersistedEntityState][list ScheduledTickEntry]
+ * [list BlockEventEntry]} — the two trailing lists only at body version >= 3 (Task 13: the
+ * scheduled-tick queue and pending block events are PART of the hashed root; Invariant 10).
  *
  * @Thread-context immutable, any thread.
  */
@@ -29,11 +31,16 @@ public record RegionSnapshot(
         long tick,
         List<ChunkColumnState> chunks,
         List<PersistedEntityState> entities,
+        List<ScheduledTickEntry> scheduledTicks,
+        List<BlockEventEntry> blockEvents,
         int bodyVersion
 ) implements Encodable {
 
     /** Region-snapshot body version. Version 1 had no entity table. */
     public static final int STATE_ENCODING_VERSION = 2;
+
+    /** Body version 3 (Task 13 / L-26): appends the scheduled-tick queue + block events. */
+    public static final int REDSTONE_ENCODING_VERSION = 3;
 
     private static final Comparator<ChunkColumnState> CHUNK_ORDER =
             Comparator.comparingInt(ChunkColumnState::chunkX)
@@ -55,6 +62,14 @@ public record RegionSnapshot(
         this(region, version, tick, chunks, entities, STATE_ENCODING_VERSION);
     }
 
+    /** Source-compatible pre-redstone constructor (empty tick queue/events). */
+    public RegionSnapshot(
+            RegionId region, SnapshotVersion version, long tick,
+            List<ChunkColumnState> chunks, List<PersistedEntityState> entities,
+            int bodyVersion) {
+        this(region, version, tick, chunks, entities, List.of(), List.of(), bodyVersion);
+    }
+
     /**
      * Compact constructor. Defensive-copies {@code chunks} into an unmodifiable list sorted by
      * {@code (chunkX, chunkZ)} so the encoded form is byte-stable.
@@ -74,11 +89,20 @@ public record RegionSnapshot(
         if (entities == null) {
             throw new IllegalArgumentException("entities must not be null");
         }
-        if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION) {
+        if (scheduledTicks == null || blockEvents == null) {
+            throw new IllegalArgumentException("scheduledTicks and blockEvents must not be null");
+        }
+        if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION
+                && bodyVersion != REDSTONE_ENCODING_VERSION) {
             throw new IllegalArgumentException("unsupported snapshot body version " + bodyVersion);
         }
         if (bodyVersion == 1 && !entities.isEmpty()) {
             throw new IllegalArgumentException("version 1 snapshot cannot carry entities");
+        }
+        if (bodyVersion < REDSTONE_ENCODING_VERSION
+                && !(scheduledTicks.isEmpty() && blockEvents.isEmpty())) {
+            throw new IllegalArgumentException(
+                    "snapshot body version " + bodyVersion + " cannot carry scheduled state");
         }
         List<ChunkColumnState> sorted = new ArrayList<>(chunks);
         sorted.sort(CHUNK_ORDER);
@@ -91,6 +115,13 @@ public record RegionSnapshot(
             }
         }
         entities = List.copyOf(sortedEntities);
+        // The queue's canonical order IS the documented execution total order — encoding it any
+        // other way would let two replicas with identical schedules hash differently.
+        List<ScheduledTickEntry> sortedTicks = new ArrayList<>(scheduledTicks);
+        sortedTicks.sort(ScheduledTickEntry.EXECUTION_ORDER);
+        scheduledTicks = List.copyOf(sortedTicks);
+        // Block events keep producer order: the piston phase sequence is itself the semantics.
+        blockEvents = List.copyOf(blockEvents);
     }
 
     @Override
@@ -102,6 +133,10 @@ public record RegionSnapshot(
         w.writeList(chunks, CanonicalWriter::writeEncodable);
         if (bodyVersion >= 2) {
             w.writeList(entities, CanonicalWriter::writeEncodable);
+        }
+        if (bodyVersion >= REDSTONE_ENCODING_VERSION) {
+            w.writeList(scheduledTicks, CanonicalWriter::writeEncodable);
+            w.writeList(blockEvents, CanonicalWriter::writeEncodable);
         }
     }
 
@@ -117,7 +152,8 @@ public record RegionSnapshot(
             throw new IllegalStateException("expected REGION_SNAPSHOT tag, got " + tag);
         }
         int bodyVersion = r.readU16();
-        if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION) {
+        if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION
+                && bodyVersion != REDSTONE_ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_SNAPSHOT encoding version " + bodyVersion);
         }
         RegionId region = RegionId.decode(r);
@@ -127,6 +163,13 @@ public record RegionSnapshot(
         List<PersistedEntityState> entities = bodyVersion >= 2
                 ? r.readList(PersistedEntityState::decode)
                 : List.of();
-        return new RegionSnapshot(region, version, tick, chunks, entities, bodyVersion);
+        List<ScheduledTickEntry> scheduledTicks = bodyVersion >= REDSTONE_ENCODING_VERSION
+                ? r.readList(ScheduledTickEntry::decode)
+                : List.of();
+        List<BlockEventEntry> blockEvents = bodyVersion >= REDSTONE_ENCODING_VERSION
+                ? r.readList(BlockEventEntry::decode)
+                : List.of();
+        return new RegionSnapshot(region, version, tick, chunks, entities,
+                scheduledTicks, blockEvents, bodyVersion);
     }
 }
