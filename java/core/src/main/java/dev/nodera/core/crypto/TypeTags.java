@@ -46,8 +46,8 @@ public final class TypeTags {
     public static final int CHUNK_COLUMN_STATE   = 33;
     public static final int REGION_SNAPSHOT      = 34;
     public static final int REGION_DELTA         = 35;
-    public static final int SCHEDULED_TICK_ENTRY = 36;   // Task 13 (reserved now)
-    public static final int BLOCK_EVENT_ENTRY    = 37;   // Task 13 (reserved now)
+    public static final int SCHEDULED_TICK_ENTRY = 36;   // Task 13 (live since 2026-07-23)
+    public static final int BLOCK_EVENT_ENTRY    = 37;   // Task 13 (live since 2026-07-23)
 
     // --- events ---
     public static final int COMMITTED_EVENT_ENV  = 40;

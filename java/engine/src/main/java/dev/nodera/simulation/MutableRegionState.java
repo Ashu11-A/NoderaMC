@@ -64,6 +64,14 @@ public final class MutableRegionState implements RegionWorldView {
     private final EntityStore entityStore;
     private final List<EntityTransferIntent> transferIntents = new ArrayList<>();
 
+    // Task 13 / L-26: the scheduled-tick queue + pending block events are REGION STATE — they
+    // load from the base snapshot, mutate through the rule hooks, and re-enter the hashed root
+    // via toSnapshot (Invariant 10: dropping them from the hash is the "peers agree on blocks
+    // yet diverge later" class).
+    private final List<dev.nodera.core.state.ScheduledTickEntry> scheduledTicks = new ArrayList<>();
+    private final List<dev.nodera.core.state.BlockEventEntry> blockEvents = new ArrayList<>();
+    private long nextTickSeq;
+
     /**
      * Build a working copy over {@code snapshot} restricted by {@code bounds}. The snapshot's
      * per-section palette arrays are defensively copied into fresh working arrays so the source
@@ -85,6 +93,11 @@ public final class MutableRegionState implements RegionWorldView {
         this.baseVersion = snapshot.version();
         this.halo = new RegionHalo(this.region);
         this.bounds = bounds;
+        this.scheduledTicks.addAll(snapshot.scheduledTicks());
+        this.blockEvents.addAll(snapshot.blockEvents());
+        for (dev.nodera.core.state.ScheduledTickEntry entry : this.scheduledTicks) {
+            nextTickSeq = Math.max(nextTickSeq, entry.seq() + 1);
+        }
         this.columnsByChunk = new HashMap<>(snapshot.chunks().size());
         for (ChunkColumnState col : snapshot.chunks()) {
             columnsByChunk.put(packChunk(col.chunkX(), col.chunkZ()), new ColumnModel(col));
@@ -274,7 +287,65 @@ public final class MutableRegionState implements RegionWorldView {
                     col.minY,
                     col.sectionCount));
         }
-        return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities());
+        // Body version stays 2 while no scheduled state exists, so every pre-redstone root —
+        // live store heads included — hashes exactly as before; a region carrying scheduled
+        // state commits to it at body version 3.
+        if (scheduledTicks.isEmpty() && blockEvents.isEmpty()) {
+            return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities());
+        }
+        return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities(),
+                List.copyOf(scheduledTicks), List.copyOf(blockEvents),
+                RegionSnapshot.REDSTONE_ENCODING_VERSION);
+    }
+
+    /**
+     * Schedule a block tick at {@code executeAtLocalTick} (region-local time) with the
+     * documented total order — insertion seq is assigned here, monotonically.
+     *
+     * @return the entry as recorded in the hashed queue.
+     */
+    public dev.nodera.core.state.ScheduledTickEntry scheduleTick(
+            NBlockPos pos, int blockId, long executeAtLocalTick, int priority) {
+        var entry = new dev.nodera.core.state.ScheduledTickEntry(
+                pos, blockId, executeAtLocalTick, priority, nextTickSeq++);
+        scheduledTicks.add(entry);
+        return entry;
+    }
+
+    /**
+     * Remove and return every scheduled tick due at or before {@code localTick}, in the
+     * documented execution total order.
+     */
+    public List<dev.nodera.core.state.ScheduledTickEntry> drainDueTicks(long localTick) {
+        List<dev.nodera.core.state.ScheduledTickEntry> due = new ArrayList<>();
+        for (var it = scheduledTicks.iterator(); it.hasNext(); ) {
+            var entry = it.next();
+            if (entry.executeAtLocalTick() <= localTick) {
+                due.add(entry);
+                it.remove();
+            }
+        }
+        due.sort(dev.nodera.core.state.ScheduledTickEntry.EXECUTION_ORDER);
+        return due;
+    }
+
+    /** The pending (not yet due) scheduled ticks, canonical order. */
+    public List<dev.nodera.core.state.ScheduledTickEntry> scheduledTicks() {
+        List<dev.nodera.core.state.ScheduledTickEntry> copy = new ArrayList<>(scheduledTicks);
+        copy.sort(dev.nodera.core.state.ScheduledTickEntry.EXECUTION_ORDER);
+        return copy;
+    }
+
+    /** Append a pending block event (piston two-phase progress). */
+    public void enqueueBlockEvent(dev.nodera.core.state.BlockEventEntry event) {
+        blockEvents.add(java.util.Objects.requireNonNull(event, "event"));
+    }
+
+    /** Remove and return all pending block events in producer order. */
+    public List<dev.nodera.core.state.BlockEventEntry> drainBlockEvents() {
+        List<dev.nodera.core.state.BlockEventEntry> out = List.copyOf(blockEvents);
+        blockEvents.clear();
+        return out;
     }
 
     /**
