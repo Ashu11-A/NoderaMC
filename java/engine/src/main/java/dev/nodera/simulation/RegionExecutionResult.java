@@ -19,13 +19,21 @@ import java.util.List;
  * @param delta         the canonical, sorted block-mutation delta; transport, not truth.
  * @param resultingRoot SHA-256 of the post-state snapshot; truth.
  * @param stats         non-hashed execution metadata, including the ordered rejection list.
+ * @param borderSignals refused border crossings in canonical order (Task 13): deterministic
+ *                      like stats, consumed by the contraption-migration lane, never hashed.
  * @Thread-context immutable, any thread.
  */
 public record RegionExecutionResult(
         RegionDelta delta,
         StateRoot resultingRoot,
-        ExecutionStats stats
+        ExecutionStats stats,
+        List<dev.nodera.simulation.border.BorderSignal> borderSignals
 ) {
+
+    /** Source-compatible constructor for callers without border signals. */
+    public RegionExecutionResult(RegionDelta delta, StateRoot resultingRoot, ExecutionStats stats) {
+        this(delta, resultingRoot, stats, List.of());
+    }
 
     /**
      * Compact constructor.
@@ -43,6 +51,10 @@ public record RegionExecutionResult(
         if (stats == null) {
             throw new IllegalArgumentException("stats must not be null");
         }
+        if (borderSignals == null) {
+            throw new IllegalArgumentException("borderSignals must not be null");
+        }
+        borderSignals = List.copyOf(borderSignals);
     }
 
     /**

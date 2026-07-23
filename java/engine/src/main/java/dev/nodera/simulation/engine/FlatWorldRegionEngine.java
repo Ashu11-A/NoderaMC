@@ -156,7 +156,8 @@ public final class FlatWorldRegionEngine implements RegionEngine {
         return new RegionExecutionResult(
                 state.toDelta(ctx.baseVersion(), resultingVersion, resultingRoot),
                 resultingRoot,
-                new RegionExecutionResult.ExecutionStats(applied, rejected, 0L, List.copyOf(rejections)));
+                new RegionExecutionResult.ExecutionStats(applied, rejected, 0L, List.copyOf(rejections)),
+                state.borderSignals());
     }
 
     private static void validateAnchors(RegionExecutionRequest request) {

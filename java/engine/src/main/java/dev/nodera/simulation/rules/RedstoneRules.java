@@ -322,7 +322,10 @@ public final class RedstoneRules {
             NBlockPos cursor = front;
             while (true) {
                 if (!state.inOwnedRegion(cursor)) {
-                    return; // motion would cross the region border: fail closed (BorderSignal lane)
+                    state.emitBorderSignal(new dev.nodera.simulation.border.BorderSignal(
+                            dev.nodera.simulation.border.BorderSignal.Kind.PISTON,
+                            pos, cursor, tick));
+                    return; // motion would cross the region border: fail CLOSED
                 }
                 int id = state.getBlock(cursor);
                 if (id == FlatWorldRules.AIR) {
@@ -337,6 +340,9 @@ public final class RedstoneRules {
                         cursor.z() + FACING_DZ[facing]);
             }
             if (!state.inOwnedRegion(cursor)) {
+                state.emitBorderSignal(new dev.nodera.simulation.border.BorderSignal(
+                        dev.nodera.simulation.border.BorderSignal.Kind.PISTON,
+                        pos, cursor, tick));
                 return; // the destination cell itself is out of region
             }
             // Shift the line one step forward, far end first, then place the head.
@@ -411,7 +417,12 @@ public final class RedstoneRules {
         }
         NeighborUpdateOrder.propagate(origin, pos -> {
             if (!state.inOwnedRegion(pos)) {
-                return false; // border: the BorderSignal lane owns cross-region continuation
+                // The engine NEVER mutates halo state: the crossing is collected as a signal
+                // and the contraption-migration lane decides (demote to vanilla or migrate).
+                state.emitBorderSignal(new dev.nodera.simulation.border.BorderSignal(
+                        dev.nodera.simulation.border.BorderSignal.Kind.WIRE,
+                        origin, pos, currentTick));
+                return false;
             }
             if (isWire(state.getBlock(pos))) {
                 wires.add(pos);
