@@ -66,6 +66,30 @@ public interface ControlHandler {
     }
 
     /**
+     * Seed a world-archive snapshot from a local file (the continuity lane's host half).
+     *
+     * @param worldId        hex world id.
+     * @param archivePathB64 base64 of the archive file's absolute path (same-machine handoff).
+     * @return {@code "<manifestRootHex> <version> <pieceCount>"} on success, or {@code null} if
+     *         unsupported; a thrown {@link RuntimeException}'s message becomes the ERR line.
+     */
+    default String seedArchive(String worldId, String archivePathB64) {
+        return null;
+    }
+
+    /**
+     * Fetch a world's newest archive from the network into a local file (the joiner half).
+     *
+     * @param worldId        hex world id.
+     * @param destPathB64    base64 of the destination file's absolute path.
+     * @param timeoutSeconds overall fetch deadline.
+     * @return {@code "<byteCount> <version>"} on success, or {@code null} if unsupported.
+     */
+    default String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
+        return null;
+    }
+
+    /**
      * Mint a signed {@code WorldIdentity} authored by this worker (the worker holds the signing key,
      * so it is the world author).
      *

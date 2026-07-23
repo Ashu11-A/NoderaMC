@@ -5,7 +5,12 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.consensuscert.QuorumCertificate;
 import dev.nodera.core.event.CommittedEventEnvelope;
 import dev.nodera.core.region.DimensionKey;
+import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.EntityTransferDescriptor;
+import dev.nodera.core.state.EntityTransferRecord;
+import dev.nodera.core.state.NetworkEntityId;
+import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.storage.Checkpoint;
 import dev.nodera.storage.Compression;
@@ -129,10 +134,72 @@ class RocksWorldStoreTest {
         }
     }
 
+    @Test
+    void pairedEventAppendIsAllOrNothing() {
+        RegionId target = new RegionId(DimensionKey.overworld(), 1, 0);
+        try (RocksWorldStore store = open()) {
+            CommittedEventEnvelope source = StoreFixtures.chainedEvent(REGION, 0);
+            CommittedEventEnvelope invalidTarget = StoreFixtures.event(
+                    target, 2, StoreFixtures.GENESIS.genesisRoot(), StoreFixtures.root("target"));
+
+            assertThatThrownBy(() -> store.events().appendAtomic(List.of(source, invalidTarget)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("non-monotonic");
+            assertThat(store.events().lastEventId(REGION)).isEqualTo(-1);
+            assertThat(store.events().lastEventId(target)).isEqualTo(-1);
+
+            store.events().appendAtomic(List.of(
+                    source, StoreFixtures.event(target, 0,
+                            StoreFixtures.GENESIS.genesisRoot(), StoreFixtures.root("target"))));
+            assertThat(store.events().lastEventId(REGION)).isZero();
+            assertThat(store.events().lastEventId(target)).isZero();
+        }
+    }
+
+    @Test
+    void recoverableTransferStageSurvivesReopen() {
+        EntityTransferRecord prepared = preparedTransfer();
+        try (RocksWorldStore store = open()) {
+            store.transfers().put(prepared);
+            assertThat(store.transfers().recoverable()).containsExactly(prepared);
+        }
+        try (RocksWorldStore reopened = open()) {
+            assertThat(reopened.transfers().get(prepared.transferId())).contains(prepared);
+            assertThat(reopened.transfers().recoverable()).containsExactly(prepared);
+            reopened.transfers().put(new EntityTransferRecord(
+                    EntityTransferRecord.Stage.ABORTED, prepared.descriptor(),
+                    prepared.sourceDelta(), prepared.targetDelta(), null, "host stopped"));
+        }
+        try (RocksWorldStore reopened = open()) {
+            assertThat(reopened.transfers().recoverable()).isEmpty();
+            assertThat(reopened.transfers().get(prepared.transferId()).orElseThrow().stage())
+                    .isEqualTo(EntityTransferRecord.Stage.ABORTED);
+        }
+    }
+
     private static Checkpoint checkpoint(long version) {
         return new Checkpoint(REGION, new SnapshotVersion(version),
                 StoreFixtures.chainRoot(version),
                 new ContentId(StoreFixtures.root("snap-" + version).hash(), 64L, Compression.ZSTD),
                 version * 10L, version - 1, Bytes.empty());
+    }
+
+    private static EntityTransferRecord preparedTransfer() {
+        RegionId target = new RegionId(DimensionKey.overworld(), 1, 0);
+        SnapshotVersion base = SnapshotVersion.INITIAL;
+        SnapshotVersion next = base.next();
+        RegionDelta sourceDelta = new RegionDelta(
+                REGION, base, next, List.of(), StoreFixtures.root("source-result"));
+        RegionDelta targetDelta = new RegionDelta(
+                target, base, next, List.of(), StoreFixtures.root("target-result"));
+        EntityTransferDescriptor descriptor = new EntityTransferDescriptor(
+                12L, REGION, target, RegionEpoch.INITIAL, RegionEpoch.INITIAL,
+                new NetworkEntityId(7), base, next, StoreFixtures.root("source-prev"),
+                sourceDelta.resultingRoot(), StoreFixtures.root("source-transition"),
+                base, next, StoreFixtures.root("target-prev"), targetDelta.resultingRoot(),
+                StoreFixtures.root("target-transition"), 10L);
+        return new EntityTransferRecord(
+                EntityTransferRecord.Stage.PREPARED, descriptor,
+                sourceDelta, targetDelta, null, "");
     }
 }

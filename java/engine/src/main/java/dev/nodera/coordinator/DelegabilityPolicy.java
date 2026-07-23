@@ -43,7 +43,9 @@ public final class DelegabilityPolicy {
         /** A fake player is mutating the region. */
         FAKE_PLAYER_ACTIVE,
         /** The measured foreign-mutation rate exceeds the revoke threshold. */
-        INTERFERENCE_RATE_HIGH
+        INTERFERENCE_RATE_HIGH,
+        /** Region is loaded only by a foreign ticket and has no player whose view owns it. */
+        NO_PLAYER_PRESENT
     }
 
     /**
@@ -58,9 +60,11 @@ public final class DelegabilityPolicy {
      * @param terrainGenerated  the region lies inside generated terrain.
      * @param flatMvpProfile    the region matches the flat-world MVP profile (probe rate 0).
      * @param guardPresent      the Task 11 interference guard is installed.
-     * @param entityPresent     any entity is inside the region bounds (narrowed by Task 12).
+     * @param entityPresent     an entity unsupported by {@link EntityDelegabilityRules} is inside
+     *                          the region bounds (ITEM is allowed; GHOST requires mobCapture).
      * @param neighborUnsupported a region in the delegable neighbor ring fails the palette check.
      * @param fakePlayerActive  a fake player mutated the region within the cooldown window.
+     * @param playerPresent     at least one player view currently owns the loaded region.
      * @param interferencePerWindow foreign writes in the last
      *                              {@code INTERFERENCE_RATE_WINDOW_TICKS} (from
      *                              {@code InterferenceStats.ratePerWindow}).
@@ -76,12 +80,13 @@ public final class DelegabilityPolicy {
             boolean entityPresent,
             boolean neighborUnsupported,
             boolean fakePlayerActive,
+            boolean playerPresent,
             long interferencePerWindow
     ) {
         /** A region that satisfies every Task 6 gate (flat MVP, palette ok, chunks loaded, quorum). */
         public static Inputs delegableFlatMvp(int eligibleNodeCount) {
             return new Inputs(true, true, eligibleNodeCount, false, true, true, false,
-                    false, false, false, 0);
+                    false, false, false, true, 0);
         }
     }
 
@@ -143,6 +148,9 @@ public final class DelegabilityPolicy {
         }
         if (in.fakePlayerActive()) {
             reasons.add(Reason.FAKE_PLAYER_ACTIVE);
+        }
+        if (!in.playerPresent()) {
+            reasons.add(Reason.NO_PLAYER_PRESENT);
         }
         if (in.interferencePerWindow() > NoderaConstants.INTERFERENCE_REVOKE_RATE) {
             reasons.add(Reason.INTERFERENCE_RATE_HIGH);

@@ -5,9 +5,14 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
+import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedVec3;
+import dev.nodera.core.state.NetworkEntityId;
+import dev.nodera.core.state.PersistedEntityState;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.ArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -147,6 +152,31 @@ final class PieceSplitterTest {
         }
         assertThat(layout.pieceForChunk(layout.pieceOfChunk().size() - 1))
                 .isEqualTo(layout.manifest().pieceCount() - 1);
+    }
+
+    @Test
+    void largeEntityTableSplitsAtEntityRecordBoundaries() {
+        RegionSnapshot blocks = DistFixtures.fullUniformSnapshot(DistFixtures.region(0, 0), 0);
+        List<PersistedEntityState> entities = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            entities.add(new PersistedEntityState(
+                    new NetworkEntityId(i), EntityKind.GHOST, 54,
+                    FixedVec3.ofBlock(i % 100, 64, i % 100), FixedVec3.ZERO,
+                    0, PersistedEntityState.NEVER_DESPAWN, new Bytes(new byte[256])));
+        }
+        RegionSnapshot snapshot = new RegionSnapshot(
+                blocks.region(), blocks.version(), blocks.tick(), blocks.chunks(), entities);
+
+        RegionSnapshotSplitter.Layout layout = RegionSnapshotSplitter.split(snapshot, 1024);
+
+        assertThat(layout.manifest().pieceCount()).isGreaterThan(20);
+        assertThat(layout.manifest().pieces())
+                .extracting(Piece::length)
+                .allMatch(length -> length < 2_000L);
+        assertThat(layout.pieceOfChunk()).hasSize(snapshot.chunks().size());
+        CanonicalWriter writer = new CanonicalWriter();
+        snapshot.encode(writer);
+        assertThat(layout.blob().toArray()).isEqualTo(writer.toByteArray());
     }
 
     @Test

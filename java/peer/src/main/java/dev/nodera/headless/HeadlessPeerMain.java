@@ -84,8 +84,19 @@ public final class HeadlessPeerMain {
                 env("NODERA_TRACKER_ENDPOINTS", "127.0.0.1:25600"));
         List<RendezvousEndpoint> rendezvousEndpoints = parseRendezvous(
                 env("NODERA_RENDEZVOUS_ENDPOINTS", "127.0.0.1:25601"));
+
+        // The world-archive lane (the continuity increment): this worker seeds the canonical
+        // archives of the worlds it hosts and can fetch any world's archive from the swarm, so a
+        // shared world's save bytes survive the hosting player's game — and machine — going away.
+        Path archiveDir = Path.of(env("NODERA_ARCHIVE_DIR",
+                System.getProperty("user.home") + "/.nodera/archive"));
+        WorldArchiveService archive = new WorldArchiveService(identity, metered,
+                new dev.nodera.storage.rocksdb.FsContentStore(
+                        archiveDir, new dev.nodera.core.crypto.HashService()),
+                trackerEndpoints);
+
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
-                trackerEndpoints, rendezvousEndpoints);
+                trackerEndpoints, rendezvousEndpoints, archive::holdingsFor);
 
         // The validation lane (L-48/L-30): this worker re-executes region batches out-of-game
         // with THE engine and participates in committee quorum over the same PeerTransport its
@@ -104,10 +115,15 @@ public final class HeadlessPeerMain {
                 dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
                 dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
                 2000L);
-        runtime.onApplicationMessage(validation::onMessage);
+        // One application lane, two consumers: the validation flow and the archive/content flow.
+        // Each ignores message types it does not own.
+        runtime.onApplicationMessage((from, msg) -> {
+            validation.onMessage(from, msg);
+            archive.onMessage(from, msg);
+        });
 
         WorkerControlHandler handler = new WorkerControlHandler(
-                WORKER_VERSION, identity, caps, runtime, meter, hosting, validation);
+                WORKER_VERSION, identity, caps, runtime, meter, hosting, validation, archive);
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
@@ -121,6 +137,7 @@ public final class HeadlessPeerMain {
             LOG.info("Nodera peer worker shutting down");
             hosting.close();
             control.close();
+            archive.close();
             runtime.stop();
             stop.countDown();
         }, "nodera-worker-shutdown"));

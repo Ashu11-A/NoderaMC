@@ -54,6 +54,10 @@ public record ActionRejection(ActionEnvelope envelope, Reason reason) {
         MALFORMED,
         /** The rule set does not handle this action kind (e.g. entity actions under the block-only
          *  MVP rules — the entity lane ships in its own rule set). */
-        UNSUPPORTED_ACTION
+        UNSUPPORTED_ACTION,
+        /** A pickup references an entity absent from the current region state. */
+        ENTITY_NOT_FOUND,
+        /** A pickup references a tracked entity kind that cannot enter player inventory. */
+        ENTITY_NOT_PICKUPABLE
     }
 }

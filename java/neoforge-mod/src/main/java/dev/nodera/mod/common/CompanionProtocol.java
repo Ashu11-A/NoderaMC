@@ -40,6 +40,12 @@ public final class CompanionProtocol {
     /** Author-only re-key request. */
     public static final String PASSWORD = ControlProtocol.PASSWORD;
 
+    /** Seed-world-archive request (continuity lane, host half). */
+    public static final String SEED = ControlProtocol.SEED;
+
+    /** Fetch-world-archive request (continuity lane, joiner half). */
+    public static final String ARCHIVE = ControlProtocol.ARCHIVE;
+
     /** Mint-signed-world-identity request. */
     public static final String WORLDID = ControlProtocol.WORLDID;
 

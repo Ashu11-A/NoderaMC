@@ -107,7 +107,17 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_OBSERVED_ADDRESS).isEqualTo(43);
         assertThat(MessageCodec.TAG_TRACKER_CATALOG_QUERY).isEqualTo(44);
         assertThat(MessageCodec.TAG_TRACKER_CATALOG_RESPONSE).isEqualTo(45);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(45);
+        assertThat(MessageCodec.TAG_ENTITY_TRANSFER_PREPARE).isEqualTo(46);
+        assertThat(MessageCodec.TAG_ENTITY_TRANSFER_ACCEPT).isEqualTo(47);
+        assertThat(MessageCodec.TAG_ENTITY_TRANSFER_COMMIT).isEqualTo(48);
+        assertThat(MessageCodec.TAG_TRACKER_ROUTES_QUERY).isEqualTo(49);
+        assertThat(MessageCodec.TAG_TRACKER_ROUTES_RESPONSE).isEqualTo(50);
+        // The world-continuity lane appended the manifest-exchange pair (peer↔peer archive fetch).
+        assertThat(MessageCodec.TAG_WORLD_MANIFEST_QUERY).isEqualTo(51);
+        assertThat(MessageCodec.TAG_WORLD_MANIFEST_ANSWER).isEqualTo(52);
+        // The no-host submission path appended the action-forward message.
+        assertThat(MessageCodec.TAG_ACTION_FORWARD).isEqualTo(53);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(53);
     }
 
     @Test
@@ -147,6 +157,23 @@ final class MessageCodecTypeTagTest {
     }
 
     @Test
+    void worldManifestMessagesRoundTrip() {
+        var query = new dev.nodera.protocol.content.WorldManifestQuery(Bytes.fromHex("deadbeef"));
+        assertThat(MessageCodec.decode(MessageCodec.encode(query))).isEqualTo(query);
+        assertThat(MessageCodec.typeTagOf(query)).isEqualTo(MessageCodec.TAG_WORLD_MANIFEST_QUERY);
+
+        var answer = new dev.nodera.protocol.content.WorldManifestAnswer(
+                Bytes.fromHex("deadbeef"),
+                java.util.List.of(Bytes.fromHex("0102"), Bytes.fromHex("aabbccdd")));
+        assertThat(MessageCodec.decode(MessageCodec.encode(answer))).isEqualTo(answer);
+        assertThat(MessageCodec.typeTagOf(answer)).isEqualTo(MessageCodec.TAG_WORLD_MANIFEST_ANSWER);
+
+        var empty = new dev.nodera.protocol.content.WorldManifestAnswer(
+                Bytes.fromHex("deadbeef"), java.util.List.of());
+        assertThat(MessageCodec.decode(MessageCodec.encode(empty))).isEqualTo(empty);
+    }
+
+    @Test
     void trackerCatalogMessagesRoundTrip() {
         var query = new dev.nodera.protocol.discovery.TrackerCatalogQuery(25);
         assertThat(MessageCodec.decode(MessageCodec.encode(query))).isEqualTo(query);
@@ -158,6 +185,22 @@ final class MessageCodecTypeTagTest {
                 java.util.List.of(entry));
         var decoded = MessageCodec.decode(MessageCodec.encode(response));
         assertThat(decoded).isEqualTo(response);
+    }
+
+    @Test
+    void trackerRoutesMessagesRoundTrip() {
+        var query = new dev.nodera.protocol.discovery.TrackerRoutesQuery(Bytes.fromHex("deadbeef"));
+        assertThat(MessageCodec.decode(MessageCodec.encode(query))).isEqualTo(query);
+
+        var response = new dev.nodera.protocol.discovery.TrackerRoutesResponse(
+                Bytes.fromHex("deadbeef"),
+                java.util.List.of(new dev.nodera.protocol.discovery.TrackerRoutesResponse.PeerRoutes(
+                        new NodeId(UUID.fromString("00000000-0000-0000-0000-000000000042")),
+                        java.util.List.of("192.168.0.9:25566", "mc/192.168.0.9:25565"))));
+        assertThat(MessageCodec.decode(MessageCodec.encode(response))).isEqualTo(response);
+        assertThat(((dev.nodera.protocol.discovery.TrackerRoutesResponse)
+                MessageCodec.decode(MessageCodec.encode(response)))
+                .firstRouteWithPrefix("mc/")).contains("192.168.0.9:25565");
     }
 
     @Test

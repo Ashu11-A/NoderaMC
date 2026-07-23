@@ -2,6 +2,7 @@ package dev.nodera.storage.event;
 
 import dev.nodera.core.Bytes;
 import dev.nodera.core.consensuscert.QuorumCertificate;
+import dev.nodera.core.consensuscert.EntityTransferCertificate;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.storage.CertificateStore;
@@ -23,6 +24,7 @@ public final class InMemoryCertificateStore implements CertificateStore {
 
     private final HashService hashes;
     private final Map<Bytes, QuorumCertificate> byHash = new HashMap<>();
+    private final Map<Bytes, EntityTransferCertificate> transfersByHash = new HashMap<>();
 
     public InMemoryCertificateStore(HashService hashes) {
         if (hashes == null) {
@@ -47,6 +49,16 @@ public final class InMemoryCertificateStore implements CertificateStore {
     }
 
     @Override
+    public ContentId put(EntityTransferCertificate certificate) {
+        if (certificate == null) {
+            throw new IllegalArgumentException("certificate must not be null");
+        }
+        ContentId id = ContentId.of(hashes, encode(certificate));
+        transfersByHash.putIfAbsent(id.hash(), certificate);
+        return id;
+    }
+
+    @Override
     public Optional<QuorumCertificate> get(ContentId id) {
         return getByHash(id.hash());
     }
@@ -57,11 +69,16 @@ public final class InMemoryCertificateStore implements CertificateStore {
     }
 
     @Override
-    public boolean has(ContentId id) {
-        return byHash.containsKey(id.hash());
+    public Optional<EntityTransferCertificate> getTransferByHash(Bytes hash) {
+        return Optional.ofNullable(transfersByHash.get(hash));
     }
 
-    private static byte[] encode(QuorumCertificate cert) {
+    @Override
+    public boolean has(ContentId id) {
+        return byHash.containsKey(id.hash()) || transfersByHash.containsKey(id.hash());
+    }
+
+    private static byte[] encode(dev.nodera.core.crypto.Encodable cert) {
         CanonicalWriter w = new CanonicalWriter();
         cert.encode(w);
         return w.toByteArray();

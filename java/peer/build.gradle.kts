@@ -34,8 +34,8 @@ dependencies {
 
     // SLF4J API for the worker's own logs, plus a tiny binding so they surface when run
     // standalone (Minecraft provides a binding in-game).
-    implementation("org.slf4j:slf4j-api:2.0.13")
-    runtimeOnly("org.slf4j:slf4j-simple:2.0.13")
+    implementation("org.slf4j:slf4j-api:2.0.9")
+    runtimeOnly("org.slf4j:slf4j-simple:2.0.9")
 
     testImplementation(project(":engine"))
     testImplementation(project(":testing"))

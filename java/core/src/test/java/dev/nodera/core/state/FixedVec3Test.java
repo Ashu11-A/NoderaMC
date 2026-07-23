@@ -5,6 +5,7 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link FixedVec3} — Q32.32 fixed-point vector (Task 12a): arithmetic is pure 64-bit integer math
@@ -54,5 +55,16 @@ final class FixedVec3Test {
         a.encode(wa);
         b.encode(wb);
         assertThat(wa.toBytes()).isEqualTo(wb.toBytes());
+    }
+
+    @Test
+    void externalCoordinatesUseDocumentedNearestRounding() {
+        FixedVec3 fixed = FixedVec3.fromExternal(1.5, -1.25, 0.1);
+        assertThat(fixed.x()).isEqualTo(FixedVec3.ONE + FixedVec3.ONE / 2);
+        assertThat(fixed.y()).isEqualTo(-FixedVec3.ONE - FixedVec3.ONE / 4);
+        assertThat(FixedVec3.toExternal(fixed.z())).isCloseTo(0.1,
+                org.assertj.core.data.Offset.offset(1.0 / FixedVec3.ONE));
+        assertThatThrownBy(() -> FixedVec3.fromExternal(Double.NaN, 0, 0))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

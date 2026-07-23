@@ -26,6 +26,17 @@ public interface RegionEventStore {
     void append(CommittedEventEnvelope event);
 
     /**
+     * Atomically append a cross-region event set. Either every chain advances or none does.
+     * Implementations must validate all events against pre-batch heads before writing.
+     */
+    default void appendAtomic(List<CommittedEventEnvelope> events) {
+        if (events == null || events.size() != 1) {
+            throw new UnsupportedOperationException("atomic multi-event append is not implemented");
+        }
+        append(events.getFirst());
+    }
+
+    /**
      * @param region      the region.
      * @param fromEventId the first event id to return (inclusive).
      * @return the region's events from {@code fromEventId} onward, in id order.

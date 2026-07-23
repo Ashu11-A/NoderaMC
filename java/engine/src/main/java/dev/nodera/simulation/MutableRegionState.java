@@ -5,11 +5,16 @@ import dev.nodera.core.region.RegionBounds;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
+import dev.nodera.core.state.InventoryCredit;
+import dev.nodera.core.state.EntityTransferIntent;
+import dev.nodera.core.state.NetworkEntityId;
+import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.simulation.border.RegionHalo;
+import dev.nodera.simulation.entity.EntityStore;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,9 +34,10 @@ import java.util.Map;
  * that granularity: reading a position returns the palette id of its containing section, and
  * setting a position paints that whole section. This is the only reading consistent with the
  * frozen snapshot model; richer per-block state arrives when the NeoForge extractor (Task 5)
- * extends {@code ChunkColumnState}. The {@link BlockMutation} delta still records the exact target
- * {@code (x, y, z)} position (transport truth), and {@code expectedPreviousStateId} is captured
- * from the <b>pre-batch</b> section, so the commit applier's CAS remains well-defined.
+ * extends {@code ChunkColumnState}. Each {@link BlockMutation} uses its canonical section origin as
+ * target; writes within one section therefore coalesce in execution order. The
+ * {@code expectedPreviousStateId} comes from the <b>pre-batch</b> section, so commit CAS remains
+ * well-defined.
  *
  * <p><b>Storage layout.</b> Each chunk column is held in a {@link ColumnModel} (mutable
  * {@code int[]} working palette + an immutable base palette copy for first-touch CAS capture),
@@ -52,8 +58,11 @@ public final class MutableRegionState implements RegionWorldView {
     private final RegionId region;
     private final RegionHalo halo;
     private final RegionBounds bounds;
+    private final SnapshotVersion baseVersion;
     private final Map<Long, ColumnModel> columnsByChunk;
     private final BlockMutationBuffer mutationBuffer = new BlockMutationBuffer();
+    private final EntityStore entityStore;
+    private final List<EntityTransferIntent> transferIntents = new ArrayList<>();
 
     /**
      * Build a working copy over {@code snapshot} restricted by {@code bounds}. The snapshot's
@@ -73,12 +82,14 @@ public final class MutableRegionState implements RegionWorldView {
             throw new IllegalArgumentException("bounds must not be null");
         }
         this.region = snapshot.region();
+        this.baseVersion = snapshot.version();
         this.halo = new RegionHalo(this.region);
         this.bounds = bounds;
         this.columnsByChunk = new HashMap<>(snapshot.chunks().size());
         for (ChunkColumnState col : snapshot.chunks()) {
             columnsByChunk.put(packChunk(col.chunkX(), col.chunkZ()), new ColumnModel(col));
         }
+        this.entityStore = new EntityStore(snapshot.entities());
     }
 
     @Override
@@ -94,12 +105,56 @@ public final class MutableRegionState implements RegionWorldView {
         return bounds;
     }
 
+    /** Return the snapshot version this working state started from. */
+    public SnapshotVersion baseVersion() {
+        return baseVersion;
+    }
+
     /**
      * @return the underlying mutation buffer (for delta assembly).
      * @Thread-context thread-confined per call.
      */
     public BlockMutationBuffer mutationBuffer() {
         return mutationBuffer;
+    }
+
+    @Override
+    public PersistedEntityState entity(NetworkEntityId id) {
+        return entityStore.get(id);
+    }
+
+    /** Return current entities in deterministic id order. */
+    public List<PersistedEntityState> entities() {
+        return entityStore.entities();
+    }
+
+    /** Insert a new entity into working state. */
+    public void createEntity(PersistedEntityState entity) {
+        entityStore.create(entity);
+    }
+
+    /** Replace an existing entity in working state. */
+    public void updateEntity(PersistedEntityState entity) {
+        entityStore.update(entity);
+    }
+
+    /** Remove and return an entity from working state. */
+    public PersistedEntityState removeEntity(NetworkEntityId id) {
+        return entityStore.remove(id);
+    }
+
+    /** Remove an entity from this root and emit its deterministic target-region handoff. */
+    public void transferEntity(RegionId targetRegion, PersistedEntityState targetState) {
+        PersistedEntityState removed = entityStore.remove(targetState.id());
+        if (removed == null) {
+            throw new IllegalStateException("cannot transfer missing entity " + targetState.id());
+        }
+        transferIntents.add(new EntityTransferIntent(targetRegion, targetState));
+    }
+
+    /** Record one replay-safe vanilla-inventory credit. */
+    public void creditInventory(InventoryCredit credit) {
+        entityStore.credit(credit);
     }
 
     @Override
@@ -187,9 +242,13 @@ public final class MutableRegionState implements RegionWorldView {
                     "setBlock at " + pos + " outside section range of column ("
                             + col.minY + " .. " + (col.minY + col.sectionCount * CHUNK_SIZE - 1) + ")");
         }
-        int expectedPrevious = getBaseBlock(pos);
+        NBlockPos sectionTarget = new NBlockPos(
+                Math.floorDiv(pos.x(), CHUNK_SIZE) * CHUNK_SIZE,
+                col.minY + section * CHUNK_SIZE,
+                Math.floorDiv(pos.z(), CHUNK_SIZE) * CHUNK_SIZE);
+        int expectedPrevious = getBaseBlock(sectionTarget);
         col.workPalette[section] = newStateId;
-        mutationBuffer.record(pos, expectedPrevious, newStateId, 0);
+        mutationBuffer.record(sectionTarget, expectedPrevious, newStateId, 0);
     }
 
     /**
@@ -215,7 +274,7 @@ public final class MutableRegionState implements RegionWorldView {
                     col.minY,
                     col.sectionCount));
         }
-        return new RegionSnapshot(region, newVersion, tick, out);
+        return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities());
     }
 
     /**
@@ -235,7 +294,9 @@ public final class MutableRegionState implements RegionWorldView {
      * @Thread-context thread-confined per call.
      */
     public RegionDelta toDelta(SnapshotVersion baseVersion, SnapshotVersion resultingVersion, StateRoot resultingRoot) {
-        return new RegionDelta(region, baseVersion, resultingVersion, mutationBuffer.sortedMutations(), resultingRoot);
+        return new RegionDelta(region, baseVersion, resultingVersion,
+                mutationBuffer.sortedMutations(), resultingRoot,
+                entityStore.mutations(), entityStore.credits(), transferIntents);
     }
 
     private ColumnModel columnAt(NBlockPos pos) {

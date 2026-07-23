@@ -14,7 +14,57 @@ plugins {
 }
 
 // NeoForge 21.1.x (MC 1.21.1, LTS). Single source of truth for the mod toolchain.
-the<NeoForgeExtension>().version = "21.1.77"
+// 21.1.238 matches the real test client at ~/.minecraft (Task 0 §6 pin reconciliation; was 21.1.77).
+the<NeoForgeExtension>().version = "21.1.238"
+
+// The L-45 exit's first half: `runClient`/`runServer` launch from Gradle. The mod under test is
+// this module's main source set; the harness (Xvfb log/screenshot assertions) drives these tasks.
+the<NeoForgeExtension>().apply {
+    mods.register("nodera") {
+        sourceSet(project.the<SourceSetContainer>()["main"])
+    }
+    runs.register("client") {
+        client()
+    }
+    runs.register("server") {
+        server()
+    }
+    // Scripted join smoke (the L-45 acceptance's join half): boots a client straight into the
+    // dev server via quick play, no GUI interaction needed. Own game dir so it does not fight
+    // the interactive client run over locks/options.
+    runs.register("clientJoin") {
+        client()
+        gameDirectory.set(project.layout.projectDirectory.dir("run-join"))
+        // Distinct offline username: with the continuity series running two dev clients at once, a
+        // duplicate name/UUID login would kick the host player the moment the joiner connects.
+        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+                "--username", "JoinerDev")
+    }
+    // Scripted HOST half of the continuity series (scripts/e2e-continuity.sh): boots a client
+    // straight into the pre-baked shared world "NoderaE2E" — the Task 33 auto-re-share puts it on
+    // the network with no GUI interaction. Own game dir for the same lock/options isolation.
+    runs.register("clientHost") {
+        client()
+        gameDirectory.set(project.layout.projectDirectory.dir("run-host"))
+        programArguments.addAll("--quickPlaySingleplayer", "NoderaE2E",
+                "--username", "HostDev")
+    }
+    // Player 1's NETWORK re-join (live Test 1, step 3): same game dir/identity as the host run,
+    // but connecting as a client to whoever now hosts the world on the conventional dev port.
+    runs.register("clientRejoin") {
+        client()
+        gameDirectory.set(project.layout.projectDirectory.dir("run-host"))
+        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+                "--username", "HostDev")
+    }
+    // Second interactive client for manual two-player testing (scripts/play-two.sh): own game
+    // dir + username, no quick play — the player drives the Nodera multiplayer UI by hand.
+    runs.register("clientTwo") {
+        client()
+        gameDirectory.set(project.layout.projectDirectory.dir("run-join"))
+        programArguments.addAll("--username", "JoinerDev")
+    }
+}
 
 // ModDevGradle forces a Java 21 toolchain onto the module (NeoForge runs on Java 21). Target
 // release 21 to match the pure-Java modules (nodera.java-library) and keep the

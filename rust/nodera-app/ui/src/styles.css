@@ -219,3 +219,21 @@ table.peers .num { text-align: right; font-family: var(--mono); }
 
 .mono { font-family: var(--mono); }
 .side .card { position: sticky; }
+
+/* Worker log panel (Task 32: peer system logs in the dashboard). */
+.logs-card { margin-top: 14px; }
+.logbox {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  height: 180px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  font-family: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--faint, #9aa4af);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

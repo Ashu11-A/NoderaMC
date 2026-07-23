@@ -28,8 +28,13 @@ public record NetworkEntityId(long value) implements Encodable, Comparable<Netwo
      * two regions at the same chunk coordinates in different dimensions never collide.
      */
     public static NetworkEntityId allocate(RegionId region, SnapshotVersion version, int seq) {
+        return allocate(region, version, (long) seq);
+    }
+
+    /** Long-sequence overload used with the canonical server action sequence. */
+    public static NetworkEntityId allocate(RegionId region, SnapshotVersion version, long seq) {
         long regionSeed = StableHash.of(region.toString());
-        long id = StableHash.of(regionSeed, version.value(), (long) seq);
+        long id = StableHash.of(regionSeed, version.value(), seq);
         return new NetworkEntityId(id);
     }
 

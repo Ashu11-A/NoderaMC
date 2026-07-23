@@ -5,27 +5,36 @@
 // and a list of discovery relays (trackers + rendezvous) styled like a VPN server list with live
 // green/red health dots. The Minecraft half is the hosted-world cards and the blocky, emerald-accented
 // dark theme. All numbers come from the real worker over the control endpoint (see ipc.ts / metrics.rs).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   fetchMetrics,
   onMetrics,
+  fetchSystemStats,
+  onSystemStats,
+  fetchWorkerLogs,
   formatBytes,
   formatRate,
   formatUptime,
   shortId,
   EMPTY_METRICS,
+  EMPTY_SYSTEM,
   type Metrics,
+  type SystemStats,
   type EndpointHealth,
 } from "./ipc";
 
 export function App() {
   const [m, setM] = useState<Metrics>(EMPTY_METRICS);
+  const [sys, setSys] = useState<SystemStats>(EMPTY_SYSTEM);
 
   useEffect(() => {
     fetchMetrics().then(setM).catch(() => {});
+    fetchSystemStats().then(setSys).catch(() => {});
     const un = onMetrics(setM);
+    const unSys = onSystemStats(setSys);
     return () => {
       un.then((f) => f()).catch(() => {});
+      unSys.then((f) => f()).catch(() => {});
     };
   }, []);
 
@@ -67,6 +76,35 @@ export function App() {
           />
         </section>
 
+        <section className="stat-row">
+          <StatTile
+            label="System CPU"
+            value={`${sys.machine_cpu_percent.toFixed(0)}%`}
+            sub="whole machine"
+            glyph="⚙"
+          />
+          <StatTile
+            label="System RAM"
+            value={formatBytes(sys.mem_used_bytes)}
+            sub={`of ${formatBytes(sys.mem_total_bytes)}`}
+            glyph="▤"
+          />
+          <StatTile
+            label="Worker CPU"
+            value={sys.worker_found ? `${sys.worker_cpu_percent.toFixed(0)}%` : "—"}
+            sub={sys.worker_found ? "100% = one core" : "worker not found"}
+            glyph="⚙"
+            tone={sys.worker_found ? undefined : "down"}
+          />
+          <StatTile
+            label="Worker RAM"
+            value={sys.worker_found ? formatBytes(sys.worker_rss_bytes) : "—"}
+            sub={sys.worker_found ? `pid ${sys.worker_pid}` : "worker not found"}
+            glyph="▤"
+            tone={sys.worker_found ? undefined : "down"}
+          />
+        </section>
+
         <div className="columns">
           <div className="col">
             <Worlds worlds={m.connected_worlds} />
@@ -77,6 +115,8 @@ export function App() {
             <Relays title="Rendezvous" hint="NAT reach / relay" rows={m.rendezvous} />
           </div>
         </div>
+
+        <WorkerLogs />
       </main>
     </div>
   );
@@ -273,6 +313,59 @@ function Relays(props: { title: string; hint: string; rows: EndpointHealth[] }) 
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+// The worker's live system log (Task 32): polls the Rust-side bounded ring every 2 s and
+// auto-follows the tail unless the user has scrolled up to read history.
+function WorkerLogs() {
+  const [lines, setLines] = useState<string[]>([]);
+  const boxRef = useRef<HTMLPreElement | null>(null);
+  const followRef = useRef(true);
+
+  useEffect(() => {
+    let alive = true;
+    const pull = () => {
+      fetchWorkerLogs()
+        .then((l) => {
+          if (alive) setLines(l);
+        })
+        .catch(() => {});
+    };
+    pull();
+    const timer = window.setInterval(pull, 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    if (box && followRef.current) box.scrollTop = box.scrollHeight;
+  }, [lines]);
+
+  return (
+    <section className="card logs-card">
+      <div className="card-head">
+        <h2>Worker log</h2>
+        <span className="card-hint">
+          {lines.length > 0 ? `last ${lines.length} lines` : "waiting for output"}
+        </span>
+      </div>
+      <pre
+        className="logbox"
+        ref={boxRef}
+        onScroll={() => {
+          const box = boxRef.current;
+          if (!box) return;
+          followRef.current =
+            box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+        }}
+      >
+        {lines.length > 0 ? lines.join("\n") : "No worker output yet."}
+      </pre>
     </section>
   );
 }

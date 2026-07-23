@@ -10,6 +10,7 @@ import dev.nodera.core.state.NBlockPos;
 import dev.nodera.simulation.DeterministicRandom;
 import dev.nodera.simulation.MutableRegionState;
 import dev.nodera.simulation.RegionWorldView;
+import dev.nodera.simulation.entity.ItemEntityRules;
 
 import java.util.BitSet;
 import java.util.Optional;
@@ -50,7 +51,7 @@ import java.util.Optional;
 public final class FlatWorldRules implements RuleSet {
 
     /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 1;
+    public static final int RULES_VERSION = 2;
 
     /** Palette id for air. */
     public static final int AIR = 0;
@@ -105,13 +106,14 @@ public final class FlatWorldRules implements RuleSet {
      * @Thread-context pure function; safe from any thread.
      */
     public static long registryFingerprint() {
-        long[] parts = new long[1 + PALETTE.length * 2];
+        long[] parts = new long[2 + PALETTE.length * 2];
         int i = 0;
-        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v1");
+        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v2");
         for (PaletteEntry e : PALETTE) {
             parts[i++] = e.id();
             parts[i++] = StableHash.of(e.name());
         }
+        parts[i] = ItemEntityRules.semanticFingerprint();
         return StableHash.of(parts);
     }
 

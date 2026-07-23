@@ -3,7 +3,6 @@ package dev.nodera.mod.client.multiplayer;
 import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
-import net.minecraft.client.gui.screens.worldselection.CreateWorldScreen;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 
 import java.util.List;
@@ -40,15 +39,10 @@ public final class MultiplayerScreenAddon {
         if (event.getScreen() instanceof JoinMultiplayerScreen) {
             // Replace vanilla's multiplayer screen with the Nodera-only surface. The new screen is not
             // a JoinMultiplayerScreen, so this listener does not re-fire for it (no loop). Parent is
-            // resolved to the title screen on close.
+            // resolved to the title screen on close. (The create-world integration lives in
+            // dev.nodera.mod.client.create.CreateWorldNoderaAddon.)
             Minecraft mc = Minecraft.getInstance();
             mc.setScreen(new NoderaMultiplayerScreen(null));
-        } else if (event.getScreen() instanceof CreateWorldScreen screen) {
-            var font = Minecraft.getInstance().font;
-            CreateTorrentWorldOption option = new CreateTorrentWorldOption(
-                    font, screen.width - 158, 8, 150);
-            event.addListener(option.toggleWidget());
-            event.addListener(option.passwordWidget());
         }
     }
 }

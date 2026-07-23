@@ -24,4 +24,7 @@ public interface WorldStore {
 
     /** @return the quorum-certificate store. */
     CertificateStore certificates();
+
+    /** @return durable cross-region transfer stages for crash recovery. */
+    TransferStore transfers();
 }

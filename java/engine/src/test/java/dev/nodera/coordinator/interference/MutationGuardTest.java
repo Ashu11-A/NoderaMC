@@ -18,6 +18,7 @@ class MutationGuardTest {
     private final RegionId delegated = new RegionId(DimensionKey.overworld(), 0, 0);
     private final RegionId vanilla = new RegionId(DimensionKey.overworld(), 9, 9);
     private final NBlockPos pos = new NBlockPos(5, 70, 5);
+    private final NBlockPos sectionPos = new NBlockPos(0, 64, 0);
 
     private final InterferenceBuffer buffer = new InterferenceBuffer();
     private final InterferenceStats stats = new InterferenceStats(100);
@@ -66,7 +67,7 @@ class MutationGuardTest {
                                 .isEqualTo(MutationGuard.Verdict.CONVERT)));
         List<RecordedMutation> drained = buffer.drain(delegated);
         assertThat(drained).containsExactly(
-                new RecordedMutation(pos, 0, 5, MutationSource.NEIGHBOR));
+                new RecordedMutation(sectionPos, 0, 5, MutationSource.NEIGHBOR));
         assertThat(stats.totalFor(delegated, MutationSource.NEIGHBOR)).isEqualTo(1);
         assertThat(guard.convertedWrites()).isEqualTo(1);
     }
@@ -76,6 +77,6 @@ class MutationGuardTest {
         MutationGuard guard = guard(MutationGuard.Mode.CONVERT);
         guard.verdict(delegated, pos, 0, 5);
         assertThat(buffer.drain(delegated))
-                .containsExactly(new RecordedMutation(pos, 0, 5, MutationSource.UNKNOWN));
+                .containsExactly(new RecordedMutation(sectionPos, 0, 5, MutationSource.UNKNOWN));
     }
 }

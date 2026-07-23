@@ -5,6 +5,8 @@
      from the most recent `./gradlew check`. Keep emojis consistent with README:
      ✅ all green · 🚧 partial (some sub-systems stubbed) · ⏳ in progress · ❌ failing. -->
 
+**Tests:** `1,015 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,159 total**).
+
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
 > **Task-numbering note (2026-07-21):** the task numbers cited throughout this file ("Task 19",
@@ -15,33 +17,131 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, canonical encoding, JDK-only crypto including Task 23 AES-GCM/PBKDF2 (frozen wire/hash contract) + Task 11 `ServerAuthorityCertificate` (tag 54) + Task 9 `CommitteeChangeCertificate` (tag 53) + Task 12a entity-lane foundation (tags 84-89) + Task 33 `WorldRole` + tags 92/93 | 164 | 0 | 0 | ✅ | 2026-07-21 |
-| `engine` | **unified deterministic-engine + validation API (issue #30)** — `dev.nodera.simulation.*` THE region engine (ArchUnit `ForbiddenApiTest` determinism ban + `DeterminismPropertyTest`, package-scoped and unchanged) + `consensus` quorum/vote/equivocation/spot-check + `shadow` Phase-1 shadow lane (`ShadowValidationIT`) + `coordinator` Phase-2 brain (leases/epochs/pipeline, `WorldMutationApplier`, Task 11 `interference` guard, `ReliabilityScorer`, `LagHandoffPolicy`, `CoordinatorIT`) + `committee` Phase-3 MVP gate (`CommitteeMvpIT`/`ByzantineWorkerTest`/`CrashRecoveryIT`/`LagHandoffIT`) + `fallback` Phase-4 router/soak (`FallbackRoutingIT`). Absorbs former `simulation`/`consensus`/`coordinator`/`committee`/`shadow-validation`/`fallback` (28+26+84+16+25+10 tests) | 189 | 0 | 0 | ✅ | 2026-07-21 |
-| `transport` | **unified network API (issue #30)** — wire plane `dev.nodera.protocol.*` (NoderaMessage records, append-only `MessageCodec` tags 0–45 mirrored byte-exact by `nodera-codec`, zstd `ChunkedStreams`, handshake/membership/discovery/content/rendezvous families, cross-language golden `WireFixtureTest`) + carrier plane `dev.nodera.transport{,.socket,.rendezvous}` (`PeerTransport` seam; `SocketPeerTransport` direct TCP; `RendezvousPeerTransport` direct-first/punch-upgrade/X25519+AES-GCM relay-fallback with `TransportSelector`/`EndToEndCipher`/`CandidateDialer`/`HolePunchCoordinator`, `RendezvousRelayIT` over the real binary) + shared `Frames` (one 16 MiB length-prefix framing) and `Reachability` probe. Absorbs former `protocol`/`transport-api`/`transport-socket`/`transport-rendezvous` (40+9+4+16 tests) + 5 support tests; empty `transport-neoforge` placeholder deleted | 75 | 0 | 0 | ✅ | 2026-07-21 |
-| `storage` | **unified storage API (issue #30)** — the `WorldStore` seam + value types (`ContentId`/`Compression`/`Checkpoint`/`GenesisManifest`, tags 81–83; Task 33 `WorldIdentity` tag 92 / `WorldPermissionGrant` tag 93 / `WorldPermissions`), the in-memory event-sourced tier (`event`: impls + certified-chain `EventReplayer` + forward `PeerSyncFlow`), the durable RocksDB tier (`rocksdb`: WAL-backed CFs, log-tail head recovery, `FsContentStore`, forced-kill `RocksCrashRecoveryIT`), the bounded client tier (`client`: `BoundedClientWorldStore`/`StorageQuotaManager`/`ArchiveEvictionPolicy`), and shared support (`EventChainGuard`, `RegionOrder`, `io.AtomicFileWriter`). Absorbs former `storage-api`/`storage-eventsourced`/`storage-rocksdb`/`storage-client` (22+13+10+9 tests) + 8 support tests | 62 | 0 | 0 | ✅ | 2026-07-21 |
-| `testing` | shared test library (issue #30; formerly `testkit`, package `dev.nodera.testkit` unchanged): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader`; future home of the multi-peer scenario suite | 14 | 0 | 0 | ✅ | 2026-07-21 |
-| `peer` | **unified peer API (issue #30)** — data plane `dev.nodera.distribution.*` (piece split/select/download/reassemble + `ChunkLockMap`, Task 19; bounded Argon2id + AES-GCM ciphertext swarm, Task 23; `ActivePlayerStream`/`EmergencyFlush`, Task 24; `DistributionIT`/`EncryptedDistributionIT`) + runtime `dev.nodera.peer.*` (membership/gossip, capability-weighted gateway election, certified-reference `TickSync`, `discovery` Tasks 20/28 incl. `TrackerClient`, `archival` placement/audit/repair Tasks 21/22, `PeerShutdownHook`, `CommitteeManager`, `control` verb endpoint `ControlProtocol` v2 — STATE/IDENTITY/HOST/JOIN/STOP/PASSWORD/WORLDID) + telemetry `dev.nodera.diagnostics.*` (traffic/rate/skew/TPS metrics, `TelemetrySnapshot`, view models incl. `TorrentWorldListView`/`PieceMapView`) + worker `dev.nodera.headless.*` (`HeadlessPeerMain`/`WorkerControlHandler`/`WorldHostingService`; installDist launcher stays `nodera-headless` for rust/nodera-app + scripts/dev.sh). Absorbs former `peer-runtime`/`distribution`/`diagnostics`/`nodera-headless` (120+78+75+7 tests); adopts shared `Frames`/`Reachability`/`AtomicFileWriter`; + `validation` lane (issue #30 goal pass): `WorkerValidationService` runs committee re-execution out-of-game over the transport (`WorkerQuorumValidationIT` — 3 companion-only workers quorum-commit, fail over, fallback lane; L-48 RETIRED) | 285 | 0 | 0 | 🚧 | 2026-07-21 |
-| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring on both dists (Task 30 — no dedicated-server gate), redesigned `/nodera` tree + `/noderac` + HUD surfaces, session payload, `client/multiplayer` screens + `client/share` "Share to Nodera" screen (Task 30) + Task 31 GUI redesign (`PauseScreenShareAddon` "Open to Nodera" replaces LAN, `SelectWorldScreenAddon` public-world badge, `NoderaMultiplayerScreen` tabbed Worlds/Trackers/Rendezvous + `PieceMapScreen`/`PieceMapWidget`) + Task 32/33 companion gate + control client (`CompanionGate`/`CompanionClient` verbs/`CompanionProtocol`/`CompanionLink`) + `NoderaWorldStore` (per-world `nodera-world.dat` identity) + host delegation/op-grant/password-authority wiring + `MultiplayerStatusFeed` (tracker/rendezvous tab fix) — no mixin, compiles + jar; `runClient` deferred | 29 | 0 | 0 | 🚧 | 2026-07-21 |
+| `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 211 | 0 | 0 | ✅ | 2026-07-22 |
+| `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics | 288 | 0 | 0 | ✅ | 2026-07-23 |
+| `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green | 79 | 0 | 0 | ✅ | 2026-07-23 |
+| `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103) | 72 | 0 | 0 | ✅ | 2026-07-22 |
+| `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-22 |
+| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 319 | 0 | 0 | 🚧 | 2026-07-23 |
+| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, and the continuity halves (`WorldArchiver` share/stop seeding, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload) | 32 | 0 | 0 | 🚧 | 2026-07-23 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **818** | **0** | **0** | ✅ | 2026-07-21 |
+| **TOTAL (implemented modules)** | | **1015** | **0** | **0** | ✅ | 2026-07-23 |
 
-Line coverage (JaCoCo, rides `./gradlew check` since issue #30 — XML/HTML per module under
-`java/<m>/build/reports/jacoco/`): core 82% · engine 85% · transport 85% · storage 86% ·
-peer 84% · testing 91% · neoforge-mod 12% (Minecraft-bound GUI/wiring — its live half is the
-`runClient` acceptance, not unit tests). Minecraft-free lane ≈84% overall.
+Line coverage (JaCoCo XML/HTML under `java/<m>/build/reports/jacoco/`): core 82.21% · engine
+87.18% · transport 85.32% · storage 79.96% · peer 82.17% · testing 90.91% · neoforge-mod 8.79%.
+Minecraft-free modules aggregate to ~83.7%; repository-wide coverage is ~73.3%, not 100%.
 
 Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (Task 27):
 
 | Crate | Responsibility | Tests | Failures | Status | Last run |
 |---|---|---:|---:|:---:|---|
-| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify (raw + Java X.509 keys), frozen tag mirror, socket framing; cross-language conformance vs `fixtures/wire/*.bin`; rendezvous family (tags 35–43) + `PeerCandidate`/`SignedPeerRecord` (Task 29) | 35 | 0 | ✅ | 2026-07-19 |
-| `nodera-tracker` | standalone tracker service: signed announce lifecycle + TTL expiry, per-world registry + isolation, sampling with seeder floor, health/countdown, per-IP quotas, TCP wire (Task 28) | 54 | 0 | ✅ | 2026-07-19 |
-| `nodera-rendezvous` | rendezvous + relay service (Task 29): signed-record registration (Ed25519, TTL, trust-on-first-use, per-IP quota), paged discovery, HMAC relay reservations, tokio circuit bridging with byte/duration/idle metering + teardown reasons, DCUtR punch coordination, TCP wire | 55 | 0 | ✅ | 2026-07-19 |
+| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify, frozen mirror through type tag 102/message tag 48, framing, and fixture conformance | 35 | 0 | ✅ | 2026-07-22 |
+| `nodera-tracker` | standalone tracker service: signed announce lifecycle + TTL expiry, per-world registry + isolation, sampling, health/countdown, quotas, TCP wire | 54 | 0 | ✅ | 2026-07-22 |
+| `nodera-rendezvous` | signed registration/discovery, HMAC relay reservations, metered circuits, punch coordination, and TCP wire | 55 | 0 | ✅ | 2026-07-22 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
 > ArchUnit determinism rules (no wall clocks / entropy / IO in `dev.nodera.simulation`) run in CI
 > once more, alongside `simulation/DeterminismPropertyTest`.
+>
+> **Live dev-run evidence (2026-07-22, not a test-count change):** the Task 5a `runs` block landed
+> (`runClient`/`runServer`/`runClientJoin` from Gradle, NeoForge pin reconciled 21.1.77 → 21.1.238,
+> Nodera project modules joined to the mod definition so FML's module classloader sees
+> `dev.nodera.*`, fastutil/slf4j aligned to Minecraft's strict pins, our third-party runtime libs
+> — rocksdb/caffeine/zstd/roaring/bouncycastle — on MDG's `additionalRuntimeClasspath`).
+> `runServer` boots to `Done (2.97s)` with zero errors and the host lane self-activating (persistent
+> identity, host peer on :25566, tracker announce); `runClient` reaches the title screen with the
+> companion gate's not-enforced warn path; the scripted `runClientJoin` (`--quickPlayMultiplayer`)
+> joins the shared world — `Dev joined the game`, the client's peer dials the host (`[host] peer
+> joined`), and with `entity.laneAutoActivate=true` the **Task 12 lane goes live on a real server:
+> `entity lane live on 12 region(s) around Dev`**, zero errors (one known one-time activation tick
+> stall — L-50). The tracker/rendezvous-path join + gameplay assertions remain L-45/L-50's last exits.
+>
+> **Live scripted gameplay assertion (2026-07-22, RCON-driven, no GUI input):** on a running
+> dedicated server + quick-play joining client with `entity.laneAutoActivate=true` and
+> `mobCaptureDimensions=["minecraft:overworld"]`, the Task 12 lane ran end-to-end: activation
+> **swept** pre-loaded entities into the lane (a live finding — pre-activation chunk joins were
+> never captured), ghost mobs streamed ~10k throttled captures, the solo committee committed
+> per-region deltas continuously (v1→v4+ observed), an RCON `summon` shifted the live totals, and
+> `/nodera entities` (now fed by `LiveEntityControlProvider` — the entities half of L-31) reported
+> **239 entities across 12 delegated regions**. Also confirmed live: with `mobCapture` off, every
+> mob-holding region gracefully revokes (acceptance #3) — now logged. Drop→pickup-exactly-once and
+> pearl scripted drives remain (L-50).
+>
+> **Test growth (1014 → 1015; tag 53) is the no-host ownership lane (2026-07-23, PASSED LIVE):**
+> every connected player now owns + validates its own FOV region set. The client announces its
+> peer node (`nodera:node`), the session broadcasts the deterministic plan inputs (`nodera:plan`),
+> every member derives the identical plan and activates its primary+validator regions, and the
+> joiner's client runs its own `WorkerValidationService` over its peer transport. Actions captured
+> on a non-owner forward to the owning player's node (`ActionForward`, tag 53) — only the owner
+> proposes; `ActionForwardIT` proves the forwarded quorum commit over the transport. Live (e2e
+> run 9, stage S2c): host `entity lane live on 13 region(s) across 2 member node(s)`; joiner
+> `client validation lane active on 13 region(s) — this player re-executes and votes for its own
+> region set`. Ownership re-plans on join/leave; stale plan broadcasts are ignored client-side.
+>
+> **Test growth (1000 → 1014 Java; message tags extended to 52) is the world-continuity lane
+> (2026-07-23)** — the acceptance "the host disconnects and the world must not die with them".
+> `transport` (+2): `WorldManifestQuery`/`WorldManifestAnswer` round-trips + frozen-registry
+> updates (tags 51/52, Rust mirror in the same change). `peer` (+10): `WorldArchiveTest` (the
+> canonical save-folder archive — byte-exact round trip, insertion-order determinism,
+> traversal-proof unpack, save filter, piece-manifest binding) and **`WorldContinuityIT`** — the
+> headless rehearsal of the full scripted series over the REAL `nodera-tracker` +
+> `nodera-rendezvous` binaries and real-TCP worker nodes driven by real control-socket verbs:
+> host worker HOSTs + SEEDs the world archive → tracker lists it with manifest seeders +
+> rendezvous returns the host record → the joiner's worker fetches the archive over the P2P piece
+> plane byte-exactly (`NODERA-ARCHIVE`) → the host's game endpoint drops → the host's **entire
+> worker dies** → the joiner still reproduces the complete world and the unpacked save re-opens.
+> The mod halves (share/stop seeding via `WorldArchiver`, `NoderaContinuity` rehost-on-disconnect
+> + network-first hostless join, the server-dist companion gate) are proven by the staged live
+> acceptance: **`scripts/e2e-continuity.sh` passed all seven stages on 2026-07-23** — real host
+> client auto-re-shares on quick-play, real joiner client in-world (two players, two workers,
+> tracker + rendezvous), 11.2 MB world archive seeded at share + final flush, host client killed,
+> and the joiner **recovered, re-opened, and re-hosted the world in 3 seconds** (fetch from the
+> peer network → `saves/` → auto-re-share → game port re-published). The series also caught and
+> fixed four live defects: dead `setClientPlayerReady`/`tickGamePublish` wiring (auto-re-shared
+> worlds were listed but never joinable), Mojang session auth refusing dev accounts
+> (`host.onlineAuth`, default secure), and the piece-plane silent-drop stall
+> (`PieceDownloader.retryPending` + bulk serve bounds on the archive lane).
+>
+> Test growth (997 → 1000 Java) is the **lease-sized quorum fix**: `WorkerValidationService`
+> hardcoded the 2-of-3 MVP profile everywhere, so any committee smaller than three — including the
+> solo host the decentralized FOV plan produces — timed out and revoked on every batch (latent:
+> idle smokes never submitted a batch). Quorum is now a strict majority of the LEASE's committee
+> (`MajorityQuorumPolicy.sizedTo`/`requiredForMajority`; transfers use true per-side majorities).
+> New: solo-committee commit proof (peer), sizedTo/majority table + solo-accept commit (engine).
+>
+> Test growth (989 → 997 Java; Rust remains 144, tag mirror extended to 103) is **Task 30c —
+> genesis-from-existing-world** (+8, `storage`): `CertifiedWorldGenesisTest` proves the host-signed
+> record (certify/verify, deterministic input-order-independent root, root commits to region
+> content and to world parameters alone when empty, encode/decode round-trip, tampered-signature
+> and foreign-key rejection, null rejection). Live: first share extracts FOV/spawn coarse region
+> digests, certifies with the host identity, persists `nodera-genesis.dat` (restart reuse proven:
+> identical mtime, zero re-certification); the entity lane now opens against the certified
+> manifest (`entity lane live … (genesis caa1f320…)`), and worldId derives from the certified root
+> with pre-30c derivation-matching continuity. Also hardened the flaky
+> `VoteCollectorTest.isTimedOutUsesWallClock` (born captured before construction — raced under
+> CPU load).
+>
+> Test growth (979 → 989 Java; Rust remains 144) is the **Task 12 live-activation bootstrap +
+> reconciliation increment** (+10, all `peer`): `EntityLaneBootstrapTest` (9) — deterministic
+> seed-derived genesis manifest pinned to `FlatWorldRules`, byte-stable all-AIR initial snapshots
+> matching the canonical `FakeRegion` fixture, epoch-1 leases from the FOV ownership plan
+> (closest-node-primary committees, map-order-independent), argument validation — and
+> `DurableActionJournalTest.abortPendingCompensatesOnlyReservedEntriesAndKeepsSequencesConsumed`:
+> a dirty shutdown's RESERVED actions are compensated at reopen while their sequence numbers stay
+> consumed and re-reservation with a different payload still fails. `NoderaHost` gained the
+> config-gated (`entity.laneAutoActivate`, default off) `activateEntityLaneFromWorld` wiring;
+> `LiveEntityLaneSession.open` now compensates instead of failing closed. Certified genesis
+> (Task 9/30c), per-joiner identities, and `runClient` evidence remain open under L-50.
+>
+> Test growth (944 → 979 Java; Rust remains 144) is the **Task 12 durability/live-composition
+> increment** (+35): jqwik 3-replica item fall/merge/despawn, ghost throttling + zombie-door combined
+> external delta, loaded-but-playerless isolation, pearl route policy, disjoint six-worker source/target
+> committees, Rocks paired-log/stage reopen, a forcibly killed PREPARED process recovering to one
+> entity and one paired history (`@Invariant(11)`), durable vote/action/inventory-credit journals, and
+> a 1,200-tick mixed item/ghost soak measuring **23,040 B/mob/min and 0 resync bps**. NeoForge
+> attachments/capture/projection/session composition compile; Task 5b genesis/region production and
+> automated `runClient` pickup/zombie/pearl evidence remain open under L-50.
 >
 > Test growth (185 → 199) is the adversarial-review remediation: added `CanonicalReaderBoundsTest`
 > (allocation-DoS bound), `TypeTagsTest` (tag registry snapshot), `MajorityQuorumPolicy` liveness

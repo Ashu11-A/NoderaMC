@@ -20,7 +20,7 @@ headless-first pattern.
 | 2a | Wire protocol + `PeerTransport` seam + chunked zstd streams + handshake design | ✅ headless (NeoForge relay impl + live handshake → 5b) | — |
 | 2b | Peer runtime: membership/gossip, capability-weighted gateway election, session-gateway migration, committee-change certification | 🚧 (continuity beta + election ✅; live cross-NAT migration demo ⏳) | 4c, 5b |
 | 2c | Event-sourced + durable storage: `WorldStore` seam, in-memory impl, RocksDB tier, crash recovery | ✅ (live forward sync + live manager wiring → 5b) | — |
-| 2d | Torrent distribution data plane: piece manifest, multi-seeder swarm, lock-until-arrived | ✅ (mod-side `ChunkLockMap` consumers → 5b/5d) | — |
+| 2d | Torrent distribution data plane: piece manifest, multi-seeder swarm, lock-until-arrived | ✅ (mod-side `ChunkLockMap` consumers → 5b/5d; **2026-07-23: first production consumer landed** — the world-continuity lane's `WorldArchive` files whole saves under `PieceManifest` (tags 51/52 manifest exchange) and the worker seeds/fetches them, `WorldContinuityIT`) | — |
 | 2e | Discovery: peer directory, archive inventory, 3-mechanism multi-bootstrap, persistent identity | ✅ (serving role moved to Task 3) | — |
 | 2f | Archive placement, replication ×5/×4/×3, seed floor/cap, audit + repair | ✅ (live churn soak → 5b) | — |
 | 2g | Multi-factor reliability, client storage quotas, 24 h retention-before-drop | ✅ (live wiring → 5b) | — |
@@ -43,7 +43,7 @@ region's committee (1e) still re-executes and commits — the data plane adds no
 
 ## Context (last audit: 2026-07-21)
 
-- All phases are proven headlessly; the module cluster carries the bulk of the 773 Java tests.
+- All phases are proven headlessly; the module cluster carries the bulk of the 979 Java tests.
   Landmark ITs: `SessionContinuityIT` (real-TCP base-peer-disconnection continuity + gateway
   re-election), `RocksCrashRecoveryIT` (forced-kill crash consistency), `DistributionIT`
   (region reassembled from 3 seeders each holding <40%, hashing to the engine's own root),

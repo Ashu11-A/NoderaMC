@@ -50,6 +50,21 @@ final class EntityActionsTest {
     }
 
     @Test
+    void dropRejectsCountAboveCanonicalU8InsteadOfTruncating() {
+        assertThatThrownBy(() -> new DropItemAction(1, 256, FixedVec3.ZERO))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("[1, 255]");
+    }
+
+    @Test
+    void dropAcceptsMaximumCanonicalU8Count() {
+        DropItemAction action = new DropItemAction(1, 255, FixedVec3.ZERO);
+        CanonicalWriter w = new CanonicalWriter();
+        action.encode(w);
+        assertThat(GameAction.decode(new CanonicalReader(w.toByteArray()))).isEqualTo(action);
+    }
+
+    @Test
     void pickupRejectsNullId() {
         assertThatThrownBy(() -> new PickupItemAction(null))
                 .isInstanceOf(IllegalArgumentException.class);

@@ -53,3 +53,8 @@ claude_code_zai_env.sh
 
 # Local agent/plugin settings (per-machine, not project config).
 /.claude/
+
+# NeoForge dev runs (MDG runClient/runServer/runClientJoin game dirs)
+java/neoforge-mod/run/
+java/neoforge-mod/run-join/
+java/neoforge-mod/run-host/

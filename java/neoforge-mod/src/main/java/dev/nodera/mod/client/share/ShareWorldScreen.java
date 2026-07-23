@@ -141,6 +141,19 @@ public final class ShareWorldScreen extends Screen {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, this.height / 4 - 24,
                 0xFFFFFF);
+        if (NoderaPeerService.get().isHosting()) {
+            String game = NoderaPeerService.get().gameRoute();
+            Component routeLine = game == null
+                    ? Component.translatable("nodera.share.status.offline")
+                    : Component.translatable("nodera.share.status.route", game);
+            guiGraphics.drawCenteredString(this.font, routeLine, this.width / 2,
+                    this.height / 4 - 12, game == null ? 0xC9814E : 0x6FBF73);
+        }
+        boolean worker = dev.nodera.mod.common.CompanionLink.isPresent();
+        Component workerLine = Component.translatable(worker
+                ? "nodera.share.status.worker.on" : "nodera.share.status.worker.off");
+        guiGraphics.drawCenteredString(this.font, workerLine, this.width / 2,
+                this.height - 40, worker ? 0x6FBF73 : 0xC9814E);
     }
 
     @Override

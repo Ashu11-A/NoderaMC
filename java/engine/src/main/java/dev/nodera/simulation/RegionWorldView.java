@@ -2,6 +2,8 @@ package dev.nodera.simulation;
 
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NBlockPos;
+import dev.nodera.core.state.NetworkEntityId;
+import dev.nodera.core.state.PersistedEntityState;
 
 /**
  * Read-only view over the region state a {@link dev.nodera.simulation.rules.RuleSet} validates
@@ -44,4 +46,7 @@ public interface RegionWorldView {
      * @Thread-context thread-confined per call.
      */
     RegionId region();
+
+    /** Return current canonical entity state, or {@code null} when absent. */
+    PersistedEntityState entity(NetworkEntityId id);
 }

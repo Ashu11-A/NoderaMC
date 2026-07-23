@@ -24,6 +24,8 @@ final class ServerAuthorityCertificateTest {
     private static final RegionId REGION = new RegionId(DimensionKey.overworld(), 0, 0);
     private static final StateRoot ROOT = StateRoot.of(Bytes.fromHex(
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"));
+    private static final StateRoot TRANSITION = StateRoot.of(Bytes.fromHex(
+            "f00102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"));
 
     @Test
     void signedPortionIsStrictPrefixOfEncodeAndExcludesSignature() {
@@ -41,7 +43,7 @@ final class ServerAuthorityCertificateTest {
     void encodeDecodeRoundTripAllReasons() {
         for (ServerAuthorityCertificate.Reason reason : ServerAuthorityCertificate.Reason.values()) {
             ServerAuthorityCertificate cert = new ServerAuthorityCertificate(
-                    REGION, new SnapshotVersion(3), new SnapshotVersion(4), ROOT, reason,
+                    REGION, new SnapshotVersion(3), new SnapshotVersion(4), ROOT, TRANSITION, reason,
                     Bytes.fromHex("abcd"));
             ServerAuthorityCertificate decoded =
                     ServerAuthorityCertificate.decode(new CanonicalReader(encode(cert)));
@@ -63,7 +65,7 @@ final class ServerAuthorityCertificateTest {
         // Tampering with any signed field (here: the resulting version) invalidates the signature.
         ServerAuthorityCertificate tampered = new ServerAuthorityCertificate(
                 cert.region(), cert.baseVersion(), new SnapshotVersion(9), cert.resultingRoot(),
-                cert.reason(), cert.serverSignature());
+                cert.transitionRoot(), cert.reason(), cert.serverSignature());
         assertThat(sigs.verify(server.publicKeyBytes(), tampered.signedPortion(), tampered.serverSignature()))
                 .isFalse();
     }
@@ -77,9 +79,26 @@ final class ServerAuthorityCertificateTest {
                 .hasMessageContaining("advance");
     }
 
+    @Test
+    void transitionEffectsAreSignedAndLegacyBytesRemainStable() {
+        ServerAuthorityCertificate current = sample(Bytes.empty());
+        ServerAuthorityCertificate altered = new ServerAuthorityCertificate(
+                current.region(), current.baseVersion(), current.resultingVersion(),
+                current.resultingRoot(), StateRoot.zero(), current.reason(), current.serverSignature());
+        ServerAuthorityCertificate legacy = new ServerAuthorityCertificate(
+                REGION, new SnapshotVersion(3), new SnapshotVersion(4), ROOT,
+                ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION, Bytes.fromHex("abcd"));
+        byte[] legacyBytes = encode(legacy);
+        assertThat(altered.signedPortion()).isNotEqualTo(current.signedPortion());
+        assertThat(ServerAuthorityCertificate.decode(new CanonicalReader(legacyBytes)))
+                .isEqualTo(legacy);
+        assertThat(encode(ServerAuthorityCertificate.decode(new CanonicalReader(legacyBytes))))
+                .isEqualTo(legacyBytes);
+    }
+
     private static ServerAuthorityCertificate sample(Bytes signature) {
         return new ServerAuthorityCertificate(
-                REGION, new SnapshotVersion(3), new SnapshotVersion(4), ROOT,
+                REGION, new SnapshotVersion(3), new SnapshotVersion(4), ROOT, TRANSITION,
                 ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION, signature);
     }
 

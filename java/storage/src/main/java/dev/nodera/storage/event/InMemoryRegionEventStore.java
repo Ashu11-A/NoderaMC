@@ -28,14 +28,31 @@ public final class InMemoryRegionEventStore implements RegionEventStore {
 
     @Override
     public void append(CommittedEventEnvelope event) {
-        if (event == null) {
-            throw new IllegalArgumentException("event must not be null");
+        appendAtomic(List.of(event));
+    }
+
+    @Override
+    public void appendAtomic(List<CommittedEventEnvelope> events) {
+        if (events == null || events.isEmpty()) {
+            throw new IllegalArgumentException("events must not be null/empty");
         }
-        List<CommittedEventEnvelope> log = logs.computeIfAbsent(event.region(), k -> new ArrayList<>());
-        long lastId = log.isEmpty() ? -1L : log.get(log.size() - 1).eventId();
-        EventChainGuard.checkAppend(event, lastId, heads.get(event.region()));
-        log.add(event);
-        heads.put(event.region(), event.resultingRoot());
+        Map<RegionId, Long> nextIds = new TreeMap<>(RegionOrder.BY_DIMENSION_XZ);
+        Map<RegionId, StateRoot> nextHeads = new TreeMap<>(RegionOrder.BY_DIMENSION_XZ);
+        for (CommittedEventEnvelope event : events) {
+            if (event == null) {
+                throw new IllegalArgumentException("event must not be null");
+            }
+            RegionId region = event.region();
+            long lastId = nextIds.computeIfAbsent(region, this::lastEventId);
+            StateRoot head = nextHeads.containsKey(region) ? nextHeads.get(region) : heads.get(region);
+            EventChainGuard.checkAppend(event, lastId, head);
+            nextIds.put(region, event.eventId());
+            nextHeads.put(region, event.resultingRoot());
+        }
+        for (CommittedEventEnvelope event : events) {
+            logs.computeIfAbsent(event.region(), ignored -> new ArrayList<>()).add(event);
+            heads.put(event.region(), event.resultingRoot());
+        }
     }
 
     @Override

@@ -1,15 +1,21 @@
 package dev.nodera.shadow;
 
+import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.state.BlockMutation;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
+import dev.nodera.core.state.EntityMutation;
+import dev.nodera.core.state.NetworkEntityId;
+import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.RegionSnapshot;
+import dev.nodera.core.state.StateRoot;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Advances a local replica {@link RegionSnapshot} by applying a {@link RegionDelta} (Task 5). This
@@ -31,6 +37,7 @@ import java.util.Map;
 public final class SnapshotDeltaApplier {
 
     private static final int CHUNK_SIZE = 16;
+    private static final HashService HASHES = new HashService();
 
     private SnapshotDeltaApplier() {
     }
@@ -103,13 +110,43 @@ public final class SnapshotDeltaApplier {
             work.get(key)[section] = m.newStateId();
         }
 
+        Map<NetworkEntityId, PersistedEntityState> entities = new TreeMap<>();
+        for (PersistedEntityState entity : base.entities()) {
+            entities.put(entity.id(), entity);
+        }
+        for (EntityMutation mutation : delta.entityMutations()) {
+            PersistedEntityState current = entities.get(mutation.id());
+            if (!java.util.Objects.equals(current, mutation.expectedPrevious())) {
+                throw new EntityReplicaDriftException(
+                        mutation.id(), mutation.expectedPrevious(), current);
+            }
+        }
+        for (EntityMutation mutation : delta.entityMutations()) {
+            if (mutation.newState() == null) {
+                entities.remove(mutation.id());
+            } else {
+                entities.put(mutation.id(), mutation.newState());
+            }
+        }
+
         List<ChunkColumnState> out = new ArrayList<>(base.chunks().size());
         for (Map.Entry<Long, int[]> e : work.entrySet()) {
             ChunkColumnState col = meta.get(e.getKey());
             out.add(new ChunkColumnState(col.chunkX(), col.chunkZ(), e.getValue(),
                     col.minY(), col.sectionCount()));
         }
-        return new RegionSnapshot(base.region(), delta.resultingVersion(), resultingTick, out);
+        int snapshotBodyVersion = base.bodyVersion() == 1 && delta.bodyVersion() == 1 ? 1
+                : RegionSnapshot.STATE_ENCODING_VERSION;
+        RegionSnapshot result = new RegionSnapshot(
+                base.region(), delta.resultingVersion(), resultingTick,
+                out, List.copyOf(entities.values()), snapshotBodyVersion);
+        StateRoot actualRoot = StateRoot.of(HASHES.hash(result));
+        if (!actualRoot.equals(delta.resultingRoot())) {
+            throw new IllegalStateException(
+                    "delta resulting root mismatch: expected " + delta.resultingRoot()
+                            + ", actual " + actualRoot);
+        }
+        return result;
     }
 
     private static long packChunk(int chunkX, int chunkZ) {

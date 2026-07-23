@@ -14,6 +14,7 @@ import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.border.BorderClassifier;
 import dev.nodera.simulation.rules.ActionRejection;
 import dev.nodera.simulation.rules.FlatWorldRules;
+import dev.nodera.simulation.rules.EntityRuleSet;
 import dev.nodera.simulation.rules.RuleSet;
 import dev.nodera.core.region.RegionBounds;
 
@@ -88,7 +89,7 @@ public final class FlatWorldRegionEngine implements RegionEngine {
         this.rulesVersion = rulesVersion;
         this.expectedRegistryFingerprint = expectedRegistryFingerprint;
         this.hashService = hashService;
-        this.ruleSet = new FlatWorldRules();
+        this.ruleSet = new EntityRuleSet();
     }
 
     @Override
@@ -106,6 +107,7 @@ public final class FlatWorldRegionEngine implements RegionEngine {
             throw new IllegalStateException(
                     "registryFingerprint mismatch: mixed-palette committees may not validate each other");
         }
+        validateAnchors(request);
 
         RegionBounds bounds = RegionBounds.of(ctx.region());
         MutableRegionState state = new MutableRegionState(request.snapshot(), bounds);
@@ -113,21 +115,34 @@ public final class FlatWorldRegionEngine implements RegionEngine {
         List<ActionRejection> rejections = new ArrayList<>();
         int applied = 0;
 
-        for (ActionEnvelope env : request.batch().actions()) {
-            if (BorderClassifier.isCrossRegion(env)) {
-                throw new IllegalStateException(
-                        "cross-region action reached the engine (coordinator must filter first): "
-                                + env.action() + " for " + env.region());
+        int localTickIndex = 0;
+        for (long tick = ctx.tickFrom(); ; tick++) {
+            for (ActionEnvelope env : request.batch().actions()) {
+                if (env.targetTick() != tick) {
+                    continue;
+                }
+                if (BorderClassifier.isCrossRegion(env)) {
+                    throw new IllegalStateException(
+                            "cross-region action reached the engine (coordinator must filter first): "
+                                    + env.action() + " for " + env.region());
+                }
+                DeterministicRandom rng = new DeterministicRandom(
+                        DeterministicRandom.seedFor(ctx, ctx.worldSeed(), env.serverSeq()));
+                Optional<ActionRejection> rejection = ruleSet.validate(state, env);
+                if (rejection.isPresent()) {
+                    rejections.add(rejection.get());
+                    continue;
+                }
+                ruleSet.apply(state, env, rng);
+                applied++;
             }
+            long tickSequence = (0x454E545FL << 32) | Integer.toUnsignedLong(localTickIndex++);
             DeterministicRandom rng = new DeterministicRandom(
-                    DeterministicRandom.seedFor(ctx, ctx.worldSeed(), env.serverSeq()));
-            Optional<ActionRejection> rejection = ruleSet.validate(state, env);
-            if (rejection.isPresent()) {
-                rejections.add(rejection.get());
-                continue;
+                    DeterministicRandom.seedFor(ctx, ctx.worldSeed(), tickSequence));
+            ruleSet.tick(state, tick, rng);
+            if (tick == ctx.tickTo()) {
+                break;
             }
-            ruleSet.apply(state, env, rng);
-            applied++;
         }
 
         SnapshotVersion resultingVersion = ctx.baseVersion().next();
@@ -142,5 +157,38 @@ public final class FlatWorldRegionEngine implements RegionEngine {
                 state.toDelta(ctx.baseVersion(), resultingVersion, resultingRoot),
                 resultingRoot,
                 new RegionExecutionResult.ExecutionStats(applied, rejected, 0L, List.copyOf(rejections)));
+    }
+
+    private static void validateAnchors(RegionExecutionRequest request) {
+        RegionExecutionContext context = request.context();
+        RegionSnapshot snapshot = request.snapshot();
+        dev.nodera.core.action.ActionBatch batch = request.batch();
+        if (!context.region().equals(snapshot.region()) || !context.region().equals(batch.region())) {
+            throw new IllegalStateException("context, snapshot, and batch regions must match");
+        }
+        if (!context.baseVersion().equals(snapshot.version())
+                || !context.baseVersion().equals(batch.baseVersion())) {
+            throw new IllegalStateException("context, snapshot, and batch base versions must match");
+        }
+        if (!context.epoch().equals(batch.epoch())) {
+            throw new IllegalStateException("context and batch epochs must match");
+        }
+        if (context.tickFrom() != batch.tickFrom() || context.tickTo() != batch.tickTo()) {
+            throw new IllegalStateException("context and batch tick ranges must match");
+        }
+        if (snapshot.tick() > context.tickFrom()) {
+            throw new IllegalStateException(
+                    "snapshot tick " + snapshot.tick() + " is after batch tick "
+                            + context.tickFrom());
+        }
+        for (ActionEnvelope action : batch.actions()) {
+            if (!action.region().equals(context.region())) {
+                throw new IllegalStateException("action region does not match execution region");
+            }
+            if (action.targetTick() < context.tickFrom() || action.targetTick() > context.tickTo()) {
+                throw new IllegalStateException(
+                        "action target tick outside batch range: " + action.targetTick());
+            }
+        }
     }
 }

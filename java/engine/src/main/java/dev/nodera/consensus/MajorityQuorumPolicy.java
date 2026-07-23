@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * Fixed-threshold majority quorum: commit iff at least {@link #required(int)} distinct voters cast
- * ACCEPT for the same {@link StateRoot resultingRoot} (Task 7 consensus/).
+ * ACCEPT for the same resulting state root and transition root (Task 7 consensus/).
  *
  * <p>Two standard profiles, both strict majorities:
  * <ul>
@@ -72,6 +72,22 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
         }
         this.committeeSize = committeeSize;
         this.required = required;
+    }
+
+    /**
+     * A strict-majority policy sized to an <b>actual</b> committee (the decentralized FOV plan
+     * produces committees of 1, 2, or 3+): {@code required = committeeSize / 2 + 1}.
+     */
+    public static MajorityQuorumPolicy sizedTo(int committeeSize) {
+        return new MajorityQuorumPolicy(committeeSize, requiredForMajority(committeeSize));
+    }
+
+    /** The strict-majority ACCEPT threshold for a committee of {@code committeeSize}. */
+    public static int requiredForMajority(int committeeSize) {
+        if (committeeSize <= 0) {
+            throw new IllegalArgumentException("committeeSize must be > 0: " + committeeSize);
+        }
+        return committeeSize / 2 + 1;
     }
 
     /** The Task 7 MVP profile: 2-of-3 (1 primary + 2 validators). */
@@ -145,6 +161,12 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
                 if (v == null) {
                     continue;
                 }
+                if (v.bodyVersion() >= 3
+                        && (!key.region().equals(v.region())
+                        || !key.epoch().equals(v.epoch())
+                        || !key.version().equals(v.baseVersion()))) {
+                    continue;
+                }
                 byVoter.putIfAbsent(v.voter(), v);
             }
         }
@@ -161,17 +183,19 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
         int acceptCount = accepts.size();
 
         if (acceptCount >= required) {
-            Map<StateRoot, List<SignedVote>> byRoot = new LinkedHashMap<>();
+            Map<VoteTarget, List<SignedVote>> byRoot = new LinkedHashMap<>();
             for (SignedVote a : accepts) {
-                byRoot.computeIfAbsent(a.resultingRoot(), r -> new ArrayList<>()).add(a);
+                VoteTarget target = new VoteTarget(
+                        a.resultingRoot(), a.transitionRoot(), a.batchRoot());
+                byRoot.computeIfAbsent(target, ignored -> new ArrayList<>()).add(a);
             }
-            StateRoot committedRoot = null;
+            VoteTarget committedTarget = null;
             List<SignedVote> committedVotes = null;
             int rootsWithQuorum = 0;
-            for (Map.Entry<StateRoot, List<SignedVote>> e : byRoot.entrySet()) {
+            for (Map.Entry<VoteTarget, List<SignedVote>> e : byRoot.entrySet()) {
                 if (e.getValue().size() >= required) {
                     rootsWithQuorum++;
-                    committedRoot = e.getKey();
+                    committedTarget = e.getKey();
                     committedVotes = e.getValue();
                 }
             }
@@ -181,7 +205,7 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
                         key.epoch(),
                         key.version(),
                         prevRoot,
-                        committedRoot,
+                        committedTarget.resultingRoot(),
                         committedVotes);
                 return new Decision.Commit(cert);
             }
@@ -212,5 +236,9 @@ public final class MajorityQuorumPolicy implements QuorumPolicy {
         }
 
         return new Decision.Unresolved(key, acceptCount, required);
+    }
+
+    private record VoteTarget(
+            StateRoot resultingRoot, StateRoot transitionRoot, StateRoot batchRoot) {
     }
 }

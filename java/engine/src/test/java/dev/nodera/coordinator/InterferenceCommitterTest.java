@@ -11,6 +11,11 @@ import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
+import dev.nodera.core.Bytes;
+import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedVec3;
+import dev.nodera.core.state.NetworkEntityId;
+import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.coordinator.interference.InterferenceBuffer;
 import dev.nodera.coordinator.interference.InterferenceCommitter;
 import dev.nodera.coordinator.interference.InterferenceStats;
@@ -23,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The Task 11 headless acceptance flows (#1 guard conversion, #3 ordering): a scripted foreign
@@ -54,7 +60,8 @@ class InterferenceCommitterTest {
         sinkCerts = new ArrayList<>();
         committer = new InterferenceCommitter(
                 buffer,
-                (r, v) -> rootOf(world, r, v),
+                (r, v, bodyVersion) -> rootOf(world, r, v, bodyVersion),
+                world::setSnapshotBodyVersion,
                 (delta, cert) -> {
                     sinkDeltas.add(delta);
                     sinkCerts.add(cert);
@@ -82,6 +89,7 @@ class InterferenceCommitterTest {
         assertThat(cert.reason()).isEqualTo(ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION);
         assertThat(cert.baseVersion()).isEqualTo(SnapshotVersion.INITIAL);
         assertThat(cert.resultingVersion()).isEqualTo(SnapshotVersion.INITIAL.next());
+        assertThat(cert.transitionRoot()).isEqualTo(StateRoot.of(CoordFixtures.hashes().hash(delta)));
         assertThat(signatures.verify(server.publicKeyBytes(), cert.signedPortion(), cert.serverSignature()))
                 .isTrue();
 
@@ -93,6 +101,25 @@ class InterferenceCommitterTest {
         assertThat(rootOf(replica, region, cert.resultingVersion()))
                 .isEqualTo(cert.resultingRoot())
                 .isEqualTo(rootOf(world, region, cert.resultingVersion()));
+    }
+
+    @Test
+    void legacyBlockInterferencePromotesSnapshotEncodingBeforeCertification() {
+        RegionSnapshot current = CoordFixtures.fullUniformSnapshot(region, 0);
+        RegionSnapshot legacy = new RegionSnapshot(
+                region, current.version(), current.tick(), current.chunks(), List.of(), 1);
+        world.load(legacy);
+        NBlockPos pos = new NBlockPos(5, 70, 5);
+        world.setBlock(region, pos, 7);
+        buffer.record(region, new dev.nodera.coordinator.interference.RecordedMutation(
+                pos, 0, 7, dev.nodera.coordinator.interference.MutationSource.UNKNOWN));
+        RegionDelta delta = committer.onTickEnd(r -> PipelineState.ACTIVE).getFirst();
+        InMemoryWorldView replica = new InMemoryWorldView();
+        replica.load(legacy);
+        assertThat(new WorldMutationApplier(replica).apply(delta).committed()).isTrue();
+        assertThat(rootOf(replica, region, delta.resultingVersion()))
+                .isEqualTo(delta.resultingRoot());
+        assertThat(replica.reExtract(region, delta.resultingVersion(), 0).bodyVersion()).isEqualTo(2);
     }
 
     @Test
@@ -156,8 +183,105 @@ class InterferenceCommitterTest {
         assertThat(committer.trackedVersion(region)).contains(postBatch.next());
     }
 
+    @Test
+    void ghostEntityChangeUsesSameCertifiedExternalDeltaAndReplicaPath() {
+        PersistedEntityState ghost = new PersistedEntityState(
+                new NetworkEntityId(7), EntityKind.GHOST, 54,
+                FixedVec3.ofBlock(5, 70, 5), FixedVec3.ZERO,
+                0, PersistedEntityState.NEVER_DESPAWN, Bytes.empty());
+
+        // Vanilla mob capture updates the live view first, then records the exact external change.
+        world.setEntity(region, ghost);
+        buffer.recordEntity(region, null, ghost);
+        RegionDelta external = committer.onTickEnd(r -> PipelineState.ACTIVE).getFirst();
+
+        assertThat(external.blockMutations()).isEmpty();
+        assertThat(external.entityMutations()).singleElement().satisfies(mutation ->
+                assertThat(mutation.newState()).isEqualTo(ghost));
+        assertThat(sinkCerts.getFirst().reason())
+                .isEqualTo(ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION);
+
+        InMemoryWorldView replica = new InMemoryWorldView();
+        replica.load(CoordFixtures.fullUniformSnapshot(region, 0));
+        assertThat(new WorldMutationApplier(replica).apply(external).committed()).isTrue();
+        assertThat(rootOf(replica, region, external.resultingVersion()))
+                .isEqualTo(rootOf(world, region, external.resultingVersion()));
+    }
+
+    @Test
+    void zombieGhostAndDoorBreakShareOneCertifiedExternalDelta() {
+        PersistedEntityState zombie = new PersistedEntityState(
+                new NetworkEntityId(54), EntityKind.GHOST, 54,
+                FixedVec3.ofBlock(5, 70, 5), FixedVec3.ZERO,
+                1, PersistedEntityState.NEVER_DESPAWN, Bytes.fromHex("01"));
+        NBlockPos doorSection = new NBlockPos(16, 64, 16);
+        world.setEntity(region, zombie);
+        world.setBlock(region, doorSection, 0);
+        buffer.recordEntity(region, null, zombie);
+        buffer.record(region, new dev.nodera.coordinator.interference.RecordedMutation(
+                doorSection, 7, 0,
+                dev.nodera.coordinator.interference.MutationSource.ENTITY));
+
+        RegionDelta external = committer.onTickEnd(r -> PipelineState.ACTIVE).getFirst();
+
+        assertThat(external.entityMutations()).hasSize(1);
+        assertThat(external.blockMutations()).hasSize(1);
+        assertThat(sinkCerts.getFirst().reason())
+                .isEqualTo(ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION);
+        InMemoryWorldView replica = new InMemoryWorldView();
+        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        replica.load(base);
+        replica.setBlock(region, doorSection, 7);
+        assertThat(new WorldMutationApplier(replica).apply(external).committed()).isTrue();
+        assertThat(rootOf(replica, region, external.resultingVersion()))
+                .isEqualTo(rootOf(world, region, external.resultingVersion()));
+    }
+
+    @Test
+    void sinkFailureRetainsMutationAndDoesNotAdvanceVersion() {
+        RegionSnapshot current = CoordFixtures.fullUniformSnapshot(region, 0);
+        world.load(new RegionSnapshot(
+                region, current.version(), current.tick(), current.chunks(), List.of(), 1));
+        NBlockPos pos = new NBlockPos(5, 70, 5);
+        world.setBlock(region, pos, 7);
+        buffer.record(region, new dev.nodera.coordinator.interference.RecordedMutation(
+                pos, 0, 7, dev.nodera.coordinator.interference.MutationSource.UNKNOWN));
+        int[] attempts = {0};
+        InterferenceCommitter retrying = new InterferenceCommitter(
+                buffer,
+                (r, v, bodyVersion) -> rootOf(world, r, v, bodyVersion),
+                world::setSnapshotBodyVersion,
+                (delta, certificate) -> {
+                    if (attempts[0]++ == 0) {
+                        throw new IllegalStateException("broadcast unavailable");
+                    }
+                },
+                server);
+        retrying.onCommittedVersion(region, SnapshotVersion.INITIAL);
+
+        assertThatThrownBy(() -> retrying.onTickEnd(r -> PipelineState.ACTIVE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("broadcast unavailable");
+        assertThat(retrying.trackedVersion(region)).contains(SnapshotVersion.INITIAL);
+        assertThat(buffer.isEmpty(region)).isFalse();
+        assertThat(world.reExtract(region, SnapshotVersion.INITIAL, 0).bodyVersion()).isEqualTo(1);
+
+        assertThat(retrying.onTickEnd(r -> PipelineState.ACTIVE)).hasSize(1);
+        assertThat(retrying.trackedVersion(region)).contains(SnapshotVersion.INITIAL.next());
+        assertThat(buffer.isEmpty(region)).isTrue();
+        assertThat(world.reExtract(region, SnapshotVersion.INITIAL.next(), 0).bodyVersion()).isEqualTo(2);
+    }
+
     /** The shared extraction convention for this test: canonical snapshot at (version, tick 0). */
     private static StateRoot rootOf(InMemoryWorldView view, RegionId region, SnapshotVersion version) {
         return StateRoot.of(CoordFixtures.hashes().hash(view.reExtract(region, version, 0L)));
+    }
+
+    private static StateRoot rootOf(
+            InMemoryWorldView view, RegionId region, SnapshotVersion version, int bodyVersion) {
+        RegionSnapshot extracted = view.reExtract(region, version, 0L);
+        RegionSnapshot encoded = new RegionSnapshot(
+                region, version, extracted.tick(), extracted.chunks(), extracted.entities(), bodyVersion);
+        return StateRoot.of(CoordFixtures.hashes().hash(encoded));
     }
 }

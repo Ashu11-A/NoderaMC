@@ -157,8 +157,8 @@ final class SessionKeepAliveCodecTest {
                 .hasMessageContaining("unsupported message encoding version 2");
         assertThat(MessageCodec.ENCODING_VERSION).isEqualTo(1);
         assertThat(MessageCodec.TAG_SESSION_KEEP_ALIVE).isEqualTo(23);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(45);
-        assertThat(MessageCodec.KNOWN_TAGS).hasSize(45).doesNotHaveDuplicates();
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(53);
+        assertThat(MessageCodec.KNOWN_TAGS).hasSize(53).doesNotHaveDuplicates();
     }
 
     private static RegionProgress progress(

@@ -18,7 +18,8 @@ final class MultiplayerWorldFeedTest {
     @Test
     void hostedWorldsBecomeListedWorldsOwnedByTheLocalPlayer() {
         String state = "{\"connected_worlds\":["
-                + "{\"world_id\":\"deadbeef\",\"name\":\"My World\",\"players\":2}"
+                + "{\"world_id\":\"deadbeef\",\"name\":\"My World\",\"players\":2,"
+                + "\"mc_route\":\"192.168.0.9:25565\"}"
                 + "],\"daemon_up\":true}";
         List<TorrentWorldEntry> entries = MultiplayerWorldFeed.buildEntries(state, "Steve");
 
@@ -28,7 +29,36 @@ final class MultiplayerWorldFeedTest {
             assertThat(e.hostName()).isEqualTo("Steve");
             assertThat(e.hasHost()).isTrue();
             assertThat(e.health()).isEqualTo(WorldHealth.HEALTHY);
+            assertThat(e.worldIdHex()).isEqualTo("deadbeef");
+            assertThat(e.mcRoute()).isEqualTo("192.168.0.9:25565");
         });
+    }
+
+    @Test
+    void trackerCatalogEntriesBecomeNetworkWorlds() {
+        var catalog = List.of(new dev.nodera.protocol.discovery.TrackerCatalogEntry(
+                dev.nodera.core.Bytes.fromHex("cafebabe"), "Ashu's SMP", 4, 128, 9_500,
+                WorldHealth.HEALTHY, 0L));
+        List<TorrentWorldEntry> entries = MultiplayerWorldFeed.buildNetworkEntries(catalog);
+
+        assertThat(entries).singleElement().satisfies(e -> {
+            assertThat(e.name()).isEqualTo("Ashu's SMP");
+            assertThat(e.playerCount()).isEqualTo(4);
+            assertThat(e.worldIdHex()).isEqualTo("cafebabe");
+            assertThat(e.mcRoute()).isEmpty();
+            assertThat(e.retentionSecondsRemaining()).isNegative();
+        });
+    }
+
+    @Test
+    void aWorldWhoseHostGameIsClosedListsWithoutAGameEndpoint() {
+        String state = "{\"connected_worlds\":["
+                + "{\"world_id\":\"deadbeef\",\"name\":\"My World\",\"players\":0,\"mc_route\":\"\"}"
+                + "]}";
+        assertThat(MultiplayerWorldFeed.buildEntries(state, "Steve"))
+                .singleElement()
+                .extracting(TorrentWorldEntry::mcRoute)
+                .isEqualTo("");
     }
 
     @Test

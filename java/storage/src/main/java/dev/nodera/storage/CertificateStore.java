@@ -2,6 +2,7 @@ package dev.nodera.storage;
 
 import dev.nodera.core.Bytes;
 import dev.nodera.core.consensuscert.QuorumCertificate;
+import dev.nodera.core.consensuscert.EntityTransferCertificate;
 
 import java.util.Optional;
 
@@ -18,6 +19,9 @@ public interface CertificateStore {
     /** Store a certificate and return its content id (idempotent by content). */
     ContentId put(QuorumCertificate certificate);
 
+    /** Store a joint transfer certificate and return its content id. */
+    ContentId put(EntityTransferCertificate certificate);
+
     /** @return the certificate for {@code id}, or empty if absent. */
     Optional<QuorumCertificate> get(ContentId id);
 
@@ -27,6 +31,9 @@ public interface CertificateStore {
      *         verify that every committed event is backed by a matching certificate (Invariant 3).
      */
     Optional<QuorumCertificate> getByHash(Bytes hash);
+
+    /** Resolve a joint transfer certificate by its content hash. */
+    Optional<EntityTransferCertificate> getTransferByHash(Bytes hash);
 
     /** @return {@code true} if {@code id} is present. */
     boolean has(ContentId id);

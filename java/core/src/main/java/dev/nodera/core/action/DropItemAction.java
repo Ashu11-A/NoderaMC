@@ -22,14 +22,15 @@ public record DropItemAction(int itemStackId, int count, FixedVec3 origin) imple
     /**
      * Compact constructor.
      *
-     * @throws IllegalArgumentException if {@code origin} is null or {@code count} is not positive.
+     * @throws IllegalArgumentException if {@code origin} is null or {@code count} is outside the
+     *                                  canonical unsigned-byte range {@code [1, 255]}.
      */
     public DropItemAction {
         if (origin == null) {
             throw new IllegalArgumentException("origin must not be null");
         }
-        if (count <= 0) {
-            throw new IllegalArgumentException("count must be positive: " + count);
+        if (count <= 0 || count > 255) {
+            throw new IllegalArgumentException("count must be in [1, 255]: " + count);
         }
     }
 

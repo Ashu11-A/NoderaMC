@@ -77,8 +77,10 @@ final class VoteCollectorTest {
 
     @Test
     void isTimedOutUsesWallClock() throws InterruptedException {
-        VoteCollector collector = new VoteCollector(KEY, MajorityQuorumPolicy.mvp(), PREV, 1L);
+        // Capture `born` BEFORE construction: createdAtMillis >= born, so `born` is deterministically
+        // inside the window regardless of scheduling delays (this raced under CPU load before).
         long born = System.currentTimeMillis();
+        VoteCollector collector = new VoteCollector(KEY, MajorityQuorumPolicy.mvp(), PREV, 1L);
         Thread.sleep(5L);
         assertThat(collector.isTimedOut(born + 10_000L)).isTrue();
         assertThat(collector.isTimedOut(born)).isFalse();

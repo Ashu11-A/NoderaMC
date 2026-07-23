@@ -6,6 +6,7 @@ import dev.nodera.core.crypto.Encodable;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.crypto.TypeTags;
 import dev.nodera.core.state.ChunkColumnState;
+import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.storage.ContentId;
@@ -113,21 +114,30 @@ public final class RegionSnapshotSplitter {
         Objects.requireNonNull(snapshot, "snapshot");
 
         List<ChunkColumnState> chunks = snapshot.chunks();
+        List<PersistedEntityState> entities = snapshot.entities();
         // Mirror RegionSnapshot.encode field for field, recording the offset at which each chunk
         // record starts. Record 0 is the frame header (tag, version, region, version, tick, list
         // count); it is not a chunk, so it is not in pieceOfChunk.
         CanonicalWriter w = new CanonicalWriter(1024);
-        w.writeU16(TypeTags.REGION_SNAPSHOT).writeU16(Encodable.ENCODING_VERSION);
+        w.writeU16(TypeTags.REGION_SNAPSHOT).writeU16(snapshot.bodyVersion());
         snapshot.region().encode(w);
         snapshot.version().encode(w);
         w.writeU64(snapshot.tick());
         w.writeU32(chunks.size());
 
-        int[] recordStarts = new int[chunks.size() + 1];
+        int entityRecordCount = snapshot.bodyVersion() >= 2 ? entities.size() : 0;
+        int[] recordStarts = new int[chunks.size() + entityRecordCount + 1];
         recordStarts[0] = 0;
         for (int i = 0; i < chunks.size(); i++) {
             recordStarts[i + 1] = w.size();
             chunks.get(i).encode(w);
+        }
+        if (snapshot.bodyVersion() >= 2) {
+            w.writeU32(entities.size());
+            for (int i = 0; i < entities.size(); i++) {
+                recordStarts[chunks.size() + i + 1] = w.size();
+                entities.get(i).encode(w);
+            }
         }
         byte[] blob = w.toByteArray();
 
@@ -145,7 +155,8 @@ public final class RegionSnapshotSplitter {
         List<Piece> pieces = PieceSplitter.split(blob, recordStarts, pieceTargetBytes);
         // recordStarts[0] is the header; chunk i corresponds to recordStarts[i + 1].
         List<Integer> pieceOfRecord = PieceSplitter.pieceOfRecord(recordStarts, pieces);
-        List<Integer> pieceOfChunk = List.copyOf(pieceOfRecord.subList(1, pieceOfRecord.size()));
+        List<Integer> pieceOfChunk = List.copyOf(
+                pieceOfRecord.subList(1, chunks.size() + 1));
 
         Bytes blobHash = HASHES.sha256(blob);
         ContentId contentId = new ContentId(blobHash, blob.length, dev.nodera.storage.Compression.NONE);

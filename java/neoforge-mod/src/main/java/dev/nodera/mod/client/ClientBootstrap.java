@@ -42,11 +42,24 @@ public final class ClientBootstrap {
     /** Called from {@link dev.nodera.mod.NoderaClientMod} ({@code Dist.CLIENT} only). */
     public static void register(IEventBus modBus, ModContainer container) {
         modBus.addListener(ClientBootstrap::onClientSetup);  // Task 32: companion presence gate
+        NeoForge.EVENT_BUS.addListener(ClientBootstrap::onLoggingIn);
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onLoggingOut);
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onRegisterClientCommands);
         NeoForge.EVENT_BUS.addListener(MultiplayerScreenAddon::onScreenInit);
+        NeoForge.EVENT_BUS.addListener(
+                dev.nodera.mod.client.multiplayer.NoderaContinuity::onScreenOpening); // continuity rehost
+        dev.nodera.mod.common.ModNetworking.setSessionWorldListener(
+                dev.nodera.mod.client.multiplayer.NoderaContinuity::onJoining);
+        // No-host ownership: every plan broadcast re-derives this player's own region set and
+        // starts/refreshes the client-side validation lane (re-execute + vote over the mesh).
+        dev.nodera.mod.common.ModNetworking.setPlanListener(
+                dev.nodera.mod.client.entity.ClientValidationLane::apply);
         NeoForge.EVENT_BUS.addListener(PauseScreenShareAddon::onScreenInit);  // Task 31a: pause-menu "Open to Nodera"
         NeoForge.EVENT_BUS.addListener(SelectWorldScreenAddon::onScreenRender);  // Task 31b: public-world badge
+        NeoForge.EVENT_BUS.addListener(
+                dev.nodera.mod.client.title.TitleScreenAddon::onScreenInit);   // Realms slot → Nodera Network
+        NeoForge.EVENT_BUS.addListener(
+                dev.nodera.mod.client.create.CreateWorldNoderaAddon::onScreenInit); // create-world share options
     }
 
     /**
@@ -64,11 +77,14 @@ public final class ClientBootstrap {
                 dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::trackers);
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRendezvousSupplier(
                 dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::rendezvous);
-        // Worlds tab: feed the worlds this install's always-on worker is hosting (survives game close),
-        // so a shared world actually appears in the Multiplayer list with the local player as owner.
+        // Worlds tab: the union of this install's worker-hosted worlds (owner = the local player,
+        // live joinability) and the tracker directory (other players' public worlds). The Refresh
+        // button re-pulls both on demand; Join rides the default NoderaJoinFlow handler.
         dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed.start();
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setWorldSupplier(
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::snapshot);
+        dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRefreshHandler(
+                dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::requestRefresh);
 
         String endpoint = NoderaConfig.COMPANION_CONTROL_ENDPOINT.get();
         boolean required = NoderaConfig.COMPANION_REQUIRED.get();
@@ -107,7 +123,19 @@ public final class ClientBootstrap {
         });
     }
 
+    /**
+     * The local player now exists — the signal {@code NoderaHost.tickGamePublish} waits for
+     * before opening the integrated server (vanilla's publish path dereferences
+     * {@code minecraft.player}). Without this, a world shared before login — every
+     * auto-re-share — stays listed but never joinable.
+     */
+    private static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
+        dev.nodera.mod.common.NoderaHost.setClientPlayerReady(true);
+    }
+
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        dev.nodera.mod.common.NoderaHost.setClientPlayerReady(false);
+        dev.nodera.mod.client.entity.ClientValidationLane.stop();
         NoderaPeerService.get().stopClient();
     }
 

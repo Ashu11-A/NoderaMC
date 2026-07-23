@@ -101,8 +101,19 @@ final class TypeTagsTest {
         // world identity + permissions (Task 33)
         assertThat(TypeTags.WORLD_IDENTITY).isEqualTo(92);
         assertThat(TypeTags.WORLD_PERMISSION_GRANT).isEqualTo(93);
+        // entity state transitions (Task 12a)
+        assertThat(TypeTags.ENTITY_MUTATION).isEqualTo(94);
+        assertThat(TypeTags.INVENTORY_CREDIT).isEqualTo(95);
+        assertThat(TypeTags.ENTITY_TRANSFER_CERT).isEqualTo(96);
+        assertThat(TypeTags.ENTITY_TRANSFER_PREPARED_EVENT).isEqualTo(97);
+        assertThat(TypeTags.ENTITY_TRANSFER_COMMITTED_EVENT).isEqualTo(98);
+        assertThat(TypeTags.ENTITY_TRANSFER_INTENT).isEqualTo(99);
+        assertThat(TypeTags.ENTITY_TRANSFER_DESCRIPTOR).isEqualTo(100);
+        assertThat(TypeTags.ENTITY_TRANSFER_ACCEPTED_EVENT).isEqualTo(101);
+        assertThat(TypeTags.ENTITY_TRANSFER_RECORD).isEqualTo(102);
+        assertThat(TypeTags.CERTIFIED_WORLD_GENESIS).isEqualTo(103);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(93);
+        assertThat(TypeTags.NEXT).isEqualTo(103);
     }
 
     @Test

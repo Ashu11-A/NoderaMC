@@ -127,6 +127,28 @@ public final class TypeTags {
     /** {@code WorldPermissionGrant} — an author/operator-signed role grant for a world. */
     public static final int WORLD_PERMISSION_GRANT     = 93;
 
+    // --- entity state transitions (Task 12a) ---
+    /** Compare-and-set mutation of one entity-table row. */
+    public static final int ENTITY_MUTATION            = 94;
+    /** Replay-safe one-way credit into a player's vanilla inventory. */
+    public static final int INVENTORY_CREDIT           = 95;
+    /** One certificate binding both halves of an atomic cross-region entity transfer. */
+    public static final int ENTITY_TRANSFER_CERT       = 96;
+    /** RegionEvent: one side durably prepared an entity transfer. */
+    public static final int ENTITY_TRANSFER_PREPARED_EVENT = 97;
+    /** RegionEvent: both sides atomically committed an entity transfer. */
+    public static final int ENTITY_TRANSFER_COMMITTED_EVENT = 98;
+    /** Engine-emitted border crossing to be completed by the atomic transfer coordinator. */
+    public static final int ENTITY_TRANSFER_INTENT     = 99;
+    /** Jointly approved source/target transition descriptor for one transfer. */
+    public static final int ENTITY_TRANSFER_DESCRIPTOR = 100;
+    /** RegionEvent: both committees accepted one transfer descriptor. */
+    public static final int ENTITY_TRANSFER_ACCEPTED_EVENT = 101;
+    /** Durable restart record for the cross-region transfer state machine. */
+    public static final int ENTITY_TRANSFER_RECORD = 102;
+    /** Genesis manifest extracted from an existing world, self-certified by its host (Task 30c). */
+    public static final int CERTIFIED_WORLD_GENESIS = 103;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 93;
+    public static final int NEXT = 103;
 }

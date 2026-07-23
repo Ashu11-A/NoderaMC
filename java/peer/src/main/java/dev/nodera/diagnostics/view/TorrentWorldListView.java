@@ -38,6 +38,10 @@ public final class TorrentWorldListView {
      *                                  negative when no countdown is running.
      * @param hostName                  the world owner/host's display name (the author who shared it);
      *                                  empty when unknown (e.g. a bare tracker answer with no owner).
+     * @param worldIdHex                the world's id (genesis hash, hex) — the key the join flow
+     *                                  resolves through the tracker; empty when unknown.
+     * @param mcRoute                   the host's known Minecraft game endpoint ({@code host:port});
+     *                                  empty when not known locally (resolved at join time).
      */
     public record TorrentWorldEntry(
             String name,
@@ -46,7 +50,9 @@ public final class TorrentWorldListView {
             int reliabilityBps,
             WorldHealth health,
             long retentionSecondsRemaining,
-            String hostName
+            String hostName,
+            String worldIdHex,
+            String mcRoute
     ) {
         public TorrentWorldEntry {
             if (name == null) {
@@ -56,6 +62,16 @@ public final class TorrentWorldListView {
                 throw new IllegalArgumentException("health must not be null");
             }
             hostName = hostName == null ? "" : hostName;
+            worldIdHex = worldIdHex == null ? "" : worldIdHex;
+            mcRoute = mcRoute == null ? "" : mcRoute;
+        }
+
+        /** Pre-join-flow shape: no world id / game endpoint known. */
+        public TorrentWorldEntry(String name, long playerCount, long storedChunks,
+                                 int reliabilityBps, WorldHealth health,
+                                 long retentionSecondsRemaining, String hostName) {
+            this(name, playerCount, storedChunks, reliabilityBps, health,
+                    retentionSecondsRemaining, hostName, "", "");
         }
 
         /** @return whether an owner/host name is known for this world. */

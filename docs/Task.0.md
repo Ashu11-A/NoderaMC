@@ -33,7 +33,8 @@ Tauri companion app (Task 7) — a player's node stays on the network with Minec
 | File | Why it matters |
 |---|---|
 | [`AGENTS.md`](../AGENTS.md) | **Agent memory.** Build/test commands, layering rules, frozen contracts, and the three non-negotiable disciplines (test-before-commit, update README, commit format). Re-read every session. |
-| [`README.md`](../README.md) | **Progress + status.** Progress bar, module table, roadmap (tasks → issues), commit-message standard, issue-system summary. |
+| [`README.md`](../README.md) | **Status entry point.** Overall progress bar, module table, roadmap (tasks → issues), commit-message standard, issue-system summary. |
+| [`docs/PROGRESS.md`](PROGRESS.md) | **The per-phase progress ledger** (moved out of the README): the detailed phase table + milestone notes. Updated on every outcome-changing commit alongside the README bar. |
 | [`Tested.md`](../Tested.md) | **Test status per module** (counts, pass/fail emojis, last run, per-increment history). |
 | [`.github/ISSUE_SYSTEM.md`](../.github/ISSUE_SYSTEM.md) | **The normative workflow**: how to open/assign/branch/commit/close/reopen issues, and how to edit README. |
 | [`docs/Plan.0.md`](Plan.0.md) | **Architecture & roadmap.** Locked decisions (§3), module layout (§4), implementation phases (§6), invariants (§8). |
@@ -305,8 +306,10 @@ Enforcement: ArchUnit test bans the forbidden APIs from `dev.nodera.simulation..
 
 ## 10. How progress is tracked (and where it lives)
 
-- **Overall % and per-phase %** → `README.md` → "Progress". Recomputed on every commit that
-  changes outcomes.
+- **Overall %** (the bar) → `README.md` → "Progress"; **per-phase % + milestone notes** →
+  [`docs/PROGRESS.md`](PROGRESS.md). Both recomputed on every commit that changes outcomes:
+  update the phase row(s) + note blocks in `PROGRESS.md`, then re-derive the README percentage
+  as the weighted fraction of the 8 phases and adjust the block bar (filled/20 ≈ percentage).
 - **Per-module test status** → `README.md` module table AND `Tested.md` (authoritative).
   Emojis: ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing.
 - **Roadmap / task status** → `README.md` "Roadmap" table, mirrored by GitHub issues labelled
@@ -325,8 +328,9 @@ cat Tested.md                                  # test counts + emojis
 
 ### To update progress (mandatory on every outcome-changing commit)
 
-1. Edit `README.md`: recompute `Overall system completion: <p>%` + the block bar; tick the
-   module table and roadmap rows. Preserve every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment.
+1. Edit `docs/PROGRESS.md` (the per-phase ledger) and `README.md` (recompute
+   `Overall system completion: <p>%` + the block bar; tick the module table and roadmap rows).
+   Preserve every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment.
 2. Edit `Tested.md`: update test counts, `Last run` date, and the module emoji.
 3. Update the owning `docs/Task.<n>.md` implementation-status table (and its audit date).
 4. Close/open the relevant GitHub issue (`Closes #N` / `Reopen #N`).
