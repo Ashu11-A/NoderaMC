@@ -1,0 +1,87 @@
+# Live acceptance under Xvfb — the L-45 second-half deliverable: fold the scripted
+# world-continuity series (scripts/e2e-continuity.sh) into CI. The series boots the real Rust
+# tracker + rendezvous, two headless workers, and TWO real NeoForge clients on a virtual display,
+# then kills the host and asserts the joiner recovers + re-hosts the world.
+#
+# Heavy by design (two Minecraft clients): manual dispatch + nightly schedule, never per-push.
+# The pickup drive (scripts/e2e-pickup.sh, issue #33's clean-slate exactly-once exit) runs as a
+# second job with one client.
+#
+# L-45 flips to RETIRED on this workflow's first green scheduled run — not before.
+name: e2e-live
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *'   # nightly, off-peak
+
+jobs:
+  continuity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Xvfb + GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0
+      - name: Build stack
+        run: |
+          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
+      - name: Continuity series under Xvfb
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+             scripts/e2e-continuity.sh --no-build
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-continuity-logs
+          path: |
+            run/logs/e2e/
+            java/neoforge-mod/run-host/logs/
+            java/neoforge-mod/run-join/logs/
+          if-no-files-found: ignore
+
+  pickup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Xvfb + GL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0
+      - name: Build stack
+        run: |
+          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
+      - name: Clean-slate pickup drive under Xvfb
+        run: xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+             scripts/e2e-pickup.sh --no-build
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-pickup-logs
+          path: |
+            run/logs/e2e-pickup/
+            java/neoforge-mod/run-join/logs/
+          if-no-files-found: ignore
