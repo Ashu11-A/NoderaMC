@@ -83,6 +83,10 @@ public final class FlatWorldRules implements RuleSet {
     public static final int WIRE_0 = 12;
     /** Redstone wire at power 15. */
     public static final int WIRE_15 = 27;
+    /** Standing redstone torch, lit (placeable — a fresh torch burns). */
+    public static final int TORCH_ON = 28;
+    /** Standing redstone torch, unlit (network-computed: powered support extinguishes it). */
+    public static final int TORCH_OFF = 29;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -103,6 +107,8 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(REDSTONE_BLOCK, "redstone_block"),
             new PaletteEntry(LEVER_OFF, "lever_off"),
             new PaletteEntry(LEVER_ON, "lever_on"),
+            new PaletteEntry(TORCH_ON, "redstone_torch_on"),
+            new PaletteEntry(TORCH_OFF, "redstone_torch_off"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -130,6 +136,7 @@ public final class FlatWorldRules implements RuleSet {
     private static BitSet buildPlaceable() {
         BitSet s = buildWhitelist();
         s.clear(LEVER_ON);
+        s.clear(TORCH_OFF);
         for (int p = 1; p <= 15; p++) {
             s.clear(WIRE_0 + p);
         }
@@ -227,7 +234,7 @@ public final class FlatWorldRules implements RuleSet {
                 state.setBlock(p.pos(), p.blockStateId(), env, rng);
                 if (RedstoneRules.isRedstoneFamily(p.blockStateId())
                         || touchesRedstone(state, p.pos())) {
-                    RedstoneRules.recomputeNetwork(state, p.pos(), env, rng);
+                    RedstoneRules.recomputeNetwork(state, p.pos(), env, rng, env.targetTick());
                 }
             }
             case BreakBlockAction b -> {
@@ -235,12 +242,12 @@ public final class FlatWorldRules implements RuleSet {
                         || touchesRedstone(state, b.pos());
                 state.setBlock(b.pos(), AIR, env, rng);
                 if (affected) {
-                    RedstoneRules.recomputeNetwork(state, b.pos(), env, rng);
+                    RedstoneRules.recomputeNetwork(state, b.pos(), env, rng, env.targetTick());
                 }
             }
             case dev.nodera.core.action.InteractBlockAction i -> {
                 state.setBlock(i.pos(), RedstoneRules.toggled(state.getBlock(i.pos())), env, rng);
-                RedstoneRules.recomputeNetwork(state, i.pos(), env, rng);
+                RedstoneRules.recomputeNetwork(state, i.pos(), env, rng, env.targetTick());
             }
             // Drop/Pickup are validated as UNSUPPORTED_ACTION above, so apply never sees them;
             // the entity lane (Task 12a EntityRuleSet) owns their application. Exhaustive by kind.
