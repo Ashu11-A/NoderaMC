@@ -8,8 +8,7 @@ use crate::config::Config;
 use crate::health;
 use crate::registry::{PeerRecord, Registry};
 use nodera_codec::messages::{
-    PeerRoutes, TrackerCatalogEntry, TrackerCatalogResponse, TrackerResponse,
-    TrackerRoutesResponse,
+    PeerRoutes, TrackerCatalogEntry, TrackerCatalogResponse, TrackerResponse, TrackerRoutesResponse,
 };
 use nodera_codec::types::{ManifestSeeders, NodeId, PeerEntry};
 use std::collections::BTreeMap;
