@@ -159,11 +159,18 @@ final class FlatWorldRegionEngineTest {
         RegionSnapshot s0 = TestFixtures.singleColumnSnapshot(region, 0, 0, 0);
         NBlockPos pos = new NBlockPos(0, 64, 0);
 
-        int[] palette = new int[TestFixtures.DEFAULT_SECTION_COUNT];
+        // Task 13 densification: a single placement affects ONE block, so the expected
+        // post-state is the base column with exactly that block set (dense section), not a
+        // section-wide paint.
         int section = Math.floorDiv(pos.y() - TestFixtures.DEFAULT_MIN_Y, 16);
-        palette[section] = FlatWorldRules.STONE;
+        var baseColumn = TestFixtures.column(0, 0, new int[TestFixtures.DEFAULT_SECTION_COUNT]);
+        var expectedColumn = baseColumn.withBlock(section,
+                Math.floorMod(pos.x(), 16),
+                Math.floorMod(pos.y() - TestFixtures.DEFAULT_MIN_Y, 16),
+                Math.floorMod(pos.z(), 16),
+                FlatWorldRules.STONE);
         RegionSnapshot s1 = new RegionSnapshot(region, SnapshotVersion.INITIAL.next(), 2L,
-                List.of(TestFixtures.column(0, 0, palette)));
+                List.of(expectedColumn));
 
         StateRoot expectedRoot = StateRoot.of(hashService.hash(s1));
 

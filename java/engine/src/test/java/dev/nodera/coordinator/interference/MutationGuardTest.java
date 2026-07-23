@@ -18,7 +18,7 @@ class MutationGuardTest {
     private final RegionId delegated = new RegionId(DimensionKey.overworld(), 0, 0);
     private final RegionId vanilla = new RegionId(DimensionKey.overworld(), 9, 9);
     private final NBlockPos pos = new NBlockPos(5, 70, 5);
-    private final NBlockPos sectionPos = new NBlockPos(0, 64, 0);
+    private final NBlockPos sectionPos = new NBlockPos(5, 70, 5);
 
     private final InterferenceBuffer buffer = new InterferenceBuffer();
     private final InterferenceStats stats = new InterferenceStats(100);

@@ -107,7 +107,10 @@ public final class InMemoryWorldView implements MutableWorldView {
         if (section < 0 || section >= col.sectionCount) {
             return AIR;
         }
-        return col.palette[section];
+        return col.state.blockAt(section,
+                Math.floorMod(pos.x(), CHUNK_SIZE),
+                Math.floorMod(pos.y() - col.minY, CHUNK_SIZE),
+                Math.floorMod(pos.z(), CHUNK_SIZE));
     }
 
     @Override
@@ -120,7 +123,11 @@ public final class InMemoryWorldView implements MutableWorldView {
         if (section < 0 || section >= col.sectionCount) {
             throw new IllegalStateException("setBlock outside section range at " + pos);
         }
-        col.palette[section] = stateId;
+        col.state = col.state.withBlock(section,
+                Math.floorMod(pos.x(), CHUNK_SIZE),
+                Math.floorMod(pos.y() - col.minY, CHUNK_SIZE),
+                Math.floorMod(pos.z(), CHUNK_SIZE),
+                stateId);
     }
 
     @Override
@@ -170,10 +177,8 @@ public final class InMemoryWorldView implements MutableWorldView {
             throw new IllegalStateException("region not loaded: " + region);
         }
         List<ChunkColumnState> out = new ArrayList<>(cols.size());
-        for (Map.Entry<Long, Column> e : cols.entrySet()) {
-            Column col = e.getValue();
-            out.add(new ChunkColumnState(unpackX(e.getKey()), unpackZ(e.getKey()),
-                    col.palette.clone(), col.minY, col.sectionCount));
+        for (Column col : cols.values()) {
+            out.add(col.state);
         }
         return new RegionSnapshot(region, version, tick, out,
                 new ArrayList<>(entities.getOrDefault(region, Map.of()).values()),
@@ -235,18 +240,18 @@ public final class InMemoryWorldView implements MutableWorldView {
     private static final class Column {
         final int minY;
         final int sectionCount;
-        final int[] palette;
+        ChunkColumnState state;
 
         Column(ChunkColumnState c) {
             this.minY = c.minY();
             this.sectionCount = c.sectionCount();
-            this.palette = c.paletteStateIdsPerSection();
+            this.state = c;
         }
 
         Column(Column c) {
             this.minY = c.minY;
             this.sectionCount = c.sectionCount;
-            this.palette = c.palette.clone();
+            this.state = c.state; // immutable — sharing is safe
         }
     }
 

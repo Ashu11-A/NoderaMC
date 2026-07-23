@@ -51,7 +51,7 @@ import java.util.Optional;
 public final class FlatWorldRules implements RuleSet {
 
     /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 2;
+    public static final int RULES_VERSION = 3;
 
     /** Palette id for air. */
     public static final int AIR = 0;
@@ -108,7 +108,7 @@ public final class FlatWorldRules implements RuleSet {
     public static long registryFingerprint() {
         long[] parts = new long[2 + PALETTE.length * 2];
         int i = 0;
-        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v2");
+        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v3");
         for (PaletteEntry e : PALETTE) {
             parts[i++] = e.id();
             parts[i++] = StableHash.of(e.name());

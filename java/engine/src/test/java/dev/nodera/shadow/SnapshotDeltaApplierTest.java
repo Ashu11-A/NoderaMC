@@ -75,13 +75,21 @@ class SnapshotDeltaApplierTest {
 
     @Test
     void sectionDeltaUsesExecutionOrderNotCanonicalPositionOrder() {
+        // Task 13 densification: two placements in one section are now TWO per-block mutations
+        // (the pre-densification section-paint model coalesced them to one), in execution order
+        // — and the applied snapshot still reproduces the engine root exactly.
         RegionId region = Fixtures.region(0, 0);
         RegionSnapshot base = Fixtures.fullUniformSnapshot(region, 0);
         RegionExecutionResult res = run(base,
                 Fixtures.place(region, 1, 0, 6, 70, 6, 2),
                 Fixtures.place(region, 2, 0, 5, 70, 5, 1));
         RegionSnapshot advanced = SnapshotDeltaApplier.apply(base, res.delta(), 1L);
-        assertThat(res.delta().blockMutations()).hasSize(1);
+        assertThat(res.delta().blockMutations()).hasSize(2);
+        assertThat(res.delta().blockMutations())
+                .extracting(m -> m.pos())
+                .containsExactlyInAnyOrder(
+                        new dev.nodera.core.state.NBlockPos(6, 70, 6),
+                        new dev.nodera.core.state.NBlockPos(5, 70, 5));
         assertThat(Fixtures.rootOf(advanced)).isEqualTo(res.resultingRoot());
     }
 
