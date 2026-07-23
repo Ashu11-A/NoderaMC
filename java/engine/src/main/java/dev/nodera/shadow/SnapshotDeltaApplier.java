@@ -134,12 +134,30 @@ public final class SnapshotDeltaApplier {
             }
         }
 
+        // Scheduled state (Task 13): a v4 delta REPLACES the queue with the settled truth; a
+        // legacy delta carries the base's queue forward untouched. Mirrors toSnapshot's version
+        // choice exactly so the reproduced root hashes byte-for-byte.
+        java.util.List<dev.nodera.core.state.ScheduledTickEntry> scheduledTicks =
+                delta.bodyVersion() >= RegionDelta.SCHEDULED_ENCODING_VERSION
+                        ? delta.scheduledTicks() : base.scheduledTicks();
+        java.util.List<dev.nodera.core.state.BlockEventEntry> blockEvents =
+                delta.bodyVersion() >= RegionDelta.SCHEDULED_ENCODING_VERSION
+                        ? delta.blockEvents() : base.blockEvents();
+
         List<ChunkColumnState> out = new ArrayList<>(work.values());
-        int snapshotBodyVersion = base.bodyVersion() == 1 && delta.bodyVersion() == 1 ? 1
-                : RegionSnapshot.STATE_ENCODING_VERSION;
-        RegionSnapshot result = new RegionSnapshot(
-                base.region(), delta.resultingVersion(), resultingTick,
-                out, List.copyOf(entities.values()), snapshotBodyVersion);
+        RegionSnapshot result;
+        if (scheduledTicks.isEmpty() && blockEvents.isEmpty()) {
+            int snapshotBodyVersion = base.bodyVersion() == 1 && delta.bodyVersion() == 1 ? 1
+                    : RegionSnapshot.STATE_ENCODING_VERSION;
+            result = new RegionSnapshot(
+                    base.region(), delta.resultingVersion(), resultingTick,
+                    out, List.copyOf(entities.values()), snapshotBodyVersion);
+        } else {
+            result = new RegionSnapshot(
+                    base.region(), delta.resultingVersion(), resultingTick,
+                    out, List.copyOf(entities.values()), scheduledTicks, blockEvents,
+                    RegionSnapshot.REDSTONE_ENCODING_VERSION);
+        }
         StateRoot actualRoot = StateRoot.of(HASHES.hash(result));
         if (!actualRoot.equals(delta.resultingRoot())) {
             throw new IllegalStateException(

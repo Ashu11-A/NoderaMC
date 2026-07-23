@@ -103,7 +103,8 @@ class SnapshotDeltaApplierTest {
                 region, SnapshotVersion.INITIAL.next(), 1, current.chunks(), List.of(), 1);
         RegionDelta delta = new RegionDelta(
                 region, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(), List.of(),
-                Fixtures.rootOf(expected), List.of(), List.of(), List.of(), 1);
+                Fixtures.rootOf(expected), List.of(), List.of(), List.of(), List.of(),
+                List.of(), 1);
         RegionSnapshot advanced = SnapshotDeltaApplier.apply(base, delta, 1);
         assertThat(advanced).isEqualTo(expected);
         assertThat(advanced.bodyVersion()).isEqualTo(1);

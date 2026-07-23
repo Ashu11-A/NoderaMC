@@ -163,9 +163,20 @@ final class RedstoneGraphTest {
         RegionExecutionResult leverOn = execute(base, List.of(
                 TestFixtures.envelope(region, 0L, 2L,
                         TestFixtures.place(new NBlockPos(1, 64, 0), FlatWorldRules.LEVER_ON))));
+        RegionExecutionResult repeaterOn = execute(base, List.of(
+                TestFixtures.envelope(region, 0L, 3L,
+                        TestFixtures.place(new NBlockPos(1, 64, 0),
+                                FlatWorldRules.REPEATER_EAST_ON))));
+        RegionExecutionResult buttonOn = execute(base, List.of(
+                TestFixtures.envelope(region, 0L, 4L,
+                        TestFixtures.place(new NBlockPos(1, 64, 0), FlatWorldRules.BUTTON_ON))));
         assertThat(poweredWire.stats().rejections())
                 .extracting(ActionRejection::reason).containsExactly(Reason.ILLEGAL_BLOCK);
         assertThat(leverOn.stats().rejections())
+                .extracting(ActionRejection::reason).containsExactly(Reason.ILLEGAL_BLOCK);
+        assertThat(repeaterOn.stats().rejections())
+                .extracting(ActionRejection::reason).containsExactly(Reason.ILLEGAL_BLOCK);
+        assertThat(buttonOn.stats().rejections())
                 .extracting(ActionRejection::reason).containsExactly(Reason.ILLEGAL_BLOCK);
     }
 
@@ -207,6 +218,132 @@ final class RedstoneGraphTest {
         // Replica determinism for the timed path.
         assertThat(engine.execute(new RegionExecutionRequest(ctx, base, batch)).resultingRoot())
                 .isEqualTo(result.resultingRoot());
+    }
+
+    private RegionExecutionResult executeTicks(
+            RegionSnapshot base, List<ActionEnvelope> actions, int tickCount) {
+        ActionBatch batch = new ActionBatch(
+                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, actions);
+        RegionExecutionContext ctx = new RegionExecutionContext(
+                region, RegionEpoch.INITIAL, base.version(), 0, tickCount, 12345L,
+                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
+        return engine.execute(new RegionExecutionRequest(ctx, base, batch));
+    }
+
+    @Test
+    void repeaterOutputsThroughItsFrontOnly() {
+        RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
+        List<ActionEnvelope> build = new ArrayList<>();
+        long seq = 1;
+        // Source behind an east-facing repeater; wire in front AND a wire beside it. Only the
+        // front wire may power — repeater emission is directional, unlike every other source.
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(0, 64, 0), FlatWorldRules.REDSTONE_BLOCK)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(1, 64, 0), FlatWorldRules.REPEATER_EAST_OFF)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 64, 0), FlatWorldRules.WIRE_0)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(1, 64, 1), FlatWorldRules.WIRE_0)));
+
+        RegionExecutionResult result = executeTicks(base, build, 3);
+        RegionSnapshot advanced = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, result.delta(), 3L);
+        assertThat(result.stats().actionsRejected()).isZero();
+        assertThat(blockAt(advanced, new NBlockPos(1, 64, 0)))
+                .as("powered input switches the repeater ON through the tick queue")
+                .isEqualTo(FlatWorldRules.REPEATER_EAST_ON);
+        assertThat(blockAt(advanced, new NBlockPos(2, 64, 0)))
+                .as("the front wire receives the repeated 15")
+                .isEqualTo(RedstoneRules.wireWithPower(15));
+        assertThat(blockAt(advanced, new NBlockPos(1, 64, 1)))
+                .as("the side wire receives NOTHING — emission is directional")
+                .isEqualTo(FlatWorldRules.WIRE_0);
+    }
+
+    @Test
+    void eachRepeaterStageAddsExactlyOneTickOfDelay() {
+        RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
+        List<ActionEnvelope> actions = new ArrayList<>();
+        long seq = 1;
+        // lever - wire - repeater - wire - repeater - wire, lever flipped at tick 0. The signal
+        // front must advance one repeater per tick: the delay is consensus state in the queue.
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(0, 64, 0), FlatWorldRules.LEVER_OFF)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(1, 64, 0), FlatWorldRules.WIRE_0)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 64, 0), FlatWorldRules.REPEATER_EAST_OFF)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(3, 64, 0), FlatWorldRules.WIRE_0)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(4, 64, 0), FlatWorldRules.REPEATER_EAST_OFF)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(5, 64, 0), FlatWorldRules.WIRE_0)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                new InteractBlockAction(new NBlockPos(0, 64, 0))));
+
+        // After one tick: stage 1 has fired (its flip was scheduled for tick 1), stage 2 has
+        // only just been scheduled — the front sits BETWEEN the repeaters.
+        RegionSnapshot afterOne = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, executeTicks(base, actions, 1).delta(), 1L);
+        assertThat(blockAt(afterOne, new NBlockPos(1, 64, 0)))
+                .isEqualTo(RedstoneRules.wireWithPower(15));
+        assertThat(blockAt(afterOne, new NBlockPos(2, 64, 0)))
+                .isEqualTo(FlatWorldRules.REPEATER_EAST_ON);
+        assertThat(blockAt(afterOne, new NBlockPos(3, 64, 0)))
+                .isEqualTo(RedstoneRules.wireWithPower(15));
+        assertThat(blockAt(afterOne, new NBlockPos(4, 64, 0)))
+                .as("stage 2 lags stage 1 by exactly one tick")
+                .isEqualTo(FlatWorldRules.REPEATER_EAST_OFF);
+        assertThat(blockAt(afterOne, new NBlockPos(5, 64, 0)))
+                .isEqualTo(FlatWorldRules.WIRE_0);
+
+        // One more tick: stage 2 fires and the whole chain is hot.
+        RegionSnapshot afterTwo = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, executeTicks(base, actions, 2).delta(), 2L);
+        assertThat(blockAt(afterTwo, new NBlockPos(4, 64, 0)))
+                .isEqualTo(FlatWorldRules.REPEATER_EAST_ON);
+        assertThat(blockAt(afterTwo, new NBlockPos(5, 64, 0)))
+                .isEqualTo(RedstoneRules.wireWithPower(15));
+
+        // Replica determinism for the staged path.
+        assertThat(executeTicks(base, actions, 3).resultingRoot())
+                .isEqualTo(executeTicks(base, actions, 3).resultingRoot());
+    }
+
+    @Test
+    void buttonPressPowersTheWireAndAutoReleasesThroughTheTickQueue() {
+        RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
+        List<ActionEnvelope> actions = new ArrayList<>();
+        long seq = 1;
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(0, 64, 0), FlatWorldRules.BUTTON_OFF)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(1, 64, 0), FlatWorldRules.WIRE_0)));
+        actions.add(TestFixtures.envelope(region, 0L, seq++,
+                new InteractBlockAction(new NBlockPos(0, 64, 0))));
+
+        // Mid-press: button ON, wire hot.
+        RegionSnapshot pressed = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, executeTicks(base, actions, 5).delta(), 5L);
+        assertThat(blockAt(pressed, new NBlockPos(0, 64, 0)))
+                .isEqualTo(FlatWorldRules.BUTTON_ON);
+        assertThat(blockAt(pressed, new NBlockPos(1, 64, 0)))
+                .isEqualTo(RedstoneRules.wireWithPower(15));
+
+        // Past the auto-off horizon: released and depowered, all through the hashed queue.
+        RegionExecutionResult full = executeTicks(
+                base, actions, RedstoneRules.BUTTON_PRESS_TICKS + 2);
+        RegionSnapshot released = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, full.delta(), RedstoneRules.BUTTON_PRESS_TICKS + 2);
+        assertThat(blockAt(released, new NBlockPos(0, 64, 0)))
+                .as("the press auto-releases after BUTTON_PRESS_TICKS")
+                .isEqualTo(FlatWorldRules.BUTTON_OFF);
+        assertThat(blockAt(released, new NBlockPos(1, 64, 0)))
+                .isEqualTo(FlatWorldRules.WIRE_0);
+        assertThat(executeTicks(base, actions, RedstoneRules.BUTTON_PRESS_TICKS + 2)
+                .resultingRoot()).isEqualTo(full.resultingRoot());
     }
 
     @Test
