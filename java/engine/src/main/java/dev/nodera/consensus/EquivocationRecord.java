@@ -12,8 +12,13 @@ import dev.nodera.core.identity.NodeId;
  *
  * @param voter           the equivocating validator.
  * @param key             the proposal the voter double-voted on.
- * @param firstRoot       the root observed first.
- * @param secondRoot      the root observed second (≠ {@code firstRoot}).
+ * @param firstRoot       the root of the retained (earlier-stored) claim in the conflicting pair
+ *                        this replica convicted on. Storage order equals observation order on a
+ *                        single thread; under concurrent observation it is the {@code putIfAbsent}
+ *                        winner, not a guaranteed temporal ordering.
+ * @param secondRoot      the conflicting root of the same pair (≠ {@code firstRoot}). Any one
+ *                        conflicting pair is sufficient evidence; which pair is captured is
+ *                        replica-local.
  * @param detectedAtMillis wall-clock detection time; for logging/auditing only — NOT part of
  *                        hashed consensus state.
  *
