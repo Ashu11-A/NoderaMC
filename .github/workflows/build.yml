@@ -26,6 +26,38 @@ jobs:
       - name: Golden fixtures unchanged
         run: git diff --exit-code -- fixtures/
 
+  # L-47's exit job: build the companion app, prove the gate both ways, and prove a hosted
+  # world survives the host closing Minecraft (the worker keeps it alive).
+  companion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            rust/nodera-app
+      - name: Tauri system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+      - name: Build the companion app
+        run: cd rust/nodera-app && cargo build --release
+      - name: Build service binaries + worker dist
+        run: |
+          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          ./gradlew :peer:installDist
+      - name: Gate both ways (worker present => start, absent => actionable abort)
+        run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
+      - name: Hosted world survives the host closing Minecraft
+        run: ./gradlew :peer:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
+
   rust:
     runs-on: ubuntu-latest
     defaults:
