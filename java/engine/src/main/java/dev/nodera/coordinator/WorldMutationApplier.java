@@ -33,12 +33,31 @@ public final class WorldMutationApplier {
     private static final HashService HASHES = new HashService();
 
     private final MutableWorldView world;
+    private final ChunkEditability editability;
+
+    /**
+     * The L-33 lock seam: whether the chunk containing {@code pos} may be edited. The async
+     * client chunk pipeline registers {@code ChunkLockMap::isChunkEditable} here (mapped through
+     * the snapshot's canonical chunk ordinal) so an un-arrived/un-verified section fails closed —
+     * a delta touching it ABORTS before any write, exactly like a CAS mismatch.
+     */
+    @FunctionalInterface
+    public interface ChunkEditability {
+        ChunkEditability ALL_EDITABLE = (region, pos) -> true;
+
+        boolean editable(RegionId region, NBlockPos pos);
+    }
 
     public WorldMutationApplier(MutableWorldView world) {
-        if (world == null) {
-            throw new IllegalArgumentException("world must not be null");
+        this(world, ChunkEditability.ALL_EDITABLE);
+    }
+
+    public WorldMutationApplier(MutableWorldView world, ChunkEditability editability) {
+        if (world == null || editability == null) {
+            throw new IllegalArgumentException("world and editability must not be null");
         }
         this.world = world;
+        this.editability = editability;
     }
 
     /**
@@ -118,6 +137,11 @@ public final class WorldMutationApplier {
             for (BlockMutation mutation : delta.blockMutations()) {
                 if (!blockTargets.add(BlockTarget.of(region, mutation.pos()))) {
                     return ApplyResult.abortedDuplicate("BLOCK_TARGET");
+                }
+                if (!editability.editable(region, mutation.pos())) {
+                    // L-33 fail-closed lock: the target chunk has not fully arrived/verified —
+                    // no write may land in it (and none has: this runs in the verify pass).
+                    return ApplyResult.abortedLockedChunk(mutation.pos());
                 }
                 int current = world.getBlock(region, mutation.pos());
                 if (current == mutation.expectedPreviousStateId()) {
@@ -227,6 +251,11 @@ public final class WorldMutationApplier {
 
         static ApplyResult aborted(NBlockPos pos, int expected, int actual) {
             return new ApplyResult(false, 0, pos, null, expected, actual, "BLOCK_CAS");
+        }
+
+        /** L-33: the target chunk is piece-locked (not fully arrived/verified). */
+        static ApplyResult abortedLockedChunk(NBlockPos pos) {
+            return new ApplyResult(false, 0, pos, null, 0, 0, "CHUNK_LOCKED");
         }
 
         static ApplyResult abortedEntity(NetworkEntityId id) {
