@@ -72,6 +72,18 @@ public final class FlatWorldRules implements RuleSet {
     /** Palette id for sand. */
     public static final int SAND = 8;
 
+    // --- Task 13 redstone palette (v3 first slice) -------------------------------------------
+    /** Constant 15-power source. */
+    public static final int REDSTONE_BLOCK = 9;
+    /** Lever, OFF (placeable; toggled by {@code InteractBlockAction}). */
+    public static final int LEVER_OFF = 10;
+    /** Lever, ON (network-computed state — never directly placeable). */
+    public static final int LEVER_ON = 11;
+    /** Redstone wire at power 0 (placeable); powers 1..15 are the ids {@code WIRE_0 + p}. */
+    public static final int WIRE_0 = 12;
+    /** Redstone wire at power 15. */
+    public static final int WIRE_15 = 27;
+
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
     /** Inclusive maximum buildable Y (vanilla overworld ceiling; 24 sections × 16 ⇒ top block 319). */
@@ -88,7 +100,41 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(OAK_LOG, "oak_log"),
             new PaletteEntry(GLASS, "glass"),
             new PaletteEntry(SAND, "sand"),
+            new PaletteEntry(REDSTONE_BLOCK, "redstone_block"),
+            new PaletteEntry(LEVER_OFF, "lever_off"),
+            new PaletteEntry(LEVER_ON, "lever_on"),
+            new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
+            new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
+            new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
+            new PaletteEntry(WIRE_0 + 3, "redstone_wire_3"),
+            new PaletteEntry(WIRE_0 + 4, "redstone_wire_4"),
+            new PaletteEntry(WIRE_0 + 5, "redstone_wire_5"),
+            new PaletteEntry(WIRE_0 + 6, "redstone_wire_6"),
+            new PaletteEntry(WIRE_0 + 7, "redstone_wire_7"),
+            new PaletteEntry(WIRE_0 + 8, "redstone_wire_8"),
+            new PaletteEntry(WIRE_0 + 9, "redstone_wire_9"),
+            new PaletteEntry(WIRE_0 + 10, "redstone_wire_10"),
+            new PaletteEntry(WIRE_0 + 11, "redstone_wire_11"),
+            new PaletteEntry(WIRE_0 + 12, "redstone_wire_12"),
+            new PaletteEntry(WIRE_0 + 13, "redstone_wire_13"),
+            new PaletteEntry(WIRE_0 + 14, "redstone_wire_14"),
+            new PaletteEntry(WIRE_0 + 15, "redstone_wire_15"),
     };
+
+    /**
+     * The ids a player may PLACE: network-computed states (powered wire, lever ON) are engine
+     * outputs, never player inputs — placing them directly would let a client mint power.
+     */
+    private static final BitSet PLACEABLE = buildPlaceable();
+
+    private static BitSet buildPlaceable() {
+        BitSet s = buildWhitelist();
+        s.clear(LEVER_ON);
+        for (int p = 1; p <= 15; p++) {
+            s.clear(WIRE_0 + p);
+        }
+        return s;
+    }
 
     private static final BitSet WHITELIST = buildWhitelist();
 
@@ -126,12 +172,30 @@ public final class FlatWorldRules implements RuleSet {
             // EntityRuleSet); item actions are rejected here rather than silently dropped.
             case DropItemAction d -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case PickupItemAction p -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
+            case dev.nodera.core.action.InteractBlockAction i -> validateInteract(view, env, i);
         };
+    }
+
+    private static Optional<ActionRejection> validateInteract(
+            RegionWorldView view, ActionEnvelope env, dev.nodera.core.action.InteractBlockAction i) {
+        NBlockPos pos = i.pos();
+        if (!view.inOwnedRegion(pos)) {
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.OUT_OF_REGION));
+        }
+        if (pos.y() < MIN_Y || pos.y() > MAX_Y) {
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.OUT_OF_REACH));
+        }
+        int id = view.getBlock(pos);
+        if (RedstoneRules.toggled(id) == id) {
+            // Nothing interactable there — deterministic rejection, never a silent no-op.
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.ILLEGAL_BLOCK));
+        }
+        return Optional.empty();
     }
 
     private static Optional<ActionRejection> validatePlace(
             RegionWorldView view, ActionEnvelope env, PlaceBlockAction p) {
-        if (!WHITELIST.get(p.blockStateId())) {
+        if (!PLACEABLE.get(p.blockStateId())) {
             return Optional.of(new ActionRejection(env, ActionRejection.Reason.ILLEGAL_BLOCK));
         }
         NBlockPos pos = p.pos();
@@ -159,8 +223,25 @@ public final class FlatWorldRules implements RuleSet {
     @Override
     public void apply(MutableRegionState state, ActionEnvelope env, DeterministicRandom rng) {
         switch (env.action()) {
-            case PlaceBlockAction p -> state.setBlock(p.pos(), p.blockStateId(), env, rng);
-            case BreakBlockAction b -> state.setBlock(b.pos(), AIR, env, rng);
+            case PlaceBlockAction p -> {
+                state.setBlock(p.pos(), p.blockStateId(), env, rng);
+                if (RedstoneRules.isRedstoneFamily(p.blockStateId())
+                        || touchesRedstone(state, p.pos())) {
+                    RedstoneRules.recomputeNetwork(state, p.pos(), env, rng);
+                }
+            }
+            case BreakBlockAction b -> {
+                boolean affected = RedstoneRules.isRedstoneFamily(state.getBlock(b.pos()))
+                        || touchesRedstone(state, b.pos());
+                state.setBlock(b.pos(), AIR, env, rng);
+                if (affected) {
+                    RedstoneRules.recomputeNetwork(state, b.pos(), env, rng);
+                }
+            }
+            case dev.nodera.core.action.InteractBlockAction i -> {
+                state.setBlock(i.pos(), RedstoneRules.toggled(state.getBlock(i.pos())), env, rng);
+                RedstoneRules.recomputeNetwork(state, i.pos(), env, rng);
+            }
             // Drop/Pickup are validated as UNSUPPORTED_ACTION above, so apply never sees them;
             // the entity lane (Task 12a EntityRuleSet) owns their application. Exhaustive by kind.
             case DropItemAction d -> throw new IllegalStateException(
@@ -168,6 +249,16 @@ public final class FlatWorldRules implements RuleSet {
             case PickupItemAction p -> throw new IllegalStateException(
                     "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)");
         }
+    }
+
+    /** Whether any of {@code pos}'s six neighbors participates in the redstone graph. */
+    private static boolean touchesRedstone(MutableRegionState state, NBlockPos pos) {
+        for (NBlockPos n : dev.nodera.simulation.NeighborUpdateOrder.neighborsOf(pos)) {
+            if (RedstoneRules.isRedstoneFamily(state.getBlock(n))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Ordered id→name row of the MVP palette. */

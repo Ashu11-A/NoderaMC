@@ -28,6 +28,7 @@ public final class EntityRuleSet implements RuleSet {
         return switch (env.action()) {
             case PlaceBlockAction p -> blocks.validate(view, env);
             case BreakBlockAction b -> blocks.validate(view, env);
+            case dev.nodera.core.action.InteractBlockAction i -> blocks.validate(view, env);
             case DropItemAction drop -> validateDrop(view, env, drop);
             case PickupItemAction pickup -> validatePickup(view, env, pickup);
         };
@@ -63,6 +64,7 @@ public final class EntityRuleSet implements RuleSet {
         switch (env.action()) {
             case PlaceBlockAction p -> blocks.apply(state, env, rng);
             case BreakBlockAction b -> blocks.apply(state, env, rng);
+            case dev.nodera.core.action.InteractBlockAction i -> blocks.apply(state, env, rng);
             case DropItemAction drop -> applyDrop(state, env, drop);
             case PickupItemAction pickup -> applyPickup(state, env, pickup);
         }

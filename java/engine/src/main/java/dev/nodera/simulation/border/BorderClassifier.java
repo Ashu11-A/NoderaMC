@@ -77,6 +77,7 @@ public final class BorderClassifier {
             case DropItemAction d -> new NBlockPos(d.origin().blockX(), d.origin().blockY(), d.origin().blockZ());
             case PickupItemAction ignored -> throw new IllegalStateException(
                     "PickupItemAction has no block target; handled before reaching targetPosition");
+                    case dev.nodera.core.action.InteractBlockAction i -> i.pos();
         };
     }
 }
