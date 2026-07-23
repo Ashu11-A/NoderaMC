@@ -6,8 +6,10 @@ import dev.nodera.core.region.RegionLease;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.peer.validation.DurableActionJournal;
+import dev.nodera.peer.validation.EntityLaneResume;
 import dev.nodera.peer.validation.DurableInventoryCreditJournal;
 import dev.nodera.peer.validation.WorkerValidationService;
+import dev.nodera.peer.validation.WorldStoreExternalHeads;
 import dev.nodera.peer.validation.WorldStoreTransferJournal;
 import dev.nodera.peer.validation.WorldStoreVotePersistence;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
@@ -75,27 +77,42 @@ public final class LiveEntityLaneSession implements AutoCloseable {
                     stateDirectory.resolve("inventory-credits.bin"));
             WorldStoreTransferJournal transfers = new WorldStoreTransferJournal(store);
             ServerEntityWorldView world = new ServerEntityWorldView(credits);
+            WorldStoreVotePersistence votes = new WorldStoreVotePersistence(
+                    store, hashes, stateDirectory.resolve("votes.bin"));
+            WorldStoreExternalHeads externalHeads = new WorldStoreExternalHeads(
+                    store, hashes, stateDirectory.resolve("external-heads.bin"));
             WorkerValidationService validation = new WorkerValidationService(
                     host.identity(), host.transport(),
                     new FlatWorldRegionEngine(
                             genesis.rulesVersion(), genesis.registryFingerprint(), hashes),
                     hashes, store.certificates(), genesis.worldSeed(), genesis.rulesVersion(),
-                    genesis.registryFingerprint(), 5_000L,
-                    new WorldStoreVotePersistence(
-                            store, hashes, stateDirectory.resolve("votes.bin")),
+                    genesis.registryFingerprint(), 5_000L, votes,
                     LiveEntityLaneRuntime.admission(server), world, transfers, actions,
                     task -> server.execute(() -> {
                         if (active.get()) {
                             task.run();
                         }
                     }));
+            validation.setExternalCommitListener(externalHeads::externalCommitted);
             for (CommitteePeer peer : peers) {
                 validation.registerPeer(
                         peer.address().nodeId(), peer.address(), peer.publicKey());
             }
             live = new LiveEntityLaneRuntime(validation, world, host.identity(), actions);
             for (RegionBinding region : regions) {
-                live.activate(region.level(), region.snapshot(), region.lease());
+                // Reopen resume (issue #34 / L-50): prefer the store head — the latest
+                // quorum-committed or external-committed snapshot — over the caller's derived
+                // genesis snapshot, so a reopened session continues from where the last one
+                // committed instead of re-feeding INITIAL all-AIR state.
+                RegionSnapshot base = EntityLaneResume.resumeHead(
+                                votes, externalHeads, region.snapshot().region())
+                        .orElse(region.snapshot());
+                if (!base.version().equals(region.snapshot().version())) {
+                    LOG.info("Resuming region {} from store head v{} (genesis would be v{})",
+                            region.snapshot().region(), base.version().value(),
+                            region.snapshot().version().value());
+                }
+                live.activate(region.level(), base, region.lease());
             }
             host.runtime().onApplicationMessage((from, message) -> {
                 if (active.get()) {

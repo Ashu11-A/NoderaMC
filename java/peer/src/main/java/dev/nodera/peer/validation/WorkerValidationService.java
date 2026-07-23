@@ -186,6 +186,7 @@ public final class WorkerValidationService {
     private final int rulesVersion;
     private final long registryFingerprint;
     private final long voteTimeoutMillis;
+    private volatile ExternalCommitListener externalCommitListener;
 
     private final Map<RegionId, Replica> replicas = new ConcurrentHashMap<>();
     private final Map<RegionId, RegionLease> knownLeases = new ConcurrentHashMap<>();
@@ -1055,6 +1056,29 @@ public final class WorkerValidationService {
         replica.snapshot = snapshot;
         replica.headRoot = certificate.resultingRoot();
         replica.pipeline.externalCommitted(delta.resultingVersion());
+        ExternalCommitListener listener = externalCommitListener;
+        if (listener != null) {
+            // Durability seam (issue #34 / L-50): external commits were memory-applied only, so a
+            // session reopen lost them. The listener persists the certified resulting snapshot;
+            // a persistence failure must pause the lane rather than silently fork the reopen
+            // state, so it propagates like any other apply failure.
+            listener.externalCommitted(snapshot, certificate);
+        }
+    }
+
+    /**
+     * Install the durable sink for applied external commits (primary and validator side). The
+     * listener is invoked after the delta is applied, root-verified, and the pipeline advanced;
+     * see {@link WorldStoreExternalHeads} for the durable implementation.
+     */
+    public void setExternalCommitListener(ExternalCommitListener listener) {
+        this.externalCommitListener = listener;
+    }
+
+    /** Observer for applied external (server-authoritative) commits. */
+    @FunctionalInterface
+    public interface ExternalCommitListener {
+        void externalCommitted(RegionSnapshot snapshot, ServerAuthorityCertificate certificate);
     }
 
     private boolean externalCertificateMatches(
