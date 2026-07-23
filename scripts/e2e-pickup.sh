@@ -41,7 +41,12 @@ done
 
 log()  { printf '\033[1;36m[e2e-pickup]\033[0m %s\n' "$*"; }
 pass() { printf '\033[1;32m[e2e-pickup] PASS %s\033[0m\n' "$*"; }
-fail() { printf '\033[1;31m[e2e-pickup] FAIL %s\033[0m\n' "$*" >&2; cleanup; exit 1; }
+dump_threads() {
+    for pid in $(pgrep -f 'neoforge|serverRunProgramArgs|clientRunProgramArgs' 2>/dev/null); do
+        jcmd "$pid" Thread.print > "$LOG_DIR/threads-$pid.txt" 2>/dev/null || true
+    done
+}
+fail() { dump_threads; printf '\033[1;31m[e2e-pickup] FAIL %s\033[0m\n' "$*" >&2; cleanup; exit 1; }
 
 PIDS=()
 cleanup() {
@@ -58,6 +63,7 @@ trap cleanup EXIT
 
 wait_log() {
     local file="$1" needle="$2" timeout="${3:-120}" waited=0
+    timeout=$(( timeout * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
     while (( waited < timeout )); do
         [[ -f "$file" ]] && grep -qF -- "$needle" "$file" && return 0
         sleep 2; waited=$((waited + 2))
