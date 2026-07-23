@@ -532,8 +532,15 @@ public final class WorkerValidationService {
         for (NodeId validator : lease.validators()) {
             PeerAddress addr = peers.get(validator);
             if (addr != null) {
-                transport.send(addr, MessageCodec.encode(proposal));
-                transport.send(addr, MessageCodec.encode(new ActionBatchMsg(batch)));
+                try {
+                    transport.send(addr, MessageCodec.encode(proposal));
+                    transport.send(addr, MessageCodec.encode(new ActionBatchMsg(batch)));
+                } catch (dev.nodera.transport.TransportException unreachable) {
+                    // A dead validator is an absent vote, not a failed proposal: quorum is a
+                    // strict majority of the committee, so the round proceeds with whoever is
+                    // reachable and times out honestly if a majority is not (Task 8 acceptance:
+                    // kill 2/3 falls back within the lease — not with an exception).
+                }
             }
         }
         proposalsSent.incrementAndGet();
@@ -572,7 +579,11 @@ public final class WorkerValidationService {
         for (NodeId validator : lease.validators()) {
             PeerAddress addr = peers.get(validator);
             if (addr != null) {
-                transport.send(addr, MessageCodec.encode(announce));
+                try {
+                    transport.send(addr, MessageCodec.encode(announce));
+                } catch (dev.nodera.transport.TransportException unreachable) {
+                    // The certificate is already durable; an unreachable member resyncs later.
+                }
             }
         }
         return Optional.of(cert.resultingRoot());
@@ -1283,7 +1294,12 @@ public final class WorkerValidationService {
     private void sendTo(NodeId peer, NoderaMessage message) {
         PeerAddress address = peers.get(peer);
         if (address != null) {
-            transport.send(address, MessageCodec.encode(message));
+            try {
+                transport.send(address, MessageCodec.encode(message));
+            } catch (dev.nodera.transport.TransportException unreachable) {
+                // Best-effort fan-out: an unreachable member is an absent recipient, and every
+                // certified path re-converges via resync rather than by aborting the sender.
+            }
         }
     }
 
@@ -1454,6 +1470,14 @@ public final class WorkerValidationService {
                                                  CrossRegionRouter.RegionStatus status,
                                                  RegionSnapshot base) {
         RoutingDecision decision = router.route(env, status);
+        if (decision.reason() == dev.nodera.fallback.RoutingReason.CROSS_REGION) {
+            // A cross-region action must execute against the TARGET region's state — executing it
+            // here against the envelope's owning-region base would feed the engine a foreign
+            // position (it throws "cross-region action reached the engine"). This layer only
+            // classifies; the server-lane owner of the target region executes the routed action
+            // atomically in its own single lane (Task 8 CrossRegionPlan, live half).
+            return decision;
+        }
         if (decision.isFallback()) {
             Bytes actorKey = actorKeys.get(env.actor());
             if (!env.region().equals(base.region())
