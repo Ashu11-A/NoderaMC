@@ -168,6 +168,23 @@ interference guard (`MutationSource.SCHEDULED`), not owned.
 Remediation (staged, mostly pure-headless engine additions):
 1. **T13 first** (L-26 core): palette v2 redstone entries + `RedstoneRules` signal graph
    + scheduled-tick queue + `rulesVersion` bump; live `LevelTicksMixin` suppression.
+   **Sequencing discovery (2026-07-23, increment 3 planning):** the signal graph is
+   BLOCKED on a state-model densification — `ChunkColumnState` is uniform-per-section
+   (one palette id per 16³ section), so per-block redstone components cannot be
+   represented. Increment 3 is therefore *dense sections* (per-block ids within a
+   section, next `ChunkColumnState` body version, byte-stable uniform fast-path so
+   existing roots keep their bytes), and the signal graph becomes increment 4.
+   Increments 1 (hashed scheduled state, @Invariant(10)) and 2 (NeighborUpdateOrder)
+   are landed. **Densification scope (measured):** it is not only `ChunkColumnState` —
+   `BlockMutation.expectedPreviousStateId` guards, `SnapshotDeltaApplier`'s two-pass CAS
+   (reads `palette[section]` as "current"), `MutableRegionState`'s working palettes,
+   `InMemoryWorldView`'s column model, and the drift exceptions are ALL section-granular
+   today. The dense increment must move the mutation guard to per-block semantics in one
+   coordinated change with a single canonical column-mutation point (a
+   `ChunkColumnState.withBlock` style API all three mutators delegate to), an
+   all-uniform-dense-section re-sparsification rule so historical hashes stay
+   byte-identical, and jqwik equivalence fixtures (uniform vs dense-all-same must be
+   the same canonical bytes). Own session-scale arc; do not start it as a side edit.
 2. **L-1**: `RandomTickRules` + deterministic `RandomTickSelector` on the `tick()` hook
    (per-tick DeterministicRandom seed already reserved, engine:139-142); live mixin stops
    vanilla random ticks in owned regions; suppression counter then deleted.
