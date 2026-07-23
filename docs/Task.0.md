@@ -347,6 +347,10 @@ cat Tested.md                                  # test counts + emojis
    ```
    Emoji/type legend + examples: `README.md` → "Commit message standard". Reference the issue:
    `refs #N` while working; `fixes #N` / `closes #N` to close.
+4. **Run the GitHub hygiene sweep** (`AGENTS.md` → "GitHub hygiene sweep") at session start and
+   after every push: review every open PR, reconcile the issue ledger against the current tree
+   (close-with-evidence / open newly-discovered), and treat any failed action on `main` as
+   stop-the-line — `gh run view <id> --log-failed`, reproduce, fix, push, re-verify green.
 
 ## 12. Definition of done (every task phase)
 

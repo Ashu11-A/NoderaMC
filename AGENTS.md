@@ -151,6 +151,33 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    ```
    Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
 
+## GitHub hygiene sweep (EVERY session, via the `gh` CLI — before starting new work)
+
+<!-- AI-AGENT-INSTRUCTION: Run this sweep at the start of every session and again after every
+     push. It is not optional housekeeping: stale issues rot the task ledger, an unreviewed PR
+     blocks the pipeline, and a red action on main means the tree is broken for everyone. -->
+
+1. **Review every open pull request.** `gh pr list --state open` — for each PR:
+   `gh pr view <n> --files` + `gh pr diff <n>`, review against the acceptance criteria of its
+   issue, then `gh pr review <n> --approve|--request-changes -b "<findings>"`. Merge only when
+   both gates are green on the PR head (`gh pr checks <n>`). Never leave an open PR unreviewed
+   at the end of a session.
+2. **Reconcile the issue ledger.** `gh issue list --state open --limit 100` — for each issue,
+   compare against the CURRENT tree (code + `Tested.md` + `docs/LIMITATIONS.md`):
+   - work landed → `gh issue close <n> -c "<evidence: tests/register rows/commits>"` (always
+     with an evidence comment, never a bare close);
+   - work newly discovered (a live defect, a precise repro, a staged exit) →
+     `gh issue create --label bug|task --title "..." --body "<repro/exit criteria + pointers>"`;
+   - issue references stale numbering → find by exact `Task N — <title>` (task ≠ issue number).
+   The ledger must reflect reality at session end — an issue whose scope shipped days ago is a
+   bug in the ledger itself.
+3. **Analyze failed actions.** `gh run list --limit 10` — any `failure` on `main` is a
+   stop-the-line event: `gh run view <id> --log-failed` to isolate the failing step, reproduce
+   locally (`./gradlew check` / `cd rust && cargo test && cargo fmt --check && cargo clippy
+   --all-targets -- -D warnings`), fix, push, then re-check `gh run list` until green. A push
+   is not "done" until its `build` and `release-latest` runs pass; watch them with
+   `gh run watch <id>` after every push to `main`.
+
 ## GitHub issue workflow (see `.github/ISSUE_SYSTEM.md` for the full rules)
 - GitHub issues are the source of truth. Every task phase has an issue; every detected
   problem becomes a `bug` issue before a regression reaches `main`. Existing issues use the
