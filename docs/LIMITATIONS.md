@@ -63,7 +63,6 @@ observable in normal play.
 | L-16 | Committed effects appear 1–2 ticks late (ghost/pending render) | T16 | Client prediction + rollback: local apply instant, reconciliation invisible in normal play (interim: T6 ghost render) | OPEN |
 | L-17 | Gateway migration = brief reconnect + action freeze | T16 | Local-replica world view: play continues with zero reconnect during migration | OPEN |
 | L-18 | Membership semi-trusted (whitelist); Sybil/collusion not defended | T16 | BFT committee rotation + admission control + dynamic sizing; Byzantine ITs green under adversarial FakePeers | OPEN |
-| L-19 | Small populations degrade quorum (3-of-4 → 2-of-3 degraded mode) | T16 | Dynamic committee sizing with certified reconfiguration replaces static degraded mode | OPEN |
 | L-20 | Genesis is a single-signer trust root (server self-certifies) | T16 | Multi-party genesis re-certification signed by founding peer set | OPEN |
 | L-21 | Third-party mods excluded from validated regions (palette exclusion) | T16 | Deterministic RuleSet SDK: mods ship rule packs, covered by registryFingerprint; SDK sample mod validated in CI | OPEN |
 | L-24 | `mobCapture` ghost lane default-off until proven | T15 | Flips default per-species as validation ships | OPEN |

@@ -54,7 +54,6 @@ public final class CommitteeManager {
     private final SignatureService signatures;
     private final Map<RegionId, RegionCommittee> current = new HashMap<>();
     private final Map<RegionId, Map<NodeId, Bytes>> memberKeys = new HashMap<>();
-    private final Map<RegionId, Boolean> degraded = new HashMap<>();
 
     public CommitteeManager(SignatureService signatures) {
         if (signatures == null) {
@@ -71,7 +70,6 @@ public final class CommitteeManager {
         requireKeysCover(committee, keys);
         current.put(committee.region(), committee);
         memberKeys.put(committee.region(), Map.copyOf(keys));
-        degraded.put(committee.region(), committee.size() < NoderaConstants.QUORUM_PEER_SIZE);
     }
 
     /** The currently certified committee for {@code region}. */
@@ -79,9 +77,43 @@ public final class CommitteeManager {
         return Optional.ofNullable(current.get(region));
     }
 
-    /** True when {@code region} runs the degraded 2-of-3 policy because the population is small. */
+    /**
+     * True when {@code region}'s committee is below the full peer-era size. Derived from the
+     * certified committee itself, never a static flag (L-19): every sizing transition — shrink on
+     * loss, growth on population return via {@link #draftResize} — flows through a certified
+     * reconfiguration, and this verdict simply reads the certified result.
+     */
     public boolean isDegraded(RegionId region) {
-        return degraded.getOrDefault(region, false);
+        RegionCommittee committee = current.get(region);
+        return committee != null && committee.size() < NoderaConstants.QUORUM_PEER_SIZE;
+    }
+
+    /**
+     * Draft a certified RESIZE of {@code region}'s committee to exactly {@code members} (first
+     * member is the primary): the dynamic-sizing path that replaces the static degraded mode —
+     * a degraded committee grows back to full strength the moment the population returns, and
+     * any shrink below full strength is equally explicit and certified. Quorum of the NEW
+     * committee is a strict majority of its size ({@code size/2 + 1}); installing the result
+     * still requires the OLD committee's quorum of approvals ({@link #certify}).
+     *
+     * @throws IllegalArgumentException if fewer than {@code QUORUM_MVP_SIZE} members are given
+     *                                  or members repeat.
+     */
+    public ChangeProposal draftResize(RegionId region, List<NodeId> members) {
+        RegionCommittee old = requireCurrent(region);
+        if (members == null || members.size() < NoderaConstants.QUORUM_MVP_SIZE) {
+            throw new IllegalArgumentException("a committee needs at least "
+                    + NoderaConstants.QUORUM_MVP_SIZE + " members");
+        }
+        if (members.stream().distinct().count() != members.size()) {
+            throw new IllegalArgumentException("committee members must be distinct");
+        }
+        NodeId primary = members.get(0);
+        List<NodeId> validators = new ArrayList<>(members.subList(1, members.size()));
+        int quorum = members.size() / 2 + 1;
+        RegionCommittee next = new RegionCommittee(region,
+                new RegionEpoch(old.epoch().value() + 1), primary, validators, quorum);
+        return propose(next);
     }
 
     /** Nominate {@code next} as the region's next committee (epoch must be current + 1). */
