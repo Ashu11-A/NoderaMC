@@ -53,6 +53,11 @@ jobs:
           ./gradlew :peer:installDist
           mkdir -p build
           cp -r java/peer/build/install/nodera-headless build/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build the companion UI (tauri frontendDist)
+        run: cd rust/nodera-app/ui && npm ci && npm run build
       - name: Build the companion app
         run: cd rust/nodera-app && cargo build --release
       - name: Gate both ways (worker present => start, absent => actionable abort)
