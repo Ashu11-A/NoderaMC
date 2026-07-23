@@ -12,6 +12,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.mod.server.entity.MinecraftEntityAdapters;
 import dev.nodera.simulation.rules.FlatWorldRules;
 import dev.nodera.storage.CertifiedWorldGenesis;
+import dev.nodera.storage.SnapshotExtractor;
 import dev.nodera.storage.io.AtomicFileWriter;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -41,11 +42,10 @@ import java.util.TreeSet;
  * the save folder as {@value #FILE_NAME}. Re-opening the save reuses the persisted record, so the
  * world's genesis (and everything derived from it, like the tracker {@code worldId}) is stable.
  *
- * <p><b>Digest fidelity (interim).</b> Until Task 5b's full {@code SnapshotExtractor} lands, the
- * per-region digest commits to a deterministic coarse sample of each loaded chunk: per section, its
- * emptiness plus the corner block identities. Unloaded chunks contribute an explicit marker. This is
- * enough for the root to change when the sampled world content changes, which is the 30c contract;
- * bit-complete extraction arrives with 5b. Genesis stays the one self-signed trust root (L-20).
+ * <p><b>Digest fidelity.</b> Task 5b's {@link SnapshotExtractor} is live (L-50): the per-region
+ * digest is bit-complete — every loaded section contributes all 4096 block-state ids (properties
+ * included), all-air sections and unloaded chunks commit through distinct fixed markers. Genesis
+ * stays the one self-signed trust root (L-20).
  *
  * @Thread-context {@link #ensure} must run on the server thread (it reads live chunks).
  */
@@ -55,8 +55,6 @@ public final class WorldGenesisService {
     public static final String FILE_NAME = "nodera-genesis.dat";
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaGenesis");
-    private static final byte[] UNLOADED_CHUNK_MARKER =
-            "nodera.genesis.unloaded-chunk".getBytes(StandardCharsets.UTF_8);
 
     private WorldGenesisService() {
     }
@@ -153,43 +151,45 @@ public final class WorldGenesisService {
         return digests;
     }
 
-    /** Deterministic coarse content digest of one region's loaded chunks (see class doc). */
+    /**
+     * Bit-complete content digest of one region's loaded chunks (Task 5b, L-50): every section's
+     * FULL 4096 block-state ids — properties included via {@code Block.getId(BlockState)} — feed
+     * {@link SnapshotExtractor#sectionDigest(int[])}; all-air sections and unloaded chunks commit
+     * through distinct fixed markers. Replaces the interim 8-corner coarse sample: an interior
+     * edit can no longer alias the digest.
+     */
     private static Bytes regionDigest(ServerLevel level, RegionId region, HashService hashes) {
-        CanonicalWriter w = new CanonicalWriter();
+        SnapshotExtractor extractor = new SnapshotExtractor(hashes);
+        java.util.List<Bytes> sectionDigests = new java.util.ArrayList<>();
         int originX = region.originChunkX();
         int originZ = region.originChunkZ();
+        int[] ids = new int[SnapshotExtractor.SECTION_VOLUME];
         for (int dx = 0; dx < NoderaConstants.REGION_SIZE_CHUNKS; dx++) {
             for (int dz = 0; dz < NoderaConstants.REGION_SIZE_CHUNKS; dz++) {
-                int cx = originX + dx;
-                int cz = originZ + dz;
-                w.writeU32(Integer.toUnsignedLong(cx));
-                w.writeU32(Integer.toUnsignedLong(cz));
-                LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
+                LevelChunk chunk = level.getChunkSource()
+                        .getChunkNow(originX + dx, originZ + dz);
                 if (chunk == null) {
-                    w.writeBytes(UNLOADED_CHUNK_MARKER);
+                    sectionDigests.add(extractor.missingChunkMarker());
                     continue;
                 }
-                LevelChunkSection[] sections = chunk.getSections();
-                w.writeU32(sections.length);
-                for (LevelChunkSection section : sections) {
+                for (LevelChunkSection section : chunk.getSections()) {
                     if (section.hasOnlyAir()) {
-                        w.writeBoolean(true);
+                        sectionDigests.add(extractor.emptySectionMarker());
                         continue;
                     }
-                    w.writeBoolean(false);
-                    // Corner sample: eight block identities commit to the section's content coarsely.
-                    for (int x = 0; x <= 15; x += 15) {
-                        for (int y = 0; y <= 15; y += 15) {
-                            for (int z = 0; z <= 15; z += 15) {
-                                w.writeBytes(BuiltInRegistries.BLOCK.getKey(
-                                                section.getBlockState(x, y, z).getBlock())
-                                        .toString().getBytes(StandardCharsets.UTF_8));
+                    int i = 0;
+                    for (int y = 0; y < 16; y++) {
+                        for (int z = 0; z < 16; z++) {
+                            for (int x = 0; x < 16; x++) {
+                                ids[i++] = net.minecraft.world.level.block.Block.getId(
+                                        section.getBlockState(x, y, z));
                             }
                         }
                     }
+                    sectionDigests.add(extractor.sectionDigest(ids));
                 }
             }
         }
-        return hashes.sha256(w.toBytes());
+        return extractor.regionDigest(sectionDigests);
     }
 }

@@ -36,6 +36,17 @@ final class RecordingListener implements PeerEventListener {
         keepAlivesFrom.computeIfAbsent(from, k -> new AtomicLong()).incrementAndGet();
     }
 
+    private final java.util.Set<NodeId> joined = ConcurrentHashMap.newKeySet();
+
+    @Override
+    public void onPeerJoined(NodeId who) {
+        joined.add(who);
+    }
+
+    java.util.Set<NodeId> joined() {
+        return joined;
+    }
+
     long keepAlivesFrom(NodeId from) {
         AtomicLong c = keepAlivesFrom.get(from);
         return c == null ? 0 : c.get();

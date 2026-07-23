@@ -419,7 +419,31 @@ public final class PeerRuntime implements DiagnosticsSource {
         this.applicationHandler = handler;
     }
 
+    /**
+     * Admission gate consulted before a joiner enters the membership view (L-49 / L-18: the
+     * previously unconditional {@code onPeerJoin} was the register's concrete Sybil hole). The
+     * default admits everyone (existing behavior for permissionless test meshes); a hosted world
+     * installs {@code WorldPermissions::canJoin} so a {@code BANNED} peer is refused — never
+     * entered, never replied to, never gossiped.
+     */
+    @FunctionalInterface
+    public interface JoinAdmission {
+        boolean admit(dev.nodera.core.identity.NodeId joiner);
+    }
+
+    private volatile JoinAdmission joinAdmission = joiner -> true;
+
+    /** Install the membership admission gate; null resets to admit-all. */
+    public void setJoinAdmission(JoinAdmission admission) {
+        this.joinAdmission = admission == null ? joiner -> true : admission;
+    }
+
     private void onPeerJoin(PeerJoin j) {
+        if (!joinAdmission.admit(j.joiner())) {
+            // Refused: no membership entry, no snapshot reply, no gossip — the banned peer
+            // learns nothing about the mesh from this node.
+            return;
+        }
         PeerEntry entry = new PeerEntry(j.joiner(), j.listenRoute(), j.capabilities(), j.bootstrap());
         boolean isNew = !members.containsKey(j.joiner());
         members.put(j.joiner(), entry);
@@ -440,6 +464,11 @@ public final class PeerRuntime implements DiagnosticsSource {
         boolean changed = false;
         for (PeerEntry e : u.members()) {
             if (e.nodeId().equals(selfId)) {
+                continue;
+            }
+            if (!joinAdmission.admit(e.nodeId())) {
+                // A banned peer must not enter via gossip either: every membership ingest
+                // point runs the same admission gate (L-49).
                 continue;
             }
             if (!members.containsKey(e.nodeId())) {
