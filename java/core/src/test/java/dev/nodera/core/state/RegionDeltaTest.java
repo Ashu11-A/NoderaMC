@@ -156,6 +156,65 @@ final class RegionDeltaTest {
     }
 
     @Test
+    void versionThreeDeltaDecodesWithEmptyScheduledState() {
+        CanonicalWriter w = new CanonicalWriter();
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(3);
+        REGION.encode(w);
+        SnapshotVersion.INITIAL.encode(w);
+        SnapshotVersion.INITIAL.next().encode(w);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        ROOT.encode(w);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        byte[] versionThree = w.toByteArray();
+        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(versionThree));
+        assertThat(decoded.scheduledTicks()).isEmpty();
+        assertThat(decoded.blockEvents()).isEmpty();
+        assertThat(decoded.bodyVersion()).isEqualTo(3);
+        assertThat(encode(decoded)).isEqualTo(versionThree);
+    }
+
+    @Test
+    void versionFourRoundTripsScheduledStateInCanonicalOrder() {
+        ScheduledTickEntry late = new ScheduledTickEntry(new NBlockPos(1, 64, 1), 5, 9L, 0, 2L);
+        ScheduledTickEntry early = new ScheduledTickEntry(new NBlockPos(2, 64, 2), 5, 3L, 0, 1L);
+        BlockEventEntry event = new BlockEventEntry(new NBlockPos(3, 64, 3), 0, 1, 0);
+        RegionDelta delta = new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(), List.of(), List.of(),
+                List.of(late, early), List.of(event));
+        assertThat(delta.bodyVersion()).isEqualTo(RegionDelta.SCHEDULED_ENCODING_VERSION);
+        assertThat(delta.scheduledTicks())
+                .as("scheduled ticks canonicalise to execution order")
+                .containsExactly(early, late);
+        assertThat(delta.isEmpty()).isFalse();
+        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(encode(delta)));
+        assertThat(decoded).isEqualTo(delta);
+        assertThat(encode(decoded)).isEqualTo(encode(delta));
+    }
+
+    @Test
+    void legacyDeltaCannotCarryScheduledState() {
+        ScheduledTickEntry entry = new ScheduledTickEntry(new NBlockPos(1, 64, 1), 5, 3L, 0, 1L);
+        assertThatThrownBy(() -> new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(), List.of(), List.of(),
+                List.of(entry), List.of(), 3))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("legacy delta cannot carry scheduled state");
+    }
+
+    @Test
+    void rejectsBodyVersionAboveScheduled() {
+        assertThatThrownBy(() -> new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(), List.of(), List.of(), List.of(), List.of(), 5))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unsupported region-delta body version");
+    }
+
+    @Test
     void rejectsDuplicateEntityMutations() {
         PersistedEntityState entity = EntityMutationTest.entity(1, 1);
         EntityMutation mutation = new EntityMutation(entity.id(), null, entity);
@@ -181,7 +240,7 @@ final class RegionDeltaTest {
     @Test
     void rejectsUnsupportedBodyVersion() {
         CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(4);
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(5);
         assertThatThrownBy(() -> RegionDelta.decode(new CanonicalReader(w.toByteArray())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("REGION_DELTA encoding version");

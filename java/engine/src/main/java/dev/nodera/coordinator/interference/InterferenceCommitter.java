@@ -165,7 +165,8 @@ public final class InterferenceCommitter {
                 mutations.add(new BlockMutation(m.pos(), m.prevStateId(), m.newStateId(), 0));
             }
             RegionDelta delta = new RegionDelta(
-                    region, base, next, mutations, root, entityMutations, List.of(), List.of(), 2);
+                    region, base, next, mutations, root, entityMutations, List.of(), List.of(),
+                    List.of(), List.of(), 2);
             StateRoot transitionRoot = StateRoot.of(new dev.nodera.core.crypto.HashService().hash(delta));
             ServerAuthorityCertificate unsigned = new ServerAuthorityCertificate(
                     region, base, next, root, transitionRoot,

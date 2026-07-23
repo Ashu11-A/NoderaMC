@@ -87,6 +87,18 @@ public final class FlatWorldRules implements RuleSet {
     public static final int TORCH_ON = 28;
     /** Standing redstone torch, unlit (network-computed: powered support extinguishes it). */
     public static final int TORCH_OFF = 29;
+    /** Repeaters: facing = OUTPUT direction; OFF placeable, ON network-computed. Delay 1 tick. */
+    public static final int REPEATER_NORTH_OFF = 30;
+    public static final int REPEATER_NORTH_ON = 31;
+    public static final int REPEATER_SOUTH_OFF = 32;
+    public static final int REPEATER_SOUTH_ON = 33;
+    public static final int REPEATER_WEST_OFF = 34;
+    public static final int REPEATER_WEST_ON = 35;
+    public static final int REPEATER_EAST_OFF = 36;
+    public static final int REPEATER_EAST_ON = 37;
+    /** Stone button: OFF placeable; interact presses it (ON, 15 omni) with a 10-tick auto-off. */
+    public static final int BUTTON_OFF = 38;
+    public static final int BUTTON_ON = 39;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -109,6 +121,16 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(LEVER_ON, "lever_on"),
             new PaletteEntry(TORCH_ON, "redstone_torch_on"),
             new PaletteEntry(TORCH_OFF, "redstone_torch_off"),
+            new PaletteEntry(REPEATER_NORTH_OFF, "repeater_north_off"),
+            new PaletteEntry(REPEATER_NORTH_ON, "repeater_north_on"),
+            new PaletteEntry(REPEATER_SOUTH_OFF, "repeater_south_off"),
+            new PaletteEntry(REPEATER_SOUTH_ON, "repeater_south_on"),
+            new PaletteEntry(REPEATER_WEST_OFF, "repeater_west_off"),
+            new PaletteEntry(REPEATER_WEST_ON, "repeater_west_on"),
+            new PaletteEntry(REPEATER_EAST_OFF, "repeater_east_off"),
+            new PaletteEntry(REPEATER_EAST_ON, "repeater_east_on"),
+            new PaletteEntry(BUTTON_OFF, "stone_button_off"),
+            new PaletteEntry(BUTTON_ON, "stone_button_on"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -137,6 +159,11 @@ public final class FlatWorldRules implements RuleSet {
         BitSet s = buildWhitelist();
         s.clear(LEVER_ON);
         s.clear(TORCH_OFF);
+        s.clear(REPEATER_NORTH_ON);
+        s.clear(REPEATER_SOUTH_ON);
+        s.clear(REPEATER_WEST_ON);
+        s.clear(REPEATER_EAST_ON);
+        s.clear(BUTTON_ON);
         for (int p = 1; p <= 15; p++) {
             s.clear(WIRE_0 + p);
         }
@@ -246,8 +273,7 @@ public final class FlatWorldRules implements RuleSet {
                 }
             }
             case dev.nodera.core.action.InteractBlockAction i -> {
-                state.setBlock(i.pos(), RedstoneRules.toggled(state.getBlock(i.pos())), env, rng);
-                RedstoneRules.recomputeNetwork(state, i.pos(), env, rng, env.targetTick());
+                RedstoneRules.interact(state, i.pos(), env, rng, env.targetTick());
             }
             // Drop/Pickup are validated as UNSUPPORTED_ACTION above, so apply never sees them;
             // the entity lane (Task 12a EntityRuleSet) owns their application. Exhaustive by kind.

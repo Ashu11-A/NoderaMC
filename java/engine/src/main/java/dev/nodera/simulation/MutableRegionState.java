@@ -71,6 +71,7 @@ public final class MutableRegionState implements RegionWorldView {
     private final List<dev.nodera.core.state.ScheduledTickEntry> scheduledTicks = new ArrayList<>();
     private final List<dev.nodera.core.state.BlockEventEntry> blockEvents = new ArrayList<>();
     private long nextTickSeq;
+    private final boolean baseHadScheduledState;
 
     /**
      * Build a working copy over {@code snapshot} restricted by {@code bounds}. The snapshot's
@@ -95,6 +96,8 @@ public final class MutableRegionState implements RegionWorldView {
         this.bounds = bounds;
         this.scheduledTicks.addAll(snapshot.scheduledTicks());
         this.blockEvents.addAll(snapshot.blockEvents());
+        this.baseHadScheduledState =
+                !snapshot.scheduledTicks().isEmpty() || !snapshot.blockEvents().isEmpty();
         for (dev.nodera.core.state.ScheduledTickEntry entry : this.scheduledTicks) {
             nextTickSeq = Math.max(nextTickSeq, entry.seq() + 1);
         }
@@ -367,6 +370,15 @@ public final class MutableRegionState implements RegionWorldView {
      * @Thread-context thread-confined per call.
      */
     public RegionDelta toDelta(SnapshotVersion baseVersion, SnapshotVersion resultingVersion, StateRoot resultingRoot) {
+        // A transition touching scheduled state on EITHER side must ship the resulting queue
+        // (body v4, replace semantics) — a pending flip is root state the applier cannot infer.
+        // Every pre-redstone transition keeps its exact version-3 bytes.
+        if (baseHadScheduledState || !scheduledTicks.isEmpty() || !blockEvents.isEmpty()) {
+            return new RegionDelta(region, baseVersion, resultingVersion,
+                    mutationBuffer.sortedMutations(), resultingRoot,
+                    entityStore.mutations(), entityStore.credits(), transferIntents,
+                    List.copyOf(scheduledTicks), List.copyOf(blockEvents));
+        }
         return new RegionDelta(region, baseVersion, resultingVersion,
                 mutationBuffer.sortedMutations(), resultingRoot,
                 entityStore.mutations(), entityStore.credits(), transferIntents);
