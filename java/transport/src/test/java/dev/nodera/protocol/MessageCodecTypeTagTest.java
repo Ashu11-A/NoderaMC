@@ -117,7 +117,9 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_WORLD_MANIFEST_ANSWER).isEqualTo(52);
         // The no-host submission path appended the action-forward message.
         assertThat(MessageCodec.TAG_ACTION_FORWARD).isEqualTo(53);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(53);
+        assertThat(MessageCodec.TAG_EVENT_SYNC_QUERY).isEqualTo(54);
+        assertThat(MessageCodec.TAG_EVENT_SYNC_ANSWER).isEqualTo(55);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(55);
     }
 
     @Test

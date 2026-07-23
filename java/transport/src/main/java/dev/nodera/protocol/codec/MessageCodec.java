@@ -238,8 +238,13 @@ public final class MessageCodec {
     /** {@link ActionForward} tag (no-host submission: route an action to its region's primary). */
     public static final int TAG_ACTION_FORWARD = 53;
 
+    /** {@code EventSyncQuery} — forward event-sync request (Task 9 / L-30). */
+    public static final int TAG_EVENT_SYNC_QUERY = 54;
+    /** {@code EventSyncAnswer} — the serving peer's certified events since the requested id. */
+    public static final int TAG_EVENT_SYNC_ANSWER = 55;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 53;
+    public static final int NEXT_TAG = 55;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -266,7 +271,8 @@ public final class MessageCodec {
             TAG_ENTITY_TRANSFER_PREPARE, TAG_ENTITY_TRANSFER_ACCEPT,
             TAG_ENTITY_TRANSFER_COMMIT,
             TAG_TRACKER_ROUTES_QUERY, TAG_TRACKER_ROUTES_RESPONSE,
-            TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD);
+            TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD,
+            TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -333,6 +339,8 @@ public final class MessageCodec {
             case TAG_WORLD_MANIFEST_QUERY -> "WorldManifestQuery";
             case TAG_WORLD_MANIFEST_ANSWER -> "WorldManifestAnswer";
             case TAG_ACTION_FORWARD -> "ActionForward";
+            case TAG_EVENT_SYNC_QUERY -> "EventSyncQuery";
+            case TAG_EVENT_SYNC_ANSWER -> "EventSyncAnswer";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -732,6 +740,17 @@ public final class MessageCodec {
                     p.peer().encode(ww);
                     ww.writeList(p.routes(), CanonicalWriter::writeString);
                 });
+            }
+            case dev.nodera.protocol.simulationmsg.EventSyncQuery m -> {
+                w.writeU16(TAG_EVENT_SYNC_QUERY).writeU16(ENCODING_VERSION);
+                m.region().encode(w);
+                w.writeU64(m.sinceEventId());
+            }
+            case dev.nodera.protocol.simulationmsg.EventSyncAnswer m -> {
+                w.writeU16(TAG_EVENT_SYNC_ANSWER).writeU16(ENCODING_VERSION);
+                m.region().encode(w);
+                w.writeList(m.encodedEvents(), CanonicalWriter::writeBytes);
+                w.writeList(m.encodedCertificates(), CanonicalWriter::writeBytes);
             }
             case WorldManifestQuery m -> {
                 w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
@@ -1161,6 +1180,18 @@ public final class MessageCodec {
             case TAG_ACTION_FORWARD -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
                 yield new ActionForward(region, r.readBytesValue());
+            }
+            case TAG_EVENT_SYNC_QUERY -> {
+                dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
+                long sinceEventId = r.readU64();
+                yield new dev.nodera.protocol.simulationmsg.EventSyncQuery(region, sinceEventId);
+            }
+            case TAG_EVENT_SYNC_ANSWER -> {
+                dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
+                java.util.List<Bytes> events = r.readList(CanonicalReader::readBytesValue);
+                java.util.List<Bytes> certificates = r.readList(CanonicalReader::readBytesValue);
+                yield new dev.nodera.protocol.simulationmsg.EventSyncAnswer(
+                        region, events, certificates);
             }
             case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());
             case TAG_WORLD_MANIFEST_ANSWER -> {
