@@ -70,6 +70,15 @@ public final class WorldHostingService implements AutoCloseable {
     private final TrackerClient tracker;
     private final RendezvousClient rendezvous;
 
+    /** L-38 coordinated retention: countdown on zero-seeder worlds, cancel on return. */
+    private final dev.nodera.peer.archival.RetentionPolicy retention =
+            new dev.nodera.peer.archival.RetentionPolicy();
+
+    /** @return the retention policy driving the announce's decommission deadline (L-38). */
+    public dev.nodera.peer.archival.RetentionPolicy retention() {
+        return retention;
+    }
+
     private final Map<String, HostedWorld> worlds = new ConcurrentHashMap<>();
     private final Map<String, Boolean> trackerReachable = new ConcurrentHashMap<>();
     private final Map<String, Boolean> rendezvousReachable = new ConcurrentHashMap<>();
@@ -257,7 +266,11 @@ public final class WorldHostingService implements AutoCloseable {
                 routes.add(MC_ROUTE_PREFIX + mc);
             }
             var announce = tracker.buildAnnounce(world.worldId, event, routes, capabilities,
-                    holdingsFor.apply(world.worldIdHex), world.name, 0L, 10_000,
+                    holdingsFor.apply(world.worldIdHex), world.name,
+                    // L-38: the coordinated decommission countdown rides the announce — 0 while
+                    // MONITORED (a live seeder exists), the earliest-deadline while counting down,
+                    // so every tracker/UI surfaces the same network-visible deadline.
+                    retention.state(world.worldId).deadlineEpochMillis(), 10_000,
                     System.currentTimeMillis());
             int acks = tracker.announce(announce).size();
             LOG.debug("tracker announce {} '{}' → {} ack(s)", event, world.name, acks);
