@@ -12,13 +12,14 @@ import dev.nodera.core.crypto.TypeTags;
  * are appended by adding a new permit and a new {@link TypeTags} constant (never renumber).
  *
  * <p>Current permits: {@link PlaceBlockAction}, {@link BreakBlockAction},
- * {@link DropItemAction}, {@link PickupItemAction}. Later tasks append interaction/entity-attack
- * actions against the reserved tags in {@link TypeTags}.
+ * {@link DropItemAction}, {@link PickupItemAction}, {@link InteractBlockAction} (Task 13).
+ * Later tasks append entity-attack actions against the reserved tags in {@link TypeTags}.
  *
  * @Thread-context immutable, any thread.
  */
 public sealed interface GameAction extends Encodable
-        permits PlaceBlockAction, BreakBlockAction, DropItemAction, PickupItemAction {
+        permits PlaceBlockAction, BreakBlockAction, DropItemAction, PickupItemAction,
+                InteractBlockAction {
 
     /**
      * Decode a polymorphic {@code GameAction} by reading the next typeTag and dispatching to the
@@ -38,6 +39,7 @@ public sealed interface GameAction extends Encodable
             case TypeTags.BREAK_BLOCK_ACTION -> BreakBlockAction.decodeBody(r);
             case TypeTags.DROP_ITEM_ACTION -> DropItemAction.decodeBody(r);
             case TypeTags.PICKUP_ITEM_ACTION -> PickupItemAction.decodeBody(r);
+            case TypeTags.INTERACT_BLOCK_ACTION -> InteractBlockAction.decodeBody(r);
             default -> throw new IllegalStateException("unknown GameAction tag " + tag);
         };
     }
