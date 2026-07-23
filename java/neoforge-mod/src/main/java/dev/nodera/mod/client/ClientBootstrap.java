@@ -85,6 +85,11 @@ public final class ClientBootstrap {
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::snapshot);
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRefreshHandler(
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::requestRefresh);
+        // L-46: the single-player world-list badge was the last feed defaulting empty — feed it
+        // from the same worker-backed world feed (shared summary; per-row placement is the
+        // WorldSelectionListEntryMixin GUI-pass work).
+        dev.nodera.mod.client.worldlist.SelectWorldScreenAddon.setStatusSupplier(
+                dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::ownWorldStatuses);
 
         String endpoint = NoderaConfig.COMPANION_CONTROL_ENDPOINT.get();
         boolean required = NoderaConfig.COMPANION_REQUIRED.get();
