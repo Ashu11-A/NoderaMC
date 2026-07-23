@@ -109,9 +109,13 @@ pub mod message_tags {
     pub const WORLD_MANIFEST_ANSWER: u16 = 52;
     /// `ActionForward` — Java no-host submission: route an action to its region's primary.
     pub const ACTION_FORWARD: u16 = 53;
+    /// `EventSyncQuery` — Java forward event-sync request (Task 9 / L-30).
+    pub const EVENT_SYNC_QUERY: u16 = 54;
+    /// `EventSyncAnswer` — the serving peer's certified events since the requested id.
+    pub const EVENT_SYNC_ANSWER: u16 = 55;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 53;
+    pub const NEXT_TAG: u16 = 55;
 }
 
 /// The message tags this crate can decode today.

@@ -153,6 +153,8 @@ fn message_tag_registry_mirrors_java() {
         TRACKER_ROUTES_RESPONSE,
         FILE,
     );
+    assert_mirrors(&source, "TAG_EVENT_SYNC_QUERY", EVENT_SYNC_QUERY, FILE);
+    assert_mirrors(&source, "TAG_EVENT_SYNC_ANSWER", EVENT_SYNC_ANSWER, FILE);
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 
