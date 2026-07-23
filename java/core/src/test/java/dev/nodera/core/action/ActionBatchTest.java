@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link ActionBatch} ordering and round-trip checks (Task 2). The actions list carries server
@@ -51,6 +52,33 @@ final class ActionBatchTest {
         ActionBatch decoded = ActionBatch.decode(new CanonicalReader(encode(batch)));
 
         assertThat(decoded).isEqualTo(batch);
+    }
+
+    @Test
+    void emptyActionsListRoundTrips() {
+        ActionBatch batch = new ActionBatch(
+                region(), new RegionEpoch(2), new SnapshotVersion(7), 100L, 102L, List.of());
+
+        ActionBatch decoded = ActionBatch.decode(new CanonicalReader(encode(batch)));
+
+        assertThat(decoded).isEqualTo(batch);
+        assertThat(decoded.actions()).isEmpty();
+    }
+
+    @Test
+    void nullArgumentsAreRejected() {
+        RegionEpoch epoch = new RegionEpoch(0);
+        SnapshotVersion version = new SnapshotVersion(0);
+        List<ActionEnvelope> actions = List.of();
+
+        assertThatThrownBy(() -> new ActionBatch(null, epoch, version, 0L, 1L, actions))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("region");
+        assertThatThrownBy(() -> new ActionBatch(region(), null, version, 0L, 1L, actions))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("epoch");
+        assertThatThrownBy(() -> new ActionBatch(region(), epoch, null, 0L, 1L, actions))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("baseVersion");
+        assertThatThrownBy(() -> new ActionBatch(region(), epoch, version, 0L, 1L, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("actions");
     }
 
     private static RegionId region() {

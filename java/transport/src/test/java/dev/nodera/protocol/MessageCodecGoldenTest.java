@@ -2,6 +2,8 @@ package dev.nodera.protocol;
 
 import dev.nodera.core.Bytes;
 import dev.nodera.core.action.ActionBatch;
+import dev.nodera.core.consensuscert.SignedVote;
+import dev.nodera.core.consensuscert.VoteDecision;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.BreakBlockAction;
 import dev.nodera.core.action.PlaceBlockAction;
@@ -10,10 +12,13 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.RegionEpoch;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.region.RegionReplicaRole;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.protocol.assignment.LeaseRenewal;
+import dev.nodera.protocol.assignment.RegionAssigned;
+import dev.nodera.protocol.assignment.RegionRevoked;
 import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.ClientHello;
@@ -23,7 +28,11 @@ import dev.nodera.protocol.health.Heartbeat;
 import dev.nodera.protocol.health.WorkerLoad;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.RegionProposal;
+import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.ResyncRequest;
+import dev.nodera.protocol.simulationmsg.SnapshotAnnounce;
+import dev.nodera.protocol.simulationmsg.StreamChunk;
+import dev.nodera.protocol.simulationmsg.ValidationVote;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -138,6 +147,132 @@ final class MessageCodecGoldenTest {
         assertThat(decoded).isEqualTo(legacy);
         assertThat(decoded.signedPortion()).isEqualTo(decoded.resultingRoot().hash());
         assertThat(current.signedPortion()).isNotEqualTo(legacy.signedPortion());
+    }
+
+    /**
+     * Machine-captured golden hex per frozen message type (captured once from the canonical
+     * encoder on 2026-07-23, then pinned). Unlike round-trip or {@code encode(x)==encode(x)}
+     * assertions — which pass even if the wire format changes uniformly — these literals fail on
+     * ANY encoding drift. The frozen contract is append-only: these bytes must never change.
+     */
+    private static final String CLIENT_HELLO_GOLDEN_HEX =
+            "000100010000000100010001000000000000000000000000000000aa00000008deadbeefcafebabe"
+            + "00020001000000040000000100000000000000323fee666666666666000000040000000801000000"
+            + "000000000700000000deadbeef0000000400112233";
+    private static final String SERVER_HELLO_GOLDEN_HEX =
+            "0002000112345678123456781234567812345678000000000000002a000000080000000200000010"
+            + "00112233445566778899aabbccddeeff";
+    private static final String REGION_ASSIGNED_GOLDEN_HEX =
+            "00050001000b0001000a0001000000096d696e656372616674000000096f766572776f726c640000"
+            + "000000000000000c00010000000000000003000e000100001e0001000000000000000a0000000000"
+            + "0001f40000000100010001000000000000000000000000000000aa";
+    private static final String REGION_REVOKED_GOLDEN_HEX =
+            "00060001000b0001000a0001000000096d696e656372616674000000096f766572776f726c640000"
+            + "000000000000000c000100000000000000030000000d6c656173652d65787069726564";
+    private static final String SNAPSHOT_ANNOUNCE_GOLDEN_HEX =
+            "00080001000b0001000a0001000000096d696e656372616674000000096f766572776f726c640000"
+            + "000000000000001e0001000000000000000a0000004000000002001f000100000020000000000000"
+            + "0000000000000000000000000000000000000000000000000000";
+    private static final String STREAM_CHUNK_GOLDEN_HEX =
+            "000900010000000000000007000000000000000200000004deadbeef";
+    private static final String ACTION_BATCH_MSG_GOLDEN_HEX =
+            "000a000100160001000b0001000a0001000000096d696e656372616674000000096f766572776f72"
+            + "6c640000000000000000000c00010000000000000002001e00010000000000000007000000000000"
+            + "00640000000000000066000000020015000100010001000000000000000000000000000000aa0000"
+            + "00000000000100000000000000010000000000000064000b0001000a0001000000096d696e656372"
+            + "616674000000096f766572776f726c64000000000000000000170001001400010000000100000002"
+            + "000000030000000c0200000001ff0015000100010001000000000000000000000000000000aa0000"
+            + "00000000000200000000000000020000000000000065000b0001000a0001000000096d696e656372"
+            + "616674000000096f766572776f726c64000000000000000000180001001400010000000400000005"
+            + "0000000600000001ee";
+    private static final String REGION_PROPOSAL_GOLDEN_HEX =
+            "000b0003000b0001000a0001000000096d696e656372616674000000096f766572776f726c640000"
+            + "000000000000000c00010000000000000003001e0001000000000000000a00000000000000640000"
+            + "000000000066001f0001000000200000000000000000000000000000000000000000000000000000"
+            + "000000000000001f0001000000200000000000000000000000000000000000000000000000000000"
+            + "00000000000000000002aabb001f0001000000200000000000000000000000000000000000000000"
+            + "00000000000000000000000000000002ccdd";
+    private static final String VALIDATION_VOTE_GOLDEN_HEX =
+            "000c0001000b0001000a0001000000096d696e656372616674000000096f766572776f726c640000"
+            + "000000000000000c00010000000000000003001e0001000000000000000a00320001000100010000"
+            + "00000000000000000000000000aa001f000100000020000000000000000000000000000000000000"
+            + "0000000000000000000000000000003300010000000002ccdd";
+    private static final String COMMIT_ANNOUNCE_GOLDEN_HEX =
+            "000d0001000b0001000a0001000000096d696e656372616674000000096f766572776f726c640000"
+            + "000000000000001e0001000000000000000a001f0001000000200000000000000000000000000000"
+            + "00000000000000000000000000000000000000000002aabb";
+    private static final String RELAY_ENVELOPE_GOLDEN_HEX =
+            "0012000100010001000000000000000000000000000000aa0000000c0011000100000004deadbeef";
+
+    @Test
+    void goldenHexPinsEveryFrozenMessageType() {
+        assertGolden(sampleClientHello(), CLIENT_HELLO_GOLDEN_HEX);
+        assertGolden(sampleServerHello(), SERVER_HELLO_GOLDEN_HEX);
+        assertGolden(sampleRegionAssigned(), REGION_ASSIGNED_GOLDEN_HEX);
+        assertGolden(sampleRegionRevoked(), REGION_REVOKED_GOLDEN_HEX);
+        assertGolden(sampleSnapshotAnnounce(), SNAPSHOT_ANNOUNCE_GOLDEN_HEX);
+        assertGolden(sampleStreamChunk(), STREAM_CHUNK_GOLDEN_HEX);
+        assertGolden(sampleActionBatchMsg(), ACTION_BATCH_MSG_GOLDEN_HEX);
+        assertGolden(sampleRegionProposal(), REGION_PROPOSAL_GOLDEN_HEX);
+        assertGolden(sampleValidationVote(), VALIDATION_VOTE_GOLDEN_HEX);
+        assertGolden(sampleCommitAnnounce(), COMMIT_ANNOUNCE_GOLDEN_HEX);
+        assertGolden(sampleRelayEnvelope(), RELAY_ENVELOPE_GOLDEN_HEX);
+    }
+
+    /** Encode-side pin AND decode-side pin: the literal must round back to the sample. */
+    private static void assertGolden(NoderaMessage sample, String goldenHex) {
+        assertThat(Bytes.unsafeWrap(MessageCodec.encode(sample)).toHex())
+                .as("golden encode drift for %s", sample.getClass().getSimpleName())
+                .isEqualTo(goldenHex);
+        assertThat(MessageCodec.decode(Bytes.fromHex(goldenHex).toArray()))
+                .as("golden decode drift for %s", sample.getClass().getSimpleName())
+                .isEqualTo(sample);
+    }
+
+    private static ServerHello sampleServerHello() {
+        return new ServerHello(
+                UUID.fromString("12345678-1234-5678-1234-567812345678"),
+                42L, 8, 2, Bytes.fromHex("00112233445566778899aabbccddeeff"));
+    }
+
+    private static RegionAssigned sampleRegionAssigned() {
+        return new RegionAssigned(
+                regionOverworld(), new RegionEpoch(3), RegionReplicaRole.PRIMARY,
+                new SnapshotVersion(10), 500L,
+                List.of(new NodeId(UUID.fromString("00000000-0000-0000-0000-0000000000aa"))));
+    }
+
+    private static RegionRevoked sampleRegionRevoked() {
+        return new RegionRevoked(regionOverworld(), new RegionEpoch(3), "lease-expired");
+    }
+
+    private static SnapshotAnnounce sampleSnapshotAnnounce() {
+        return new SnapshotAnnounce(
+                regionOverworld(), new SnapshotVersion(10), 64, 2, StateRoot.zero());
+    }
+
+    private static StreamChunk sampleStreamChunk() {
+        return new StreamChunk(7L, 0, 2, Bytes.fromHex("deadbeef"));
+    }
+
+    private static ValidationVote sampleValidationVote() {
+        return new ValidationVote(
+                regionOverworld(), new RegionEpoch(3), new SnapshotVersion(10),
+                new SignedVote(
+                        new NodeId(UUID.fromString("00000000-0000-0000-0000-0000000000aa")),
+                        StateRoot.zero(), VoteDecision.ACCEPT, Bytes.fromHex("ccdd")));
+    }
+
+    private static CommitAnnounce sampleCommitAnnounce() {
+        return new CommitAnnounce(
+                regionOverworld(), new SnapshotVersion(10), StateRoot.zero(),
+                Bytes.fromHex("aabb"));
+    }
+
+    private static RelayEnvelope sampleRelayEnvelope() {
+        return new RelayEnvelope(
+                new NodeId(UUID.fromString("00000000-0000-0000-0000-0000000000aa")),
+                Bytes.fromHex(ECHO_TEST_DEADBEEF_HEX));
     }
 
     @Test

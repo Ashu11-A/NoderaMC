@@ -189,6 +189,45 @@ final class FlatWorldRegionEngineTest {
         assertThat(result.stats().rejections()).isEmpty();
     }
 
+    @Test
+    void executeSucceedsOnNegativeCoordinateRegion() {
+        // Region (-1,-1) spans negative chunk and block coordinates end-to-end: seedFor sees
+        // negative regionX/regionZ and MutableRegionState's floorDiv paths see negative block
+        // x/z — none of which any other engine test exercises.
+        RegionId region = TestFixtures.region(-1, -1);
+        RegionSnapshot snapshot = TestFixtures.singleColumnSnapshot(region, -1, -1, 0);
+        ActionBatch batch = batch(region, List.of(
+                TestFixtures.envelope(region, 0L, 1L,
+                        TestFixtures.place(new NBlockPos(-5, 64, -7), FlatWorldRules.STONE))));
+
+        RegionExecutionResult first = engine.execute(request(region, snapshot, batch));
+        RegionExecutionResult second = engine.execute(request(region, snapshot, batch));
+
+        assertThat(first.stats().actionsApplied()).isEqualTo(1);
+        assertThat(first.stats().actionsRejected()).isZero();
+        assertThat(second.resultingRoot()).isEqualTo(first.resultingRoot());
+        assertThat(CanonicalEncoder.encode(second.delta()))
+                .isEqualTo(CanonicalEncoder.encode(first.delta()));
+    }
+
+    @Test
+    void emptyBatchExecutesSuccessfullyAndReturnsBaseStateRoot() {
+        // Happy path: an empty batch must no-op cleanly through the full apply phase — every
+        // other empty-batch test in this file throws before reaching it.
+        RegionId region = TestFixtures.region(0, 0);
+        RegionSnapshot snapshot = TestFixtures.singleColumnSnapshot(region, 0, 0, 0);
+        ActionBatch empty = batch(region, List.of());
+
+        RegionExecutionResult result = engine.execute(request(region, snapshot, empty));
+
+        RegionSnapshot expectedPost = new RegionSnapshot(
+                region, SnapshotVersion.INITIAL.next(), 2L, snapshot.chunks());
+        assertThat(result.resultingRoot()).isEqualTo(StateRoot.of(hashService.hash(expectedPost)));
+        assertThat(result.stats().actionsApplied()).isZero();
+        assertThat(result.stats().actionsRejected()).isZero();
+        assertThat(result.stats().rejections()).isEmpty();
+    }
+
     private static List<ActionRejection.Reason> rejectionReasons(RegionExecutionResult r) {
         return r.stats().rejections().stream().map(ActionRejection::reason).toList();
     }
