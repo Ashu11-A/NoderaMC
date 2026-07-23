@@ -20,7 +20,7 @@ class InterferenceBufferTest {
 
     private final RegionId region = new RegionId(DimensionKey.overworld(), 0, 0);
     private final NBlockPos pos = new NBlockPos(5, 70, 5);
-    private final NBlockPos sectionPos = new NBlockPos(0, 64, 0);
+    private final NBlockPos sectionPos = new NBlockPos(5, 70, 5);
     private final InterferenceBuffer buffer = new InterferenceBuffer();
 
     @Test
@@ -32,12 +32,16 @@ class InterferenceBufferTest {
     }
 
     @Test
-    void differentPositionsInSameSectionCoalesce() {
+    void differentPositionsStayDistinctPerBlock() {
+        // Task 13 densification: coalescing is PER BLOCK POSITION — two writes in the same
+        // section are two independent CAS-guarded mutations (the section-paint model that
+        // merged them is retired).
         buffer.record(region, new RecordedMutation(pos, 0, 3, MutationSource.UNKNOWN));
         buffer.record(region, new RecordedMutation(
                 new NBlockPos(6, 71, 6), 3, 8, MutationSource.ENTITY));
         assertThat(buffer.drain(region)).containsExactly(
-                new RecordedMutation(sectionPos, 0, 8, MutationSource.ENTITY));
+                new RecordedMutation(pos, 0, 3, MutationSource.UNKNOWN),
+                new RecordedMutation(new NBlockPos(6, 71, 6), 3, 8, MutationSource.ENTITY));
     }
 
     @Test

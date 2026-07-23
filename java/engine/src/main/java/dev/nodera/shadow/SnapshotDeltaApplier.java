@@ -72,32 +72,33 @@ public final class SnapshotDeltaApplier {
                             + base.version());
         }
 
-        Map<Long, int[]> work = new HashMap<>(base.chunks().size());
-        Map<Long, ChunkColumnState> meta = new HashMap<>(base.chunks().size());
+        Map<Long, ChunkColumnState> work = new HashMap<>(base.chunks().size());
+        Map<Long, ChunkColumnState> baseCols = new HashMap<>(base.chunks().size());
         for (ChunkColumnState col : base.chunks()) {
             long key = packChunk(col.chunkX(), col.chunkZ());
-            work.put(key, col.paletteStateIdsPerSection()); // ChunkColumnState returns a defensive copy
-            meta.put(key, col);
+            work.put(key, col);
+            baseCols.put(key, col);
         }
 
         // Two-pass compare-and-set: validate EVERY mutation's guard against the pre-delta state
-        // (no writes yet), then apply all. Since a mutation paints a whole 16-block section and the
-        // per-position delta can carry two positions in one section (both capturing the same
-        // pre-batch section value), a single interleaved pass would false-abort on the second one;
-        // validating all-against-base first is both the correct drift check and safe for that case.
+        // (no writes yet), then apply all. Guards are PER-BLOCK (Task 13 densification): the
+        // expected value is the exact block's pre-batch state; two positions in one section
+        // validate independently against the base.
         for (BlockMutation m : delta.blockMutations()) {
             NBlockPos pos = m.pos();
             long key = packChunk(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
-            int[] palette = work.get(key);
-            ChunkColumnState col = meta.get(key);
-            if (palette == null || col == null) {
+            ChunkColumnState col = baseCols.get(key);
+            if (col == null) {
                 throw new ReplicaDriftException(pos, m.expectedPreviousStateId(), Integer.MIN_VALUE);
             }
             int section = Math.floorDiv(pos.y() - col.minY(), CHUNK_SIZE);
             if (section < 0 || section >= col.sectionCount()) {
                 throw new ReplicaDriftException(pos, m.expectedPreviousStateId(), Integer.MIN_VALUE);
             }
-            int current = palette[section];
+            int current = col.blockAt(section,
+                    Math.floorMod(pos.x(), CHUNK_SIZE),
+                    Math.floorMod(pos.y() - col.minY(), CHUNK_SIZE),
+                    Math.floorMod(pos.z(), CHUNK_SIZE));
             if (current != m.expectedPreviousStateId()) {
                 throw new ReplicaDriftException(pos, m.expectedPreviousStateId(), current);
             }
@@ -105,9 +106,13 @@ public final class SnapshotDeltaApplier {
         for (BlockMutation m : delta.blockMutations()) {
             NBlockPos pos = m.pos();
             long key = packChunk(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
-            ChunkColumnState col = meta.get(key);
+            ChunkColumnState col = work.get(key);
             int section = Math.floorDiv(pos.y() - col.minY(), CHUNK_SIZE);
-            work.get(key)[section] = m.newStateId();
+            work.put(key, col.withBlock(section,
+                    Math.floorMod(pos.x(), CHUNK_SIZE),
+                    Math.floorMod(pos.y() - col.minY(), CHUNK_SIZE),
+                    Math.floorMod(pos.z(), CHUNK_SIZE),
+                    m.newStateId()));
         }
 
         Map<NetworkEntityId, PersistedEntityState> entities = new TreeMap<>();
@@ -129,12 +134,7 @@ public final class SnapshotDeltaApplier {
             }
         }
 
-        List<ChunkColumnState> out = new ArrayList<>(base.chunks().size());
-        for (Map.Entry<Long, int[]> e : work.entrySet()) {
-            ChunkColumnState col = meta.get(e.getKey());
-            out.add(new ChunkColumnState(col.chunkX(), col.chunkZ(), e.getValue(),
-                    col.minY(), col.sectionCount()));
-        }
+        List<ChunkColumnState> out = new ArrayList<>(work.values());
         int snapshotBodyVersion = base.bodyVersion() == 1 && delta.bodyVersion() == 1 ? 1
                 : RegionSnapshot.STATE_ENCODING_VERSION;
         RegionSnapshot result = new RegionSnapshot(

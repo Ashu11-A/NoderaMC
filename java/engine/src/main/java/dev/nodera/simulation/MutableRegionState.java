@@ -200,7 +200,10 @@ public final class MutableRegionState implements RegionWorldView {
         if (section < 0 || section >= col.sectionCount) {
             return AIR;
         }
-        return col.workPalette[section];
+        return col.work.blockAt(section,
+                Math.floorMod(pos.x(), CHUNK_SIZE),
+                Math.floorMod(pos.y() - col.minY, CHUNK_SIZE),
+                Math.floorMod(pos.z(), CHUNK_SIZE));
     }
 
     /**
@@ -218,7 +221,10 @@ public final class MutableRegionState implements RegionWorldView {
         if (section < 0 || section >= col.sectionCount) {
             return AIR;
         }
-        return col.basePalette[section];
+        return col.base.blockAt(section,
+                Math.floorMod(pos.x(), CHUNK_SIZE),
+                Math.floorMod(pos.y() - col.minY, CHUNK_SIZE),
+                Math.floorMod(pos.z(), CHUNK_SIZE));
     }
 
     /**
@@ -255,13 +261,16 @@ public final class MutableRegionState implements RegionWorldView {
                     "setBlock at " + pos + " outside section range of column ("
                             + col.minY + " .. " + (col.minY + col.sectionCount * CHUNK_SIZE - 1) + ")");
         }
-        NBlockPos sectionTarget = new NBlockPos(
-                Math.floorDiv(pos.x(), CHUNK_SIZE) * CHUNK_SIZE,
-                col.minY + section * CHUNK_SIZE,
-                Math.floorDiv(pos.z(), CHUNK_SIZE) * CHUNK_SIZE);
-        int expectedPrevious = getBaseBlock(sectionTarget);
-        col.workPalette[section] = newStateId;
-        mutationBuffer.record(sectionTarget, expectedPrevious, newStateId, 0);
+        // Task 13 densification: the mutation targets the ACTUAL block position with its
+        // per-block pre-batch value — the section-paint delta model is retired (rulesVersion 3;
+        // mixed-version committees refuse each other via the fingerprint, by design).
+        int expectedPrevious = getBaseBlock(pos);
+        col.work = col.work.withBlock(section,
+                Math.floorMod(pos.x(), CHUNK_SIZE),
+                Math.floorMod(pos.y() - col.minY, CHUNK_SIZE),
+                Math.floorMod(pos.z(), CHUNK_SIZE),
+                newStateId);
+        mutationBuffer.record(pos, expectedPrevious, newStateId, 0);
     }
 
     /**
@@ -277,15 +286,8 @@ public final class MutableRegionState implements RegionWorldView {
      */
     public RegionSnapshot toSnapshot(SnapshotVersion newVersion, long tick) {
         List<ChunkColumnState> out = new ArrayList<>(columnsByChunk.size());
-        for (Map.Entry<Long, ColumnModel> e : columnsByChunk.entrySet()) {
-            long key = e.getKey();
-            ColumnModel col = e.getValue();
-            out.add(new ChunkColumnState(
-                    unpackX(key),
-                    unpackZ(key),
-                    col.workPalette,
-                    col.minY,
-                    col.sectionCount));
+        for (ColumnModel col : columnsByChunk.values()) {
+            out.add(col.work);
         }
         // Body version stays 2 while no scheduled state exists, so every pre-redstone root —
         // live store heads included — hashes exactly as before; a region carrying scheduled
@@ -396,14 +398,14 @@ public final class MutableRegionState implements RegionWorldView {
     private static final class ColumnModel {
         final int minY;
         final int sectionCount;
-        final int[] basePalette;
-        final int[] workPalette;
+        final ChunkColumnState base;
+        ChunkColumnState work;
 
         ColumnModel(ChunkColumnState col) {
             this.minY = col.minY();
             this.sectionCount = col.sectionCount();
-            this.basePalette = col.paletteStateIdsPerSection();
-            this.workPalette = this.basePalette.clone();
+            this.base = col;
+            this.work = col;
         }
     }
 }
