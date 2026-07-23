@@ -101,8 +101,8 @@ public record ChunkColumnState(
         int chunkX = (int) r.readU32();
         int chunkZ = (int) r.readU32();
         int minY = (int) r.readU32();
-        int sectionCount = (int) r.readU32();
-        List<Integer> paletteList = r.readList(rr -> (int) rr.readU32());
+        int sectionCount = r.readU32AsInt();
+        List<Integer> paletteList = r.readList(rr -> rr.readU32AsInt());
         int[] palette = new int[paletteList.size()];
         for (int i = 0; i < paletteList.size(); i++) {
             palette[i] = paletteList.get(i);

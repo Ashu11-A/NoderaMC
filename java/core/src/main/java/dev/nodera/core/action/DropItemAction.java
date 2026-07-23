@@ -62,6 +62,7 @@ public record DropItemAction(int itemStackId, int count, FixedVec3 origin) imple
     }
 
     static DropItemAction decodeBody(CanonicalReader r) {
+        // itemStackId is an opaque unsigned 32-bit id: high-bit values are legitimate.
         int itemStackId = (int) r.readU32();
         int count = r.readU8();
         FixedVec3 origin = FixedVec3.decode(r);

@@ -140,6 +140,25 @@ final class MessageCodecGoldenTest {
         assertThat(current.signedPortion()).isNotEqualTo(legacy.signedPortion());
     }
 
+    @Test
+    void decodeRejectsHighBitU32ScalarInsteadOfWrappingNegative() {
+        // Adversarial frame: a tampered ServerHello whose requiredValidators u32 has the high bit
+        // set (0x80000001). A bare (int) cast would wrap it to a negative quorum bound; decode
+        // must throw instead. Frame layout: tag(2) version(2) uuid(16) tick(8) regionSize(4)
+        // requiredValidators(4) challenge — requiredValidators starts at offset 32.
+        ServerHello hello = new ServerHello(
+                UUID.fromString("12345678-1234-5678-1234-567812345678"),
+                42L, 8, 2, Bytes.fromHex("00112233445566778899aabbccddeeff"));
+        byte[] frame = MessageCodec.encode(hello);
+        frame[32] = (byte) 0x80;
+        frame[33] = 0x00;
+        frame[34] = 0x00;
+        frame[35] = 0x01;
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> MessageCodec.decode(frame))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("exceeds Integer.MAX_VALUE");
+    }
+
     private static NoderaMessage roundTrip(NoderaMessage msg) {
         byte[] frame = MessageCodec.encode(msg);
         byte[] frameCopy = Arrays.copyOf(frame, frame.length);

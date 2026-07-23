@@ -67,7 +67,7 @@ public record PlaceBlockAction(NBlockPos pos, int blockStateId, int face) implem
 
     static PlaceBlockAction decodeBody(CanonicalReader r) {
         NBlockPos pos = NBlockPos.decode(r);
-        int blockStateId = (int) r.readU32();
+        int blockStateId = r.readU32AsInt();
         int face = r.readU8();
         return new PlaceBlockAction(pos, blockStateId, face);
     }

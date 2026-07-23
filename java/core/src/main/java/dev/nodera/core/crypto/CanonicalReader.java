@@ -57,6 +57,25 @@ public final class CanonicalReader {
         }
     }
 
+    /**
+     * Read a u32 whose domain is a non-negative Java {@code int}. A wire value with the high bit
+     * set would silently wrap negative under a bare {@code (int) readU32()} cast and flow into
+     * loop bounds, array sizes, or quorum arithmetic; this helper rejects it at the decode
+     * boundary instead. Fields that legitimately round-trip negative ints through
+     * {@code writeU32(Integer.toUnsignedLong(x))} (coordinates, {@code -1} sentinels) must keep
+     * the cast and NOT use this helper.
+     *
+     * @throws IllegalStateException if the u32 exceeds {@link Integer#MAX_VALUE}.
+     */
+    public int readU32AsInt() {
+        long value = readU32();
+        if (value > Integer.MAX_VALUE) {
+            throw new IllegalStateException(
+                    "canonical u32 value " + value + " exceeds Integer.MAX_VALUE for a non-negative int field");
+        }
+        return (int) value;
+    }
+
     public long readU64() {
         try {
             return in.readLong();

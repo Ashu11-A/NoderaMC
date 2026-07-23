@@ -52,7 +52,7 @@ public record GenesisManifest(long worldSeed, int rulesVersion, long registryFin
         }
         r.readVersion(ENCODING_VERSION);
         long worldSeed = r.readU64();
-        int rulesVersion = (int) r.readU32();
+        int rulesVersion = r.readU32AsInt();
         long registryFingerprint = r.readU64();
         StateRoot genesisRoot = StateRoot.decode(r);
         return new GenesisManifest(worldSeed, rulesVersion, registryFingerprint, genesisRoot);

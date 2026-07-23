@@ -54,6 +54,8 @@ public record InventoryCredit(
         return new InventoryCredit(
                 NodeId.decode(r),
                 NetworkEntityId.decode(r),
+                // itemStackId is an opaque unsigned 32-bit id: high-bit values are legitimate
+                // and round-trip through the wrapping cast.
                 (int) r.readU32(),
                 r.readU8());
     }

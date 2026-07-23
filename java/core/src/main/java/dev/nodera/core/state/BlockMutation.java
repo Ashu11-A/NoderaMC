@@ -56,9 +56,9 @@ public record BlockMutation(
         }
         r.readVersion(ENCODING_VERSION);
         NBlockPos pos = NBlockPos.decode(r);
-        int expectedPreviousStateId = (int) r.readU32();
-        int newStateId = (int) r.readU32();
-        int flags = (int) r.readU32();
+        int expectedPreviousStateId = r.readU32AsInt();
+        int newStateId = r.readU32AsInt();
+        int flags = r.readU32AsInt();
         return new BlockMutation(pos, expectedPreviousStateId, newStateId, flags);
     }
 }

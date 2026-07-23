@@ -900,7 +900,7 @@ public final class MessageCodec {
         String worldName = r.readString();
         long playerCount = r.readU64();
         long storedChunks = r.readU64();
-        int reliabilityBps = (int) r.readU32();
+        int reliabilityBps = r.readU32AsInt();
         dev.nodera.core.identity.WorldHealth health = dev.nodera.core.identity.WorldHealth.decode(r);
         long retentionDeadline = r.readU64();
         return new TrackerCatalogEntry(genesisHash, worldName, playerCount, storedChunks,
@@ -933,12 +933,12 @@ public final class MessageCodec {
     private static NoderaMessage decodeBody(CanonicalReader r, int tag, int encodingVersion) {
         return switch (tag) {
             case TAG_CLIENT_HELLO -> {
-                int protocolVersion = (int) r.readU32();
+                int protocolVersion = r.readU32AsInt();
                 dev.nodera.core.identity.NodeId nodeId = dev.nodera.core.identity.NodeId.decode(r);
                 Bytes publicKey = r.readBytesValue();
                 dev.nodera.core.identity.NodeCapabilities capabilities =
                         dev.nodera.core.identity.NodeCapabilities.decode(r);
-                int rulesVersion = (int) r.readU32();
+                int rulesVersion = r.readU32AsInt();
                 long fingerprint = r.readU64();
                 Bytes signature = r.readBytesValue();
                 yield new ClientHello(protocolVersion, nodeId, publicKey, capabilities,
@@ -947,8 +947,8 @@ public final class MessageCodec {
             case TAG_SERVER_HELLO -> {
                 UUID networkId = readUuid(r);
                 long currentTick = r.readU64();
-                int regionSizeChunks = (int) r.readU32();
-                int requiredValidators = (int) r.readU32();
+                int regionSizeChunks = r.readU32AsInt();
+                int requiredValidators = r.readU32AsInt();
                 Bytes challenge = r.readBytesValue();
                 yield new ServerHello(networkId, currentTick, regionSizeChunks,
                         requiredValidators, challenge);
@@ -959,8 +959,8 @@ public final class MessageCodec {
             }
             case TAG_WORKER_ACTIVATION -> {
                 UUID sessionId = readUuid(r);
-                int maxPrimary = (int) r.readU32();
-                int maxReplica = (int) r.readU32();
+                int maxPrimary = r.readU32AsInt();
+                int maxReplica = r.readU32AsInt();
                 long heartbeatTicks = r.readU64();
                 yield new WorkerActivation(sessionId, maxPrimary, maxReplica, heartbeatTicks);
             }
@@ -993,15 +993,15 @@ public final class MessageCodec {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
                 dev.nodera.core.state.SnapshotVersion version =
                         dev.nodera.core.state.SnapshotVersion.decode(r);
-                int contentLength = (int) r.readU32();
-                int chunkCount = (int) r.readU32();
+                int contentLength = r.readU32AsInt();
+                int chunkCount = r.readU32AsInt();
                 dev.nodera.core.state.StateRoot root = dev.nodera.core.state.StateRoot.decode(r);
                 yield new SnapshotAnnounce(region, version, contentLength, chunkCount, root);
             }
             case TAG_STREAM_CHUNK -> {
                 long streamId = r.readU64();
-                int index = (int) r.readU32();
-                int total = (int) r.readU32();
+                int index = r.readU32AsInt();
+                int total = r.readU32AsInt();
                 Bytes payload = r.readBytesValue();
                 yield new StreamChunk(streamId, index, total, payload);
             }
@@ -1117,12 +1117,12 @@ public final class MessageCodec {
             }
             case TAG_CONTENT_REQUEST -> {
                 Bytes manifestRoot = r.readBytesValue();
-                java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
+                java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
                 yield new ContentRequest(manifestRoot, indexes);
             }
             case TAG_CONTENT_CHUNK -> {
                 Bytes manifestRoot = r.readBytesValue();
-                int index = (int) r.readU32();
+                int index = r.readU32AsInt();
                 Bytes payload = r.readBytesValue();
                 yield new ContentChunk(manifestRoot, index, payload);
             }
@@ -1148,14 +1148,14 @@ public final class MessageCodec {
                 });
                 long playerCount = r.readU64();
                 long storedChunks = r.readU64();
-                int reliabilityBps = (int) r.readU32();
+                int reliabilityBps = r.readU32AsInt();
                 dev.nodera.core.identity.WorldHealth health =
                         dev.nodera.core.identity.WorldHealth.decode(r);
                 long retentionDeadline = r.readU64();
                 yield new TrackerResponse(genesisHash, worldName, peers, seeders, playerCount,
                         storedChunks, reliabilityBps, health, retentionDeadline);
             }
-            case TAG_TRACKER_CATALOG_QUERY -> new TrackerCatalogQuery((int) r.readU32());
+            case TAG_TRACKER_CATALOG_QUERY -> new TrackerCatalogQuery(r.readU32AsInt());
             case TAG_TRACKER_CATALOG_RESPONSE ->
                     new TrackerCatalogResponse(r.readList(MessageCodec::readCatalogEntry));
             case TAG_ACTION_FORWARD -> {
@@ -1190,13 +1190,13 @@ public final class MessageCodec {
             case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> {
                 Bytes manifestRoot = r.readBytesValue();
                 dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
-                java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
+                java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
                 yield new ArchiveReplicaAssignment(manifestRoot, assignee, indexes);
             }
             case TAG_ARCHIVE_REPLICA_ACK -> {
                 Bytes manifestRoot = r.readBytesValue();
                 dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
-                java.util.List<Integer> indexes = r.readList(rr -> (int) rr.readU32());
+                java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
                 yield new ArchiveReplicaAck(manifestRoot, assignee, indexes);
             }
             case TAG_EXTERNAL_DELTA -> {
@@ -1224,7 +1224,7 @@ public final class MessageCodec {
                 });
                 String worldName = r.readString();
                 long retentionDeadline = r.readU64();
-                int reliabilityBps = (int) r.readU32();
+                int reliabilityBps = r.readU32AsInt();
                 long announceEpochMillis = r.readU64();
                 Bytes signature = r.readBytesValue();
                 yield new TrackerAnnounce(genesisHash, peer, publicKey, event, routes, capabilities,
@@ -1233,7 +1233,7 @@ public final class MessageCodec {
             }
             case TAG_TRACKER_ANNOUNCE_ACK -> {
                 boolean accepted = r.readBoolean();
-                int nextAnnounceAfterSeconds = (int) r.readU32();
+                int nextAnnounceAfterSeconds = r.readU32AsInt();
                 String reason = r.readString();
                 yield new TrackerAnnounceAck(accepted, nextAnnounceAfterSeconds, reason);
             }
@@ -1241,12 +1241,12 @@ public final class MessageCodec {
             case TAG_RENDEZVOUS_DISCOVER -> {
                 UUID networkId = readUuid(r);
                 Bytes genesisHash = r.readBytesValue();
-                int cursor = (int) r.readU32();
-                int limit = (int) r.readU32();
+                int cursor = r.readU32AsInt();
+                int limit = r.readU32AsInt();
                 yield new RendezvousDiscover(networkId, genesisHash, cursor, limit);
             }
             case TAG_RENDEZVOUS_PEERS -> {
-                int nextCursor = (int) r.readU32();
+                int nextCursor = r.readU32AsInt();
                 java.util.List<SignedRecord> records = r.readList(MessageCodec::readSignedRecord);
                 yield new RendezvousPeers(nextCursor, records);
             }
@@ -1301,7 +1301,7 @@ public final class MessageCodec {
     }
 
     private static WorkerLoad decodeWorkerLoadBody(CanonicalReader r) {
-        int queueDepth = (int) r.readU32();
+        int queueDepth = r.readU32AsInt();
         long memBytes = r.readU64();
         long execNanos = r.readU64();
         return new WorkerLoad(queueDepth, memBytes, execNanos);

@@ -85,7 +85,7 @@ public record Piece(int index, long offset, long length, Bytes pieceHash) implem
             throw new IllegalStateException("expected PIECE tag, got " + tag);
         }
         r.readVersion(ENCODING_VERSION);
-        int index = (int) r.readU32();
+        int index = r.readU32AsInt();
         long offset = r.readU64();
         long length = r.readU64();
         Bytes hash = r.readBytesValue();
