@@ -255,6 +255,25 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             externalEntity(source, expected, null);
             return;
         }
+        // Same staleness rule as externalEntity (and the same live crash when violated —
+        // "ghost transfer canonical guards failed" took the whole server tick down on the
+        // ownership drive once resumed store heads made canonical richer than the bridge's
+        // cache): the caller's `expected` is a hint, canonical is the authority. Resolve the
+        // CAS inputs from canonical; a transfer canonical has already absorbed (id present in
+        // target) or cannot express (id absent everywhere) is a no-op, not a crash.
+        PersistedEntityState canonicalSource = world.getEntity(source, expected.id());
+        PersistedEntityState canonicalTarget = world.getEntity(target, replacement.id());
+        if (canonicalSource == null) {
+            if (canonicalTarget == null) {
+                LOG.debug("ghost transfer {}->{} dropped: id {} unknown to canonical",
+                        source, target, expected.id());
+            }
+            return;
+        }
+        if (canonicalTarget != null) {
+            return; // already transferred (replay/late event)
+        }
+        expected = canonicalSource;
         world.captureExternalTransfer(source, target, expected, replacement);
         interference.recordEntity(source, expected, null);
         interference.recordEntity(target, null, replacement);
