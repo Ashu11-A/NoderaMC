@@ -99,6 +99,12 @@ fn type_tag_registry_mirrors_java() {
         CERTIFIED_WORLD_GENESIS,
         FILE,
     );
+    assert_mirrors(
+        &source,
+        "GENESIS_RECERTIFICATION",
+        GENESIS_RECERTIFICATION,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT", NEXT, FILE);
 }
 

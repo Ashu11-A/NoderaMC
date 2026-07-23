@@ -60,6 +60,22 @@ public final class MultiplayerWorldFeed {
     }
 
     /** The merged Worlds-tab snapshot (own worlds first, then the rest of the network). */
+    /**
+     * The single-player world-list badge feed (L-46): this install's worker-hosted worlds as
+     * {@code PublicWorldStatus} rows — save name, shared, live player count — so the select-world
+     * screen shows the shared summary from the SAME worker STATE the multiplayer tab reads.
+     */
+    public static List<dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus>
+            ownWorldStatuses() {
+        java.util.List<dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus> out =
+                new java.util.ArrayList<>();
+        for (TorrentWorldEntry entry : ownWorlds) {
+            out.add(new dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus(
+                    entry.name(), true, entry.playerCount()));
+        }
+        return out;
+    }
+
     public static List<TorrentWorldEntry> snapshot() {
         List<TorrentWorldEntry> own = ownWorlds;
         List<TorrentWorldEntry> network = networkWorlds;

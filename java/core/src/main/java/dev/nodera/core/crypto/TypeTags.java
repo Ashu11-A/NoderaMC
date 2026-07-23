@@ -149,6 +149,9 @@ public final class TypeTags {
     /** Genesis manifest extracted from an existing world, self-certified by its host (Task 30c). */
     public static final int CERTIFIED_WORLD_GENESIS = 103;
 
+    /** Task 16 / L-20: the founding peer set's multi-party genesis re-certification. */
+    public static final int GENESIS_RECERTIFICATION = 104;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 103;
+    public static final int NEXT = 104;
 }

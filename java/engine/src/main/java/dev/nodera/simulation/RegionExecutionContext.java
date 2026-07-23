@@ -39,8 +39,23 @@ public record RegionExecutionContext(
         long tickTo,
         long worldSeed,
         int rulesVersion,
-        long registryFingerprint
+        long registryFingerprint,
+        long committedWorldTime
 ) {
+
+    /**
+     * Compatibility constructor without a committed world-time ({@code 0}): pre-L-6 call sites
+     * and rule sets that do not consume time. Time-coupled rules (daylight sensor, T14) require
+     * the full constructor — the committed time is a root-determining input every committee
+     * member must agree on (it rides the session's plan payload, never a local clock).
+     */
+    public RegionExecutionContext(
+            RegionId region, RegionEpoch epoch, SnapshotVersion baseVersion,
+            long tickFrom, long tickTo, long worldSeed,
+            int rulesVersion, long registryFingerprint) {
+        this(region, epoch, baseVersion, tickFrom, tickTo, worldSeed,
+                rulesVersion, registryFingerprint, 0L);
+    }
 
     /**
      * Compact constructor.

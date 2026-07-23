@@ -113,7 +113,8 @@ final class TypeTagsTest {
         assertThat(TypeTags.ENTITY_TRANSFER_RECORD).isEqualTo(102);
         assertThat(TypeTags.CERTIFIED_WORLD_GENESIS).isEqualTo(103);
         // watermark
-        assertThat(TypeTags.NEXT).isEqualTo(103);
+        assertThat(TypeTags.GENESIS_RECERTIFICATION).isEqualTo(104);
+        assertThat(TypeTags.NEXT).isEqualTo(104);
     }
 
     @Test

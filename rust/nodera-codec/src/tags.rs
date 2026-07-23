@@ -52,9 +52,11 @@ pub mod type_tags {
     pub const ENTITY_TRANSFER_RECORD: u16 = 102;
     /// `CertifiedWorldGenesis` — genesis extracted from an existing world, self-certified (Task 30c).
     pub const CERTIFIED_WORLD_GENESIS: u16 = 103;
+    /// `GenesisRecertification` — founding-peer-set multi-party genesis endorsement (L-20).
+    pub const GENESIS_RECERTIFICATION: u16 = 104;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 103;
+    pub const NEXT: u16 = 104;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).
