@@ -633,10 +633,17 @@ public final class WorkerValidationService {
                 if (current == null) {
                     return;
                 }
-                long tick = current.snapshot.tick() + 1;
-                // Re-sequence into this primary's journal order but keep the actor's own signed
-                // envelope: the signature covers the actor/action, and admission re-checks it.
-                proposeBatch(forward.region(), tick, tick, List.of(envelope));
+                // The envelope's targetTick was signed by the actor against the SENDER's replica
+                // clock, which on a fresh store can be arbitrarily skewed from this primary's
+                // (issue #33 / L-50: the clean-slate vanish — a [t+1, t+1] window that excludes
+                // the signed tick silently rejected every forwarded action after the capturing
+                // node had already suppressed the vanilla outcome). The signature cannot be
+                // re-stamped, so bracket the batch window to include both the signed tick and
+                // this replica's next tick; the resulting snapshot tick (tickTo) stays monotonic.
+                long next = current.snapshot.tick() + 1;
+                long tickFrom = Math.min(next, envelope.targetTick());
+                long tickTo = Math.max(next, envelope.targetTick());
+                proposeBatch(forward.region(), tickFrom, tickTo, List.of(envelope));
             } catch (RuntimeException rejected) {
                 // A rejected forward is not this node's failure to report; the committee decided.
             }

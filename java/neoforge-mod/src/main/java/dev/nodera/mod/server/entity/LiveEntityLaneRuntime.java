@@ -142,6 +142,19 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     @Override
     public boolean submitPickup(ServerPlayer player, RegionId region, NetworkEntityId id) {
+        // Pickups are only routed through the validated lane when THIS node is the region's
+        // primary: the commit is then synchronous, so cancelling the vanilla pickup is safe.
+        // On the forward path the submit is optimistic (fire-and-forget to a remote primary) —
+        // cancelling vanilla against an unconfirmed commit is exactly the issue-#33 clean-slate
+        // vanish (no credit, no vanilla delivery). Falling back to vanilla here is lossless:
+        // the item is delivered vanilla-style and the external-capture lane reconciles the
+        // canonical item's removal, with no PickupItemAction proposed so no duplicate credit.
+        boolean localPrimary = validation.lease(region)
+                .map(lease -> lease.primary().equals(authority.nodeId()))
+                .orElse(false);
+        if (!localPrimary) {
+            return false;
+        }
         boolean committed = submit(player, region, new PickupItemAction(id));
         if (committed) {
             // Player-triggered, rare — the live proof that a pickup went through the validated
