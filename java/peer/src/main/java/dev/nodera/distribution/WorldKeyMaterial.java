@@ -125,8 +125,8 @@ public record WorldKeyMaterial(
         String kdf = r.readString();
         Bytes salt = r.readBytesValue();
         long memoryKib = r.readU64();
-        int iterations = (int) r.readU32();
-        int parallelism = (int) r.readU32();
+        int iterations = r.readU32AsInt();
+        int parallelism = r.readU32AsInt();
         return new WorldKeyMaterial(kdf, salt, memoryKib, iterations, parallelism);
     }
 

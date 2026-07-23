@@ -43,6 +43,21 @@ final class CanonicalReaderBoundsTest {
     }
 
     @Test
+    void readU32AsIntThrowsOnHighBit() {
+        // 0x80000001 wraps negative under a bare (int) cast; the helper must reject it instead.
+        CanonicalReader reader = new CanonicalReader(u32(0x80000001));
+        assertThatThrownBy(reader::readU32AsInt)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("exceeds Integer.MAX_VALUE");
+    }
+
+    @Test
+    void readU32AsIntAcceptsIntegerMaxValue() {
+        CanonicalReader reader = new CanonicalReader(u32(0x7FFFFFFF));
+        assertThat(reader.readU32AsInt()).isEqualTo(Integer.MAX_VALUE);
+    }
+
+    @Test
     void readBytesRejectsLengthOneByteTooLarge() {
         // length = 3 but only 2 payload bytes follow.
         CanonicalReader reader = new CanonicalReader(new byte[] {0, 0, 0, 3, 'a', 'b'});

@@ -134,7 +134,7 @@ public record RegionCommittee(
         RegionEpoch epoch = RegionEpoch.decode(r);
         NodeId primary = NodeId.decode(r);
         List<NodeId> validators = r.readList(NodeId::decode);
-        int quorum = (int) r.readU32();
+        int quorum = r.readU32AsInt();
         return new RegionCommittee(region, epoch, primary, validators, quorum);
     }
 }

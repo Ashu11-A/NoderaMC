@@ -98,10 +98,11 @@ public record PersistedEntityState(
         if (kindOrd >= kinds.length) {
             throw new IllegalStateException("EntityKind ordinal out of range: " + kindOrd);
         }
-        int typeId = (int) r.readU32();
+        int typeId = r.readU32AsInt();
         FixedVec3 pos = FixedVec3.decode(r);
         FixedVec3 vel = FixedVec3.decode(r);
-        int ageTicks = (int) r.readU32();
+        int ageTicks = r.readU32AsInt();
+        // despawnTick keeps the wrapping cast: NEVER_DESPAWNS (-1) round-trips as 0xFFFFFFFF.
         int despawnTick = (int) r.readU32();
         Bytes payload = r.readBytesValue();
         return new PersistedEntityState(id, kinds[kindOrd], typeId, pos, vel, ageTicks, despawnTick, payload);

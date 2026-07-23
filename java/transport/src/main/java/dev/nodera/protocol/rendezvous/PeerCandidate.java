@@ -65,7 +65,7 @@ public record PeerCandidate(CandidateKind kind, String address, int priority) im
         }
         CandidateKind kind = CandidateKind.decodeOrdinal(r);
         String address = r.readString();
-        int priority = (int) r.readU32();
+        int priority = r.readU32AsInt();
         return new PeerCandidate(kind, address, priority);
     }
 

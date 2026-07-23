@@ -60,8 +60,8 @@ public record BlockChangedEvent(
 
     static BlockChangedEvent decodeBody(CanonicalReader r) {
         NBlockPos pos = NBlockPos.decode(r);
-        int oldStateId = (int) r.readU32();
-        int newStateId = (int) r.readU32();
+        int oldStateId = r.readU32AsInt();
+        int newStateId = r.readU32AsInt();
         return new BlockChangedEvent(pos, oldStateId, newStateId);
     }
 }

@@ -161,12 +161,12 @@ public record NodeCapabilities(
         if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported NODE_CAPABILITIES encoding version " + version);
         }
-        int cores = (int) r.readU32();
+        int cores = r.readU32AsInt();
         long mem = r.readU64();
-        int latency = (int) r.readU32();
+        int latency = r.readU32AsInt();
         double rel = Double.longBitsToDouble(r.readU64());
-        int maxPrimary = (int) r.readU32();
-        int maxVal = (int) r.readU32();
+        int maxPrimary = r.readU32AsInt();
+        int maxVal = r.readU32AsInt();
         boolean accepts = r.readU8() != 0;
         List<PeerRole> decodedRoles = r.readList(rr -> {
             int ord = rr.readU8();

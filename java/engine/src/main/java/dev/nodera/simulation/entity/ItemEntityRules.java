@@ -55,6 +55,7 @@ public final class ItemEntityRules {
     /** Decode and validate an ITEM payload. */
     public static ItemStack decodePayload(Bytes payload) {
         CanonicalReader r = new CanonicalReader(payload);
+        // itemStackId is an opaque unsigned 32-bit id: high-bit values are legitimate.
         int itemStackId = (int) r.readU32();
         int count = r.readU8();
         if (count == 0 || r.available() != 0) {
