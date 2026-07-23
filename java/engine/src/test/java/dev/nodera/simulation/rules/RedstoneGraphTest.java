@@ -2,6 +2,7 @@ package dev.nodera.simulation.rules;
 
 import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
+import dev.nodera.core.Bytes;
 import dev.nodera.core.action.InteractBlockAction;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.region.RegionEpoch;
@@ -176,5 +177,71 @@ final class RedstoneGraphTest {
                         new InteractBlockAction(new NBlockPos(1, 64, 0)))));
         assertThat(result.stats().rejections())
                 .extracting(ActionRejection::reason).containsExactly(Reason.ILLEGAL_BLOCK);
+    }
+
+    @Test
+    void torchIsExtinguishedByAPoweredSupportThroughTheTickQueue() {
+        RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
+        List<ActionEnvelope> build = new ArrayList<>();
+        long seq = 1;
+        // Redstone block at y=64, torch standing on it at y=65: input powered -> the torch
+        // must go out — one region tick later, THROUGH the hashed scheduled-tick queue.
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 64, 2), FlatWorldRules.REDSTONE_BLOCK)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 65, 2), FlatWorldRules.TORCH_ON)));
+
+        ActionBatch batch = new ActionBatch(
+                region, RegionEpoch.INITIAL, base.version(), 0, 2, build);
+        RegionExecutionContext ctx = new RegionExecutionContext(
+                region, RegionEpoch.INITIAL, base.version(), 0, 2, 12345L,
+                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
+        RegionExecutionResult result = engine.execute(
+                new RegionExecutionRequest(ctx, base, batch));
+        RegionSnapshot advanced = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, result.delta(), 2L);
+
+        assertThat(blockAt(advanced, new NBlockPos(2, 65, 2)))
+                .as("powered support extinguishes the torch after its scheduled delay")
+                .isEqualTo(FlatWorldRules.TORCH_OFF);
+        // Replica determinism for the timed path.
+        assertThat(engine.execute(new RegionExecutionRequest(ctx, base, batch)).resultingRoot())
+                .isEqualTo(result.resultingRoot());
+    }
+
+    @Test
+    void torchClockOscillatesDeterministicallyAcrossReplicas() {
+        // THE acceptance-1 device: a torch whose own output wire powers its support — the
+        // classic torch clock. Every batch of ticks must yield identical roots on every
+        // replica, and the schedule (the clock's phase) lives in the hashed queue.
+        RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
+        List<ActionEnvelope> build = new ArrayList<>();
+        long seq = 1;
+        // Support wire at (2,64,2); torch on it at (2,65,2); wire from the torch's level
+        // feeding back down to the support: torch ON powers wire, wire powers support,
+        // support extinguishes torch, wire depowers, torch relights — oscillation.
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 64, 2), FlatWorldRules.WIRE_0)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 65, 3), FlatWorldRules.WIRE_0)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 64, 3), FlatWorldRules.WIRE_0)));
+        build.add(TestFixtures.envelope(region, 0L, seq++,
+                TestFixtures.place(new NBlockPos(2, 65, 2), FlatWorldRules.TORCH_ON)));
+
+        ActionBatch batch = new ActionBatch(
+                region, RegionEpoch.INITIAL, base.version(), 0, 10, build);
+        RegionExecutionContext ctx = new RegionExecutionContext(
+                region, RegionEpoch.INITIAL, base.version(), 0, 10, 12345L,
+                FlatWorldRules.RULES_VERSION, FlatWorldRules.registryFingerprint());
+
+        RegionExecutionResult first = engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        RegionExecutionResult second = engine.execute(new RegionExecutionRequest(ctx, base, batch));
+        assertThat(second.resultingRoot())
+                .as("10 ticks of a torch clock settle to the identical root on every replica")
+                .isEqualTo(first.resultingRoot());
+        Bytes d1 = dev.nodera.core.crypto.CanonicalEncoder.encode(first.delta());
+        Bytes d2 = dev.nodera.core.crypto.CanonicalEncoder.encode(second.delta());
+        assertThat(d2).isEqualTo(d1);
     }
 }

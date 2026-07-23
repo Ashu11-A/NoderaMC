@@ -95,5 +95,6 @@ public final class EntityRuleSet implements RuleSet {
     @Override
     public void tick(MutableRegionState state, long tick, DeterministicRandom rng) {
         ItemEntityRules.tick(state);
+        RedstoneRules.tick(state, tick, rng);
     }
 }

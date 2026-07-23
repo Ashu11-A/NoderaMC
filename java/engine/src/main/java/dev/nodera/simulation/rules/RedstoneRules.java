@@ -54,12 +54,80 @@ public final class RedstoneRules {
 
     /** @return the strong power {@code id} emits to adjacent wires (0 when not a source). */
     public static int emittedPower(int id) {
-        return id == FlatWorldRules.REDSTONE_BLOCK || id == FlatWorldRules.LEVER_ON ? 15 : 0;
+        return id == FlatWorldRules.REDSTONE_BLOCK || id == FlatWorldRules.LEVER_ON
+                || id == FlatWorldRules.TORCH_ON ? 15 : 0;
+    }
+
+    /** @return whether {@code id} is a redstone torch (either state). */
+    public static boolean isTorch(int id) {
+        return id == FlatWorldRules.TORCH_ON || id == FlatWorldRules.TORCH_OFF;
     }
 
     /** @return whether {@code id} participates in the redstone graph at all. */
     public static boolean isRedstoneFamily(int id) {
-        return isWire(id) || emittedPower(id) > 0 || id == FlatWorldRules.LEVER_OFF;
+        return isWire(id) || emittedPower(id) > 0
+                || id == FlatWorldRules.LEVER_OFF || id == FlatWorldRules.TORCH_OFF;
+    }
+
+    /** The torch's input: whether its SUPPORT block (directly below) carries power. */
+    public static boolean torchInputPowered(MutableRegionState state, NBlockPos torch) {
+        NBlockPos below = new NBlockPos(torch.x(), torch.y() - 1, torch.z());
+        int id = state.getBlock(below);
+        return (isWire(id) && wirePower(id) > 0)
+                || id == FlatWorldRules.REDSTONE_BLOCK || id == FlatWorldRules.LEVER_ON;
+    }
+
+    /**
+     * Schedule inversion flips for every torch whose desired state disagrees with its current
+     * one — fired one region tick later through the HASHED scheduled-tick queue (the delay IS
+     * consensus state; a torch+wire loop oscillates identically on every replica).
+     */
+    public static void scheduleTorchUpdates(
+            MutableRegionState state, Set<NBlockPos> around, long currentTick) {
+        Set<NBlockPos> torches = new LinkedHashSet<>();
+        for (NBlockPos pos : around) {
+            for (NBlockPos n : NeighborUpdateOrder.neighborsOf(pos)) {
+                if (isTorch(state.getBlock(n))) {
+                    torches.add(n);
+                }
+            }
+            if (isTorch(state.getBlock(pos))) {
+                torches.add(pos);
+            }
+        }
+        for (NBlockPos torch : torches) {
+            int current = state.getBlock(torch);
+            int desired = torchInputPowered(state, torch)
+                    ? FlatWorldRules.TORCH_OFF : FlatWorldRules.TORCH_ON;
+            boolean alreadyScheduled = state.scheduledTicks().stream()
+                    .anyMatch(entry -> entry.pos().equals(torch));
+            if (current != desired && !alreadyScheduled) {
+                state.scheduleTick(torch, current, currentTick + 1, 0);
+            }
+        }
+    }
+
+    /**
+     * The per-tick phase (Task 13 timing): drain due scheduled ticks; a torch entry re-checks
+     * its input AT FIRE TIME (vanilla semantics — an input that flapped back cancels the flip),
+     * flips, re-settles the network around it, and re-schedules if still unstable (the clock
+     * case: a torch feeding its own support oscillates every tick, deterministically).
+     */
+    public static void tick(MutableRegionState state, long tick, DeterministicRandom rng) {
+        for (var entry : state.drainDueTicks(tick)) {
+            NBlockPos pos = entry.pos();
+            int current = state.getBlock(pos);
+            if (!isTorch(current)) {
+                continue; // the block changed since scheduling: stale entry no-ops
+            }
+            int desired = torchInputPowered(state, pos)
+                    ? FlatWorldRules.TORCH_OFF : FlatWorldRules.TORCH_ON;
+            if (current == desired) {
+                continue; // input flapped back before the flip fired
+            }
+            state.setBlock(pos, desired, null, rng);
+            recomputeNetwork(state, pos, null, rng, tick);
+        }
     }
 
     /** Toggle a lever id; any other id is returned unchanged (interaction no-ops). */
@@ -82,7 +150,7 @@ public final class RedstoneRules {
      */
     public static void recomputeNetwork(
             MutableRegionState state, NBlockPos origin, ActionEnvelope cause,
-            DeterministicRandom rng) {
+            DeterministicRandom rng, long currentTick) {
         // 1. Gather the affected wire component: origin's neighborhood expanded through wires.
         Set<NBlockPos> wires = new LinkedHashSet<>();
         if (isWire(state.getBlock(origin))) {
@@ -99,6 +167,9 @@ public final class RedstoneRules {
             return false;
         });
         if (wires.isEmpty()) {
+            // No wire network to settle — but timing components adjacent to the change still
+            // react (a torch placed straight onto a source must schedule its extinguish).
+            scheduleTorchUpdates(state, Set.of(origin), currentTick);
             return;
         }
 
@@ -133,11 +204,16 @@ public final class RedstoneRules {
         }
 
         // 4. Write every changed wire through the normal mutation path (CAS-guarded delta).
+        Set<NBlockPos> changed = new LinkedHashSet<>();
         for (NBlockPos wire : wires) {
             int target = wireWithPower(settled.get(wire));
             if (state.getBlock(wire) != target) {
                 state.setBlock(wire, target, cause, rng);
+                changed.add(wire);
             }
         }
+        // 5. Timing components react to the settled state THROUGH the hashed tick queue.
+        changed.add(origin);
+        scheduleTorchUpdates(state, changed, currentTick);
     }
 }
