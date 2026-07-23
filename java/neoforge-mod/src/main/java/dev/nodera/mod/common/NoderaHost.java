@@ -51,6 +51,14 @@ public final class NoderaHost {
     private static final Logger LOG = LoggerFactory.getLogger("NoderaHost");
     private static LiveEntityLaneSession entityLane;
 
+    /** The hosted world's permission set (L-49): drives the mesh admission gate; grants apply here. */
+    private static volatile dev.nodera.storage.WorldPermissions hostedPermissions;
+
+    /** @return the hosted world's permission set, or null when not hosting. */
+    public static dev.nodera.storage.WorldPermissions hostedPermissions() {
+        return hostedPermissions;
+    }
+
     private NoderaHost() {
     }
 
@@ -110,6 +118,19 @@ public final class NoderaHost {
 
         // The sharing player is the world's operator (Task 33 permission model): the author is OWNER.
         grantHostOperator(server);
+
+        // L-49 admission: the world's permission model now gates the P2P mesh — a BANNED peer is
+        // refused at join and filtered from gossip ingest (PeerRuntime.JoinAdmission). The
+        // permission set starts author-only; grants applied to it take effect on the same gate.
+        if (identity != null) {
+            dev.nodera.storage.WorldPermissions permissions =
+                    new dev.nodera.storage.WorldPermissions(worldId, identity.authorNodeId());
+            hostedPermissions = permissions;
+            NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
+            if (host != null) {
+                host.runtime().setJoinAdmission(permissions::canJoin);
+            }
+        }
 
         // Continuity lane: the world becomes durable the moment it is shared — pack the save and
         // seed the archive to the always-on worker (final flush happens again on server stop).
@@ -576,6 +597,20 @@ public final class NoderaHost {
         entityLane = LiveEntityLaneSession.open(
                 server, genesis, regions, peers,
                 server.getWorldPath(LevelResource.ROOT).resolve("nodera/entity-lane"), host);
+        // Per-joiner identities (L-50): each connected player's actor is admissible under its
+        // OWN node's key on the server lane too — the member node key IS the actor's signer
+        // identity; the interim session signer stays co-registered by the lazy submit() path
+        // while the vanilla-session capture point remains (T16 retires it).
+        LiveEntityLaneSession session = entityLane;
+        if (session != null) {
+            for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+                PlayerNodeRegistry.PlayerNode node = PlayerNodeRegistry.nodeOf(p.getUUID());
+                if (node != null) {
+                    session.registerActorKey(
+                            new NodeId(p.getUUID()), node.publicKey());
+                }
+            }
+        }
         // The bootstrap may run off-thread (activateEntityLaneFromWorld): if the server stopped
         // while the session was opening, onServerStopping already ran — close instead of leaking.
         if (!server.isRunning()) {

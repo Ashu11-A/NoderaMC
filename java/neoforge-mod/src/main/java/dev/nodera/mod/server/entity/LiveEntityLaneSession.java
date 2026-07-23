@@ -142,6 +142,15 @@ public final class LiveEntityLaneSession implements AutoCloseable {
         return live;
     }
 
+    /**
+     * Register an additional admissible signer key for an actor on this session's validation
+     * lane (L-50 per-joiner identities: each member's own node key signs for its player;
+     * additive with the interim session signer).
+     */
+    public void registerActorKey(dev.nodera.core.identity.NodeId actor, Bytes publicKey) {
+        live.validation().registerActor(actor, publicKey);
+    }
+
     @Override
     public void close() {
         if (!active.compareAndSet(true, false)) {

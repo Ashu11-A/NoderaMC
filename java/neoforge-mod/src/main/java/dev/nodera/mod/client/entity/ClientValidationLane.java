@@ -92,9 +92,14 @@ public final class ClientValidationLane {
                 lane.registerPeer(node, PeerAddress.of(node, m.route()),
                         Bytes.unsafeWrap(Base64.getDecoder().decode(m.publicKeyB64())));
             }
-            // Interim single action signer (the capture point still rides the vanilla session);
-            // per-player action signing replaces this key with each member's own.
-            lane.registerActor(new NodeId(UUID.fromString(m.actorUuid())), actionSigner);
+            // Per-joiner identities (L-50): each actor is admissible under its OWN member node's
+            // key — the plan's per-member key IS the actor's signer identity. The session's
+            // interim signer stays co-registered only while the capture point rides the vanilla
+            // session (T16 retires it); registerActor is additive, any key verifies.
+            NodeId actorId = new NodeId(UUID.fromString(m.actorUuid()));
+            lane.registerActor(actorId,
+                    Bytes.unsafeWrap(Base64.getDecoder().decode(m.publicKeyB64())));
+            lane.registerActor(actorId, actionSigner);
         }
 
         int mine = 0;

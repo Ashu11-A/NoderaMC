@@ -192,7 +192,7 @@ public final class WorkerValidationService {
     private final Map<RegionId, RegionLease> knownLeases = new ConcurrentHashMap<>();
     private final Map<NodeId, PeerAddress> peers = new ConcurrentHashMap<>();
     private final Map<NodeId, Bytes> peerKeys = new ConcurrentHashMap<>();
-    private final Map<NodeId, Bytes> actorKeys = new ConcurrentHashMap<>();
+    private final Map<NodeId, java.util.Set<Bytes>> actorKeys = new ConcurrentHashMap<>();
     private final Map<StateRoot, ActionBatch> reservedBatches = new java.util.HashMap<>();
     private final Map<NodeId, Long> highestReservedPlayerSequence = new java.util.HashMap<>();
     private long highestReservedServerSequence = -1L;
@@ -333,12 +333,31 @@ public final class WorkerValidationService {
         peerKeys.put(id, publicKey);
     }
 
-    /** Register an actor key after session authentication; unregistered actors cannot submit work. */
+    /**
+     * Register an actor key after session authentication; unregistered actors cannot submit work.
+     * Additive (L-50 per-joiner identities): an actor may carry several admissible signer keys —
+     * its own member node's key plus, while the vanilla-session capture point remains, the
+     * session's interim signer. A signature verifying against ANY registered key admits the
+     * action; the capture-point migration (T16) then simply stops registering the interim key.
+     */
     public void registerActor(NodeId actor, Bytes publicKey) {
         if (actor == null || publicKey == null) {
             throw new IllegalArgumentException("actor and publicKey must not be null");
         }
-        actorKeys.put(actor, publicKey);
+        actorKeys.computeIfAbsent(actor, ignored -> ConcurrentHashMap.newKeySet()).add(publicKey);
+    }
+
+    private boolean actorSignatureValid(ActionEnvelope action) {
+        java.util.Set<Bytes> keys = actorKeys.get(action.actor());
+        if (keys == null || keys.isEmpty()) {
+            return false;
+        }
+        for (Bytes key : keys) {
+            if (signatures.verify(key, action.signedPortion(), action.signature())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Activate a region replica on this worker under {@code lease}. */
@@ -1411,7 +1430,6 @@ public final class WorkerValidationService {
         Map<NodeId, Long> lastBatchPlayerSequence = new java.util.HashMap<>();
         long lastBatchServerSequence = -1L;
         for (ActionEnvelope action : batch.actions()) {
-            Bytes actorKey = actorKeys.get(action.actor());
             Set<Long> actorBatch = batchPlayerSequences.computeIfAbsent(
                     action.actor(), ignored -> new HashSet<>());
             long lastPlayerSequence = lastBatchPlayerSequence.getOrDefault(action.actor(), -1L);
@@ -1426,8 +1444,7 @@ public final class WorkerValidationService {
                     action.actor(), -1L)
                     || action.playerSeq() <= lastPlayerSequence
                     || !actorBatch.add(action.playerSeq())
-                    || actorKey == null
-                    || !signatures.verify(actorKey, action.signedPortion(), action.signature())
+                    || !actorSignatureValid(action)
                     || !actionAdmission.authorize(action, replica.snapshot)) {
                 return false;
             }
@@ -1479,12 +1496,10 @@ public final class WorkerValidationService {
             return decision;
         }
         if (decision.isFallback()) {
-            Bytes actorKey = actorKeys.get(env.actor());
             if (!env.region().equals(base.region())
                     || env.serverSeq() < 0
                     || env.playerSeq() < 0
-                    || actorKey == null
-                    || !signatures.verify(actorKey, env.signedPortion(), env.signature())
+                    || !actorSignatureValid(env)
                     || !actionAdmission.authorize(env, base)) {
                 throw new IllegalArgumentException("fallback action is not authenticated or admissible");
             }
