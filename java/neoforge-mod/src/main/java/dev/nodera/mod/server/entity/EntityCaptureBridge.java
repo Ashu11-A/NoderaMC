@@ -238,15 +238,26 @@ public final class EntityCaptureBridge {
         }
         PersistedEntityState current = MinecraftEntityAdapters.ghost(entity);
         RegionId currentRegion = MinecraftEntityAdapters.region(entity);
-        if (!prior.region.equals(currentRegion)) {
-            if (runtime.delegated(currentRegion)) {
-                runtime.transferGhost(prior.region, currentRegion, prior.state, current);
+        try {
+            if (!prior.region.equals(currentRegion)) {
+                if (runtime.delegated(currentRegion)) {
+                    runtime.transferGhost(prior.region, currentRegion, prior.state, current);
+                } else {
+                    runtime.externalEntity(prior.region, prior.state, null);
+                }
+            } else if (GhostUpdatePolicy.shouldEmit(prior.state, current)) {
+                runtime.externalEntity(currentRegion, prior.state, current);
             } else {
-                runtime.externalEntity(prior.region, prior.state, null);
+                return;
             }
-        } else if (GhostUpdatePolicy.shouldEmit(prior.state, current)) {
-            runtime.externalEntity(currentRegion, prior.state, current);
-        } else {
+        } catch (RuntimeException laneFailure) {
+            // Crash containment: a lane-state failure on one ghost must never take the server
+            // tick down (a guard mismatch here crashed the whole integrated server on the live
+            // ownership drive). Drop this ghost's capture — resync/re-capture owns recovery.
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").warn(
+                    "entity-lane capture failed for {} in {} — dropping capture ({})",
+                    entity.getUUID(), currentRegion, laneFailure.toString());
+            captured.remove(entity.getUUID());
             return;
         }
         captured.put(entity.getUUID(), new Captured(currentRegion, current, false));
