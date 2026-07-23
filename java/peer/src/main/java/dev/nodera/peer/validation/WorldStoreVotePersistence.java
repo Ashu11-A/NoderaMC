@@ -124,6 +124,38 @@ public final class WorldStoreVotePersistence implements VotePersistence {
         candidates.put(key, committed);
     }
 
+    /**
+     * The latest quorum-committed snapshot for {@code region} — the resulting snapshot of the
+     * highest-base-version candidate that has a bound certificate — decoded from the content
+     * store, or empty if no commit ever landed. Session reopen resumes the validated lane from
+     * this head instead of re-deriving the INITIAL all-AIR snapshot (issue #34 / L-50).
+     */
+    public synchronized java.util.Optional<RegionSnapshot> latestCommittedSnapshot(RegionId region) {
+        if (region == null) {
+            throw new IllegalArgumentException("region must not be null");
+        }
+        Candidate best = null;
+        for (Candidate candidate : candidates.values()) {
+            if (!candidate.region().equals(region) || candidate.certificateHash().isEmpty()) {
+                continue;
+            }
+            if (best == null || candidate.baseVersion().value() > best.baseVersion().value()) {
+                best = candidate;
+            }
+        }
+        if (best == null) {
+            return java.util.Optional.empty();
+        }
+        ContentId snapshotId = best.snapshotId();
+        byte[] bytes = store.content().get(snapshotId).orElseThrow(() ->
+                new StorageException("committed candidate snapshot is missing: " + snapshotId));
+        RegionSnapshot snapshot = RegionSnapshot.decode(new CanonicalReader(bytes));
+        if (!StateRoot.of(hashes.hash(snapshot)).equals(best.resultingRoot())) {
+            throw new StorageException("committed snapshot does not hash to its certificate root");
+        }
+        return java.util.Optional.of(snapshot);
+    }
+
     private void load() {
         if (!Files.exists(file)) {
             return;
