@@ -119,4 +119,40 @@ final class EquivocationDetectorTest {
         EquivocationDetector detector = new EquivocationDetector(128);
         assertThat(detector.maxSize()).isEqualTo(128L);
     }
+
+    @Test
+    void evictedVoterEquivocationStillFlagged() {
+        // Byzantine evasion attempt: voter A votes root a, then floods the size-1 voter cache so
+        // A's live history is evicted, then votes a conflicting root b for the SAME key. The
+        // eviction-survivor pair cache must still convict A.
+        EquivocationDetector detector = new EquivocationDetector(1);
+        NodeId a = voter(1);
+
+        detector.observe(KEY, vote(a, root(1)));
+        for (long i = 2; i < 34; i++) {
+            detector.observe(KEY, vote(voter(i), root(1)));
+            detector.flushEvictions();
+        }
+        assertThat(detector.hasEquivoked(a)).isFalse();
+
+        detector.observe(KEY, vote(a, root(2)));
+        assertThat(detector.hasEquivoked(a)).isTrue();
+        assertThat(detector.record(a)).hasValueSatisfying(record -> {
+            assertThat(record.firstRoot()).isEqualTo(root(1));
+            assertThat(record.secondRoot()).isEqualTo(root(2));
+        });
+    }
+
+    @Test
+    void detectedAtMillisComesFromInjectedClock() {
+        EquivocationDetector detector = new EquivocationDetector(
+                EquivocationDetector.DEFAULT_MAX_VOTERS, () -> 424242L);
+        NodeId v = voter(1);
+
+        detector.observe(KEY, vote(v, root(1)));
+        detector.observe(KEY, vote(v, root(2)));
+
+        assertThat(detector.record(v)).hasValueSatisfying(record ->
+                assertThat(record.detectedAtMillis()).isEqualTo(424242L));
+    }
 }
