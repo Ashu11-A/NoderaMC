@@ -127,6 +127,19 @@ final class MessageCodecGoldenTest {
         assertThat(decoded).isEqualTo(original);
     }
 
+    @Test
+    void legacyRegionProposalRetainsRootOnlySignatureContract() {
+        RegionProposal current = sampleRegionProposal();
+        RegionProposal legacy = new RegionProposal(
+                current.region(), current.epoch(), current.baseVersion(),
+                current.tickFrom(), current.tickTo(), current.prevRoot(), current.resultingRoot(),
+                current.encodedDelta(), null, current.proposerSig(), 1);
+        RegionProposal decoded = (RegionProposal) MessageCodec.decode(MessageCodec.encode(legacy));
+        assertThat(decoded).isEqualTo(legacy);
+        assertThat(decoded.signedPortion()).isEqualTo(decoded.resultingRoot().hash());
+        assertThat(current.signedPortion()).isNotEqualTo(legacy.signedPortion());
+    }
+
     private static NoderaMessage roundTrip(NoderaMessage msg) {
         byte[] frame = MessageCodec.encode(msg);
         byte[] frameCopy = Arrays.copyOf(frame, frame.length);
@@ -153,6 +166,7 @@ final class MessageCodecGoldenTest {
                 StateRoot.zero(),
                 StateRoot.zero(),
                 Bytes.fromHex("aabb"),
+                StateRoot.zero(),
                 Bytes.fromHex("ccdd"));
     }
 

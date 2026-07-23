@@ -18,6 +18,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 final class MajorityQuorumPolicyTest {
 
@@ -38,8 +39,19 @@ final class MajorityQuorumPolicyTest {
         return new SignedVote(voter, root, VoteDecision.ACCEPT, Bytes.empty());
     }
 
+    private static SignedVote accept(NodeId voter, StateRoot root, StateRoot transitionRoot) {
+        return new SignedVote(
+                voter, root, transitionRoot, VoteDecision.ACCEPT, Bytes.empty());
+    }
+
     private static SignedVote reject(NodeId voter) {
         return new SignedVote(voter, root(99), VoteDecision.REJECT_STATE_ROOT, Bytes.empty());
+    }
+
+    private static SignedVote anchored(NodeId voter, ProposalKey key, StateRoot batchRoot) {
+        return new SignedVote(
+                voter, key.region(), key.epoch(), key.version(), batchRoot,
+                root(8), root(9), VoteDecision.ACCEPT, Bytes.empty());
     }
 
     private static NodeId voter(long msb) {
@@ -127,6 +139,45 @@ final class MajorityQuorumPolicyTest {
     }
 
     @Test
+    void sameStateRootWithDifferentEffectsDoesNotFormQuorum() {
+        MajorityQuorumPolicy policy = MajorityQuorumPolicy.mvp();
+        StateRoot state = root(1);
+        StateRoot honestTransition = root(2);
+        StateRoot forgedTransition = root(3);
+        NodeId a = voter(1), b = voter(2), c = voter(3);
+
+        Decision split = policy.evaluate(KEY, PREV, List.of(
+                accept(a, state, honestTransition),
+                accept(b, state, forgedTransition)));
+        assertThat(split).isInstanceOf(Decision.Unresolved.class);
+
+        Decision committed = policy.evaluate(KEY, PREV, List.of(
+                accept(a, state, honestTransition),
+                accept(b, state, forgedTransition),
+                accept(c, state, honestTransition)));
+        assertThat(committed).isInstanceOf(Decision.Commit.class);
+        assertThat(((Decision.Commit) committed).certificate().votes())
+                .extracting(SignedVote::transitionRoot)
+                .containsOnly(honestTransition);
+    }
+
+    @Test
+    void anchoredVotesMustAgreeOnProposalKeyAndBatch() {
+        MajorityQuorumPolicy policy = MajorityQuorumPolicy.mvp();
+        SignedVote first = anchored(voter(1), KEY, root(10));
+        SignedVote otherBatch = anchored(voter(2), KEY, root(11));
+        SignedVote wrongEpoch = anchored(
+                voter(3), new ProposalKey(REGION, new RegionEpoch(2), VERSION), root(10));
+        assertThat(policy.evaluate(KEY, PREV, List.of(first, otherBatch)))
+                .isInstanceOf(Decision.Unresolved.class);
+        assertThat(policy.evaluate(KEY, PREV, List.of(first, wrongEpoch)))
+                .isInstanceOf(Decision.Unresolved.class);
+        assertThat(policy.evaluate(KEY, PREV, List.of(
+                first, otherBatch, anchored(voter(3), KEY, root(10)))))
+                .isInstanceOf(Decision.Commit.class);
+    }
+
+    @Test
     void mvp_splitAcceptThenLateVoteCommits() {
         // Same split as above, then C votes ACCEPT(r1): r1 now has 2-of-3 -> Commit.
         // Guards the liveness fix end-to-end (the late vote must not arrive on a closed collector).
@@ -190,5 +241,27 @@ final class MajorityQuorumPolicyTest {
                 accept(voter(1), agreed), accept(voter(2), agreed), accept(voter(3), agreed)));
         assertThat(after).isInstanceOf(Decision.Commit.class);
         assertThat(((Decision.Commit) after).certificate().voteCount()).isEqualTo(3);
+    }
+
+    @Test
+    void sizedTo_matchesTheActualCommitteeMajority() {
+        assertThat(MajorityQuorumPolicy.requiredForMajority(1)).isEqualTo(1);
+        assertThat(MajorityQuorumPolicy.requiredForMajority(2)).isEqualTo(2);
+        assertThat(MajorityQuorumPolicy.requiredForMajority(3)).isEqualTo(2);
+        assertThat(MajorityQuorumPolicy.requiredForMajority(4)).isEqualTo(3);
+        assertThat(MajorityQuorumPolicy.requiredForMajority(5)).isEqualTo(3);
+        assertThatThrownBy(() -> MajorityQuorumPolicy.requiredForMajority(0))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void sizedTo_soloCommitteeCommitsOnItsOwnAccept() {
+        MajorityQuorumPolicy policy = MajorityQuorumPolicy.sizedTo(1);
+        StateRoot agreed = root(5);
+
+        Decision decision = policy.evaluate(KEY, PREV, List.of(accept(voter(1), agreed)));
+
+        assertThat(decision).isInstanceOf(Decision.Commit.class);
+        assertThat(((Decision.Commit) decision).certificate().voteCount()).isEqualTo(1);
     }
 }

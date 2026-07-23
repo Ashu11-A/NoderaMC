@@ -17,9 +17,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Open/close of the archival RocksDB instance (Task 9). One database, five column families —
+ * Open/close of the archival RocksDB instance (Task 9). One database, six column families —
  * {@code default} (meta: genesis), {@code events}, {@code checkpoints}, {@code certificates},
- * {@code regions} — with options tuned for the append-mostly workload (WAL on; level compaction).
+ * {@code regions}, {@code transfers} — with options tuned for the append-mostly workload (WAL on;
+ * level compaction).
  * Crash repair is RocksDB's own WAL recovery, performed automatically inside {@link #open}: a
  * kill mid-write replays the WAL to the last complete write on the next open, so the store's
  * append-time invariants (monotonic ids, unbroken chain) are what {@code RocksWorldStore}
@@ -33,6 +34,7 @@ final class RocksLifecycle implements AutoCloseable {
     static final String CF_CHECKPOINTS = "checkpoints";
     static final String CF_CERTIFICATES = "certificates";
     static final String CF_REGIONS = "regions";
+    static final String CF_TRANSFERS = "transfers";
 
     static {
         RocksDB.loadLibrary();
@@ -67,7 +69,8 @@ final class RocksLifecycle implements AutoCloseable {
                 new ColumnFamilyDescriptor(CF_EVENTS.getBytes(StandardCharsets.UTF_8), cfOptions),
                 new ColumnFamilyDescriptor(CF_CHECKPOINTS.getBytes(StandardCharsets.UTF_8), cfOptions),
                 new ColumnFamilyDescriptor(CF_CERTIFICATES.getBytes(StandardCharsets.UTF_8), cfOptions),
-                new ColumnFamilyDescriptor(CF_REGIONS.getBytes(StandardCharsets.UTF_8), cfOptions));
+                new ColumnFamilyDescriptor(CF_REGIONS.getBytes(StandardCharsets.UTF_8), cfOptions),
+                new ColumnFamilyDescriptor(CF_TRANSFERS.getBytes(StandardCharsets.UTF_8), cfOptions));
         List<ColumnFamilyHandle> opened = new ArrayList<>(descriptors.size());
         RocksDB db;
         try {
@@ -83,6 +86,7 @@ final class RocksLifecycle implements AutoCloseable {
         handles.put(CF_CHECKPOINTS, opened.get(2));
         handles.put(CF_CERTIFICATES, opened.get(3));
         handles.put(CF_REGIONS, opened.get(4));
+        handles.put(CF_TRANSFERS, opened.get(5));
         return new RocksLifecycle(dbOptions, cfOptions, db, handles);
     }
 

@@ -7,9 +7,17 @@
 use crate::config::Config;
 use crate::health;
 use crate::registry::{PeerRecord, Registry};
-use nodera_codec::messages::TrackerResponse;
+use nodera_codec::messages::{
+    PeerRoutes, TrackerCatalogEntry, TrackerCatalogResponse, TrackerResponse,
+    TrackerRoutesResponse,
+};
 use nodera_codec::types::{ManifestSeeders, NodeId, PeerEntry};
 use std::collections::BTreeMap;
+
+/// Catalog page size when the query asks for `0` ("the tracker's default").
+const DEFAULT_CATALOG_PAGE: usize = 64;
+/// Hard ceiling on a catalog page, whatever the query asks for.
+const MAX_CATALOG_PAGE: usize = 256;
 
 /// Build the answer to a query for `genesis_hash`.
 ///
@@ -157,6 +165,77 @@ fn seeders_by_manifest(live: &[(&NodeId, &PeerRecord)]) -> Vec<ManifestSeeders> 
         .collect()
 }
 
+/// Build the directory listing (`TrackerCatalogQuery` → `TrackerCatalogResponse`).
+///
+/// Every tracked world lists — including one whose every seeder has gone silent (the DEAD /
+/// countdown row is exactly what the catalog exists to show). Sorted by name then hash so the
+/// same registry state always produces the same page.
+pub fn catalog(
+    registry: &Registry,
+    limit: u32,
+    config: &Config,
+    now_millis: u64,
+) -> TrackerCatalogResponse {
+    let mut worlds: Vec<TrackerCatalogEntry> = Vec::new();
+    for (hash, swarm) in registry.swarms() {
+        let live = swarm.live_peers(now_millis, config.peer_ttl_millis());
+        let seeder_count = live.iter().filter(|(_, r)| r.is_seeder()).count();
+        worlds.push(TrackerCatalogEntry {
+            genesis_hash: hash.clone(),
+            world_name: swarm.world_name.clone(),
+            world_player_count: live.len() as u64,
+            stored_chunks: stored_piece_count(&live),
+            reliability_bps: mean_reliability_bps(&live),
+            health: health::classify(
+                seeder_count,
+                config.healthy_seeder_floor,
+                swarm.retention_deadline_epoch_millis,
+                now_millis,
+            ),
+            retention_deadline_epoch_millis: swarm.retention_deadline_epoch_millis,
+        });
+    }
+    worlds.sort_by(|a, b| {
+        a.world_name
+            .cmp(&b.world_name)
+            .then_with(|| a.genesis_hash.cmp(&b.genesis_hash))
+    });
+    let cap = if limit == 0 {
+        DEFAULT_CATALOG_PAGE
+    } else {
+        limit as usize
+    };
+    worlds.truncate(cap.min(MAX_CATALOG_PAGE));
+    TrackerCatalogResponse { worlds }
+}
+
+/// Answer a routes query: every live peer's full claimed dial-route list, relayed verbatim
+/// (`TrackerRoutesQuery` → `TrackerRoutesResponse`). An unknown world answers empty.
+pub fn routes(
+    registry: &Registry,
+    genesis_hash: &[u8],
+    config: &Config,
+    now_millis: u64,
+) -> TrackerRoutesResponse {
+    let peers = registry
+        .swarm(genesis_hash)
+        .map(|swarm| {
+            swarm
+                .live_peers(now_millis, config.peer_ttl_millis())
+                .into_iter()
+                .map(|(id, record)| PeerRoutes {
+                    peer: *id,
+                    routes: record.dial_routes(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    TrackerRoutesResponse {
+        genesis_hash: genesis_hash.to_vec(),
+        peers,
+    }
+}
+
 /// Pick at most `sample_size` peers, seeders first up to `seeder_floor`.
 ///
 /// Deterministic rather than randomised: given the same registry state the same page comes back,
@@ -197,8 +276,15 @@ fn entry_of(id: &NodeId, record: &PeerRecord) -> PeerEntry {
     PeerEntry {
         node_id: *id,
         // `PeerEntry` carries one route; the peer's own first claim wins, with the observed
-        // address as the fallback when it advertised none.
-        route: routes.first().cloned().unwrap_or_default(),
+        // address as the fallback when it advertised none. Non-P2P route forms (the `mc/` game
+        // endpoint) are skipped — this entry bootstraps the mesh, and the full claimed list is
+        // served by the routes query (tag 49).
+        route: routes
+            .iter()
+            .find(|r| !r.starts_with("mc/"))
+            .or_else(|| routes.first())
+            .cloned()
+            .unwrap_or_default(),
         capabilities: record.capabilities.clone(),
         bootstrap: record
             .capabilities
@@ -348,5 +434,71 @@ mod tests {
         let dead = answer(&registry, b"world", &config(), 400_000);
         assert_eq!(dead.health, WorldHealth::Dead);
         assert_eq!(dead.world_name, "w", "metadata survives an empty swarm");
+    }
+
+    #[test]
+    fn the_catalog_lists_every_world_sorted_and_bounded() {
+        let mut registry = Registry::new();
+        for (n, world, name) in [(1u64, b"beta " as &[u8], "Beta"), (2, b"alpha", "Alpha")] {
+            let a = announce(n, world, AnnounceEvent::Started, seeder_caps());
+            assert_eq!(
+                registry.apply_announce(&a, None, 1_000, 100, 100, 300_000),
+                AnnounceOutcome::Registered
+            );
+            registry.set_world_metadata(world, name.to_owned(), 0, 1_000);
+        }
+
+        let listing = catalog(&registry, 0, &config(), 1_000);
+        assert_eq!(listing.worlds.len(), 2);
+        assert_eq!(listing.worlds[0].world_name, "Alpha", "sorted by name");
+        assert_eq!(listing.worlds[1].world_name, "Beta");
+        assert_eq!(listing.worlds[0].world_player_count, 1);
+
+        let one = catalog(&registry, 1, &config(), 1_000);
+        assert_eq!(one.worlds.len(), 1, "limit bounds the page");
+
+        // A world whose peers all aged out still lists — that row is the catalog's raison d'être.
+        let stale = catalog(&registry, 0, &config(), 400_000);
+        assert_eq!(stale.worlds.len(), 2);
+        assert_eq!(stale.worlds[0].world_player_count, 0);
+        assert_eq!(
+            stale.worlds[0].health,
+            WorldHealth::Degraded,
+            "no countdown running yet — degraded, not dead"
+        );
+    }
+
+    #[test]
+    fn the_routes_query_returns_full_claimed_lists_while_the_peer_entry_skips_mc_routes() {
+        let mut registry = Registry::new();
+        let mut a = announce(7, b"world", AnnounceEvent::Started, seeder_caps());
+        a.routes = vec![
+            "198.51.100.7:25599".to_owned(),
+            "mc/198.51.100.7:25565".to_owned(),
+        ];
+        assert_eq!(
+            registry.apply_announce(&a, None, 1_000, 100, 100, 300_000),
+            AnnounceOutcome::Registered
+        );
+
+        let full = routes(&registry, b"world", &config(), 1_000);
+        assert_eq!(full.peers.len(), 1);
+        assert_eq!(
+            full.peers[0].routes,
+            vec![
+                "198.51.100.7:25599".to_owned(),
+                "mc/198.51.100.7:25565".to_owned()
+            ],
+            "the routes query relays the full claimed list verbatim"
+        );
+
+        let sampled = answer(&registry, b"world", &config(), 1_000);
+        assert_eq!(
+            sampled.peers[0].route, "198.51.100.7:25599",
+            "the single-route PeerEntry never surfaces the mc/ form"
+        );
+
+        let unknown = routes(&registry, b"nope", &config(), 1_000);
+        assert!(unknown.peers.is_empty(), "unknown world answers empty");
     }
 }

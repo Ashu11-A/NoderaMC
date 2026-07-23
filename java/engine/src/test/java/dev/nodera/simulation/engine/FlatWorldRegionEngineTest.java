@@ -125,6 +125,35 @@ final class FlatWorldRegionEngineTest {
     }
 
     @Test
+    void actionOutsideBatchTickRangeIsRejected() {
+        RegionId region = TestFixtures.region(0, 0);
+        RegionSnapshot snapshot = TestFixtures.singleColumnSnapshot(region, 0, 0, 0);
+        ActionEnvelope late = TestFixtures.envelope(
+                region, 3L, 1L,
+                TestFixtures.place(new NBlockPos(0, 64, 0), FlatWorldRules.STONE));
+        ActionBatch batch = batch(region, List.of(late));
+
+        assertThatThrownBy(() -> engine.execute(request(region, snapshot, batch)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("target tick outside batch range");
+    }
+
+    @Test
+    void contextAndBatchAnchorsMustMatch() {
+        RegionId region = TestFixtures.region(0, 0);
+        RegionSnapshot snapshot = TestFixtures.singleColumnSnapshot(region, 0, 0, 0);
+        ActionBatch batch = batch(region, List.of());
+        RegionExecutionContext wrong = new RegionExecutionContext(
+                TestFixtures.region(1, 0), RegionEpoch.INITIAL, SnapshotVersion.INITIAL,
+                0L, 2L, 12345L, FlatWorldRules.RULES_VERSION,
+                FlatWorldRules.registryFingerprint());
+
+        assertThatThrownBy(() -> engine.execute(new RegionExecutionRequest(wrong, snapshot, batch)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("regions must match");
+    }
+
+    @Test
     void rootReflectsPostStateSnapshot() {
         RegionId region = TestFixtures.region(0, 0);
         RegionSnapshot s0 = TestFixtures.singleColumnSnapshot(region, 0, 0, 0);

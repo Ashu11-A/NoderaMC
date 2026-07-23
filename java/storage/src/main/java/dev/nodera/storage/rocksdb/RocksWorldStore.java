@@ -2,14 +2,17 @@ package dev.nodera.storage.rocksdb;
 
 import dev.nodera.core.Bytes;
 import dev.nodera.core.consensuscert.QuorumCertificate;
+import dev.nodera.core.consensuscert.EntityTransferCertificate;
 import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.crypto.Encodable;
 import dev.nodera.core.crypto.HashService;
+import dev.nodera.core.crypto.TypeTags;
 import dev.nodera.core.event.CommittedEventEnvelope;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
+import dev.nodera.core.state.EntityTransferRecord;
 import dev.nodera.storage.CertificateStore;
 import dev.nodera.storage.Checkpoint;
 import dev.nodera.storage.CheckpointStore;
@@ -21,6 +24,7 @@ import dev.nodera.storage.RegionEventStore;
 import dev.nodera.storage.RegionOrder;
 import dev.nodera.storage.StorageException;
 import dev.nodera.storage.WorldStore;
+import dev.nodera.storage.TransferStore;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
@@ -50,6 +54,8 @@ import java.util.Optional;
  *       {@link QuorumCertificate} (content-addressed, idempotent).</li>
  *   <li>{@code regions}: {@code regionKey} → canonical {@link RegionId} (reverse map for
  *       {@link RegionEventStore#regions()} and head recovery).</li>
+ *   <li>{@code transfers}: {@code transferId(u64 BE)} → latest monotonic
+ *       {@link EntityTransferRecord} for startup recovery.</li>
  *   <li>{@code default}: {@code "genesis"} → canonical {@link GenesisManifest}.</li>
  * </ul>
  *
@@ -76,6 +82,7 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
     private final RocksRegionEventStore events;
     private final RocksCheckpointStore checkpoints;
     private final RocksCertificateStore certificates;
+    private final RocksTransferStore transfers;
 
     private RocksWorldStore(RocksLifecycle lifecycle, WriteOptions writeOptions, HashService hashes,
                             GenesisManifest genesis, FsContentStore content) {
@@ -87,6 +94,7 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
         this.events = new RocksRegionEventStore();
         this.checkpoints = new RocksCheckpointStore();
         this.certificates = new RocksCertificateStore();
+        this.transfers = new RocksTransferStore();
         this.events.recoverHeads();
     }
 
@@ -159,6 +167,11 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
     }
 
     @Override
+    public TransferStore transfers() {
+        return transfers;
+    }
+
+    @Override
     public void close() {
         writeOptions.close();
         lifecycle.close();
@@ -199,6 +212,10 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
         return Arrays.equals(key, 0, prefix.length, prefix, 0, prefix.length);
     }
 
+    private static byte[] transferKey(long transferId) {
+        return suffixed(new byte[0], transferId);
+    }
+
     /** The append-only per-region event log over the {@code events} column family. */
     private final class RocksRegionEventStore implements RegionEventStore {
 
@@ -223,22 +240,45 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
 
         @Override
         public void append(CommittedEventEnvelope event) {
-            if (event == null) {
-                throw new IllegalArgumentException("event must not be null");
+            appendAtomic(List.of(event));
+        }
+
+        @Override
+        public void appendAtomic(List<CommittedEventEnvelope> events) {
+            if (events == null || events.isEmpty()) {
+                throw new IllegalArgumentException("events must not be null/empty");
             }
-            RegionId region = event.region();
-            EventChainGuard.checkAppend(event, lastIds.getOrDefault(region, -1L), heads.get(region));
-            byte[] prefix = regionKey(region);
+            Map<RegionId, Long> nextIds = new HashMap<>();
+            Map<RegionId, StateRoot> nextHeads = new HashMap<>();
+            for (CommittedEventEnvelope event : events) {
+                if (event == null) {
+                    throw new IllegalArgumentException("event must not be null");
+                }
+                RegionId region = event.region();
+                long lastId = nextIds.getOrDefault(
+                        region, lastIds.getOrDefault(region, -1L));
+                StateRoot head = nextHeads.containsKey(region)
+                        ? nextHeads.get(region) : heads.get(region);
+                EventChainGuard.checkAppend(event, lastId, head);
+                nextIds.put(region, event.eventId());
+                nextHeads.put(region, event.resultingRoot());
+            }
             try (WriteBatch batch = new WriteBatch()) {
-                batch.put(lifecycle.handle(RocksLifecycle.CF_EVENTS),
-                        suffixed(prefix, event.eventId()), encode(event));
-                batch.put(lifecycle.handle(RocksLifecycle.CF_REGIONS), prefix, encode(region));
+                for (CommittedEventEnvelope event : events) {
+                    byte[] prefix = regionKey(event.region());
+                    batch.put(lifecycle.handle(RocksLifecycle.CF_EVENTS),
+                            suffixed(prefix, event.eventId()), encode(event));
+                    batch.put(lifecycle.handle(RocksLifecycle.CF_REGIONS),
+                            prefix, encode(event.region()));
+                }
                 lifecycle.db().write(writeOptions, batch);
             } catch (RocksDBException e) {
-                throw new StorageException("cannot append event " + event.eventId() + " for " + region, e);
+                throw new StorageException("cannot atomically append " + events.size() + " events", e);
             }
-            lastIds.put(region, event.eventId());
-            heads.put(region, event.resultingRoot());
+            for (CommittedEventEnvelope event : events) {
+                lastIds.put(event.region(), event.eventId());
+                heads.put(event.region(), event.resultingRoot());
+            }
         }
 
         @Override
@@ -363,6 +403,22 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
         }
 
         @Override
+        public ContentId put(EntityTransferCertificate certificate) {
+            if (certificate == null) {
+                throw new IllegalArgumentException("certificate must not be null");
+            }
+            byte[] bytes = encode(certificate);
+            ContentId id = ContentId.of(hashes, bytes);
+            try {
+                lifecycle.db().put(lifecycle.handle(RocksLifecycle.CF_CERTIFICATES), writeOptions,
+                        id.hash().toArray(), bytes);
+            } catch (RocksDBException e) {
+                throw new StorageException("cannot store transfer certificate " + id, e);
+            }
+            return id;
+        }
+
+        @Override
         public Optional<QuorumCertificate> get(ContentId id) {
             return getByHash(id.hash());
         }
@@ -372,7 +428,7 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
             try {
                 byte[] value = lifecycle.db().get(lifecycle.handle(RocksLifecycle.CF_CERTIFICATES),
                         hash.toArray());
-                return value == null
+                return value == null || encodedTag(value) != TypeTags.QUORUM_CERTIFICATE
                         ? Optional.empty()
                         : Optional.of(QuorumCertificate.decode(new CanonicalReader(value)));
             } catch (RocksDBException e) {
@@ -381,8 +437,84 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
         }
 
         @Override
+        public Optional<EntityTransferCertificate> getTransferByHash(Bytes hash) {
+            try {
+                byte[] value = lifecycle.db().get(lifecycle.handle(RocksLifecycle.CF_CERTIFICATES),
+                        hash.toArray());
+                return value == null || encodedTag(value) != TypeTags.ENTITY_TRANSFER_CERT
+                        ? Optional.empty()
+                        : Optional.of(EntityTransferCertificate.decode(new CanonicalReader(value)));
+            } catch (RocksDBException e) {
+                throw new StorageException("cannot read transfer certificate by hash", e);
+            }
+        }
+
+        @Override
         public boolean has(ContentId id) {
-            return getByHash(id.hash()).isPresent();
+            return getByHash(id.hash()).isPresent() || getTransferByHash(id.hash()).isPresent();
+        }
+    }
+
+    private static int encodedTag(byte[] value) {
+        if (value.length < 2) {
+            return -1;
+        }
+        return ((value[0] & 0xFF) << 8) | (value[1] & 0xFF);
+    }
+
+    /** Latest durable transfer stage over the {@code transfers} column family. */
+    private final class RocksTransferStore implements TransferStore {
+
+        @Override
+        public void put(EntityTransferRecord record) {
+            if (record == null) {
+                throw new IllegalArgumentException("transfer record must not be null");
+            }
+            EntityTransferRecord current = get(record.transferId()).orElse(null);
+            TransferStore.checkAdvance(current, record);
+            try {
+                lifecycle.db().put(
+                        lifecycle.handle(RocksLifecycle.CF_TRANSFERS), writeOptions,
+                        transferKey(record.transferId()), encode(record));
+            } catch (RocksDBException e) {
+                throw new StorageException(
+                        "cannot persist transfer " + record.transferId(), e);
+            }
+        }
+
+        @Override
+        public Optional<EntityTransferRecord> get(long transferId) {
+            try {
+                byte[] value = lifecycle.db().get(
+                        lifecycle.handle(RocksLifecycle.CF_TRANSFERS), transferKey(transferId));
+                return value == null
+                        ? Optional.empty()
+                        : Optional.of(EntityTransferRecord.decode(new CanonicalReader(value)));
+            } catch (RocksDBException e) {
+                throw new StorageException("cannot read transfer " + transferId, e);
+            }
+        }
+
+        @Override
+        public List<EntityTransferRecord> recoverable() {
+            return all().stream()
+                    .filter(record -> record.stage() != EntityTransferRecord.Stage.COMMITTED
+                            && record.stage() != EntityTransferRecord.Stage.ABORTED)
+                    .toList();
+        }
+
+        @Override
+        public List<EntityTransferRecord> all() {
+            List<EntityTransferRecord> out = new ArrayList<>();
+            try (RocksIterator it = lifecycle.db().newIterator(
+                    lifecycle.handle(RocksLifecycle.CF_TRANSFERS))) {
+                it.seekToFirst();
+                while (it.isValid()) {
+                    out.add(EntityTransferRecord.decode(new CanonicalReader(it.value())));
+                    it.next();
+                }
+            }
+            return out;
         }
     }
 }

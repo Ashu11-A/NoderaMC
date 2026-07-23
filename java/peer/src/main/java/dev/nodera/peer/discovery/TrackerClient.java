@@ -262,6 +262,61 @@ public final class TrackerClient implements AutoCloseable {
     }
 
     /**
+     * Fetch the tracker directory listing — every listed world, for the multiplayer "Worlds" tab.
+     *
+     * <p>Answers from all configured endpoints are unioned by genesis hash (first occurrence
+     * wins), preserving each tracker's own order, so one dead tracker cannot blank the listing.
+     *
+     * @param limit max worlds per endpoint ({@code 0} = the tracker's default page).
+     * @return the merged directory entries; empty when no endpoint answered.
+     * @Thread-context any thread.
+     */
+    public List<dev.nodera.protocol.discovery.TrackerCatalogEntry> catalog(int limit) {
+        Map<Bytes, dev.nodera.protocol.discovery.TrackerCatalogEntry> merged =
+                new LinkedHashMap<>();
+        var query = new dev.nodera.protocol.discovery.TrackerCatalogQuery(limit);
+        for (Endpoint endpoint : endpoints) {
+            exchange(endpoint, query).ifPresent(reply -> {
+                if (reply instanceof dev.nodera.protocol.discovery.TrackerCatalogResponse response) {
+                    for (var entry : response.worlds()) {
+                        merged.putIfAbsent(entry.genesisHash(), entry);
+                    }
+                }
+            });
+        }
+        return List.copyOf(merged.values());
+    }
+
+    /**
+     * Fetch the full claimed dial-route lists of one world's live peers (the join flow: a
+     * {@code PeerEntry} carries one P2P route, while joining needs the host's {@code mc/host:port}
+     * game endpoint too).
+     *
+     * <p>Per-peer route lists from all endpoints are unioned (first occurrence per peer wins).
+     *
+     * @param genesisHash the world.
+     * @return the merged response; peers empty when no endpoint knows the world.
+     * @Thread-context any thread.
+     */
+    public dev.nodera.protocol.discovery.TrackerRoutesResponse routes(Bytes genesisHash) {
+        Objects.requireNonNull(genesisHash, "genesisHash");
+        Map<Object, dev.nodera.protocol.discovery.TrackerRoutesResponse.PeerRoutes> merged =
+                new LinkedHashMap<>();
+        var query = new dev.nodera.protocol.discovery.TrackerRoutesQuery(genesisHash);
+        for (Endpoint endpoint : endpoints) {
+            exchange(endpoint, query).ifPresent(reply -> {
+                if (reply instanceof dev.nodera.protocol.discovery.TrackerRoutesResponse response) {
+                    for (var peer : response.peers()) {
+                        merged.putIfAbsent(peer.peer(), peer);
+                    }
+                }
+            });
+        }
+        return new dev.nodera.protocol.discovery.TrackerRoutesResponse(
+                genesisHash, List.copyOf(merged.values()));
+    }
+
+    /**
      * Merge several trackers' answers for one world.
      *
      * @param genesisHash the world.

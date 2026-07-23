@@ -62,6 +62,7 @@ public final class NoderaPeerService {
 
     private NodeIdentity serverIdentity;
     private SocketPeerTransport serverTransport;
+    private PeerTransport serverDataTransport;
     private PeerRuntime serverRuntime;
     private DiagnosticsCollector serverCollector;
     private dev.nodera.mod.debug.DiagnosticsService serverDiagnostics;
@@ -74,11 +75,14 @@ public final class NoderaPeerService {
     private String hostWorldName;
     private NodeCapabilities hostCaps;
     private ScheduledExecutorService announceScheduler;
+    /** The Minecraft game endpoint ({@code host:port}) announced while the game server is open. */
+    private String gameRoute;
 
     private dev.nodera.peer.discovery.TrackerClient serverTrackerClient;
 
     private NodeIdentity clientIdentity;
     private SocketPeerTransport clientTransport;
+    private PeerTransport clientDataTransport;
     private PeerRuntime clientRuntime;
     private DiagnosticsCollector clientCollector;
     private dev.nodera.peer.discovery.TrackerClient clientTrackerClient;
@@ -139,12 +143,23 @@ public final class NoderaPeerService {
      * @return the advertised host route ({@code host:port}), never null once started.
      */
     public synchronized String startHost(String bindHost, int port, String advertiseHost,
-                                         ShareOptions options, Bytes worldId, String worldName) {
+                                          ShareOptions options, Bytes worldId, String worldName) {
+        return startHost(bindHost, port, advertiseHost, options, worldId, worldName,
+                NodeIdentity.generate());
+    }
+
+    /** Start the host with a save-persistent identity used by durable validation records. */
+    public synchronized String startHost(
+            String bindHost, int port, String advertiseHost, ShareOptions options,
+            Bytes worldId, String worldName, NodeIdentity identity) {
         this.hostOptions = options == null ? ShareOptions.dedicatedDefault() : options;
         if (serverRuntime != null) {
             return serverRuntime.selfRoute();
         }
-        serverIdentity = NodeIdentity.generate();
+        if (identity == null) {
+            throw new IllegalArgumentException("host identity must not be null");
+        }
+        serverIdentity = identity;
         this.hostWorldId = worldId;
         this.hostWorldName = worldName == null ? "" : worldName;
         // The host is the world's FULL_ARCHIVE peer + bootstrap + a one-vote validator (Task 26
@@ -162,13 +177,14 @@ public final class NoderaPeerService {
         // self-route source either way.
         PeerTransport dataTransport = composeHostTransport(worldId);
         MeteredPeerTransport serverMetered = new MeteredPeerTransport(dataTransport, serverMeter);
+        serverDataTransport = serverMetered;
         serverRuntime = PeerRuntime.bootstrap(serverIdentity, hostCaps,
                 serverMetered, serverTransport::listenRoute, PeerRuntimeConfig.defaults(),
                 new LoggingListener("host"), serverCounts);
         serverCollector = new DiagnosticsCollector(serverMeter, serverCounts)
                 .register(serverRuntime)
-                .register(RegionOwnershipProvider.stub())
-                .register(EntityControlProvider.stub());
+                .register(dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.get())
+                .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
         serverDiagnostics = new dev.nodera.mod.debug.DiagnosticsService(serverRuntime, serverCollector);
 
         // Announce to the tracker (Task 28) and keep re-announcing on its cadence.
@@ -184,6 +200,16 @@ public final class NoderaPeerService {
         LOG.info("Nodera host peer online at {} (node {}, world '{}', encryption={})",
                 route, serverIdentity.nodeId(), hostWorldName, this.hostOptions.encryptionEnabled());
         return route;
+    }
+
+    /** Borrowed host I/O for live lanes; lifecycle remains owned by this service. */
+    public synchronized HostContext hostContext() {
+        return serverRuntime == null
+                ? null : new HostContext(serverIdentity, serverDataTransport, serverRuntime);
+    }
+
+    public record HostContext(
+            NodeIdentity identity, PeerTransport transport, PeerRuntime runtime) {
     }
 
     /**
@@ -239,6 +265,7 @@ public final class NoderaPeerService {
         String worldName;
         NodeCapabilities caps;
         String route;
+        String game;
         synchronized (this) {
             if (serverTrackerClient == null || serverIdentity == null || hostWorldId == null) {
                 return;
@@ -248,9 +275,18 @@ public final class NoderaPeerService {
             worldName = hostWorldName;
             caps = hostCaps;
             route = serverRuntime == null ? null : serverRuntime.selfRoute();
+            game = gameRoute;
         }
         try {
-            List<String> routes = route == null ? List.of() : List.of(route);
+            List<String> routes = new ArrayList<>(2);
+            if (route != null) {
+                routes.add(route);
+            }
+            // The game endpoint rides as an extra route claim ("mc/host:port"); the tracker's
+            // routes query serves it to joiners while the P2P PeerEntry skips the mc/ form.
+            if (game != null && !game.isBlank()) {
+                routes.add("mc/" + game);
+            }
             TrackerAnnounce announce = tracker.buildAnnounce(
                     worldId, event, routes, caps, List.of(), worldName,
                     0L, 10_000, System.currentTimeMillis());
@@ -259,6 +295,21 @@ public final class NoderaPeerService {
         } catch (RuntimeException e) {
             LOG.warn("Nodera tracker announce {} failed: {}", event, e.getMessage());
         }
+    }
+
+    /**
+     * Record (or clear, with {@code null}) the Minecraft game endpoint joiners connect to. The
+     * next tracker announce carries the change.
+     *
+     * @param route the {@code host:port} of the open game server, or {@code null} once closed.
+     */
+    public synchronized void setGameRoute(String route) {
+        this.gameRoute = route;
+    }
+
+    /** @return the announced Minecraft game endpoint, or {@code null} while the game is closed. */
+    public synchronized String gameRoute() {
+        return gameRoute;
     }
 
     /** @return the current host route to advertise to joiners, or {@code null} if not hosting. */
@@ -292,6 +343,16 @@ public final class NoderaPeerService {
     }
 
     /** @return the client-side runtime, or {@code null} if not meshed. */
+    /** @return the client peer's identity, or {@code null} when no session is joined. */
+    public synchronized NodeIdentity clientIdentity() {
+        return clientIdentity;
+    }
+
+    /** @return the client peer's metered transport, or {@code null} when no session is joined. */
+    public synchronized PeerTransport clientDataTransport() {
+        return clientDataTransport;
+    }
+
     public synchronized PeerRuntime clientRuntime() {
         return clientRuntime;
     }
@@ -341,11 +402,13 @@ public final class NoderaPeerService {
         serverCollector = null;
         serverDiagnostics = null;
         serverTransport = null;
+        serverDataTransport = null;
         serverIdentity = null;
         hostOptions = null;
         hostWorldId = null;
         hostWorldName = null;
         hostCaps = null;
+        gameRoute = null;
     }
 
     /**
@@ -365,6 +428,7 @@ public final class NoderaPeerService {
         TrafficMeter clientMeter = new TrafficMeter();
         MessageCounters clientCounts = new MessageCounters();
         MeteredPeerTransport clientMetered = new MeteredPeerTransport(clientTransport, clientMeter);
+        clientDataTransport = clientMetered;
         PeerAddress bootstrapAddress = PeerAddress.of(null, bootstrapRoute); // socket routes by host:port
         clientRuntime = PeerRuntime.peer(clientIdentity, NodeCapabilities.initial(),
                 clientMetered, clientTransport::listenRoute, bootstrapAddress,
@@ -372,8 +436,8 @@ public final class NoderaPeerService {
         clientTrackerClient = trackerClient(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get(), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
                 .register(clientRuntime)
-                .register(RegionOwnershipProvider.stub())
-                .register(EntityControlProvider.stub());
+                .register(dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.get())
+                .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
         LOG.info("Nodera client peer joining session via {} (node {}, listening {})",
                 bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());
     }
@@ -391,11 +455,12 @@ public final class NoderaPeerService {
         }
         clientCollector = null;
         clientTransport = null;
+        clientDataTransport = null;
         clientIdentity = null;
     }
 
     /** Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host. */
-    private static String resolveHost(String configured) {
+    public static String resolveHost(String configured) {
         if (configured != null && !configured.equalsIgnoreCase("auto") && !configured.isBlank()) {
             return configured;
         }

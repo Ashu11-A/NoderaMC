@@ -34,6 +34,11 @@ final class EquivocationDetectorTest {
         return new SignedVote(voter, root, VoteDecision.ACCEPT, Bytes.empty());
     }
 
+    private static SignedVote vote(NodeId voter, StateRoot root, StateRoot transitionRoot) {
+        return new SignedVote(
+                voter, root, transitionRoot, VoteDecision.ACCEPT, Bytes.empty());
+    }
+
     private static NodeId voter(long msb) {
         return new NodeId(new UUID(msb, 0L));
     }
@@ -70,6 +75,24 @@ final class EquivocationDetectorTest {
 
         assertThat(detector.hasEquivoked(v)).isFalse();
         assertThat(detector.record(v)).isEmpty();
+    }
+
+    @Test
+    void sameStateRootWithDifferentTransitionRootsIsEquivocation() {
+        EquivocationDetector detector = new EquivocationDetector();
+        NodeId v = voter(1);
+        StateRoot state = root(1);
+        StateRoot firstTransition = root(2);
+        StateRoot secondTransition = root(3);
+
+        detector.observe(KEY, vote(v, state, firstTransition));
+        detector.observe(KEY, vote(v, state, secondTransition));
+
+        assertThat(detector.hasEquivoked(v)).isTrue();
+        assertThat(detector.record(v)).hasValueSatisfying(record -> {
+            assertThat(record.firstRoot()).isEqualTo(firstTransition);
+            assertThat(record.secondRoot()).isEqualTo(secondTransition);
+        });
     }
 
     @Test

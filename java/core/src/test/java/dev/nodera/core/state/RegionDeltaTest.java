@@ -8,8 +8,10 @@ import dev.nodera.core.region.RegionId;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link RegionDelta} canonicalisation and round-trip checks (Task 2). Block mutations are sorted
@@ -68,6 +70,121 @@ final class RegionDeltaTest {
         RegionDelta d2 = new RegionDelta(REGION, new SnapshotVersion(0), new SnapshotVersion(1), List.of(b, a), ROOT);
 
         assertThat(encode(d1)).isEqualTo(encode(d2));
+    }
+
+    @Test
+    void entityMutationsAndCreditsRoundTrip() {
+        PersistedEntityState entity = EntityMutationTest.entity(4, 2);
+        InventoryCredit credit = new InventoryCredit(
+                new dev.nodera.core.identity.NodeId(new UUID(1, 2)), entity.id(), 42, 2);
+        RegionDelta delta = new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(new EntityMutation(entity.id(), null, entity)),
+                List.of(credit));
+        assertThat(RegionDelta.decode(new CanonicalReader(encode(delta)))).isEqualTo(delta);
+    }
+
+    @Test
+    void transferIntentsRoundTripAndMakeDeltaNonEmpty() {
+        PersistedEntityState entity = EntityMutationTest.entity(4, 2);
+        EntityTransferIntent transfer = new EntityTransferIntent(
+                new RegionId(DimensionKey.overworld(), 1, 0), entity);
+        RegionDelta delta = new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(), List.of(), List.of(transfer));
+        assertThat(delta.isEmpty()).isFalse();
+        assertThat(RegionDelta.decode(new CanonicalReader(encode(delta)))).isEqualTo(delta);
+    }
+
+    @Test
+    void entityMutationsSortById() {
+        EntityMutation high = new EntityMutation(
+                new NetworkEntityId(8), null, EntityMutationTest.entity(8, 1));
+        EntityMutation low = new EntityMutation(
+                new NetworkEntityId(-1), null, EntityMutationTest.entity(-1, 1));
+        RegionDelta delta = new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(high, low), List.of());
+        assertThat(delta.entityMutations()).extracting(m -> m.id().value()).containsExactly(-1L, 8L);
+    }
+
+    @Test
+    void inventoryCreditMakesDeltaNonEmpty() {
+        InventoryCredit credit = new InventoryCredit(
+                new dev.nodera.core.identity.NodeId(new UUID(1, 2)),
+                new NetworkEntityId(4), 42, 2);
+        RegionDelta delta = new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(), List.of(credit));
+        assertThat(delta.isEmpty()).isFalse();
+    }
+
+    @Test
+    void versionOneDeltaDecodesWithEmptyEntityLists() {
+        CanonicalWriter w = new CanonicalWriter();
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(1);
+        REGION.encode(w);
+        SnapshotVersion.INITIAL.encode(w);
+        SnapshotVersion.INITIAL.next().encode(w);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        ROOT.encode(w);
+        byte[] versionOne = w.toByteArray();
+        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(versionOne));
+        assertThat(decoded.entityMutations()).isEmpty();
+        assertThat(decoded.inventoryCredits()).isEmpty();
+        assertThat(decoded.transferIntents()).isEmpty();
+        assertThat(decoded.bodyVersion()).isEqualTo(1);
+        assertThat(encode(decoded)).isEqualTo(versionOne);
+    }
+
+    @Test
+    void versionTwoDeltaDecodesWithEmptyTransferList() {
+        CanonicalWriter w = new CanonicalWriter();
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(2);
+        REGION.encode(w);
+        SnapshotVersion.INITIAL.encode(w);
+        SnapshotVersion.INITIAL.next().encode(w);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        ROOT.encode(w);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        w.writeList(List.of(), CanonicalWriter::writeEncodable);
+        byte[] versionTwo = w.toByteArray();
+        RegionDelta decoded = RegionDelta.decode(new CanonicalReader(versionTwo));
+        assertThat(decoded.transferIntents()).isEmpty();
+        assertThat(decoded.bodyVersion()).isEqualTo(2);
+        assertThat(encode(decoded)).isEqualTo(versionTwo);
+    }
+
+    @Test
+    void rejectsDuplicateEntityMutations() {
+        PersistedEntityState entity = EntityMutationTest.entity(1, 1);
+        EntityMutation mutation = new EntityMutation(entity.id(), null, entity);
+        assertThatThrownBy(() -> new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(mutation, mutation), List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("duplicate entity mutation");
+    }
+
+    @Test
+    void rejectsDuplicateInventoryCreditReplayKeys() {
+        InventoryCredit credit = new InventoryCredit(
+                new dev.nodera.core.identity.NodeId(new UUID(1, 2)),
+                new NetworkEntityId(4), 42, 2);
+        assertThatThrownBy(() -> new RegionDelta(
+                REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
+                List.of(), ROOT, List.of(), List.of(credit, credit)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("duplicate inventory credit");
+    }
+
+    @Test
+    void rejectsUnsupportedBodyVersion() {
+        CanonicalWriter w = new CanonicalWriter();
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(4);
+        assertThatThrownBy(() -> RegionDelta.decode(new CanonicalReader(w.toByteArray())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("REGION_DELTA encoding version");
     }
 
     private static BlockMutation mut(NBlockPos pos) {

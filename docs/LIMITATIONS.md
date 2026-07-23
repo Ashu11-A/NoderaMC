@@ -72,7 +72,7 @@ observable in normal play.
 | L-28 | Peer identity is ephemeral — `NodeIdentity` is regenerated per process, so a returning peer/server gets a new `NodeId` | T20 | Identity persisted (`server-identity.bin` / client game-dir) and reloaded; returning peer keeps its `NodeId` and re-joins its committees | RETIRED |
 | L-29 | Gateway election is rendezvous-hash only; `NodeCapabilities` are carried but not yet weighted (Plan §3.5) | T9 | Capability-weighted rendezvous (cores/mem/latency/reliability) selects the gateway; determinism property test still green | RETIRED |
 | L-30 | Continuity beta meshes peers full-mesh with gossiped membership; ~~no committee re-execution / quorum on the P2P lane~~ (committee validation now runs over the `PeerTransport` — the T9 forward event-sync half remains) | T7→T9 | Committee validation (T7) and event-sourced sync (T9) run over the same `PeerTransport`; certified region state flows peer-to-peer | RETIRING |
-| L-31 | In-game diagnostics HUD ships session + net panels live; the region-ownership and entity-control panels/boss-bars render `UNASSIGNED` placeholders (zone geometry is real, ownership is not) | T18 | With a committee (T6) / entity lane (T12) active, `/nodera regions` shows `ownedChunks > 0` and the zone boss-bar turns GREEN inside an owned region; placeholder path deleted | OPEN |
+| L-31 | In-game diagnostics HUD ships session + net panels live. **Both data halves now exit:** the entities panel is fed by `LiveEntityControlProvider` (2026-07-22) and the region-ownership panel by `LiveRegionOwnershipProvider` (2026-07-23) — while any validation lane is active (the server entity-lane session or a joiner's `ClientValidationLane`) the panel shows the node's real leases: OWNED/VALIDATING/REPLICA per region, chunks + epoch + expiry; live evidence `region ownership live: 14 owned / 896 owned chunks — UNASSIGNED placeholder retired`. The empty placeholder now renders only when no lane is active (correct, not a gap) | T18 | With a committee/entity lane active, `/nodera regions` shows `ownedChunks > 0` and the zone boss-bar turns GREEN inside an owned region — delivered; the stub-only path is deleted from the live collectors | RETIRING |
 | L-32 | World data transfers whole-region only; chunking is transport-level frame-splitting, pieces are not addressable, no multi-seeder swarm fetch | T19 | Chunk-section `PieceManifest` + `ContentRequest/Chunk/Availability` + deterministic rarest-first selection; resume-after-partial test green; bad-piece hash-reject green | RETIRING |
 | L-33 | No async client chunk pipeline; a region renders only after its whole snapshot arrives, no lock-until-arrived guard | T19 | Pieces render on arrival; un-arrived section locked vs edit; manifest hash validates before render; `DistributionIT` reassembles from seeders each holding <40% | RETIRING |
 | L-34 | No tracker / archive-inventory / multi-bootstrap; a peer learns the mesh only via single-bootstrap gossip, cannot list worlds/peers/seeders by content | T20 | `TrackerQuery/Response` returns peers+seeders+counts+health; `ArchiveInventory` advertised+queried; `BootstrapClient` joins via configured-list / `CachedPeerStore` / `InvitationCodec` with the original bootstrap offline | RETIRING |
@@ -86,10 +86,11 @@ observable in normal play.
 | L-42 | No cross-peer tick-skew / TPS metric; region-boundary sync has no laggard detection, no low-TPS handoff | T25 | `TickSkewMeter`/`TpsMeter` computed outside the engine; `LagHandoffPolicy` triggers committee failover on sustained skew; `LagHandoffIT` proves boundary consistency after a laggard primary is replaced | RETIRING |
 | L-43 | No client multiplayer GUI; surfaces are server-pushed packets only (tab/boss/action-bar); no server-list/search/health/torrent-host-create screen | T26 | Multiplayer page lists torrent worlds (player/friend/recent) + search; per-world player/chunk/reliability counters; red/gray health + 24 h countdown; create-world "torrent hosting" + password option; `runClient` acceptance (GUI env) | RETIRING |
 | L-44 | Tracker is embedded in a Java peer (`TrackerService`, Task 20) — the world list / announce surface dies with its host peer; no always-on discovery infrastructure | T28 | `TrackerServiceIT`: the standalone Rust `nodera-tracker` binary serves the world list with every Java seeder of a world offline; peers announce/query it; embedded serving path deleted per `LEGACY.md` | RETIRED |
-| L-45 | No automated real-client GUI acceptance harness. Task 30's decentralization is proven headlessly + compile-clean, but the pause-menu "Share" flow, integrated-server host activation, and a second client joining a shared world are only *manually* verifiable — the mod jar dropped into `~/.minecraft/` (NeoForge 21.1.x), driven by hand; there is no `neoforge { runs { register("client") } }` block, so `runClient` cannot even launch from Gradle | T30+ | A `runs` block ships; a headless `runClient` under Xvfb drives Share → a second client sees + joins the world through the tracker + rendezvous/socket, asserting the listing and mesh formation | OPEN |
+| L-45 | No automated real-client GUI acceptance harness. **First half closed 2026-07-22:** the `runs` block ships, the NeoForge pin is reconciled to 21.1.238, and both dev runs work from Gradle — `runServer` boots to `Done` with the host lane self-activating and `runClient` reaches the title screen. **Second half built AND passed live 2026-07-23:** `scripts/e2e-continuity.sh` is the scripted acceptance — it bakes a shared world, drives a real host client (`runClientHost`, quick-play + auto-re-share, zero GUI interaction) and a real joiner client (`runClientJoin`), and asserts every stage from logs + worker control sockets. **All seven stages PASSED on the live display**: share → tracker/rendezvous listing → second client in-world (two players, two peers) → 11.2 MB archive on the network → host killed → the joiner recovered, re-opened, and re-hosted the world **in 3 seconds**. En route the series caught four real defects (dead `setClientPlayerReady`/`tickGamePublish` wiring — auto-re-shared worlds were never joinable; Mojang session auth vs dev accounts → `host.onlineAuth`; a piece-plane stall — bounded seeders silently drop over-budget requests and the downloader never re-issued → `PieceDownloader.retryPending`). Remaining before RETIRED: fold the script into CI under Xvfb | T30+ | The script's stages pass end-to-end in CI (Xvfb): Share → second client joins through tracker + rendezvous/socket → host killed → joiner recovers the world from the network | RETIRING |
 | L-49 | Task 33 landed the world-identity/authorship + P2P permission model + live worker telemetry headlessly, but several enforcement/UX halves ride the live NeoForge/worker mesh: the singleplayer world-list per-row "server-like" player count needs the first mixin (`WorldSelectionListEntryMixin`) in a GUI env; live chunk/region validation + revalidation needs the `committee`/`coordinator` stack wired over the worker's `PeerRuntime` (the headless `CommitteeMvpIT` pipeline, now live); permission grants must be gossiped/announced and `BANNED` enforced at `JOIN`; password change re-encryption must propagate over the network (Task 23 live); the worker must seed extracted region pieces | T33 | `runClient`: a shared world shows a live player count on its row; a committee re-executes + commits a region delta over the worker mesh; a BANNED peer is refused at join; a re-keyed world's new ciphertext replaces the old across seeders | OPEN |
+| L-50 | Task 12's live activation now bootstraps itself and is **proven live** (2026-07-22): `EntityLaneBootstrap` derives the interim seed-based genesis + all-AIR flat snapshots + FOV-plan epoch-1 leases; `NoderaHost.activateEntityLaneFromWorld` wires it behind `entity.laneAutoActivate` (default off), triggered at share time or on first login (`ServerBootstrap`, crash-contained); startup **compensates** dangling RESERVED actions (`DurableActionJournal.abortPending`). Live evidence: dedicated `runServer` + scripted quick-play `runClientJoin` → `entity lane live on 12 region(s) around Dev`, P2P mesh formed, zero errors. Activation is **asynchronous** (dedicated `nodera-entity-lane-boot` thread, stop-race guarded), the entity lane opens against the **certified genesis** (30c), and the **first scripted gameplay assertion passed live (2026-07-22)**: RCON-driven `summon` on a running server+joining-client pair → capture → solo-committee commit → `/nodera entities` panel (now fed by `LiveEntityControlProvider` — the entities half of L-31 exits) showing **239 validated/ghost entities across 12 delegated regions with versions advancing every flush**. Two live findings fixed en route: entities whose chunks predate activation never fired capture events (activation now **sweeps** bound regions), and with `mobCapture` off every spawn-area mob gracefully revoked its region within ticks (acceptance-#3 behavior, confirmed live — the scripted scenario runs with `mobCaptureDimensions=["minecraft:overworld"]`). The pickup drive proved **inventory exactly-once** twice and fixed two more live defects (tick suppression froze the projection's pickup delay forever — zeroed at adoption; restart re-adoption CAS-threw — `Runtime.adoptEntity` resolves the expected canonical state). Three precise open repros remain (memory `task-12-live-gameplay-assertion`): a clean-slate validated pickup vanishes the item with neither credit nor vanilla delivery, and session reopen re-feeds INITIAL snapshots instead of resuming the store head. (The ghost-update CAS staleness is fixed: `externalEntity` now resolves its expected state from the canonical root — the bridge's cached prior is a hint, canonical is the authority, and removals of absent ids no-op. Resume-from-head is a design increment: external commits are memory-applied and never reach the event log, so resuming requires persisting external deltas + a replay path on open.) Also remaining: 5b digests, per-joiner identities, pearl drives | T12 → T5/T9 | Reopen resumes from the store head; ghost captures refresh expected state from canonical; validated pickup credit lands exactly once on the vanish repro; 5b's extractor replaces coarse digests; per-joiner views/identities in the plan; pearl ghost/materialize/teleport drives. Headless exits already green: jqwik 3 replicas, disjoint committees, forced-process paired-log `@Invariant(11)`, bootstrap plan determinism, dirty-shutdown compensation, and 23,040 B/mob/min at 0 resync bps | RETIRING |
 | L-46 | Task 31 GUI redesign is proven by view-model tests + compile-clean screens, but the presentation itself is unverified live: "Open to Nodera" taking the vanilla LAN slot, the single-player public-world badge's per-row placement (screen-level summary only for now — vanilla `WorldSelectionList` row geometry is not cross-package accessible), the tabbed `NoderaMultiplayerScreen`, and the `PieceMapWidget` green-fill grid all wait on a GUI env; the feeds (own worlds, tracker/rendezvous status, per-piece state) are pluggable suppliers defaulting empty until the live wiring / Task 32 daemon lands | T31 | `runClient` (with L-45's harness) shows one "Open to Nodera" button in the LAN slot, a live public-world count on the world list, three working multiplayer tabs, and a piece-map that fills green as pieces arrive | OPEN |
-| L-47 | Task 32 peer worker + gate landed (`nodera-headless` boots a `PeerRuntime` + serves the `ControlServer` the mod probes — verified live; the mod's `companion.required` gate defaults ON so Minecraft aborts without the worker; `scripts/dev.sh` runs the worker; the Tauri app supervises/monitors it, workspace-excluded). Remaining: the worker's live telemetry pump feeding the dashboard's real metrics, the worker↔mod host/join control verbs (so hosting delegates to the worker rather than the in-JVM peer), per-OS installers, app icons, and an automated end-to-end installer + gate + cross-machine continuity test | T32 | A CI/tooling job builds the app, runs the gate both ways (worker present ⇒ start, absent ⇒ actionable abort), and proves a hosted world stays listed + joinable after the host closes Minecraft (the worker kept it alive) | OPEN |
+| L-47 | Task 32 peer worker + gate landed (`nodera-headless` boots a `PeerRuntime` + serves the `ControlServer` the mod probes — verified live; the mod's `companion.required` gate defaults ON so Minecraft aborts without the worker — **and since 2026-07-23 the dedicated server enforces the same gate** (`linkServerWorker`); `scripts/dev.sh` runs the worker; the Tauri app supervises/monitors it, workspace-excluded). **The continuity core landed 2026-07-23:** a hosted world now stays listed *with its data* after the host closes Minecraft — the mod packs the save into the canonical `WorldArchive` and the worker seeds it (`NODERA-SEED`), serves manifests (tags 51/52) + pieces over the P2P lane, and any peer's worker can fetch it (`NODERA-ARCHIVE`); `WorldContinuityIT` proves host-worker-death survival over the real tracker + rendezvous binaries. Remaining: per-OS installers, app icons, dashboard polish, and the automated installer + cross-machine test | T32 | A CI/tooling job builds the app, runs the gate both ways (worker present ⇒ start, absent ⇒ actionable abort), and proves a hosted world stays listed + joinable after the host closes Minecraft (the worker kept it alive) | RETIRING |
 | L-48 | ~~The always-on node cannot validate regions from the companion~~ | T32/T16 | The bundled headless Java peer runs `committee` re-execution out-of-game and casts votes; a companion-only node participates in a quorum in a headless IT | RETIRED |
 
 > **L-32/L-33 status (Task 19, 2026-07-18).** The Minecraft-free half is green: the `distribution`
@@ -172,6 +173,20 @@ observable in normal play.
 > and certified replay. L-42 retires when live committee commit feeds, coordinator policy scheduling,
 > diagnostics HUD exposure, and NeoForge runtime construction use these seams.
 
+> **L-43/L-46 progress (Task 5d rebuild, 2026-07-22).** The join path exists end-to-end in code:
+> the tracker gained a directory (`TrackerCatalogQuery`/`Response`, tags 44/45, now served by
+> `nodera-tracker` + `TrackerClient.catalog`) and a full-route query (`TrackerRoutesQuery`/
+> `Response`, tags 49/50, appended both languages + mirror tests); a host's announce carries its
+> open Minecraft endpoint as an `mc/host:port` route claim (the single-route `PeerEntry` skips the
+> `mc/` form); "Open to Nodera" now actually `publishServer`s the integrated server and hands the
+> endpoint + live player count to the worker over `HOST` (dropped again when the game closes); the
+> redesigned two-tab `NoderaMultiplayerScreen` (Worlds ∪ tracker directory, search, health rows,
+> status footer) joins via `NoderaJoinFlow` → vanilla `ConnectScreen`, with an explicit
+> "host offline — archived, not playable" terminal until the content plane joins worlds hostlessly.
+> The title screen's Realms slot is now "Nodera Network"; create-world parks share options in
+> `PendingCreateShare`, consumed on the new world's first start. Both rows stay RETIRING/OPEN on
+> the same clause as before: the scripted `runClient` GUI pass (L-45) is the exit evidence.
+>
 > **L-43 status (Task 26, 2026-07-18).** The headless + compile halves are green. The Minecraft-free
 > `TorrentWorldListView` builds the multiplayer panel from tracker data (name/players/chunks/
 > reliability/health/countdown rows, case-insensitive search, deterministic order), with the
@@ -253,6 +268,60 @@ observable in normal play.
 > Tasks 5–8/19/23/26 and stays deferred with them; **L-20 is unchanged** (genesis is still a
 > single-signer trust root — now the hosting player's identity rather than the dedicated server's —
 > with T16 owning multi-party re-certification).
+
+> **World-continuity lane (2026-07-23).** The increment behind today's L-45/L-47 movement, built for
+> the acceptance "host disconnects ⇒ the second player must not lose the world": (1) the canonical
+> **`WorldArchive`** (`dev.nodera.distribution`) packs a save folder into one deterministic blob
+> (sorted paths, no timestamps; traversal-proof unpack; the signed `nodera-world.dat` identity +
+> certified genesis travel, the host's private key and runtime state never do) and files it under
+> the existing Task 19 piece plane via `PieceManifest`; (2) wire tags **51/52** (`WorldManifestQuery`/`Answer`, mirrored
+> in `nodera-codec`) let any peer fetch a seeder's manifests — manifests re-verify their root on
+> decode, pieces hash-verify on receipt; (3) the worker's **`WorldArchiveService`** seeds archives
+> into an `FsContentStore`, rides `ManifestHolding`s on every tracker announce, answers manifest
+> queries, and fetches archives from the swarm; control verbs **`NODERA-SEED`/`NODERA-ARCHIVE`**
+> (additive, protocol v2) expose both halves to the mod, and `STATE` now reports real
+> `maintained_pieces/bytes`; (4) the mod seeds at share time and again on `ServerStopped` (the final
+> flush), and the client's **`NoderaContinuity`** swaps the vanilla `DisconnectedScreen` for a
+> recovery flow — fetch archive via the local worker, unpack into `saves/`, re-open, auto-re-share
+> (the joiner becomes the next host; `ensureIdentity` now keeps a non-author record so a rehost can
+> never fork the worldId). The session payload carries `worldId`+name so every join path arms it.
+> **Direction (user-locked 2026-07-23): the network, not a host, provides the world.** The join
+> flow is network-first — a listed world with seeders but no live game endpoint is *materialized
+> from the peer network* (`NoderaContinuity.openFromNetwork`, replacing the "archived, not
+> playable" terminal), and the disconnect-recovery path is the same flow triggered by session
+> loss. The remaining "connect to whoever currently runs the integrated server" hop is interim
+> scaffolding over the vanilla session protocol; the model it converges to is the Plan's
+> region-committee ownership (FOV-planned regions per player, T12/T16 local-replica view), at
+> which point no player is "the" server at all.
+> Proof: `WorldArchiveTest` (codec), **`WorldContinuityIT`** (real tracker + rendezvous binaries,
+> two workers over real TCP, control verbs driven exactly as the mod drives them: share → listed →
+> P2P fetch byte-exact → host game closed → host worker killed → the second peer still reproduces
+> the world), and the staged live series `scripts/e2e-continuity.sh` (L-45's second half). Still
+> open elsewhere in the ledger: the *validated-state* halves (L-49's region-piece extraction and
+> committee re-validation are the engine lane, not this durability lane; L-32/L-33's render-side
+> `ChunkLockMap` consumers are unchanged), and encrypted archives ride Task 23's opt-in wiring.
+
+> **No-host region ownership (2026-07-23, second increment).** The host role is now prohibited by
+> construction in the validated lane: (1) every joining client announces its own peer node
+> (`nodera:node` payload) and the session broadcasts the deterministic plan inputs
+> (`nodera:plan` — seed, genesis root, every member's node + field of view); (2) every member —
+> the session server included, as just another player node — derives the **identical** FOV
+> ownership plan (`EntityLaneBootstrap.plan` is pure) and activates the regions where its node is
+> primary or validator; the joiner's client runs its own `WorkerValidationService` over its peer
+> transport (`ClientValidationLane`) — **each player re-executes and votes on its own region
+> set**; (3) an action captured on a non-owner is forwarded to the region's owning player over the
+> new `ActionForward` wire message (tag 53, mirrored in Rust) — only the owner proposes, the
+> committee votes, and the capture point is a courier with no authority
+> (`WorkerValidationService.forwardToPrimary`/`onActionForward`); (4) ownership re-plans on every
+> node announce and player logout (`NoderaHost.replanEntityLane` — a departed player's regions are
+> deterministically absorbed by the survivors). Proof: `ActionForwardIT` — a non-owner forwards to
+> the owning player's node over the transport, the 2-member committee quorum-commits, and both
+> members converge on the byte-identical root with a co-signed certificate. Staged remainders,
+> tracked in their owning rows: per-player action <i>signing</i> (the capture point still rides
+> the vanilla session and signs with one interim key — the plan payload carries the signer
+> explicitly), the vanilla-session capture point itself (T16 local-replica view retires it), and
+> the L-1…L-16 event families not yet in the validated lane (random ticks, fluids, mobs, combat,
+> …) which join region-by-region as their tasks land.
 
 ## §C — Retired by assumption A0 (every player is a peer)
 

@@ -237,7 +237,9 @@ start_service() { # name binary log-file port args...
 # /dev/tcp so no extra tools (nc) are needed.
 control_probe() { # host port
     local host="$1" port="$2"
-    exec 3<>"/dev/tcp/$host/$port" 2>/dev/null || return 1
+    # Braces so the stderr redirect covers the /dev/tcp connect error itself (a plain
+    # `exec ... 2>/dev/null` prints "connect: Connection refused" before the redirect applies).
+    { exec 3<>"/dev/tcp/$host/$port"; } 2>/dev/null || return 1
     printf 'NODERA-PROBE 1\n' >&3
     local line=""
     IFS= read -r -t 2 line <&3 || true

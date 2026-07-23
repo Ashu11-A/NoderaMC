@@ -72,6 +72,33 @@ fn type_tag_registry_mirrors_java() {
     assert_mirrors(&source, "WORLD_HEALTH", WORLD_HEALTH, FILE);
     assert_mirrors(&source, "PEER_CANDIDATE", PEER_CANDIDATE, FILE);
     assert_mirrors(&source, "SIGNED_PEER_RECORD", SIGNED_PEER_RECORD, FILE);
+    assert_mirrors(&source, "ENTITY_MUTATION", ENTITY_MUTATION, FILE);
+    assert_mirrors(&source, "INVENTORY_CREDIT", INVENTORY_CREDIT, FILE);
+    assert_mirrors(&source, "ENTITY_TRANSFER_CERT", ENTITY_TRANSFER_CERT, FILE);
+    assert_mirrors(
+        &source,
+        "ENTITY_TRANSFER_PREPARED_EVENT",
+        ENTITY_TRANSFER_PREPARED_EVENT,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "ENTITY_TRANSFER_COMMITTED_EVENT",
+        ENTITY_TRANSFER_COMMITTED_EVENT,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "ENTITY_TRANSFER_INTENT",
+        ENTITY_TRANSFER_INTENT,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "CERTIFIED_WORLD_GENESIS",
+        CERTIFIED_WORLD_GENESIS,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT", NEXT, FILE);
 }
 
@@ -114,6 +141,18 @@ fn message_tag_registry_mirrors_java() {
     assert_mirrors(&source, "TAG_RELAY_INCOMING", RELAY_INCOMING, FILE);
     assert_mirrors(&source, "TAG_PUNCH_SYNC", PUNCH_SYNC, FILE);
     assert_mirrors(&source, "TAG_OBSERVED_ADDRESS", OBSERVED_ADDRESS, FILE);
+    assert_mirrors(
+        &source,
+        "TAG_TRACKER_ROUTES_QUERY",
+        TRACKER_ROUTES_QUERY,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "TAG_TRACKER_ROUTES_RESPONSE",
+        TRACKER_ROUTES_RESPONSE,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 

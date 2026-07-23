@@ -6,6 +6,7 @@ import dev.nodera.storage.CheckpointStore;
 import dev.nodera.storage.ContentStore;
 import dev.nodera.storage.GenesisManifest;
 import dev.nodera.storage.RegionEventStore;
+import dev.nodera.storage.TransferStore;
 import dev.nodera.storage.WorldStore;
 
 /**
@@ -22,6 +23,7 @@ public final class EventSourcedWorldStore implements WorldStore {
     private final InMemoryRegionEventStore events;
     private final InMemoryCheckpointStore checkpoints;
     private final InMemoryCertificateStore certificates;
+    private final InMemoryTransferStore transfers;
 
     public EventSourcedWorldStore(GenesisManifest genesis, HashService hashes) {
         if (genesis == null) {
@@ -32,6 +34,7 @@ public final class EventSourcedWorldStore implements WorldStore {
         this.events = new InMemoryRegionEventStore();
         this.checkpoints = new InMemoryCheckpointStore();
         this.certificates = new InMemoryCertificateStore(hashes);
+        this.transfers = new InMemoryTransferStore();
     }
 
     @Override
@@ -57,6 +60,11 @@ public final class EventSourcedWorldStore implements WorldStore {
     @Override
     public CertificateStore certificates() {
         return certificates;
+    }
+
+    @Override
+    public TransferStore transfers() {
+        return transfers;
     }
 
     /** @return the certificate store as its concrete type (for the {@code contentId} helper). */

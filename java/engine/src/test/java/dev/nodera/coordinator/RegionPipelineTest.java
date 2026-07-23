@@ -71,6 +71,49 @@ class RegionPipelineTest {
         assertThat(p.state()).isEqualTo(PipelineState.SNAPSHOT_SYNC);
     }
 
+    @Test
+    void crossRegionBarrierCanCommitAndAdvance() {
+        RegionPipeline pipeline = activePipeline();
+        pipeline.pauseForCrossRegion();
+        assertThat(pipeline.state()).isEqualTo(PipelineState.PAUSED_FOR_XR);
+        pipeline.crossRegionCommitted(new SnapshotVersion(1));
+        assertThat(pipeline.state()).isEqualTo(PipelineState.ACTIVE);
+        assertThat(pipeline.lastCommittedVersion()).isEqualTo(new SnapshotVersion(1));
+    }
+
+    @Test
+    void directCommitteeCommitAdvancesExactlyOneVersionWhileActive() {
+        RegionPipeline pipeline = activePipeline();
+
+        pipeline.committeeCommitted(new SnapshotVersion(1));
+
+        assertThat(pipeline.state()).isEqualTo(PipelineState.ACTIVE);
+        assertThat(pipeline.lastCommittedVersion()).isEqualTo(new SnapshotVersion(1));
+        assertThatThrownBy(() -> pipeline.committeeCommitted(new SnapshotVersion(3)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one");
+    }
+
+    @Test
+    void crossRegionBarrierCanAbortWithoutVersionAdvance() {
+        RegionPipeline pipeline = activePipeline();
+        pipeline.pauseForCrossRegion();
+        pipeline.crossRegionAborted();
+        assertThat(pipeline.state()).isEqualTo(PipelineState.ACTIVE);
+        assertThat(pipeline.lastCommittedVersion()).isEqualTo(SnapshotVersion.INITIAL);
+    }
+
+    @Test
+    void crossRegionBarrierRejectsIllegalStateAndStaleCommit() {
+        RegionPipeline pipeline = new RegionPipeline(region);
+        assertThatThrownBy(pipeline::pauseForCrossRegion).isInstanceOf(IllegalStateException.class);
+        pipeline = activePipeline();
+        pipeline.pauseForCrossRegion();
+        RegionPipeline paused = pipeline;
+        assertThatThrownBy(() -> paused.crossRegionCommitted(SnapshotVersion.INITIAL))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private RegionPipeline driveToVerification() {
         RegionPipeline p = new RegionPipeline(region);
         p.assign(new RegionEpoch(1));
@@ -78,5 +121,12 @@ class RegionPipelineTest {
         p.dispatchBatch();
         p.proposalArrived();
         return p;
+    }
+
+    private RegionPipeline activePipeline() {
+        RegionPipeline pipeline = new RegionPipeline(region);
+        pipeline.assign(new RegionEpoch(1));
+        pipeline.snapshotSynced();
+        return pipeline;
     }
 }

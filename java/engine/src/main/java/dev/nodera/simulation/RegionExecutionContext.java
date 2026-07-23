@@ -58,5 +58,9 @@ public record RegionExecutionContext(
         if (baseVersion == null) {
             throw new IllegalArgumentException("baseVersion must not be null");
         }
+        if (tickTo < tickFrom) {
+            throw new IllegalArgumentException(
+                    "tickTo must be >= tickFrom: " + tickFrom + ".." + tickTo);
+        }
     }
 }

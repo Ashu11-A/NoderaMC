@@ -93,6 +93,17 @@ impl Tracker {
                     query::answer(&self.registry, &q.genesis_hash, &self.config, now_millis);
                 Handled::Reply(DiscoveryMessage::TrackerResponse(response).encode())
             }
+            DiscoveryMessage::TrackerCatalogQuery(q) => {
+                self.queries_answered += 1;
+                let response = query::catalog(&self.registry, q.limit, &self.config, now_millis);
+                Handled::Reply(DiscoveryMessage::TrackerCatalogResponse(response).encode())
+            }
+            DiscoveryMessage::TrackerRoutesQuery(q) => {
+                self.queries_answered += 1;
+                let response =
+                    query::routes(&self.registry, &q.genesis_hash, &self.config, now_millis);
+                Handled::Reply(DiscoveryMessage::TrackerRoutesResponse(response).encode())
+            }
             DiscoveryMessage::TrackerAnnounce(a) => {
                 if let Some(ip) = source {
                     if !self.quota.admit(ip, now_millis) {

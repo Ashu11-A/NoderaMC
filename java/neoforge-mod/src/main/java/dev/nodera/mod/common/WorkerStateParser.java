@@ -20,8 +20,18 @@ import java.util.List;
  */
 public final class WorkerStateParser {
 
-    /** One hosted world as the worker reports it. */
-    public record HostedWorldInfo(String worldId, String name, long players) {
+    /**
+     * One hosted world as the worker reports it.
+     *
+     * @param mcRoute the host's open Minecraft game endpoint ({@code host:port}), or {@code ""}
+     *                while the hosting player's game is closed (listed but not joinable).
+     */
+    public record HostedWorldInfo(String worldId, String name, long players, String mcRoute) {
+
+        /** Pre-join-flow shape (no game endpoint reported). */
+        public HostedWorldInfo(String worldId, String name, long players) {
+            this(worldId, name, players, "");
+        }
     }
 
     private WorkerStateParser() {
@@ -65,11 +75,13 @@ public final class WorkerStateParser {
             String worldId = stringField(obj, "world_id");
             String name = stringField(obj, "name");
             long players = longField(obj, "players");
+            String mcRoute = stringField(obj, "mc_route");
             if (worldId != null || name != null) {
                 out.add(new HostedWorldInfo(
                         worldId == null ? "" : worldId,
                         name == null ? "" : name,
-                        Math.max(0, players)));
+                        Math.max(0, players),
+                        mcRoute == null ? "" : mcRoute));
             }
             i = objEnd + 1;
         }

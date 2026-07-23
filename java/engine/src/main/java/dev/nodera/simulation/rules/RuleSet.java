@@ -50,4 +50,11 @@ public interface RuleSet {
      * @Thread-context thread-confined per call.
      */
     void apply(MutableRegionState state, ActionEnvelope env, DeterministicRandom rng);
+
+    /**
+     * Advance autonomous state for one committed region tick after batch actions are applied.
+     * Block-only rules have no autonomous work; entity/environment rules override this hook.
+     */
+    default void tick(MutableRegionState state, long tick, DeterministicRandom rng) {
+    }
 }

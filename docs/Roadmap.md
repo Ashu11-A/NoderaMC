@@ -18,7 +18,24 @@
      README.md "Roadmap" + Tested.md. Task links are the specs; the GitHub issue for a task is
      found BY TITLE (`Task N — <title>`), never by assuming issue number == task number. -->
 
-Snapshot: 2026-07-21 · overall `70%` · 773 Java tests green (+144 Rust) · **Task 33 live worker data
+Snapshot: 2026-07-23 · overall `74%` · 1015 Java tests green (+144 Rust) · **no-host region
+ownership landed** (player↔node announce + deterministic plan broadcast; every client runs its own
+validation lane over its peer — each player re-executes + votes for its FOV region set; captured
+actions forward to the owning player's node via new tag 53 `ActionForward`; ownership re-plans on
+join/leave; `ActionForwardIT` proves the forwarded quorum commit over the transport) · **world-continuity
+lane landed** (canonical `WorldArchive` + wire tags 51/52 + worker `WorldArchiveService`
+seed/serve/fetch + `SEED`/`ARCHIVE` control verbs + mod share/stop seeding + client
+rehost-on-disconnect + server-dist companion gate; `WorldContinuityIT` proves a shared world
+survives host-game close AND host-worker death over the real tracker + rendezvous binaries;
+`scripts/e2e-continuity.sh` is the staged two-client live series — L-45 second half built, L-47
+RETIRING) · **Task 12 live lane
+proven on a real server** (self-bootstrapping FOV activation behind `entity.laneAutoActivate`,
+async `nodera-entity-lane-boot` thread, dirty-shutdown compensation; dedicated `runServer` +
+scripted `runClientJoin` → `entity lane live on 12 region(s)` with the P2P mesh formed, zero
+errors) · **Task 5a dev runs landed** (`runClient`/`runServer`/`runClientJoin` from Gradle,
+NeoForge pin 21.1.238, L-45 RETIRING) · **Task 30c landed** (host-signed `CertifiedWorldGenesis`
+tag 103 extracted from live region digests, persisted + reused, drives the entity-lane manifest
+and worldId; coarse digests until 5b) · **Task 33 live worker data
 + world identity/authorship + P2P permissions landed** (worker `STATE`/`IDENTITY`/`HOST`/`WORLDID`
 verbs → live dashboard; author-signed `WorldIdentity` per-world file + auto-re-share + author-only
 password; `WorldRole`/`WorldPermissionGrant`/`WorldPermissions` signed permission model + host
@@ -36,7 +53,8 @@ headlessly, not yet live · lane B complete to its headless/compile edge: Tasks 
 [Task 11](old/Task.11.md) interference guard landed headless (mixins/tickets live half pending) ·
 [Task 9](old/Task.9.md) RocksDB tier + committee-change certification + capability-weighted gateway
 election landed (live forward sync + manager wiring pending) ·
-[Task 12](old/Task.12.md) entity-lane core foundation landed (simulation + mod + transfer half pending) ·
+[Task 12](old/Task.12.md) headless/durable acceptance and NeoForge adapters landed (existing-world
+genesis/region activation, pending-action reconciliation, and live pickup/zombie/pearl runs pending) ·
 **Rust infrastructure cluster complete** (Tasks [27](old/Task.27.md)/[28](old/Task.28.md)/[29](old/Task.29.md):
 monorepo + standalone tracker + rendezvous relay — all three landed; L-23/L-27/L-44 RETIRED;
 [Task 10](old/Task.10.md)/[Task 20](old/Task.20.md) rewritten, ledger in [`LEGACY.md`](./LEGACY.md)).
@@ -57,6 +75,7 @@ Ground truth: README "Progress" + `Tested.md`. Summary by completion class:
 | **Proven headless, live wiring pending** | [5](old/Task.5.md) shadow validation · [6](old/Task.6.md) coordinator · [7](old/Task.7.md) committee/MVP · [8](old/Task.8.md) fallback/router |
 | **Partially shipped** | [12](old/Task.12.md) entity lane (12a core foundation — `FixedVec3`/`NetworkEntityId`/`PersistedEntityState` + item actions/events landed headlessly; region-root `EntityStore` + item physics + `mobCapture` ghost stream + 12c transfer + NeoForge bridge deferred) · [26](old/Task.26.md) multiplayer GUI (`TorrentWorldListView` + world-health `Semantic`/`Palette` + `client/multiplayer` screens compile, issue #29; live tracker feed/create pipeline/`runClient` pass deferred — L-43 RETIRING) · [11](old/Task.11.md) interference guard (`coordinator/interference` + full `DelegabilityPolicy`/`DelegabilityMonitor` + `ServerAuthorityCertificate`/`ExternalDelta` + `COMPATIBILITY.md` landed headless; mixins, `ChunkTicketService`, `FakePlayerDetector`, live acceptance deferred with the NeoForge lane) · [9](old/Task.9.md) peer-runtime + event-sourced store (~~RocksDB tier~~ **landed** — `storage-rocksdb` crash-consistent store + `FsContentStore` + forced-kill recovery IT; ~~committee-change certification~~ **landed** — `CommitteeChangeCertificate` + authority-free `CommitteeManager` + capability-weighted gateway election (L-29 retired); live forward sync + live manager wiring missing) · [10](old/Task.10.md) gateway/P2P (`transport-socket` continuity beta shipped; cross-NAT reach now rides [29](old/Task.29.md)'s `transport-rendezvous` — spec rewritten 2026-07-19) · [19](old/Task.19.md) torrent data plane (`distribution` module + `DistributionIT` green; mod-side `ChunkLockMap` consumers deferred with the NeoForge lane) · [20](old/Task.20.md) tracker + multi-bootstrap (`peer-runtime/discovery` + `TrackerIT`/`MultiBootstrapIT` green; mod-side tracker wiring deferred with the NeoForge lane) · [21](old/Task.21.md) placement/replication/repair (`peer-runtime/archival` + `ArchiveRepairIT` green; mod-side repair coordinator deferred with the NeoForge lane) · [22](old/Task.22.md) reliability/quotas/retention (`ReliabilityScorer` + `storage-client` + `RetentionPolicy` green; mod-side wiring deferred with the NeoForge lane) · [23](old/Task.23.md) per-world content encryption (AES-GCM + bounded Argon2id/PBKDF2 + keyless-seeder `EncryptedDistributionIT` green; opt-in create/join wiring deferred with the NeoForge lane) · [24](old/Task.24.md) crash safety + active stream (`ActivePlayerStream`/`EmergencyFlush`/`PeerShutdownHook`, vote-before-sign persistence, physical repair, and forced-process `CrashRecoveryIT` green; live commit/content/lifecycle adapters deferred) · [25](old/Task.25.md) tick-lag/TPS handoff (compatible keep-alive v2, `TickSync`, integer metrics, sustained `LagHandoffPolicy`, guarded failover, and replaying `LagHandoffIT` green; live commit feeds/policy scheduling/HUD/NeoForge construction deferred) · 17\* debugger (first scenario `SessionContinuityIT` landed — README still shows ⬜) |
 | **Partially shipped (cont.)** | [31](old/Task.31.md) Nodera GUI redesign (31a "Open to Nodera" replaces LAN + 31b public-world badge + 31c tabbed multiplayer screen + 31d piece-map — view models headless-tested, screens compile-clean, no mixin; `runClient`/live feeds deferred — L-46) · [32](old/Task.32.md) companion app (Option B locked: Tauri supervises a bundled headless Java peer; `rust/nodera-app` scaffold workspace-excluded + mod-side `CompanionGate` presence gate green; enforcement off until the app ships; headless-peer jar/live metrics/cross-machine continuity deferred — L-41 RETIRING, L-47/L-48) |
+| **Task 12 current scope** | Headless/durable exits are green: entity roots/items/ghosts, disjoint joint-certificate handoff, paired Rocks logs + forced-process recovery, pearl policy, and 23,040 B/mob/min soak. NeoForge adapters/session compile; Task 5b activation, pending-action reconciliation, and `runClient` evidence remain (L-50). |
 | **Not started** | [13](old/Task.13.md) · [14](old/Task.14.md) · [15](old/Task.15.md) · [16](old/Task.16.md) |
 
 \* Task 17 has no `Task.17.md` spec file — it is the standing debugger issue (`Task 17 — Nodera
@@ -108,7 +127,7 @@ Importance = how much it unblocks + how directly it proves the central bet + pla
 | 11 | ~~[21](old/Task.21.md) replication/repair~~ | **Landed headless** — the durability guarantee (rules 0/1/3) |
 | 12 | ~~[22](old/Task.22.md) reliability/quotas/retention~~ | **Landed headless** — the scoring placement/handoff depend on; unbounded-growth fixed |
 | 13 | ~~[24](old/Task.24.md) crash safety + stream~~ | **Landed headless** — physical receipt, bounded flush, vote persistence, forced-process crash/replay proof; live adapters remain |
-| 14 | [12](old/Task.12.md) entity lane | Starts the parity program; mobs are the most-missed gameplay gap |
+| 14 | [12](old/Task.12.md) entity lane live/durable remainder | Headless item/ghost/transfer primitives landed; NeoForge and recovery integration unlock playable parity |
 | 15 | ~~[25](old/Task.25.md) lag handoff~~ | **Landed headless** — compatible per-region gossip, certified-reference metrics, sustained/cooldown policy, stale-safe epoch+1 failover and replay proof; live adapters remain |
 | 16 | ~~[23](old/Task.23.md) encryption~~ | **Landed headless** — bounded Argon2id/PBKDF2 + AES-GCM ciphertext swarm; opt-in UI/live join remains |
 | 17 | [13](old/Task.13.md) redstone | High player value, but meaningless before entity/env context matures |

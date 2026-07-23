@@ -37,17 +37,26 @@ public final class WorkerControlHandler implements ControlHandler {
     private final TrafficMeter meter;
     private final WorldHostingService hosting;
     private final dev.nodera.peer.validation.WorkerValidationService validation;
+    private final WorldArchiveService archive;
     private final long startedAtMillis;
 
     /** Compatibility constructor without a validation lane (tests, minimal embeddings). */
     public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
                                 PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting) {
-        this(version, identity, capabilities, runtime, meter, hosting, null);
+        this(version, identity, capabilities, runtime, meter, hosting, null, null);
+    }
+
+    /** Compatibility constructor without an archive lane. */
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, null);
     }
 
     public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
                                 PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
-                                dev.nodera.peer.validation.WorkerValidationService validation) {
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive) {
         this.version = version;
         this.identity = identity;
         this.capabilities = capabilities;
@@ -55,6 +64,7 @@ public final class WorkerControlHandler implements ControlHandler {
         this.meter = meter;
         this.hosting = hosting;
         this.validation = validation;
+        this.archive = archive;
         this.startedAtMillis = System.currentTimeMillis();
     }
 
@@ -83,11 +93,15 @@ public final class WorkerControlHandler implements ControlHandler {
                     + "\"path\":\"direct\",\"up_bytes_per_sec\":0,\"down_bytes_per_sec\":0}");
         }
 
-        // Worlds this worker keeps discoverable, as objects (name + id + player count).
+        // Worlds this worker keeps discoverable, as objects (name + id + player count + game
+        // endpoint). "mc_route" is additive (serde defaults on the Tauri side): present while the
+        // hosting player's game is open — the joinability signal for the multiplayer UI.
         List<String> worldJson = new ArrayList<>();
         for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
+            String mc = world.mcRoute();
             worldJson.add("{\"world_id\":\"" + escape(world.worldIdHex()) + "\",\"name\":\""
-                    + escape(world.name()) + "\",\"players\":0}");
+                    + escape(world.name()) + "\",\"players\":" + world.players()
+                    + ",\"mc_route\":\"" + (mc == null ? "" : escape(mc)) + "\"}");
         }
 
         // The worker's declared roles (BOOTSTRAP / FULL_ARCHIVE / REGION_VALIDATOR …).
@@ -105,8 +119,8 @@ public final class WorkerControlHandler implements ControlHandler {
                 + "\"is_gateway\":" + runtime.isGateway() + ","
                 + "\"self_route\":\"" + escape(nullToEmpty(runtime.selfRoute())) + "\","
                 + "\"roles\":[" + String.join(",", roleJson) + "],"
-                + "\"maintained_pieces\":0,"
-                + "\"maintained_bytes\":0,"
+                + "\"maintained_pieces\":" + (archive == null ? 0 : archive.maintainedPieces()) + ","
+                + "\"maintained_bytes\":" + (archive == null ? 0 : archive.maintainedBytes()) + ","
                 + "\"total_sent_bytes\":" + meter.bytesTx() + ","
                 + "\"total_received_bytes\":" + meter.bytesRx() + ","
                 + "\"peers\":[" + String.join(",", peerJson) + "],"
@@ -156,6 +170,54 @@ public final class WorkerControlHandler implements ControlHandler {
         // discovery half (tracker query / rendezvous discover) already works — accepted as a no-op
         // here until the worker drives the joiner PeerRuntime dial.
         return null;
+    }
+
+    @Override
+    public String seedArchive(String worldId, String archivePathB64) {
+        if (archive == null) {
+            return null;
+        }
+        String path = decodeB64(archivePathB64);
+        if (worldId == null || worldId.isBlank() || path.isBlank()) {
+            throw new IllegalArgumentException("missing worldId/archive path");
+        }
+        byte[] blob;
+        try {
+            blob = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(path));
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot read archive file: " + e.getMessage());
+        }
+        var manifest = archive.seedArchive(worldId, blob);
+        // Advertise immediately: a host that quits right after the final flush must not leave a
+        // listing without holdings until the next heartbeat.
+        hosting.refreshNow(worldId);
+        return manifest.manifestRoot().toHex() + " " + manifest.version().value()
+                + " " + manifest.pieceCount();
+    }
+
+    @Override
+    public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
+        if (archive == null) {
+            return null;
+        }
+        String path = decodeB64(destPathB64);
+        if (worldId == null || worldId.isBlank() || path.isBlank()) {
+            throw new IllegalArgumentException("missing worldId/destination path");
+        }
+        long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
+        byte[] blob = archive.fetchArchive(worldId, java.time.Duration.ofSeconds(seconds));
+        long version = archive.newestManifest(worldId)
+                .map(m -> m.version().value()).orElse(0L);
+        try {
+            java.nio.file.Path dest = java.nio.file.Path.of(path);
+            if (dest.getParent() != null) {
+                java.nio.file.Files.createDirectories(dest.getParent());
+            }
+            java.nio.file.Files.write(dest, blob);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot write archive file: " + e.getMessage());
+        }
+        return blob.length + " " + version;
     }
 
     @Override

@@ -16,6 +16,8 @@ import dev.nodera.protocol.content.ContentAvailability;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.protocol.content.ManifestHolding;
+import dev.nodera.protocol.content.WorldManifestAnswer;
+import dev.nodera.protocol.content.WorldManifestQuery;
 import dev.nodera.protocol.discovery.AnnounceEvent;
 import dev.nodera.protocol.discovery.InventoryAdvertisement;
 import dev.nodera.protocol.discovery.ManifestSeeders;
@@ -26,6 +28,8 @@ import dev.nodera.protocol.discovery.TrackerCatalogQuery;
 import dev.nodera.protocol.discovery.TrackerCatalogResponse;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
+import dev.nodera.protocol.discovery.TrackerRoutesQuery;
+import dev.nodera.protocol.discovery.TrackerRoutesResponse;
 import dev.nodera.protocol.handshake.ChallengeResponse;
 import dev.nodera.protocol.handshake.ClientHello;
 import dev.nodera.protocol.handshake.ServerHello;
@@ -52,8 +56,12 @@ import dev.nodera.protocol.rendezvous.RendezvousRegister;
 import dev.nodera.protocol.rendezvous.SignedPeerRecord;
 import dev.nodera.protocol.rendezvous.SignedRecord;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
+import dev.nodera.protocol.simulationmsg.ActionForward;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.ExternalDelta;
+import dev.nodera.protocol.simulationmsg.EntityTransferAccept;
+import dev.nodera.protocol.simulationmsg.EntityTransferCommit;
+import dev.nodera.protocol.simulationmsg.EntityTransferPrepare;
 import dev.nodera.protocol.simulationmsg.RegionProposal;
 import dev.nodera.protocol.simulationmsg.ResyncRequest;
 import dev.nodera.protocol.simulationmsg.SnapshotAnnounce;
@@ -213,9 +221,25 @@ public final class MessageCodec {
     public static final int TAG_TRACKER_CATALOG_QUERY = 44;
     /** {@link TrackerCatalogResponse} tag (tracker directory / browse). */
     public static final int TAG_TRACKER_CATALOG_RESPONSE = 45;
+    /** {@link EntityTransferPrepare} tag (Task 12c). */
+    public static final int TAG_ENTITY_TRANSFER_PREPARE = 46;
+    /** {@link EntityTransferAccept} tag (Task 12c). */
+    public static final int TAG_ENTITY_TRANSFER_ACCEPT = 47;
+    /** {@link EntityTransferCommit} tag (Task 12c). */
+    public static final int TAG_ENTITY_TRANSFER_COMMIT = 48;
+    /** {@link TrackerRoutesQuery} tag (join flow: full dial-route lists). */
+    public static final int TAG_TRACKER_ROUTES_QUERY = 49;
+    /** {@link TrackerRoutesResponse} tag (join flow: full dial-route lists). */
+    public static final int TAG_TRACKER_ROUTES_RESPONSE = 50;
+    /** {@link WorldManifestQuery} tag (world-continuity lane: fetch a seeder's manifests). */
+    public static final int TAG_WORLD_MANIFEST_QUERY = 51;
+    /** {@link WorldManifestAnswer} tag (world-continuity lane: the seeder's manifest list). */
+    public static final int TAG_WORLD_MANIFEST_ANSWER = 52;
+    /** {@link ActionForward} tag (no-host submission: route an action to its region's primary). */
+    public static final int TAG_ACTION_FORWARD = 53;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 45;
+    public static final int NEXT_TAG = 53;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -238,7 +262,11 @@ public final class MessageCodec {
             TAG_RENDEZVOUS_REGISTER, TAG_RENDEZVOUS_DISCOVER, TAG_RENDEZVOUS_PEERS,
             TAG_RELAY_RESERVE, TAG_RELAY_RESERVATION, TAG_RELAY_CONNECT, TAG_RELAY_INCOMING,
             TAG_PUNCH_SYNC, TAG_OBSERVED_ADDRESS,
-            TAG_TRACKER_CATALOG_QUERY, TAG_TRACKER_CATALOG_RESPONSE);
+            TAG_TRACKER_CATALOG_QUERY, TAG_TRACKER_CATALOG_RESPONSE,
+            TAG_ENTITY_TRANSFER_PREPARE, TAG_ENTITY_TRANSFER_ACCEPT,
+            TAG_ENTITY_TRANSFER_COMMIT,
+            TAG_TRACKER_ROUTES_QUERY, TAG_TRACKER_ROUTES_RESPONSE,
+            TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -297,6 +325,14 @@ public final class MessageCodec {
             case TAG_OBSERVED_ADDRESS -> "ObservedAddress";
             case TAG_TRACKER_CATALOG_QUERY -> "TrackerCatalogQuery";
             case TAG_TRACKER_CATALOG_RESPONSE -> "TrackerCatalogResponse";
+            case TAG_ENTITY_TRANSFER_PREPARE -> "EntityTransferPrepare";
+            case TAG_ENTITY_TRANSFER_ACCEPT -> "EntityTransferAccept";
+            case TAG_ENTITY_TRANSFER_COMMIT -> "EntityTransferCommit";
+            case TAG_TRACKER_ROUTES_QUERY -> "TrackerRoutesQuery";
+            case TAG_TRACKER_ROUTES_RESPONSE -> "TrackerRoutesResponse";
+            case TAG_WORLD_MANIFEST_QUERY -> "WorldManifestQuery";
+            case TAG_WORLD_MANIFEST_ANSWER -> "WorldManifestAnswer";
+            case TAG_ACTION_FORWARD -> "ActionForward";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -356,6 +392,18 @@ public final class MessageCodec {
                     && version != SESSION_KEEP_ALIVE_ENCODING_VERSION) {
                 throw new IllegalStateException(
                         "unsupported SessionKeepAlive encoding version " + version);
+            }
+        } else if (tag == TAG_REGION_PROPOSAL) {
+            if (version < ENCODING_VERSION
+                    || version > RegionProposal.PROPOSAL_ENCODING_VERSION) {
+                throw new IllegalStateException(
+                        "unsupported RegionProposal encoding version " + version);
+            }
+        } else if (tag == TAG_EXTERNAL_DELTA) {
+            if (version < ENCODING_VERSION
+                    || version > ExternalDelta.EXTERNAL_DELTA_ENCODING_VERSION) {
+                throw new IllegalStateException(
+                        "unsupported ExternalDelta encoding version " + version);
             }
         } else if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported message encoding version " + version);
@@ -429,6 +477,14 @@ public final class MessageCodec {
         if (msg instanceof ObservedAddress) return TAG_OBSERVED_ADDRESS;
         if (msg instanceof TrackerCatalogQuery) return TAG_TRACKER_CATALOG_QUERY;
         if (msg instanceof TrackerCatalogResponse) return TAG_TRACKER_CATALOG_RESPONSE;
+        if (msg instanceof EntityTransferPrepare) return TAG_ENTITY_TRANSFER_PREPARE;
+        if (msg instanceof EntityTransferAccept) return TAG_ENTITY_TRANSFER_ACCEPT;
+        if (msg instanceof EntityTransferCommit) return TAG_ENTITY_TRANSFER_COMMIT;
+        if (msg instanceof TrackerRoutesQuery) return TAG_TRACKER_ROUTES_QUERY;
+        if (msg instanceof TrackerRoutesResponse) return TAG_TRACKER_ROUTES_RESPONSE;
+        if (msg instanceof WorldManifestQuery) return TAG_WORLD_MANIFEST_QUERY;
+        if (msg instanceof WorldManifestAnswer) return TAG_WORLD_MANIFEST_ANSWER;
+        if (msg instanceof ActionForward) return TAG_ACTION_FORWARD;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -503,8 +559,13 @@ public final class MessageCodec {
                 w.writeU16(TAG_ACTION_BATCH_MSG).writeU16(ENCODING_VERSION);
                 m.batch().encode(w);
             }
+            case ActionForward m -> {
+                w.writeU16(TAG_ACTION_FORWARD).writeU16(ENCODING_VERSION);
+                m.region().encode(w);
+                w.writeBytes(m.encodedEnvelope());
+            }
             case RegionProposal m -> {
-                w.writeU16(TAG_REGION_PROPOSAL).writeU16(ENCODING_VERSION);
+                w.writeU16(TAG_REGION_PROPOSAL).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.epoch().encode(w);
                 m.baseVersion().encode(w);
@@ -513,6 +574,9 @@ public final class MessageCodec {
                 m.prevRoot().encode(w);
                 m.resultingRoot().encode(w);
                 w.writeBytes(m.encodedDelta());
+                if (m.bodyVersion() >= 3) {
+                    m.batchRoot().encode(w);
+                }
                 w.writeBytes(m.proposerSig());
             }
             case ValidationVote m -> {
@@ -528,6 +592,25 @@ public final class MessageCodec {
                 m.version().encode(w);
                 m.resultingRoot().encode(w);
                 w.writeBytes(m.certificateBytes());
+            }
+            case EntityTransferPrepare m -> {
+                w.writeU16(TAG_ENTITY_TRANSFER_PREPARE).writeU16(ENCODING_VERSION);
+                m.descriptor().encode(w);
+                m.sourceDelta().encode(w);
+                m.targetDelta().encode(w);
+            }
+            case EntityTransferAccept m -> {
+                w.writeU16(TAG_ENTITY_TRANSFER_ACCEPT).writeU16(ENCODING_VERSION);
+                w.writeU64(m.transferId());
+                m.side().encode(w);
+                m.vote().encode(w);
+            }
+            case EntityTransferCommit m -> {
+                w.writeU16(TAG_ENTITY_TRANSFER_COMMIT).writeU16(ENCODING_VERSION);
+                m.certificate().encode(w);
+                m.sourceActionCertificate().encode(w);
+                m.sourceDelta().encode(w);
+                m.targetDelta().encode(w);
             }
             case ResyncRequest m -> {
                 w.writeU16(TAG_RESYNC_REQUEST).writeU16(ENCODING_VERSION);
@@ -638,6 +721,27 @@ public final class MessageCodec {
                 w.writeU16(TAG_TRACKER_CATALOG_RESPONSE).writeU16(ENCODING_VERSION);
                 w.writeList(m.worlds(), MessageCodec::writeCatalogEntry);
             }
+            case TrackerRoutesQuery m -> {
+                w.writeU16(TAG_TRACKER_ROUTES_QUERY).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.genesisHash());
+            }
+            case TrackerRoutesResponse m -> {
+                w.writeU16(TAG_TRACKER_ROUTES_RESPONSE).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.genesisHash());
+                w.writeList(m.peers(), (ww, p) -> {
+                    p.peer().encode(ww);
+                    ww.writeList(p.routes(), CanonicalWriter::writeString);
+                });
+            }
+            case WorldManifestQuery m -> {
+                w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+            }
+            case WorldManifestAnswer m -> {
+                w.writeU16(TAG_WORLD_MANIFEST_ANSWER).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+                w.writeList(m.manifests(), CanonicalWriter::writeBytes);
+            }
             case InventoryAdvertisement m -> {
                 w.writeU16(TAG_INVENTORY_ADVERTISEMENT).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
@@ -660,11 +764,14 @@ public final class MessageCodec {
                 w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
             }
             case ExternalDelta m -> {
-                w.writeU16(TAG_EXTERNAL_DELTA).writeU16(ENCODING_VERSION);
+                w.writeU16(TAG_EXTERNAL_DELTA).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.baseVersion().encode(w);
                 w.writeBytes(m.encodedDelta());
                 w.writeBytes(m.certificateBytes());
+                if (m.bodyVersion() >= 2) {
+                    w.writeU64(m.tick());
+                }
             }
             case TrackerAnnounce m -> {
                 // The record owns the signed-portion layout so the codec and the signer can never
@@ -912,9 +1019,11 @@ public final class MessageCodec {
                 dev.nodera.core.state.StateRoot prevRoot = dev.nodera.core.state.StateRoot.decode(r);
                 dev.nodera.core.state.StateRoot resultingRoot = dev.nodera.core.state.StateRoot.decode(r);
                 Bytes encodedDelta = r.readBytesValue();
+                dev.nodera.core.state.StateRoot batchRoot = encodingVersion >= 3
+                        ? dev.nodera.core.state.StateRoot.decode(r) : null;
                 Bytes proposerSig = r.readBytesValue();
                 yield new RegionProposal(region, epoch, baseVersion, tickFrom, tickTo,
-                        prevRoot, resultingRoot, encodedDelta, proposerSig);
+                        prevRoot, resultingRoot, encodedDelta, batchRoot, proposerSig, encodingVersion);
             }
             case TAG_VALIDATION_VOTE -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
@@ -934,6 +1043,18 @@ public final class MessageCodec {
                 Bytes certificateBytes = r.readBytesValue();
                 yield new CommitAnnounce(region, version, resultingRoot, certificateBytes);
             }
+            case TAG_ENTITY_TRANSFER_PREPARE -> new EntityTransferPrepare(
+                    dev.nodera.core.state.EntityTransferDescriptor.decode(r),
+                    dev.nodera.core.state.RegionDelta.decode(r),
+                    dev.nodera.core.state.RegionDelta.decode(r));
+            case TAG_ENTITY_TRANSFER_ACCEPT -> new EntityTransferAccept(
+                    r.readU64(), dev.nodera.core.region.RegionId.decode(r),
+                    dev.nodera.core.consensuscert.SignedVote.decode(r));
+            case TAG_ENTITY_TRANSFER_COMMIT -> new EntityTransferCommit(
+                    dev.nodera.core.consensuscert.EntityTransferCertificate.decode(r),
+                    dev.nodera.core.consensuscert.QuorumCertificate.decode(r),
+                    dev.nodera.core.state.RegionDelta.decode(r),
+                    dev.nodera.core.state.RegionDelta.decode(r));
             case TAG_RESYNC_REQUEST -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
                 dev.nodera.core.state.SnapshotVersion haveVersion =
@@ -1037,6 +1158,25 @@ public final class MessageCodec {
             case TAG_TRACKER_CATALOG_QUERY -> new TrackerCatalogQuery((int) r.readU32());
             case TAG_TRACKER_CATALOG_RESPONSE ->
                     new TrackerCatalogResponse(r.readList(MessageCodec::readCatalogEntry));
+            case TAG_ACTION_FORWARD -> {
+                dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
+                yield new ActionForward(region, r.readBytesValue());
+            }
+            case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());
+            case TAG_WORLD_MANIFEST_ANSWER -> {
+                Bytes worldId = r.readBytesValue();
+                java.util.List<Bytes> manifests = r.readList(CanonicalReader::readBytesValue);
+                yield new WorldManifestAnswer(worldId, manifests);
+            }
+            case TAG_TRACKER_ROUTES_QUERY -> new TrackerRoutesQuery(r.readBytesValue());
+            case TAG_TRACKER_ROUTES_RESPONSE -> {
+                Bytes genesisHash = r.readBytesValue();
+                java.util.List<TrackerRoutesResponse.PeerRoutes> peers = r.readList(rr ->
+                        new TrackerRoutesResponse.PeerRoutes(
+                                dev.nodera.core.identity.NodeId.decode(rr),
+                                rr.readList(CanonicalReader::readString)));
+                yield new TrackerRoutesResponse(genesisHash, peers);
+            }
             case TAG_INVENTORY_ADVERTISEMENT -> {
                 Bytes genesisHash = r.readBytesValue();
                 dev.nodera.core.identity.NodeId holder = dev.nodera.core.identity.NodeId.decode(r);
@@ -1065,7 +1205,9 @@ public final class MessageCodec {
                         dev.nodera.core.state.SnapshotVersion.decode(r);
                 Bytes encodedDelta = r.readBytesValue();
                 Bytes certificateBytes = r.readBytesValue();
-                yield new ExternalDelta(region, baseVersion, encodedDelta, certificateBytes);
+                long tick = encodingVersion >= 2 ? r.readU64() : 0L;
+                yield new ExternalDelta(
+                        region, baseVersion, encodedDelta, certificateBytes, tick, encodingVersion);
             }
             case TAG_TRACKER_ANNOUNCE -> {
                 Bytes genesisHash = r.readBytesValue();

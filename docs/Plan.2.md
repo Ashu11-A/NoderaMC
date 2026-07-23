@@ -13,7 +13,7 @@ are thin slices of one concern (4 transport modules, 4 storage modules, 4 peer-i
 atomic-file-write, parallel in-memory/RocksDB store impls, near-duplicate test fixtures) and one
 fully orphaned module (`fallback`) plus one empty placeholder (`transport-neoforge`). The goal:
 consolidate into a small set of unified, modern internal APIs, remove redundancy and dead code,
-update docs, and keep/extend the test suite (773 Java + 144 Rust tests currently green).
+update docs, and keep/extend the test suite (979 Java + 144 Rust tests currently green).
 
 ## Decisions locked with user
 
@@ -182,9 +182,17 @@ first or branch from its merged state).
 - Target: line coverage of the unified modules as close to 100% as the IO/IT-bound classes allow;
   report the final number honestly in Tested.md rather than claiming 100%.
 
+## Task 12 Soak Note
+
+2026-07-22 headless mixed-lane observation: `EntityLaneSoakIT` ran one validated item and one
+vanilla-authoritative ghost for 1,200 ticks (one minute at 20 TPS). Five-tick ghost coalescing emitted
+240 canonical updates at **23,040 bytes per mob per minute**, below the 65,536-byte threshold, with
+**0 resync basis points**; the item despawned deterministically and the ghost remained in canonical
+state. Live `runClient` measurement remains L-50's final evidence gate.
+
 ## Verification (per step and final)
 
-1. `./gradlew check` (all 773+ tests) + `cd rust && cargo test` (144) + clippy/fmt gate.
+1. `./gradlew check` (all 979 tests) + `cd rust && cargo test` (144) + clippy/fmt gate.
 2. Wire conformance: `WireFixtureTest` + Rust fixture decode — proves no contract drift.
 3. Worker end-to-end: `./gradlew :peer:installDist` then `NODERA_WORKER_BIN=... rust/nodera-app`
    probe (`NODERA-PROBE` → `NODERA-OK`), or `scripts/dev.sh --test`; confirms Tauri↔worker path

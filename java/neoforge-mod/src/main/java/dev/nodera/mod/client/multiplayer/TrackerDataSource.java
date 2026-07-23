@@ -33,7 +33,9 @@ public final class TrackerDataSource {
                 response.reliabilityBps(),
                 response.health(),
                 secondsRemaining,
-                ""); // owner unknown from a bare tracker answer; the directory query carries it
+                "", // owner unknown from a bare tracker answer; the directory query carries it
+                response.genesisHash().toHex(),
+                ""); // game endpoint resolves at join time (TrackerRoutesQuery)
     }
 
     /** Map a batch of tracker answers. */

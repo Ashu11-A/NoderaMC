@@ -18,11 +18,11 @@ Gradle and every GUI acceptance is compile-clean + headless-view-model only.
 
 | Phase | Deliverable | Status | Waiting on |
 |---|---|---|---|
-| 5a | Mod skeleton, build conventions, dist discipline, `runClient`/`runServer` harness (L-45) | 🚧 (skeleton/jar ✅; `runs` block + GUI-env acceptance missing) | — |
+| 5a | Mod skeleton, build conventions, dist discipline, `runClient`/`runServer` harness (L-45) | 🚧 (skeleton/jar ✅; `runs` block ✅ 2026-07-22 — pin bumped 21.1.77→21.1.238, dep projects joined the mod definition, `runServer` boots to `Done` with the host lane self-activating and `runClient` reaches the title screen with the gate's warn path; **scripted series built 2026-07-23**: `scripts/e2e-continuity.sh` + `runClientHost`/`runClientJoin` drive bake → host share → join → archive-on-network → host kill → joiner rehost, stage-asserted from logs + worker control sockets) | — |
 | 5b | Live validation lane: capture events/mixins, `ServerLevel` applier, chunk tickets, fake-player detection, live shadow→coordinator→committee→fallback wiring, `ChunkLockMap` consumers, live commit/content/lifecycle adapters | ⏳ | 5a (env); consumes 1c–1g, 2b–2j seams |
 | 5c | HUD + command tree: `/nodera` + `/noderac`, tab list, boss bars, zone alerts | ✅ compile+headless (live surface pass ⏳ 5a; L-31 placeholders wait on 5b) | 5a |
-| 5d | Multiplayer + share GUI: "Open to Nodera", tabbed `NoderaMultiplayerScreen` (Worlds/Trackers/Rendezvous), piece map, world-list badge, create/share password flow, live tracker feed | 🚧 (view models + screens ✅ compile; `runClient` pass + live feeds ⏳; L-43/L-46) | 5a, 3b, 6b |
-| 5e | Decentralized host lane: role-driven hosting, "Share" activation, genesis-from-existing-world (30c), password-change re-manifest (30d), live rendezvous+encryption composition (30e) | 🚧 (30a/30b/30f ✅; 30c/30d ⏳; 30e partial) | 2c (genesis primitive), 2h, 4b |
+| 5d | Multiplayer + share GUI: "Open to Nodera", tabbed `NoderaMultiplayerScreen` (Worlds/Network), piece map, world-list badge, create/share password flow, live tracker feed, **join flow** | 🚧 (**2026-07-22 rebuild:** title-screen Realms slot → "Nodera Network"; redesigned two-tab multiplayer screen with scrollable `NoderaWorldList`, search, status footer; Worlds tab = worker `STATE` worlds ∪ tracker directory (`TrackerCatalogQuery` tag 44, now served by the Rust tracker + `TrackerClient.catalog`); **end-to-end join flow** `NoderaJoinFlow`: row → `TrackerRoutesQuery` (tag 49, appended) → `mc/host:port` claim → vanilla `ConnectScreen`, with host-offline/bad-route error screens; host side opens the integrated server via `publishServer` and hands the game endpoint + live player count to the worker over `HOST` (dropped on game close); create-world redesign: `CreateWorldNoderaAddon` button → `NoderaCreateOptionsScreen` → `PendingCreateShare` consumed on first start of the freshly created world; `/nodera share|worlds` + `/noderac worker|worlds` verbs; `runClient` GUI pass still ⏳ L-45; L-43/L-46) | 5a, 3b, 6b |
+| 5e | Decentralized host lane: role-driven hosting, "Share" activation, genesis-from-existing-world (30c), password-change re-manifest (30d), live rendezvous+encryption composition (30e) | 🚧 (30a/30b/30f ✅; **30c ✅ 2026-07-22** — `CertifiedWorldGenesis` (tag 103) self-certified by the host identity from live region digests, persisted `nodera-genesis.dat`, restart-reuse proven live, worldId derives from the certified root with pre-30c continuity guarded; coarse digests until 5b's full extractor; 30d ⏳; 30e partial) | 2h, 4b |
 | 5f | World identity + permissions, mod half: `nodera-world.dat` persistence, auto-re-share, author-only password UI, world-list mixin, grant gossip + `BANNED` join enforcement | 🚧 (store/authority/op-grant ✅; mixin + gossip/enforcement ⏳; L-49) | 5a (mixin verify), 6b/6c |
 | 5g | Companion presence gate: probe the worker, abort with actionable error, version-skew classification | ✅ (`companion.required` defaults ON) | — |
 
@@ -100,9 +100,14 @@ java/build-logic/          nodera.neoforge-mod.gradle.kts (ModDevGradle; needs t
 
 - **5a — Skeleton + build + run harness.** 🚧 Full spec: [`old/Task.1.md`](old/Task.1.md).
   Landed: convention plugins, version catalog, both entrypoints, dist isolation, empty
-  registered mixin config, payload registrar, CI jar. Remaining: the
-  `neoforge { runs { register("client") / register("server") } }` block (the L-45 blocker), the
-  21.1.77 ↔ 21.1.238 pin reconciliation (one dedicated commit), then a headless-display
+  registered mixin config, payload registrar, CI jar; **2026-07-22:** the
+  `runs { client/server }` block in `nodera.neoforge-mod.gradle.kts`, the pin reconciled to
+  **21.1.238** (matches `~/.minecraft`), the Nodera project modules joined to the `nodera` mod
+  definition (FML module isolation otherwise hides `dev.nodera.*` from the mod at dev-run time),
+  and runtime versions aligned to Minecraft's strict pins (fastutil 8.5.12, slf4j 2.0.9,
+  `slf4j-simple` excluded from the mod runtime). Live evidence: `runServer` boots to `Done` on a
+  fresh world with auto-share activating the host peer + tracker announce; `runClient` reaches the
+  title screen with the companion gate's not-enforced warn path. Remaining: the headless-display
   (Xvfb) `runClient` harness that drives Share → second client joins, asserting listing + mesh
   (the L-45 exit). Deps: none. Related: `build-logic`, `.github/workflows`.
 - **5b — The live validation lane.** ⏳ The single biggest remaining lane: wire the proven
@@ -133,9 +138,13 @@ java/build-logic/          nodera.neoforge-mod.gradle.kts (ModDevGradle; needs t
   Deps: 5a, 3b, 4b, 6b.
 - **5e — Decentralized host lane.** 🚧 Full spec: [`old/Task.30.md`](old/Task.30.md). Landed:
   30a (dist-agnostic role-driven host), 30b (Share screen; create-time and share-later run one
-  code path), 30f (infra-only dev script). Remaining: 30c genesis-from-existing-world +
-  self-cert by the hosting identity (relocates 2c's genesis primitive; L-20 unchanged —
-  signer moves, trust root doesn't); 30d password-change **full re-manifest** (convergent
+  code path), 30f (infra-only dev script); **30c (2026-07-22)** genesis-from-existing-world:
+  `storage/CertifiedWorldGenesis` (tag 103, signed root over per-region content digests, 8
+  headless tests + Rust tag mirror) + `mod/WorldGenesisService` (FOV/spawn region coarse digests
+  from live chunks, atomic `nodera-genesis.dat`, restart reuse proven live) + `NoderaHost` worldId
+  derivation from the certified root (pre-30c identities keep their interim-seed id via
+  derivation matching; L-20 unchanged — signer moves, trust root doesn't; bit-complete digests
+  arrive with 5b's `SnapshotExtractor`). Remaining: 30d password-change **full re-manifest** (convergent
   encryption ⇒ new key = new ciphertext = new `manifestRoot`; UI must warn); 30e live
   `RendezvousPeerTransport` composition + password → `WorldKeyMaterial` per-piece encryption.
   With Task 6 linked, hosting delegates to the worker (6c) instead of the in-JVM peer.

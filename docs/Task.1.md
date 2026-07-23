@@ -11,7 +11,7 @@
 
 ## Implementation status
 
-Audited **2026-07-21**. ✅ completed · 🚧 pending (started/not started, no external blocker) ·
+Audited **2026-07-22**. ✅ completed · 🚧 pending (started/not started, no external blocker) ·
 ⏳ waiting (blocked on another task's phase).
 
 | Phase | Deliverable | Status | Waiting on |
@@ -23,7 +23,7 @@ Audited **2026-07-21**. ✅ completed · 🚧 pending (started/not started, no e
 | 1e | Committee validation, 2-of-3 quorum — **MVP gate**, `CommitteeMvpIT` | ✅ (live 3-client run → 5b) | — |
 | 1f | Server-fallback lane + cross-region router — `FallbackRoutingIT` >90% committee-commit | ✅ (live soak → 5b) | — |
 | 1g | Interference guard + full delegability + `COMPATIBILITY.md` | ✅ headless (mixins/tickets/fake-player → 5b) | — |
-| 1h | Entity & mob lane (12a core foundation ✅; `EntityStore`/item physics, ghost stream, cross-region transfer) | 🚧 | 5b for the NeoForge capture bridge |
+| 1h | Entity & mob lane: headless/durable acceptance + live adapters/composition ✅; automatic live activation pending | 🚧 | 5b existing-world genesis/region bindings + `runClient` |
 | 1i | Validated redstone (palette v2) + contraption ownership migration | 🚧 | — (headless half unblocked) |
 | 1j | Environment lane: random ticks, fluids, fire, gravity, lighting, observer/QC | ⏳ | 1g live (5b), 1h, 1i |
 | 1k | Deterministic entity simulation: mob AI, spawning, projectiles, ghost retirement | ⏳ | 1h, 1j |
@@ -40,21 +40,23 @@ gate), the server-fallback/cross-region lane, and the interference guard that ma
 regions safe on real worlds. The parity program (1h–1l) then burns `LIMITATIONS.md` §B down to
 empty — full vanilla parity under validation, no permanent exclusions.
 
-## Context (last audit: 2026-07-21)
+## Context (last audit: 2026-07-22)
 
-- Phases 1a–1g are green headlessly: 773 Java tests include the engine determinism property
+- Phases 1a–1g are green headlessly: 979 Java tests include the engine determinism property
   tests, `ShadowValidationIT` (3 workers × 250 random batches, zero divergence, lying worker
   caught), `CoordinatorIT` (commit-on-match, forced-mismatch reject, stale-epoch drop,
   primary-death reassignment), `CommitteeMvpIT` (2-of-3 quorum, primary failover under epoch+1),
   `ByzantineWorkerTest`, `FallbackRoutingIT` (>90% committee-commit), and the full
   `coordinator/interference` guard suite (CONVERT/STRICT classification, held-while-voting
   ordering — interference `STALE_BASE` impossible by construction, delegability hysteresis).
-- 1h first increment (old Task 12a) landed: `FixedVec3` Q32.32, deterministic
-  `NetworkEntityId`, `PersistedEntityState`, item actions (tags 25/26), entity lifecycle events.
-  The frozen region-root encoding is untouched.
-- Everything Minecraft-facing (capture mixins, `ServerLevel` applier, chunk tickets, live
-  multi-client acceptance) is deliberately **not here** — it is Task 5 phase 5b, the same
-  pattern for every phase: prove Minecraft-free first, wire live second.
+- 1h headless/durable increment landed: jqwik 3-replica item fall/merge/despawn, replay-safe
+  inventory credits, throttled ghost interference, item/ghost delegability, playerless-ticket
+  isolation, joint source/target certificates over disjoint committees, Rocks durable stages and
+  atomic paired histories, process-kill recovery, and `@Invariant(11)` no-dupe/no-loss replay.
+  Durable vote/action/inventory-credit journals and a mixed 1,200-tick soak are green.
+- NeoForge persistent attachments, capture/projection adapters, server-thread commit dispatch, and
+  lifecycle-owned `LiveEntityLaneSession` now compile. Task 5b still must produce certified genesis
+  + region bindings and invoke it; live multi-client pickup/zombie/pearl evidence waits on `runClient`.
 - Prior-art grounding: [`docs/minecraft/folia/`](minecraft/folia/) (regionised ticking,
   `TickThread` fail-hard ownership guards, region-local time, halo sections) and
   [`docs/minecraft/MultiPaper/`](minecraft/MultiPaper/) (single-owner ticks, atomic chunk-group
@@ -130,12 +132,15 @@ deliverable that consumes the phase.
   hysteresis, `COMPATIBILITY.md`. The three mixins (`LevelChunkMixin` choke point,
   random/scheduled-tick suppression), `ChunkTicketService`, `FakePlayerDetector`: **5b**.
   Deps: 1d.
-- **1h — Entity & mob lane.** 🚧 Full spec: [`old/Task.12.md`](old/Task.12.md). 12a core
-  foundation ✅ (`FixedVec3`, `NetworkEntityId`, `PersistedEntityState`, item actions/events).
-  Remaining: `EntityStore` in the region root + deterministic item physics
-  (`EntityRuleSet`), `mobCapture` ghost stream through the 1g pipeline, 12c cross-region entity
-  transfer on the 1f barrier. NeoForge capture bridge + `NetworkEntityIdAttachment`: **5b**.
-  Deps: 1g, 2c (event log for transfer certificates).
+- **1h — Entity & mob lane.** 🚧 Full spec: [`old/Task.12.md`](old/Task.12.md). 12a/12b/12c
+  mechanics and durable headless proofs are implemented: canonical entity roots, fixed-point items,
+  exactly-once credit keys + retained outbox, coalesced ghost external deltas, dual-committee transfer
+  voting, atomic paired apply/logging, restart recovery, forced-process no-dupe/no-loss, pearl lane
+  policy, and measured soak. Live attachments/capture/projection/session composition is present;
+  activation self-bootstraps (`EntityLaneBootstrap` interim genesis/snapshots/FOV leases behind
+  `entity.laneAutoActivate`) and a dirty shutdown's pending actions are compensated at reopen.
+  Remaining: certified genesis-from-existing-world (Task 9/30c), per-joiner node identities, and
+  actual `runClient` pickup/zombie/pearl scenarios retire L-50. Deps: 1g, 2c, 5b.
 - **1i — Validated redstone + contraption migration.** 🚧 Full spec:
   [`old/Task.13.md`](old/Task.13.md). Palette v2, `ScheduledTickQueue` in the root
   (Invariant 10), fixed `NeighborUpdateOrder`, piston two-phase `BlockEventEntry`,
@@ -184,6 +189,7 @@ Owned rows in [`LIMITATIONS.md`](LIMITATIONS.md) (legacy owner tags per the Task
   (player lane, BFT, SDK) → 1l · L-26 (redstone chain) → 1i→1j→1l · L-22 (spot-check floor,
   RETIRING) → 1e/1f · L-30 (no committee re-execution on the P2P lane yet) → 1e over 2b.
 - §A A-1/A-5/A-6 mechanisms live here (batching, fixed-point, primary selection).
+- L-50 now tracks Task 12's Task-5b activation, pending-action reconciliation, and real-client evidence gap.
 - The live halves of 1c–1g are tracked as Task 5's L-45/L-49 rows, not here.
 
 ## Acceptance criteria

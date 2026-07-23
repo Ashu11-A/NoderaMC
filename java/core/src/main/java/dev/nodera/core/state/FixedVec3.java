@@ -30,6 +30,20 @@ public record FixedVec3(long x, long y, long z) implements Encodable {
         return new FixedVec3((long) x << 32, (long) y << 32, (long) z << 32);
     }
 
+    /**
+     * Convert external floating-point coordinates to Q32.32 by rounding to nearest, with ties
+     * toward positive infinity as defined by {@link Math#round(double)}. Simulation never calls
+     * this adapter; Minecraft capture uses it before values enter canonical state.
+     */
+    public static FixedVec3 fromExternal(double x, double y, double z) {
+        return new FixedVec3(toFixed(x), toFixed(y), toFixed(z));
+    }
+
+    /** Convert one canonical component back to an external display/projection coordinate. */
+    public static double toExternal(long fixed) {
+        return fixed / (double) ONE;
+    }
+
     /** Vector addition (component-wise, fixed-point). */
     public FixedVec3 add(FixedVec3 o) {
         return new FixedVec3(x + o.x, y + o.y, z + o.z);
@@ -64,6 +78,15 @@ public record FixedVec3(long x, long y, long z) implements Encodable {
     private static long mul(long a, long b) {
         // Q32.32 * Q32.32 = Q64.64; take bits [32..95] as the Q32.32 result.
         return Math.multiplyHigh(a, b) << 32 | (a * b) >>> 32;
+    }
+
+    private static long toFixed(double value) {
+        if (!Double.isFinite(value)
+                || value < Long.MIN_VALUE / (double) ONE
+                || value > Long.MAX_VALUE / (double) ONE) {
+            throw new IllegalArgumentException("coordinate outside Q32.32 range: " + value);
+        }
+        return Math.round(value * ONE);
     }
 
     @Override

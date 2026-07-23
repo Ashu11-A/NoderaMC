@@ -15,12 +15,16 @@
 
 mod control;
 mod daemon;
+mod logs;
 mod metrics;
+mod system;
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use logs::LogBuffer;
 use metrics::MetricsHandle;
+use system::SystemHandle;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager, WindowEvent};
@@ -39,8 +43,22 @@ fn get_metrics(state: tauri::State<Arc<MetricsHandle>>) -> metrics::Metrics {
     state.snapshot()
 }
 
+/// Tauri command: machine + worker RAM/CPU for the resource tiles.
+#[tauri::command]
+fn get_system_stats(state: tauri::State<Arc<SystemHandle>>) -> system::SystemStats {
+    state.snapshot()
+}
+
+/// Tauri command: the worker's recent log lines (oldest first, bounded ring).
+#[tauri::command]
+fn get_worker_logs(state: tauri::State<Arc<LogBuffer>>) -> Vec<String> {
+    state.snapshot()
+}
+
 fn main() {
     let metrics = Arc::new(MetricsHandle::new());
+    let system_stats = Arc::new(SystemHandle::new());
+    let worker_logs = Arc::new(LogBuffer::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -55,7 +73,13 @@ fn main() {
             Some(vec![]),
         ))
         .manage(Arc::clone(&metrics))
-        .invoke_handler(tauri::generate_handler![get_metrics])
+        .manage(Arc::clone(&system_stats))
+        .manage(Arc::clone(&worker_logs))
+        .invoke_handler(tauri::generate_handler![
+            get_metrics,
+            get_system_stats,
+            get_worker_logs
+        ])
         .setup(move |app| {
             build_tray(app)?;
 
@@ -73,8 +97,15 @@ fn main() {
             // Background async work on Tauri's async runtime (tokio).
             // Supervise the worker (unless attach mode, where scripts/dev.sh already runs it)...
             let metrics_daemon = Arc::clone(&metrics);
+            let logs_daemon = Arc::clone(&worker_logs);
             tauri::async_runtime::spawn(async move {
-                daemon::supervise(metrics_daemon).await;
+                daemon::supervise(metrics_daemon, logs_daemon).await;
+            });
+
+            // Sample machine + worker RAM/CPU for the resource tiles.
+            let system_sampler = Arc::clone(&system_stats);
+            tauri::async_runtime::spawn(async move {
+                system::sample(system_sampler).await;
             });
 
             // ...and monitor the worker's control endpoint for liveness (the authoritative signal).
@@ -83,14 +114,16 @@ fn main() {
                 control::monitor(control_addr(), metrics_ctl).await;
             });
 
-            // Push the dashboard snapshot to the frontend every second.
+            // Push the dashboard snapshots to the frontend every second.
             let handle = app.handle().clone();
             let metrics_ui = Arc::clone(&metrics);
+            let system_ui = Arc::clone(&system_stats);
             tauri::async_runtime::spawn(async move {
                 let mut tick = tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tick.tick().await;
                     let _ = handle.emit("nodera://metrics", metrics_ui.snapshot());
+                    let _ = handle.emit("nodera://system", system_ui.snapshot());
                 }
             });
 

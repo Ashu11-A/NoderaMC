@@ -32,9 +32,29 @@ pub mod type_tags {
     pub const WORLD_IDENTITY: u16 = 92;
     /// `WorldPermissionGrant` — an author/operator-signed role grant for a world.
     pub const WORLD_PERMISSION_GRANT: u16 = 93;
+    /// `EntityMutation` — compare-and-set entity-table transition (Java engine only).
+    pub const ENTITY_MUTATION: u16 = 94;
+    /// `InventoryCredit` — replay-safe one-way player inventory effect (Java engine only).
+    pub const INVENTORY_CREDIT: u16 = 95;
+    /// `EntityTransferCertificate` — binds two Java region transitions.
+    pub const ENTITY_TRANSFER_CERT: u16 = 96;
+    /// `EntityTransferPreparedEvent` — Java region-log event.
+    pub const ENTITY_TRANSFER_PREPARED_EVENT: u16 = 97;
+    /// `EntityTransferCommittedEvent` — Java region-log event.
+    pub const ENTITY_TRANSFER_COMMITTED_EVENT: u16 = 98;
+    /// `EntityTransferIntent` — Java engine border-handoff effect.
+    pub const ENTITY_TRANSFER_INTENT: u16 = 99;
+    /// `EntityTransferDescriptor` — jointly approved source/target transition descriptor.
+    pub const ENTITY_TRANSFER_DESCRIPTOR: u16 = 100;
+    /// `EntityTransferAcceptedEvent` — Java region-log acceptance marker.
+    pub const ENTITY_TRANSFER_ACCEPTED_EVENT: u16 = 101;
+    /// `EntityTransferRecord` — Java durable transfer stage record.
+    pub const ENTITY_TRANSFER_RECORD: u16 = 102;
+    /// `CertifiedWorldGenesis` — genesis extracted from an existing world, self-certified (Task 30c).
+    pub const CERTIFIED_WORLD_GENESIS: u16 = 103;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 93;
+    pub const NEXT: u16 = 103;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).
@@ -73,9 +93,25 @@ pub mod message_tags {
     pub const TRACKER_CATALOG_QUERY: u16 = 44;
     /// `TrackerCatalogResponse` — the directory listing answer.
     pub const TRACKER_CATALOG_RESPONSE: u16 = 45;
+    /// `EntityTransferPrepare` — Java committee transfer prepare.
+    pub const ENTITY_TRANSFER_PREPARE: u16 = 46;
+    /// `EntityTransferAccept` — Java committee transfer acceptance.
+    pub const ENTITY_TRANSFER_ACCEPT: u16 = 47;
+    /// `EntityTransferCommit` — Java paired transfer commit.
+    pub const ENTITY_TRANSFER_COMMIT: u16 = 48;
+    /// `TrackerRoutesQuery` — full claimed dial-route lists of a world's live peers (join flow).
+    pub const TRACKER_ROUTES_QUERY: u16 = 49;
+    /// `TrackerRoutesResponse` — the per-peer route-list answer.
+    pub const TRACKER_ROUTES_RESPONSE: u16 = 50;
+    /// `WorldManifestQuery` — Java peer↔peer manifest fetch (world-continuity lane).
+    pub const WORLD_MANIFEST_QUERY: u16 = 51;
+    /// `WorldManifestAnswer` — the seeder's manifest list (world-continuity lane).
+    pub const WORLD_MANIFEST_ANSWER: u16 = 52;
+    /// `ActionForward` — Java no-host submission: route an action to its region's primary.
+    pub const ACTION_FORWARD: u16 = 53;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 45;
+    pub const NEXT_TAG: u16 = 53;
 }
 
 /// The message tags this crate can decode today.
@@ -100,4 +136,6 @@ pub const SUPPORTED_MESSAGE_TAGS: &[u16] = &[
     message_tags::OBSERVED_ADDRESS,
     message_tags::TRACKER_CATALOG_QUERY,
     message_tags::TRACKER_CATALOG_RESPONSE,
+    message_tags::TRACKER_ROUTES_QUERY,
+    message_tags::TRACKER_ROUTES_RESPONSE,
 ];

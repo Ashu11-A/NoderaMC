@@ -71,9 +71,14 @@ public final class CompanionClient implements CompanionProbe {
      * fails fast).
      */
     public String exchange(String requestLine) {
+        return exchange(requestLine, READ_TIMEOUT_MS);
+    }
+
+    /** As {@link #exchange(String)}, with a caller-chosen read timeout (long-running verbs). */
+    public String exchange(String requestLine, int readTimeoutMs) {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
-            socket.setSoTimeout(READ_TIMEOUT_MS);
+            socket.setSoTimeout(readTimeoutMs);
             OutputStream out = socket.getOutputStream();
             out.write((requestLine + "\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
@@ -122,6 +127,49 @@ public final class CompanionClient implements CompanionProbe {
     public Optional<String> changePassword(String worldId, String newPasswordHashB64) {
         return errorOf(exchange(CompanionProtocol.PASSWORD + " " + CompanionProtocol.PROTOCOL_VERSION
                 + " " + worldId + " " + newPasswordHashB64));
+    }
+
+    /**
+     * Ask the worker to seed a world-archive snapshot from a local file (continuity lane).
+     *
+     * @param worldId     hex world id.
+     * @param archivePath absolute path of the packed archive file (same machine).
+     * @return {@code "<manifestRootHex> <version> <pieceCount>"} on success, or empty (unreachable
+     *         worker, or a worker predating the archive lane).
+     */
+    public Optional<String> seedArchive(String worldId, java.nio.file.Path archivePath) {
+        String reply = exchange(CompanionProtocol.SEED + " " + CompanionProtocol.PROTOCOL_VERSION
+                        + " " + worldId + " " + b64Path(archivePath),
+                30_000); // splitting + hashing a multi-MB save takes more than the probe budget
+        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+    }
+
+    /**
+     * Ask the worker to fetch a world's newest archive from the network into a local file.
+     *
+     * @param worldId        hex world id.
+     * @param destPath       absolute destination path for the archive blob.
+     * @param timeoutSeconds overall fetch deadline (network download; also bounds the socket read).
+     * @return {@code "<byteCount> <version>"} on success, or empty.
+     */
+    public Optional<String> fetchArchive(String worldId, java.nio.file.Path destPath,
+                                         long timeoutSeconds) {
+        long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
+        String reply = exchange(CompanionProtocol.ARCHIVE + " " + CompanionProtocol.PROTOCOL_VERSION
+                        + " " + worldId + " " + b64Path(destPath) + " " + seconds,
+                (int) Math.min(Integer.MAX_VALUE, (seconds + 10) * 1000));
+        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+    }
+
+    private static String b64Path(java.nio.file.Path path) {
+        return java.util.Base64.getEncoder().encodeToString(
+                path.toAbsolutePath().toString().getBytes(StandardCharsets.UTF_8));
     }
 
     /**

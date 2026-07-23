@@ -155,6 +155,19 @@ public final class ControlServer implements AutoCloseable {
             if (ControlProtocol.STATUS.equals(verb)) {
                 return handler.statusJson(arg(parts, 2));
             }
+            if (ControlProtocol.SEED.equals(verb)) {
+                // NODERA-SEED <ver> <worldId> <archivePathB64>
+                String seeded = handler.seedArchive(arg(parts, 2), arg(parts, 3));
+                return seeded == null ? err("archive lane unavailable")
+                        : ControlProtocol.OK + " " + seeded;
+            }
+            if (ControlProtocol.ARCHIVE.equals(verb)) {
+                // NODERA-ARCHIVE <ver> <worldId> <destPathB64> <timeoutSeconds>
+                String fetched = handler.fetchArchive(arg(parts, 2), arg(parts, 3),
+                        parseLong(arg(parts, 4)));
+                return fetched == null ? err("archive lane unavailable")
+                        : ControlProtocol.OK + " " + fetched;
+            }
             if (ControlProtocol.WORLDID.equals(verb)) {
                 // NODERA-WORLDID <ver> <genesisRootB64> <createdAt> <shared> <listed> <enc> <manifestRefB64>
                 String minted = handler.mintWorldIdentity(arg(parts, 2), parseLong(arg(parts, 3)),

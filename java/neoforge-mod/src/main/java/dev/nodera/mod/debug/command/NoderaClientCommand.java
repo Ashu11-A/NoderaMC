@@ -40,10 +40,62 @@ public final class NoderaClientCommand {
         dispatcher.register(literal("noderac")
                 .then(literal("session").executes(panel(svc, ViewBuilder::sessionPanel)))
                 .then(literal("peers").executes(panel(svc, ViewBuilder::peersPanel)))
+                .then(literal("worker").executes(NoderaClientCommand::worker))
+                .then(literal("worlds").executes(NoderaClientCommand::worlds))
                 .then(literal("net")
                         .executes(panel(svc, s -> ViewBuilder.netPanel(s, null)))
                         .then(argument("type", StringArgumentType.string())
                                 .executes(ctx -> clientNetType(ctx, svc)))));
+    }
+
+    /** {@code /noderac worker} — the always-on worker's live state over the control channel. */
+    private static int worker(CommandContext<CommandSourceStack> ctx) {
+        if (!dev.nodera.mod.common.CompanionLink.isPresent()) {
+            ctx.getSource().sendFailure(net.minecraft.network.chat.Component.literal(
+                    "No Nodera worker linked — start the companion app (or scripts/dev.sh)."));
+            return 0;
+        }
+        var info = dev.nodera.mod.common.CompanionLink.info();
+        var state = dev.nodera.mod.common.CompanionLink.client().state().orElse(null);
+        var hosted = dev.nodera.mod.common.WorkerStateParser.connectedWorlds(state);
+        StringBuilder out = new StringBuilder("Nodera worker: linked (protocol ")
+                .append(info.protocolVersion()).append(", version ")
+                .append(info.daemonVersion()).append(")");
+        if (hosted.isEmpty()) {
+            out.append("\n  hosting no worlds");
+        }
+        for (var world : hosted) {
+            out.append("\n  ").append(world.name()).append(" — ").append(world.players())
+                    .append(" online, ")
+                    .append(world.mcRoute().isBlank() ? "game closed" : "joinable at " + world.mcRoute());
+        }
+        String text = out.toString();
+        ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal(text), false);
+        return 1;
+    }
+
+    /** {@code /noderac worlds} — the merged multiplayer world list, as the Worlds tab sees it. */
+    private static int worlds(CommandContext<CommandSourceStack> ctx) {
+        var entries = dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed.snapshot();
+        if (entries.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal(
+                    "No worlds known yet (worker + tracker feeds are empty)."), false);
+            return 0;
+        }
+        StringBuilder out = new StringBuilder("Worlds on the network:");
+        for (var entry : entries) {
+            out.append("\n  ").append(entry.name());
+            if (entry.hasHost()) {
+                out.append(" (by ").append(entry.hostName()).append(")");
+            }
+            out.append(" — ").append(entry.playerCount()).append(" online, ")
+                    .append(entry.mcRoute().isBlank()
+                            ? entry.health().name().toLowerCase(java.util.Locale.ROOT)
+                            : "joinable");
+        }
+        String text = out.toString();
+        ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal(text), false);
+        return entries.size();
     }
 
     /** Sample the client runtime now; null if the client peer is not running. */

@@ -313,6 +313,26 @@ public final class PieceDownloader {
         pump();
     }
 
+    /**
+     * Stall recovery: forget every outstanding request and re-select from scratch. A bounded
+     * server <b>silently drops</b> requests beyond its inflight/bandwidth budget (by design — see
+     * {@code ContentTransferService}), so a request can be lost without any failure signal; the
+     * class itself is clock-free, so the <i>caller</i> owns detecting the quiet period and
+     * invoking this. Safe to over-call: duplicate chunks are deduplicated by the reassembler and
+     * verified pieces are never re-requested.
+     *
+     * @Thread-context any thread.
+     */
+    public void retryPending() {
+        synchronized (this) {
+            if (!started || completion.isDone()) {
+                return;
+            }
+            inflight.clear();
+        }
+        pump();
+    }
+
     /** @return how many piece requests have been emitted (retries included). */
     public synchronized long requestsIssued() {
         return requestsIssued;

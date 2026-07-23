@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.consensuscert.QuorumCertificate;
 import dev.nodera.core.consensuscert.SignedVote;
 import dev.nodera.core.consensuscert.VoteDecision;
+import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.state.StateRoot;
@@ -21,6 +22,8 @@ import dev.nodera.simulation.RegionExecutionResult;
  * @Thread-context confined per {@link #computeAndVote} call; the engine is a pure function.
  */
 public final class CommitteeMember {
+
+    private static final HashService HASHES = new HashService();
 
     private final NodeIdentity identity;
     private final RegionEngine engine;
@@ -72,12 +75,13 @@ public final class CommitteeMember {
         // If persistence fails, the exception aborts the round rather than creating a root vote that
         // exists nowhere outside transient executor memory.
         persistence.prepare(request, result);
-        SignedVote vote = sign(result.resultingRoot(), VoteDecision.ACCEPT);
+        StateRoot transitionRoot = StateRoot.of(HASHES.hash(result.delta()));
+        SignedVote vote = sign(request, result.resultingRoot(), transitionRoot, VoteDecision.ACCEPT);
         return new MemberBallot(nodeId(), result.resultingRoot(), result.delta(), vote);
     }
 
     /** Bind this member's prepared candidate to the certificate before canonical state advances. */
-    void markCommitted(QuorumCertificate certificate) {
+    public void markCommitted(QuorumCertificate certificate) {
         persistence.commit(certificate);
     }
 
@@ -86,8 +90,28 @@ public final class CommitteeMember {
      * a proposal rather than proposing its own.
      */
     public SignedVote sign(StateRoot root, VoteDecision decision) {
-        SignedVote unsigned = new SignedVote(nodeId(), root, decision, Bytes.empty());
+        return sign(root, root, decision);
+    }
+
+    /** Sign both post-state truth and the complete transition, including one-way effects. */
+    public SignedVote sign(StateRoot root, StateRoot transitionRoot, VoteDecision decision) {
+        SignedVote unsigned = new SignedVote(
+                nodeId(), root, transitionRoot, decision, Bytes.empty());
         Bytes signature = identity.sign(unsigned.signedPortion());
-        return new SignedVote(nodeId(), root, decision, signature);
+        return new SignedVote(nodeId(), root, transitionRoot, decision, signature);
+    }
+
+    private SignedVote sign(
+            RegionExecutionRequest request, StateRoot root, StateRoot transitionRoot,
+            VoteDecision decision) {
+        SignedVote unsigned = new SignedVote(
+                nodeId(), request.batch().region(), request.batch().epoch(),
+                request.batch().baseVersion(), StateRoot.of(HASHES.hash(request.batch())),
+                root, transitionRoot, decision, Bytes.empty());
+        Bytes signature = identity.sign(unsigned.signedPortion());
+        return new SignedVote(
+                nodeId(), request.batch().region(), request.batch().epoch(),
+                request.batch().baseVersion(), StateRoot.of(HASHES.hash(request.batch())),
+                root, transitionRoot, decision, signature);
     }
 }

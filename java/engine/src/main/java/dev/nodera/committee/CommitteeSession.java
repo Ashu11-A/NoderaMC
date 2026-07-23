@@ -8,6 +8,7 @@ import dev.nodera.consensus.QuorumPolicy;
 import dev.nodera.consensus.VoteCollector;
 import dev.nodera.core.consensuscert.QuorumCertificate;
 import dev.nodera.core.consensuscert.SignedVote;
+import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.StateRoot;
@@ -42,6 +43,8 @@ import java.util.TreeSet;
  * @Thread-context confined to the session thread; not thread-safe.
  */
 public final class CommitteeSession {
+
+    private static final HashService HASHES = new HashService();
 
     private final QuorumPolicy policy;
     private final WorldMutationApplier applier;
@@ -120,11 +123,15 @@ public final class CommitteeSession {
         }
 
         StateRoot committed = cert.resultingRoot();
+        StateRoot committedTransition = cert.votes().getFirst().transitionRoot();
         Set<NodeId> penalized = new TreeSet<>(Comparator.comparing(NodeId::value));
         RegionDelta commitDelta = null;
 
         for (MemberBallot b : ballots) {
-            boolean agree = b.root().equals(committed);
+            StateRoot ballotTransition = StateRoot.of(HASHES.hash(b.delta()));
+            boolean agree = b.root().equals(committed)
+                    && ballotTransition.equals(committedTransition)
+                    && b.vote().transitionRoot().equals(committedTransition);
             reliability.record(b.voter(), agree);
             if (agree && commitDelta == null) {
                 commitDelta = b.delta();
@@ -139,6 +146,9 @@ public final class CommitteeSession {
         }
         // commitDelta is non-null: a Commit certificate implies at least one agreeing member.
         WorldMutationApplier.ApplyResult applied = applier.apply(commitDelta);
+        if (!applied.committed()) {
+            return CommitResult.applyFailed(cert, applied, penalized, equivocators);
+        }
         return CommitResult.committed(cert, applied, penalized, equivocators);
     }
 }

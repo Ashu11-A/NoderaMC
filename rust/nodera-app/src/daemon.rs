@@ -14,8 +14,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+use crate::logs::LogBuffer;
 use crate::metrics::MetricsHandle;
 
 /// True when the app should attach to an already-running worker instead of supervising its own.
@@ -34,9 +36,11 @@ fn worker_launcher() -> PathBuf {
 
 /// Run the supervisor loop until the process exits. Restarts the worker with a capped backoff.
 /// No-op (returns) in attach mode.
-pub async fn supervise(metrics: Arc<MetricsHandle>) {
+pub async fn supervise(metrics: Arc<MetricsHandle>, logs: Arc<LogBuffer>) {
     if attach_mode() {
         eprintln!("nodera-app: attach mode — not supervising a worker (one runs externally)");
+        // The worker's output goes to its own log file in attach mode — follow it instead.
+        crate::logs::tail_attach_log(logs).await;
         return;
     }
 
@@ -45,14 +49,39 @@ pub async fn supervise(metrics: Arc<MetricsHandle>) {
     let max_backoff = Duration::from_secs(30);
 
     loop {
-        let spawn = Command::new(&launcher).kill_on_drop(true).spawn();
+        let spawn = Command::new(&launcher)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn();
         match spawn {
             Ok(mut child) => {
                 backoff = Duration::from_secs(1); // healthy start resets backoff
+                // Stream the worker's output into the dashboard's log ring.
+                if let Some(out) = child.stdout.take() {
+                    let sink = Arc::clone(&logs);
+                    tauri::async_runtime::spawn(async move {
+                        let mut lines = BufReader::new(out).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            sink.push(line);
+                        }
+                    });
+                }
+                if let Some(err) = child.stderr.take() {
+                    let sink = Arc::clone(&logs);
+                    tauri::async_runtime::spawn(async move {
+                        let mut lines = BufReader::new(err).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            sink.push(line);
+                        }
+                    });
+                }
                 let status = child.wait().await;
+                logs.push(format!("nodera-app: peer worker exited: {status:?}"));
                 eprintln!("nodera-app: peer worker exited: {status:?}");
             }
             Err(e) => {
+                logs.push(format!("nodera-app: failed to start peer worker: {e}"));
                 eprintln!("nodera-app: failed to start peer worker ({launcher:?}): {e}");
             }
         }

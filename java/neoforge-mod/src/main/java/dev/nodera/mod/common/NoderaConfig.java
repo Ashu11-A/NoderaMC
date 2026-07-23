@@ -43,6 +43,17 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue HOST_AUTO_SHARE =
             SERVER_BUILDER.define("host.autoShare", true);
 
+    // Task 12 live entity lane. When true, sharing a world also bootstraps the validated entity
+    // lane over the host player's field of view (EntityLaneBootstrap plan; DelegabilityPolicy still
+    // gates every region). Off by default until the lane is soak-proven on real worlds.
+    public static final ModConfigSpec.BooleanValue ENTITY_LANE_AUTO =
+            SERVER_BUILDER.define("entity.laneAutoActivate", false);
+
+    // Task 12b ghost lane. Empty by default: dimensions opt in explicitly until soak-proven.
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>>
+            MOB_CAPTURE_DIMENSIONS = SERVER_BUILDER.defineListAllowEmpty(
+            "entity.mobCaptureDimensions", java.util.List.of(), NoderaConfig::isDimensionId);
+
     // P2P direct-transport endpoint (Phase 6 continuity). A host peer (dedicated server or a player's
     // integrated server that pressed "Share") listens here; joiners dial the advertised route and
     // keep a direct mesh that outlives the host. Advertise host "auto" picks the best local
@@ -51,6 +62,17 @@ public final class NoderaConfig {
             SERVER_BUILDER.define("p2p.bindHost", "0.0.0.0");
     public static final ModConfigSpec.IntValue P2P_PORT =
             SERVER_BUILDER.defineInRange("p2p.port", 25566, 1, 65535);
+
+    // The Minecraft game port "Open to Nodera" publishes the integrated server on, so joiners can
+    // actually connect (the analogue of vanilla LAN's random port). 0 = pick a free port.
+    public static final ModConfigSpec.IntValue GAME_PORT =
+            SERVER_BUILDER.defineInRange("host.gamePort", 0, 0, 65535);
+    // Whether the published game server verifies joiners against Mojang session auth. Default ON
+    // (never silently weaken a real host). The scripted dev/e2e runs turn it off — dev offline
+    // accounts cannot pass session auth, and the Nodera lane's own identity/permission model
+    // (Task 33) rides the worker identities, not Mojang sessions.
+    public static final ModConfigSpec.BooleanValue HOST_ONLINE_AUTH =
+            SERVER_BUILDER.define("host.onlineAuth", true);
     public static final ModConfigSpec.ConfigValue<String> P2P_ADVERTISE_HOST =
             SERVER_BUILDER.define("p2p.advertiseHost", "auto");
     public static final ModConfigSpec.ConfigValue<String> CLIENT_P2P_ADVERTISE_HOST =
@@ -100,6 +122,17 @@ public final class NoderaConfig {
         return isTrackerEndpoint(raw);
     }
 
+    private static boolean isDimensionId(Object raw) {
+        return raw instanceof String id
+                && net.minecraft.resources.ResourceLocation.tryParse(id) != null;
+    }
+
+    /** Whether vanilla-authoritative ghost capture is enabled for this dimension. */
+    public static boolean mobCapture(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
+        String id = dimension.location().toString();
+        return MOB_CAPTURE_DIMENSIONS.get().stream().anyMatch(id::equals);
+    }
+
     /**
      * Validate one configured tracker route.
      *
@@ -121,6 +154,26 @@ public final class NoderaConfig {
             return false;
         }
     }
+
+    // World-continuity lane. `archive.seedOnShare`: a shared world's save is packed into the
+    // canonical world archive and seeded to the always-on worker at share time and again on server
+    // stop (the final flush), so the world's bytes live on the peer network, not only on the host's
+    // disk. `continuity.autoRehost` (client): when the connection to a Nodera-joined world's host
+    // dies, fetch the world's archive from the network through the local worker, re-open it locally,
+    // and re-share — the joiner becomes the world's next host instead of being thrown to the title
+    // screen. This is the gateway-migration UX interim (L-17 allows the brief reconnect).
+    public static final ModConfigSpec.BooleanValue ARCHIVE_SEED_ON_SHARE =
+            SERVER_BUILDER.define("archive.seedOnShare", true);
+    public static final ModConfigSpec.BooleanValue CONTINUITY_AUTO_REHOST =
+            CLIENT_BUILDER.define("continuity.autoRehost", true);
+    public static final ModConfigSpec.IntValue CONTINUITY_FETCH_TIMEOUT_SECONDS =
+            CLIENT_BUILDER.defineInRange("continuity.fetchTimeoutSeconds", 120, 5, 3600);
+
+    // Live-test drive (docs/Testing.Live.md, Test 1): with two players online and the entity lane
+    // active, teleport each player to a region its own node owns, then send player 2 into player
+    // 1's region — with the region enter/leave log as the evidence stream. Never on by default.
+    public static final ModConfigSpec.BooleanValue DEBUG_REGION_DRIVE =
+            SERVER_BUILDER.define("debug.regionDrive", false);
 
     // Companion app / headless-peer worker (Task 32). The Nodera peer node runs in a separate,
     // always-on process (the `nodera-headless` worker, supervised by the Tauri companion app) so a

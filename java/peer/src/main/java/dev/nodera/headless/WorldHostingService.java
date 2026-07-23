@@ -53,6 +53,9 @@ public final class WorldHostingService implements AutoCloseable {
     /** How long a rendezvous registration record is valid before a refresh must renew it. */
     private static final Duration REGISTRATION_TTL = Duration.ofMinutes(5);
 
+    /** Route-claim prefix marking a Minecraft game endpoint (vs a bare P2P {@code host:port}). */
+    public static final String MC_ROUTE_PREFIX = "mc/";
+
     /** Endpoint-health probe cadence + how stale a reachability reading may be. */
     private static final int HEALTH_PROBE_SECONDS = 15;
     private static final int PROBE_TIMEOUT_MILLIS = 400;
@@ -73,13 +76,29 @@ public final class WorldHostingService implements AutoCloseable {
 
     private final ScheduledExecutorService scheduler;
 
+    /** worldIdHex → the piece-bitmap holdings to ride that world's announce (archive lane). */
+    private final java.util.function.Function<String,
+            List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor;
+
+    /** Compatibility constructor without an archive lane (announces carry no holdings). */
     public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
                                Supplier<String> selfRoute,
                                List<TrackerClient.Endpoint> trackerEndpoints,
                                List<RendezvousEndpoint> rendezvousEndpoints) {
+        this(identity, capabilities, selfRoute, trackerEndpoints, rendezvousEndpoints,
+                worldId -> List.of());
+    }
+
+    public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
+                               Supplier<String> selfRoute,
+                               List<TrackerClient.Endpoint> trackerEndpoints,
+                               List<RendezvousEndpoint> rendezvousEndpoints,
+                               java.util.function.Function<String,
+                                       List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor) {
         this.identity = identity;
         this.capabilities = capabilities;
         this.selfRoute = selfRoute;
+        this.holdingsFor = holdingsFor;
         this.trackerEndpoints = List.copyOf(trackerEndpoints);
         this.rendezvousEndpoints = List.copyOf(rendezvousEndpoints);
         this.tracker = new TrackerClient(this.trackerEndpoints, identity);
@@ -115,13 +134,23 @@ public final class WorldHostingService implements AutoCloseable {
             return "malformed worldId";
         }
         String name = worldName == null || worldName.isBlank() ? worldIdHex : worldName;
-        HostedWorld world = new HostedWorld(worldIdHex, worldId, name,
-                UUID.nameUUIDFromBytes(worldId.toArray()));
-        worlds.put(worldIdHex, world);
+        HostedWorld world = worlds.compute(worldIdHex, (key, existing) -> {
+            if (existing == null) {
+                return new HostedWorld(key, worldId, name, UUID.nameUUIDFromBytes(worldId.toArray()));
+            }
+            existing.name = name;
+            return existing;
+        });
+        // A re-HOST is the mod's refresh path: it updates the game endpoint (present while the
+        // hosting player's game is open, absent once it closes) and the live player count. The
+        // next announce/heartbeat carries the change to every tracker.
+        world.mcRoute = jsonStringField(optionsJson, "mc");
+        world.players = jsonLongField(optionsJson, "players");
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
-        LOG.info("Now hosting world '{}' ({}) on {} tracker(s) / {} rendezvous",
-                name, shortId(worldIdHex), trackerEndpoints.size(), rendezvousEndpoints.size());
+        LOG.info("Now hosting world '{}' ({}) on {} tracker(s) / {} rendezvous (game endpoint: {})",
+                name, shortId(worldIdHex), trackerEndpoints.size(), rendezvousEndpoints.size(),
+                world.mcRoute == null ? "offline" : world.mcRoute);
         return null;
     }
 
@@ -148,6 +177,24 @@ public final class WorldHostingService implements AutoCloseable {
     /** @return an immutable snapshot of the worlds this worker currently hosts. */
     public Collection<HostedWorld> hostedWorlds() {
         return List.copyOf(worlds.values());
+    }
+
+    /**
+     * Re-announce one hosted world immediately (fresh holdings after an archive seed) instead of
+     * waiting for the next heartbeat. No-op for a world this worker is not hosting.
+     *
+     * @param worldIdHex the world.
+     * @Thread-context any thread (the announce runs on the hosting scheduler).
+     */
+    public void refreshNow(String worldIdHex) {
+        HostedWorld world = worlds.get(worldIdHex);
+        if (world == null) {
+            return;
+        }
+        scheduler.execute(() -> {
+            announce(world, AnnounceEvent.HEARTBEAT);
+            registerRendezvous(world, RegistrationEvent.REFRESH);
+        });
     }
 
     /** @return the configured tracker endpoints, each tagged with its last-probed reachability. */
@@ -198,9 +245,20 @@ public final class WorldHostingService implements AutoCloseable {
         }
         try {
             String route = selfRoute.get();
-            List<String> routes = route == null || route.isBlank() ? List.of() : List.of(route);
+            List<String> routes = new ArrayList<>(2);
+            if (route != null && !route.isBlank()) {
+                routes.add(route);
+            }
+            // The Minecraft game endpoint rides the announce as an extra route claim in the
+            // frozen wire shape ("mc/host:port"); the tracker's routes query (tag 49) serves it
+            // to joiners, while the single-route PeerEntry skips the mc/ form.
+            String mc = world.mcRoute;
+            if (mc != null && !mc.isBlank()) {
+                routes.add(MC_ROUTE_PREFIX + mc);
+            }
             var announce = tracker.buildAnnounce(world.worldId, event, routes, capabilities,
-                    List.of(), world.name, 0L, 10_000, System.currentTimeMillis());
+                    holdingsFor.apply(world.worldIdHex), world.name, 0L, 10_000,
+                    System.currentTimeMillis());
             int acks = tracker.announce(announce).size();
             LOG.debug("tracker announce {} '{}' → {} ack(s)", event, world.name, acks);
         } catch (RuntimeException e) {
@@ -257,8 +315,13 @@ public final class WorldHostingService implements AutoCloseable {
     public static final class HostedWorld {
         final String worldIdHex;
         final Bytes worldId;
-        final String name;
+        volatile String name;
         final UUID networkId;
+        /** The host's Minecraft game endpoint ({@code host:port}), or {@code null} while the
+         *  hosting player's game is closed. Updated by every re-HOST. */
+        volatile String mcRoute;
+        /** Players currently online in-world, as last reported by the mod. */
+        volatile long players;
 
         HostedWorld(String worldIdHex, Bytes worldId, String name, UUID networkId) {
             this.worldIdHex = worldIdHex;
@@ -273,6 +336,49 @@ public final class WorldHostingService implements AutoCloseable {
 
         public String name() {
             return name;
+        }
+
+        /** @return the game endpoint joiners connect to, or {@code null} (host's game closed). */
+        public String mcRoute() {
+            return mcRoute;
+        }
+
+        /** @return players currently online in-world, as last reported by the mod. */
+        public long players() {
+            return players;
+        }
+    }
+
+    /** Extract one top-level string field from a flat options-JSON object, or {@code null}. */
+    static String jsonStringField(String json, String field) {
+        if (json == null) {
+            return null;
+        }
+        var m = java.util.regex.Pattern
+                .compile("\"" + java.util.regex.Pattern.quote(field) + "\"\\s*:\\s*\"([^\"]*)\"")
+                .matcher(json);
+        if (!m.find()) {
+            return null;
+        }
+        String value = m.group(1);
+        return value.isBlank() ? null : value;
+    }
+
+    /** Extract one top-level non-negative number field from a flat options-JSON object, or 0. */
+    static long jsonLongField(String json, String field) {
+        if (json == null) {
+            return 0;
+        }
+        var m = java.util.regex.Pattern
+                .compile("\"" + java.util.regex.Pattern.quote(field) + "\"\\s*:\\s*(\\d+)")
+                .matcher(json);
+        if (!m.find()) {
+            return 0;
+        }
+        try {
+            return Long.parseLong(m.group(1));
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 

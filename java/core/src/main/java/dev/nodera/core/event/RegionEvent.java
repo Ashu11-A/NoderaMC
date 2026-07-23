@@ -18,7 +18,8 @@ import dev.nodera.core.crypto.TypeTags;
  * @Thread-context immutable, any thread.
  */
 public sealed interface RegionEvent extends Encodable
-        permits BlockChangedEvent, EntityCreatedEvent, EntityUpdatedEvent, EntityRemovedEvent {
+        permits BlockChangedEvent, EntityCreatedEvent, EntityUpdatedEvent, EntityRemovedEvent,
+        EntityTransferPreparedEvent, EntityTransferAcceptedEvent, EntityTransferCommittedEvent {
 
     /**
      * Decode a polymorphic {@code RegionEvent} by reading the next typeTag and dispatching to the
@@ -38,6 +39,9 @@ public sealed interface RegionEvent extends Encodable
             case TypeTags.ENTITY_CREATED_EVENT -> EntityCreatedEvent.decodeBody(r);
             case TypeTags.ENTITY_UPDATED_EVENT -> EntityUpdatedEvent.decodeBody(r);
             case TypeTags.ENTITY_REMOVED_EVENT -> EntityRemovedEvent.decodeBody(r);
+            case TypeTags.ENTITY_TRANSFER_PREPARED_EVENT -> EntityTransferPreparedEvent.decodeBody(r);
+            case TypeTags.ENTITY_TRANSFER_ACCEPTED_EVENT -> EntityTransferAcceptedEvent.decodeBody(r);
+            case TypeTags.ENTITY_TRANSFER_COMMITTED_EVENT -> EntityTransferCommittedEvent.decodeBody(r);
             default -> throw new IllegalStateException("unknown RegionEvent tag " + tag);
         };
     }

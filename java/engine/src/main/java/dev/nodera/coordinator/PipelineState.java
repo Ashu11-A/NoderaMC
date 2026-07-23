@@ -19,6 +19,8 @@ public enum PipelineState {
     AWAITING_VERIFICATION,
     /** Verified MATCH; delta being applied by the world writer. */
     COMMIT,
+    /** Region is held at a committed boundary for an atomic cross-region operation. */
+    PAUSED_FOR_XR,
     /** Lease revoked; back on the vanilla lane pending reassignment. */
     REVOKED
 }

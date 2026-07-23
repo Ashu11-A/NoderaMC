@@ -30,6 +30,18 @@ final class WorkerStateParserTest {
     }
 
     @Test
+    void readsTheGameEndpointWhenPresent() {
+        String json = "{\"connected_worlds\":["
+                + "{\"world_id\":\"aa\",\"name\":\"Open\",\"players\":1,\"mc_route\":\"10.0.0.5:25565\"},"
+                + "{\"world_id\":\"bb\",\"name\":\"Closed\",\"players\":0,\"mc_route\":\"\"},"
+                + "{\"world_id\":\"cc\",\"name\":\"Legacy\",\"players\":0}"
+                + "]}";
+        List<HostedWorldInfo> worlds = WorkerStateParser.connectedWorlds(json);
+        assertThat(worlds).extracting(HostedWorldInfo::mcRoute)
+                .containsExactly("10.0.0.5:25565", "", "");
+    }
+
+    @Test
     void emptyArrayYieldsNoWorlds() {
         String json = "{\"connected_worlds\":[],\"daemon_up\":true}";
         assertThat(WorkerStateParser.connectedWorlds(json)).isEmpty();

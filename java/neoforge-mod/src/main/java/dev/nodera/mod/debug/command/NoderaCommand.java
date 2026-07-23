@@ -49,6 +49,12 @@ public final class NoderaCommand {
         };
 
         dispatcher.register(literal("nodera")
+                .then(literal("share")
+                        .requires(s -> s.hasPermission(OP_LEVEL))
+                        .executes(NoderaCommand::shareStart)
+                        .then(literal("stop").executes(NoderaCommand::shareStop))
+                        .then(literal("status").executes(NoderaCommand::shareStatus)))
+                .then(literal("worlds").executes(NoderaCommand::worlds))
                 .then(literal("session").executes(CommandTree.panel(snap, ViewBuilder::sessionPanel)))
                 .then(literal("status").executes(CommandTree.panel(snap, ViewBuilder::sessionPanel))) // alias
                 .then(literal("peers").executes(CommandTree.panel(snap, ViewBuilder::peersPanel)))    // alias
@@ -77,6 +83,87 @@ public final class NoderaCommand {
                         .then(literal("verbose")
                                 .then(literal("on").executes(verboseStaged()))
                                 .then(literal("off").executes(verboseStaged())))));
+    }
+
+    /** {@code /nodera share} — put the currently-loaded world on the network (op). */
+    private static int shareStart(CommandContext<CommandSourceStack> ctx) {
+        var server = ctx.getSource().getServer();
+        dev.nodera.mod.common.ShareOptions current =
+                dev.nodera.mod.common.NoderaPeerService.get().hostOptions();
+        dev.nodera.mod.common.NoderaHost.activate(server,
+                current != null ? current : dev.nodera.mod.common.ShareOptions.playerDefault());
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "Sharing '" + server.getWorldData().getLevelName() + "' on the Nodera network"), true);
+        return 1;
+    }
+
+    /** {@code /nodera share stop} — stop sharing (op). */
+    private static int shareStop(CommandContext<CommandSourceStack> ctx) {
+        var server = ctx.getSource().getServer();
+        dev.nodera.mod.common.NoderaHost.deactivate(server);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "Stopped sharing '" + server.getWorldData().getLevelName() + "'"), true);
+        return 1;
+    }
+
+    /** {@code /nodera share status} — host lane state: route, game endpoint, worker link. */
+    private static int shareStatus(CommandContext<CommandSourceStack> ctx) {
+        var svc = dev.nodera.mod.common.NoderaPeerService.get();
+        if (!svc.isHosting()) {
+            ctx.getSource().sendSuccess(() -> Component.literal("Not sharing this world."), false);
+            return 1;
+        }
+        String game = svc.gameRoute();
+        boolean worker = dev.nodera.mod.common.CompanionLink.isPresent();
+        ctx.getSource().sendSuccess(() -> Component.literal(String.join("\n",
+                "Sharing: yes (P2P " + svc.hostRoute() + ")",
+                "Game endpoint: " + (game == null ? "not open" : game),
+                "Worker: " + (worker ? "linked (world survives game close)" : "not running"))),
+                false);
+        return 1;
+    }
+
+    /** {@code /nodera worlds} — the tracker directory as the network sees it. */
+    private static int worlds(CommandContext<CommandSourceStack> ctx) {
+        java.util.List<dev.nodera.protocol.discovery.TrackerCatalogEntry> catalog;
+        var tracker = dev.nodera.mod.common.NoderaPeerService.get().serverTrackerClient();
+        if (tracker != null && !tracker.endpoints().isEmpty()) {
+            catalog = tracker.catalog(0);
+        } else {
+            try (var ephemeral = trackerFromConfig()) {
+                catalog = ephemeral == null ? java.util.List.of() : ephemeral.catalog(0);
+            }
+        }
+        if (catalog.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "No worlds listed on the configured tracker(s)."), false);
+            return 0;
+        }
+        StringBuilder out = new StringBuilder("Worlds on the network:");
+        for (var entry : catalog) {
+            out.append("\n  ").append(entry.worldName().isBlank()
+                            ? entry.genesisHash().toHex().substring(0, 12) : entry.worldName())
+                    .append(" — ").append(entry.worldPlayerCount()).append(" online, ")
+                    .append(entry.health().name().toLowerCase(java.util.Locale.ROOT));
+        }
+        String text = out.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        return catalog.size();
+    }
+
+    /** An ephemeral tracker client over the server-config endpoints, or {@code null} if none. */
+    private static dev.nodera.peer.discovery.TrackerClient trackerFromConfig() {
+        java.util.List<dev.nodera.peer.discovery.TrackerClient.Endpoint> endpoints =
+                new java.util.ArrayList<>();
+        for (String route : dev.nodera.mod.common.NoderaConfig.TRACKER_ENDPOINTS.get()) {
+            try {
+                endpoints.add(dev.nodera.peer.discovery.TrackerClient.Endpoint.parse(route));
+            } catch (IllegalArgumentException ignored) {
+                // config-spec validated; a malformed survivor is just skipped
+            }
+        }
+        return endpoints.isEmpty() ? null : new dev.nodera.peer.discovery.TrackerClient(
+                endpoints, dev.nodera.core.identity.NodeIdentity.generate());
     }
 
     /** {@code /nodera zone} — the region at the caller's position + its ownership state. */

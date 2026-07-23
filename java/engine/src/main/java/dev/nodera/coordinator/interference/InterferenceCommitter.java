@@ -5,6 +5,7 @@ import dev.nodera.core.consensuscert.ServerAuthorityCertificate;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.BlockMutation;
+import dev.nodera.core.state.EntityMutation;
 import dev.nodera.core.state.RegionDelta;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
@@ -40,10 +41,17 @@ import java.util.function.Function;
  */
 public final class InterferenceCommitter {
 
-    /** Re-extracts the live world root for a region (the coordinator's post-commit verifier view). */
+    /** Purely computes the live root as at least the requested snapshot body version. */
     @FunctionalInterface
     public interface RootExtractor {
-        StateRoot extract(RegionId region, SnapshotVersion version);
+        StateRoot extract(
+                RegionId region, SnapshotVersion version, int minimumSnapshotBodyVersion);
+    }
+
+    /** Commits canonical encoding metadata only after the external delta sink succeeds. */
+    @FunctionalInterface
+    public interface SnapshotEncodingCommitter {
+        void commit(RegionId region, int bodyVersion);
     }
 
     /** Receives each certified external delta for broadcast + local replica bookkeeping. */
@@ -54,18 +62,24 @@ public final class InterferenceCommitter {
 
     private final InterferenceBuffer buffer;
     private final RootExtractor roots;
+    private final SnapshotEncodingCommitter snapshotEncoding;
     private final ExternalDeltaSink sink;
     private final NodeIdentity server;
     private final Map<RegionId, SnapshotVersion> committedVersion = new HashMap<>();
     private final Set<RegionId> held = new HashSet<>();
 
-    public InterferenceCommitter(InterferenceBuffer buffer, RootExtractor roots,
-                                 ExternalDeltaSink sink, NodeIdentity server) {
+    public InterferenceCommitter(
+            InterferenceBuffer buffer, RootExtractor roots,
+            SnapshotEncodingCommitter snapshotEncoding,
+            ExternalDeltaSink sink, NodeIdentity server) {
         if (buffer == null) {
             throw new IllegalArgumentException("buffer must not be null");
         }
         if (roots == null) {
             throw new IllegalArgumentException("roots must not be null");
+        }
+        if (snapshotEncoding == null) {
+            throw new IllegalArgumentException("snapshotEncoding must not be null");
         }
         if (sink == null) {
             throw new IllegalArgumentException("sink must not be null");
@@ -75,6 +89,7 @@ public final class InterferenceCommitter {
         }
         this.buffer = buffer;
         this.roots = roots;
+        this.snapshotEncoding = snapshotEncoding;
         this.sink = sink;
         this.server = server;
     }
@@ -126,36 +141,49 @@ public final class InterferenceCommitter {
     private static boolean busy(PipelineState state) {
         return state == PipelineState.AWAITING_PROPOSAL
                 || state == PipelineState.AWAITING_VERIFICATION
-                || state == PipelineState.COMMIT;
+                || state == PipelineState.COMMIT
+                || state == PipelineState.PAUSED_FOR_XR;
     }
 
     private Optional<RegionDelta> commitRegion(RegionId region) {
         List<RecordedMutation> recorded = buffer.drain(region);
-        if (recorded.isEmpty()) {
+        List<EntityMutation> entityMutations = buffer.drainEntities(region);
+        if (recorded.isEmpty() && entityMutations.isEmpty()) {
             return Optional.empty(); // everything coalesced back to the committed state
         }
-        SnapshotVersion base = committedVersion.get(region);
-        if (base == null) {
-            throw new IllegalStateException(
-                    "no committed version tracked for " + region + " — onCommittedVersion missing");
+        try {
+            SnapshotVersion base = committedVersion.get(region);
+            if (base == null) {
+                throw new IllegalStateException(
+                        "no committed version tracked for " + region + " — onCommittedVersion missing");
+            }
+            SnapshotVersion next = base.next();
+            StateRoot root = roots.extract(
+                    region, next, dev.nodera.core.state.RegionSnapshot.STATE_ENCODING_VERSION);
+            List<BlockMutation> mutations = new ArrayList<>(recorded.size());
+            for (RecordedMutation m : recorded) {
+                mutations.add(new BlockMutation(m.pos(), m.prevStateId(), m.newStateId(), 0));
+            }
+            RegionDelta delta = new RegionDelta(
+                    region, base, next, mutations, root, entityMutations, List.of(), List.of(), 2);
+            StateRoot transitionRoot = StateRoot.of(new dev.nodera.core.crypto.HashService().hash(delta));
+            ServerAuthorityCertificate unsigned = new ServerAuthorityCertificate(
+                    region, base, next, root, transitionRoot,
+                    ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION, Bytes.empty());
+            ServerAuthorityCertificate certificate = new ServerAuthorityCertificate(
+                    region, base, next, root, transitionRoot,
+                    ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION,
+                    server.sign(unsigned.signedPortion()));
+            sink.accept(delta, certificate);
+            snapshotEncoding.commit(
+                    region, dev.nodera.core.state.RegionSnapshot.STATE_ENCODING_VERSION);
+            committedVersion.put(region, next);
+            return Optional.of(delta);
+        } catch (RuntimeException failure) {
+            buffer.restore(region, recorded);
+            buffer.restoreEntities(region, entityMutations);
+            throw failure;
         }
-        SnapshotVersion next = base.next();
-        StateRoot root = roots.extract(region, next);
-        List<BlockMutation> mutations = new ArrayList<>(recorded.size());
-        for (RecordedMutation m : recorded) {
-            mutations.add(new BlockMutation(m.pos(), m.prevStateId(), m.newStateId(), 0));
-        }
-        RegionDelta delta = new RegionDelta(region, base, next, mutations, root);
-        ServerAuthorityCertificate unsigned = new ServerAuthorityCertificate(
-                region, base, next, root,
-                ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION, Bytes.empty());
-        ServerAuthorityCertificate certificate = new ServerAuthorityCertificate(
-                region, base, next, root,
-                ServerAuthorityCertificate.Reason.EXTERNAL_MUTATION,
-                server.sign(unsigned.signedPortion()));
-        committedVersion.put(region, next);
-        sink.accept(delta, certificate);
-        return Optional.of(delta);
     }
 
     /** The committed version the committer currently tracks for {@code region} (test/diagnostic). */

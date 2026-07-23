@@ -52,6 +52,24 @@ public final class ControlProtocol {
     public static final String STATUS = "NODERA-STATUS";
 
     /**
+     * Seed a world-archive snapshot (host side of the continuity lane):
+     * {@code NODERA-SEED <worldId> <archivePathB64>} — the mod packs the save into a canonical
+     * archive file and hands the worker its path (same machine, the loopback trust boundary);
+     * the worker splits + seeds it and advertises the manifest on its next tracker announce.
+     * Reply: {@code NODERA-OK <manifestRootHex> <version> <pieceCount>}. Additive verb — an older
+     * worker answers {@code NODERA-ERR unknown verb}, which callers treat as "lane unavailable".
+     */
+    public static final String SEED = "NODERA-SEED";
+
+    /**
+     * Fetch a world's newest archive from the network (joiner side of the continuity lane):
+     * {@code NODERA-ARCHIVE <worldId> <destPathB64> <timeoutSeconds>} — the worker resolves
+     * seeders through the tracker, downloads + verifies every piece, and writes the archive blob
+     * to the destination path. Reply: {@code NODERA-OK <byteCount> <version>}. Additive verb.
+     */
+    public static final String ARCHIVE = "NODERA-ARCHIVE";
+
+    /**
      * Mint a signed world identity (the worker is the author):
      * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted> <manifestRefB64>};
      * reply is {@code NODERA-OK <worldIdentityBytesB64>}.

@@ -106,6 +106,52 @@ pub struct TrackerCatalogResponse {
     pub worlds: Vec<TrackerCatalogEntry>,
 }
 
+/// Ask for the full claimed dial-route lists of a world's live peers (join flow).
+///
+/// A `TrackerResponse` `PeerEntry` carries exactly one route; a host announces several in
+/// preference order (P2P listener + `mc/host:port` game endpoint while its game is open), and a
+/// joiner needs them all to pick the lane it wants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackerRoutesQuery {
+    /// The world whose peers' routes are requested.
+    pub genesis_hash: Vec<u8>,
+}
+
+/// One live peer's claimed dial routes, relayed verbatim from its signed announce.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerRoutes {
+    /// The peer's node id.
+    pub peer: NodeId,
+    /// Its claimed routes, in the peer's own preference order.
+    pub routes: Vec<String>,
+}
+
+impl PeerRoutes {
+    /// Encode this entry inline (it has no tag of its own).
+    pub fn encode(&self, w: &mut CanonicalWriter) {
+        self.peer.encode(w);
+        w.write_list(&self.routes, |ww, r| {
+            ww.write_string(r);
+        });
+    }
+
+    /// Decode the inverse of [`PeerRoutes::encode`].
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+        let peer = NodeId::decode(r)?;
+        let routes = r.read_list(|rr| rr.read_string())?;
+        Ok(Self { peer, routes })
+    }
+}
+
+/// The answer to a [`TrackerRoutesQuery`] — the tracker relays claims, adding no authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackerRoutesResponse {
+    /// The queried world.
+    pub genesis_hash: Vec<u8>,
+    /// One entry per live peer of the world.
+    pub peers: Vec<PeerRoutes>,
+}
+
 /// A holder gossiping which pieces it has for a world.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InventoryAdvertisement {
@@ -248,6 +294,10 @@ pub enum DiscoveryMessage {
     TrackerCatalogQuery(TrackerCatalogQuery),
     /// Tag 45.
     TrackerCatalogResponse(TrackerCatalogResponse),
+    /// Tag 49.
+    TrackerRoutesQuery(TrackerRoutesQuery),
+    /// Tag 50.
+    TrackerRoutesResponse(TrackerRoutesResponse),
 }
 
 impl DiscoveryMessage {
@@ -261,6 +311,8 @@ impl DiscoveryMessage {
             Self::TrackerAnnounceAck(_) => message_tags::TRACKER_ANNOUNCE_ACK,
             Self::TrackerCatalogQuery(_) => message_tags::TRACKER_CATALOG_QUERY,
             Self::TrackerCatalogResponse(_) => message_tags::TRACKER_CATALOG_RESPONSE,
+            Self::TrackerRoutesQuery(_) => message_tags::TRACKER_ROUTES_QUERY,
+            Self::TrackerRoutesResponse(_) => message_tags::TRACKER_ROUTES_RESPONSE,
         }
     }
 
@@ -334,6 +386,13 @@ impl DiscoveryMessage {
             }
             Self::TrackerCatalogResponse(m) => {
                 w.write_list(&m.worlds, |ww, e| e.encode(ww));
+            }
+            Self::TrackerRoutesQuery(m) => {
+                w.write_bytes(&m.genesis_hash);
+            }
+            Self::TrackerRoutesResponse(m) => {
+                w.write_bytes(&m.genesis_hash);
+                w.write_list(&m.peers, |ww, p| p.encode(ww));
             }
         }
     }
@@ -415,6 +474,23 @@ impl DiscoveryMessage {
                 next_announce_after_seconds: r.read_u32()?,
                 reason: r.read_string()?,
             }),
+            message_tags::TRACKER_CATALOG_QUERY => Self::TrackerCatalogQuery(TrackerCatalogQuery {
+                limit: r.read_u32()?,
+            }),
+            message_tags::TRACKER_CATALOG_RESPONSE => {
+                Self::TrackerCatalogResponse(TrackerCatalogResponse {
+                    worlds: r.read_list(TrackerCatalogEntry::decode)?,
+                })
+            }
+            message_tags::TRACKER_ROUTES_QUERY => Self::TrackerRoutesQuery(TrackerRoutesQuery {
+                genesis_hash: r.read_bytes_vec()?,
+            }),
+            message_tags::TRACKER_ROUTES_RESPONSE => {
+                Self::TrackerRoutesResponse(TrackerRoutesResponse {
+                    genesis_hash: r.read_bytes_vec()?,
+                    peers: r.read_list(PeerRoutes::decode)?,
+                })
+            }
             other => return Err(CodecError::UnknownTag(other)),
         };
         r.expect_end()?;

@@ -7,33 +7,43 @@ import dev.nodera.protocol.NoderaMessage;
 
 import java.util.Objects;
 
-/**
- * A server-authority version advance for a delegated region (Task 11). Carries the canonical
- * {@code RegionDelta} bytes plus the encoded {@code ServerAuthorityCertificate} that authorises
- * them. Clients verify the certificate (signature + reason) and apply the delta to their replica
- * WITHOUT voting — the same replica-advance code path as {@code CommitAnnounce}, differing only in
- * what proves the advance.
- *
- * @param baseVersion the replica version the delta applies on top of (redundant with the encoded
- *                    delta's own base, carried flat so a replica can cheaply drop stale frames
- *                    without decoding the delta).
- */
+/** Server-authority version advance for a delegated region, including its canonical snapshot tick. */
 public record ExternalDelta(
         RegionId region,
         SnapshotVersion baseVersion,
         Bytes encodedDelta,
-        Bytes certificateBytes
+        Bytes certificateBytes,
+        long tick,
+        int bodyVersion
 ) implements NoderaMessage {
 
-    /**
-     * Compact constructor.
-     *
-     * @throws IllegalArgumentException if any argument is null.
-     */
+    public static final int EXTERNAL_DELTA_ENCODING_VERSION = 2;
+
+    /** Legacy v1 constructor; v1 frames did not carry the resulting snapshot tick. */
+    public ExternalDelta(
+            RegionId region, SnapshotVersion baseVersion,
+            Bytes encodedDelta, Bytes certificateBytes) {
+        this(region, baseVersion, encodedDelta, certificateBytes, 0L, 1);
+    }
+
+    /** Current transition with explicit resulting snapshot tick. */
+    public ExternalDelta(
+            RegionId region, SnapshotVersion baseVersion,
+            Bytes encodedDelta, Bytes certificateBytes, long tick) {
+        this(region, baseVersion, encodedDelta, certificateBytes,
+                tick, EXTERNAL_DELTA_ENCODING_VERSION);
+    }
+
     public ExternalDelta {
         Objects.requireNonNull(region, "region");
         Objects.requireNonNull(baseVersion, "baseVersion");
         Objects.requireNonNull(encodedDelta, "encodedDelta");
         Objects.requireNonNull(certificateBytes, "certificateBytes");
+        if (bodyVersion < 1 || bodyVersion > EXTERNAL_DELTA_ENCODING_VERSION) {
+            throw new IllegalArgumentException("unsupported ExternalDelta body version " + bodyVersion);
+        }
+        if (bodyVersion == 1 && tick != 0L) {
+            throw new IllegalArgumentException("legacy ExternalDelta cannot carry tick");
+        }
     }
 }

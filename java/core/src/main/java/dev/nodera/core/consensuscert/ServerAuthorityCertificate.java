@@ -14,8 +14,9 @@ import dev.nodera.core.state.StateRoot;
  * (Task 11; Task 8 consumes the non-{@code EXTERNAL_MUTATION} reasons). Replicas apply the
  * accompanying delta WITHOUT voting after verifying this certificate — it is the trust anchor for
  * the server-authority lane, so its {@link Bytes serverSignature} covers exactly
- * {@link #signedPortion()} (typeTag + version + region + baseVersion + resultingVersion +
- * resultingRoot + reason); the signature itself is never signed.
+ * {@link #signedPortion()} (typeTag + body version + region + baseVersion + resultingVersion +
+ * resultingRoot + transitionRoot + reason); the signature itself is never signed. Legacy body
+ * version 1 omits {@code transitionRoot}; version 2 binds every delta effect.
  *
  * <p>Wire form: {@code signedPortion()} || {@code [u32 len][signature bytes]}.
  *
@@ -26,9 +27,31 @@ public record ServerAuthorityCertificate(
         SnapshotVersion baseVersion,
         SnapshotVersion resultingVersion,
         StateRoot resultingRoot,
+        StateRoot transitionRoot,
         Reason reason,
-        Bytes serverSignature
+        Bytes serverSignature,
+        int bodyVersion
 ) implements Encodable {
+
+    /** Version 1 signed state only; version 2 also binds complete delta effects. */
+    public static final int CERTIFICATE_ENCODING_VERSION = 2;
+
+    /** Legacy root-only constructor retained for decoding and stored certificates. */
+    public ServerAuthorityCertificate(
+            RegionId region, SnapshotVersion baseVersion, SnapshotVersion resultingVersion,
+            StateRoot resultingRoot, Reason reason, Bytes serverSignature) {
+        this(region, baseVersion, resultingVersion, resultingRoot, resultingRoot,
+                reason, serverSignature, 1);
+    }
+
+    /** Current transition-bound constructor. */
+    public ServerAuthorityCertificate(
+            RegionId region, SnapshotVersion baseVersion, SnapshotVersion resultingVersion,
+            StateRoot resultingRoot, StateRoot transitionRoot,
+            Reason reason, Bytes serverSignature) {
+        this(region, baseVersion, resultingVersion, resultingRoot, transitionRoot,
+                reason, serverSignature, CERTIFICATE_ENCODING_VERSION);
+    }
 
     /**
      * Why the server (not a committee) certified this advance. Encoded as a {@code u8} ordinal —
@@ -69,6 +92,9 @@ public record ServerAuthorityCertificate(
         if (resultingRoot == null) {
             throw new IllegalArgumentException("resultingRoot must not be null");
         }
+        if (transitionRoot == null) {
+            throw new IllegalArgumentException("transitionRoot must not be null");
+        }
         if (reason == null) {
             throw new IllegalArgumentException("reason must not be null");
         }
@@ -79,6 +105,13 @@ public record ServerAuthorityCertificate(
             throw new IllegalArgumentException(
                     "resultingVersion " + resultingVersion.value()
                             + " must advance past baseVersion " + baseVersion.value());
+        }
+        if (bodyVersion < 1 || bodyVersion > CERTIFICATE_ENCODING_VERSION) {
+            throw new IllegalArgumentException(
+                    "unsupported server-authority body version " + bodyVersion);
+        }
+        if (bodyVersion == 1 && !transitionRoot.equals(resultingRoot)) {
+            throw new IllegalArgumentException("version 1 certificate cannot carry a transition root");
         }
     }
 
@@ -95,11 +128,14 @@ public record ServerAuthorityCertificate(
     }
 
     private void writeSignedFields(CanonicalWriter w) {
-        w.writeU16(TypeTags.SERVER_AUTH_CERT).writeU16(ENCODING_VERSION);
+        w.writeU16(TypeTags.SERVER_AUTH_CERT).writeU16(bodyVersion);
         region.encode(w);
         baseVersion.encode(w);
         resultingVersion.encode(w);
         resultingRoot.encode(w);
+        if (bodyVersion >= 2) {
+            transitionRoot.encode(w);
+        }
         w.writeU8(reason.ordinal());
     }
 
@@ -121,11 +157,16 @@ public record ServerAuthorityCertificate(
         if (tag != TypeTags.SERVER_AUTH_CERT) {
             throw new IllegalStateException("expected SERVER_AUTH_CERT tag, got " + tag);
         }
-        r.readVersion(ENCODING_VERSION);
+        int bodyVersion = r.readU16();
+        if (bodyVersion < 1 || bodyVersion > CERTIFICATE_ENCODING_VERSION) {
+            throw new IllegalStateException(
+                    "unsupported SERVER_AUTH_CERT encoding version " + bodyVersion);
+        }
         RegionId region = RegionId.decode(r);
         SnapshotVersion baseVersion = SnapshotVersion.decode(r);
         SnapshotVersion resultingVersion = SnapshotVersion.decode(r);
         StateRoot resultingRoot = StateRoot.decode(r);
+        StateRoot transitionRoot = bodyVersion >= 2 ? StateRoot.decode(r) : resultingRoot;
         int ord = r.readU8();
         Reason[] reasons = Reason.values();
         if (ord >= reasons.length) {
@@ -133,6 +174,7 @@ public record ServerAuthorityCertificate(
         }
         Bytes signature = r.readBytesValue();
         return new ServerAuthorityCertificate(
-                region, baseVersion, resultingVersion, resultingRoot, reasons[ord], signature);
+                region, baseVersion, resultingVersion, resultingRoot, transitionRoot,
+                reasons[ord], signature, bodyVersion);
     }
 }

@@ -68,6 +68,40 @@ export function onMetrics(cb: (m: Metrics) => void): Promise<UnlistenFn> {
   return listen<Metrics>("nodera://metrics", (event) => cb(event.payload));
 }
 
+// Machine + worker RAM/CPU (mirrors rust/nodera-app/src/system.rs).
+export interface SystemStats {
+  machine_cpu_percent: number;
+  mem_used_bytes: number;
+  mem_total_bytes: number;
+  worker_found: boolean;
+  worker_pid: number;
+  worker_cpu_percent: number;
+  worker_rss_bytes: number;
+}
+
+export const EMPTY_SYSTEM: SystemStats = {
+  machine_cpu_percent: 0,
+  mem_used_bytes: 0,
+  mem_total_bytes: 0,
+  worker_found: false,
+  worker_pid: 0,
+  worker_cpu_percent: 0,
+  worker_rss_bytes: 0,
+};
+
+export async function fetchSystemStats(): Promise<SystemStats> {
+  return invoke<SystemStats>("get_system_stats");
+}
+
+export function onSystemStats(cb: (s: SystemStats) => void): Promise<UnlistenFn> {
+  return listen<SystemStats>("nodera://system", (event) => cb(event.payload));
+}
+
+// The worker's recent log lines (oldest first, bounded ring on the Rust side).
+export async function fetchWorkerLogs(): Promise<string[]> {
+  return invoke<string[]>("get_worker_logs");
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;

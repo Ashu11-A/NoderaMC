@@ -54,7 +54,16 @@ public final class RegionPipeline {
 
     /** Committee acknowledged the snapshot: SNAPSHOT_SYNC → ACTIVE. */
     public void snapshotSynced() {
+        snapshotSynced(SnapshotVersion.INITIAL);
+    }
+
+    /** Activate a recovered snapshot at its durable version. */
+    public void snapshotSynced(SnapshotVersion version) {
         require(EnumSet.of(PipelineState.SNAPSHOT_SYNC), "snapshotSynced");
+        if (version == null) {
+            throw new IllegalArgumentException("version must not be null");
+        }
+        lastCommittedVersion = version;
         state = PipelineState.ACTIVE;
     }
 
@@ -91,6 +100,46 @@ public final class RegionPipeline {
         require(EnumSet.of(PipelineState.COMMIT), "committed");
         this.lastCommittedVersion = version;
         state = PipelineState.ACTIVE;
+    }
+
+    /** Committee commit applied by a coordinator that keeps the pipeline ACTIVE during voting. */
+    public void committeeCommitted(SnapshotVersion version) {
+        require(EnumSet.of(PipelineState.ACTIVE), "committeeCommitted");
+        if (version.value() != lastCommittedVersion.value() + 1) {
+            throw new IllegalArgumentException("committee commit must advance exactly one version");
+        }
+        lastCommittedVersion = version;
+    }
+
+    /** Hold this region at its committed boundary: ACTIVE → PAUSED_FOR_XR. */
+    public void pauseForCrossRegion() {
+        require(EnumSet.of(PipelineState.ACTIVE), "pauseForCrossRegion");
+        state = PipelineState.PAUSED_FOR_XR;
+    }
+
+    /** Atomic cross-region commit landed: PAUSED_FOR_XR → ACTIVE with a version advance. */
+    public void crossRegionCommitted(SnapshotVersion version) {
+        require(EnumSet.of(PipelineState.PAUSED_FOR_XR), "crossRegionCommitted");
+        if (version.value() <= lastCommittedVersion.value()) {
+            throw new IllegalArgumentException("cross-region commit must advance the version");
+        }
+        lastCommittedVersion = version;
+        state = PipelineState.ACTIVE;
+    }
+
+    /** Cross-region prepare aborted before any world write: PAUSED_FOR_XR → ACTIVE unchanged. */
+    public void crossRegionAborted() {
+        require(EnumSet.of(PipelineState.PAUSED_FOR_XR), "crossRegionAborted");
+        state = PipelineState.ACTIVE;
+    }
+
+    /** Server-authority external delta landed between batches: ACTIVE → ACTIVE with one advance. */
+    public void externalCommitted(SnapshotVersion version) {
+        require(EnumSet.of(PipelineState.ACTIVE), "externalCommitted");
+        if (version.value() != lastCommittedVersion.value() + 1) {
+            throw new IllegalArgumentException("external commit must advance exactly one version");
+        }
+        lastCommittedVersion = version;
     }
 
     /** Revoke the lease from any state: → REVOKED. */

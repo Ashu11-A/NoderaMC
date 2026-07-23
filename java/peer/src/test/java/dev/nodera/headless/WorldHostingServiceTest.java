@@ -87,4 +87,34 @@ final class WorldHostingServiceTest {
             assertThat(svc.rendezvousHealth()).isEmpty();
         }
     }
+
+    @Test
+    void rehostRefreshesTheGameEndpointAndPlayerCount() {
+        try (WorldHostingService svc = newService()) {
+            // The mod's first HOST carries the open game endpoint + player count.
+            assertThat(svc.host("abcdef01", "My World",
+                    "{\"listed\":true,\"mc\":\"192.168.0.9:25565\",\"players\":3}")).isNull();
+            WorldHostingService.HostedWorld world = svc.hostedWorlds().iterator().next();
+            assertThat(world.mcRoute()).isEqualTo("192.168.0.9:25565");
+            assertThat(world.players()).isEqualTo(3);
+
+            // Game closes → the mod re-HOSTs without the endpoint; the world stays hosted but the
+            // joinability signal drops.
+            assertThat(svc.host("abcdef01", "My World", "{\"listed\":true}")).isNull();
+            world = svc.hostedWorlds().iterator().next();
+            assertThat(world.mcRoute()).isNull();
+            assertThat(world.players()).isZero();
+        }
+    }
+
+    @Test
+    void optionsJsonFieldExtractionIsForgiving() {
+        assertThat(WorldHostingService.jsonStringField(null, "mc")).isNull();
+        assertThat(WorldHostingService.jsonStringField("{}", "mc")).isNull();
+        assertThat(WorldHostingService.jsonStringField("{\"mc\":\"\"}", "mc")).isNull();
+        assertThat(WorldHostingService.jsonStringField(
+                "{\"mc\" : \"a.b:1\"}", "mc")).isEqualTo("a.b:1");
+        assertThat(WorldHostingService.jsonLongField("{\"players\":42}", "players")).isEqualTo(42);
+        assertThat(WorldHostingService.jsonLongField("not json", "players")).isZero();
+    }
 }

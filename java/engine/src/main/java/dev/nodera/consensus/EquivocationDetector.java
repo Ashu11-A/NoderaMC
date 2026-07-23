@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * Safety guard against a validator double-voting: flags any voter that signs two different
- * {@link StateRoot}s for the same {@link ProposalKey} (Plan §6 Phase 3 / Invariant machinery).
+ * state or transition roots for the same {@link ProposalKey} (Plan §6 Phase 3 / Invariant machinery).
  *
  * <p>Every root claim the consensus layer sees — primary proposals and validator votes alike — is
  * passed to {@link #observe(ProposalKey, SignedVote)}. The detector keeps, per voter, a
@@ -36,7 +36,7 @@ public final class EquivocationDetector {
     public static final long DEFAULT_MAX_VOTERS = 4096L;
 
     private final long maxSize;
-    private final Cache<NodeId, ConcurrentMap<ProposalKey, StateRoot>> history;
+    private final Cache<NodeId, ConcurrentMap<ProposalKey, VoteClaim>> history;
     private final java.util.Set<NodeId> equivoked = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<NodeId, EquivocationRecord> records = new ConcurrentHashMap<>();
 
@@ -73,14 +73,18 @@ public final class EquivocationDetector {
             throw new IllegalArgumentException("vote must not be null");
         }
         NodeId voter = vote.voter();
-        StateRoot root = vote.resultingRoot();
-        ConcurrentMap<ProposalKey, StateRoot> perVoter =
+        VoteClaim claim = new VoteClaim(vote.resultingRoot(), vote.transitionRoot());
+        ConcurrentMap<ProposalKey, VoteClaim> perVoter =
                 history.get(voter, k -> new ConcurrentHashMap<>());
-        StateRoot previous = perVoter.putIfAbsent(key, root);
-        if (previous != null && !previous.equals(root)) {
+        VoteClaim previous = perVoter.putIfAbsent(key, claim);
+        if (previous != null && !previous.equals(claim)) {
             equivoked.add(voter);
+            StateRoot firstEvidence = previous.resultingRoot().equals(claim.resultingRoot())
+                    ? previous.transitionRoot() : previous.resultingRoot();
+            StateRoot secondEvidence = previous.resultingRoot().equals(claim.resultingRoot())
+                    ? claim.transitionRoot() : claim.resultingRoot();
             records.put(voter, new EquivocationRecord(
-                    voter, key, previous, root, System.currentTimeMillis()));
+                    voter, key, firstEvidence, secondEvidence, System.currentTimeMillis()));
         }
     }
 
@@ -112,5 +116,8 @@ public final class EquivocationDetector {
     /** The configured maximum number of voters whose root-history is retained. */
     public long maxSize() {
         return maxSize;
+    }
+
+    private record VoteClaim(StateRoot resultingRoot, StateRoot transitionRoot) {
     }
 }

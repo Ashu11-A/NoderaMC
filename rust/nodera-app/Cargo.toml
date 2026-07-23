@@ -29,6 +29,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-uti
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1.0"
+# System + per-process RAM/CPU sampling for the dashboard's resource tiles.
+sysinfo = "0.30"
 
 [features]
 default = ["custom-protocol"]

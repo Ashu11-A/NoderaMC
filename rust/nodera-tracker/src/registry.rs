@@ -123,6 +123,12 @@ impl Registry {
         self.swarms.get(genesis_hash)
     }
 
+    /// Every tracked world, for the catalog listing. Iteration order is unspecified
+    /// (`HashMap`) — the catalog builder sorts before answering.
+    pub fn swarms(&self) -> impl Iterator<Item = (&Vec<u8>, &Swarm)> {
+        self.swarms.iter()
+    }
+
     /// Register or update a world's host-supplied display metadata.
     ///
     /// Called from the announce path only for a `FULL_ARCHIVE` host: names decorate a world, and

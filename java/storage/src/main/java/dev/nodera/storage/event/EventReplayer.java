@@ -1,7 +1,11 @@
 package dev.nodera.storage.event;
 
 import dev.nodera.core.consensuscert.QuorumCertificate;
+import dev.nodera.core.consensuscert.EntityTransferCertificate;
 import dev.nodera.core.event.CommittedEventEnvelope;
+import dev.nodera.core.event.EntityTransferAcceptedEvent;
+import dev.nodera.core.event.EntityTransferCommittedEvent;
+import dev.nodera.core.event.EntityTransferPreparedEvent;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.storage.CertificateStore;
@@ -53,15 +57,18 @@ public final class EventReplayer {
                         + " at event " + e.eventId() + ": prevRoot does not match running root");
             }
             Optional<QuorumCertificate> cert = certs.getByHash(e.certificateRef());
-            if (cert.isEmpty()) {
+            Optional<EntityTransferCertificate> transferCert =
+                    cert.isEmpty() ? certs.getTransferByHash(e.certificateRef()) : Optional.empty();
+            if (cert.isEmpty() && transferCert.isEmpty()) {
                 // uncertified suffix → uncommitted; stop replaying forward.
                 stoppedAtUncertified = true;
                 break;
             }
-            QuorumCertificate c = cert.get();
-            if (!c.region().equals(region)
-                    || !c.version().equals(e.version())
-                    || !c.resultingRoot().equals(e.resultingRoot())) {
+            boolean backed = cert.map(c -> c.region().equals(region)
+                    && c.version().equals(e.version())
+                    && c.resultingRoot().equals(e.resultingRoot()))
+                    .orElseGet(() -> transferBacks(transferCert.orElseThrow(), e));
+            if (!backed) {
                 throw new IllegalStateException("certificate does not back event " + e.eventId()
                         + " for " + region + " (tampered log)");
             }
@@ -70,6 +77,47 @@ public final class EventReplayer {
             lastCertifiedEventId = e.eventId();
         }
         return new ReplayResult(running, applied, lastCertifiedEventId, stoppedAtUncertified);
+    }
+
+    private static boolean transferBacks(
+            EntityTransferCertificate certificate, CommittedEventEnvelope event) {
+        var descriptor = certificate.descriptor();
+        boolean source = event.region().equals(descriptor.sourceRegion());
+        if (!source && !event.region().equals(descriptor.targetRegion())) {
+            return false;
+        }
+        var other = source ? descriptor.targetRegion() : descriptor.sourceRegion();
+        var base = source ? descriptor.sourceBaseVersion() : descriptor.targetBaseVersion();
+        var result = source
+                ? descriptor.sourceResultingVersion() : descriptor.targetResultingVersion();
+        StateRoot previous = source ? descriptor.sourcePrevRoot() : descriptor.targetPrevRoot();
+        StateRoot resulting = source
+                ? descriptor.sourceResultingRoot() : descriptor.targetResultingRoot();
+        if (event.event() instanceof EntityTransferPreparedEvent prepared) {
+            return prepared.transferId() == descriptor.transferId()
+                    && prepared.counterpart().equals(other)
+                    && prepared.entity().id().equals(descriptor.entityId())
+                    && event.version().equals(base)
+                    && event.prevRoot().equals(previous)
+                    && event.resultingRoot().equals(previous);
+        }
+        if (event.event() instanceof EntityTransferAcceptedEvent accepted) {
+            return accepted.transferId() == descriptor.transferId()
+                    && accepted.counterpart().equals(other)
+                    && accepted.entityId().equals(descriptor.entityId())
+                    && event.version().equals(base)
+                    && event.prevRoot().equals(previous)
+                    && event.resultingRoot().equals(previous);
+        }
+        if (event.event() instanceof EntityTransferCommittedEvent committed) {
+            return committed.transferId() == descriptor.transferId()
+                    && committed.counterpart().equals(other)
+                    && committed.entityId().equals(descriptor.entityId())
+                    && event.version().equals(result)
+                    && event.prevRoot().equals(previous)
+                    && event.resultingRoot().equals(resulting);
+        }
+        return false;
     }
 
     /**
