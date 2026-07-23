@@ -117,6 +117,58 @@ final class ActionForwardIT {
         assertThat(ownerNode.service.snapshot().committeeCommits()).isGreaterThan(0);
     }
 
+    @Test
+    void forwardedActionWithSkewedSignedTickStillCommits() throws Exception {
+        // Clean-slate skew repro (issue #33 / L-50): the actor signed targetTick against the
+        // CAPTURER's replica clock, which differs from the primary's next tick. The primary must
+        // bracket its batch window around the signed tick instead of silently rejecting the
+        // forward — the capturer may already have suppressed the vanilla outcome.
+        LoopbackNetwork net = LoopbackNetwork.newNetwork();
+        NodeIdentity owner = NodeIdentity.generate();
+        NodeIdentity capturer = NodeIdentity.generate();
+        NodeIdentity actor = NodeIdentity.generate();
+
+        Worker ownerNode = worker(net, owner);
+        Worker capturerNode = worker(net, capturer);
+        for (Worker w : List.of(ownerNode, capturerNode)) {
+            w.service.registerActor(actor.nodeId(), actor.publicKeyBytes());
+        }
+        ownerNode.service.registerPeer(capturer.nodeId(),
+                PeerAddress.of(capturer.nodeId(), "loopback"), capturer.publicKeyBytes());
+        capturerNode.service.registerPeer(owner.nodeId(),
+                PeerAddress.of(owner.nodeId(), "loopback"), owner.publicKeyBytes());
+
+        RegionSnapshot base = fullUniformSnapshot(region, 0);
+        RegionLease lease = new LeaseManager(200).issue(
+                region, owner.nodeId(), List.of(capturer.nodeId()), 0);
+        ownerNode.service.activateRegion(base, lease);
+        capturerNode.service.activateRegion(base, lease);
+
+        // Signed tick 7: the primary's own next tick is 1 (base snapshot tick 0).
+        ActionEnvelope unsigned = new ActionEnvelope(
+                actor.nodeId(), 1, 1, 7, region,
+                new PlaceBlockAction(new NBlockPos(5, 70, 5), 1, 1), Bytes.empty());
+        ActionEnvelope signed = new ActionEnvelope(
+                actor.nodeId(), 1, 1, 7, region,
+                new PlaceBlockAction(new NBlockPos(5, 70, 5), 1, 1),
+                actor.sign(unsigned.signedPortion()));
+        assertThat(capturerNode.service.forwardToPrimary(signed)).isTrue();
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            if (ownerNode.service.currentSnapshot(region).orElseThrow().version()
+                    .value() > SnapshotVersion.INITIAL.value()) {
+                break;
+            }
+            Thread.sleep(50);
+        }
+        assertThat(ownerNode.service.currentSnapshot(region).orElseThrow().version().value())
+                .as("the skewed-tick forward must commit, not be silently dropped")
+                .isGreaterThan(SnapshotVersion.INITIAL.value());
+        assertThat(capturerNode.service.headRoot(region))
+                .isEqualTo(ownerNode.service.headRoot(region));
+    }
+
     // --- fixture -----------------------------------------------------------------------------
 
     private record Worker(NodeIdentity id, WorkerValidationService service) {
