@@ -59,6 +59,24 @@ public final class ServerBootstrap {
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onRegisterCommands);
     }
 
+    /**
+     * The final firewall before the NeoForge {@code EventBus} (issue #39): wrap every
+     * {@link NoderaHost#activate} call from {@link #onServerStarted} so a host-activation failure —
+     * a P2P bind collision, an entity-lane bootstrap fault, anything — can NEVER reach
+     * {@code MinecraftServer.runServer} and crash the integrated server. NeoForge's bus rethrows
+     * listener exceptions rather than isolating them, so this catch is the only reliable lever. The
+     * world continues in vanilla mode; the operator can retry Share.
+     */
+    private static void safeActivate(MinecraftServer server, dev.nodera.mod.common.ShareOptions options) {
+        try {
+            NoderaHost.activate(server, options);
+        } catch (RuntimeException | LinkageError e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost").error(
+                    "Nodera: share failed for '{}' — server continues in vanilla mode: {}",
+                    server.getWorldData().getLevelName(), e.toString());
+        }
+    }
+
     private static void onServerStarted(ServerStartedEvent event) {
         MinecraftServer server = event.getServer();
         // Task 32's server half: a dedicated server links (and, when `companion.required`,
@@ -70,7 +88,7 @@ public final class ServerBootstrap {
         // never auto-broadcasts a private world — it waits for the pause-menu "Share" action so
         // singleplayer stays private by default (Task 30a).
         if (server.isDedicatedServer() && NoderaConfig.HOST_AUTO_SHARE.get()) {
-            NoderaHost.activate(server, ShareOptions.dedicatedDefault());
+            safeActivate(server, ShareOptions.dedicatedDefault());
             return;
         }
         // Task 5d create pipeline: a world created with "Nodera: Shared" goes on the network the
@@ -80,7 +98,7 @@ public final class ServerBootstrap {
         var pendingShare = dev.nodera.mod.common.PendingCreateShare.consume();
         if (pendingShare.isPresent() && server.overworld() != null
                 && server.overworld().getGameTime() == 0L) {
-            NoderaHost.activate(server, pendingShare.get());
+            safeActivate(server, pendingShare.get());
             return;
         }
         // Task 33: a world previously "Opened to Nodera" auto-re-shares on load, so the original host
@@ -92,7 +110,7 @@ public final class ServerBootstrap {
             ShareOptions restored = id.map(w -> new ShareOptions(
                             "", true, w.listedOnTracker(), 5))
                     .orElse(ShareOptions.playerDefault());
-            NoderaHost.activate(server, restored);
+            safeActivate(server, restored);
         }
     }
 

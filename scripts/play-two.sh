@@ -27,6 +27,9 @@ WORKER_DIST="$NODERA_ROOT/java/peer/build/install/nodera-headless/bin/nodera-hea
 TRACKER_PORT=25600; RENDEZVOUS_PORT=25601
 HOST_CONTROL=25610; HOST_P2P=25620
 JOINER_CONTROL=25611; JOINER_P2P=25621
+# Distinct in-process P2P ports for the two dev CLIENTS (the mod's own peer, not the workers).
+# Both otherwise share the mod's fixed default p2p.port (25566) and collide when both host/rehost.
+HOST_MOD_P2P=25566; JOINER_MOD_P2P=25567
 
 NO_BUILD=0
 [[ "${1:-}" == "--no-build" ]] && NO_BUILD=1
@@ -43,6 +46,10 @@ cleanup() {
     pkill -f 'nodera-tracker --config' 2>/dev/null
     pkill -f 'nodera-rendezvous --config' 2>/dev/null
     pkill -f 'dev.nodera.headless.HeadlessPeerMain' 2>/dev/null
+    # Stale NeoForge client JVMs from a prior crashed run can hold a mod p2p port into the next
+    # launch (the process-group kill above only reaches a clean Ctrl-C tree). Match the dev launch
+    # target so an orphaned runClient/runClientTwo does not doom the next bind.
+    pkill -f 'forgeclientdev' 2>/dev/null
 }
 trap cleanup EXIT INT TERM
 
@@ -58,9 +65,10 @@ fi
 [[ -x "$RUST_RELEASE/nodera-tracker" && -x "$RUST_RELEASE/nodera-rendezvous" && -x "$WORKER_DIST" ]] \
     || die "missing binaries — run without --no-build first"
 
-for port in $TRACKER_PORT $RENDEZVOUS_PORT $HOST_CONTROL $JOINER_CONTROL; do
+for port in $TRACKER_PORT $RENDEZVOUS_PORT $HOST_CONTROL $JOINER_CONTROL \
+            $HOST_MOD_P2P $JOINER_MOD_P2P $HOST_P2P $JOINER_P2P; do
     ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null \
-        && die "port $port busy — stop the other stack (scripts/dev.sh?)"
+        && die "port $port busy — stop the other stack (scripts/dev.sh?) or a stale client JVM"
 done
 
 cat > "$LOG_DIR/tracker.toml" <<EOF
@@ -111,6 +119,33 @@ cat > "$NODERA_ROOT/java/neoforge-mod/run-join/config/nodera-client.toml" <<EOF
 [rendezvous]
 	endpoints = ["127.0.0.1:$RENDEZVOUS_PORT"]
 EOF
+
+# NeoForge copies defaultconfigs/<file> into each NEW world's serverconfig/ on creation, so seeding
+# it here makes each dev client's freshly-created world inherit dev-only server knobs without the
+# script having to patch a world that does not exist yet. Two knobs:
+#   host.onlineAuth=false — defaults true (correct for a real production host) but the dev/e2e lane
+#     joins with OFFLINE accounts (HostDev/JoinerDev) that cannot pass Mojang session auth; a host
+#     left in online-mode rejects every joiner at the vanilla LOGIN phase with a bare "Disconnected".
+#     Same knob the scripted e2e runs set per-world (e2e-pickup.sh / e2e-continuity.sh).
+#   p2p.port = DISTINCT per client — the mod's in-process peer defaults to a FIXED 25566
+#     (NoderaConfig P2P_PORT) for every install, so two dev clients that both host/rehost the SAME
+#     world (e.g. a simultaneous world-continuity rehost) race to bind 0.0.0.0:25566 and the loser's
+#     SocketPeerTransport bind throws an uncaught TransportException that crashes the integrated
+#     server ("Exception in server tick loop"). The headless workers already avoid this with distinct
+#     ports (25620/25621); this mirrors that for the mod's own peer. (gamePort already defaults 0 =
+#     free-port; p2p.port does not — this per-client override is the dev-harness half of the fix. The
+#     production half — making the bind non-fatal + elastic — is tracked in the remediation plan.)
+write_server_defaultconfigs() { # game_dir p2p_port
+    mkdir -p "$NODERA_ROOT/java/neoforge-mod/$1/defaultconfigs"
+    cat > "$NODERA_ROOT/java/neoforge-mod/$1/defaultconfigs/nodera-server.toml" <<EOF
+[host]
+	onlineAuth = false
+[p2p]
+	port = $2
+EOF
+}
+write_server_defaultconfigs run-host "$HOST_MOD_P2P"
+write_server_defaultconfigs run-join "$JOINER_MOD_P2P"
 
 log "launching Player 1 (HostDev) — create/open a world, then 'Open to Nodera'"
 ( cd "$NODERA_ROOT" && exec setsid ./gradlew :neoforge-mod:runClient --console=plain \

@@ -140,7 +140,9 @@ public final class NoderaPeerService {
      * @param worldId       the world identity used to key tracker/rendezvous (interim placeholder
      *                      until the live genesis hash, Task 9/30c); may be {@code null}.
      * @param worldName     the world's display name for the tracker directory.
-     * @return the advertised host route ({@code host:port}), never null once started.
+     * @return the advertised host route ({@code host:port}); {@code null} if the P2P socket bind
+     *         failed and even an ephemeral-port retry failed (issue #39) — the world then runs in
+     *         vanilla-only mode rather than crashing the server.
      */
     public synchronized String startHost(String bindHost, int port, String advertiseHost,
                                           ShareOptions options, Bytes worldId, String worldName) {
@@ -168,6 +170,47 @@ public final class NoderaPeerService {
                 EnumSet.of(PeerRole.FULL_ARCHIVE, PeerRole.BOOTSTRAP, PeerRole.REGION_VALIDATOR));
 
         String advertise = resolveHost(advertiseHost);
+        // Issue #39: a P2P-port bind failure (port already in use — two dev clients sharing the
+        // default 25566, a stale JVM, etc.) MUST NOT crash the integrated server. bootHostTransport
+        // throws an unchecked TransportException on bind; catch it, retry once on an ephemeral port
+        // (the joiner already binds 0 at onServerSessionInfo), and only if that too fails (or the
+        // failure is not a port collision) degrade to vanilla-only (return null) — mirroring
+        // openGameServer's "keep the server, drop the feature" contract.
+        try {
+            return bootHostTransport(bindHost, port, advertise, worldId);
+        } catch (RuntimeException e) {
+            resetHostTransport();
+            if (port != 0 && isBindFailure(e)) {
+                LOG.warn("Nodera: P2P bind on {}:{} busy ({}); retrying on an ephemeral port",
+                        bindHost, port, e.getMessage());
+                try {
+                    String route = bootHostTransport(bindHost, 0, advertise, worldId);
+                    LOG.warn("Nodera: host peer bound ephemeral route {} (configured p2p.port {} busy)",
+                            route, port);
+                    return route;
+                } catch (RuntimeException e2) {
+                    LOG.error("Nodera: P2P bind failed even on an ephemeral port ({}); world NOT shared "
+                            + "on the Nodera network — vanilla server continues. Change p2p.port or free "
+                            + "the port and retry Share.", e2.getMessage());
+                }
+            } else {
+                LOG.error("Nodera: host peer start failed ({}); world NOT shared on the Nodera network "
+                        + "— vanilla server continues.", e.getMessage());
+            }
+            resetHostState();
+            return null;
+        }
+    }
+
+    /**
+     * Build + start the host transport/runtime and begin announcing — the body of {@link #startHost}
+     * that can throw on a bind failure. Extracted so {@code startHost} can retry on an ephemeral port
+     * and degrade without crashing its caller (issue #39).
+     *
+     * @return the advertised host route.
+     * @throws dev.nodera.transport.TransportException if the P2P socket bind fails.
+     */
+    private String bootHostTransport(String bindHost, int port, String advertise, Bytes worldId) {
         serverTransport = new SocketPeerTransport(serverIdentity.nodeId(), bindHost, port, advertise);
         TrafficMeter serverMeter = new TrafficMeter();
         MessageCounters serverCounts = new MessageCounters();
@@ -241,8 +284,16 @@ public final class NoderaPeerService {
             LOG.info("Nodera rendezvous: host registered with {} (network {})", endpoints, networkId);
             return rendezvous;
         } catch (RuntimeException e) {
-            LOG.warn("Nodera rendezvous unreachable ({}); using direct socket only", e.getMessage());
-            return serverTransport;
+            // Issue #39: only degrade to "direct socket only" when the direct socket actually came up
+            // — i.e. the rendezvous RELAY failed, not the bind. rendezvous.start() binds the direct
+            // socket first (RendezvousPeerTransport.start), so if the bind itself failed the socket
+            // is NOT listening (listenRoute null) and returning it would make PeerRuntime.start rebind
+            // uncaught — the "deferred crash". Rethrow so startHost's catch handles it uniformly.
+            if (serverTransport.listenRoute() != null) {
+                LOG.warn("Nodera rendezvous unreachable ({}); using direct socket only", e.getMessage());
+                return serverTransport;
+            }
+            throw e;
         }
     }
 
@@ -377,6 +428,76 @@ public final class NoderaPeerService {
      */
     public synchronized dev.nodera.peer.discovery.TrackerClient clientTrackerClient() {
         return clientTrackerClient;
+    }
+
+    /**
+     * Tear down the host transport/runtime/tracker/scheduler left by a failed {@link #bootHostTransport}
+     * attempt (issue #39), without the STOPPED announce or the "shutting down" log of
+     * {@link #stopHosting}. Keeps the host identity/world/caps so an ephemeral-port retry can reuse
+     * them. Idempotent and never throws — a cleanup path must not pile a second failure on the first.
+     */
+    private synchronized void resetHostTransport() {
+        if (announceScheduler != null) {
+            announceScheduler.shutdownNow();
+            announceScheduler = null;
+        }
+        if (serverTrackerClient != null) {
+            try {
+                serverTrackerClient.close();
+            } catch (RuntimeException ignored) {
+                // best-effort cleanup
+            }
+            serverTrackerClient = null;
+        }
+        if (serverRuntime != null) {
+            try {
+                serverRuntime.stop();
+            } catch (RuntimeException ignored) {
+                // best-effort cleanup
+            }
+            serverRuntime = null;
+        }
+        if (serverTransport != null) {
+            try {
+                serverTransport.stop();
+            } catch (RuntimeException ignored) {
+                // best-effort cleanup
+            }
+            serverTransport = null;
+        }
+        serverDataTransport = null;
+        serverCollector = null;
+        serverDiagnostics = null;
+    }
+
+    /** Full host-state reset (after {@link #resetHostTransport}) so {@link #isHosting()} is false. */
+    private synchronized void resetHostState() {
+        resetHostTransport();
+        serverIdentity = null;
+        hostWorldId = null;
+        hostWorldName = null;
+        hostCaps = null;
+        hostOptions = null;
+        gameRoute = null;
+    }
+
+    /**
+     * Does this throwable represent a socket bind failure (port in use / non-local address)? Walks
+     * the cause chain so the rendezvous wrapper's {@code TransportException("failed to start
+     * rendezvous transport", bindException)} is still recognised. Package-private + static so the
+     * retry/degrade decision is unit-testable without the NeoForge runtime (issue #39).
+     */
+    static boolean isBindFailure(Throwable t) {
+        for (Throwable c = t; c != null; c = c.getCause()) {
+            if (c instanceof java.net.BindException) {
+                return true;
+            }
+            String msg = c.getMessage();
+            if (msg != null && (msg.contains("failed to bind") || msg.contains("Address already in use"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Stop hosting this world (server stopping, or the "Stop sharing" action). Idempotent. */

@@ -124,11 +124,21 @@ public final class NoderaHost {
         Bytes worldId = identity != null ? identity.worldId() : genesisSeed;
 
         boolean already = NoderaPeerService.get().isHosting();
-        String route = NoderaPeerService.get().startHost(
-                NoderaConfig.P2P_BIND_HOST.get(),
-                NoderaConfig.P2P_PORT.get(),
-                NoderaConfig.P2P_ADVERTISE_HOST.get(),
-                opts, worldId, world, hostIdentity);
+        String route;
+        try {
+            route = NoderaPeerService.get().startHost(
+                    NoderaConfig.P2P_BIND_HOST.get(),
+                    NoderaConfig.P2P_PORT.get(),
+                    NoderaConfig.P2P_ADVERTISE_HOST.get(),
+                    opts, worldId, world, hostIdentity);
+        } catch (RuntimeException e) {
+            // Issue #39 defense-in-depth: startHost degrades internally (returns null on a bind
+            // failure), but never let any transport failure escape activate into the server tick
+            // loop. The game server + worker lane below still run so the world stays playable.
+            LOG.warn("Nodera: host peer start threw for '{}' ({}); continuing in vanilla-only mode",
+                    world, e.getMessage());
+            route = null;
+        }
 
         // Open the actual Minecraft game server to the network — the piece that makes a shared
         // world JOINABLE, not merely listed. An integrated server is published on a real TCP port
@@ -176,7 +186,12 @@ public final class NoderaHost {
         // seed the archive to the always-on worker (final flush happens again on server stop).
         WorldArchiver.seedAsync(server);
 
-        if (already) {
+        if (route == null) {
+            // Issue #39: the P2P mesh did not come up, but openGameServer + notifyWorker above still
+            // ran, so the world is playable over direct/LAN — just not on the Nodera network.
+            LOG.warn("Nodera: '{}' running in vanilla-only mode — the P2P mesh did not start; "
+                    + "direct/LAN joins still work. Retry Share once the port is free.", world);
+        } else if (already) {
             LOG.info("Nodera: '{}' share options updated ({}) — route {}", world, opts, route);
         } else {
             LOG.info("Nodera: sharing world '{}' to the network at {} ({})", world, route, opts);
