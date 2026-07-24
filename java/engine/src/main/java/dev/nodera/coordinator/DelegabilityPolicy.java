@@ -29,8 +29,6 @@ public final class DelegabilityPolicy {
         NO_ELIGIBLE_NODES,
         /** A cross-region operation touching this region is still resolving. */
         CROSS_REGION_PENDING,
-        /** The region lies outside generated terrain. */
-        OUTSIDE_GENERATED_TERRAIN,
         /** {@code delegation.requireGuard} is set, the Task 11 guard is absent, and this is not the
          *  flat-world MVP profile — refuse rather than run the CAS-resync storm on a normal world. */
         GUARD_REQUIRED,
@@ -62,7 +60,6 @@ public final class DelegabilityPolicy {
      * @param chunksLoaded      all of the region's chunks are loaded.
      * @param eligibleNodeCount how many eligible, connected, reliable nodes exist.
      * @param crossRegionPending a cross-region op touching the region is resolving.
-     * @param terrainGenerated  the region lies inside generated terrain.
      * @param flatMvpProfile    the region matches the flat-world MVP profile (probe rate 0).
      * @param guardPresent      the Task 11 interference guard is installed.
      * @param entityPresent     an entity unsupported by {@link EntityDelegabilityRules} is inside
@@ -79,7 +76,6 @@ public final class DelegabilityPolicy {
             boolean chunksLoaded,
             int eligibleNodeCount,
             boolean crossRegionPending,
-            boolean terrainGenerated,
             boolean flatMvpProfile,
             boolean guardPresent,
             boolean entityPresent,
@@ -90,7 +86,7 @@ public final class DelegabilityPolicy {
     ) {
         /** A region that satisfies every Task 6 gate (flat MVP, palette ok, chunks loaded, quorum). */
         public static Inputs delegableFlatMvp(int eligibleNodeCount) {
-            return new Inputs(true, true, eligibleNodeCount, false, true, true, false,
+            return new Inputs(true, true, eligibleNodeCount, false, true, false,
                     false, false, false, true, 0);
         }
     }
@@ -138,9 +134,6 @@ public final class DelegabilityPolicy {
         }
         if (in.crossRegionPending()) {
             reasons.add(Reason.CROSS_REGION_PENDING);
-        }
-        if (!in.terrainGenerated()) {
-            reasons.add(Reason.OUTSIDE_GENERATED_TERRAIN);
         }
         if (requireGuard && !in.guardPresent() && !in.flatMvpProfile()) {
             reasons.add(Reason.GUARD_REQUIRED);
