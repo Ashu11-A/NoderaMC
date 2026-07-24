@@ -23,8 +23,8 @@
      table + milestone notes live in docs/PROGRESS.md — update THAT file (and Tested.md) on
      every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `88.2%`**
-`█████████████████░░░`
+**Overall system completion: `89.1%`**
+`██████████████████░░`
 
 Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · test counts:
 [`Tested.md`](Tested.md) · order/priority: [`docs/Roadmap.md`](docs/Roadmap.md)
@@ -40,7 +40,7 @@ Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · te
 |---|---|---|---|
 | `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 228 | ✅ |
 | `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics | 430 | ✅ |
-| `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 52 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants | 86 | ✅ |
+| `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 52 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) adds the authenticated challenge-response handshake — key-proven NodeId attribution at accept | 90 | ✅ |
 | `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores | 97 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
 | `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip) | 368 | 🚧 |
@@ -68,6 +68,13 @@ Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · te
 cd rust && cargo test           # Rust unit + cross-language conformance tests (equally required)
 cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 ```
+
+> **After every push, verify the build actually passed.** A green local `./gradlew check` does
+> NOT guarantee a green Action: CI runners are slower and have repeatedly exposed
+> timing-sensitive integration tests that pass locally but fail remotely. A few minutes after
+> pushing, run `gh run list --limit 3` (or `gh run watch <id>`) and treat any failure on `main`
+> as stop-the-line — harden the racy wait, never delete the test. Full procedure: `AGENTS.md`
+> § "GitHub hygiene sweep" items 3–4.
 
 ## Run the local stack
 
