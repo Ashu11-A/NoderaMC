@@ -34,6 +34,14 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **L-18 committee rotation lands (2026-07-24, L-18 → RETIRING):** `CommitteeManager.draftRotation`
+> is deterministic rendezvous-hash rotation — every replica derives the identical next committee
+> from (region, nextEpoch, population), the epoch input reshuffles seats so tenure is bounded, and
+> installing runs through the existing certified-change quorum. With admission control
+> (`JoinAdmission`), certified dynamic sizing (L-19), and the Byzantine ITs already green, all four
+> exit components are landed headlessly; live rotation cadence + Sybil economics remain.
+> `CommitteeRotationTest` (3). Bar 85.4 → 85.8%.
+>
 > **T16 container lane engine core COMPLETE (2026-07-24, L-10 → RETIRING):** four increments in
 > one day — (1) container contents enter the hashed root (`ContainerEntry` tag 105, snapshot body
 > v4, delta body v5 replace semantics); (2) `CHEST` + `ContainerAction` (tag 29): committee-validated

@@ -116,6 +116,49 @@ public final class CommitteeManager {
         return propose(next);
     }
 
+    /**
+     * Draft the deterministic ROTATION committee for the next epoch (L-18 anti-collusion): every
+     * candidate is ranked by {@code StableHash(region, nextEpoch, nodeId)} — rendezvous hashing —
+     * and the best {@code size} seats win, best-ranked as primary. Every replica derives the
+     * IDENTICAL next committee from the same population, no coordinator chooses it, and a seat
+     * cannot be held by staying quiet: the epoch input reshuffles the ranking every rotation, so
+     * a colluding committee's tenure over any region is bounded by the certified rotation cadence
+     * (installing still requires the OLD committee's quorum — refusal is a detectable liveness
+     * fault, not a way to keep the seats silently).
+     *
+     * @param region     the region to rotate.
+     * @param population the eligible node population (deduplicated by the caller or here).
+     * @param size       the target committee size (≥ the MVP quorum floor).
+     * @return the certified-change proposal for the rotated committee.
+     */
+    public ChangeProposal draftRotation(RegionId region, List<NodeId> population, int size) {
+        RegionCommittee old = requireCurrent(region);
+        if (population == null || population.stream().distinct().count() < size) {
+            throw new IllegalArgumentException(
+                    "rotation needs at least " + size + " distinct candidates");
+        }
+        if (size < NoderaConstants.QUORUM_MVP_SIZE) {
+            throw new IllegalArgumentException("a committee needs at least "
+                    + NoderaConstants.QUORUM_MVP_SIZE + " members");
+        }
+        long nextEpoch = old.epoch().value() + 1;
+        long regionSalt = dev.nodera.core.crypto.StableHash.of(region.toString());
+        List<NodeId> ranked = population.stream()
+                .distinct()
+                .sorted(java.util.Comparator
+                        .comparingLong((NodeId id) -> dev.nodera.core.crypto.StableHash.of(
+                                regionSalt, nextEpoch,
+                                dev.nodera.core.crypto.StableHash.of(id.value().toString())))
+                        .thenComparing(id -> id.value().toString()))
+                .limit(size)
+                .toList();
+        NodeId primary = ranked.get(0);
+        List<NodeId> validators = new ArrayList<>(ranked.subList(1, ranked.size()));
+        int quorum = size / 2 + 1;
+        return propose(new RegionCommittee(
+                region, new RegionEpoch(nextEpoch), primary, validators, quorum));
+    }
+
     /** Nominate {@code next} as the region's next committee (epoch must be current + 1). */
     public ChangeProposal propose(RegionCommittee next) {
         RegionCommittee old = requireCurrent(next.region());
