@@ -106,6 +106,14 @@ public final class FlatWorldRules implements RuleSet {
     public static final int PISTON_HEAD_BASE = 48;
     /** Highest piston id ({@code PISTON_HEAD_BASE + 3}). */
     public static final int PISTON_MAX = 51;
+    /** Water source (placeable); flows 1..7 are {@code WATER_FLOW_BASE + (level-1)}, minted. */
+    public static final int WATER_SOURCE = 52;
+    public static final int WATER_FLOW_BASE = 53;
+    /** Lava source (placeable); flows 1..3 are {@code LAVA_FLOW_BASE + (level-1)}, minted. */
+    public static final int LAVA_SOURCE = 60;
+    public static final int LAVA_FLOW_BASE = 61;
+    /** Highest fluid id ({@code LAVA_FLOW_BASE + 2}). */
+    public static final int FLUID_MAX = 63;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -150,6 +158,18 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(PISTON_HEAD_BASE + 1, "piston_head_south"),
             new PaletteEntry(PISTON_HEAD_BASE + 2, "piston_head_west"),
             new PaletteEntry(PISTON_HEAD_BASE + 3, "piston_head_east"),
+            new PaletteEntry(WATER_SOURCE, "water_source"),
+            new PaletteEntry(WATER_FLOW_BASE, "water_flow_1"),
+            new PaletteEntry(WATER_FLOW_BASE + 1, "water_flow_2"),
+            new PaletteEntry(WATER_FLOW_BASE + 2, "water_flow_3"),
+            new PaletteEntry(WATER_FLOW_BASE + 3, "water_flow_4"),
+            new PaletteEntry(WATER_FLOW_BASE + 4, "water_flow_5"),
+            new PaletteEntry(WATER_FLOW_BASE + 5, "water_flow_6"),
+            new PaletteEntry(WATER_FLOW_BASE + 6, "water_flow_7"),
+            new PaletteEntry(LAVA_SOURCE, "lava_source"),
+            new PaletteEntry(LAVA_FLOW_BASE, "lava_flow_1"),
+            new PaletteEntry(LAVA_FLOW_BASE + 1, "lava_flow_2"),
+            new PaletteEntry(LAVA_FLOW_BASE + 2, "lava_flow_3"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -186,6 +206,12 @@ public final class FlatWorldRules implements RuleSet {
         for (int f = 0; f < 4; f++) {
             s.clear(PISTON_EXTENDED_BASE + f);
             s.clear(PISTON_HEAD_BASE + f);
+        }
+        for (int level = 0; level < 7; level++) {
+            s.clear(WATER_FLOW_BASE + level);
+        }
+        for (int level = 0; level < 3; level++) {
+            s.clear(LAVA_FLOW_BASE + level);
         }
         for (int p = 1; p <= 15; p++) {
             s.clear(WIRE_0 + p);
@@ -286,13 +312,21 @@ public final class FlatWorldRules implements RuleSet {
                         || touchesRedstone(state, p.pos())) {
                     RedstoneRules.recomputeNetwork(state, p.pos(), env, rng, env.targetTick());
                 }
+                if (FluidRules.isFluid(p.blockStateId()) || touchesFluid(state, p.pos())) {
+                    FluidRules.onChanged(state, p.pos(), env.targetTick());
+                }
             }
             case BreakBlockAction b -> {
                 boolean affected = RedstoneRules.isRedstoneFamily(state.getBlock(b.pos()))
                         || touchesRedstone(state, b.pos());
+                boolean wetted = FluidRules.isFluid(state.getBlock(b.pos()))
+                        || touchesFluid(state, b.pos());
                 state.setBlock(b.pos(), AIR, env, rng);
                 if (affected) {
                     RedstoneRules.recomputeNetwork(state, b.pos(), env, rng, env.targetTick());
+                }
+                if (wetted) {
+                    FluidRules.onChanged(state, b.pos(), env.targetTick());
                 }
             }
             case dev.nodera.core.action.InteractBlockAction i -> {
@@ -305,6 +339,16 @@ public final class FlatWorldRules implements RuleSet {
             case PickupItemAction p -> throw new IllegalStateException(
                     "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)");
         }
+    }
+
+    /** Whether any of {@code pos}'s six neighbors is a fluid cell. */
+    private static boolean touchesFluid(MutableRegionState state, NBlockPos pos) {
+        for (NBlockPos n : dev.nodera.simulation.NeighborUpdateOrder.neighborsOf(pos)) {
+            if (FluidRules.isFluid(state.getBlock(n))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Whether any of {@code pos}'s six neighbors participates in the redstone graph. */

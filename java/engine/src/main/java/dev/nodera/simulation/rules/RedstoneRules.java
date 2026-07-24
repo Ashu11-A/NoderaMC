@@ -289,8 +289,11 @@ public final class RedstoneRules {
             } else if (current == FlatWorldRules.BUTTON_ON) {
                 state.setBlock(pos, FlatWorldRules.BUTTON_OFF, null, rng);
                 recomputeNetwork(state, pos, null, rng, tick);
+            } else {
+                // Catch-all: fluid cells (and cells about to receive fluid) pull their
+                // desired state; anything else is a stale entry and no-ops inside.
+                FluidRules.update(state, pos, tick, rng);
             }
-            // Any other id: the block changed since scheduling — stale entry no-ops.
         }
     }
 
@@ -328,8 +331,8 @@ public final class RedstoneRules {
                     return; // motion would cross the region border: fail CLOSED
                 }
                 int id = state.getBlock(cursor);
-                if (id == FlatWorldRules.AIR) {
-                    break;
+                if (id == FlatWorldRules.AIR || FluidRules.isFluid(id)) {
+                    break; // fluids don't block pistons — the push overwrites (destroys) them
                 }
                 if (line.size() >= PISTON_PUSH_LIMIT || isRedstoneFamily(id)
                         || isPistonBase(id) || isPistonHead(id)) {
