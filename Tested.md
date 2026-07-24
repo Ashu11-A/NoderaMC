@@ -5,7 +5,7 @@
      from the most recent `./gradlew check`. Keep emojis consistent with README:
      ✅ all green · 🚧 partial (some sub-systems stubbed) · ⏳ in progress · ❌ failing. -->
 
-**Tests:** `1,239 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,383 total**).
+**Tests:** `1,282 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,426 total**).
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
@@ -14,18 +14,31 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 > [`docs/old/`](docs/old/); the current module-task set is `docs/Task.0.md` … `docs/Task.7.md`,
 > with the legacy→new mapping in [`docs/Task.0.md`](docs/Task.0.md) §4. The history below is kept
 > as-is — it is the test-growth record.
+>
+> **Test growth + resync (→ 1,282 Java; issue #39):** the per-module table is recomputed from the
+> authoritative `./gradlew check` XML reports. It had drifted below the real source counts (recent
+> permission/identity/re-key lanes landed without a Tested bump); the corrected totals are
+> core 228 · engine 430 · transport 86 · storage 97 · testing 14 · peer 366 · neoforge-mod 61.
+> Issue #39 adds the P2P-port-bind crash-resilience fix: `transport` (+2)
+> `SocketPeerTransportBindTest` pins that a bind on a busy port throws `TransportException` (cause
+> `BindException`) and leaves no listener, while a port-`0` bind still succeeds — the invariants the
+> host peer's elastic retry relies on; `neoforge-mod` (+6) `NoderaPeerServiceIsBindFailureTest` pins
+> the cause-chain bind-failure classifier (bare / direct-socket / rendezvous-wrapped / message-form)
+> that decides retry-on-ephemeral vs degrade. The `startHost` orchestration itself is
+> NeoForge-config-gated and validated by the live `runClient` exit (like every other `NoderaHost`
+> lifecycle method), not a headless unit.
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
 | `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 228 | 0 | 0 | ✅ | 2026-07-24 |
 | `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics | 430 | 0 | 0 | ✅ | 2026-07-24 |
-| `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green | 84 | 0 | 0 | ✅ | 2026-07-24 |
-| `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103) | 82 | 0 | 0 | ✅ | 2026-07-24 |
+| `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green; issue #39 pins the socket bind-failure + ephemeral-retry invariants | 86 | 0 | 0 | ✅ | 2026-07-24 |
+| `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103); issue #36/33 add the signed identity/permission stores | 97 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
-| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 364 | 0 | 0 | 🚧 | 2026-07-24 |
-| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, and the continuity halves (`WorldArchiver` share/stop seeding, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload) | 37 | 0 | 0 | 🚧 | 2026-07-24 |
+| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 366 | 0 | 0 | 🚧 | 2026-07-24 |
+| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), and issue #36/33/37 permission/identity/re-key lanes + the #39 crash-resilience degrade (bind failure never crashes the integrated server) | 61 | 0 | 0 | 🚧 | 2026-07-24 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **1239** | **0** | **0** | ✅ | 2026-07-24 |
+| **TOTAL (implemented modules)** | | **1282** | **0** | **0** | ✅ | 2026-07-24 |
 
 Line coverage (JaCoCo XML/HTML under `java/<m>/build/reports/jacoco/`): core 82.21% · engine
 87.18% · transport 85.32% · storage 79.96% · peer 82.17% · testing 90.91% · neoforge-mod 8.79%.
