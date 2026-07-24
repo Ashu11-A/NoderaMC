@@ -164,6 +164,16 @@ public final class NoderaConfig {
     // screen. This is the gateway-migration UX interim (L-17 allows the brief reconnect).
     public static final ModConfigSpec.BooleanValue ARCHIVE_SEED_ON_SHARE =
             SERVER_BUILDER.define("archive.seedOnShare", true);
+    // Issue #43 continuous streaming: while a world is hosted, re-seed its archive to the worker
+    // every N server ticks (default 2400 = 2 min — autosave-like cadence) so the network copy is
+    // never more than one interval behind and a crash/exit cannot revert the world. 0 disables.
+    public static final ModConfigSpec.IntValue ARCHIVE_STREAM_INTERVAL_TICKS =
+            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 2400, 0, 24_000 * 60);
+    // Issue #43 bounded final flush: the server-stopped seed waits at most this long before
+    // abandoning (the streaming lane already holds a copy ≤ one interval old) — a hung worker
+    // can no longer wedge the "Saving World" screen.
+    public static final ModConfigSpec.IntValue ARCHIVE_FINAL_FLUSH_TIMEOUT_SECONDS =
+            SERVER_BUILDER.defineInRange("archive.finalFlushTimeoutSeconds", 20, 1, 600);
     public static final ModConfigSpec.BooleanValue CONTINUITY_AUTO_REHOST =
             CLIENT_BUILDER.define("continuity.autoRehost", true);
     public static final ModConfigSpec.IntValue CONTINUITY_FETCH_TIMEOUT_SECONDS =

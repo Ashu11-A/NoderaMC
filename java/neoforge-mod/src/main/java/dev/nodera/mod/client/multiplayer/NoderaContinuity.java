@@ -141,6 +141,16 @@ public final class NoderaContinuity {
         return true;
     }
 
+    /** Parse the archive version out of a fetch reply ({@code "<bytes> <version>"}); -1 unknown. */
+    static long parseFetchedVersion(String fetchReply) {
+        try {
+            String[] parts = fetchReply.trim().split("\\s+");
+            return parts.length >= 2 ? Long.parseLong(parts[1]) : -1;
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
     /** The stable local save-folder name for a rehosted world (per-world, collision-free). */
     static String rehostDirName(JoinedWorld world) {
         String suffix = world.worldIdHex().substring(0, Math.min(8, world.worldIdHex().length()));
@@ -169,7 +179,19 @@ public final class NoderaContinuity {
                 byte[] blob = Files.readAllBytes(archiveFile);
                 String dirName = rehostDirName(world);
                 Path saveDir = mc.gameDirectory.toPath().resolve("saves").resolve(dirName);
-                WorldArchive.unpackInto(blob, saveDir);
+                // Issue #43 freshness guard: never let a STALE network archive overwrite a newer
+                // local save of the same world. The fetch reply is "<bytes> <version>"; the local
+                // save records the version it last seeded. Older-or-equal network copy + existing
+                // local save ⇒ open the local save untouched (it is at least as fresh).
+                long fetchedVersion = parseFetchedVersion(fetched.get());
+                long localVersion = dev.nodera.mod.common.WorldArchiver.seededVersion(saveDir);
+                if (Files.isDirectory(saveDir) && localVersion >= 0 && fetchedVersion >= 0
+                        && fetchedVersion <= localVersion) {
+                    LOG.info("Nodera continuity: network archive v{} is not newer than local save "
+                            + "v{} — opening the local save unchanged", fetchedVersion, localVersion);
+                } else {
+                    WorldArchive.unpackInto(blob, saveDir);
+                }
                 LOG.info("Nodera continuity: '{}' restored to saves/{} ({} bytes, {})",
                         world.name(), dirName, blob.length, fetched.get());
                 disarm();

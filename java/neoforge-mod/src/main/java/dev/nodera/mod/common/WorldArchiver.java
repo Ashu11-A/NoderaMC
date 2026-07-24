@@ -21,13 +21,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * the worker seeds them, other peers replicate them, and a joiner can re-open the world with the
  * host (player <i>and</i> machine) gone.
  *
- * <p>Seeded twice per session: once at share time (the world becomes durable the moment it is
- * shared) and once on server stop (the final flush — the archive that carries everything the
- * session changed). Both runs are asynchronous; a seeding failure never breaks sharing or
- * shutdown, it only logs (the world stays playable, merely less durable).
+ * <p>Seeded <b>continuously</b> (issue #43): at share time, then on a periodic streaming cadence
+ * while the world is hosted ({@code archive.streamIntervalTicks}), and once more on server stop
+ * (the final flush). Continuous streaming bounds data loss to one interval — player data, broken
+ * blocks, and status survive any exit, crash included. The final flush is <b>deadline-bounded</b>
+ * ({@code archive.finalFlushTimeoutSeconds}): a slow or hung worker can no longer wedge the
+ * "Saving World" screen. All seeding failures log and never break sharing or shutdown.
  *
- * <p>Thread-context: {@link #seedAsync} from the server thread (it snapshots paths, then packs on
- * a background thread); {@link #seedNow} from any thread with a quiescent save (server stopped).
+ * <p>Thread-context: {@link #seedAsync}/{@link #streamTick} from the server thread (the save
+ * flush must run there); {@link #seedNow} from any thread with a quiescent save (server stopped).
  */
 public final class WorldArchiver {
 
@@ -36,7 +38,62 @@ public final class WorldArchiver {
     /** One in-flight seeding at a time; a second request while packing is coalesced away. */
     private static final AtomicBoolean SEEDING = new AtomicBoolean();
 
+    /** Server tick of the last streaming seed (issue #43 continuous streaming cadence). */
+    private static final java.util.concurrent.atomic.AtomicLong LAST_STREAM_TICK =
+            new java.util.concurrent.atomic.AtomicLong(Long.MIN_VALUE);
+
+    /**
+     * The observable state of the current/most-recent seeding run — the client's exit-screen
+     * progress overlay reads it (issue #43: "sending latest data to the Nodera network").
+     */
+    public enum SeedPhase { IDLE, PACKING, UPLOADING, DONE, FAILED }
+
+    private static volatile SeedPhase PHASE = SeedPhase.IDLE;
+
+    /** @return the current seeding phase (client overlay poll; any thread). */
+    public static SeedPhase phase() {
+        return PHASE;
+    }
+
     private WorldArchiver() {
+    }
+
+    /**
+     * Pure streaming-cadence decision (MC-free, testable): seed when at least
+     * {@code intervalTicks} have elapsed since the last streaming seed. First call always fires
+     * (bounds loss from the session start too).
+     *
+     * @param currentTick   the server's current tick.
+     * @param lastSeedTick  tick of the previous streaming seed ({@link Long#MIN_VALUE} = never).
+     * @param intervalTicks the configured cadence (≤ 0 disables streaming).
+     * @return whether a streaming seed is due.
+     */
+    static boolean streamDue(long currentTick, long lastSeedTick, int intervalTicks) {
+        if (intervalTicks <= 0) {
+            return false;
+        }
+        return lastSeedTick == Long.MIN_VALUE || currentTick - lastSeedTick >= intervalTicks;
+    }
+
+    /**
+     * The continuous-streaming hook (issue #43): called every server tick while hosting; seeds
+     * the archive on the configured cadence so the network copy is never more than one interval
+     * behind the live world. Coalesced with any in-flight seed.
+     *
+     * @param server the hosting server.
+     * @Thread-context server thread.
+     */
+    public static void streamTick(MinecraftServer server) {
+        int interval = NoderaConfig.ARCHIVE_STREAM_INTERVAL_TICKS.get();
+        long tick = server.getTickCount();
+        long last = LAST_STREAM_TICK.get();
+        if (!streamDue(tick, last, interval) || SEEDING.get()) {
+            return;
+        }
+        if (!LAST_STREAM_TICK.compareAndSet(last, tick)) {
+            return;
+        }
+        seedAsync(server);
     }
 
     /**
@@ -71,8 +128,11 @@ public final class WorldArchiver {
     }
 
     /**
-     * Seed the archive synchronously — the server-stopped final flush, when the save is quiescent
-     * and there is no tick loop left to stay off of.
+     * Seed the archive on the server-stopped final flush — <b>deadline-bounded</b> (issue #43):
+     * the pack + upload run on a worker thread and this method waits at most
+     * {@code archive.finalFlushTimeoutSeconds}. A slow or hung worker abandons the flush (the
+     * streaming lane already seeded a copy at most one interval old) instead of wedging the
+     * "Saving World" screen forever.
      *
      * @param saveRoot the save folder.
      * @Thread-context any thread; the caller guarantees no concurrent save writes.
@@ -85,7 +145,19 @@ public final class WorldArchiver {
         if (identity.isEmpty() || !identity.get().shared()) {
             return;
         }
-        seed(saveRoot, identity.get().worldId().toHex());
+        String worldIdHex = identity.get().worldId().toHex();
+        int timeoutSeconds = NoderaConfig.ARCHIVE_FINAL_FLUSH_TIMEOUT_SECONDS.get();
+        Thread flush = Thread.ofPlatform().name("nodera-archive-final-flush").daemon()
+                .start(() -> seed(saveRoot, worldIdHex));
+        try {
+            flush.join(java.util.concurrent.TimeUnit.SECONDS.toMillis(Math.max(1, timeoutSeconds)));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (flush.isAlive()) {
+            LOG.warn("Nodera: final archive flush exceeded {} s — abandoning (the streaming lane "
+                    + "already seeded a copy at most one interval old); shutdown continues", timeoutSeconds);
+        }
     }
 
     /**
@@ -110,20 +182,65 @@ public final class WorldArchiver {
         return archiveFile;
     }
 
+    /**
+     * Record the version this save last SEEDED to the network (issue #43 freshness guard):
+     * {@code <saveRoot>/nodera/seeded-version} holds the archive version the network copy carries.
+     * The continuity rehost compares the fetched network version against a local save's recorded
+     * version so a STALE network archive can never silently overwrite a newer local save.
+     * SEED replies are {@code "<manifestRootHex> <version> <pieceCount>"}.
+     */
+    private static void recordSeededVersion(Path saveRoot, String seedReply) {
+        try {
+            String[] parts = seedReply.trim().split("\\s+");
+            if (parts.length >= 2) {
+                Path marker = saveRoot.resolve("nodera").resolve("seeded-version");
+                Files.createDirectories(marker.getParent());
+                Files.writeString(marker, parts[1]);
+            }
+        } catch (IOException | RuntimeException e) {
+            LOG.debug("Nodera: could not record seeded version: {}", e.toString());
+        }
+    }
+
+    /**
+     * The archive version this local save last seeded to the network, or {@code -1} when unknown
+     * (never seeded / marker unreadable). Consumed by the continuity freshness guard.
+     *
+     * @param saveRoot the save folder.
+     * @return the recorded seeded version, or -1.
+     */
+    public static long seededVersion(Path saveRoot) {
+        try {
+            Path marker = saveRoot.resolve("nodera").resolve("seeded-version");
+            if (!Files.isRegularFile(marker)) {
+                return -1;
+            }
+            return Long.parseLong(Files.readString(marker).trim());
+        } catch (IOException | RuntimeException e) {
+            return -1;
+        }
+    }
+
     private static void seed(Path saveRoot, String worldIdHex) {
         try {
             long startedAt = System.nanoTime();
+            PHASE = SeedPhase.PACKING;
             Path archiveFile = packToSpool(saveRoot, worldIdHex);
+            PHASE = SeedPhase.UPLOADING;
             Optional<String> seeded = CompanionLink.client().seedArchive(worldIdHex, archiveFile);
             long millis = (System.nanoTime() - startedAt) / 1_000_000;
             if (seeded.isPresent()) {
+                PHASE = SeedPhase.DONE;
+                recordSeededVersion(saveRoot, seeded.get());
                 LOG.info("Nodera: world archive seeded to the worker ({} bytes in {} ms — {})",
                         Files.size(archiveFile), millis, seeded.get());
             } else {
+                PHASE = SeedPhase.FAILED;
                 LOG.warn("Nodera: worker did not accept the world archive (worker offline or "
                         + "predates the continuity lane); the world is listed but not yet durable");
             }
         } catch (IOException | RuntimeException e) {
+            PHASE = SeedPhase.FAILED;
             LOG.warn("Nodera: world-archive seeding failed: {}", e.toString());
         }
     }
