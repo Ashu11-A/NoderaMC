@@ -34,6 +34,19 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **T16 opener — validated PvE combat core (2026-07-24, L-13):** `EntityKind.MOB` is the
+> engine-owned validated mob: vitals live in the root as the canonical `[u16 health][u16 maxHealth]`
+> payload (`MobCombatRules`), `SpawnRules` now spawns MOB entities with full vitals (the engine's
+> own population is no longer GHOST-kind), `MobAiRules` drives MOB + GHOST alike, and every damage
+> source routes through `MobCombatRules.damage`: arrow strikes (flat 5) and TNT blast proximity
+> (linear integer falloff, the dead take no knockback); health ≤ 0 removes the entity — death is
+> committed replica-identical state. GHOST vitals stay server-authoritative (shoved, never wounded).
+> `MobCombatTest` (6) + vitals assertions in `SpawnRulesTest`. Remaining L-13: PvP (player action
+> lane), XP, drops. Also this date: two CI-only flakes fixed for real (commit publish order in
+> `WorkerValidationService` — observers can no longer see a version without its certificate — and
+> `PeerRuntime` join retry: the one-shot `PeerJoin` re-announces every heartbeat until the view
+> seeds), and AGENTS.md gained the post-push build-check discipline.
+>
 > **T14 environment engine cores RETIRED (2026-07-24):** L-3 (instant-settle gravity + bounded
 > fire), L-4 (deterministic lighting as a pure function of committed state), and L-5 (observer +
 > quasi-connectivity) move to `LIMITATIONS.fixed.md` — each core landed with a headless exit test

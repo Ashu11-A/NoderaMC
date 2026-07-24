@@ -74,7 +74,7 @@ final class SpawnRulesTest {
 
     private static List<PersistedEntityState> ghosts(RegionSnapshot snapshot) {
         return snapshot.entities().stream()
-                .filter(e -> e.kind() == EntityKind.GHOST)
+                .filter(e -> e.kind() == EntityKind.MOB)
                 .toList();
     }
 
@@ -98,6 +98,10 @@ final class SpawnRulesTest {
                 .hasSizeLessThanOrEqualTo(SpawnRules.MOB_CAP);
         for (PersistedEntityState ghost : ghosts) {
             assertThat(ghost.typeId()).isEqualTo(SpawnRules.ZOMBIE_TYPE_ID);
+            assertThat(MobCombatRules.decodeVitals(ghost.payload()))
+                    .as("an engine-owned spawn carries full vitals in the root (L-13)")
+                    .isEqualTo(new MobCombatRules.Vitals(
+                            MobCombatRules.ZOMBIE_MAX_HEALTH, MobCombatRules.ZOMBIE_MAX_HEALTH));
             int y = (int) Math.round(
                     dev.nodera.core.state.FixedVec3.toExternal(ghost.pos().y()));
             assertThat(y)

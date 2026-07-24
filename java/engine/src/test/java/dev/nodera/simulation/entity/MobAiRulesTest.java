@@ -80,7 +80,7 @@ final class MobAiRulesTest {
         RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
                 base, first.delta(), 2400L);
         List<PersistedEntityState> ghosts = settled.entities().stream()
-                .filter(e -> e.kind() == EntityKind.GHOST).toList();
+                .filter(e -> e.kind() == EntityKind.MOB).toList();
         assertThat(ghosts).isNotEmpty();
         for (PersistedEntityState ghost : ghosts) {
             int x = (int) Math.floor(FixedVec3.toExternal(ghost.pos().x()));

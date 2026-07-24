@@ -13,10 +13,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The Task 15 deterministic mob-AI lane (L-7): engine-driven behavior for {@code GHOST} mobs,
- * the first step of per-species ghost retirement. Once a species' behavior comes from HERE —
- * seeded draws over replicated state — the live lane stops mirroring the server's mob and
- * starts mirroring the ROOT's, and the species' ghost-share drops to zero.
+ * The Task 15 deterministic mob-AI lane (L-7): engine-driven behavior for {@code GHOST} and
+ * engine-owned {@code MOB} entities, the first step of per-species ghost retirement. Once a
+ * species' behavior comes from HERE — seeded draws over replicated state — the live lane stops
+ * mirroring the server's mob and starts mirroring the ROOT's, and the species' ghost-share
+ * drops to zero ({@code MOB} entities additionally carry validated vitals, L-13).
  *
  * <p><b>Behavior (bounded wander MVP):</b> every {@link #AI_INTERVAL_TICKS} region ticks each
  * ghost draws one decision in canonical id order: idle (3/8), or a one-block step in one of
@@ -51,7 +52,7 @@ public final class MobAiRules {
         // Snapshot first: mutations during iteration must not affect the pass.
         List<PersistedEntityState> ghosts = new ArrayList<>();
         for (PersistedEntityState entity : state.entities()) {
-            if (entity.kind() == EntityKind.GHOST) {
+            if (entity.kind() == EntityKind.GHOST || entity.kind() == EntityKind.MOB) {
                 ghosts.add(entity);
             }
         }

@@ -124,7 +124,10 @@ public final class ProjectileRules {
             }
             PersistedEntityState struck = entityStruckAt(state, candidate, shot.id());
             if (struck != null) {
-                // Hit a mob: the shot embeds one sub-step short (damage application is L-13's job).
+                // Hit: the shot embeds one sub-step short; an engine-owned MOB takes the arrow
+                // damage in the root (GHOST vitals stay server-authoritative — the arrow stops
+                // but cannot wound the mirror).
+                MobCombatRules.damage(state, struck, MobCombatRules.ARROW_DAMAGE);
                 state.updateEntity(withMotion(shot, pos, FixedVec3.ZERO));
                 return;
             }
