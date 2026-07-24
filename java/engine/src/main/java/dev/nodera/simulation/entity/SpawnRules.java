@@ -81,7 +81,12 @@ public final class SpawnRules {
                 state.region(), state.baseVersion(), SPAWN_SEQ_DOMAIN | tick);
         state.createEntity(new PersistedEntityState(
                 id, EntityKind.GHOST, ZOMBIE_TYPE_ID,
-                FixedVec3.fromExternal(x + 0.5, cell.y(), z + 0.5),
+                // Half-block-centred fixed position, pure integer math (no double round-trip —
+                // the determinism rule: spawn coords never touch a JVM double).
+                new FixedVec3(
+                        ((long) x << 32) + (1L << 31),
+                        (long) cell.y() << 32,
+                        ((long) z << 32) + (1L << 31)),
                 FixedVec3.ZERO, 0, (int) (tick + DESPAWN_AFTER_TICKS), Bytes.empty()));
     }
 

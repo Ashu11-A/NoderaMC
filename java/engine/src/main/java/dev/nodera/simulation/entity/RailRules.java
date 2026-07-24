@@ -88,13 +88,19 @@ public final class RailRules {
             return; // at rest — needs a push, never auto-reverses
         }
         if (!railAt(state, cx + heading[0], cy, cz + heading[2])) {
-            int[] turn = turnExit(state, cell, heading);
-            if (turn == null) {
-                // Dead-end: stop at the rail head, snapped to its centre.
-                state.updateEntity(withMotion(cart, centerSnap(cart.pos(), cell), FixedVec3.ZERO));
-                return;
+            NBlockPos forward = new NBlockPos(cx + heading[0], cy, cz + heading[2]);
+            if (!state.inOwnedRegion(forward)) {
+                // The forward cell is in a neighbour region: the cart rolls across the border
+                // (handed off below). Do NOT treat the region edge as a dead-end.
+            } else {
+                int[] turn = turnExit(state, cell, heading);
+                if (turn == null) {
+                    // Dead-end: stop at the rail head, snapped to its centre.
+                    state.updateEntity(withMotion(cart, centerSnap(cart.pos(), cell), FixedVec3.ZERO));
+                    return;
+                }
+                heading = turn;
             }
-            heading = turn;
         }
         long speed = speedAlong(cart.vel());
         if (state.getBlock(cell) == FlatWorldRules.POWERED_RAIL) {

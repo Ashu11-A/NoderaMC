@@ -71,18 +71,24 @@ public final class MobAiRules {
             return; // idle — but the draw happened, so the stream stays aligned
         }
         int dir = (decision - 3) & 3; // fixed draw count per decision — no branch-dependent rng
-        int x = (int) Math.floor(FixedVec3.toExternal(ghost.pos().x()));
-        int y = (int) Math.floor(FixedVec3.toExternal(ghost.pos().y()));
-        int z = (int) Math.floor(FixedVec3.toExternal(ghost.pos().z()));
+        int x = ghost.pos().blockX();
+        int y = ghost.pos().blockY();
+        int z = ghost.pos().blockZ();
         int tx = x + STEP_DX[dir];
         int tz = z + STEP_DZ[dir];
         // Try the same level, one up (climb), one down (drop) — first walkable wins.
         for (int dy : new int[]{0, 1, -1}) {
             NBlockPos cell = new NBlockPos(tx, y + dy, tz);
             if (state.inOwnedRegion(cell) && isWalkable(state, cell)) {
+                // Half-block-centred fixed position, pure integer math (no double round-trip —
+                // the determinism rule: every coordinate read is the integer block shift).
+                FixedVec3 landed = new FixedVec3(
+                        ((long) tx << 32) + (1L << 31),
+                        (long) cell.y() << 32,
+                        ((long) tz << 32) + (1L << 31));
                 PersistedEntityState moved = new PersistedEntityState(
                         ghost.id(), ghost.kind(), ghost.typeId(),
-                        FixedVec3.fromExternal(tx + 0.5, cell.y(), tz + 0.5),
+                        landed,
                         FixedVec3.ZERO,
                         ghost.ageTicks() + AI_INTERVAL_TICKS,
                         ghost.despawnTick(), ghost.payload());
