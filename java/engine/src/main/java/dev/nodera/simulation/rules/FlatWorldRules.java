@@ -114,6 +114,10 @@ public final class FlatWorldRules implements RuleSet {
     public static final int LAVA_FLOW_BASE = 61;
     /** Highest fluid id ({@code LAVA_FLOW_BASE + 2}). */
     public static final int FLUID_MAX = 63;
+    /** Gravel (gravity block like SAND — instant-settle, Task 14 L-3). */
+    public static final int GRAVEL = 64;
+    /** Fire (ages and spreads through random ticks; burns planks/logs). */
+    public static final int FIRE = 65;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -170,6 +174,8 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(LAVA_FLOW_BASE, "lava_flow_1"),
             new PaletteEntry(LAVA_FLOW_BASE + 1, "lava_flow_2"),
             new PaletteEntry(LAVA_FLOW_BASE + 2, "lava_flow_3"),
+            new PaletteEntry(GRAVEL, "gravel"),
+            new PaletteEntry(FIRE, "fire"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -315,6 +321,7 @@ public final class FlatWorldRules implements RuleSet {
                 if (FluidRules.isFluid(p.blockStateId()) || touchesFluid(state, p.pos())) {
                     FluidRules.onChanged(state, p.pos(), env.targetTick());
                 }
+                GravityRules.onPlaced(state, p.pos(), rng);
             }
             case BreakBlockAction b -> {
                 boolean affected = RedstoneRules.isRedstoneFamily(state.getBlock(b.pos()))
@@ -328,6 +335,7 @@ public final class FlatWorldRules implements RuleSet {
                 if (wetted) {
                     FluidRules.onChanged(state, b.pos(), env.targetTick());
                 }
+                GravityRules.onVacated(state, b.pos(), rng);
             }
             case dev.nodera.core.action.InteractBlockAction i -> {
                 RedstoneRules.interact(state, i.pos(), env, rng, env.targetTick());

@@ -38,7 +38,12 @@ public final class RandomTickRules {
 
     /** @return whether {@code id} reacts to random ticks (drives section eligibility). */
     public static boolean isRandomTickable(int id) {
-        return id == FlatWorldRules.GRASS_BLOCK;
+        return id == FlatWorldRules.GRASS_BLOCK || id == FlatWorldRules.FIRE;
+    }
+
+    /** @return whether {@code id} burns (fire consumes it when spreading). */
+    public static boolean isFlammable(int id) {
+        return id == FlatWorldRules.OAK_PLANKS || id == FlatWorldRules.OAK_LOG;
     }
 
     /** The per-tick phase: deterministic selection over eligible owned sections. */
@@ -78,6 +83,10 @@ public final class RandomTickRules {
     /** Apply one random tick at {@code pos} (package-visible: semantics pin directly). */
     static void applyRandomTick(MutableRegionState state, NBlockPos pos, DeterministicRandom rng) {
         int id = state.getBlock(pos);
+        if (id == FlatWorldRules.FIRE) {
+            applyFireTick(state, pos, rng);
+            return;
+        }
         if (id != FlatWorldRules.GRASS_BLOCK) {
             return;
         }
@@ -103,6 +112,34 @@ public final class RandomTickRules {
         if (state.getBlock(target) == FlatWorldRules.DIRT
                 && state.getBlock(aboveTarget) == FlatWorldRules.AIR) {
             state.setBlock(target, FlatWorldRules.GRASS_BLOCK, null, rng);
+        }
+    }
+
+    /**
+     * Fire semantics (bounded MVP): one selection in three extinguishes the flame; the other
+     * two attempt a spread into the 3×3×3 neighborhood — a FLAMMABLE target (planks, logs)
+     * BURNS: it becomes fire, so growth is bounded by the fuel and every blaze eventually
+     * dies out. The extinguish draw happens first so the draw count per selection is fixed.
+     */
+    private static void applyFireTick(MutableRegionState state, NBlockPos pos, DeterministicRandom rng) {
+        if (rng.nextInt(3) == 0) {
+            state.setBlock(pos, FlatWorldRules.AIR, null, rng);
+            GravityRules.onVacated(state, pos, rng); // whatever rested on the flame settles
+            return;
+        }
+        int dx = rng.nextInt(3) - 1;
+        int dy = rng.nextInt(3) - 1;
+        int dz = rng.nextInt(3) - 1;
+        if (dx == 0 && dy == 0 && dz == 0) {
+            return;
+        }
+        NBlockPos target = new NBlockPos(pos.x() + dx, pos.y() + dy, pos.z() + dz);
+        if (!state.inOwnedRegion(target) || target.y() < FlatWorldRules.MIN_Y
+                || target.y() > FlatWorldRules.MAX_Y) {
+            return; // cross-border burn waits for the halo lane
+        }
+        if (isFlammable(state.getBlock(target))) {
+            state.setBlock(target, FlatWorldRules.FIRE, null, rng);
         }
     }
 }
