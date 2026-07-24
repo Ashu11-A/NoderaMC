@@ -63,3 +63,31 @@ no nearby session player are vanilla lane by policy: the guard does not touch th
   behavioural change.
 - Region demotion is graceful: an in-flight validated batch resolves before the region returns
   to vanilla execution, and re-delegation waits out `DELEGABILITY_COOLDOWN_TICKS`.
+
+## 8. Entity species — validated parity envelopes (Task 15)
+
+Spawn cycles, mob AI, TNT, projectiles, and minecarts become **engine-owned validated state**
+for delegated regions (ledger L-7/L-8/L-9). The contract is **player-visible parity, never
+NMS bit-parity**: each species is integer/fixed-point behaviour implemented from observable
+vanilla, matching what a player sees, never matching a vanilla float trajectory bit-for-bit
+(that is what makes the lane tractable and replica-deterministic). The envelope per species:
+
+- **Spawning (L-8):** interval × cap (`SPAWN_INTERVAL_TICKS=20`, `MOB_CAP=8`) reproduces the
+  vanilla hostile rate envelope; gating reads committed `LightField` (`< 8`). Engine spawns are
+  `GHOST` entities the live lane mirrors like captured mobs.
+- **Mob AI (L-7):** seeded wander at a vanilla-ish idle cadence (`AI_INTERVAL_TICKS=10`); steps
+  land only on walkable cells. Targeting/combat remain vanilla-side until their increments ship.
+- **TNT (L-9):** vanilla fuse (`80`) and radius (`4`); the blast shape is a seeded per-cell
+  destruction sphere (`P(destroy)=1−distSq/R²`) — a Nodera crater, not vanilla's ray pattern.
+  Chain ignition and border fail-closed (cross-region blast rides the T13 migration lane).
+- **Projectiles (L-9):** vanilla-shaped arc (drag `0.99`, gravity `0.05`) in Q32.32; an opaque
+  block stops the shot. Hit detection is destination-block (a voxel-DDA face-snap is a later
+  refinement — very fast shots may tunnel through a one-block wall in a single tick).
+- **Minecarts (L-9):** vanilla top speed (`0.4`); a cart follows the rail graph by connectivity
+  (no rail-shape states), powered rails boost, plain rails bleed speed. Slopes/ascent gravity
+  and redstone-gated powered rails are not yet modelled.
+
+Unretired species keep the ghost fallback (Task 12) — the world is never broken mid-program. A
+region reverts to ghosting a species on divergence alarm (the species-retirement rollback, Task
+15 acceptance #4). Entity-kind ordinals are wire-stable: `ITEM`/`GHOST` bytes are unchanged as
+new engine-owned kinds (`TNT`/`PROJECTILE`/`MINECART`) are appended.
