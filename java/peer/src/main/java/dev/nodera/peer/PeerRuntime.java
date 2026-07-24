@@ -536,6 +536,12 @@ public final class PeerRuntime implements DiagnosticsSource {
     }
 
     private void onHeartbeatTick() {
+        if (bootstrapAddress != null && members.size() == 1) {
+            // The startup PeerJoin is a single message over a possibly-not-yet-listening socket
+            // (sendTo swallows transport failures by design). If it was lost, this runtime would
+            // never mesh — so re-announce every heartbeat until the membership view seeds.
+            sendTo(bootstrapAddress, new PeerJoin(selfId, selfRoute, capabilities, false));
+        }
         keepAliveSeqCounter++;
         List<RegionProgress> progress = tickSync == null
                 ? List.of()
