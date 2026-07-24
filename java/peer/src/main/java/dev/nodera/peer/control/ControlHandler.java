@@ -106,4 +106,21 @@ public interface ControlHandler {
                                      boolean listed, boolean encrypted, String manifestRefB64) {
         return null;
     }
+
+    /**
+     * Mint a signed permission grant, this worker signing as the world author (issue #36). Authority
+     * is enforced when the grant is applied on each peer, so the worker only signs; the loopback
+     * socket is the local trust boundary.
+     *
+     * @param worldIdHex        the world id (hex).
+     * @param subjectNodeId     the recipient peer's NodeId (UUID string).
+     * @param subjectPublicKeyB64 base64 of the recipient's public key the role binds to.
+     * @param roleOrdinal       the {@code WorldRole} ordinal to grant.
+     * @param grantVersion      monotonic grant version.
+     * @return base64 of the signed grant's canonical bytes, or {@code null} if unsupported.
+     */
+    default String grantRole(String worldIdHex, String subjectNodeId, String subjectPublicKeyB64,
+                             int roleOrdinal, long grantVersion) {
+        return null;
+    }
 }

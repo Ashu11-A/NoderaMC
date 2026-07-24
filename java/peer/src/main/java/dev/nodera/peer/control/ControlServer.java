@@ -176,6 +176,12 @@ public final class ControlServer implements AutoCloseable {
                 return minted == null ? err("cannot mint world identity")
                         : ControlProtocol.OK + " " + minted;
             }
+            if (ControlProtocol.GRANT.equals(verb)) {
+                // NODERA-GRANT <ver> <worldIdHex> <subjectNodeId> <subjectPubKeyB64> <role> <grantVer>
+                String grant = handler.grantRole(arg(parts, 2), arg(parts, 3), arg(parts, 4),
+                        (int) parseLong(arg(parts, 5)), parseLong(arg(parts, 6)));
+                return grant == null ? err("cannot mint grant") : ControlProtocol.OK + " " + grant;
+            }
             return err("unknown verb");
         } catch (RuntimeException e) {
             return err(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());

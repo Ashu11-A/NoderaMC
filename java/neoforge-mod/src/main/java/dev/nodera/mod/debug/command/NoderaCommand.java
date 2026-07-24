@@ -76,6 +76,12 @@ public final class NoderaCommand {
                 .then(literal("whois").requires(s -> s.hasPermission(OP_LEVEL))
                         .then(argument("player", EntityArgument.player())
                                 .executes(NoderaCommand::whois)))
+                .then(literal("op").requires(s -> s.hasPermission(OP_LEVEL))
+                        .then(argument("player", EntityArgument.player())
+                                .executes(ctx -> setRole(ctx, true))))
+                .then(literal("deop").requires(s -> s.hasPermission(OP_LEVEL))
+                        .then(argument("player", EntityArgument.player())
+                                .executes(ctx -> setRole(ctx, false))))
                 .then(literal("debug").requires(s -> s.hasPermission(OP_LEVEL))
                         .then(literal("sample-rate")
                                 .then(argument("n", IntegerArgumentType.integer(1, 100))
@@ -196,6 +202,90 @@ public final class NoderaCommand {
                 "whois for " + target.getName().getString()
                         + ": cross-player report is staged (enable via /nodera debug)"), false);
         return 1;
+    }
+
+    /**
+     * {@code /nodera op|deop <player>} (issue #36): mint an author-signed, key-bound permission grant
+     * that ops (OPERATOR) or de-ops (MEMBER) a player, apply + persist it, and reconcile the vanilla
+     * op status. Authority is the executor's key-checked OWNER/OPERATOR role (or the integrated owner
+     * / server console); the target must have a verified Nodera identity.
+     */
+    private static int setRole(CommandContext<CommandSourceStack> ctx, boolean grantOp)
+            throws CommandSyntaxException {
+        CommandSourceStack src = ctx.getSource();
+        var server = src.getServer();
+        var perms = dev.nodera.mod.common.NoderaHost.hostedPermissions();
+        if (perms == null) {
+            src.sendFailure(Component.literal("This world is not shared to Nodera."));
+            return 0;
+        }
+        ServerPlayer executor = src.getPlayer(); // null for the server console
+        if (!isGrantAuthorized(server, executor, perms)) {
+            src.sendFailure(Component.literal("You are not authorized to change Nodera permissions."));
+            return 0;
+        }
+        ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
+        dev.nodera.mod.common.PlayerNodeRegistry.PlayerNode node =
+                dev.nodera.mod.common.PlayerNodeRegistry.nodeOf(target.getUUID());
+        if (node == null) {
+            src.sendFailure(Component.literal(
+                    "No verified Nodera identity yet for " + target.getName().getString() + "."));
+            return 0;
+        }
+        if (!dev.nodera.mod.common.CompanionLink.isPresent()) {
+            src.sendFailure(Component.literal(
+                    "No Nodera worker is connected to sign the grant."));
+            return 0;
+        }
+        dev.nodera.core.identity.WorldRole role = grantOp
+                ? dev.nodera.core.identity.WorldRole.OPERATOR
+                : dev.nodera.core.identity.WorldRole.MEMBER;
+        long grantVersion = perms.grant(node.nodeId())
+                .map(g -> g.grantVersion() + 1).orElse(1L);
+        String worldIdHex = perms.worldId().toHex();
+        java.util.Optional<dev.nodera.core.Bytes> signed =
+                dev.nodera.mod.common.CompanionLink.client().grantRole(worldIdHex,
+                        node.nodeId().value().toString(), node.publicKey(), role.ordinal(),
+                        grantVersion);
+        if (signed.isEmpty()) {
+            src.sendFailure(Component.literal("The Nodera worker declined to sign the grant "
+                    + "(only the world author may op/deop)."));
+            return 0;
+        }
+        dev.nodera.storage.WorldPermissionGrant grant;
+        try {
+            grant = dev.nodera.storage.WorldPermissionGrant.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(signed.get()));
+        } catch (RuntimeException e) {
+            src.sendFailure(Component.literal("Malformed grant from the worker."));
+            return 0;
+        }
+        if (!dev.nodera.mod.common.NoderaHost.applyGrant(grant)) {
+            src.sendFailure(Component.literal("The grant was rejected (authority or version)."));
+            return 0;
+        }
+        dev.nodera.mod.server.OperatorBridge.get().syncPlayer(server, target);
+        String verb = grantOp ? "opped" : "de-opped";
+        src.sendSuccess(() -> Component.literal(
+                "Nodera: " + verb + " " + target.getName().getString()), true);
+        return 1;
+    }
+
+    /** Whether the executor may mint permission grants for this world. */
+    private static boolean isGrantAuthorized(net.minecraft.server.MinecraftServer server,
+                                             ServerPlayer executor,
+                                             dev.nodera.storage.WorldPermissions perms) {
+        if (executor == null) {
+            return true; // the server console is a trusted local operator
+        }
+        if (!server.isDedicatedServer()
+                && server.isSingleplayerOwner(executor.getGameProfile())
+                && dev.nodera.mod.common.NoderaHost.localWorkerIsAuthor(server)) {
+            return true; // the integrated-server owner authoring this world
+        }
+        dev.nodera.mod.common.PlayerNodeRegistry.PlayerNode node =
+                dev.nodera.mod.common.PlayerNodeRegistry.nodeOf(executor.getUUID());
+        return node != null && perms.isOperator(node.nodeId(), node.publicKey());
     }
 
     private static int sampleRate(CommandContext<CommandSourceStack> ctx, Supplier<DiagnosticsService> service) {

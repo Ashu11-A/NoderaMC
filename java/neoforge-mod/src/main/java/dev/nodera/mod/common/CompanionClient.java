@@ -196,6 +196,35 @@ public final class CompanionClient implements CompanionProbe {
         }
     }
 
+    /**
+     * Ask the worker (world author) to mint a signed permission grant bound to a subject key (issue
+     * #36). Returns the signed grant's canonical bytes, or empty when the worker is unreachable /
+     * declines.
+     *
+     * @param worldIdHex        the world id (hex).
+     * @param subjectNodeId     the recipient's NodeId (UUID string).
+     * @param subjectPublicKey  the recipient's public key the role binds to.
+     * @param roleOrdinal       the {@code WorldRole} ordinal to grant.
+     * @param grantVersion      monotonic grant version.
+     */
+    public Optional<Bytes> grantRole(String worldIdHex, String subjectNodeId, Bytes subjectPublicKey,
+                                     int roleOrdinal, long grantVersion) {
+        String req = CompanionProtocol.GRANT + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " " + worldIdHex + " " + subjectNodeId + " " + b64(subjectPublicKey)
+                + " " + roleOrdinal + " " + grantVersion;
+        String reply = exchange(req);
+        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        try {
+            byte[] bytes = java.util.Base64.getDecoder().decode(
+                    reply.substring(CompanionProtocol.OK.length() + 1).trim());
+            return Optional.of(Bytes.unsafeWrap(bytes));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
     private static String b64(Bytes bytes) {
         byte[] raw = bytes == null ? new byte[0] : bytes.toArray();
         return raw.length == 0 ? "" : java.util.Base64.getEncoder().encodeToString(raw);

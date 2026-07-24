@@ -76,6 +76,58 @@ final class ControlServerTest {
         }
     }
 
+    @Test
+    void dispatchesGrantVerbAndSignsAKeyBoundGrant() throws Exception {
+        // The handler signs as the world author exactly like WorkerControlHandler.grantRole.
+        dev.nodera.core.identity.NodeIdentity author = dev.nodera.core.identity.NodeIdentity.generate();
+        dev.nodera.core.identity.NodeIdentity subject = dev.nodera.core.identity.NodeIdentity.generate();
+        dev.nodera.core.Bytes worldId =
+                new dev.nodera.core.crypto.HashService().sha256("w".getBytes());
+        ControlHandler handler = new ControlHandler() {
+            @Override
+            public String workerVersion() {
+                return "1.0";
+            }
+
+            @Override
+            public String grantRole(String worldIdHex, String subjectNodeId, String subjectPubKeyB64,
+                                    int roleOrdinal, long grantVersion) {
+                dev.nodera.storage.WorldPermissionGrant g =
+                        dev.nodera.storage.WorldPermissionGrant.create(author,
+                                dev.nodera.core.Bytes.fromHex(worldIdHex),
+                                new dev.nodera.core.identity.NodeId(
+                                        java.util.UUID.fromString(subjectNodeId)),
+                                dev.nodera.core.Bytes.unsafeWrap(
+                                        java.util.Base64.getDecoder().decode(subjectPubKeyB64)),
+                                dev.nodera.core.identity.WorldRole.fromOrdinal(roleOrdinal),
+                                grantVersion);
+                dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
+                g.encode(w);
+                return java.util.Base64.getEncoder().encodeToString(w.toBytes().toArray());
+            }
+        };
+        try (ControlServer server = new ControlServer("127.0.0.1", 0, handler)) {
+            server.start();
+            int port = server.boundPort();
+            String pubKeyB64 = java.util.Base64.getEncoder()
+                    .encodeToString(subject.publicKeyBytes().toArray());
+            String reply = request(port, "NODERA-GRANT 2 " + worldId.toHex() + " "
+                    + subject.nodeId().value() + " " + pubKeyB64 + " "
+                    + dev.nodera.core.identity.WorldRole.OPERATOR.ordinal() + " 1");
+            assertTrue(reply.startsWith(ControlProtocol.OK + " "), reply);
+            byte[] grantBytes = java.util.Base64.getDecoder()
+                    .decode(reply.substring(ControlProtocol.OK.length() + 1).trim());
+            dev.nodera.storage.WorldPermissionGrant back =
+                    dev.nodera.storage.WorldPermissionGrant.decode(
+                            new dev.nodera.core.crypto.CanonicalReader(
+                                    dev.nodera.core.Bytes.unsafeWrap(grantBytes)));
+            assertTrue(back.verifySignature());
+            assertEquals(subject.publicKeyBytes(), back.subjectPublicKey());
+            assertEquals(dev.nodera.core.identity.WorldRole.OPERATOR, back.role());
+            assertEquals(author.nodeId(), back.granter());
+        }
+    }
+
     /** Send one request line, return the single reply line. */
     private static String request(int port, String line) throws Exception {
         try (Socket s = new Socket()) {
