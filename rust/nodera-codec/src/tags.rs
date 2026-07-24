@@ -58,6 +58,8 @@ pub mod type_tags {
     pub const CONTAINER_ENTRY: u16 = 105;
     /// `MovePlayerAction` — a signed, committee-validated player step (Task 16 / L-12).
     pub const MOVE_PLAYER_ACTION: u16 = 106;
+    /// Persisted set of `WorldPermissionGrant`s for one world (issue #36 F5 persistence).
+    pub const WORLD_PERMISSION_SET: u16 = 107;
 
     /// `ScheduledTickEntry` — Task 13 hashed scheduled-tick queue entry (reserved 36, live 2026-07-23).
     pub const SCHEDULED_TICK_ENTRY: u16 = 36;
@@ -65,7 +67,7 @@ pub mod type_tags {
     pub const BLOCK_EVENT_ENTRY: u16 = 37;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 106;
+    pub const NEXT: u16 = 107;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).
