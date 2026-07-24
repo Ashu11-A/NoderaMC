@@ -110,7 +110,7 @@ public final class FlatWorldRegionEngine implements RegionEngine {
         validateAnchors(request);
 
         RegionBounds bounds = RegionBounds.of(ctx.region());
-        MutableRegionState state = new MutableRegionState(request.snapshot(), bounds);
+        MutableRegionState state = new MutableRegionState(request.snapshot(), bounds, ctx.committedWorldTime());
 
         List<ActionRejection> rejections = new ArrayList<>();
         int applied = 0;

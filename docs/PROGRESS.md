@@ -41,6 +41,14 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > cross-border/live items were polish, not the core limitation. Bar 76.4 → 78.9%. The T15 entity
 > lane (L-7/L-8/L-9: mob-AI, spawn, TNT/projectile/minecart + knockback + entity-hit + redstone-gated
 > rails) stays OPEN pending live evidence + the L-13 combat (EntityKind.MOB/MobState) refactor.
+>
+> **L-6 daylight sensor RETIRED (2026-07-24):** the `committedWorldTime` context clause was already
+> landed; the sensor rule now lands too — `DAYLIGHT_SENSOR` (palette 76) emits 15 under open sky in
+> daytime (committedWorldTime mod 24000 < 12000 ∧ `LightField` sky ≥ 15), a state+time-dependent
+> source special-cased in `recomputeNetwork`. `MutableRegionState` carries `worldTime` as a transient
+> (unhashed) context field; the engine threads `ctx.committedWorldTime()`. `DaylightSensorTest` (3).
+> Bar 78.9 → 79.8%. Remaining polish: discrete re-eval on time/sky change (auto-reactivity). L-1
+> (random-tick `tickChunk` suppression mixin) and L-2 (cross-region fluid spread) stay OPEN.
 
 > **Rust infrastructure cluster complete (2026-07-19):** the monorepo restructure (now the default
 > architecture — see [`docs/Task.0.md`](docs/Task.0.md) §3), the standalone `nodera-tracker` service
