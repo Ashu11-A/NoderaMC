@@ -166,6 +166,52 @@ final class ContainerRulesTest {
     }
 
     @Test
+    void hopperDrainsTheChestAboveIntoTheChestBelowDeterministically() {
+        // Column: chest(66) → hopper(65) → chest(64); the top chest holds 3 items in slot 0.
+        NBlockPos top = new NBlockPos(70, 66, 70);
+        NBlockPos mid = new NBlockPos(70, 65, 70);
+        NBlockPos bottom = new NBlockPos(70, 64, 70);
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        RegionSnapshot built = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                air,
+                executeTicks(air, List.of(
+                        TestFixtures.envelope(region, 0L, 1L,
+                                TestFixtures.place(bottom, FlatWorldRules.CHEST)),
+                        TestFixtures.envelope(region, 0L, 2L,
+                                TestFixtures.place(top, FlatWorldRules.CHEST)),
+                        TestFixtures.envelope(region, 0L, 3L,
+                                TestFixtures.place(mid, FlatWorldRules.HOPPER))), 1).delta(),
+                1L);
+        List<ItemSlot> slots = new ArrayList<>();
+        for (int i = 0; i < ContainerRules.CHEST_SLOTS; i++) {
+            slots.add(ItemSlot.EMPTY);
+        }
+        slots.set(0, new ItemSlot(42, 3));
+        RegionSnapshot base = new RegionSnapshot(region, built.version(), built.tick(),
+                built.chunks(), built.entities(), built.scheduledTicks(), built.blockEvents(),
+                List.of(new ContainerEntry(top, slots)),
+                RegionSnapshot.CONTAINER_ENCODING_VERSION);
+
+        // 5 cycles' worth of ticks: pull tick N, push tick N+8 — 3 items need ~4 cycles.
+        RegionExecutionResult first = executeTicks(base, List.of(), 50);
+        RegionExecutionResult second = executeTicks(base, List.of(), 50);
+        assertThat(second.resultingRoot())
+                .as("the 8-tick hopper machine is replica-identical")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), base.tick() + 50);
+        assertThat(settled.containers())
+                .as("everything drained to the bottom chest (top + hopper entries left the table)")
+                .hasSize(1);
+        ContainerEntry drained = settled.containers().get(0);
+        assertThat(drained.pos()).isEqualTo(bottom);
+        assertThat(drained.slots().get(0))
+                .as("all 3 items arrived, one per cycle")
+                .isEqualTo(new ItemSlot(42, 3));
+    }
+
+    @Test
     void breakingAChestSpillsItsContentsAsValidatedItems() {
         RegionSnapshot base = chestWorld(new ItemSlot(42, 5));
         RegionExecutionResult result = executeTicks(base,

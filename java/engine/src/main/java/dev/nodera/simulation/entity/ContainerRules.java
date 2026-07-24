@@ -36,6 +36,10 @@ public final class ContainerRules {
 
     /** Slots in a single chest (vanilla 27; double chests are two adjacent singles for now). */
     public static final int CHEST_SLOTS = 27;
+    /** Slots in a hopper (vanilla 5). */
+    public static final int HOPPER_SLOTS = 5;
+    /** Region ticks between hopper transfer cycles (vanilla cooldown). */
+    public static final int HOPPER_INTERVAL_TICKS = 8;
     /** Per-axis melee-style reach bound for container interaction, Q32.32. */
     public static final long CONTAINER_REACH = 4L << 32;
     /** High tag bits for break-drop entity ids (never collides with action/spawn seqs). */
@@ -44,9 +48,81 @@ public final class ContainerRules {
     private ContainerRules() {
     }
 
-    /** @return whether {@code blockId} is a container block (only CHEST in this increment). */
+    /** @return whether {@code blockId} is a container block. */
     public static boolean isContainer(int blockId) {
-        return blockId == FlatWorldRules.CHEST;
+        return blockId == FlatWorldRules.CHEST || blockId == FlatWorldRules.HOPPER;
+    }
+
+    /** @return the slot count a container kind declares. */
+    public static int slotsFor(int blockId) {
+        return blockId == FlatWorldRules.HOPPER ? HOPPER_SLOTS : CHEST_SLOTS;
+    }
+
+    /**
+     * One hopper transfer cycle on the hashed queue: push the hopper's first item down into a
+     * container below, pull one item from a container above, then reschedule — a placed hopper
+     * is a deterministic 8-tick machine whose whole behaviour is committed state.
+     */
+    public static void hopperTick(MutableRegionState state, NBlockPos pos, long tick) {
+        if (state.getBlock(pos) != FlatWorldRules.HOPPER) {
+            return; // broken since scheduling — stale entry no-ops
+        }
+        moveOne(state, pos, new NBlockPos(pos.x(), pos.y() - 1, pos.z()));
+        moveOne(state, new NBlockPos(pos.x(), pos.y() + 1, pos.z()), pos);
+        state.scheduleTick(pos, FlatWorldRules.HOPPER, tick + HOPPER_INTERVAL_TICKS, 0);
+    }
+
+    /** Move ONE item from {@code from}'s first non-empty slot into {@code to}, if both accept. */
+    private static void moveOne(MutableRegionState state, NBlockPos from, NBlockPos to) {
+        if (!state.inOwnedRegion(from) || !state.inOwnedRegion(to)
+                || !isContainer(state.getBlock(from)) || !isContainer(state.getBlock(to))) {
+            return;
+        }
+        ContainerEntry source = state.container(from);
+        if (source == null) {
+            return;
+        }
+        int fromSlot = -1;
+        for (int i = 0; i < source.slots().size(); i++) {
+            if (!source.slots().get(i).isEmpty()) {
+                fromSlot = i;
+                break;
+            }
+        }
+        if (fromSlot < 0) {
+            return;
+        }
+        ItemSlot moving = source.slots().get(fromSlot);
+        ContainerEntry target = state.container(to);
+        if (target == null) {
+            List<ItemSlot> empty = new ArrayList<>(slotsFor(state.getBlock(to)));
+            for (int i = 0; i < slotsFor(state.getBlock(to)); i++) {
+                empty.add(ItemSlot.EMPTY);
+            }
+            target = new ContainerEntry(to, empty);
+        }
+        int toSlot = -1;
+        for (int i = 0; i < target.slots().size(); i++) {
+            ItemSlot s = target.slots().get(i);
+            if ((s.isEmpty() || (s.itemStackId() == moving.itemStackId() && s.count() < 255))) {
+                toSlot = i;
+                break;
+            }
+        }
+        if (toSlot < 0) {
+            return; // destination full — the item waits
+        }
+        ItemSlot dest = target.slots().get(toSlot);
+        state.putContainer(target.withSlot(toSlot,
+                new ItemSlot(moving.itemStackId(), dest.count() + 1)));
+        ContainerEntry drained = source.withSlot(fromSlot,
+                moving.count() == 1 ? ItemSlot.EMPTY
+                        : new ItemSlot(moving.itemStackId(), moving.count() - 1));
+        if (drained.isEmpty()) {
+            state.removeContainer(from);
+        } else {
+            state.putContainer(drained);
+        }
     }
 
     /** Pre-apply validation of one {@link ContainerAction} against committed state. */
@@ -58,7 +134,7 @@ public final class ContainerRules {
         if (!isContainer(view.getBlock(action.pos()))) {
             return Optional.of(new ActionRejection(env, ActionRejection.Reason.ILLEGAL_BLOCK));
         }
-        if (action.slot() >= CHEST_SLOTS) {
+        if (action.slot() >= slotsFor(view.getBlock(action.pos()))) {
             return Optional.of(new ActionRejection(env, ActionRejection.Reason.MALFORMED));
         }
         if (outOfReach(action.origin(), action.pos())) {
@@ -88,8 +164,9 @@ public final class ContainerRules {
     public static void apply(MutableRegionState state, ActionEnvelope env, ContainerAction action) {
         ContainerEntry entry = state.container(action.pos());
         if (entry == null) {
-            List<ItemSlot> empty = new ArrayList<>(CHEST_SLOTS);
-            for (int i = 0; i < CHEST_SLOTS; i++) {
+            int slots = slotsFor(state.getBlock(action.pos()));
+            List<ItemSlot> empty = new ArrayList<>(slots);
+            for (int i = 0; i < slots; i++) {
                 empty.add(ItemSlot.EMPTY);
             }
             entry = new ContainerEntry(action.pos(), empty);

@@ -135,6 +135,8 @@ public final class FlatWorldRules implements RuleSet {
     public static final int DAYLIGHT_SENSOR = 76;
     /** Chest — a container block; contents live in the root's container table (Task 16 L-10). */
     public static final int CHEST = 77;
+    /** Hopper — a 5-slot container that pulls from above and pushes below on an 8-tick cycle. */
+    public static final int HOPPER = 78;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -205,6 +207,7 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(POWERED_RAIL, "powered_rail"),
             new PaletteEntry(DAYLIGHT_SENSOR, "daylight_sensor"),
             new PaletteEntry(CHEST, "chest"),
+            new PaletteEntry(HOPPER, "hopper"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -358,6 +361,12 @@ public final class FlatWorldRules implements RuleSet {
                 }
                 GravityRules.onPlaced(state, p.pos(), rng);
                 RedstoneRules.observersOnChange(state, p.pos(), env.targetTick());
+                if (p.blockStateId() == HOPPER) {
+                    // A placed hopper self-schedules its transfer cycle on the hashed queue.
+                    state.scheduleTick(p.pos(), HOPPER,
+                            env.targetTick() + dev.nodera.simulation.entity.ContainerRules
+                                    .HOPPER_INTERVAL_TICKS, 0);
+                }
             }
             case BreakBlockAction b -> {
                 boolean affected = RedstoneRules.isRedstoneFamily(state.getBlock(b.pos()))
