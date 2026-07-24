@@ -406,6 +406,8 @@ public final class RedstoneRules {
             } else if (current == FlatWorldRules.BUTTON_ON) {
                 state.setBlock(pos, FlatWorldRules.BUTTON_OFF, null, rng);
                 recomputeNetwork(state, pos, null, rng, tick);
+            } else if (current == FlatWorldRules.HOPPER) {
+                dev.nodera.simulation.entity.ContainerRules.hopperTick(state, pos, tick);
             } else {
                 // Catch-all: fluid cells (and cells about to receive fluid) pull their
                 // desired state; anything else is a stale entry and no-ops inside.
