@@ -49,15 +49,17 @@ public interface ControlHandler {
     }
 
     /**
-     * Author-only password re-key. The worker verifies its own identity is the world author before
-     * applying.
+     * Author-only password re-key (issue #36 F6). The worker verifies its own identity is the world
+     * author before re-keying. Returns {@code null} on success, or a non-null error string surfaced as
+     * {@code NODERA-ERR} — <b>never</b> silent success. The base default is an honest "not supported"
+     * so a worker without the re-key pipeline declines loudly instead of pretending.
      *
-     * @param worldId            the world.
-     * @param newPasswordHashB64 base64 of the new password's hash (never the plaintext password).
-     * @return {@code null} on success; an error message (e.g. "not the author") otherwise.
+     * @param worldId          the world.
+     * @param newPasswordB64   base64 of the new plaintext password (loopback trust boundary).
+     * @return {@code null} on success; an error message otherwise.
      */
-    default String password(String worldId, String newPasswordHashB64) {
-        return "unsupported";
+    default String password(String worldId, String newPasswordB64) {
+        return "password re-key is not supported by this worker";
     }
 
     /** @return a one-line JSON status for a world (players/health/permissions), or "{}". */

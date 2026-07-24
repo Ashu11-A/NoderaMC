@@ -45,7 +45,15 @@ public final class ControlProtocol {
     /** Stop hosting a world: {@code NODERA-STOP <worldId>}. */
     public static final String STOP = "NODERA-STOP";
 
-    /** Author-only re-key: {@code NODERA-PASSWORD <worldId> <newPasswordHashB64>}. */
+    /**
+     * Author-only re-key (issue #36 F6 contract fix):
+     * {@code NODERA-PASSWORD <worldId> <newPasswordB64>} — the <b>plaintext</b> new password, base64.
+     * The loopback control socket (127.0.0.1) is the trust boundary and the same machine already
+     * holds every key, so plaintext is honest here. (The previous contract carried a password
+     * <i>hash</i>, which mathematically cannot re-derive the Argon2id content key — an unimplementable
+     * contract that reported success.) Reply: {@code NODERA-OK} on a successful re-key, or
+     * {@code NODERA-ERR <reason>} — never silent success.
+     */
     public static final String PASSWORD = "NODERA-PASSWORD";
 
     /** Per-world status (players/health/permissions) request; reply is one JSON line. */

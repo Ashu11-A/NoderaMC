@@ -233,6 +233,27 @@ public final class WorkerControlHandler implements ControlHandler {
     }
 
     @Override
+    public String password(String worldId, String newPasswordB64) {
+        // F6: the verb now carries plaintext (loopback trust boundary) and the worker is the sole
+        // password authority — verify authorship BEFORE attempting anything. The full re-key pipeline
+        // (re-derive WorldKeyMaterial → re-encrypt + re-split archive → new manifest version →
+        // WorldIdentity.resign → refresh announce) is not yet wired, so this declines with an honest,
+        // actionable error rather than reporting success (the old contract's failure mode).
+        if (worldId == null || worldId.isBlank()) {
+            return "missing worldId";
+        }
+        if (newPasswordB64 == null || newPasswordB64.isBlank()) {
+            return "missing new password";
+        }
+        boolean author = hosting.hostedWorlds().stream()
+                .anyMatch(w -> worldId.equalsIgnoreCase(w.worldIdHex()));
+        if (!author) {
+            return "not the author of this world";
+        }
+        return "password re-key pipeline not yet implemented (issue #36 follow-up)";
+    }
+
+    @Override
     public String grantRole(String worldIdHex, String subjectNodeId, String subjectPublicKeyB64,
                             int roleOrdinal, long grantVersion) {
         // The worker signs as the world author; the recipient key is bound into the grant (F2).
