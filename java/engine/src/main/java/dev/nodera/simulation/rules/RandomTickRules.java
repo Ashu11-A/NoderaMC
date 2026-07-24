@@ -91,8 +91,11 @@ public final class RandomTickRules {
             return;
         }
         NBlockPos above = new NBlockPos(pos.x(), pos.y() + 1, pos.z());
-        if (pos.y() < FlatWorldRules.MAX_Y && state.getBlock(above) != FlatWorldRules.AIR) {
-            state.setBlock(pos, FlatWorldRules.DIRT, null, rng); // smothered grass dies
+        // L-4 light gate (vanilla): grass dies below light 4, measured at the cell above.
+        // The opaque-above smother case reads 0 through the LightField fast path.
+        if (pos.y() < FlatWorldRules.MAX_Y
+                && dev.nodera.simulation.lighting.LightField.lightAt(state, above) < 4) {
+            state.setBlock(pos, FlatWorldRules.DIRT, null, rng);
             return;
         }
         // One spread attempt into the 3×3×3 neighborhood (offsets drawn even when the target
@@ -109,8 +112,10 @@ public final class RandomTickRules {
             return; // cross-border spread waits for the halo lane
         }
         NBlockPos aboveTarget = new NBlockPos(target.x(), target.y() + 1, target.z());
+        // L-4 light gate (vanilla): spread needs light >= 9 over the receiving dirt.
         if (state.getBlock(target) == FlatWorldRules.DIRT
-                && state.getBlock(aboveTarget) == FlatWorldRules.AIR) {
+                && state.getBlock(aboveTarget) == FlatWorldRules.AIR
+                && dev.nodera.simulation.lighting.LightField.lightAt(state, aboveTarget) >= 9) {
             state.setBlock(target, FlatWorldRules.GRASS_BLOCK, null, rng);
         }
     }
