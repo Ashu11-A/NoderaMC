@@ -147,6 +147,46 @@ final class ProjectileRulesTest {
     }
 
     @Test
+    void arrowStopsWhenItStrikesAMob() {
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        // A fast, near-flat shot (2 blocks/tick) so gravity barely drops it over the short flight.
+        PersistedEntityState arrow = new PersistedEntityState(
+                NetworkEntityId.allocate(region, SnapshotVersion.INITIAL, 1),
+                EntityKind.PROJECTILE, ProjectileRules.ARROW_TYPE_ID,
+                FixedVec3.fromExternal(60.5, 64.5, 64.5),
+                new FixedVec3(2 * FixedVec3.ONE, 0L, 0L),
+                0, ProjectileRules.LIFETIME_TICKS, Bytes.empty());
+        // A stationary mob two blocks downrange (never-despawn ghost, no walkable floor ⇒ idles).
+        PersistedEntityState mob = new PersistedEntityState(
+                NetworkEntityId.allocate(region, SnapshotVersion.INITIAL, 2),
+                EntityKind.GHOST, 54,
+                FixedVec3.fromExternal(62.5, 64.5, 64.5), FixedVec3.ZERO,
+                0, PersistedEntityState.NEVER_DESPAWN, Bytes.empty());
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(arrow, mob));
+
+        RegionExecutionResult first = executeTicks(base, List.of(), 5);
+        RegionExecutionResult second = executeTicks(base, List.of(), 5);
+        assertThat(second.resultingRoot())
+                .as("the entity strike is replica-identical")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 5L);
+        PersistedEntityState stuck = soleProjectile(settled);
+        assertThat(stuck.vel())
+                .as("the arrow embedded in the mob — velocity killed")
+                .isEqualTo(FixedVec3.ZERO);
+        assertThat(stuck.pos().blockX())
+                .as("the arrow stopped short of the mob and never flew past it")
+                .isLessThan(62);
+        assertThat(settled.entities().stream()
+                .filter(e -> e.kind() == EntityKind.GHOST).findFirst())
+                .as("the struck mob is still present (damage is L-13's job)")
+                .isPresent();
+    }
+
+    @Test
     void fastShotDoesNotTunnelThroughAThinWall() {
         RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
         // A vanilla-speed bow shot (~3 blocks/tick) at a 1-block-thick wall (air on both sides).

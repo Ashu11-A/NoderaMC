@@ -83,8 +83,10 @@ vanilla, matching what a player sees, never matching a vanilla float trajectory 
   decaying with squared distance; mobs are not yet kinematic. Chain ignition and border fail-closed
   (cross-region blast rides the T13 migration lane).
 - **Projectiles (L-9):** vanilla-shaped arc (drag `0.99`, gravity `0.05`) in Q32.32; an opaque
-  block stops the shot. Hit detection is destination-block (a voxel-DDA face-snap is a later
-  refinement — very fast shots may tunnel through a one-block wall in a single tick).
+  block stops the shot, and so does a mob within a half-block radius (arrow embedded in a mob).
+  Hit detection marches in ≤1-block sub-steps so a thin wall stops even a fast shot (a true
+  voxel-DDA face-snap + water slow-down is a later refinement). Applying damage to a struck mob
+  is the L-13 lane.
 - **Minecarts (L-9):** vanilla top speed (`0.4`); a cart follows the rail graph by connectivity
   (no rail-shape states), powered rails boost, plain rails bleed speed. Slopes/ascent gravity
   and redstone-gated powered rails are not yet modelled.

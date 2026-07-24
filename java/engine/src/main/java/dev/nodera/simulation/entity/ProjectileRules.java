@@ -5,6 +5,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NBlockPos;
+import dev.nodera.core.state.NetworkEntityId;
 import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.simulation.DeterministicRandom;
 import dev.nodera.simulation.MutableRegionState;
@@ -27,16 +28,18 @@ import java.util.List;
  * pinned). Constants are pre-baked Q32.32 literals (drag 0.99, gravity 0.05 blocks/tick² — the
  * arrow envelope); no float ever enters hashed state.
  *
- * <p><b>Hit detection (block stop):</b> the per-tick move is marched in ≤1-block sub-steps and
- * the shot STICKS at the first opaque cell (not {@link LightField#isTransparent}) it meets —
- * velocity zeroed, held one sub-step short (the player-visible "arrow embedded in the wall"). The
- * march never skips a voxel, so a thin wall stops even a fast shot; transparent cells (air, fluids)
- * are passed. If a block mutation earlier in the same tick filled the shot's own cell, it is held
- * in place. Border crossings hand the entity to the neighbour region exactly like items.
+ * <p><b>Hit detection (block + entity stop):</b> the per-tick move is marched in ≤1-block
+ * sub-steps. At each sub-step the shot STICKS (velocity zeroed, one sub-step short) at the first
+ * opaque block (not {@link LightField#isTransparent}) OR the first non-projectile entity within
+ * {@link #HIT_RADIUS} (an arrow embedded in a wall / a mob). The march never skips a voxel, so a
+ * thin wall stops even a fast shot; transparent cells (air, fluids) are passed. The entity target
+ * is chosen in canonical id order, so it is replica-deterministic. If a block mutation earlier in
+ * the same tick filled the shot's own cell, it is held in place. Border crossings hand the entity
+ * to the neighbour region exactly like items. (Applying damage to a struck mob is the L-13 lane.)
  *
- * <p>Remaining (later L-9 increments): entity-hit detection (arrow strikes a mob), a true voxel-DDA
- * face-snap (the unit-step march is exact on the dominant axis, approximate on diagonals) + water
- * slow-down, the player action that fires a projectile, live evidence.
+ * <p>Remaining (later L-9 increments): a true voxel-DDA face-snap (the unit-step march is exact on
+ * the dominant axis, approximate on diagonals) + water slow-down, the player action that fires a
+ * projectile, live evidence.
  *
  * @Thread-context stateless; safe from any thread.
  */
@@ -50,6 +53,8 @@ public final class ProjectileRules {
     public static final int LIFETIME_TICKS = 1_200;
     /** Arrow entity type id (the mod maps it when mirroring the shot). */
     public static final int ARROW_TYPE_ID = 300;
+    /** Entity-collision radius: a shot within this of an entity's centre has struck it (Q32.32). */
+    public static final long HIT_RADIUS = FixedVec3.ONE / 2;
 
     private ProjectileRules() {
     }
@@ -117,6 +122,12 @@ public final class ProjectileRules {
                 state.transferEntity(target, withMotion(shot, candidate, nextVel));
                 return;
             }
+            PersistedEntityState struck = entityStruckAt(state, candidate, shot.id());
+            if (struck != null) {
+                // Hit a mob: the shot embeds one sub-step short (damage application is L-13's job).
+                state.updateEntity(withMotion(shot, pos, FixedVec3.ZERO));
+                return;
+            }
             int block = state.getBlock(cell);
             if (block != FlatWorldRules.AIR && !LightField.isTransparent(block)) {
                 state.updateEntity(withMotion(shot, pos, FixedVec3.ZERO)); // stick one sub-step short
@@ -139,6 +150,31 @@ public final class ProjectileRules {
             return -FixedVec3.ONE;
         }
         return remaining;
+    }
+
+    /**
+     * The first non-projectile entity whose centre is within {@link #HIT_RADIUS} of {@code at} on
+     * every axis (the shot's own id is excluded so it never strikes itself). Iteration is over the
+     * canonical id-ordered entity list, so the chosen target is replica-deterministic.
+     */
+    private static PersistedEntityState entityStruckAt(
+            MutableRegionState state, FixedVec3 at, NetworkEntityId self) {
+        for (PersistedEntityState entity : state.entities()) {
+            if (entity.id().equals(self) || entity.kind() == EntityKind.PROJECTILE) {
+                continue;
+            }
+            if (within(at.x(), entity.pos().x())
+                    && within(at.y(), entity.pos().y())
+                    && within(at.z(), entity.pos().z())) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
+    private static boolean within(long a, long b) {
+        long d = a - b;
+        return d <= HIT_RADIUS && d >= -HIT_RADIUS;
     }
 
     private static PersistedEntityState withMotion(
