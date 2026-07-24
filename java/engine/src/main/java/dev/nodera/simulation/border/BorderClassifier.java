@@ -48,7 +48,10 @@ public final class BorderClassifier {
         // A pickup or an attack targets an entity already tracked in this region — it has no
         // block target and can never be cross-region by construction.
         if (action instanceof PickupItemAction
-                || action instanceof dev.nodera.core.action.AttackEntityAction) {
+                || action instanceof dev.nodera.core.action.AttackEntityAction
+                || action instanceof dev.nodera.core.action.MovePlayerAction) {
+            // Movement is always processed by the CURRENT owner — a border step becomes the
+            // engine-emitted transfer, never a re-routed action.
             return false;
         }
         NBlockPos pos = targetPosition(action);
@@ -81,6 +84,8 @@ public final class BorderClassifier {
             case dev.nodera.core.action.AttackEntityAction ignored -> throw new IllegalStateException(
                     "AttackEntityAction has no block target; handled before reaching targetPosition");
             case dev.nodera.core.action.ContainerAction c -> c.pos();
+            case dev.nodera.core.action.MovePlayerAction ignored -> throw new IllegalStateException(
+                    "MovePlayerAction is region-local by construction; handled before targetPosition");
                     case dev.nodera.core.action.InteractBlockAction i -> i.pos();
         };
     }

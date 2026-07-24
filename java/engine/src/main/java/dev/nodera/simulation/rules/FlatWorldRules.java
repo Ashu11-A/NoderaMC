@@ -314,6 +314,7 @@ public final class FlatWorldRules implements RuleSet {
             case PickupItemAction p -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.AttackEntityAction a -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.ContainerAction c -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
+            case dev.nodera.core.action.MovePlayerAction m -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.InteractBlockAction i -> validateInteract(view, env, i);
         };
     }
@@ -415,6 +416,8 @@ public final class FlatWorldRules implements RuleSet {
                     "FlatWorldRules.apply received an AttackEntityAction (should be rejected in validate)");
             case dev.nodera.core.action.ContainerAction c -> throw new IllegalStateException(
                     "FlatWorldRules.apply received a ContainerAction (should be rejected in validate)");
+            case dev.nodera.core.action.MovePlayerAction m -> throw new IllegalStateException(
+                    "FlatWorldRules.apply received a MovePlayerAction (should be rejected in validate)");
         }
     }
 
