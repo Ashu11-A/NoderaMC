@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# nodera e2e-ownership — live Test 1 (docs/Testing.Live.md):
+# nodera e2e-ownership — live Test 1 (docs/Testing.md):
 #
 #   O1  player A shares a world on the Nodera network; player B joins through
 #       the tracker/rendezvous — each player's node owns its own FOV regions
@@ -148,6 +148,11 @@ wait_log "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_
 JOIN_PID=$!; PIDS+=("$JOIN_PID")
 wait_log "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
     || fail "O1: player B never joined"
+# A world baked before a FlatWorldRules.RULES_VERSION bump carries a certified genesis the current
+# engine refuses, so the lane never boots and this wait would burn its whole timeout with no stated
+# cause — bail out the moment the bootstrap failure appears instead.
+grep -qa "entity lane bootstrap failed" "$LOG_DIR/client-host.log" 2>/dev/null \
+    && fail "O1: the staged world's certified genesis predates the current FlatWorldRules.RULES_VERSION — re-bake it: rm -rf $HOST_SAVE && scripts/e2e-continuity.sh"
 wait_log "$LOG_DIR/client-host.log" "member node(s)" 180 \
     || fail "O1: ownership plan never spanned both players"
 wait_log "$LOG_DIR/client-joiner.log" "client validation lane active" 180 \

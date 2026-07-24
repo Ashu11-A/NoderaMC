@@ -28,7 +28,7 @@ assignees: ''
 - [ ] criterion 2
 - [ ] `./gradlew check` green
 - [ ] `README.md` progress bar + module table updated
-- [ ] `Tested.md` updated
+- [ ] `docs/Testing.md` updated
 - [ ] `LIMITATIONS.md` updated if a §B row is staged/retired
 - [ ] Closes via `Closes #N`
 

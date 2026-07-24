@@ -1,9 +1,268 @@
-# Tested.md — module test status
+# Testing.md — live test procedures + module test status
 
-<!-- AI-AGENT-INSTRUCTION: This file is updated on EVERY commit that changes test outcomes.
-     Update the README module table at the same time so the two never drift. Compute "Last run"
-     from the most recent `./gradlew check`. Keep emojis consistent with README:
-     ✅ all green · 🚧 partial (some sub-systems stubbed) · ⏳ in progress · ❌ failing. -->
+<!-- AI-AGENT-INSTRUCTION: This file is the SINGLE testing document (it merged the former
+     docs/Testing.Live.md and the repo-root Tested.md on 2026-07-24).
+     Part 1 documents the SCRIPTED live acceptance suites: how to run each one, what each stage
+     asserts, and how to read the logs/artifacts. Update it whenever a script gains/changes a
+     stage. Part 2 is the module test-status ledger: update it on EVERY commit that changes test
+     outcomes, together with the README module table, so the two never drift. -->
+
+# Part 1 — the live two-player test procedures
+
+All live suites drive **real NeoForge clients** (each with its **own peer worker**) against the
+standalone `nodera-tracker` + `nodera-rendezvous` services — the full decentralized stack on one
+machine. They need a GUI session (the clients render on your display), ~6 GB free RAM, and the
+Rust toolchain. The headless rehearsals (`WorldContinuityIT`, `ActionForwardIT`,
+`WorkerQuorumValidationIT`) cover the same flows Minecraft-free and run in `./gradlew check`.
+
+## Running — one suite at a time, via the runner
+
+**`scripts/run-tests.sh` is the entry point.** It builds once, then executes the requested suites
+**strictly one at a time** — the suites share the port block 25599–25622 and the Minecraft run
+dirs, so concurrency is structurally impossible: the runner holds an exclusive `flock`
+(`run/.e2e-suite.lock`) that every standalone suite honours too (a second stack refuses to start).
+
+```bash
+scripts/run-tests.sh                    # every suite, canonical order (~45 min)
+scripts/run-tests.sh commands crash     # just these suites
+scripts/run-tests.sh --no-build churn   # skip the up-front build
+
+# suites can still run standalone (each takes the same lock + checks its ports):
+scripts/e2e-continuity.sh               # also BAKES the shared world others reuse
+scripts/e2e-ownership.sh --no-build
+scripts/e2e-churn.sh     --no-build [--cycles 5]
+scripts/e2e-pickup.sh    --no-build
+scripts/e2e-commands.sh  --no-build
+scripts/e2e-farlands.sh  --no-build
+scripts/e2e-crash.sh     --no-build
+scripts/play-two.sh      --no-build     # not a test: two interactive clients
+```
+
+Canonical order matters once: `e2e-continuity.sh` bakes
+`java/neoforge-mod/run-host/saves/NoderaE2E` (a genuinely shared world with a signed
+`nodera-world.dat` + certified genesis); `e2e-ownership.sh`, `e2e-churn.sh`, and `e2e-crash.sh`
+reuse it. **Run these live suites whenever a change touches the mod's host/join/lane/continuity
+surfaces** — the headless gate cannot see NeoForge-config-gated lifecycle paths, and most of the
+defects listed at the end of this part were only catchable live.
+
+**Stale-bake trap (re-bake after a rules bump).** The baked `NoderaE2E` world stores a *certified
+genesis* pinned to the `FlatWorldRules.RULES_VERSION` of the day it was baked. Bump that constant
+and the current engine refuses the old genesis — `Nodera: entity lane bootstrap failed:
+IllegalArgumentException: rulesVersion N does not match FlatWorldRules.RULES_VERSION M` — so the
+entity lane never boots and every ownership assertion in the bake-reusing suites (`ownership`,
+`churn`, `crash`) fails with no obvious cause. Those suites now bail out immediately naming this;
+the fix is a re-bake:
+
+```bash
+rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
+```
+
+| Suite | What it proves | Duration |
+|---|---|---|
+| `e2e-continuity.sh` | World survives the host: share → join → archive on the network → host killed → player B recovers + re-hosts | ~8 min |
+| `e2e-ownership.sh` | **Test 1** — per-player FOV region ownership + the cross-owner drive + host leave/network re-join | ~10 min |
+| `e2e-churn.sh` | **Test 2** — join/leave churn ×5 with random dwell; log audit proves no error accumulation | ~12 min |
+| `e2e-pickup.sh` | Clean-slate validated pickup delivers exactly once (no vanish, no dupe) | ~6 min |
+| `e2e-commands.sh` | **Two players × every `/nodera` command** with response validation, plus the in-game `/nodera selftest` tree-walk + benchmark | ~8 min |
+| `e2e-farlands.sh` | Two players **~566 km apart**: positions verified, per-player chunk-control interrogated (`nodera zone` + `REGION:` owner evidence) | ~8 min |
+| `e2e-crash.sh` | One client **SIGKILLed mid-session**: the survivor sees no disruption, no continuity arm, **no migration screen**; the crashed player rejoins | ~7 min |
+| `e2e-ownership-follow.sh` | **Ownership follows the player**: after a multi-thousand-block teleport the session re-plans and the player's client re-derives its owned region set at the new position | ~5 min |
+| `play-two.sh` | Not a test — full stack + two interactive clients for hands-on play | manual |
+
+**How Minecraft is launched** — no GUI automation anywhere: the scripts use quick play.
+`runClientHost` boots straight into the shared world (`--quickPlaySingleplayer NoderaE2E`; the
+Task 33 auto-re-share puts it on the network), `runClientJoin`/`runClientJoinTwo` boot straight
+into the session (`--quickPlayMultiplayer 127.0.0.1:25599`, usernames JoinerDev/JoinerTwo),
+`runClientRejoin` is player A returning as a network client. Distinct usernames prevent the
+duplicate-login kick. Staged worlds pin `host.gamePort=25599`, disable Mojang session auth
+(`host.onlineAuth=false` — offline dev accounts), and enable `entity.laneAutoActivate`. The
+dedicated-server suites (`pickup`, `commands`, `farlands`) drive gameplay over **RCON**
+(port 25575) — teleports, inventory reads, and `execute as <player> run …` command execution.
+Shared staging lives in `scripts/lib/e2e-lib.sh` (ports, infra, workers, RCON client, log
+collection) — new suites source it instead of re-pasting the stack.
+
+## Test 1 — region ownership (`e2e-ownership.sh`)
+
+Stages (each `PASS`/`FAIL` line names its stage):
+
+- **O1** — player A shares; player B joins through the tracker; the plan spans both nodes
+  (`entity lane live on N region(s) across 2 member node(s)` in `client-host.log`) and player B's
+  client runs its own validation lane (`client validation lane active on N region(s)` in
+  `client-joiner.log`).
+- **O2** — the **drive** (`debug.regionDrive=true`): the server teleports each player to a region
+  its own node owns, then sends player B into player A's region. Evidence lines in
+  `client-host.log`:
+  ```
+  DRIVE step 1: HostDev → its own region Region[...]; JoinerDev → its own region Region[...]
+  DRIVE step 2: JoinerDev → HostDev's region Region[...] (cross-owner visit)
+  REGION: JoinerDev left Region[...] → entered Region[...] (owner: HostDev)
+  ```
+  The `REGION:` tracker runs always (not only during tests) — every boundary crossing logs the
+  entered region's owning player when the plan knows it.
+- **O3** — player A killed; player B recovers the world from the network and re-hosts it.
+  *Boundary note:* today this is a **visible, brief recovery** (fetch → reopen → re-share, a few
+  seconds). The goal's "no loading screen at all" is the Task 16 local-replica view — the client
+  simulating its own regions so a departed peer changes nothing on screen; the stage asserts what
+  the current architecture guarantees: **the session and world survive**.
+- **O4** — player A re-joins the same world **over the network** (now hosted by player B), and
+  ownership re-plans across the pair again.
+
+## Test 2 — churn (`e2e-churn.sh`)
+
+- **C1** — player A hosts.
+- **C2 ×5** — player B joins (`JoinerDev joined the game`), dwells 10–30 s (random), is killed
+  abruptly (worst-case disconnect), and the leave registers. Each cycle re-plans ownership; the
+  survivors absorb the departed node's regions.
+- **C3** — log audit over `client-host.log` + both worker logs: any `ERROR`/`FATAL` line fails
+  the test, minus a curated allowlist of benign disconnect noise (`Lost connection`,
+  `Connection reset`, …). WARN lines are allowed — the lane logs expected degradations
+  (revokes, stale plans) at WARN by design.
+
+## Commands suite (`e2e-commands.sh`) + the in-game `/nodera selftest`
+
+- **K0/K1** — clean-slate dedicated server (RCON on) + three workers + JoinerDev + JoinerTwo
+  joined, entity lane live.
+- **K2** — **each player executes every read-surface `/nodera` command** (session, status, peers,
+  net, net `<type>`, regions, zone, entities, health, server, worlds, share status,
+  whois `<other>`, all four hud toggles, debug sample-rate/verbose/relay, and `/tps`), driven via
+  RCON `execute as <player> at <player> run …`. Every response is captured to a per-player
+  transcript and validated against a per-command expectation (e.g. `nodera session` must contain
+  `epoch`, `nodera share status` must say `Sharing: yes`).
+- **K3** — `/nodera selftest`: the mod itself **walks the live Brigadier tree** under
+  `nodera`/`tps`, synthesizes arguments, executes every reachable leaf **as each connected
+  player** against a capturing command source, times each read-only command over 3 iterations
+  (the command benchmark), and persists JSON + Markdown reports under
+  `<world>/nodera-selftest/selftest-<stamp>.{json,md}` with a single greppable
+  `SELFTEST complete: ok=… syntaxErr=… exception=… report=…` summary line. The stage requires
+  `syntaxErr=0 exception=0`, then re-runs as `/nodera selftest full` (adds the `op`/`deop` grant
+  lane; `share`/`share stop` are never executed — they would flip the host lane under the
+  joiners).
+- **K4** — everything is collected under `run/results/e2e-commands/<stamp>/`: per-player command
+  transcripts, the selftest reports, and the logs of **every** component (tracker, rendezvous,
+  all three workers, the dedicated server, and both Minecraft clients).
+
+## Farlands suite (`e2e-farlands.sh`)
+
+- **F0** — same staging as the commands suite (two joined players, lane live).
+- **F1** — the players are teleported **~566 km apart** (`(200000, 200, 200000)` vs
+  `(-200000, 200, -200000)`); their real positions are read back over RCON
+  (`data get entity <p> Pos`) and asserted within ±16 blocks.
+- **F2** — per-player chunk-control interrogation: `nodera zone` (the region at the player's
+  feet + its `OwnershipState`), `nodera regions`, `nodera entities` — each response transcribed;
+  the two players must report **distinct regions**. A +64-block nudge teleport then crosses a
+  region boundary so the always-on `REGION:` tracker logs the entered region's **owner by name**;
+  the assertion is that each far-apart player owns the region it stands in (its own FOV disc).
+- **F3** — artifacts: the interrogation transcript, all three workers' `NODERA-STATE` JSON
+  snapshots, and every service/client log land under `run/results/e2e-farlands/<stamp>/`.
+
+## Ownership-follow suite (`e2e-ownership-follow.sh`)
+
+Pins the FOV model's central promise — **the regions you own follow your view**.
+
+- **W0/W1** — clean-slate dedicated server + one joining player; the player's own client lane
+  reports a non-empty owned region set (`client validation lane active on N region(s)`).
+- **W2** — the player is teleported thousands of blocks away, crossing dozens of region
+  boundaries. A **new** plan must be computed and broadcast, and the client must re-derive its
+  region set at the new position. Both assertions use `wait_log_after` so they can only be
+  satisfied by log lines written *after* the teleport.
+- **W3/W4** — the teleport landed, and the re-plan swaps produced no errors and no tick-loop crash.
+
+**Whose ownership is being read matters.** Ownership belongs to *players*, not to the session
+server: the server's node holds no `PlayerView`, so on a dedicated server it correctly owns zero
+regions once players announce their nodes, and `/nodera regions` — which answers for the server
+node — reads empty. That is the no-host model working, not a blind panel. A player's real
+ownership is its client lane, which is what this suite asserts on.
+
+Two defects this suite caught, both invisible to the headless gate:
+
+1. **Ownership never followed the player.** `NoderaHost.planKey` hashed only `(player → node)`
+   pairs, so the plan froze at the positions held when the last player joined; walking away left
+   you reading `FOREIGN`/`UNASSIGNED` for the ground under your feet. Region coordinates are now
+   part of the key and a once-a-second tick re-plans on boundary crossings (5 s cooldown so a
+   player straddling a boundary cannot churn the lane).
+2. **A cooldown that suppressed every re-plan.** The first version seeded the last-re-plan tick
+   to `Long.MIN_VALUE`; `tick - Long.MIN_VALUE` overflows negative, so the cooldown test was
+   always true and no movement re-plan ever fired. The live run caught it — the fix compiled,
+   passed the headless gate, and did nothing at all. It is now seeded one cooldown in the past.
+
+## Crash suite (`e2e-crash.sh`)
+
+- **X0** — player A hosts the baked `NoderaE2E` world; player B joins (continuity topology).
+- **X1** — player B's client JVM is **SIGKILLed** mid-session: a real crash — no disconnect
+  packet, no shutdown hooks, the TCP peer just goes silent.
+- **X2** — the survivor must be **undisturbed**: the leave registers, ownership re-plans across
+  the remaining member set, and the stage FAILS if the survivor arms continuity recovery
+  (`Nodera continuity: host connection lost`), shows the migration screen
+  (`nodera.continuity.migrating`), crashes (`Exception in server tick loop`), or logs any
+  non-allowlisted `ERROR`/`FATAL` in a 20 s observation window.
+- **X3** — the world is still live: player B rejoins the same session successfully.
+- *Boundary:* the inverse case — the **host** crashes — is the continuity recovery
+  (`e2e-continuity.sh` S4–S5, `e2e-ownership.sh` O3). There the joiner's brief "Migrating
+  world…" beat is today's accepted seam; removing it is exactly Task 16's local-replica view.
+
+## Reading the logs + artifacts
+
+Live logs land under `run/logs/<suite>/`; the newer suites additionally copy **everything**
+(suite logs, tracker/rendezvous logs, per-player worker logs, each Minecraft client's
+`latest.log`, command transcripts, selftest reports, worker STATE snapshots) into
+`run/results/<suite>/<stamp>/` for offline analysis. The batch runner tees each suite's output to
+`run/results/runner/<stamp>/<suite>.out` next to `summary.txt`.
+
+| File | What to look for |
+|---|---|
+| `client-host.log` / `client-join*.log` / `server.log` | `Nodera: sharing world`, `game server open for joiners`, `entity lane live … member node(s)`, `client validation lane active`, `DRIVE`/`REGION:` lines, `SELFTEST complete:`, `Nodera continuity: host connection lost` → `restored to saves/` |
+| `worker-*.log` | `Now hosting world`, `Seeding world archive vN — P piece(s)`, `Fetched world archive` |
+| `tracker.log` / `rendezvous.log` | announce acks, signed-record registrations |
+| `commands-*.log` / `interrogation.log` | per-player command → response transcripts (commands/farlands suites) |
+| `nodera-selftest/selftest-*.{json,md}` | the in-game suite's per-command status/benchmark/response report |
+| in-game (manual runs) | `/nodera regions`, `/nodera entities`, `/nodera selftest`; the `NODERA-STATE` control verb (port 25610/25611/25612) returns live JSON: `maintained_pieces`, `connected_worlds`, `validation` counters |
+
+Quick greps:
+
+```bash
+grep -a "REGION: \|DRIVE " run/logs/e2e-ownership/client-host.log   # ownership evidence
+grep -a "validation lane active" run/logs/e2e-ownership/client-joiner.log
+grep -aE "ERROR|FATAL" run/logs/e2e-churn/*.log                     # should be empty/benign
+grep -a "SELFTEST complete" run/logs/e2e-commands/server.log        # the in-game suite verdict
+```
+
+## Defects these tests caught (all fixed 2026-07-23 — why the suite exists)
+
+1. `setClientPlayerReady`/`tickGamePublish` had no callers — auto-re-shared worlds were listed
+   but never joinable.
+2. The published integrated server enforced Mojang session auth — offline dev accounts were
+   refused (`host.onlineAuth`, secure by default).
+3. Piece-plane stall — bounded seeders silently drop over-budget requests and the downloader
+   never re-issued (`PieceDownloader.retryPending` + bulk bounds for the archive lane).
+4. **Host self-recovery cascade** — the hosting JVM armed its own continuity: any local-connection
+   hiccup made the host "recover" the world it was still hosting, reopening it and kicking every
+   joiner in a loop. Guards: a hosting JVM never arms recovery, never starts a second in-JVM
+   client peer, never runs a duplicate client validation lane.
+5. **Player-position loss** — the world archive excluded `playerdata/`, so a rehosted world reset
+   every returning player to spawn with an empty inventory. Player state is world state:
+   `playerdata/`, `advancements/`, `stats/` now travel.
+6. The drive re-ran on every rejoin (teleporting players who just came back) — it now runs once
+   per server session; the replan path de-dupes on the member set so announce storms cannot churn
+   the lane through close/reopen cycles.
+
+## Known boundaries (tracked in `LIMITATIONS.md`)
+
+- Player B's survival of a **host** exit is a **recovery**, not yet seamless. Since 2026-07-23 the
+  seam is minimized: the joiner's worker **prefetches the world archive while the session is
+  healthy** (hot standby — no download phase on loss) and the transition screen is a quiet
+  vanilla-style "Migrating world…" beat, so what remains visible is the world-open itself
+  (~1–3 s). Removing that last seam is exactly Task 16's local-replica view — each client
+  simulating its own regions so a departed peer changes nothing on screen (design prior art:
+  the ownership-takeover model in `docs/minecraft/MultiPaper/`). A **non-host** crash is already
+  seamless for the survivors — that is what `e2e-crash.sh` pins.
+- The validated event families are the entity/item lane; blocks/fluids/mobs/etc. join per
+  Tasks 13–16.
+- Action envelopes are signed by one interim session key (declared in the plan payload);
+  per-player signing is staged.
+
+---
+
+# Part 2 — module test status
 
 **Tests:** `1,298 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,442 total**).
 
@@ -11,8 +270,8 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 > **Task-numbering note (2026-07-21):** the task numbers cited throughout this file ("Task 19",
 > "Task 33", …) are the **legacy** per-increment task numbering. Those specs now live verbatim in
-> [`docs/old/`](docs/old/); the current module-task set is `docs/Task.0.md` … `docs/Task.7.md`,
-> with the legacy→new mapping in [`docs/Task.0.md`](docs/Task.0.md) §4. The history below is kept
+> [`old/`](old/); the current module-task set is `Task.0.md` … `Task.7.md`,
+> with the legacy→new mapping in [`Task.0.md`](Task.0.md) §4. The history below is kept
 > as-is — it is the test-growth record.
 >
 > **Test growth + resync (→ 1,288 Java; issues #39 + #37):** the per-module table is recomputed from
@@ -40,7 +299,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103); issue #36/33 add the signed identity/permission stores | 97 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
 | `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`GRANT`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries; `RekeyVerbIT` proves the password re-key crypto+identity round trip), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 371 | 0 | 0 | 🚧 | 2026-07-24 |
-| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), issue #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (bind failure never crashes the integrated server), and the #43 continuity hardening (`WorldArchiver` continuous streaming cadence + bounded final flush + seeded-version freshness marker — `WorldArchiverStreamingTest`) | 68 | 0 | 0 | 🚧 | 2026-07-24 |
+| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), issue #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (bind failure never crashes the integrated server), the #43 continuity hardening (`WorldArchiver` continuous streaming cadence + bounded final flush + seeded-version freshness marker — `WorldArchiverStreamingTest`), and the `/nodera selftest` in-game command test+benchmark drive (tree walk, per-player capturing execution, persisted JSON/MD reports) | 68 | 0 | 0 | 🚧 | 2026-07-24 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
 | **TOTAL (implemented modules)** | | **1298** | **0** | **0** | ✅ | 2026-07-24 |
 
@@ -143,7 +402,7 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > reconciliation increment** (+10, all `peer`): `EntityLaneBootstrapTest` (9) — deterministic
 > seed-derived genesis manifest pinned to `FlatWorldRules`, byte-stable all-AIR initial snapshots
 > matching the canonical `FakeRegion` fixture, epoch-1 leases from the FOV ownership plan
-> (closest-node-primary committees, map-order-independent), argument validation — and
+> (closest-node-primary committees, map-order-independence), argument validation — and
 > `DurableActionJournalTest.abortPendingCompensatesOnlyReservedEntriesAndKeepsSequencesConsumed`:
 > a dirty shutdown's RESERVED actions are compensated at reopen while their sequence numbers stay
 > consumed and re-reservation with a different payload still fails. `NoderaHost` gained the
@@ -180,7 +439,7 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > per-type breakdown, and correct member/gateway/epoch). The `Palette` Semantic→colour totality is
 > enforced at compile time by the exhaustive enum `switch`, not a runtime test.
 >
-> Test growth (746 → 773 Java) is **Task 33 — live worker data + world identity/authorship + P2P
+> **Test growth (746 → 773 Java) is Task 33 — live worker data + world identity/authorship + P2P
 > permissions** (+27). `core` (+5): `WorldRole` + tags 92/93 (registry snapshot). `storage-api` (+15):
 > `WorldIdentityTest` (author-signed, derived-unique `worldId`, tamper-reject, author-only re-sign),
 > `WorldPermissionGrantTest` (signed/versioned grant round-trip + tamper), `WorldPermissionsTest` (the

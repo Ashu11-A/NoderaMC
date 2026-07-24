@@ -142,7 +142,11 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
 
 1. **Run tests before committing.** Execute `./gradlew check`. If it is red, you do NOT commit.
    If you cannot fix a failure immediately, open a `bug` issue (`.github/ISSUE_SYSTEM.md`) and stop.
-2. **Update `README.md` + `Tested.md` in the same commit** that changes outcomes: recompute the
+   When the change touches the mod's host/join/lane/continuity/command surfaces, also run the
+   relevant live suite(s) via `scripts/run-tests.sh <suite…>` (docs/Testing.md Part 1) — the
+   headless gate cannot see NeoForge-config-gated lifecycle paths. Live suites run strictly one
+   at a time (the runner + suites hold `run/.e2e-suite.lock`).
+2. **Update `README.md` + `docs/Testing.md` in the same commit** that changes outcomes: recompute the
    progress-bar percentage, the module status table, the roadmap ticks, and the test counts.
    Keep every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment.
 3. **Use the commit-message standard** (see README.md → "Commit message standard"):
@@ -163,7 +167,7 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    both gates are green on the PR head (`gh pr checks <n>`). Never leave an open PR unreviewed
    at the end of a session.
 2. **Reconcile the issue ledger.** `gh issue list --state open --limit 100` — for each issue,
-   compare against the CURRENT tree (code + `Tested.md` + `docs/LIMITATIONS.md`):
+   compare against the CURRENT tree (code + `docs/Testing.md` + `docs/LIMITATIONS.md`):
    - work landed → `gh issue close <n> -c "<evidence: tests/register rows/commits>"` (always
      with an evidence comment, never a bare close);
    - work newly discovered (a live defect, a precise repro, a staged exit) →

@@ -57,6 +57,15 @@ the<NeoForgeExtension>().apply {
         programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
                 "--username", "HostDev")
     }
+    // Second scripted joiner (scripts/e2e-commands.sh / e2e-farlands.sh): a THIRD player slot so
+    // two network clients can sit on one dedicated server simultaneously. Own game dir + username
+    // — the run-join dir/name would collide with the first joiner's lock and login.
+    runs.register("clientJoinTwo") {
+        client()
+        gameDirectory.set(project.layout.projectDirectory.dir("run-join2"))
+        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+                "--username", "JoinerTwo")
+    }
     // Second interactive client for manual two-player testing (scripts/play-two.sh): own game
     // dir + username, no quick play — the player drives the Nodera multiplayer UI by hand.
     runs.register("clientTwo") {
