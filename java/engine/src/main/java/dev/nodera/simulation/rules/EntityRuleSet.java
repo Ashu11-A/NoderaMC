@@ -121,6 +121,15 @@ public final class EntityRuleSet implements RuleSet {
             MutableRegionState state, ActionEnvelope env, PickupItemAction pickup) {
         PersistedEntityState entity = state.removeEntity(pickup.entityId());
         ItemEntityRules.ItemStack stack = ItemEntityRules.decodePayload(entity.payload());
+        // L-11: when the actor's PLAYER entity is registered in this region, the pickup lands in
+        // the VALIDATED root inventory; the one-way credit remains only as the migration stopgap
+        // (no player entity yet, or a full inventory — never lost, never duped either way).
+        PersistedEntityState player = dev.nodera.simulation.entity.PlayerRules
+                .findPlayer(state.entities(), env.actor());
+        if (player != null && dev.nodera.simulation.entity.PlayerRules
+                .addToInventory(state, player, stack.itemStackId(), stack.count())) {
+            return;
+        }
         state.creditInventory(new InventoryCredit(
                 env.actor(), entity.id(), stack.itemStackId(), stack.count()));
     }

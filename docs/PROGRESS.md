@@ -34,6 +34,15 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **L-11 player-root inventory core lands (2026-07-24, L-11 → RETIRING):** `EntityKind.PLAYER` —
+> the player's root presence carries owner + the 36-slot inventory in its payload (`PlayerRules`).
+> Pickups and container withdrawals land in the VALIDATED root inventory when the player entity is
+> registered; the one-way credit survives only as the migration stopgap. A portal/region hand-off
+> moves the whole inventory through the dupe-proof joint-certificate pipeline — removed at source,
+> materialised exactly once at target (`PlayerInventoryTest`, 3). Same day, L-14's portal half:
+> `PortalRules` + `NETHER_PORTAL` (84) prove cross-dimension travel IS generalized region transfer
+> (8:1 fixed-point scale, no new protocol). Bar 85.8 → 86.2%.
+>
 > **L-18 committee rotation lands (2026-07-24, L-18 → RETIRING):** `CommitteeManager.draftRotation`
 > is deterministic rendezvous-hash rotation — every replica derives the identical next committee
 > from (region, nextEpoch, population), the epoch input reshuffles seats so tenure is bounded, and

@@ -26,5 +26,12 @@ public enum EntityKind {
      * target of {@link #GHOST}: a species whose behaviour AND vitals originate here no longer
      * needs {@code mobCapture} (Task 16, L-13).
      */
-    MOB
+    MOB,
+    /**
+     * A player's validated root presence (Task 16, L-11): the payload carries the owning
+     * {@code NodeId} plus the player's INVENTORY, so pickups/withdrawals mutate committed state
+     * instead of emitting one-way credits, and a region hand-off moves the inventory through the
+     * same dupe-proof joint-certificate transfer pipeline as any entity.
+     */
+    PLAYER
 }

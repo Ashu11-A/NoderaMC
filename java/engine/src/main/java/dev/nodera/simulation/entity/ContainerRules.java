@@ -221,7 +221,15 @@ public final class ContainerRules {
         } else {
             state.putContainer(updated);
         }
-        // Same replay-safe one-way credit lane as pickup: (actor, entityId) dedupes replays.
+        // L-11: a registered PLAYER entity receives the withdrawal in its VALIDATED root
+        // inventory; otherwise the replay-safe one-way credit lane (like pickup) still applies.
+        PersistedEntityState player = PlayerRules.findPlayer(state.entities(), env.actor());
+        if (player != null
+                && PlayerRules.addToInventory(state, player, action.itemStackId(), action.count())) {
+            dev.nodera.simulation.rules.RedstoneRules.onContainerChanged(
+                    state, action.pos(), rng, env.targetTick());
+            return;
+        }
         state.creditInventory(new InventoryCredit(
                 env.actor(),
                 NetworkEntityId.allocate(state.region(), state.baseVersion(),
