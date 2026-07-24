@@ -76,17 +76,18 @@ final class RailRulesTest {
         return TestFixtures.region(0, 0);
     }
 
-    /** A square rail ring: powered north edge, plain south/east/west edges. */
+    /** A square rail ring: redstone-powered north edge, plain south/east/west edges. */
     private List<ActionEnvelope> poweredLoop(int min, int max) {
         List<ActionEnvelope> out = new ArrayList<>();
         long[] seq = {1};
         for (int x = min; x <= max; x++) {
-            place(out, seq, x, min, FlatWorldRules.POWERED_RAIL); // north edge (powered)
-            place(out, seq, x, max, FlatWorldRules.RAIL);          // south edge
+            place(out, seq, x, min, FlatWorldRules.POWERED_RAIL);       // north edge (powered)
+            place(out, seq, x, max, FlatWorldRules.RAIL);                // south edge
+            place(out, seq, x, min - 1, FlatWorldRules.REDSTONE_BLOCK);  // power the north edge
         }
         for (int z = min + 1; z < max; z++) {
-            place(out, seq, min, z, FlatWorldRules.RAIL);          // west edge
-            place(out, seq, max, z, FlatWorldRules.RAIL);          // east edge
+            place(out, seq, min, z, FlatWorldRules.RAIL);                // west edge
+            place(out, seq, max, z, FlatWorldRules.RAIL);                // east edge
         }
         return out;
     }
@@ -147,6 +148,31 @@ final class RailRulesTest {
     }
 
     @Test
+    void unpoweredRailDoesNotBoost() {
+        RegionSnapshot base = airWorldWith(cart(region, 1, 60.5, 64.5,
+                RailRules.MAX_SPEED, 0L));
+        List<ActionEnvelope> track = new ArrayList<>();
+        long[] seq = {1};
+        for (int x = 60; x <= 70; x++) {
+            place(track, seq, x, 64, FlatWorldRules.POWERED_RAIL); // NO redstone ⇒ not powered
+        }
+
+        RegionExecutionResult first = executeTicks(base, track, 20);
+        RegionExecutionResult second = executeTicks(base, track, 20);
+        assertThat(second.resultingRoot())
+                .as("the coast settles to one root on every replica")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 20L);
+        PersistedEntityState minecart = settled.entities().stream()
+                .filter(e -> e.kind() == EntityKind.MINECART).findFirst().orElseThrow();
+        assertThat(minecart.vel().x())
+                .as("an unpowered powered rail does NOT boost — friction bleeds the speed")
+                .isLessThan(RailRules.MAX_SPEED);
+    }
+
+    @Test
     void cartTransfersAcrossTheRegionBorder() {
         // Region(0,0) owns blocks x in [0,127]; a powered track runs to the east edge.
         RegionSnapshot base = airWorldWith(cart(region, 1, 124.5, 64.5,
@@ -179,6 +205,7 @@ final class RailRulesTest {
         long[] seq = {1};
         for (int x = 60; x <= 70; x++) {
             place(track, seq, x, 64, FlatWorldRules.POWERED_RAIL);
+            place(track, seq, x, 63, FlatWorldRules.REDSTONE_BLOCK); // power the track from the north
         }
 
         RegionExecutionResult first = executeTicks(base, track, 20);
@@ -192,7 +219,7 @@ final class RailRulesTest {
         PersistedEntityState minecart = settled.entities().stream()
                 .filter(e -> e.kind() == EntityKind.MINECART).findFirst().orElseThrow();
         assertThat(minecart.vel().x())
-                .as("a powered rail pins the cart to MAX_SPEED every tick")
+                .as("a redstone-powered rail pins the cart to MAX_SPEED every tick")
                 .isEqualTo(RailRules.MAX_SPEED);
         assertThat(minecart.pos().blockX())
                 .as("the cart advanced down the powered track")

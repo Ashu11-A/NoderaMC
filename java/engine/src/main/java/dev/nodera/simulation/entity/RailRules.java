@@ -8,6 +8,7 @@ import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.simulation.DeterministicRandom;
 import dev.nodera.simulation.MutableRegionState;
 import dev.nodera.simulation.rules.FlatWorldRules;
+import dev.nodera.simulation.rules.RedstoneRules;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,8 +28,10 @@ import java.util.List;
  * corner turns onto the outgoing leg rather than backing up. Position is snapped to the rail
  * centerline on the cross-axis each tick, so the cart rides the middle of the track.
  *
- * <p><b>Speed:</b> over a {@code POWERED_RAIL} the speed is set to {@link #MAX_SPEED} (boost);
- * over a plain rail it decays by {@link #FRICTION} (carts coast). A cart at rest stays at rest —
+ * <p><b>Speed:</b> over a {@code POWERED_RAIL} that is receiving redstone power
+ * ({@link RedstoneRules#cellReceivingPower}) the speed is set to {@link #MAX_SPEED} (boost);
+ * an unpowered powered rail or a plain rail decays by {@link #FRICTION} (carts coast). A cart at
+ * rest stays at rest —
  * it needs an initial push (vanilla needs a slope or a shove), so a stopped cart never spontaneously
  * reverses at a dead-end. Constants are pre-baked Q32.32 literals; no float enters hashed state.
  *
@@ -103,7 +106,9 @@ public final class RailRules {
             }
         }
         long speed = speedAlong(cart.vel());
-        if (state.getBlock(cell) == FlatWorldRules.POWERED_RAIL) {
+        boolean boost = state.getBlock(cell) == FlatWorldRules.POWERED_RAIL
+                && RedstoneRules.cellReceivingPower(state, cell);
+        if (boost) {
             speed = MAX_SPEED;
         } else {
             speed = multiplyFixed(speed, FRICTION);
