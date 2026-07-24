@@ -92,7 +92,7 @@ public final class EntityRuleSet implements RuleSet {
             case PickupItemAction pickup -> applyPickup(state, env, pickup);
             case AttackEntityAction attack -> applyAttack(state, attack);
             case dev.nodera.core.action.ContainerAction container ->
-                    dev.nodera.simulation.entity.ContainerRules.apply(state, env, container);
+                    dev.nodera.simulation.entity.ContainerRules.apply(state, env, container, rng);
         }
     }
 

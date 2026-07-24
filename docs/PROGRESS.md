@@ -34,6 +34,18 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **T16 container lane engine core COMPLETE (2026-07-24, L-10 → RETIRING):** four increments in
+> one day — (1) container contents enter the hashed root (`ContainerEntry` tag 105, snapshot body
+> v4, delta body v5 replace semantics); (2) `CHEST` + `ContainerAction` (tag 29): committee-validated
+> deposit/withdraw (kind, slot bounds, reach, current contents — no conjuring, no overdraft),
+> withdraw credits inventory through the pickup lane, break-drop spills validated ITEMs; (3)
+> `HOPPER` — a self-scheduling 8-tick machine on the hashed queue draining chest→hopper→chest
+> replica-identically; (4) comparators (79–82) emit container fill (state-dependent directional
+> source in the BFS seeding) with REACTIVE re-settling on every container mutation, plus
+> `NOTE_BLOCK` (83). Delegability is palette-driven, so container regions are delegable now.
+> `ContainerStateRootTest` (5) + `ContainerRulesTest` (7). Bar 85.0 → 85.4% (RETIRING flip).
+> Remaining L-10: chest GUI + live evidence (mod-side).
+>
 > **L-39 per-world encryption RETIRED (2026-07-24):** the worker SEED half landed —
 > `WorldArchiveService.seedEncryptedArchive` AES-GCM-encrypts the whole-save archive blob under
 > the production-KDF-derived key (`WorldArchive.encryptArchive`; Argon2id, PBKDF2 fallback; public

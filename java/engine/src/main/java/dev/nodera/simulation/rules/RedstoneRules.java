@@ -262,12 +262,60 @@ public final class RedstoneRules {
                 || id == FlatWorldRules.LEVER_OFF || id == FlatWorldRules.TORCH_OFF
                 || id == FlatWorldRules.BUTTON_OFF
                 || isPistonBase(id) || isPistonHead(id)
-                || isDaylightSensor(id);
+                || isDaylightSensor(id) || isComparator(id);
     }
 
     /** @return whether {@code id} is a daylight sensor (Task 14 L-6). */
     public static boolean isDaylightSensor(int id) {
         return id == FlatWorldRules.DAYLIGHT_SENSOR;
+    }
+
+    /** @return whether {@code id} is a comparator state (any facing; Task 16 L-10). */
+    public static boolean isComparator(int id) {
+        return id >= FlatWorldRules.COMPARATOR_NORTH && id <= FlatWorldRules.COMPARATOR_EAST;
+    }
+
+    /** The block position a comparator OUTPUTS into (its facing direction). */
+    public static NBlockPos comparatorFront(int id, NBlockPos pos) {
+        int f = id - FlatWorldRules.COMPARATOR_NORTH;
+        return new NBlockPos(pos.x() + FACING_DX[f], pos.y(), pos.z() + FACING_DZ[f]);
+    }
+
+    /** The block position a comparator READS (behind — where the measured container sits). */
+    public static NBlockPos comparatorBack(int id, NBlockPos pos) {
+        int f = id - FlatWorldRules.COMPARATOR_NORTH;
+        return new NBlockPos(pos.x() - FACING_DX[f], pos.y(), pos.z() - FACING_DZ[f]);
+    }
+
+    /**
+     * A comparator's output: the fill signal of the container block directly behind it (0 when
+     * the cell behind is not a container). State-dependent like the daylight sensor — it cannot
+     * ride the id-static {@link #emittedPowerTowards} and is special-cased in the BFS seeding.
+     */
+    public static int comparatorOutput(MutableRegionState state, NBlockPos pos, int id) {
+        NBlockPos back = comparatorBack(id, pos);
+        int backId = state.getBlock(back);
+        if (!dev.nodera.simulation.entity.ContainerRules.isContainer(backId)) {
+            return 0;
+        }
+        return dev.nodera.simulation.entity.ContainerRules.containerSignal(
+                state.container(back),
+                dev.nodera.simulation.entity.ContainerRules.slotsFor(backId));
+    }
+
+    /**
+     * A container's contents changed (deposit/withdraw/hopper): re-settle the network in front of
+     * every adjacent comparator so the fill signal propagates without waiting for an unrelated
+     * recompute (the L-6 static-sensor gotcha, fixed at the source for comparators).
+     */
+    public static void onContainerChanged(
+            MutableRegionState state, NBlockPos pos, DeterministicRandom rng, long tick) {
+        for (NBlockPos n : dev.nodera.simulation.NeighborUpdateOrder.neighborsOf(pos)) {
+            int nid = state.getBlock(n);
+            if (isComparator(nid) && comparatorBack(nid, n).equals(pos)) {
+                recomputeNetwork(state, comparatorFront(nid, n), null, rng, tick);
+            }
+        }
     }
 
     /**
@@ -407,7 +455,7 @@ public final class RedstoneRules {
                 state.setBlock(pos, FlatWorldRules.BUTTON_OFF, null, rng);
                 recomputeNetwork(state, pos, null, rng, tick);
             } else if (current == FlatWorldRules.HOPPER) {
-                dev.nodera.simulation.entity.ContainerRules.hopperTick(state, pos, tick);
+                dev.nodera.simulation.entity.ContainerRules.hopperTick(state, pos, tick, rng);
             } else {
                 // Catch-all: fluid cells (and cells about to receive fluid) pull their
                 // desired state; anything else is a stale entry and no-ops inside.
@@ -566,10 +614,16 @@ public final class RedstoneRules {
             int seed = 0;
             for (NBlockPos n : NeighborUpdateOrder.neighborsOf(wire)) {
                 int nid = state.getBlock(n);
-                // A daylight sensor's output is state+time-dependent, not id-static.
-                int contribution = isDaylightSensor(nid)
-                        ? daylightOutput(state, n)
-                        : emittedPowerTowards(nid, n, wire);
+                // Daylight sensors and comparators are state-dependent, not id-static.
+                int contribution;
+                if (isDaylightSensor(nid)) {
+                    contribution = daylightOutput(state, n);
+                } else if (isComparator(nid)) {
+                    contribution = comparatorFront(nid, n).equals(wire)
+                            ? comparatorOutput(state, n, nid) : 0;
+                } else {
+                    contribution = emittedPowerTowards(nid, n, wire);
+                }
                 seed = Math.max(seed, contribution);
             }
             settled.put(wire, seed);
