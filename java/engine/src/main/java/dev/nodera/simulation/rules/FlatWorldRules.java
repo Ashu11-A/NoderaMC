@@ -118,6 +118,15 @@ public final class FlatWorldRules implements RuleSet {
     public static final int GRAVEL = 64;
     /** Fire (ages and spreads through random ticks; burns planks/logs). */
     public static final int FIRE = 65;
+    /** Observers: facing = the WATCHED direction; output pulses out the BACK. OFF placeable. */
+    public static final int OBSERVER_NORTH_OFF = 66;
+    public static final int OBSERVER_NORTH_ON = 67;
+    public static final int OBSERVER_SOUTH_OFF = 68;
+    public static final int OBSERVER_SOUTH_ON = 69;
+    public static final int OBSERVER_WEST_OFF = 70;
+    public static final int OBSERVER_WEST_ON = 71;
+    public static final int OBSERVER_EAST_OFF = 72;
+    public static final int OBSERVER_EAST_ON = 73;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -176,6 +185,14 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(LAVA_FLOW_BASE + 2, "lava_flow_3"),
             new PaletteEntry(GRAVEL, "gravel"),
             new PaletteEntry(FIRE, "fire"),
+            new PaletteEntry(OBSERVER_NORTH_OFF, "observer_north_off"),
+            new PaletteEntry(OBSERVER_NORTH_ON, "observer_north_on"),
+            new PaletteEntry(OBSERVER_SOUTH_OFF, "observer_south_off"),
+            new PaletteEntry(OBSERVER_SOUTH_ON, "observer_south_on"),
+            new PaletteEntry(OBSERVER_WEST_OFF, "observer_west_off"),
+            new PaletteEntry(OBSERVER_WEST_ON, "observer_west_on"),
+            new PaletteEntry(OBSERVER_EAST_OFF, "observer_east_off"),
+            new PaletteEntry(OBSERVER_EAST_ON, "observer_east_on"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -219,6 +236,10 @@ public final class FlatWorldRules implements RuleSet {
         for (int level = 0; level < 3; level++) {
             s.clear(LAVA_FLOW_BASE + level);
         }
+        s.clear(OBSERVER_NORTH_ON);
+        s.clear(OBSERVER_SOUTH_ON);
+        s.clear(OBSERVER_WEST_ON);
+        s.clear(OBSERVER_EAST_ON);
         for (int p = 1; p <= 15; p++) {
             s.clear(WIRE_0 + p);
         }
@@ -322,6 +343,7 @@ public final class FlatWorldRules implements RuleSet {
                     FluidRules.onChanged(state, p.pos(), env.targetTick());
                 }
                 GravityRules.onPlaced(state, p.pos(), rng);
+                RedstoneRules.observersOnChange(state, p.pos(), env.targetTick());
             }
             case BreakBlockAction b -> {
                 boolean affected = RedstoneRules.isRedstoneFamily(state.getBlock(b.pos()))
@@ -336,6 +358,7 @@ public final class FlatWorldRules implements RuleSet {
                     FluidRules.onChanged(state, b.pos(), env.targetTick());
                 }
                 GravityRules.onVacated(state, b.pos(), rng);
+                RedstoneRules.observersOnChange(state, b.pos(), env.targetTick());
             }
             case dev.nodera.core.action.InteractBlockAction i -> {
                 RedstoneRules.interact(state, i.pos(), env, rng, env.targetTick());

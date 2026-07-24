@@ -29,9 +29,13 @@ understand, and never delegates a region whose boundary a foreign mechanic could
 
 ## 4. Redstone
 
-Redstone is excluded from validated lanes by palette until Task 13. Contraptions run pure
-vanilla; a redstone component next to a delegated region demotes that region via the neighbor
-ring (see §3).
+The validated lane owns redstone in delegated regions (Task 13/14, palette v3): wire, torch,
+repeater, button, piston, observer — including quasi-connectivity (a piston also reads power
+through the cell above it, and only re-evaluates when it receives an update, so BUD behavior
+emerges from the scheduling model rather than being simulated). Vanilla scheduled ticks for
+delegated chunks are cancelled at the source (`LevelTicksMixin`); a contraption whose signals
+cross into a vanilla-lane region demotes its whole group (`CONTRAPTION_CROSSES_VANILLA`) and
+runs pure vanilla — correct, slower — until redelegation.
 
 ## 5. Chunk tickets
 

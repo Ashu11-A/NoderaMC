@@ -129,6 +129,7 @@ public final class FluidRules {
         int desired = desiredAt(state, pos, current);
         if (desired != current) {
             state.setBlock(pos, desired, null, rng);
+            RedstoneRules.observersOnChange(state, pos, tick);
             boolean water = isFluid(desired) ? isWater(desired)
                     : isFluid(current) && isWater(current);
             for (NBlockPos n : dev.nodera.simulation.NeighborUpdateOrder.neighborsOf(pos)) {
