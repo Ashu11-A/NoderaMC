@@ -34,6 +34,8 @@ public final class EntityRuleSet implements RuleSet {
             case DropItemAction drop -> validateDrop(view, env, drop);
             case PickupItemAction pickup -> validatePickup(view, env, pickup);
             case AttackEntityAction attack -> validateAttack(view, env, attack);
+            case dev.nodera.core.action.ContainerAction container ->
+                    dev.nodera.simulation.entity.ContainerRules.validate(view, env, container);
         };
     }
 
@@ -89,6 +91,8 @@ public final class EntityRuleSet implements RuleSet {
             case DropItemAction drop -> applyDrop(state, env, drop);
             case PickupItemAction pickup -> applyPickup(state, env, pickup);
             case AttackEntityAction attack -> applyAttack(state, attack);
+            case dev.nodera.core.action.ContainerAction container ->
+                    dev.nodera.simulation.entity.ContainerRules.apply(state, env, container);
         }
     }
 

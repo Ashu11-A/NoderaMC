@@ -49,4 +49,14 @@ public interface RegionWorldView {
 
     /** Return current canonical entity state, or {@code null} when absent. */
     PersistedEntityState entity(NetworkEntityId id);
+
+    /**
+     * @return the container table entry at {@code pos}, or {@code null} when none exists (an
+     *         empty, never-touched chest has no entry — the table is sparse). Default null for
+     *         views predating the container lane (Task 16 / L-10).
+     * @Thread-context thread-confined per call.
+     */
+    default dev.nodera.core.state.ContainerEntry container(NBlockPos pos) {
+        return null;
+    }
 }

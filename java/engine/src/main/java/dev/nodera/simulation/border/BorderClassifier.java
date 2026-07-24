@@ -80,6 +80,7 @@ public final class BorderClassifier {
                     "PickupItemAction has no block target; handled before reaching targetPosition");
             case dev.nodera.core.action.AttackEntityAction ignored -> throw new IllegalStateException(
                     "AttackEntityAction has no block target; handled before reaching targetPosition");
+            case dev.nodera.core.action.ContainerAction c -> c.pos();
                     case dev.nodera.core.action.InteractBlockAction i -> i.pos();
         };
     }

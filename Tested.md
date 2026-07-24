@@ -5,7 +5,7 @@
      from the most recent `./gradlew check`. Keep emojis consistent with README:
      ✅ all green · 🚧 partial (some sub-systems stubbed) · ⏳ in progress · ❌ failing. -->
 
-**Tests:** `1,210 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,354 total**).
+**Tests:** `1,216 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,360 total**).
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
@@ -17,15 +17,15 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 227 | 0 | 0 | ✅ | 2026-07-24 |
-| `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics | 405 | 0 | 0 | ✅ | 2026-07-24 |
+| `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 228 | 0 | 0 | ✅ | 2026-07-24 |
+| `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics | 410 | 0 | 0 | ✅ | 2026-07-24 |
 | `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green | 84 | 0 | 0 | ✅ | 2026-07-24 |
 | `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103) | 82 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
 | `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 361 | 0 | 0 | 🚧 | 2026-07-24 |
 | `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, and the continuity halves (`WorldArchiver` share/stop seeding, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload) | 37 | 0 | 0 | 🚧 | 2026-07-24 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **1210** | **0** | **0** | ✅ | 2026-07-24 |
+| **TOTAL (implemented modules)** | | **1216** | **0** | **0** | ✅ | 2026-07-24 |
 
 Line coverage (JaCoCo XML/HTML under `java/<m>/build/reports/jacoco/`): core 82.21% · engine
 87.18% · transport 85.32% · storage 79.96% · peer 82.17% · testing 90.91% · neoforge-mod 8.79%.
