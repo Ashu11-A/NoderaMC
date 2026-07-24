@@ -233,6 +233,69 @@ public final class WorldArchive {
                 pieces);
     }
 
+    /**
+     * Encrypt one archive snapshot under a world password (Task 23 / L-39, the worker SEED half).
+     * The production KDF ({@code PasswordKeyDerivations.production()}: Argon2id, PBKDF2 fallback)
+     * derives the {@code ContentKey}; the KDF parameters travel publicly in the encrypted
+     * manifest's {@code WorldKeyMaterial} so any joiner with the password derives identically.
+     * Seeders store and serve only ciphertext — the piece hashes, {@code ContentId}, and blob all
+     * cover ciphertext; the plaintext identity stays pinned in {@code regionRoot}.
+     *
+     * @param version  the archive snapshot version (monotonic per world).
+     * @param blob     the canonical plaintext archive bytes.
+     * @param password the world password (caller zeroes it after use, best effort).
+     * @param salt     the public per-world salt ({@code PASSWORD_KDF_SALT_BYTES}+ random bytes).
+     * @return the ciphertext manifest + pieces.
+     * @Thread-context any thread.
+     */
+    public static EncryptedRegion encryptArchive(
+            long version, byte[] blob, char[] password, Bytes salt) {
+        PieceManifest plain = manifestFor(version, blob);
+        dev.nodera.core.crypto.symmetric.PasswordKeyDerivation kdf =
+                PasswordKeyDerivations.production();
+        WorldKeyMaterial material =
+                dev.nodera.core.crypto.symmetric.PasswordKeyDerivation.ARGON2ID.equals(kdf.kdfId())
+                        ? WorldKeyMaterial.defaultArgon2id(salt)
+                        : WorldKeyMaterial.pbkdf2(salt,
+                        dev.nodera.core.crypto.symmetric.Pbkdf2KeyDerivation.DEFAULT_ITERATIONS);
+        dev.nodera.core.crypto.symmetric.ContentKey key =
+                kdf.derive(password, salt, material.iterations());
+        return EncryptedRegion.encrypt(plain, Bytes.unsafeWrap(blob), key, material);
+    }
+
+    /**
+     * Decrypt a fetched encrypted archive with the world password (the join half; the GUI prompt
+     * that collects the password is the remaining live-lane piece). The KDF is selected BY the
+     * manifest's public {@code WorldKeyMaterial}; a wrong password fails the AES-GCM tag and
+     * yields empty — never a garbage archive. The plaintext is additionally re-checked against
+     * the manifest's plaintext {@code regionRoot}.
+     *
+     * @param manifest   the encrypted manifest (from the seeder swarm).
+     * @param ciphertext the completely fetched ciphertext blob.
+     * @param password   the world password.
+     * @return the plaintext archive bytes, or empty on a wrong password / tampered ciphertext.
+     * @Thread-context any thread.
+     */
+    public static java.util.Optional<byte[]> decryptArchive(
+            PieceManifest manifest, byte[] ciphertext, char[] password) {
+        if (!manifest.encrypted() || manifest.keyMaterial() == null) {
+            throw new IllegalArgumentException("manifest is not an encrypted archive");
+        }
+        WorldKeyMaterial material = manifest.keyMaterial();
+        dev.nodera.core.crypto.symmetric.PasswordKeyDerivation kdf = switch (material.kdf()) {
+            case dev.nodera.core.crypto.symmetric.PasswordKeyDerivation.ARGON2ID ->
+                    new Argon2KeyDerivation();
+            case dev.nodera.core.crypto.symmetric.PasswordKeyDerivation.PBKDF2 ->
+                    new dev.nodera.core.crypto.symmetric.Pbkdf2KeyDerivation();
+            default -> throw new IllegalArgumentException("unknown KDF: " + material.kdf());
+        };
+        dev.nodera.core.crypto.symmetric.ContentKey key =
+                kdf.derive(password, material.salt(), material.iterations());
+        return EncryptedRegion.decrypt(manifest, Bytes.unsafeWrap(ciphertext), key)
+                .filter(plain -> HASHES.sha256(plain).equals(manifest.regionRoot().hash()))
+                .map(Bytes::toArray);
+    }
+
     /** Reject null/empty/absolute/traversing entry paths (see class Javadoc, "Safety"). */
     private static String checkedPath(String path) {
         if (path == null || path.isEmpty()) {

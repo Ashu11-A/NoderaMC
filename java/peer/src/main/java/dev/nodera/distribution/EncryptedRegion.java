@@ -102,16 +102,36 @@ public record EncryptedRegion(PieceManifest manifest, List<EncryptedPiece> piece
             ContentKey key,
             WorldKeyMaterial keyMaterial) {
         Objects.requireNonNull(layout, "layout");
+        return encrypt(layout.manifest(), layout.blob(), key, keyMaterial);
+    }
+
+    /**
+     * Encrypt any plaintext manifest + blob pair (the archive lane's whole-save blobs take this
+     * path — they have no {@code RegionSnapshot} to build a {@code Layout} from).
+     *
+     * @param plain plaintext manifest whose pieces cover {@code blob}.
+     * @param blob the plaintext blob.
+     * @param key content key derived by the host.
+     * @param keyMaterial public KDF metadata carried by the encrypted manifest.
+     * @return ciphertext manifest and pieces.
+     * @Thread-context any thread.
+     */
+    public static EncryptedRegion encrypt(
+            PieceManifest plain,
+            Bytes blob,
+            ContentKey key,
+            WorldKeyMaterial keyMaterial) {
+        Objects.requireNonNull(plain, "plain");
+        Objects.requireNonNull(blob, "blob");
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(keyMaterial, "keyMaterial");
 
-        PieceManifest plain = layout.manifest();
         if (plain.encrypted()) {
             throw new IllegalArgumentException("layout must contain a plaintext manifest");
         }
         StateRoot regionRoot = plain.regionRoot();
         SnapshotVersion version = plain.version();
-        byte[] plaintextBlob = layout.blob().toArray();
+        byte[] plaintextBlob = blob.toArray();
 
         List<Piece> ciphertextPieces = new ArrayList<>(plain.pieceCount());
         List<EncryptedPiece> encryptedPieces = new ArrayList<>(plain.pieceCount());

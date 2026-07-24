@@ -34,6 +34,17 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **L-39 per-world encryption RETIRED (2026-07-24):** the worker SEED half landed —
+> `WorldArchiveService.seedEncryptedArchive` AES-GCM-encrypts the whole-save archive blob under
+> the production-KDF-derived key (`WorldArchive.encryptArchive`; Argon2id, PBKDF2 fallback; public
+> parameters in `WorldKeyMaterial`) BEFORE it touches the content store, so the worker and every
+> seeder store/move only ciphertext; joiners decrypt with `WorldArchive.decryptArchive`.
+> `EncryptedArchiveTest`: exact round-trip, wrong password ⇒ empty (GCM tag, never garbage),
+> tampered ciphertext rejected, plaintext identity pinned in `regionRoot`. With the encrypted
+> piece plane (`EncryptedRegion`), the KDF selection point, and the join throttle already green,
+> every headless exit is met; remaining polish is the GUI password prompt + live re-key. Bar
+> 84.1 → 85.0%. Also: gateway anti-entropy fix (29ada44) — the mesh heals lost join-time gossip.
+>
 > **L-20 multi-party genesis RETIRED (2026-07-24):** the share-flow collection half landed —
 > `GenesisApprovalFlow` (peer) + the wire pair `GenesisApprovalRequest`/`GenesisApprovalGrant`
 > (message tags 58/59, Rust-mirrored): the host pins root + declared founding set, self-approves

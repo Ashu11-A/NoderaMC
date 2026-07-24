@@ -142,6 +142,40 @@ public final class WorldArchiveService implements AutoCloseable {
         return manifest;
     }
 
+    /**
+     * Seed one archive snapshot ENCRYPTED under the world password (Task 23 / L-39): the blob is
+     * AES-GCM-encrypted under the production-KDF-derived key before it touches the content store,
+     * so this worker — and every seeder it serves — stores and moves only ciphertext. The public
+     * KDF parameters ride the manifest ({@code WorldKeyMaterial}); joiners decrypt with
+     * {@code WorldArchive.decryptArchive(manifest, fetched, password)}.
+     *
+     * @param worldIdHex the world.
+     * @param blob       the plaintext archive bytes (never stored).
+     * @param password   the world password; the caller zeroes it after use.
+     * @return the ciphertext manifest now being seeded.
+     * @Thread-context any thread.
+     */
+    public PieceManifest seedEncryptedArchive(String worldIdHex, byte[] blob, char[] password) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        Objects.requireNonNull(blob, "blob");
+        Objects.requireNonNull(password, "password");
+        NavigableMap<Long, PieceManifest> versions =
+                manifests.computeIfAbsent(worldIdHex, k -> new ConcurrentSkipListMap<>());
+        long version = versions.isEmpty() ? 1 : versions.lastKey() + 1;
+        byte[] salt = new byte[dev.nodera.core.NoderaConstants.PASSWORD_KDF_SALT_BYTES];
+        new java.security.SecureRandom().nextBytes(salt);
+        dev.nodera.distribution.EncryptedRegion encrypted = dev.nodera.distribution.WorldArchive
+                .encryptArchive(version, blob, password, Bytes.unsafeWrap(salt));
+        content.publish(encrypted.manifest(), encrypted.ciphertextBlob());
+        versions.put(version, encrypted.manifest());
+        LOG.info("Seeding ENCRYPTED world archive {} v{} — {} piece(s), {} ciphertext byte(s), "
+                        + "kdf {}, root {}",
+                shortId(worldIdHex), version, encrypted.manifest().pieceCount(),
+                encrypted.manifest().totalLength(), encrypted.manifest().keyMaterial().kdf(),
+                encrypted.manifest().manifestRoot().toShortHex(6));
+        return encrypted.manifest();
+    }
+
     /** @return the newest seeded/held manifest for a world, if any. */
     public Optional<PieceManifest> newestManifest(String worldIdHex) {
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
