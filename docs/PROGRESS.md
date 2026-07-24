@@ -34,6 +34,14 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **L-31 diagnostics HUD RETIRED (2026-07-24):** both data halves had already exited with live
+> evidence — `LiveEntityControlProvider` (239 entities / 12 regions live) and
+> `LiveRegionOwnershipProvider` (`14 owned / 896 owned chunks — UNASSIGNED placeholder retired`
+> live) — and the stub provider is replaced by the live singleton registration; the empty
+> placeholder renders only when no lane is active, which is correct behavior, not a gap. Row moved
+> to `LIMITATIONS.fixed.md`. Bar 82.3 → 83.2%. Same day, L-13 melee: `AttackEntityAction` (tag 28
+> live) — committee-validated reach + rule-set-owned damage through the action lane.
+>
 > **T16 opener — validated PvE combat core (2026-07-24, L-13):** `EntityKind.MOB` is the
 > engine-owned validated mob: vitals live in the root as the canonical `[u16 health][u16 maxHealth]`
 > payload (`MobCombatRules`), `SpawnRules` now spawns MOB entities with full vitals (the engine's
