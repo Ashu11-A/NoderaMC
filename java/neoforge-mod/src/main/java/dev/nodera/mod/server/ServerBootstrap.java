@@ -238,6 +238,17 @@ public final class ServerBootstrap {
         if (d != null) {
             d.onServerTickPost(event);
         }
+        // In-game debug console: drain captured Nodera service log lines to subscribed players,
+        // and push the relay-metrics summary every 10 s while anyone is listening (who processes
+        // whose events, and how long — the live-TPS investigation stream).
+        dev.nodera.mod.debug.DebugConsole.flush(event.getServer());
+        if (event.getServer().getTickCount() % 200 == 0) {
+            var relay = NoderaHost.entityLaneRelayMetrics();
+            if (relay != null) {
+                dev.nodera.mod.debug.DebugConsole.push("INFO [RelayMetrics] " + relay.describe()
+                        .replace('\n', ' '));
+            }
+        }
     }
 
     private static void onPlayerTickPost(PlayerTickEvent.Post event) {

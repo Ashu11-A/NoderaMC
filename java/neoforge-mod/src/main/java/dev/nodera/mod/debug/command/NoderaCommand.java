@@ -87,8 +87,9 @@ public final class NoderaCommand {
                                 .then(argument("n", IntegerArgumentType.integer(1, 100))
                                         .executes(ctx -> sampleRate(ctx, service))))
                         .then(literal("verbose")
-                                .then(literal("on").executes(verboseStaged()))
-                                .then(literal("off").executes(verboseStaged())))));
+                                .then(literal("on").executes(ctx -> verbose(ctx, true)))
+                                .then(literal("off").executes(ctx -> verbose(ctx, false))))
+                        .then(literal("relay").executes(NoderaCommand::relay))));
 
         // Issue #46: /tps (OP) — this server's live TPS + per-player round-trip latency (the
         // network view of every connected player; each Nodera player runs their own server, so
@@ -330,12 +331,40 @@ public final class NoderaCommand {
     }
 
     /** {@code /nodera debug verbose} — staged: the surface ships now, finer logging lands with it. */
-    private static Command<CommandSourceStack> verboseStaged() {
-        return ctx -> {
+    /**
+     * {@code /nodera debug verbose on|off} — the in-game Nodera debug console: mirror every
+     * Nodera service log line to this player's chat while enabled.
+     */
+    private static int verbose(CommandContext<CommandSourceStack> ctx, boolean on)
+            throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        if (on) {
+            dev.nodera.mod.debug.DebugConsole.subscribe(player);
             ctx.getSource().sendSuccess(() -> Component.literal(
-                    "verbose logging is staged (ships when richer diagnostics logging lands)"), false);
-            return 1;
-        };
+                    "Nodera debug console ON — service logs stream to this chat."), false);
+        } else {
+            dev.nodera.mod.debug.DebugConsole.unsubscribe(player);
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "Nodera debug console OFF."), false);
+        }
+        return 1;
+    }
+
+    /**
+     * {@code /nodera debug relay} — per-peer event-relay accounting: how many events this node
+     * captured from its own game vs processed for each other player, with average processing
+     * times (the live-TPS investigation surface).
+     */
+    private static int relay(CommandContext<CommandSourceStack> ctx) {
+        var lane = dev.nodera.mod.common.NoderaHost.entityLaneRelayMetrics();
+        if (lane == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "No live validation lane (share the world / join a shared world first)."));
+            return 0;
+        }
+        String text = lane.describe();
+        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        return 1;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> hudBranch(String name, Surface surface,

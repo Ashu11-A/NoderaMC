@@ -40,8 +40,8 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     private final WorkerValidationService validation;
 
-    /** @return the lane's validation service (ownership diagnostics). */
-    WorkerValidationService validation() {
+    /** @return the lane's validation service (ownership diagnostics + relay metrics). */
+    public WorkerValidationService validation() {
         return validation;
     }
     private final ServerEntityWorldView world;
