@@ -138,6 +138,20 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             return false;
         }
         RegionId region = MinecraftEntityAdapters.region(vanillaDrop);
+        // Issue #44: cancelling the vanilla toss is only safe when THIS node is the region's
+        // primary — the commit is then synchronous, so the validated item materializes in the
+        // same tick the vanilla one is cancelled. On the forward path the submit is optimistic
+        // (fire-and-forget to a remote primary): cancelling vanilla against that unconfirmed
+        // commit made the tossed item silently snap back into the inventory whenever the remote
+        // lane stalled (the live play-two "players fail to drop items" repro) — the same failure
+        // shape issue #33 fixed for pickups. Local action stays vanilla-immediate; the validated
+        // lane observes and reconciles via external capture instead of gating the player.
+        boolean localPrimary = validation.lease(region)
+                .map(lease -> lease.primary().equals(authority.nodeId()))
+                .orElse(false);
+        if (!localPrimary) {
+            return false;
+        }
         int itemId = BuiltInRegistries.ITEM.getId(vanillaDrop.getItem().getItem());
         return submit(player, region, new DropItemAction(
                 itemId, vanillaDrop.getItem().getCount(),
