@@ -107,6 +107,10 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         committer.onCommittedVersion(snapshot.region(), snapshot.version());
         regions.add(snapshot.region());
         boundLevels.put(snapshot.region(), level);
+        // Task 13: the engine is THE scheduler for this region now — vanilla scheduled
+        // ticks for its chunks are cancelled at the source (LevelTicksMixin).
+        dev.nodera.mod.server.redstone.RedstoneSuppression.activate(
+                snapshot.region().regionX(), snapshot.region().regionZ());
         for (PersistedEntityState entity : snapshot.entities()) {
             if (entity.kind() == EntityKind.GHOST) {
                 ghosts.add(entity.id());
@@ -357,6 +361,10 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     @Override
     public void close() {
         EntityCaptureBridge.get().uninstall(this);
+        for (RegionId region : regions) {
+            dev.nodera.mod.server.redstone.RedstoneSuppression.deactivate(
+                    region.regionX(), region.regionZ());
+        }
         regions.clear();
         ghosts.clear();
     }
