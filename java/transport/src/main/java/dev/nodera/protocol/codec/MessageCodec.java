@@ -248,8 +248,13 @@ public final class MessageCodec {
     /** Contraption-group migration order: one shared primary, new epochs (Task 13). */
     public static final int TAG_GROUP_MIGRATION = 57;
 
+    /** Ask a founding peer to endorse the genesis root (Task 16 / L-20). */
+    public static final int TAG_GENESIS_APPROVAL_REQUEST = 58;
+    /** One founder's signature over the genesis signed portion (Task 16 / L-20). */
+    public static final int TAG_GENESIS_APPROVAL_GRANT = 59;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 57;
+    public static final int NEXT_TAG = 59;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -278,7 +283,8 @@ public final class MessageCodec {
             TAG_TRACKER_ROUTES_QUERY, TAG_TRACKER_ROUTES_RESPONSE,
             TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD,
             TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER,
-            TAG_HALO_UPDATE, TAG_GROUP_MIGRATION);
+            TAG_HALO_UPDATE, TAG_GROUP_MIGRATION,
+            TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -349,6 +355,8 @@ public final class MessageCodec {
             case TAG_EVENT_SYNC_ANSWER -> "EventSyncAnswer";
             case TAG_HALO_UPDATE -> "HaloUpdate";
             case TAG_GROUP_MIGRATION -> "GroupMigration";
+            case TAG_GENESIS_APPROVAL_REQUEST -> "GenesisApprovalRequest";
+            case TAG_GENESIS_APPROVAL_GRANT -> "GenesisApprovalGrant";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -505,6 +513,8 @@ public final class MessageCodec {
         if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncAnswer) return TAG_EVENT_SYNC_ANSWER;
         if (msg instanceof dev.nodera.protocol.simulationmsg.HaloUpdate) return TAG_HALO_UPDATE;
         if (msg instanceof dev.nodera.protocol.simulationmsg.GroupMigration) return TAG_GROUP_MIGRATION;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalRequest) return TAG_GENESIS_APPROVAL_REQUEST;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalGrant) return TAG_GENESIS_APPROVAL_GRANT;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -777,6 +787,20 @@ public final class MessageCodec {
                     b.region().encode(ww);
                     b.newEpoch().encode(ww);
                 });
+            }
+            case dev.nodera.protocol.simulationmsg.GenesisApprovalRequest m -> {
+                w.writeU16(TAG_GENESIS_APPROVAL_REQUEST).writeU16(ENCODING_VERSION);
+                m.genesisRoot().encode(w);
+                w.writeList(m.founders(), (ww, f) -> {
+                    f.nodeId().encode(ww);
+                    ww.writeBytes(f.publicKey());
+                });
+            }
+            case dev.nodera.protocol.simulationmsg.GenesisApprovalGrant m -> {
+                w.writeU16(TAG_GENESIS_APPROVAL_GRANT).writeU16(ENCODING_VERSION);
+                m.genesisRoot().encode(w);
+                m.founder().encode(w);
+                w.writeBytes(m.signature());
             }
             case WorldManifestQuery m -> {
                 w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
@@ -1239,6 +1263,23 @@ public final class MessageCodec {
                                     .RegionEpochBump(region, epoch);
                         });
                 yield new dev.nodera.protocol.simulationmsg.GroupMigration(primary, bumps);
+            }
+            case TAG_GENESIS_APPROVAL_REQUEST -> {
+                dev.nodera.core.state.StateRoot root = dev.nodera.core.state.StateRoot.decode(r);
+                java.util.List<dev.nodera.protocol.simulationmsg.GenesisApprovalRequest.FounderEntry>
+                        founders = r.readList(rr ->
+                                new dev.nodera.protocol.simulationmsg.GenesisApprovalRequest
+                                        .FounderEntry(
+                                        dev.nodera.core.identity.NodeId.decode(rr),
+                                        rr.readBytesValue()));
+                yield new dev.nodera.protocol.simulationmsg.GenesisApprovalRequest(root, founders);
+            }
+            case TAG_GENESIS_APPROVAL_GRANT -> {
+                dev.nodera.core.state.StateRoot root = dev.nodera.core.state.StateRoot.decode(r);
+                dev.nodera.core.identity.NodeId founder =
+                        dev.nodera.core.identity.NodeId.decode(r);
+                yield new dev.nodera.protocol.simulationmsg.GenesisApprovalGrant(
+                        root, founder, r.readBytesValue());
             }
             case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());
             case TAG_WORLD_MANIFEST_ANSWER -> {

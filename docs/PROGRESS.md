@@ -34,6 +34,16 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **L-20 multi-party genesis RETIRED (2026-07-24):** the share-flow collection half landed —
+> `GenesisApprovalFlow` (peer) + the wire pair `GenesisApprovalRequest`/`GenesisApprovalGrant`
+> (message tags 58/59, Rust-mirrored): the host pins root + declared founding set, self-approves
+> as a founder, asks founders as they join, verifies every grant against the DECLARED founder key,
+> and assembles the self-verifying strict-majority `GenesisRecertification` (tag 104, landed
+> 2026-07-23). A founder signs only a root it can vouch for (fail-closed predicate).
+> `GenesisApprovalFlowIT` proves the full flow over the transport, including a founder on a
+> different world refusing and outsider/forged/duplicate grants never counting. Remaining polish:
+> mod-side share-time call sites. Bar 83.2 → 84.1%.
+>
 > **L-31 diagnostics HUD RETIRED (2026-07-24):** both data halves had already exited with live
 > evidence — `LiveEntityControlProvider` (239 entities / 12 regions live) and
 > `LiveRegionOwnershipProvider` (`14 owned / 896 owned chunks — UNASSIGNED placeholder retired`

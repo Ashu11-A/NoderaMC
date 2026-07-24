@@ -23,7 +23,7 @@
      table + milestone notes live in docs/PROGRESS.md — update THAT file (and Tested.md) on
      every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `83.2%`**
+**Overall system completion: `84.1%`**
 `█████████████████░░░`
 
 Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · test counts:
@@ -43,7 +43,7 @@ Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · te
 | `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 52 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`); shared golden fixtures remain byte-exact | 84 | ✅ |
 | `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates | 82 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
-| `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE` verbs, `WorldContinuityIT` host-death survival) | 355 | 🚧 |
+| `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE` verbs, `WorldContinuityIT` host-death survival) | 357 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, and the continuity halves (`WorldArchiver` share/stop seeding, `NoderaContinuity` disconnect-rehost, server-dist companion gate); Task 5b evidence remains | 37 | 🚧 |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag mirror through Java type tag 102/message tag 48 + socket framing | 35 | ✅ |
 | `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 54 | ✅ |

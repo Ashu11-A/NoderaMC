@@ -124,9 +124,13 @@ pub mod message_tags {
     pub const HALO_UPDATE: u16 = 56;
     /// `GroupMigration` — Java contraption-group migration order (Task 13 border lane).
     pub const GROUP_MIGRATION: u16 = 57;
+    /// `GenesisApprovalRequest` — Java founding-peer genesis endorsement request (Task 16 / L-20).
+    pub const GENESIS_APPROVAL_REQUEST: u16 = 58;
+    /// `GenesisApprovalGrant` — one founder's signature over the genesis signed portion.
+    pub const GENESIS_APPROVAL_GRANT: u16 = 59;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 57;
+    pub const NEXT_TAG: u16 = 59;
 }
 
 /// The message tags this crate can decode today.
