@@ -66,6 +66,9 @@ public final class RedstoneRules {
         if (isRepeater(id)) {
             return repeaterIsOn(id) && repeaterFront(id, at).equals(to) ? 15 : 0;
         }
+        if (isObserver(id)) {
+            return observerIsOn(id) && observerOutput(id, at).equals(to) ? 15 : 0;
+        }
         return emittedPower(id);
     }
 
@@ -153,7 +156,79 @@ public final class RedstoneRules {
                 return true;
             }
         }
+        // Quasi-connectivity (L-5): the piston ALSO reads power at the cell above it, as if a
+        // block sat there. It only re-evaluates when it receives an update, so the classic
+        // BUD staleness emerges from the scheduling model instead of being simulated.
+        NBlockPos above = new NBlockPos(piston.x(), piston.y() + 1, piston.z());
+        return cellWouldBePowered(state, above, piston);
+    }
+
+    /** Whether {@code cell} would be powered if a plain block sat there ({@code except} skipped). */
+    private static boolean cellWouldBePowered(
+            MutableRegionState state, NBlockPos cell, NBlockPos except) {
+        for (NBlockPos n : NeighborUpdateOrder.neighborsOf(cell)) {
+            if (n.equals(except)) {
+                continue;
+            }
+            int nid = state.getBlock(n);
+            if ((isWire(nid) && wirePower(nid) > 0)
+                    || emittedPowerTowards(nid, n, cell) > 0) {
+                return true;
+            }
+        }
         return false;
+    }
+
+    // --- Observers (L-5: watch the front, pulse out the back) -------------------------------
+
+    /** @return whether {@code id} is an observer state (any facing, either output state). */
+    public static boolean isObserver(int id) {
+        return id >= FlatWorldRules.OBSERVER_NORTH_OFF && id <= FlatWorldRules.OBSERVER_EAST_ON;
+    }
+
+    /** @return whether an observer id is the pulsing (ON) variant. */
+    public static boolean observerIsOn(int id) {
+        return isObserver(id) && ((id - FlatWorldRules.OBSERVER_NORTH_OFF) & 1) == 1;
+    }
+
+    /** Flip an observer id between OFF and ON (same facing). */
+    public static int observerToggled(int id) {
+        return observerIsOn(id) ? id - 1 : id + 1;
+    }
+
+    /** The cell an observer WATCHES (its facing direction). */
+    public static NBlockPos observerWatch(int id, NBlockPos pos) {
+        int f = (id - FlatWorldRules.OBSERVER_NORTH_OFF) / 2;
+        return new NBlockPos(pos.x() + FACING_DX[f], pos.y(), pos.z() + FACING_DZ[f]);
+    }
+
+    /** The cell an observer OUTPUTS into (its back — opposite the watched face). */
+    public static NBlockPos observerOutput(int id, NBlockPos pos) {
+        int f = (id - FlatWorldRules.OBSERVER_NORTH_OFF) / 2;
+        return new NBlockPos(pos.x() - FACING_DX[f], pos.y(), pos.z() - FACING_DZ[f]);
+    }
+
+    /**
+     * Notify observers that {@code changedPos} changed: every adjacent observer whose WATCHED
+     * cell is exactly the change schedules its 2-tick pulse through the hashed queue (rise at
+     * +1, fall one tick later — vanilla cadence, consensus phase).
+     */
+    public static void observersOnChange(
+            MutableRegionState state, NBlockPos changedPos, long currentTick) {
+        for (NBlockPos n : NeighborUpdateOrder.neighborsOf(changedPos)) {
+            if (!state.inOwnedRegion(n)) {
+                continue;
+            }
+            int id = state.getBlock(n);
+            if (isObserver(id) && !observerIsOn(id)
+                    && observerWatch(id, n).equals(changedPos)) {
+                boolean alreadyScheduled = state.scheduledTicks().stream()
+                        .anyMatch(entry -> entry.pos().equals(n));
+                if (!alreadyScheduled) {
+                    state.scheduleTick(n, id, currentTick + 1, 0);
+                }
+            }
+        }
     }
 
     /** The repeater's input: whether the block BEHIND it drives it (wire power or emitter). */
@@ -172,7 +247,7 @@ public final class RedstoneRules {
 
     /** @return whether {@code id} participates in the redstone graph at all. */
     public static boolean isRedstoneFamily(int id) {
-        return isWire(id) || emittedPower(id) > 0 || isRepeater(id)
+        return isWire(id) || emittedPower(id) > 0 || isRepeater(id) || isObserver(id)
                 || id == FlatWorldRules.LEVER_OFF || id == FlatWorldRules.TORCH_OFF
                 || id == FlatWorldRules.BUTTON_OFF
                 || isPistonBase(id) || isPistonHead(id);
@@ -215,6 +290,9 @@ public final class RedstoneRules {
             }
         }
         schedulePistonUpdates(state, around);
+        for (NBlockPos pos : around) {
+            observersOnChange(state, pos, currentTick);
+        }
     }
 
     private static boolean isTimingComponent(int id) {
@@ -279,7 +357,14 @@ public final class RedstoneRules {
         for (var entry : state.drainDueTicks(tick)) {
             NBlockPos pos = entry.pos();
             int current = state.getBlock(pos);
-            if (isTimingComponent(current)) {
+            if (isObserver(current)) {
+                // The 2-tick pulse: rise now and schedule the fall, or fall now.
+                state.setBlock(pos, observerToggled(current), null, rng);
+                if (!observerIsOn(current)) {
+                    state.scheduleTick(pos, observerToggled(current), tick + 1, 0);
+                }
+                recomputeNetwork(state, pos, null, rng, tick);
+            } else if (isTimingComponent(current)) {
                 int desired = desiredTimingState(state, pos, current);
                 if (current == desired) {
                     continue; // input flapped back before the flip fired
