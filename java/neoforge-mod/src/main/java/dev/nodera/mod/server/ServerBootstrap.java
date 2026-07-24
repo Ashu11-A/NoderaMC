@@ -132,6 +132,7 @@ public final class ServerBootstrap {
         }
         NoderaHost.onServerStopping(event.getServer());
         dev.nodera.mod.common.PlayerNodeRegistry.clear();
+        OperatorBridge.get().reset();
     }
 
     private static void onServerStopped(ServerStoppedEvent event) {
@@ -160,6 +161,9 @@ public final class ServerBootstrap {
                     route, worldIdHex, server.getWorldData().getLevelName(), challengeB64));
             // Keep the worker's live player count fresh (multiplayer-list rows, Task 33).
             NoderaHost.refreshWorkerPresence(server);
+            // Issue #36 F3: op the world author (integrated owner) on login — covers an auto-re-share
+            // that ran before the owner joined. Everyone else's op flows from a key-checked grant.
+            NoderaHost.syncAuthorOnLogin(server, player);
         }
         // Task 12 live lane: the FOV ownership plan needs a player to anchor it, so a world shared
         // before anyone was online (a dedicated auto-share boot) activates on first login instead.
@@ -182,12 +186,15 @@ public final class ServerBootstrap {
             d.onPlayerLoggedOut(event.getEntity());
         }
         if (event.getEntity() instanceof ServerPlayer player) {
-            NoderaHost.refreshWorkerPresence(player.serverLevel().getServer());
+            MinecraftServer server = player.serverLevel().getServer();
+            NoderaHost.refreshWorkerPresence(server);
+            // Drop any op the bridge granted this player so it never lingers past their session.
+            OperatorBridge.get().onLogout(server, player);
             // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
             // and absorb its regions (the FOV planner reassigns deterministically).
             dev.nodera.mod.common.PlayerNodeRegistry.forget(player.getUUID());
             dev.nodera.mod.common.ModNetworking.announceChallenges().forget(player.getUUID());
-            NoderaHost.replanEntityLane(player.serverLevel().getServer());
+            NoderaHost.replanEntityLane(server);
         }
     }
 
