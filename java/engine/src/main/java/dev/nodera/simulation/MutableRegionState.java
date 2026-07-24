@@ -390,6 +390,24 @@ public final class MutableRegionState implements RegionWorldView {
      * @return a fresh, canonical {@link RegionDelta}.
      * @Thread-context thread-confined per call.
      */
+    /**
+     * The OWNED work columns in canonical {@code (chunkX, chunkZ)} order — the random-tick
+     * lane's iteration base (halo columns are read-only and never random-tick).
+     */
+    public List<dev.nodera.core.state.ChunkColumnState> ownedColumns() {
+        List<dev.nodera.core.state.ChunkColumnState> out = new ArrayList<>();
+        for (ColumnModel col : columnsByChunk.values()) {
+            dev.nodera.core.state.ChunkColumnState work = col.work;
+            if (bounds.ownsBlock(work.chunkX() * CHUNK_SIZE, work.chunkZ() * CHUNK_SIZE)) {
+                out.add(work);
+            }
+        }
+        out.sort(java.util.Comparator
+                .comparingInt(dev.nodera.core.state.ChunkColumnState::chunkX)
+                .thenComparingInt(dev.nodera.core.state.ChunkColumnState::chunkZ));
+        return out;
+    }
+
     public RegionDelta toDelta(SnapshotVersion baseVersion, SnapshotVersion resultingVersion, StateRoot resultingRoot) {
         // A transition touching scheduled state on EITHER side must ship the resulting queue
         // (body v4, replace semantics) — a pending flip is root state the applier cannot infer.
