@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.core.crypto.StableHash;
 import dev.nodera.simulation.MutableRegionState;
@@ -89,7 +90,13 @@ public final class MobCombatRules {
      * @return {@code true} when the target was an engine-owned mob and took the damage.
      */
     public static boolean damage(MutableRegionState state, PersistedEntityState mob, int amount) {
-        if (mob.kind() != EntityKind.MOB || amount <= 0) {
+        if (amount <= 0) {
+            return false;
+        }
+        if (mob.kind() == EntityKind.PLAYER) {
+            return damagePlayer(state, mob, amount);
+        }
+        if (mob.kind() != EntityKind.MOB) {
             return false;
         }
         Vitals vitals = decodeVitals(mob.payload());
@@ -102,6 +109,40 @@ public final class MobCombatRules {
                 mob.id(), mob.kind(), mob.typeId(), mob.pos(), mob.vel(),
                 mob.ageTicks(), mob.despawnTick(),
                 vitalsPayload(remaining, vitals.maxHealth())));
+        return true;
+    }
+
+    /**
+     * PvP (L-13): a player's committed health decrements through the same single mutation point;
+     * death removes the root presence AND spills the committed inventory as validated ITEM
+     * entities at the death position — nothing dupes, nothing vanishes; respawn is the live
+     * lane's re-registration.
+     */
+    private static boolean damagePlayer(
+            MutableRegionState state, PersistedEntityState player, int amount) {
+        PlayerRules.PlayerState decoded = PlayerRules.decode(player.payload());
+        int remaining = decoded.health() - amount;
+        if (remaining > 0) {
+            state.updateEntity(new PersistedEntityState(
+                    player.id(), player.kind(), player.typeId(), player.pos(), player.vel(),
+                    player.ageTicks(), player.despawnTick(),
+                    PlayerRules.payload(decoded.withHealth(remaining))));
+            return true;
+        }
+        state.removeEntity(player.id());
+        long seq = 0;
+        for (dev.nodera.core.state.ContainerEntry.ItemSlot slot : decoded.inventory()) {
+            if (slot.isEmpty()) {
+                continue;
+            }
+            state.createEntity(new PersistedEntityState(
+                    dev.nodera.core.state.NetworkEntityId.allocate(
+                            state.region(), state.baseVersion(),
+                            (0x44454144L << 32) | (player.id().value() & 0xFFFFFF) << 8 | seq++),
+                    EntityKind.ITEM, slot.itemStackId(), player.pos(), FixedVec3.ZERO,
+                    0, ItemEntityRules.DESPAWN_AGE_TICKS,
+                    ItemEntityRules.payload(slot.itemStackId(), slot.count())));
+        }
         return true;
     }
 

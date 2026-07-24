@@ -10,6 +10,12 @@ final class Await {
     private Await() {}
 
     static void until(String what, long timeoutMillis, BooleanSupplier condition) {
+        until(what, timeoutMillis, condition, () -> "");
+    }
+
+    /** Variant with a state-dump supplier evaluated ON FAILURE (CI flake forensics). */
+    static void until(String what, long timeoutMillis, BooleanSupplier condition,
+                      java.util.function.Supplier<String> detail) {
         long deadline = System.nanoTime() + timeoutMillis * 1_000_000L;
         while (System.nanoTime() < deadline) {
             if (condition.getAsBoolean()) {
@@ -18,7 +24,8 @@ final class Await {
             sleep(20);
         }
         if (!condition.getAsBoolean()) {
-            fail("timed out after " + timeoutMillis + " ms waiting for: " + what);
+            fail("timed out after " + timeoutMillis + " ms waiting for: " + what
+                    + " — " + detail.get());
         }
     }
 

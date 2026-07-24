@@ -118,6 +118,70 @@ final class PlayerInventoryTest {
     }
 
     @Test
+    void meleeOnAPlayerWoundsTheCommittedHealthAndAKillDropsTheInventory() {
+        NodeId actor = TestFixtures.envelope(region, 0L, 1L,
+                new PickupItemAction(NetworkEntityId.allocate(
+                        region, SnapshotVersion.INITIAL, 9))).actor();
+        PersistedEntityState victim = playerEntity(region, actor, 1, 64.5, 64.5, 64.5);
+        // Load the victim's inventory and drop the health to one melee blow from death.
+        PlayerRules.PlayerState decoded = PlayerRules.decode(victim.payload());
+        java.util.List<ItemSlot> slots = new java.util.ArrayList<>(decoded.inventory());
+        slots.set(0, new ItemSlot(42, 9));
+        victim = new PersistedEntityState(victim.id(), victim.kind(), victim.typeId(),
+                victim.pos(), victim.vel(), victim.ageTicks(), victim.despawnTick(),
+                PlayerRules.payload(new PlayerRules.PlayerState(
+                        actor, MobCombatRules.MELEE_DAMAGE, PlayerRules.PLAYER_MAX_HEALTH, slots)));
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(victim));
+
+        List<ActionEnvelope> strike = List.of(TestFixtures.envelope(region, 0L, 1L,
+                new dev.nodera.core.action.AttackEntityAction(
+                        victim.id(), FixedVec3.fromExternal(63.5, 64.5, 64.5))));
+        RegionExecutionResult first = executeTicks(base, strike, 1);
+        RegionExecutionResult second = executeTicks(base, strike, 1);
+        assertThat(second.resultingRoot())
+                .as("PvP damage is replica-identical committed state")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 1L);
+        assertThat(PlayerRules.findPlayer(settled.entities(), actor))
+                .as("health hit zero: the player's root presence is GONE (respawn = live lane)")
+                .isNull();
+        List<PersistedEntityState> drops = settled.entities().stream()
+                .filter(e -> e.kind() == EntityKind.ITEM).toList();
+        assertThat(drops)
+                .as("death spills the committed inventory — nothing dupes, nothing vanishes")
+                .hasSize(1);
+        assertThat(ItemEntityRules.decodePayload(drops.get(0).payload()))
+                .isEqualTo(new ItemEntityRules.ItemStack(42, 9));
+    }
+
+    @Test
+    void aSurvivablePlayerBlowJustDecrementsCommittedHealth() {
+        NodeId actor = TestFixtures.envelope(region, 0L, 1L,
+                new PickupItemAction(NetworkEntityId.allocate(
+                        region, SnapshotVersion.INITIAL, 9))).actor();
+        PersistedEntityState victim = playerEntity(region, actor, 1, 64.5, 64.5, 64.5);
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(victim));
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base,
+                executeTicks(base, List.of(TestFixtures.envelope(region, 0L, 1L,
+                        new dev.nodera.core.action.AttackEntityAction(
+                                victim.id(), FixedVec3.fromExternal(63.5, 64.5, 64.5)))), 1)
+                        .delta(),
+                1L);
+        PersistedEntityState after = PlayerRules.findPlayer(settled.entities(), actor);
+        assertThat(after).isNotNull();
+        assertThat(PlayerRules.decode(after.payload()).health())
+                .as("the strike took exactly MELEE_DAMAGE off the committed health")
+                .isEqualTo(PlayerRules.PLAYER_MAX_HEALTH - MobCombatRules.MELEE_DAMAGE);
+    }
+
+    @Test
     void portalHandOffCarriesTheInventoryExactlyOnce() {
         NodeId actor = TestFixtures.envelope(region, 0L, 1L,
                 new PickupItemAction(NetworkEntityId.allocate(
@@ -129,7 +193,8 @@ final class PlayerInventoryTest {
         slots.set(0, new ItemSlot(42, 17));
         player = new PersistedEntityState(player.id(), player.kind(), player.typeId(),
                 player.pos(), player.vel(), player.ageTicks(), player.despawnTick(),
-                PlayerRules.payload(new PlayerRules.PlayerState(actor, slots)));
+                PlayerRules.payload(new PlayerRules.PlayerState(actor,
+                        PlayerRules.PLAYER_MAX_HEALTH, PlayerRules.PLAYER_MAX_HEALTH, slots)));
         RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
         RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
                 air.chunks(), List.of(player));
