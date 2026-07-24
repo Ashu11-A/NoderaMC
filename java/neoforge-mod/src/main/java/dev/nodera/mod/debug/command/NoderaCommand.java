@@ -89,6 +89,37 @@ public final class NoderaCommand {
                         .then(literal("verbose")
                                 .then(literal("on").executes(verboseStaged()))
                                 .then(literal("off").executes(verboseStaged())))));
+
+        // Issue #46: /tps (OP) — this server's live TPS + per-player round-trip latency (the
+        // network view of every connected player; each Nodera player runs their own server, so
+        // the local TPS IS the current player's TPS).
+        dispatcher.register(literal("tps").requires(s -> s.hasPermission(OP_LEVEL))
+                .executes(NoderaCommand::tps));
+        // Issue #46: standard server muscle-memory aliases onto the key-checked Nodera grant lane
+        // (#36) — /op == /nodera op, /deop == /nodera deop. Registered AFTER vanilla; Brigadier's
+        // last registration for a literal wins, so these shadow the vanilla UUID-based op.
+        dispatcher.register(literal("op").requires(s -> s.hasPermission(OP_LEVEL))
+                .then(argument("player", EntityArgument.player())
+                        .executes(ctx -> setRole(ctx, true))));
+        dispatcher.register(literal("deop").requires(s -> s.hasPermission(OP_LEVEL))
+                .then(argument("player", EntityArgument.player())
+                        .executes(ctx -> setRole(ctx, false))));
+    }
+
+    /** {@code /tps} — live server TPS + per-player latency (issue #46). */
+    private static int tps(CommandContext<CommandSourceStack> ctx) {
+        var server = ctx.getSource().getServer();
+        double tps = dev.nodera.mod.debug.render.BossBarManager.currentTps(server);
+        StringBuilder out = new StringBuilder(String.format(java.util.Locale.ROOT,
+                "TPS: %.1f / 20.0 (avg tick %.2f ms)", tps,
+                server.getAverageTickTimeNanos() / 1_000_000.0));
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            out.append('\n').append(p.getGameProfile().getName())
+                    .append(": ping ").append(p.connection.latency()).append(" ms");
+        }
+        String text = out.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        return 1;
     }
 
     /** {@code /nodera share} — put the currently-loaded world on the network (op). */

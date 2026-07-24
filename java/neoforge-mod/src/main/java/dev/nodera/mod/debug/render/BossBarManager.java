@@ -54,6 +54,20 @@ public final class BossBarManager {
         pb.updateZone(zone);
         pb.updateHealth(snap);
         pb.updateNet(snap);
+        pb.updateTps(currentTps(player.server));
+    }
+
+    /**
+     * The server's live TPS from the vanilla average tick time, capped at the nominal 20
+     * (issue #46: the debug TPS surface). On the integrated server this IS the current player's
+     * TPS — each Nodera player runs their own server.
+     */
+    public static double currentTps(net.minecraft.server.MinecraftServer server) {
+        double avgNanos = server.getAverageTickTimeNanos();
+        if (avgNanos <= 0) {
+            return 20.0;
+        }
+        return Math.min(20.0, 1_000_000_000.0 / avgNanos);
     }
 
     /** Remove all bars for a player (logout / HUD off). */
@@ -63,6 +77,7 @@ public final class BossBarManager {
             pb.zoneBar.removeAllPlayers();
             pb.healthBar.removeAllPlayers();
             pb.netBar.removeAllPlayers();
+            pb.tpsBar.removeAllPlayers();
         }
     }
 
@@ -72,6 +87,7 @@ public final class BossBarManager {
             pb.zoneBar.removeAllPlayers();
             pb.healthBar.removeAllPlayers();
             pb.netBar.removeAllPlayers();
+            pb.tpsBar.removeAllPlayers();
         }
         bars.clear();
     }
@@ -82,9 +98,11 @@ public final class BossBarManager {
         final ServerBossEvent zoneBar;
         final ServerBossEvent healthBar;
         final ServerBossEvent netBar;
+        final ServerBossEvent tpsBar;
         String zoneKey = "";
         String healthKey = "";
         String netKey = "";
+        String tpsKey = "";
         boolean netVisible = false;
 
         PlayerBars(ServerPlayer player) {
@@ -95,9 +113,12 @@ public final class BossBarManager {
                     BossBarColor.GREEN, BossBarOverlay.PROGRESS);
             netBar = new ServerBossEvent(Component.literal("Nodera net"),
                     BossBarColor.PURPLE, BossBarOverlay.PROGRESS);
+            tpsBar = new ServerBossEvent(Component.literal("Nodera TPS"),
+                    BossBarColor.BLUE, BossBarOverlay.PROGRESS);
             zoneBar.addPlayer(player);
             healthBar.addPlayer(player);
             netBar.addPlayer(player);
+            tpsBar.addPlayer(player);
             netVisible = true;
         }
 
@@ -142,6 +163,22 @@ public final class BossBarManager {
                 netBar.setColor(BossBarColor.PURPLE);
                 netBar.setProgress(progress);
                 netKey = key;
+            }
+        }
+
+        void updateTps(double tps) {
+            // Traffic-light colour: ≥18 healthy, ≥10 struggling, below that critical.
+            BossBarColor color = tps >= 18.0 ? BossBarColor.GREEN
+                    : tps >= 10.0 ? BossBarColor.YELLOW : BossBarColor.RED;
+            float progress = (float) Math.min(1.0, tps / 20.0);
+            String name = String.format(java.util.Locale.ROOT, "TPS %.1f", tps);
+            int bucket = Math.round(progress * 40);
+            String key = name + "|" + color + "|" + bucket;
+            if (!key.equals(tpsKey)) {
+                tpsBar.setName(Component.literal(name));
+                tpsBar.setColor(color);
+                tpsBar.setProgress(progress);
+                tpsKey = key;
             }
         }
 
