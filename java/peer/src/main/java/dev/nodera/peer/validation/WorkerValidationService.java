@@ -211,6 +211,19 @@ public final class WorkerValidationService {
     private final AtomicLong committeeCommits = new AtomicLong();
     private final AtomicLong fallbackCommits = new AtomicLong();
 
+    /**
+     * Per-peer event-relay accounting (live TPS investigation, 2026-07-24): who captures, who
+     * forwards to whom, who does whose proposal work, and how long each takes. Read by the mod's
+     * {@code /nodera debug relay} + verbose console stream.
+     */
+    private final dev.nodera.diagnostics.metric.RelayMetrics relayMetrics =
+            new dev.nodera.diagnostics.metric.RelayMetrics();
+
+    /** @return the lane's per-peer relay metrics (never null). */
+    public dev.nodera.diagnostics.metric.RelayMetrics relayMetrics() {
+        return relayMetrics;
+    }
+
     /** Live-server policy seam for reach, inventory ownership, and other actor-specific checks. */
     @FunctionalInterface
     public interface ActionAdmission {
@@ -526,6 +539,15 @@ public final class WorkerValidationService {
         if (!identity.nodeId().equals(lease.primary())) {
             throw new IllegalStateException("not the primary of " + region);
         }
+        // Relay accounting: a batch proposed off the forward executor is ANOTHER player's work
+        // (counted at recordForwardProcessed); anything else is this node's own capture entering
+        // the lane as the primary (the self-proposed path — forwarded captures were counted at
+        // forwardToPrimary). Actor NodeIds are player-derived, not mesh ids, so the executing
+        // thread is the reliable discriminator here.
+        if (!"nodera-forward-propose".equals(Thread.currentThread().getName())) {
+            relayMetrics.recordLocalSubmitted();
+            relayMetrics.recordLocalProposed();
+        }
         ActionBatch batch = new ActionBatch(region, lease.epoch(), replica.snapshot.version(),
                 tickFrom, tickTo, actions);
         MemberBallot ownBallot = replica.pendingBallot;
@@ -692,7 +714,9 @@ public final class WorkerValidationService {
                 long next = current.snapshot.tick() + 1;
                 long tickFrom = Math.min(next, envelope.targetTick());
                 long tickTo = Math.max(next, envelope.targetTick());
+                long startedAt = System.nanoTime();
                 proposeBatch(forward.region(), tickFrom, tickTo, List.of(envelope));
+                relayMetrics.recordForwardProcessed(envelope.actor(), System.nanoTime() - startedAt);
             } catch (RuntimeException rejected) {
                 // A rejected forward is not this node's failure to report; the committee decided.
             }
@@ -725,6 +749,8 @@ public final class WorkerValidationService {
         envelope.encode(w);
         transport.send(address, MessageCodec.encode(
                 new dev.nodera.protocol.simulationmsg.ActionForward(envelope.region(), w.toBytes())));
+        relayMetrics.recordLocalSubmitted();
+        relayMetrics.recordForwardedTo(primary);
         return true;
     }
 
@@ -750,7 +776,12 @@ public final class WorkerValidationService {
             return;
         }
         RegionExecutionRequest request = requestFor(replica, batch);
+        long reExecStartedAt = System.nanoTime();
         MemberBallot ballot = member.computeAndVote(request);
+        // Relay accounting: this node just re-executed the PRIMARY's batch — another player's
+        // events processed here (the "how much of my tick goes to validating whom" number).
+        relayMetrics.recordProposalProcessed(replica.lease.primary(),
+                System.nanoTime() - reExecStartedAt);
         CanonicalWriter deltaWriter = new CanonicalWriter();
         ballot.delta().encode(deltaWriter);
         if (!proposal.resultingRoot().equals(ballot.root())
@@ -791,6 +822,7 @@ public final class WorkerValidationService {
             return;
         }
         votesReceived.incrementAndGet();
+        relayMetrics.recordVote(vote.vote().voter());
         round.collector().submit(vote.vote());
         Decision decision = round.collector().decide();
         if (!(decision instanceof Decision.Unresolved)) {
@@ -806,6 +838,7 @@ public final class WorkerValidationService {
                 || !isAuthenticatedMember(from, replica.lease.primary())) {
             return;
         }
+        relayMetrics.recordCommit(replica.lease.primary());
         QuorumCertificate cert;
         try {
             CanonicalReader certificateReader = new CanonicalReader(announce.certificateBytes());
