@@ -208,7 +208,10 @@ public final class SocketPeerTransport implements PeerTransport {
         HostPort hp = HostPort.parse(route);
         Socket socket = new Socket();
         try {
-            socket.connect(new InetSocketAddress(hp.host(), hp.port()));
+            // Bounded connect: an unresponsive route must fail fast, not hang the CALLER's
+            // thread (sends run on the runtime state thread — a filtered port's multi-minute
+            // SYN retry there would stall every message the runtime processes).
+            socket.connect(new InetSocketAddress(hp.host(), hp.port()), 5_000);
             socket.setTcpNoDelay(true);
         } catch (IOException e) {
             closeQuietly(socket);

@@ -70,7 +70,7 @@ public final class EntityRuleSet implements RuleSet {
         if (entity == null) {
             return Optional.of(new ActionRejection(env, ActionRejection.Reason.ENTITY_NOT_FOUND));
         }
-        if (entity.kind() != EntityKind.MOB) {
+        if (entity.kind() != EntityKind.MOB && entity.kind() != EntityKind.PLAYER) {
             // GHOST combat stays on the vanilla lane; items/carts/TNT are not attackable.
             return Optional.of(new ActionRejection(env, ActionRejection.Reason.ENTITY_NOT_ATTACKABLE));
         }

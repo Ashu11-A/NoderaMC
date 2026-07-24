@@ -80,7 +80,13 @@ final class SessionContinuityIT {
         // 1. Mesh forms over real sockets: everyone sees three members, bootstrap is gateway.
         Await.until("3-member session over TCP", 30_000,
                 () -> p1.sessionView().size() == 3 && p2.sessionView().size() == 3
-                        && boot.sessionView().size() == 3);
+                        && boot.sessionView().size() == 3,
+                () -> "views: boot=" + boot.sessionView().size()
+                        + " p1=" + p1.sessionView().size()
+                        + " p2=" + p2.sessionView().size()
+                        + " (boot members " + boot.sessionView().members()
+                        + "; p1 members " + p1.sessionView().members()
+                        + "; p2 members " + p2.sessionView().members() + ")");
         Await.until("bootstrap is gateway", 30_000,
                 () -> bootId.nodeId().equals(p1.gatewayId())
                         && bootId.nodeId().equals(p2.gatewayId()));

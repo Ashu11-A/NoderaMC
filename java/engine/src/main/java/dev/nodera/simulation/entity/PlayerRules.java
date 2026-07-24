@@ -33,18 +33,29 @@ public final class PlayerRules {
     public static final int PLAYER_SLOTS = 36;
     /** The PLAYER entity type id (opaque; the mod maps it when mirroring). */
     public static final int PLAYER_TYPE_ID = 500;
+    /** Vanilla player health in halves of hearts. */
+    public static final int PLAYER_MAX_HEALTH = 20;
 
     private PlayerRules() {
     }
 
-    /** Decoded PLAYER payload. */
-    public record PlayerState(NodeId owner, List<ItemSlot> inventory) {
+    /** Decoded PLAYER payload: owner + committed health + the inventory table (L-11/L-13). */
+    public record PlayerState(NodeId owner, int health, int maxHealth, List<ItemSlot> inventory) {
         public PlayerState {
             if (owner == null || inventory == null || inventory.size() != PLAYER_SLOTS) {
                 throw new IllegalArgumentException(
                         "a player payload needs an owner and exactly " + PLAYER_SLOTS + " slots");
             }
+            if (maxHealth <= 0 || maxHealth > 0xFFFF || health <= 0 || health > maxHealth) {
+                throw new IllegalArgumentException(
+                        "health must be in [1, maxHealth]: " + health + "/" + maxHealth);
+            }
             inventory = List.copyOf(inventory);
+        }
+
+        /** Same owner/inventory with {@code newHealth}. */
+        public PlayerState withHealth(int newHealth) {
+            return new PlayerState(owner, newHealth, maxHealth, inventory);
         }
     }
 
@@ -54,13 +65,15 @@ public final class PlayerRules {
         for (int i = 0; i < PLAYER_SLOTS; i++) {
             slots.add(ItemSlot.EMPTY);
         }
-        return payload(new PlayerState(owner, slots));
+        return payload(new PlayerState(owner, PLAYER_MAX_HEALTH, PLAYER_MAX_HEALTH, slots));
     }
 
-    /** Canonical PLAYER payload bytes. */
+    /** Canonical PLAYER payload bytes: {@code [NodeId][u16 health][u16 max][list slots]}. */
     public static Bytes payload(PlayerState state) {
         CanonicalWriter w = new CanonicalWriter();
         state.owner().encode(w);
+        w.writeU16(state.health());
+        w.writeU16(state.maxHealth());
         w.writeList(state.inventory(), (ww, s) -> {
             ww.writeU32(Integer.toUnsignedLong(s.itemStackId()));
             ww.writeU8(s.count());
@@ -72,11 +85,13 @@ public final class PlayerRules {
     public static PlayerState decode(Bytes payload) {
         CanonicalReader r = new CanonicalReader(payload);
         NodeId owner = NodeId.decode(r);
+        int health = r.readU16();
+        int maxHealth = r.readU16();
         List<ItemSlot> slots = r.readList(rr -> new ItemSlot((int) rr.readU32(), rr.readU8()));
         if (r.available() != 0) {
             throw new IllegalStateException("malformed player payload");
         }
-        return new PlayerState(owner, slots);
+        return new PlayerState(owner, health, maxHealth, slots);
     }
 
     /** @return {@code actor}'s PLAYER entity in this view, or {@code null} when not registered. */
@@ -122,7 +137,8 @@ public final class PlayerRules {
         state.updateEntity(new PersistedEntityState(
                 player.id(), player.kind(), player.typeId(), player.pos(), player.vel(),
                 player.ageTicks(), player.despawnTick(),
-                payload(new PlayerState(decoded.owner(), next))));
+                payload(new PlayerState(decoded.owner(), decoded.health(), decoded.maxHealth(),
+                        next))));
         return true;
     }
 
