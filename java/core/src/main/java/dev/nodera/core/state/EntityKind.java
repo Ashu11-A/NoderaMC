@@ -3,10 +3,9 @@ package dev.nodera.core.state;
 /**
  * The validated-lane classification of a tracked entity (Task 12a). Determines whether a region's
  * entities keep it delegable (ITEM-only ⇒ delegable now; GHOST mobs ⇒ delegable only under
- * {@code mobCapture}, Task 12b). Engine-owned kinds (TNT, PROJECTILE, and the reserved MINECART)
- * are validated state like ITEM — they do not require {@code mobCapture} because their behaviour
- * originates in the validated root, not a server-mirrored mob. MINECART lands with its
- * Task 15 increment.
+ * {@code mobCapture}, Task 12b). Engine-owned kinds (TNT, PROJECTILE, MINECART) are validated
+ * state like ITEM — they do not require {@code mobCapture} because their behaviour originates
+ * in the validated root, not a server-mirrored mob.
  *
  * @Thread-context immutable enum, any thread.
  */
@@ -18,5 +17,7 @@ public enum EntityKind {
     /** A primed TNT entity — engine-owned fuse + deterministic blast (Task 15, L-9). */
     TNT,
     /** An engine-owned projectile — arrows/pearls/snowballs, fixed-point ballistics (Task 15, L-9). */
-    PROJECTILE
+    PROJECTILE,
+    /** An engine-owned minecart — fixed-point kinematics on the rail graph (Task 15, L-9). */
+    MINECART
 }
