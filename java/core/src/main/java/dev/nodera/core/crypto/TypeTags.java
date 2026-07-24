@@ -37,6 +37,7 @@ public final class TypeTags {
     public static final int PICKUP_ITEM_ACTION   = 26;   // Task 12 (reserved now)
     public static final int INTERACT_BLOCK_ACTION = 27;  // Task 13 (live since 2026-07-23)
     public static final int ATTACK_ENTITY_ACTION = 28;   // Task 16 (live since 2026-07-24)
+    public static final int CONTAINER_ACTION     = 29;   // Task 16 (live since 2026-07-24)
     // Discriminator for the sealed GameAction hierarchy is implicit: each action carries its tag.
 
     // --- state ---

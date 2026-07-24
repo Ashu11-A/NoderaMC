@@ -133,6 +133,8 @@ public final class FlatWorldRules implements RuleSet {
     public static final int POWERED_RAIL = 75;
     /** Daylight sensor — emits 15 (omni) while exposed to sky in daytime, else 0 (Task 14 L-6). */
     public static final int DAYLIGHT_SENSOR = 76;
+    /** Chest — a container block; contents live in the root's container table (Task 16 L-10). */
+    public static final int CHEST = 77;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -202,6 +204,7 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(RAIL, "rail"),
             new PaletteEntry(POWERED_RAIL, "powered_rail"),
             new PaletteEntry(DAYLIGHT_SENSOR, "daylight_sensor"),
+            new PaletteEntry(CHEST, "chest"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -292,6 +295,7 @@ public final class FlatWorldRules implements RuleSet {
             case DropItemAction d -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case PickupItemAction p -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.AttackEntityAction a -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
+            case dev.nodera.core.action.ContainerAction c -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.InteractBlockAction i -> validateInteract(view, env, i);
         };
     }
@@ -360,6 +364,10 @@ public final class FlatWorldRules implements RuleSet {
                         || touchesRedstone(state, b.pos());
                 boolean wetted = FluidRules.isFluid(state.getBlock(b.pos()))
                         || touchesFluid(state, b.pos());
+                if (dev.nodera.simulation.entity.ContainerRules.isContainer(state.getBlock(b.pos()))) {
+                    // Spill the chest's committed contents as validated ITEM entities first.
+                    dev.nodera.simulation.entity.ContainerRules.onBroken(state, b.pos(), env);
+                }
                 state.setBlock(b.pos(), AIR, env, rng);
                 if (affected) {
                     RedstoneRules.recomputeNetwork(state, b.pos(), env, rng, env.targetTick());
@@ -381,6 +389,8 @@ public final class FlatWorldRules implements RuleSet {
                     "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)");
             case dev.nodera.core.action.AttackEntityAction a -> throw new IllegalStateException(
                     "FlatWorldRules.apply received an AttackEntityAction (should be rejected in validate)");
+            case dev.nodera.core.action.ContainerAction c -> throw new IllegalStateException(
+                    "FlatWorldRules.apply received a ContainerAction (should be rejected in validate)");
         }
     }
 

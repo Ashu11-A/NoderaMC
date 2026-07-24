@@ -100,6 +100,17 @@ final class EntityActionsTest {
     }
 
     @Test
+    void containerActionRoundTripsThroughPolymorphicDispatch() {
+        ContainerAction action = new ContainerAction(
+                new dev.nodera.core.state.NBlockPos(5, 70, 5),
+                new FixedVec3(FixedVec3.ONE, 70 * FixedVec3.ONE, 2 * FixedVec3.ONE),
+                ContainerAction.Mode.WITHDRAW, 13, 0x4242, 17);
+        CanonicalWriter w = new CanonicalWriter();
+        action.encode(w);
+        assertThat(GameAction.decode(new CanonicalReader(w.toBytes().toArray()))).isEqualTo(action);
+    }
+
+    @Test
     void attackRejectsNullFields() {
         assertThatThrownBy(() -> new AttackEntityAction(null, FixedVec3.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
