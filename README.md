@@ -23,7 +23,7 @@
      table + milestone notes live in docs/PROGRESS.md — update THAT file (and Tested.md) on
      every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `87.0%`**
+**Overall system completion: `87.4%`**
 `█████████████████░░░`
 
 Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · test counts:
@@ -39,7 +39,7 @@ Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · te
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
 | `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 228 | ✅ |
-| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics | 422 | ✅ |
+| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics | 424 | ✅ |
 | `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 52 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`); shared golden fixtures remain byte-exact | 84 | ✅ |
 | `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates | 82 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |

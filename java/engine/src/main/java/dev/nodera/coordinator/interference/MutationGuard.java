@@ -145,6 +145,38 @@ public final class MutationGuard {
         return top == null ? MutationSource.UNKNOWN : top;
     }
 
+    /**
+     * The documented rejection for an off-thread direct write into a delegated region (Task 16 /
+     * L-25). Thrown by {@link #verdictChecked} so a third-party mod writing from its own executor
+     * gets an ACTIONABLE error naming the legal path instead of a silently blocked/converted
+     * write it can never debug.
+     */
+    public static final class AsyncWriteException extends IllegalStateException {
+        AsyncWriteException(RegionId region, NBlockPos pos) {
+            super("Direct write into delegated region " + region + " at " + pos
+                    + " from outside every Nodera write scope (an async/executor thread, or a "
+                    + "mod bypassing the tick phases). Direct writes must run on the server "
+                    + "thread inside a vanilla phase; asynchronous mutations must be submitted "
+                    + "as validated actions via AsyncActionGate.submit(...) — see "
+                    + "docs/LIMITATIONS.md L-25.");
+        }
+    }
+
+    /**
+     * Like {@link #verdict}, but an UNKNOWN-source write (no phase marker, no applier scope —
+     * the signature of an off-thread or out-of-phase caller) into a delegated region throws the
+     * documented {@link AsyncWriteException} instead of silently blocking/converting. The mixin
+     * switches to this entry point once the mod ships the async gate wiring.
+     */
+    public Verdict verdictChecked(RegionId region, NBlockPos pos, int prevStateId, int newStateId) {
+        if (delegated.test(region) && APPLIER_DEPTH.get()[0] == 0
+                && currentSource() == MutationSource.UNKNOWN) {
+            blockedWrites++;
+            throw new AsyncWriteException(region, pos);
+        }
+        return verdict(region, pos, prevStateId, newStateId);
+    }
+
     /** Writes that classified PASS because they came from inside the applier scope. */
     public long applierWrites() {
         return applierWrites;
