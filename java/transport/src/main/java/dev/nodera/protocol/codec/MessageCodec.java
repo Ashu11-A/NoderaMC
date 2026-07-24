@@ -243,8 +243,13 @@ public final class MessageCodec {
     /** {@code EventSyncAnswer} — the serving peer's certified events since the requested id. */
     public static final int TAG_EVENT_SYNC_ANSWER = 55;
 
+    /** Neighbor-edge slice refresh after a neighbor commit (Task 13 border lane). */
+    public static final int TAG_HALO_UPDATE = 56;
+    /** Contraption-group migration order: one shared primary, new epochs (Task 13). */
+    public static final int TAG_GROUP_MIGRATION = 57;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 55;
+    public static final int NEXT_TAG = 57;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -272,7 +277,8 @@ public final class MessageCodec {
             TAG_ENTITY_TRANSFER_COMMIT,
             TAG_TRACKER_ROUTES_QUERY, TAG_TRACKER_ROUTES_RESPONSE,
             TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD,
-            TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER);
+            TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER,
+            TAG_HALO_UPDATE, TAG_GROUP_MIGRATION);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -341,6 +347,8 @@ public final class MessageCodec {
             case TAG_ACTION_FORWARD -> "ActionForward";
             case TAG_EVENT_SYNC_QUERY -> "EventSyncQuery";
             case TAG_EVENT_SYNC_ANSWER -> "EventSyncAnswer";
+            case TAG_HALO_UPDATE -> "HaloUpdate";
+            case TAG_GROUP_MIGRATION -> "GroupMigration";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -493,6 +501,10 @@ public final class MessageCodec {
         if (msg instanceof WorldManifestQuery) return TAG_WORLD_MANIFEST_QUERY;
         if (msg instanceof WorldManifestAnswer) return TAG_WORLD_MANIFEST_ANSWER;
         if (msg instanceof ActionForward) return TAG_ACTION_FORWARD;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncQuery) return TAG_EVENT_SYNC_QUERY;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncAnswer) return TAG_EVENT_SYNC_ANSWER;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.HaloUpdate) return TAG_HALO_UPDATE;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.GroupMigration) return TAG_GROUP_MIGRATION;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -751,6 +763,20 @@ public final class MessageCodec {
                 m.region().encode(w);
                 w.writeList(m.encodedEvents(), CanonicalWriter::writeBytes);
                 w.writeList(m.encodedCertificates(), CanonicalWriter::writeBytes);
+            }
+            case dev.nodera.protocol.simulationmsg.HaloUpdate m -> {
+                w.writeU16(TAG_HALO_UPDATE).writeU16(ENCODING_VERSION);
+                m.region().encode(w);
+                m.version().encode(w);
+                w.writeList(m.encodedEdgeColumns(), CanonicalWriter::writeBytes);
+            }
+            case dev.nodera.protocol.simulationmsg.GroupMigration m -> {
+                w.writeU16(TAG_GROUP_MIGRATION).writeU16(ENCODING_VERSION);
+                m.newPrimary().encode(w);
+                w.writeList(m.bumps(), (ww, b) -> {
+                    b.region().encode(ww);
+                    b.newEpoch().encode(ww);
+                });
             }
             case WorldManifestQuery m -> {
                 w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
@@ -1192,6 +1218,27 @@ public final class MessageCodec {
                 java.util.List<Bytes> certificates = r.readList(CanonicalReader::readBytesValue);
                 yield new dev.nodera.protocol.simulationmsg.EventSyncAnswer(
                         region, events, certificates);
+            }
+            case TAG_HALO_UPDATE -> {
+                dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
+                dev.nodera.core.state.SnapshotVersion version =
+                        dev.nodera.core.state.SnapshotVersion.decode(r);
+                java.util.List<Bytes> columns = r.readList(CanonicalReader::readBytesValue);
+                yield new dev.nodera.protocol.simulationmsg.HaloUpdate(region, version, columns);
+            }
+            case TAG_GROUP_MIGRATION -> {
+                dev.nodera.core.identity.NodeId primary =
+                        dev.nodera.core.identity.NodeId.decode(r);
+                java.util.List<dev.nodera.protocol.simulationmsg.GroupMigration.RegionEpochBump>
+                        bumps = r.readList(rr -> {
+                            dev.nodera.core.region.RegionId region =
+                                    dev.nodera.core.region.RegionId.decode(rr);
+                            dev.nodera.core.region.RegionEpoch epoch =
+                                    dev.nodera.core.region.RegionEpoch.decode(rr);
+                            return new dev.nodera.protocol.simulationmsg.GroupMigration
+                                    .RegionEpochBump(region, epoch);
+                        });
+                yield new dev.nodera.protocol.simulationmsg.GroupMigration(primary, bumps);
             }
             case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());
             case TAG_WORLD_MANIFEST_ANSWER -> {

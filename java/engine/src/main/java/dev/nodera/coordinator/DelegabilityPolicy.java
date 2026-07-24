@@ -45,7 +45,12 @@ public final class DelegabilityPolicy {
         /** The measured foreign-mutation rate exceeds the revoke threshold. */
         INTERFERENCE_RATE_HIGH,
         /** Region is loaded only by a foreign ticket and has no player whose view owns it. */
-        NO_PLAYER_PRESENT
+        NO_PLAYER_PRESENT,
+
+        // --- declared for Task 13 (border lane) ---
+        /** A contraption's border signals reach a region in the vanilla lane: the whole group
+         *  demotes to vanilla (correct, slower) with a cooldown before redelegation. */
+        CONTRAPTION_CROSSES_VANILLA
     }
 
     /**
