@@ -277,15 +277,30 @@ command-determinism tests (L-14), worldgen golden fixtures per seed (L-15),
 `MultiPartyGenesisTest` (quorum verify, forged/insufficient approvals), L-21
 `RulePackFingerprintTest` + sample-pack CI job.
 
-### T15 cluster — L-7, L-8, L-9, L-24 (mob lane) — audited 2026-07-23
+### T15 cluster — L-7, L-8, L-9, L-24 (mob lane) — audited 2026-07-23, cores landed 2026-07-24
 
-**State: entirely pre-implementation.** `EntityKind` has only `ITEM`/`GHOST`
-(core `state/EntityKind.java:10-15`; `PROJECTILE/TNT/MOB/MINECART` exist only in a comment).
-The ghost mechanism the rows describe: `GhostUpdatePolicy` (5-tick vanilla passthrough),
-`EntityCaptureBridge.onTickPost` capture, tick suppression only for `validatedItem`
-(`onTickPre` cancels vanilla tick — that IS "validated" mechanically). `mobCapture` gate:
-`NoderaConfig` `entity.mobCaptureDimensions` empty-by-default; enforcement at
-`EntityCaptureBridge` (revoke-on-mob) + `EntityDelegabilityRules.allows`.
+**State: ALL FOUR CORE MECHANISMS LANDED (headless).** `EntityKind` grew to
+`ITEM/GHOST/TNT/PROJECTILE/MINECART` (wire bytes for `ITEM`/`GHOST` unchanged — kind is a u8,
+decode accepts new ordinals, `EntityLaneTypesTest` round-trips all kinds; new kinds pass the
+delegability gate like `ITEM`). The ghost mechanism the rows describe stays as the fallback:
+`GhostUpdatePolicy` (5-tick vanilla passthrough), `EntityCaptureBridge.onTickPost` capture,
+`mobCapture` gate (`entity.mobCaptureDimensions` empty-by-default; `EntityDelegabilityRules.allows`).
+
+**Landed this lane (each first-run green, full gate 232 suites / 0 failures):**
+- **L-8 spawn** (`SpawnRules`, f7cef87): `SPAWN_INTERVAL_TICKS=20`, `MOB_CAP=8`, standing-cells
+  draw, `LightField<8` gate, `GHOST` zombies typeId 54, `NetworkEntityId.allocate` spawn-seq
+  domain, 6000-tick despawn.
+- **L-7 mob AI** (`MobAiRules`, d9a731b): `AI_INTERVAL_TICKS=10`; idle 3/8 or one-block step
+  (FIXED decision count ⇒ rng stays aligned); walkable-only; despawn horizon.
+- **L-9 TNT** (`TntRules`, ecb03ef): `EntityKind.TNT`; `despawnTick`=detonate; blast-local rng
+  seeded `(domain,id,tick,pos)`; per-cell destroy `P=1−distSq/R²` over `[-R,R]³`; chain ignition.
+- **L-9 projectile** (`ProjectileRules`, b4faac2): `EntityKind.PROJECTILE`; fixed-order Q32.32
+  ballistics (gravity-before-drag pinned); opaque-dest ⇒ stick; border transfer; lifetime despawn.
+- **L-9 minecart** (`RailRules`, 84f96e5): `EntityKind.MINECART` + palette `RAIL(74)`/`POWERED_RAIL(75)`;
+  axis-aligned kinematics follow rail by neighbour connectivity (no rail-shape states);
+  `POWERED_RAIL` pins `MAX_SPEED`; plain rail `FRICTION`; dead-end stop; border transfer.
+`EntityRuleSet.tick` order: Item→Redstone→RandomTick→Spawn→MobAi→Tnt→Projectile→Rail.
+`COMPATIBILITY.md` §8 records the parity envelopes per species.
 
 **Build-on:** `EntityRuleSet`/`ItemEntityRules` (fixed-point physics template — `move()`,
 `tick()`, payload codec), `PersistedEntityState` (FixedVec3 pos/vel + opaque payload for
