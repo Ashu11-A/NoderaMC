@@ -42,6 +42,7 @@ public final class ClientValidationLane {
     private static final Logger LOG = LoggerFactory.getLogger("NoderaClientLane");
 
     private static WorkerValidationService service;
+    private static dev.nodera.peer.view.LocalReplicaView replicaView;
     private static int activeRegions;
 
     private ClientValidationLane() {
@@ -112,8 +113,15 @@ public final class ClientValidationLane {
                 mine++;
             }
         }
+        // L-16: the prediction/rollback overlay — every commit the lane applies reconciles the
+        // local replica view; the renderer binds to render() (the GUI half of the row).
+        dev.nodera.peer.view.LocalReplicaView view = new dev.nodera.peer.view.LocalReplicaView(
+                new FlatWorldRegionEngine(plan.rulesVersion(), plan.registryFingerprint(), hashes),
+                hashes, plan.worldSeed(), plan.rulesVersion(), plan.registryFingerprint());
+        lane.onCommit(view::committed);
         runtime.onApplicationMessage(lane::onMessage);
         service = lane;
+        replicaView = view;
         activeRegions = mine;
         // The joiner's HUD region panel shows THIS player's real ownership (L-31 regions half).
         dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.activate(lane, identity.nodeId());
@@ -124,6 +132,14 @@ public final class ClientValidationLane {
     /** Tear the lane down (logout / new plan). */
     public static synchronized void stop() {
         stopLocked();
+    }
+
+    /**
+     * The client's local-replica view (L-16): {@code predict} on capture, {@code render} in the
+     * renderer bind. Null while no validation lane is active.
+     */
+    public static synchronized dev.nodera.peer.view.LocalReplicaView replicaView() {
+        return replicaView;
     }
 
     /** @return regions this player currently validates (diagnostics). */
@@ -139,6 +155,7 @@ public final class ClientValidationLane {
                 runtime.onApplicationMessage(null);
             }
             service = null;
+            replicaView = null;
             activeRegions = 0;
         }
     }

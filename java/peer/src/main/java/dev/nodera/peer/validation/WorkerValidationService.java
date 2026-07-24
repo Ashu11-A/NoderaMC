@@ -495,6 +495,22 @@ public final class WorkerValidationService {
         return r == null ? Optional.empty() : Optional.ofNullable(r.lastCertificate);
     }
 
+    // L-16: every committed snapshot streams to one observer (the client's LocalReplicaView) so
+    // the prediction overlay reconciles against consensus truth the moment it lands.
+    private volatile java.util.function.BiConsumer<RegionSnapshot, StateRoot> commitObserver;
+
+    /** Register the single commit observer (predict/rollback view); replaces any previous one. */
+    public void onCommit(java.util.function.BiConsumer<RegionSnapshot, StateRoot> observer) {
+        this.commitObserver = observer;
+    }
+
+    private void notifyCommit(RegionSnapshot committed, StateRoot root) {
+        var observer = commitObserver;
+        if (observer != null) {
+            observer.accept(committed, root);
+        }
+    }
+
     /**
      * Primary-side: run one distributed committee round for {@code actions}.
      *
@@ -834,6 +850,7 @@ public final class WorkerValidationService {
         replica.lastCertificate = cert;
         replica.headRoot = cert.resultingRoot();
         replica.snapshot = committed;
+        notifyCommit(committed, cert.resultingRoot());
         replica.pipeline.committeeCommitted(next);
         recordCommittedSequences(batch);
         replica.pendingBallot = null;

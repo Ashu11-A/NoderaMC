@@ -48,8 +48,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@link MessageHandler} contract; handlers must offload heavy or re-entrant work.
  *
  * <h2>Connection de-duplication</h2>
- * Connections are keyed by the remote's advertised route; on a collision the first-registered
- * connection wins and the later one is closed. Higher layers avoid collisions by a single-dialer
+ * Connections are keyed by the remote's advertised route; on a collision the connection whose
+ * hello arrived LAST wins and the displaced one is closed — a fresh hello proves that socket is
+ * alive right now, while the prior entry may be a half-dead race artifact (first-wins black-holed
+ * a rejoining peer on CI). Higher layers still avoid most collisions by a single-dialer
  * policy (see {@code peer-runtime}: the numerically-smaller {@link NodeId} initiates peer↔peer
  * links; peers dial the bootstrap, never the reverse).
  */
@@ -350,6 +352,9 @@ public final class SocketPeerTransport implements PeerTransport {
                 // peer closed or malformed frame — treat as down.
             } catch (IOException e) {
                 // socket error — treat as down.
+            } catch (Throwable t) {
+                // A reader that dies silently leaves a mapped connection whose writes black-hole into
+                // the kernel buffer forever — ANY failure must tear the connection down.
             } finally {
                 closeQuietly();
             }
@@ -368,17 +373,19 @@ public final class SocketPeerTransport implements PeerTransport {
             String advertised = new String(hello, 18, routeLen, StandardCharsets.UTF_8);
             this.remoteNodeId = new NodeId(new UUID(msb, lsb));
             String key = advertised.isEmpty() ? ("anon:" + socket.getRemoteSocketAddress()) : advertised;
-            // Register / re-key under the remote's advertised route; first-wins on collision.
-            Connection prior = connections.putIfAbsent(key, this);
+            // Register / re-key under the remote's advertised route. LAST-WINS on collision:
+            // a fresh hello proves THIS socket is alive right now, while the prior entry may be
+            // a half-dead outbound that raced it — first-wins closed the fresh inbound BEFORE
+            // its queued frames (e.g. a PeerJoin) were read, black-holing the sender for good
+            // (observed on CI: a player re-announcing for 30 s into a socket the bootstrap had
+            // silently discarded). The displaced prior is closed; its reader fires the ordinary
+            // down-path, and cross-dials converge to one live socket per side.
+            Connection prior = connections.put(key, this);
             if (prior != null && prior != this) {
-                // Another connection to this route already won; drop this one.
-                if (this.remoteRoute == null) {
-                    throw new TransportException("duplicate connection to " + key);
-                }
+                prior.closeQuietly();
             }
             if (this.remoteRoute != null && !this.remoteRoute.equals(key)) {
                 connections.remove(this.remoteRoute, this);
-                connections.put(key, this);
             }
             this.remoteRoute = key;
             this.helloReceived = true;

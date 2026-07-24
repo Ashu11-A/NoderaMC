@@ -94,6 +94,11 @@ final class ActionForwardIT {
         assertThat(ownerNode.service.forwardToPrimary(signed))
                 .as("the owner never forwards its own region").isFalse();
 
+        // L-16: the commit observer (the client's LocalReplicaView feed) sees every commit.
+        java.util.concurrent.atomic.AtomicReference<dev.nodera.core.state.StateRoot> observed =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        ownerNode.service.onCommit((snapshot, root) -> observed.set(root));
+
         // The owner proposes, the capturer votes, quorum commits — on both members.
         long deadline = System.currentTimeMillis() + 10_000;
         while (System.currentTimeMillis() < deadline) {
@@ -115,6 +120,9 @@ final class ActionForwardIT {
         assertThat(ownerNode.service.latestCertificate(region))
                 .as("a co-signed quorum certificate exists").isPresent();
         assertThat(ownerNode.service.snapshot().committeeCommits()).isGreaterThan(0);
+        assertThat(observed.get())
+                .as("the L-16 commit observer received the committed root")
+                .isEqualTo(ownerNode.service.headRoot(region).orElseThrow());
     }
 
     @Test
