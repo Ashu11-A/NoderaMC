@@ -32,7 +32,9 @@ public record BorderSignal(Kind kind, NBlockPos origin, NBlockPos target, long t
         /** A wire-network component walk reached the border (dust may connect across it). */
         WIRE,
         /** A piston motion (push line or destination) would have crossed the border. */
-        PISTON
+        PISTON,
+        /** A fluid spread target lies across the border (Task 14 fluid lane). */
+        FLUID
     }
 
     /** Canonical order: tick, kind, target, origin — replica-identical by construction. */
