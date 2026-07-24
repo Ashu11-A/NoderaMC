@@ -200,16 +200,17 @@ final class RegionDeltaTest {
         assertThatThrownBy(() -> new RegionDelta(
                 REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
                 List.of(), ROOT, List.of(), List.of(), List.of(),
-                List.of(entry), List.of(), 3))
+                List.of(entry), List.of(), List.of(), 3))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("legacy delta cannot carry scheduled state");
     }
 
     @Test
-    void rejectsBodyVersionAboveScheduled() {
+    void rejectsBodyVersionAboveContainer() {
         assertThatThrownBy(() -> new RegionDelta(
                 REGION, SnapshotVersion.INITIAL, SnapshotVersion.INITIAL.next(),
-                List.of(), ROOT, List.of(), List.of(), List.of(), List.of(), List.of(), 5))
+                List.of(), ROOT, List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), 6))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsupported region-delta body version");
     }
@@ -240,7 +241,7 @@ final class RegionDeltaTest {
     @Test
     void rejectsUnsupportedBodyVersion() {
         CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(5);
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_DELTA).writeU16(6);
         assertThatThrownBy(() -> RegionDelta.decode(new CanonicalReader(w.toByteArray())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("REGION_DELTA encoding version");

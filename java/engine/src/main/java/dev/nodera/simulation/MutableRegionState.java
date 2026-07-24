@@ -76,6 +76,12 @@ public final class MutableRegionState implements RegionWorldView {
     private final List<dev.nodera.core.state.BlockEventEntry> blockEvents = new ArrayList<>();
     private long nextTickSeq;
     private final boolean baseHadScheduledState;
+    // Task 16 / L-10: container contents are region state exactly like the scheduled queue —
+    // loaded from the base snapshot, mutated only through validated paths, re-hashed via
+    // toSnapshot. Keyed canonically so iteration order can never diverge across replicas.
+    private final java.util.TreeMap<NBlockPos, dev.nodera.core.state.ContainerEntry> containers =
+            new java.util.TreeMap<>();
+    private final boolean baseHadContainerState;
     // Border signals: deterministic execution OUTPUT (never hashed, never loaded from the
     // snapshot) — effects that targeted outside owned bounds instead of mutating halo state.
     private final java.util.LinkedHashSet<dev.nodera.simulation.border.BorderSignal>
@@ -117,6 +123,10 @@ public final class MutableRegionState implements RegionWorldView {
         this.blockEvents.addAll(snapshot.blockEvents());
         this.baseHadScheduledState =
                 !snapshot.scheduledTicks().isEmpty() || !snapshot.blockEvents().isEmpty();
+        for (dev.nodera.core.state.ContainerEntry container : snapshot.containers()) {
+            containers.put(container.pos(), container);
+        }
+        this.baseHadContainerState = !snapshot.containers().isEmpty();
         for (dev.nodera.core.state.ScheduledTickEntry entry : this.scheduledTicks) {
             nextTickSeq = Math.max(nextTickSeq, entry.seq() + 1);
         }
@@ -322,13 +332,39 @@ public final class MutableRegionState implements RegionWorldView {
         }
         // Body version stays 2 while no scheduled state exists, so every pre-redstone root —
         // live store heads included — hashes exactly as before; a region carrying scheduled
-        // state commits to it at body version 3.
+        // state commits to it at body version 3, and one carrying containers at body version 4.
+        if (!containers.isEmpty()) {
+            return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities(),
+                    List.copyOf(scheduledTicks), List.copyOf(blockEvents),
+                    List.copyOf(containers.values()),
+                    RegionSnapshot.CONTAINER_ENCODING_VERSION);
+        }
         if (scheduledTicks.isEmpty() && blockEvents.isEmpty()) {
             return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities());
         }
         return new RegionSnapshot(region, newVersion, tick, out, entityStore.entities(),
                 List.copyOf(scheduledTicks), List.copyOf(blockEvents),
                 RegionSnapshot.REDSTONE_ENCODING_VERSION);
+    }
+
+    /** @return the container table entry at {@code pos}, or null when none exists. */
+    public dev.nodera.core.state.ContainerEntry container(NBlockPos pos) {
+        return containers.get(pos);
+    }
+
+    /** Insert or replace one container's canonical contents in the root. */
+    public void putContainer(dev.nodera.core.state.ContainerEntry entry) {
+        containers.put(entry.pos(), entry);
+    }
+
+    /** Remove the container at {@code pos} (block broken); returns the removed entry or null. */
+    public dev.nodera.core.state.ContainerEntry removeContainer(NBlockPos pos) {
+        return containers.remove(pos);
+    }
+
+    /** @return every container in canonical position order (unmodifiable snapshot). */
+    public List<dev.nodera.core.state.ContainerEntry> containers() {
+        return List.copyOf(containers.values());
     }
 
     /**
@@ -433,6 +469,15 @@ public final class MutableRegionState implements RegionWorldView {
     }
 
     public RegionDelta toDelta(SnapshotVersion baseVersion, SnapshotVersion resultingVersion, StateRoot resultingRoot) {
+        // A transition touching container state on EITHER side ships the resulting container
+        // table (body v5, replace semantics — the emptied chest must clear on the applier too).
+        if (baseHadContainerState || !containers.isEmpty()) {
+            return new RegionDelta(region, baseVersion, resultingVersion,
+                    mutationBuffer.sortedMutations(), resultingRoot,
+                    entityStore.mutations(), entityStore.credits(), transferIntents,
+                    List.copyOf(scheduledTicks), List.copyOf(blockEvents),
+                    List.copyOf(containers.values()));
+        }
         // A transition touching scheduled state on EITHER side must ship the resulting queue
         // (body v4, replace semantics) — a pending flip is root state the applier cannot infer.
         // Every pre-redstone transition keeps its exact version-3 bytes.

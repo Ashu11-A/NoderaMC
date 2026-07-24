@@ -33,6 +33,7 @@ public record RegionSnapshot(
         List<PersistedEntityState> entities,
         List<ScheduledTickEntry> scheduledTicks,
         List<BlockEventEntry> blockEvents,
+        List<ContainerEntry> containers,
         int bodyVersion
 ) implements Encodable {
 
@@ -41,6 +42,9 @@ public record RegionSnapshot(
 
     /** Body version 3 (Task 13 / L-26): appends the scheduled-tick queue + block events. */
     public static final int REDSTONE_ENCODING_VERSION = 3;
+
+    /** Body version 4 (Task 16 / L-10): appends the container table. */
+    public static final int CONTAINER_ENCODING_VERSION = 4;
 
     private static final Comparator<ChunkColumnState> CHUNK_ORDER =
             Comparator.comparingInt(ChunkColumnState::chunkX)
@@ -67,7 +71,17 @@ public record RegionSnapshot(
             RegionId region, SnapshotVersion version, long tick,
             List<ChunkColumnState> chunks, List<PersistedEntityState> entities,
             int bodyVersion) {
-        this(region, version, tick, chunks, entities, List.of(), List.of(), bodyVersion);
+        this(region, version, tick, chunks, entities, List.of(), List.of(), List.of(), bodyVersion);
+    }
+
+    /** Source-compatible pre-container constructor (empty container table). */
+    public RegionSnapshot(
+            RegionId region, SnapshotVersion version, long tick,
+            List<ChunkColumnState> chunks, List<PersistedEntityState> entities,
+            List<ScheduledTickEntry> scheduledTicks, List<BlockEventEntry> blockEvents,
+            int bodyVersion) {
+        this(region, version, tick, chunks, entities, scheduledTicks, blockEvents,
+                List.of(), bodyVersion);
     }
 
     /**
@@ -92,9 +106,17 @@ public record RegionSnapshot(
         if (scheduledTicks == null || blockEvents == null) {
             throw new IllegalArgumentException("scheduledTicks and blockEvents must not be null");
         }
+        if (containers == null) {
+            throw new IllegalArgumentException("containers must not be null");
+        }
         if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION
-                && bodyVersion != REDSTONE_ENCODING_VERSION) {
+                && bodyVersion != REDSTONE_ENCODING_VERSION
+                && bodyVersion != CONTAINER_ENCODING_VERSION) {
             throw new IllegalArgumentException("unsupported snapshot body version " + bodyVersion);
+        }
+        if (bodyVersion < CONTAINER_ENCODING_VERSION && !containers.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "snapshot body version " + bodyVersion + " cannot carry containers");
         }
         if (bodyVersion == 1 && !entities.isEmpty()) {
             throw new IllegalArgumentException("version 1 snapshot cannot carry entities");
@@ -122,6 +144,16 @@ public record RegionSnapshot(
         scheduledTicks = List.copyOf(sortedTicks);
         // Block events keep producer order: the piston phase sequence is itself the semantics.
         blockEvents = List.copyOf(blockEvents);
+        // Containers sort by position — the canonical order two replicas share by construction.
+        List<ContainerEntry> sortedContainers = new ArrayList<>(containers);
+        sortedContainers.sort(ContainerEntry.POS_ORDER);
+        for (int i = 1; i < sortedContainers.size(); i++) {
+            if (sortedContainers.get(i - 1).pos().equals(sortedContainers.get(i).pos())) {
+                throw new IllegalArgumentException(
+                        "duplicate container at " + sortedContainers.get(i).pos());
+            }
+        }
+        containers = List.copyOf(sortedContainers);
     }
 
     @Override
@@ -138,6 +170,9 @@ public record RegionSnapshot(
             w.writeList(scheduledTicks, CanonicalWriter::writeEncodable);
             w.writeList(blockEvents, CanonicalWriter::writeEncodable);
         }
+        if (bodyVersion >= CONTAINER_ENCODING_VERSION) {
+            w.writeList(containers, CanonicalWriter::writeEncodable);
+        }
     }
 
     /**
@@ -153,7 +188,8 @@ public record RegionSnapshot(
         }
         int bodyVersion = r.readU16();
         if (bodyVersion != 1 && bodyVersion != STATE_ENCODING_VERSION
-                && bodyVersion != REDSTONE_ENCODING_VERSION) {
+                && bodyVersion != REDSTONE_ENCODING_VERSION
+                && bodyVersion != CONTAINER_ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_SNAPSHOT encoding version " + bodyVersion);
         }
         RegionId region = RegionId.decode(r);
@@ -169,7 +205,10 @@ public record RegionSnapshot(
         List<BlockEventEntry> blockEvents = bodyVersion >= REDSTONE_ENCODING_VERSION
                 ? r.readList(BlockEventEntry::decode)
                 : List.of();
+        List<ContainerEntry> containers = bodyVersion >= CONTAINER_ENCODING_VERSION
+                ? r.readList(ContainerEntry::decode)
+                : List.of();
         return new RegionSnapshot(region, version, tick, chunks, entities,
-                scheduledTicks, blockEvents, bodyVersion);
+                scheduledTicks, blockEvents, containers, bodyVersion);
     }
 }

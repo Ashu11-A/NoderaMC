@@ -54,6 +54,8 @@ pub mod type_tags {
     pub const CERTIFIED_WORLD_GENESIS: u16 = 103;
     /// `GenesisRecertification` — founding-peer-set multi-party genesis endorsement (L-20).
     pub const GENESIS_RECERTIFICATION: u16 = 104;
+    /// `ContainerEntry` — one container's canonical slot contents in the root (Task 16 / L-10).
+    pub const CONTAINER_ENTRY: u16 = 105;
 
     /// `ScheduledTickEntry` — Task 13 hashed scheduled-tick queue entry (reserved 36, live 2026-07-23).
     pub const SCHEDULED_TICK_ENTRY: u16 = 36;
@@ -61,7 +63,7 @@ pub mod type_tags {
     pub const BLOCK_EVENT_ENTRY: u16 = 37;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 104;
+    pub const NEXT: u16 = 105;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).

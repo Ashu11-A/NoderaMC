@@ -143,10 +143,20 @@ public final class SnapshotDeltaApplier {
         java.util.List<dev.nodera.core.state.BlockEventEntry> blockEvents =
                 delta.bodyVersion() >= RegionDelta.SCHEDULED_ENCODING_VERSION
                         ? delta.blockEvents() : base.blockEvents();
+        // Containers (Task 16 / L-10): a v5 delta REPLACES the table; older deltas carry the
+        // base's table forward. Mirrors toSnapshot's version choice.
+        java.util.List<dev.nodera.core.state.ContainerEntry> containers =
+                delta.bodyVersion() >= RegionDelta.CONTAINER_ENCODING_VERSION
+                        ? delta.containers() : base.containers();
 
         List<ChunkColumnState> out = new ArrayList<>(work.values());
         RegionSnapshot result;
-        if (scheduledTicks.isEmpty() && blockEvents.isEmpty()) {
+        if (!containers.isEmpty()) {
+            result = new RegionSnapshot(
+                    base.region(), delta.resultingVersion(), resultingTick,
+                    out, List.copyOf(entities.values()), scheduledTicks, blockEvents,
+                    containers, RegionSnapshot.CONTAINER_ENCODING_VERSION);
+        } else if (scheduledTicks.isEmpty() && blockEvents.isEmpty()) {
             int snapshotBodyVersion = base.bodyVersion() == 1 && delta.bodyVersion() == 1 ? 1
                     : RegionSnapshot.STATE_ENCODING_VERSION;
             result = new RegionSnapshot(
