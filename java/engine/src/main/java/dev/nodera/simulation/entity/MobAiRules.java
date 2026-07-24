@@ -35,6 +35,10 @@ public final class MobAiRules {
 
     /** Region ticks between AI decisions (vanilla-ish idle cadence, cheap and visible). */
     public static final int AI_INTERVAL_TICKS = 10;
+    /** Per-tick retention of an imparted (knockback) velocity, Q32.32 literal (0.9 — mobs settle). */
+    public static final long KNOCKBACK_FRICTION = 3_865_470_566L;
+    /** Below this per-axis speed an imparted velocity is treated as settled (Q32.32; 0.125 block/tick). */
+    public static final long KNOCKBACK_SETTLE = FixedVec3.ONE / 8;
 
     private static final int[] STEP_DX = {0, 0, -1, 1};
     private static final int[] STEP_DZ = {-1, 1, 0, 0};
@@ -57,11 +61,60 @@ public final class MobAiRules {
                 state.removeEntity(ghost.id());
                 continue;
             }
+            if (!ghost.vel().equals(FixedVec3.ZERO)) {
+                applyKnockback(state, ghost);
+                continue;
+            }
             if (tick % AI_INTERVAL_TICKS != 0) {
                 continue;
             }
             wanderStep(state, ghost, tick, rng);
         }
+    }
+
+    /**
+     * Consume an imparted velocity (a TNT blast's knockback): translate the mob by its velocity,
+     * decay the velocity, and stop at a wall or once it has settled — then wander resumes. Pure
+     * fixed-point; mobs are not otherwise kinematic (wander teleports), so this is the one path
+     * that reads velocity.
+     */
+    private static void applyKnockback(MutableRegionState state, PersistedEntityState ghost) {
+        if (settled(ghost.vel())) {
+            state.updateEntity(new PersistedEntityState(
+                    ghost.id(), ghost.kind(), ghost.typeId(), ghost.pos(), FixedVec3.ZERO,
+                    ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+            return;
+        }
+        FixedVec3 target = ghost.pos().add(ghost.vel());
+        NBlockPos cell = new NBlockPos(target.blockX(), target.blockY(), target.blockZ());
+        if (!state.inOwnedRegion(cell)) {
+            state.transferEntity(dev.nodera.core.region.RegionId.fromChunk(
+                            state.region().dimension(),
+                            Math.floorDiv(target.blockX(), 16),
+                            Math.floorDiv(target.blockZ(), 16)),
+                    new PersistedEntityState(ghost.id(), ghost.kind(), ghost.typeId(),
+                            target, ghost.vel().scale(KNOCKBACK_FRICTION),
+                            ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+            return;
+        }
+        if (!LightField.isTransparent(state.getBlock(cell))) {
+            // Ran into an opaque block: stop dead where it is.
+            state.updateEntity(new PersistedEntityState(
+                    ghost.id(), ghost.kind(), ghost.typeId(), ghost.pos(), FixedVec3.ZERO,
+                    ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+            return;
+        }
+        state.updateEntity(new PersistedEntityState(
+                ghost.id(), ghost.kind(), ghost.typeId(), target,
+                ghost.vel().scale(KNOCKBACK_FRICTION),
+                ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+    }
+
+    /** True when every axis of an imparted velocity has decayed below the settle threshold. */
+    private static boolean settled(FixedVec3 vel) {
+        return Math.abs(vel.x()) <= KNOCKBACK_SETTLE
+                && Math.abs(vel.y()) <= KNOCKBACK_SETTLE
+                && Math.abs(vel.z()) <= KNOCKBACK_SETTLE;
     }
 
     private static void wanderStep(MutableRegionState state, PersistedEntityState ghost,
