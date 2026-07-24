@@ -38,8 +38,8 @@ import java.util.List;
  * <p><b>Knockback:</b> every kinematic non-TNT entity inside the blast radius is shoved outward —
  * a per-axis impulse whose direction is the delta sign and whose magnitude decays linearly with
  * squared distance ({@code (R²−dist²)×KNOCKBACK_BASE}; centre strongest, edge vanishes), added to
- * the entity's velocity. Pure fixed-point, no sqrt. (Mobs are not yet kinematic — {@code MobAiRules}
- * teleports them and ignores velocity; mob knockback arrives when the AI consumes velocity.)
+ * the entity's velocity. Pure fixed-point, no sqrt. (Mobs are shoved too: {@code MobAiRules}
+ * consumes an imparted velocity before wandering — decaying it until it settles or hits a wall.)
  *
  * <p>Remaining (later L-9 increments): blast-destruction hooks into redstone/gravity/observer
  * recompute, mob knockback, cross-region blast via migration, and the player action that ignites a

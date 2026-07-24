@@ -187,6 +187,34 @@ final class TntRulesTest {
     }
 
     @Test
+    void blastShovesAMobDeterministically() {
+        // AIR world (no wall to stop the shove) + a short fuse so the mob is still at blast height.
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        PersistedEntityState tnt = tnt(region, 1, CX, CZ, 2);
+        PersistedEntityState mob = new PersistedEntityState(
+                NetworkEntityId.allocate(region, SnapshotVersion.INITIAL, 2),
+                EntityKind.GHOST, SpawnRules.ZOMBIE_TYPE_ID,
+                FixedVec3.fromExternal(CX + 2 + 0.5, CY + 0.5, CZ + 0.5), FixedVec3.ZERO,
+                0, PersistedEntityState.NEVER_DESPAWN, Bytes.empty());
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(tnt, mob));
+
+        RegionExecutionResult first = executeTicks(base, List.of(), 12);
+        RegionExecutionResult second = executeTicks(base, List.of(), 12);
+        assertThat(second.resultingRoot())
+                .as("the mob shove settles to one root on every replica")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 12L);
+        PersistedEntityState shoved = settled.entities().stream()
+                .filter(e -> e.kind() == EntityKind.GHOST).findFirst().orElseThrow();
+        assertThat(shoved.pos().blockX())
+                .as("the blast shoved the east-side mob further east")
+                .isGreaterThan(CX + 2);
+    }
+
+    @Test
     void chainIgnitionDetonatesAdjacentTntDeterministically() {
         RegionSnapshot stone = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.STONE);
         PersistedEntityState a = tnt(region, 1, CX, CZ, TntRules.FUSE_TICKS);
