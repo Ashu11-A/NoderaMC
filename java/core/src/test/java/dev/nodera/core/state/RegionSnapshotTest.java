@@ -109,9 +109,9 @@ final class RegionSnapshotTest {
 
     @Test
     void rejectsUnsupportedBodyVersion() {
-        // Version 3 became the redstone body (Task 13); the first unassigned version is 4.
+        // Version 4 became the container body (Task 16); the first unassigned version is 5.
         CanonicalWriter w = new CanonicalWriter();
-        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_SNAPSHOT).writeU16(4);
+        w.writeU16(dev.nodera.core.crypto.TypeTags.REGION_SNAPSHOT).writeU16(5);
         assertThatThrownBy(() -> RegionSnapshot.decode(new CanonicalReader(w.toByteArray())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("REGION_SNAPSHOT encoding version");

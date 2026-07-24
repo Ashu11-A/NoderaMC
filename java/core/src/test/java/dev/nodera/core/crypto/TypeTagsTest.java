@@ -114,7 +114,8 @@ final class TypeTagsTest {
         assertThat(TypeTags.CERTIFIED_WORLD_GENESIS).isEqualTo(103);
         // watermark
         assertThat(TypeTags.GENESIS_RECERTIFICATION).isEqualTo(104);
-        assertThat(TypeTags.NEXT).isEqualTo(104);
+        assertThat(TypeTags.CONTAINER_ENTRY).isEqualTo(105);
+        assertThat(TypeTags.NEXT).isEqualTo(105);
     }
 
     @Test

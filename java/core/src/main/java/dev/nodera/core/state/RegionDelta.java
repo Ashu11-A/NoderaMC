@@ -38,6 +38,7 @@ public record RegionDelta(
         List<EntityTransferIntent> transferIntents,
         List<ScheduledTickEntry> scheduledTicks,
         List<BlockEventEntry> blockEvents,
+        List<ContainerEntry> containers,
         int bodyVersion
 ) implements Encodable {
 
@@ -53,6 +54,9 @@ public record RegionDelta(
      */
     public static final int SCHEDULED_ENCODING_VERSION = 4;
 
+    /** Body version 5 (Task 16 / L-10): appends the RESULTING container table (replace semantics). */
+    public static final int CONTAINER_ENCODING_VERSION = 5;
+
     private static final Comparator<BlockMutation> MUTATION_ORDER =
             Comparator.comparing(BlockMutation::pos);
 
@@ -65,6 +69,24 @@ public record RegionDelta(
 
     private static final Comparator<EntityTransferIntent> TRANSFER_ORDER =
             Comparator.comparing(EntityTransferIntent::entityId);
+
+    /** Container-aware delta constructor (body version 5; Task 16 / L-10, replace semantics). */
+    public RegionDelta(
+            RegionId region,
+            SnapshotVersion baseVersion,
+            SnapshotVersion resultingVersion,
+            List<BlockMutation> blockMutations,
+            StateRoot resultingRoot,
+            List<EntityMutation> entityMutations,
+            List<InventoryCredit> inventoryCredits,
+            List<EntityTransferIntent> transferIntents,
+            List<ScheduledTickEntry> scheduledTicks,
+            List<BlockEventEntry> blockEvents,
+            List<ContainerEntry> containers) {
+        this(region, baseVersion, resultingVersion, blockMutations, resultingRoot,
+                entityMutations, inventoryCredits, transferIntents, scheduledTicks, blockEvents,
+                containers, CONTAINER_ENCODING_VERSION);
+    }
 
     /** Scheduled-state-aware delta constructor (body version 4 when the lists carry anything). */
     public RegionDelta(
@@ -80,7 +102,7 @@ public record RegionDelta(
             List<BlockEventEntry> blockEvents) {
         this(region, baseVersion, resultingVersion, blockMutations, resultingRoot,
                 entityMutations, inventoryCredits, transferIntents, scheduledTicks, blockEvents,
-                SCHEDULED_ENCODING_VERSION);
+                List.of(), SCHEDULED_ENCODING_VERSION);
     }
 
     /** Source-compatible constructor for block-only callers. */
@@ -88,7 +110,8 @@ public record RegionDelta(
                        SnapshotVersion resultingVersion, List<BlockMutation> blockMutations,
                        StateRoot resultingRoot) {
         this(region, baseVersion, resultingVersion, blockMutations, resultingRoot,
-                List.of(), List.of(), List.of(), List.of(), List.of(), STATE_ENCODING_VERSION);
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                STATE_ENCODING_VERSION);
     }
 
     /** Source-compatible constructor for callers without border-transfer intents. */
@@ -101,7 +124,7 @@ public record RegionDelta(
             List<EntityMutation> entityMutations,
             List<InventoryCredit> inventoryCredits) {
         this(region, baseVersion, resultingVersion, blockMutations, resultingRoot,
-                entityMutations, inventoryCredits, List.of(), List.of(), List.of(),
+                entityMutations, inventoryCredits, List.of(), List.of(), List.of(), List.of(),
                 STATE_ENCODING_VERSION);
     }
 
@@ -117,7 +140,7 @@ public record RegionDelta(
             List<EntityTransferIntent> transferIntents) {
         this(region, baseVersion, resultingVersion, blockMutations, resultingRoot,
                 entityMutations, inventoryCredits, transferIntents, List.of(), List.of(),
-                STATE_ENCODING_VERSION);
+                List.of(), STATE_ENCODING_VERSION);
     }
 
     /**
@@ -157,7 +180,10 @@ public record RegionDelta(
         if (blockEvents == null) {
             throw new IllegalArgumentException("blockEvents must not be null");
         }
-        if (bodyVersion < 1 || bodyVersion > SCHEDULED_ENCODING_VERSION) {
+        if (containers == null) {
+            throw new IllegalArgumentException("containers must not be null");
+        }
+        if (bodyVersion < 1 || bodyVersion > CONTAINER_ENCODING_VERSION) {
             throw new IllegalArgumentException("unsupported region-delta body version " + bodyVersion);
         }
         if (bodyVersion == 1 && (!entityMutations.isEmpty() || !inventoryCredits.isEmpty())) {
@@ -165,6 +191,10 @@ public record RegionDelta(
         }
         if (bodyVersion < 3 && !transferIntents.isEmpty()) {
             throw new IllegalArgumentException("legacy delta cannot carry transfer intents");
+        }
+        if (bodyVersion < CONTAINER_ENCODING_VERSION && !containers.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "delta body version " + bodyVersion + " cannot carry containers");
         }
         if (bodyVersion < SCHEDULED_ENCODING_VERSION
                 && (!scheduledTicks.isEmpty() || !blockEvents.isEmpty())) {
@@ -189,6 +219,9 @@ public record RegionDelta(
         sortedTicks.sort(ScheduledTickEntry.EXECUTION_ORDER);
         scheduledTicks = List.copyOf(sortedTicks);
         blockEvents = List.copyOf(blockEvents); // FIFO order IS the canonical order
+        List<ContainerEntry> sortedContainers = new ArrayList<>(containers);
+        sortedContainers.sort(ContainerEntry.POS_ORDER);
+        containers = List.copyOf(sortedContainers);
     }
 
     /** True when the delta carries no state mutations or one-way effects. */
@@ -217,6 +250,9 @@ public record RegionDelta(
             w.writeList(scheduledTicks, CanonicalWriter::writeEncodable);
             w.writeList(blockEvents, CanonicalWriter::writeEncodable);
         }
+        if (bodyVersion >= CONTAINER_ENCODING_VERSION) {
+            w.writeList(containers, CanonicalWriter::writeEncodable);
+        }
     }
 
     /**
@@ -231,7 +267,7 @@ public record RegionDelta(
             throw new IllegalStateException("expected REGION_DELTA tag, got " + tag);
         }
         int bodyVersion = r.readU16();
-        if (bodyVersion < 1 || bodyVersion > SCHEDULED_ENCODING_VERSION) {
+        if (bodyVersion < 1 || bodyVersion > CONTAINER_ENCODING_VERSION) {
             throw new IllegalStateException("unsupported REGION_DELTA encoding version " + bodyVersion);
         }
         RegionId region = RegionId.decode(r);
@@ -254,8 +290,12 @@ public record RegionDelta(
         List<BlockEventEntry> blockEvents = bodyVersion >= SCHEDULED_ENCODING_VERSION
                 ? r.readList(BlockEventEntry::decode)
                 : List.of();
+        List<ContainerEntry> containers = bodyVersion >= CONTAINER_ENCODING_VERSION
+                ? r.readList(ContainerEntry::decode)
+                : List.of();
         return new RegionDelta(region, baseVersion, resultingVersion, mutations, resultingRoot,
-                entityMutations, credits, transfers, scheduledTicks, blockEvents, bodyVersion);
+                entityMutations, credits, transfers, scheduledTicks, blockEvents, containers,
+                bodyVersion);
     }
 
     private static void rejectDuplicateEntityMutations(List<EntityMutation> mutations) {

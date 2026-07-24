@@ -152,6 +152,9 @@ public final class TypeTags {
     /** Task 16 / L-20: the founding peer set's multi-party genesis re-certification. */
     public static final int GENESIS_RECERTIFICATION = 104;
 
+    /** {@code ContainerEntry} — one container's canonical slot contents in the root (Task 16 / L-10). */
+    public static final int CONTAINER_ENTRY = 105;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 104;
+    public static final int NEXT = 105;
 }
