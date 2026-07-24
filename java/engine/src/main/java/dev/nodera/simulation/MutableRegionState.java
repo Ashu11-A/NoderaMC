@@ -59,6 +59,10 @@ public final class MutableRegionState implements RegionWorldView {
     private final RegionHalo halo;
     private final RegionBounds bounds;
     private final SnapshotVersion baseVersion;
+    // The member-agreed world time (Task 14 L-6): a context INPUT, not region state — it is never
+    // hashed into the snapshot/delta (like the rng seed). Time-coupled rules (daylight sensor) read
+    // it; defaults to 0 for time-free rule sets.
+    private final long worldTime;
     private final Map<Long, ColumnModel> columnsByChunk;
     private final BlockMutationBuffer mutationBuffer = new BlockMutationBuffer();
     private final EntityStore entityStore;
@@ -88,6 +92,16 @@ public final class MutableRegionState implements RegionWorldView {
      * @Thread-context thread-confined per call.
      */
     public MutableRegionState(RegionSnapshot snapshot, RegionBounds bounds) {
+        this(snapshot, bounds, 0L);
+    }
+
+    /**
+     * Build a working copy over {@code snapshot} restricted by {@code bounds}, carrying the
+     * member-agreed {@code worldTime} for time-coupled rules (Task 14 L-6). See {@link #worldTime()}.
+     *
+     * @Thread-context thread-confined per call.
+     */
+    public MutableRegionState(RegionSnapshot snapshot, RegionBounds bounds, long worldTime) {
         if (snapshot == null) {
             throw new IllegalArgumentException("snapshot must not be null");
         }
@@ -98,6 +112,7 @@ public final class MutableRegionState implements RegionWorldView {
         this.baseVersion = snapshot.version();
         this.halo = new RegionHalo(this.region);
         this.bounds = bounds;
+        this.worldTime = worldTime;
         this.scheduledTicks.addAll(snapshot.scheduledTicks());
         this.blockEvents.addAll(snapshot.blockEvents());
         this.baseHadScheduledState =
@@ -128,6 +143,15 @@ public final class MutableRegionState implements RegionWorldView {
     /** Return the snapshot version this working state started from. */
     public SnapshotVersion baseVersion() {
         return baseVersion;
+    }
+
+    /**
+     * @return the member-agreed world time for this execution (Task 14 L-6) — a context INPUT, never
+     *         hashed. Time-coupled rules (the daylight sensor) read it; 0 for time-free rule sets.
+     * @Thread-context thread-confined per call.
+     */
+    public long worldTime() {
+        return worldTime;
     }
 
     /**

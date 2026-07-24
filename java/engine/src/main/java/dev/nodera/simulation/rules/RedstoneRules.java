@@ -261,7 +261,28 @@ public final class RedstoneRules {
         return isWire(id) || emittedPower(id) > 0 || isRepeater(id) || isObserver(id)
                 || id == FlatWorldRules.LEVER_OFF || id == FlatWorldRules.TORCH_OFF
                 || id == FlatWorldRules.BUTTON_OFF
-                || isPistonBase(id) || isPistonHead(id);
+                || isPistonBase(id) || isPistonHead(id)
+                || isDaylightSensor(id);
+    }
+
+    /** @return whether {@code id} is a daylight sensor (Task 14 L-6). */
+    public static boolean isDaylightSensor(int id) {
+        return id == FlatWorldRules.DAYLIGHT_SENSOR;
+    }
+
+    /**
+     * A daylight sensor's output: 15 while exposed to open sky during daytime, else 0. Unlike every
+     * id-static source this depends on the member-agreed {@code worldTime} AND committed sky light
+     * (state), so it is queried directly in the BFS seeding rather than through
+     * {@link #emittedPowerTowards}. (Periodic re-evaluation as time passes is a follow-on; today the
+     * output is recomputed on any network change touching the sensor.)
+     */
+    public static int daylightOutput(MutableRegionState state, NBlockPos pos) {
+        long t = Math.floorMod(state.worldTime(), 24_000L);
+        if (t >= 12_000L) {
+            return 0; // night (6 pm .. 6 am) — the sensor is dark
+        }
+        return dev.nodera.simulation.lighting.LightField.sample(state, pos).sky() >= 15 ? 15 : 0;
     }
 
     /** The torch's input: whether its SUPPORT block (directly below) carries power. */
@@ -542,7 +563,12 @@ public final class RedstoneRules {
         for (NBlockPos wire : wires) {
             int seed = 0;
             for (NBlockPos n : NeighborUpdateOrder.neighborsOf(wire)) {
-                seed = Math.max(seed, emittedPowerTowards(state.getBlock(n), n, wire));
+                int nid = state.getBlock(n);
+                // A daylight sensor's output is state+time-dependent, not id-static.
+                int contribution = isDaylightSensor(nid)
+                        ? daylightOutput(state, n)
+                        : emittedPowerTowards(nid, n, wire);
+                seed = Math.max(seed, contribution);
             }
             settled.put(wire, seed);
             if (seed > 0) {

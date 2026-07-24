@@ -131,6 +131,8 @@ public final class FlatWorldRules implements RuleSet {
     public static final int RAIL = 74;
     /** Powered rail — a rail that BOOSTS a cart over it (MVP: always on; redstone-gating follows). */
     public static final int POWERED_RAIL = 75;
+    /** Daylight sensor — emits 15 (omni) while exposed to sky in daytime, else 0 (Task 14 L-6). */
+    public static final int DAYLIGHT_SENSOR = 76;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -199,6 +201,7 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(OBSERVER_EAST_ON, "observer_east_on"),
             new PaletteEntry(RAIL, "rail"),
             new PaletteEntry(POWERED_RAIL, "powered_rail"),
+            new PaletteEntry(DAYLIGHT_SENSOR, "daylight_sensor"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
