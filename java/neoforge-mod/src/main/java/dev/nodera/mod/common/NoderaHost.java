@@ -457,11 +457,49 @@ public final class NoderaHost {
     public static void reconfigure(MinecraftServer server, ShareOptions options) {
         ShareOptions current = NoderaPeerService.get().hostOptions();
         if (current != null && options != null && !current.password().equals(options.password())) {
-            LOG.warn("Nodera: password change on '{}' triggers a full re-manifest; joiners must re-enter it",
-                    server.getWorldData().getLevelName());
-            // Live lane: re-derive the key, re-encrypt + re-split, emit a new PieceManifest, re-seed.
+            // F6: a password change is a full re-key (re-derive content key → re-encrypt + re-split →
+            // new manifest → WorldIdentity.resign → refresh announce). That pipeline is not wired yet,
+            // so the change is surfaced honestly to the sharer — NEVER a silent success. The verb now
+            // carries plaintext over loopback; the worker is the sole password authority.
+            String outcome = "password re-key is pending the worker pipeline";
+            if (dev.nodera.mod.common.CompanionLink.isPresent()) {
+                String worldIdHex = dev.nodera.mod.common.NoderaWorldStore
+                        .read(server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT))
+                        .map(id -> id.worldId().toHex()).orElse("");
+                if (!worldIdHex.isBlank()) {
+                    String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
+                            options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    java.util.Optional<String> err = dev.nodera.mod.common.CompanionLink.client()
+                            .changePassword(worldIdHex, newPwdB64);
+                    outcome = err.orElse(null); // null = success
+                }
+            }
+            if (outcome == null) {
+                LOG.info("Nodera: password re-key accepted for '{}'", server.getWorldData().getLevelName());
+                tellHost(server, "Nodera: password changed — joiners must use the new password.");
+            } else {
+                LOG.warn("Nodera: password re-key FAILED for '{}': {}", server.getWorldData().getLevelName(),
+                        outcome);
+                tellHost(server, "Nodera: password change FAILED — " + outcome
+                        + ". The world keeps its current password.");
+                // Do not proceed with the new password: re-share with the unchanged options.
+                activate(server, options.withPassword(current.password()));
+                return;
+            }
         }
         activate(server, options);
+    }
+
+    /** Send a chat line to every online host player (the sharer), best-effort. */
+    private static void tellHost(MinecraftServer server, String message) {
+        try {
+            net.minecraft.network.chat.Component line = net.minecraft.network.chat.Component.literal(message);
+            for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+                p.sendSystemMessage(line);
+            }
+        } catch (RuntimeException ignored) {
+            // chat is best-effort; never let it derail a reconfigure
+        }
     }
 
     /**
