@@ -120,9 +120,13 @@ pub mod message_tags {
     pub const EVENT_SYNC_QUERY: u16 = 54;
     /// `EventSyncAnswer` — the serving peer's certified events since the requested id.
     pub const EVENT_SYNC_ANSWER: u16 = 55;
+    /// `HaloUpdate` — Java neighbor-edge slice refresh (Task 13 border lane).
+    pub const HALO_UPDATE: u16 = 56;
+    /// `GroupMigration` — Java contraption-group migration order (Task 13 border lane).
+    pub const GROUP_MIGRATION: u16 = 57;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 55;
+    pub const NEXT_TAG: u16 = 57;
 }
 
 /// The message tags this crate can decode today.

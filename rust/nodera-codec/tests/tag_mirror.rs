@@ -163,6 +163,8 @@ fn message_tag_registry_mirrors_java() {
     );
     assert_mirrors(&source, "TAG_EVENT_SYNC_QUERY", EVENT_SYNC_QUERY, FILE);
     assert_mirrors(&source, "TAG_EVENT_SYNC_ANSWER", EVENT_SYNC_ANSWER, FILE);
+    assert_mirrors(&source, "TAG_HALO_UPDATE", HALO_UPDATE, FILE);
+    assert_mirrors(&source, "TAG_GROUP_MIGRATION", GROUP_MIGRATION, FILE);
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 

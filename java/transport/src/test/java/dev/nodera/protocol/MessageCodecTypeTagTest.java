@@ -119,7 +119,9 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_ACTION_FORWARD).isEqualTo(53);
         assertThat(MessageCodec.TAG_EVENT_SYNC_QUERY).isEqualTo(54);
         assertThat(MessageCodec.TAG_EVENT_SYNC_ANSWER).isEqualTo(55);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(55);
+        assertThat(MessageCodec.TAG_HALO_UPDATE).isEqualTo(56);
+        assertThat(MessageCodec.TAG_GROUP_MIGRATION).isEqualTo(57);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(57);
     }
 
     @Test
