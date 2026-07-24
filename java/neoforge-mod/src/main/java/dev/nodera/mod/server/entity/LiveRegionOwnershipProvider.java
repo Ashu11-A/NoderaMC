@@ -34,6 +34,17 @@ public final class LiveRegionOwnershipProvider implements RegionOwnershipProvide
     private static final AtomicReference<ActiveLane> ACTIVE = new AtomicReference<>();
     private static final LiveRegionOwnershipProvider INSTANCE = new LiveRegionOwnershipProvider();
 
+    /**
+     * Set while the lane is being re-planned (closed and immediately reopened on a new ownership
+     * plan). A re-plan is not a teardown: ownership still exists, it is only being recomputed, so
+     * clearing the panels for the duration would make {@code /nodera regions} and {@code zone}
+     * report "no delegated regions" / {@code UNASSIGNED} mid-swap. Since ownership re-plans on
+     * every region-boundary crossing, that window would otherwise be hit constantly. While this
+     * is set the outgoing plan keeps being served and the reopening lane simply replaces it.
+     */
+    private static final java.util.concurrent.atomic.AtomicBoolean SWAPPING =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     private LiveRegionOwnershipProvider() {
     }
 
@@ -47,11 +58,33 @@ public final class LiveRegionOwnershipProvider implements RegionOwnershipProvide
         ACTIVE.set(new ActiveLane(service, self));
     }
 
-    /** Called on lane teardown; only clears if {@code service} is still the active one. */
+    /**
+     * Called on lane teardown; only clears if {@code service} is still the active one, and never
+     * during a re-plan swap (see {@link #SWAPPING}) — there the reopening lane replaces it.
+     */
     public static void deactivate(WorkerValidationService service) {
+        if (SWAPPING.get()) {
+            return;
+        }
         ActiveLane lane = ACTIVE.get();
         if (lane != null && lane.service() == service) {
             ACTIVE.compareAndSet(lane, null);
+        }
+    }
+
+    /** Begin a re-plan swap: keep serving the outgoing plan until the new lane activates. */
+    public static void beginSwap() {
+        SWAPPING.set(true);
+    }
+
+    /**
+     * End a re-plan swap. When the swap produced no new lane ({@code activated} false — e.g. the
+     * new plan gave this node no regions) the stale plan is dropped, since nothing will replace it.
+     */
+    public static void endSwap(boolean activated) {
+        SWAPPING.set(false);
+        if (!activated) {
+            ACTIVE.set(null);
         }
     }
 
