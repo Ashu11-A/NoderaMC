@@ -55,6 +55,8 @@ public final class ClientBootstrap {
         dev.nodera.mod.common.ModNetworking.setPlanListener(
                 dev.nodera.mod.client.entity.ClientValidationLane::apply);
         NeoForge.EVENT_BUS.addListener(PauseScreenShareAddon::onScreenInit);  // Task 31a: pause-menu "Open to Nodera"
+        NeoForge.EVENT_BUS.addListener(
+                dev.nodera.mod.client.share.SaveScreenSeedOverlay::onScreenRender); // #43 exit-flush progress
         NeoForge.EVENT_BUS.addListener(SelectWorldScreenAddon::onScreenRender);  // Task 31b: public-world badge
         NeoForge.EVENT_BUS.addListener(
                 dev.nodera.mod.client.title.TitleScreenAddon::onScreenInit);   // Realms slot → Nodera Network

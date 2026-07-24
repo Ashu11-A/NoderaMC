@@ -59,5 +59,7 @@
   "nodera.share.status.route": "Game endpoint: %s",
   "nodera.share.status.offline": "Game endpoint: not open",
   "nodera.share.status.worker.on": "Worker: keeping this world online",
-  "nodera.share.status.worker.off": "Worker: not running — world dies with the game"
+  "nodera.share.status.worker.off": "Worker: not running — world dies with the game",
+  "nodera.exit.packing": "Packing world for the Nodera network…",
+  "nodera.exit.uploading": "Sending latest data to the Nodera network…"
 }

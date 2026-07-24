@@ -222,6 +222,18 @@ public final class ServerBootstrap {
         // Complete a parked integrated-server publish once the host player is fully in the world
         // (a world shared before login — every auto-re-share — parks it). Cheap flag check when idle.
         NoderaHost.tickGamePublish(event.getServer());
+        // Issue #43 continuous streaming: while hosting, re-seed the world archive on the
+        // configured cadence so the network copy is never more than one interval behind — a
+        // crash/exit can no longer revert the world past the last interval.
+        if (NoderaPeerService.get().isHosting()) {
+            try {
+                dev.nodera.mod.common.WorldArchiver.streamTick(event.getServer());
+            } catch (RuntimeException e) {
+                // Streaming is durability, not correctness — never let it touch the tick loop.
+                org.slf4j.LoggerFactory.getLogger("NoderaHost")
+                        .warn("Nodera: archive stream tick failed: {}", e.toString());
+            }
+        }
         DiagnosticsService d = NoderaPeerService.get().serverDiagnostics();
         if (d != null) {
             d.onServerTickPost(event);
