@@ -11,7 +11,7 @@
 
 <!-- AI-AGENT-INSTRUCTION: README.md is a living document. Every commit that completes a task or
      changes test status MUST update: (1) the progress bar below, (2) the module status table,
-     (3) Tested.md. Keep comments like this one intact — they guide future agents. See
+     (3) docs/Testing.md. Keep comments like this one intact — they guide future agents. See
      .github/ISSUE_SYSTEM.md and AGENTS.md for the full workflow. -->
 
 ---
@@ -20,20 +20,20 @@
 
 <!-- AI-AGENT-INSTRUCTION: Recompute `overall` as a weighted fraction of the 8 implementation
      phases (Plan §6) and keep filled blocks / 20 ≈ the percentage. The DETAILED per-phase
-     table + milestone notes live in docs/PROGRESS.md — update THAT file (and Tested.md) on
+     table + milestone notes live in docs/PROGRESS.md — update THAT file (and docs/Testing.md) on
      every outcome-changing commit; this section keeps only the bar. -->
 
 **Overall system completion: `89.1%`**
 `██████████████████░░`
 
 Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · test counts:
-[`Tested.md`](Tested.md) · order/priority: [`docs/Roadmap.md`](docs/Roadmap.md)
+[`docs/Testing.md`](docs/Testing.md) · order/priority: [`docs/Roadmap.md`](docs/Roadmap.md)
 
 ---
 
 ## Module status
 
-<!-- AI-AGENT-INSTRUCTION: This table mirrors Tested.md. Update both together. Status emojis:
+<!-- AI-AGENT-INSTRUCTION: This table mirrors docs/Testing.md. Update both together. Status emojis:
      ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. -->
 
 | Module | Responsibility | Tests | Status |
@@ -44,7 +44,7 @@ Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · te
 | `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores | 97 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
 | `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip, `RelayMetricsTest` per-peer event-relay accounting) | 371 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), and the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress); Task 5b evidence remains | 68 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), and the `/nodera selftest` in-game command test+benchmark drive; Task 5b evidence remains | 68 | 🚧 |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag mirror through Java type tag 102/message tag 48 + socket framing | 35 | ✅ |
 | `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 54 | ✅ |
 | `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED) | 55 | ✅ |
@@ -196,7 +196,7 @@ nodera/
 - **One task = one branch = one PR.** Branch name: `<emoji-less-type>/<short-slug>-#<issue>` e.g.
   `feature/shadow-capture-#5`. Commits cite the issue (`refs #5` while working, `fixes #5` /
   `closes #5` to close).
-- **Closing an issue requires**: `./gradlew check` green, README progress + Tested.md updated, the
+- **Closing an issue requires**: `./gradlew check` green, README progress + docs/Testing.md updated, the
   task's acceptance criteria linked from the PR description.
 
 See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules.
@@ -245,7 +245,7 @@ Implementation order + priority + difficulty rankings (legacy numbering):
 ## Agent memory & discipline
 
 <!-- AI-AGENT-INSTRUCTION: AGENTS.md is the always-loaded agent memory. The three non-negotiable
-     disciplines are: (1) run tests before commit, (2) update README progress + Tested.md, (3) use
+     disciplines are: (1) run tests before commit, (2) update README progress + docs/Testing.md, (3) use
      the commit-message standard above. Re-read AGENTS.md at the start of every session. -->
 
 The single source of agent instructions is [`AGENTS.md`](AGENTS.md). It is auto-loaded by coding

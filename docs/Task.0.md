@@ -35,7 +35,7 @@ Tauri companion app (Task 7) — a player's node stays on the network with Minec
 | [`AGENTS.md`](../AGENTS.md) | **Agent memory.** Build/test commands, layering rules, frozen contracts, and the three non-negotiable disciplines (test-before-commit, update README, commit format). Re-read every session. |
 | [`README.md`](../README.md) | **Status entry point.** Overall progress bar, module table, roadmap (tasks → issues), commit-message standard, issue-system summary. |
 | [`docs/PROGRESS.md`](PROGRESS.md) | **The per-phase progress ledger** (moved out of the README): the detailed phase table + milestone notes. Updated on every outcome-changing commit alongside the README bar. |
-| [`Tested.md`](../Tested.md) | **Test status per module** (counts, pass/fail emojis, last run, per-increment history). |
+| [`docs/Testing.md`](Testing.md) | **Test status per module** (counts, pass/fail emojis, last run, per-increment history). |
 | [`.github/ISSUE_SYSTEM.md`](../.github/ISSUE_SYSTEM.md) | **The normative workflow**: how to open/assign/branch/commit/close/reopen issues, and how to edit README. |
 | [`docs/Plan.0.md`](Plan.0.md) | **Architecture & roadmap.** Locked decisions (§3), module layout (§4), implementation phases (§6), invariants (§8). |
 | **This file** | Conventions, definitions, module-task index & dependency graph. Binding for all other tasks. |
@@ -134,7 +134,7 @@ Task 5 (live runs).
 
 The 2026-07-21 consolidation replaced the 33 per-increment specs with the 7 module tasks. The
 old files are preserved verbatim in [`docs/old/`](old/); `LIMITATIONS.md` owner tags,
-`Roadmap.md`, `Tested.md` history, and GitHub issues still cite the legacy numbers — resolve
+`Roadmap.md`, `docs/Testing.md` history, and GitHub issues still cite the legacy numbers — resolve
 them here:
 
 | Legacy task | Now lives in |
@@ -310,7 +310,7 @@ Enforcement: ArchUnit test bans the forbidden APIs from `dev.nodera.simulation..
   [`docs/PROGRESS.md`](PROGRESS.md). Both recomputed on every commit that changes outcomes:
   update the phase row(s) + note blocks in `PROGRESS.md`, then re-derive the README percentage
   as the weighted fraction of the 8 phases and adjust the block bar (filled/20 ≈ percentage).
-- **Per-module test status** → `README.md` module table AND `Tested.md` (authoritative).
+- **Per-module test status** → `README.md` module table AND `docs/Testing.md` (authoritative).
   Emojis: ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing.
 - **Roadmap / task status** → `README.md` "Roadmap" table, mirrored by GitHub issues labelled
   `task`.
@@ -323,7 +323,7 @@ Enforcement: ArchUnit test bans the forbidden APIs from `dev.nodera.simulation..
 gh issue list --state open --label task        # what's left (legacy titles — find by title)
 gh issue list --state closed --label task      # what's done
 cat README.md | sed -n '/Progress/,/^---/p'    # the bar + phase table
-cat Tested.md                                  # test counts + emojis
+cat docs/Testing.md                                  # test counts + emojis
 ```
 
 ### To update progress (mandatory on every outcome-changing commit)
@@ -331,7 +331,7 @@ cat Tested.md                                  # test counts + emojis
 1. Edit `docs/PROGRESS.md` (the per-phase ledger) and `README.md` (recompute
    `Overall system completion: <p>%` + the block bar; tick the module table and roadmap rows).
    Preserve every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment.
-2. Edit `Tested.md`: update test counts, `Last run` date, and the module emoji.
+2. Edit `docs/Testing.md`: update test counts, `Last run` date, and the module emoji.
 3. Update the owning `docs/Task.<n>.md` implementation-status table (and its audit date).
 4. Close/open the relevant GitHub issue (`Closes #N` / `Reopen #N`).
 5. If a §B limitation was staged or retired, update `docs/LIMITATIONS.md` in the same commit.
@@ -340,7 +340,7 @@ cat Tested.md                                  # test counts + emojis
 
 1. **Run `./gradlew check` and `cd rust && cargo test` first.** If red, you do NOT commit. If
    you can't fix it, open a `bug` issue and stop.
-2. **Update `README.md` + `Tested.md` in the same commit** (see §10).
+2. **Update `README.md` + `docs/Testing.md` in the same commit** (see §10).
 3. **Commit message format:**
    ```
    <emoji> [<overall-percentage>%] <change type>: <short description in English>

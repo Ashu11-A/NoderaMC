@@ -15,7 +15,7 @@
      difficulty, grounded in what is ALREADY implemented. Keep it in sync on every outcome-changing
      commit (same discipline as README progress): when a task advances, update §1 status, re-check
      the §2 wave it sits in, and strike it from §3/§4 when done. Statuses must agree with
-     README.md "Roadmap" + Tested.md. Task links are the specs; the GitHub issue for a task is
+     README.md "Roadmap" + docs/Testing.md. Task links are the specs; the GitHub issue for a task is
      found BY TITLE (`Task N — <title>`), never by assuming issue number == task number. -->
 
 Snapshot: 2026-07-23 · overall `74%` · 1015 Java tests green (+144 Rust) · **no-host region
@@ -63,7 +63,7 @@ monorepo + standalone tracker + rendezvous relay — all three landed; L-23/L-27
 
 ## 1. Where the build stands
 
-Ground truth: README "Progress" + `Tested.md`. Summary by completion class:
+Ground truth: README "Progress" + `docs/Testing.md`. Summary by completion class:
 
 | Class | Tasks |
 |---|---|

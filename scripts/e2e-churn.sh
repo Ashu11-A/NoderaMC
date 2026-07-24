@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# nodera e2e-churn — live Test 2 (docs/Testing.Live.md): join/leave churn.
+# nodera e2e-churn — live Test 2 (docs/Testing.md): join/leave churn.
 #
 #   C1  player A hosts a shared world; player B joins → both leave
 #   C2  ×5: player B joins, plays briefly, disconnects (random dwell)
