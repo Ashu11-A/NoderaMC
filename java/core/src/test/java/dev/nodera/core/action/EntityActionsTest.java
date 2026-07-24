@@ -88,4 +88,23 @@ final class EntityActionsTest {
             assertThat(decoded.getClass()).isEqualTo(action.getClass());
         }
     }
+
+    @Test
+    void attackEntityRoundTripsThroughPolymorphicDispatch() {
+        AttackEntityAction attack = new AttackEntityAction(
+                NetworkEntityId.allocate(REGION, new SnapshotVersion(7), 11),
+                new FixedVec3(FixedVec3.ONE, 70 * FixedVec3.ONE, 2 * FixedVec3.ONE));
+        CanonicalWriter w = new CanonicalWriter();
+        attack.encode(w);
+        assertThat(GameAction.decode(new CanonicalReader(w.toBytes().toArray()))).isEqualTo(attack);
+    }
+
+    @Test
+    void attackRejectsNullFields() {
+        assertThatThrownBy(() -> new AttackEntityAction(null, FixedVec3.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AttackEntityAction(
+                NetworkEntityId.allocate(REGION, new SnapshotVersion(1), 1), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

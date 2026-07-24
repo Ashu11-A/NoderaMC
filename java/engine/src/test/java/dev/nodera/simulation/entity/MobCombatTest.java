@@ -189,6 +189,48 @@ final class MobCombatTest {
     }
 
     @Test
+    void meleeAttackActionWoundsTheMobThroughTheValidatedLane() {
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        PersistedEntityState target = mob(region, 1, 64.5, 64.5, 64.5,
+                MobCombatRules.ZOMBIE_MAX_HEALTH);
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(target));
+        List<ActionEnvelope> attack = List.of(TestFixtures.envelope(region, 0L, 1L,
+                new dev.nodera.core.action.AttackEntityAction(
+                        target.id(), FixedVec3.fromExternal(63.5, 64.5, 64.5))));
+
+        RegionExecutionResult first = executeTicks(base, attack, 1);
+        RegionExecutionResult second = executeTicks(base, attack, 1);
+        assertThat(second.resultingRoot())
+                .as("a signed melee strike is replica-identical committed state")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 1L);
+        assertThat(MobCombatRules.decodeVitals(soleMob(settled).payload()).health())
+                .as("the strike took exactly MELEE_DAMAGE halves — the constant is rule-set-owned")
+                .isEqualTo(MobCombatRules.ZOMBIE_MAX_HEALTH - MobCombatRules.MELEE_DAMAGE);
+    }
+
+    @Test
+    void outOfReachMeleeAttackIsRejectedAndWoundsNothing() {
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        PersistedEntityState target = mob(region, 1, 64.5, 64.5, 64.5,
+                MobCombatRules.ZOMBIE_MAX_HEALTH);
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(target));
+        List<ActionEnvelope> tooFar = List.of(TestFixtures.envelope(region, 0L, 1L,
+                new dev.nodera.core.action.AttackEntityAction(
+                        target.id(), FixedVec3.fromExternal(50.5, 64.5, 64.5))));
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, executeTicks(base, tooFar, 1).delta(), 1L);
+        assertThat(MobCombatRules.decodeVitals(soleMob(settled).payload()).health())
+                .as("a 14-block 'melee' strike is rejected by reach validation — no cheat damage")
+                .isEqualTo(MobCombatRules.ZOMBIE_MAX_HEALTH);
+    }
+
+    @Test
     void vitalsPayloadRejectsMalformedBytes() {
         assertThatThrownBy(() -> MobCombatRules.vitalsPayload(0, 20))
                 .isInstanceOf(IllegalArgumentException.class);

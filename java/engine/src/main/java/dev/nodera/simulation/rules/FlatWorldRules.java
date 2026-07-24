@@ -291,6 +291,7 @@ public final class FlatWorldRules implements RuleSet {
             // EntityRuleSet); item actions are rejected here rather than silently dropped.
             case DropItemAction d -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case PickupItemAction p -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
+            case dev.nodera.core.action.AttackEntityAction a -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.InteractBlockAction i -> validateInteract(view, env, i);
         };
     }
@@ -378,6 +379,8 @@ public final class FlatWorldRules implements RuleSet {
                     "FlatWorldRules.apply received a DropItemAction (should be rejected in validate)");
             case PickupItemAction p -> throw new IllegalStateException(
                     "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)");
+            case dev.nodera.core.action.AttackEntityAction a -> throw new IllegalStateException(
+                    "FlatWorldRules.apply received an AttackEntityAction (should be rejected in validate)");
         }
     }
 

@@ -1,6 +1,7 @@
 package dev.nodera.simulation.rules;
 
 import dev.nodera.core.action.ActionEnvelope;
+import dev.nodera.core.action.AttackEntityAction;
 import dev.nodera.core.action.BreakBlockAction;
 import dev.nodera.core.action.DropItemAction;
 import dev.nodera.core.action.PickupItemAction;
@@ -15,6 +16,7 @@ import dev.nodera.simulation.DeterministicRandom;
 import dev.nodera.simulation.MutableRegionState;
 import dev.nodera.simulation.RegionWorldView;
 import dev.nodera.simulation.entity.ItemEntityRules;
+import dev.nodera.simulation.entity.MobCombatRules;
 
 import java.util.Optional;
 
@@ -31,6 +33,7 @@ public final class EntityRuleSet implements RuleSet {
             case dev.nodera.core.action.InteractBlockAction i -> blocks.validate(view, env);
             case DropItemAction drop -> validateDrop(view, env, drop);
             case PickupItemAction pickup -> validatePickup(view, env, pickup);
+            case AttackEntityAction attack -> validateAttack(view, env, attack);
         };
     }
 
@@ -59,6 +62,24 @@ public final class EntityRuleSet implements RuleSet {
         return Optional.empty();
     }
 
+    private static Optional<ActionRejection> validateAttack(
+            RegionWorldView view, ActionEnvelope env, AttackEntityAction attack) {
+        PersistedEntityState entity = view.entity(attack.target());
+        if (entity == null) {
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.ENTITY_NOT_FOUND));
+        }
+        if (entity.kind() != EntityKind.MOB) {
+            // GHOST combat stays on the vanilla lane; items/carts/TNT are not attackable.
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.ENTITY_NOT_ATTACKABLE));
+        }
+        if (Math.abs(attack.origin().x() - entity.pos().x()) > MobCombatRules.MELEE_REACH
+                || Math.abs(attack.origin().y() - entity.pos().y()) > MobCombatRules.MELEE_REACH
+                || Math.abs(attack.origin().z() - entity.pos().z()) > MobCombatRules.MELEE_REACH) {
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.OUT_OF_REACH));
+        }
+        return Optional.empty();
+    }
+
     @Override
     public void apply(MutableRegionState state, ActionEnvelope env, DeterministicRandom rng) {
         switch (env.action()) {
@@ -67,6 +88,14 @@ public final class EntityRuleSet implements RuleSet {
             case dev.nodera.core.action.InteractBlockAction i -> blocks.apply(state, env, rng);
             case DropItemAction drop -> applyDrop(state, env, drop);
             case PickupItemAction pickup -> applyPickup(state, env, pickup);
+            case AttackEntityAction attack -> applyAttack(state, attack);
+        }
+    }
+
+    private static void applyAttack(MutableRegionState state, AttackEntityAction attack) {
+        PersistedEntityState target = state.entity(attack.target());
+        if (target != null) {
+            MobCombatRules.damage(state, target, MobCombatRules.MELEE_DAMAGE);
         }
     }
 

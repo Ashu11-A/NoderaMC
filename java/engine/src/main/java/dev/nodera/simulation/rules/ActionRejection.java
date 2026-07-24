@@ -58,6 +58,8 @@ public record ActionRejection(ActionEnvelope envelope, Reason reason) {
         /** A pickup references an entity absent from the current region state. */
         ENTITY_NOT_FOUND,
         /** A pickup references a tracked entity kind that cannot enter player inventory. */
-        ENTITY_NOT_PICKUPABLE
+        ENTITY_NOT_PICKUPABLE,
+        /** An attack references a tracked entity kind the combat lane does not own (not MOB). */
+        ENTITY_NOT_ATTACKABLE
     }
 }
