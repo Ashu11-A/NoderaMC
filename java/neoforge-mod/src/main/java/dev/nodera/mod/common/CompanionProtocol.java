@@ -49,6 +49,9 @@ public final class CompanionProtocol {
     /** Mint-signed-world-identity request. */
     public static final String WORLDID = ControlProtocol.WORLDID;
 
+    /** Mint-signed-permission-grant request (issue #36). */
+    public static final String GRANT = ControlProtocol.GRANT;
+
     private CompanionProtocol() {
     }
 

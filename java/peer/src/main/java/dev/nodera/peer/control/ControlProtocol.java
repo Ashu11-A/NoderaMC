@@ -76,6 +76,15 @@ public final class ControlProtocol {
      */
     public static final String WORLDID = "NODERA-WORLDID";
 
+    /**
+     * Mint a signed permission grant, the worker signing as the world author (issue #36):
+     * {@code NODERA-GRANT <ver> <worldIdHex> <subjectNodeId> <subjectPubKeyB64> <roleOrdinal>
+     * <grantVersion>}; reply is {@code NODERA-OK <grantBytesB64>}. Authority is enforced at
+     * apply-time on every peer; loopback (127.0.0.1) is the local trust boundary. Additive verb — an
+     * older worker answers {@code NODERA-ERR unknown verb}.
+     */
+    public static final String GRANT = "NODERA-GRANT";
+
     private ControlProtocol() {
     }
 

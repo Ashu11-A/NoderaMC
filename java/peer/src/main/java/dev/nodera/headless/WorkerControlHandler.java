@@ -232,6 +232,24 @@ public final class WorkerControlHandler implements ControlHandler {
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
     }
 
+    @Override
+    public String grantRole(String worldIdHex, String subjectNodeId, String subjectPublicKeyB64,
+                            int roleOrdinal, long grantVersion) {
+        // The worker signs as the world author; the recipient key is bound into the grant (F2).
+        // Authority to grant is re-verified when the grant is applied on every peer.
+        Bytes worldId = Bytes.fromHex(worldIdHex);
+        NodeId subject = new NodeId(java.util.UUID.fromString(subjectNodeId));
+        Bytes subjectPublicKey = decodeBytes(subjectPublicKeyB64);
+        dev.nodera.core.identity.WorldRole role =
+                dev.nodera.core.identity.WorldRole.fromOrdinal(roleOrdinal);
+        dev.nodera.storage.WorldPermissionGrant grant =
+                dev.nodera.storage.WorldPermissionGrant.create(identity, worldId, subject,
+                        subjectPublicKey, role, grantVersion);
+        CanonicalWriter w = new CanonicalWriter();
+        grant.encode(w);
+        return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+    }
+
     private static String endpointArray(List<WorldHostingService.EndpointHealth> health) {
         List<String> rows = new ArrayList<>(health.size());
         for (WorldHostingService.EndpointHealth e : health) {

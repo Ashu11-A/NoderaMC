@@ -164,6 +164,11 @@ public final class WorldPermissions {
         return List.copyOf(new ArrayList<>(grants.values()));
     }
 
+    /** @return the world these permissions govern. */
+    public Bytes worldId() {
+        return worldId;
+    }
+
     /** @return the world author (implicit OWNER). */
     public NodeId author() {
         return author;
