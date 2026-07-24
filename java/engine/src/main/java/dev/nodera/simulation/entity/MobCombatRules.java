@@ -29,6 +29,10 @@ public final class MobCombatRules {
     public static final int ZOMBIE_MAX_HEALTH = 20;
     /** Flat arrow damage (vanilla mid-charge arrow ≈ 5 halves; speed scaling is later polish). */
     public static final int ARROW_DAMAGE = 5;
+    /** Flat melee damage per validated attack action (item-based scaling is later polish). */
+    public static final int MELEE_DAMAGE = 6;
+    /** Maximum per-axis reach for a melee attack, Q32.32 (vanilla survival reach ≈ 3–4.5). */
+    public static final long MELEE_REACH = 4L << 32;
     /** Maximum blast damage at the blast centre; falls off linearly with distance squared. */
     public static final int BLAST_DAMAGE_MAX = 14;
 
@@ -41,6 +45,8 @@ public final class MobCombatRules {
                 StableHash.of("nodera.simulation.mob-combat-rules.v1"),
                 ZOMBIE_MAX_HEALTH,
                 ARROW_DAMAGE,
+                MELEE_DAMAGE,
+                MELEE_REACH,
                 BLAST_DAMAGE_MAX);
     }
 

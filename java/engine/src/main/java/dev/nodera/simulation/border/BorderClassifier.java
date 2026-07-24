@@ -45,9 +45,10 @@ public final class BorderClassifier {
         if (owningRegion == null) {
             throw new IllegalArgumentException("owningRegion must not be null");
         }
-        // A pickup targets an entity already tracked in this region — it has no block target and
-        // can never be cross-region by construction.
-        if (action instanceof PickupItemAction) {
+        // A pickup or an attack targets an entity already tracked in this region — it has no
+        // block target and can never be cross-region by construction.
+        if (action instanceof PickupItemAction
+                || action instanceof dev.nodera.core.action.AttackEntityAction) {
             return false;
         }
         NBlockPos pos = targetPosition(action);
@@ -77,6 +78,8 @@ public final class BorderClassifier {
             case DropItemAction d -> new NBlockPos(d.origin().blockX(), d.origin().blockY(), d.origin().blockZ());
             case PickupItemAction ignored -> throw new IllegalStateException(
                     "PickupItemAction has no block target; handled before reaching targetPosition");
+            case dev.nodera.core.action.AttackEntityAction ignored -> throw new IllegalStateException(
+                    "AttackEntityAction has no block target; handled before reaching targetPosition");
                     case dev.nodera.core.action.InteractBlockAction i -> i.pos();
         };
     }
