@@ -78,15 +78,15 @@ final class SessionContinuityIT {
         runtimes.add(p2);
 
         // 1. Mesh forms over real sockets: everyone sees three members, bootstrap is gateway.
-        Await.until("3-member session over TCP", 15_000,
+        Await.until("3-member session over TCP", 30_000,
                 () -> p1.sessionView().size() == 3 && p2.sessionView().size() == 3
                         && boot.sessionView().size() == 3);
-        Await.until("bootstrap is gateway", 15_000,
+        Await.until("bootstrap is gateway", 30_000,
                 () -> bootId.nodeId().equals(p1.gatewayId())
                         && bootId.nodeId().equals(p2.gatewayId()));
 
         // 2. Direct player↔player keep-alives flow (a real socket independent of the bootstrap).
-        Await.until("direct player keep-alives", 15_000,
+        Await.until("direct player keep-alives", 30_000,
                 () -> p1L.keepAlivesFrom(p2Id.nodeId()) > 0
                         && p2L.keepAlivesFrom(p1Id.nodeId()) > 0);
 
@@ -98,9 +98,9 @@ final class SessionContinuityIT {
         bootTx.stop();
 
         // 4. Both players drop it and converge on the SAME successor gateway at the next epoch.
-        Await.until("bootstrap dropped by both players", 15_000,
+        Await.until("bootstrap dropped by both players", 30_000,
                 () -> p1.sessionView().size() == 2 && p2.sessionView().size() == 2);
-        Await.until("deterministic gateway migration agreed", 15_000,
+        Await.until("deterministic gateway migration agreed", 30_000,
                 () -> p1.gatewayId() != null
                         && p1.gatewayId().equals(p2.gatewayId())
                         && !p1.gatewayId().equals(bootId.nodeId())
@@ -108,7 +108,7 @@ final class SessionContinuityIT {
                         && p1.sessionView().epoch() == p2.sessionView().epoch());
 
         // 5. Continuity: the direct player↔player socket keeps carrying keep-alives.
-        Await.until("keep-alives continue after the bootstrap is gone", 15_000,
+        Await.until("keep-alives continue after the bootstrap is gone", 30_000,
                 () -> p1L.keepAlivesFrom(p2Id.nodeId()) > p1FromP2 + 1
                         && p2L.keepAlivesFrom(p1Id.nodeId()) > p2FromP1 + 1);
 

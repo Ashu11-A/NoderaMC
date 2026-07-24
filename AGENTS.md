@@ -177,6 +177,14 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    --all-targets -- -D warnings`), fix, push, then re-check `gh run list` until green. A push
    is not "done" until its `build` and `release-latest` runs pass; watch them with
    `gh run watch <id>` after every push to `main`.
+4. **Check back on the build a few minutes after every push.** Do not assume a green local
+   `./gradlew check` means a green Action: CI runners are slower and have exposed
+   timing-sensitive integration tests that pass locally but fail remotely (e.g. run
+   30057069565: `ActionForwardIT.forwardedActionWithSkewedSignedTickStillCommits` raced the
+   capturer's convergence; `SessionContinuityIT` hit a 15 s keep-alive timeout). After
+   `git push`, run `gh run list --limit 3` after a while (or `gh run watch`) and treat any
+   failure as stop-the-line: harden the racy wait (converge-on-both, longer `Await`
+   deadlines), never delete the test.
 
 ## GitHub issue workflow (see `.github/ISSUE_SYSTEM.md` for the full rules)
 - GitHub issues are the source of truth. Every task phase has an issue; every detected
