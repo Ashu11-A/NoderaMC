@@ -24,18 +24,15 @@ class DelegabilityMonitorTest {
     }
 
     private static DelegabilityPolicy.Inputs withEntity() {
-        return new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
-                true, false, false, true, 0);
+        return new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, true, false, false, true, 0);
     }
 
     private static DelegabilityPolicy.Inputs withNeighborUnsupported() {
-        return new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
-                false, true, false, true, 0);
+        return new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, false, true, false, true, 0);
     }
 
     private static DelegabilityPolicy.Inputs withInterference(long rate) {
-        return new DelegabilityPolicy.Inputs(true, true, 3, false, true, true, false,
-                false, false, false, true, rate);
+        return new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, false, false, false, true, rate);
     }
 
     @Test

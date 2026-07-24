@@ -30,9 +30,7 @@ final class PearlLanePolicyTest {
 
     @Test
     void pearlTicketDoesNotDelegateLoadedPlayerlessDestination() {
-        DelegabilityPolicy.Inputs playerless = new DelegabilityPolicy.Inputs(
-                true, true, 3, false, true, true, false,
-                false, false, false, false, 0);
+        DelegabilityPolicy.Inputs playerless = new DelegabilityPolicy.Inputs(true, true, 3, false, true, false, false, false, false, false, 0);
 
         assertThat(new DelegabilityPolicy(3, true)
                 .evaluate(new RegionId(DimensionKey.overworld(), 1, 0), playerless)
