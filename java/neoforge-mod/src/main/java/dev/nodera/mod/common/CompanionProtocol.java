@@ -52,6 +52,9 @@ public final class CompanionProtocol {
     /** Mint-signed-permission-grant request (issue #36). */
     public static final String GRANT = ControlProtocol.GRANT;
 
+    /** Password re-key request — re-encrypt the archive + re-sign the identity (issue #37 / L-51). */
+    public static final String REKEY = ControlProtocol.REKEY;
+
     private CompanionProtocol() {
     }
 
