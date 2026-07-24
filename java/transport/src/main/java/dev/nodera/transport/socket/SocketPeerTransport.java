@@ -271,10 +271,18 @@ public final class SocketPeerTransport implements PeerTransport {
                 }
                 return;
             }
-            // Inbound connection: route is unknown until the peer's hello arrives.
-            Connection c = new Connection(socket, null);
-            c.startReader();
-            c.sendHello();
+            // Inbound connection: route is unknown until the peer's hello arrives. A failure
+            // handling ONE inbound socket (e.g. the peer closed before our hello write — seen
+            // as "write failed … Socket closed" on CI) must never kill the accept loop: an
+            // uncaught throw here leaves the transport running but deaf, and the whole session
+            // silently stops forming.
+            try {
+                Connection c = new Connection(socket, null);
+                c.startReader();
+                c.sendHello();
+            } catch (RuntimeException e) {
+                closeQuietly(socket);
+            }
         }
     }
 
