@@ -159,6 +159,9 @@ public final class TypeTags {
     /** {@code MovePlayerAction} — a signed, committee-validated player step (Task 16 / L-12). */
     public static final int MOVE_PLAYER_ACTION = 106;
 
+    /** Persisted set of {@code WorldPermissionGrant}s for one world (issue #36 F5 persistence). */
+    public static final int WORLD_PERMISSION_SET = 107;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 106;
+    public static final int NEXT = 107;
 }

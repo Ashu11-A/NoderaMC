@@ -54,9 +54,35 @@ public final class NoderaHost {
     /** The hosted world's permission set (L-49): drives the mesh admission gate; grants apply here. */
     private static volatile dev.nodera.storage.WorldPermissions hostedPermissions;
 
+    /** The hosted world's save root — where grants are persisted (issue #36 F5). */
+    private static volatile Path hostedSaveRoot;
+
     /** @return the hosted world's permission set, or null when not hosting. */
     public static dev.nodera.storage.WorldPermissions hostedPermissions() {
         return hostedPermissions;
+    }
+
+    /**
+     * Ingest a signed grant into the hosted permission set and, if accepted, persist the whole set
+     * (issue #36 F5). Used by the {@code /nodera op|deop} + GRANT control path (Phase 5).
+     *
+     * @param grant the signed grant.
+     * @return whether it was accepted (and therefore persisted).
+     */
+    public static synchronized boolean applyGrant(dev.nodera.storage.WorldPermissionGrant grant) {
+        dev.nodera.storage.WorldPermissions perms = hostedPermissions;
+        if (perms == null || !perms.apply(grant)) {
+            return false;
+        }
+        Path root = hostedSaveRoot;
+        if (root != null) {
+            try {
+                dev.nodera.storage.WorldPermissionStore.write(root, perms.snapshot());
+            } catch (java.io.IOException e) {
+                LOG.warn("Nodera: failed to persist permission grants: {}", e.toString());
+            }
+        }
+        return true;
     }
 
     private NoderaHost() {
@@ -126,7 +152,20 @@ public final class NoderaHost {
             dev.nodera.storage.WorldPermissions permissions =
                     new dev.nodera.storage.WorldPermissions(worldId, identity.authorNodeId(),
                             identity.authorPublicKey());
+            // F5: reload persisted grants — apply() re-verifies every signature, so a tampered
+            // nodera-permissions.dat simply drops the forged grants instead of granting authority.
+            int loaded = 0;
+            for (dev.nodera.storage.WorldPermissionGrant g
+                    : dev.nodera.storage.WorldPermissionStore.read(saveRoot)) {
+                if (permissions.apply(g)) {
+                    loaded++;
+                }
+            }
             hostedPermissions = permissions;
+            hostedSaveRoot = saveRoot;
+            if (loaded > 0) {
+                LOG.info("Nodera: reloaded {} persisted permission grant(s)", loaded);
+            }
             NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
             if (host != null) {
                 host.runtime().setJoinAdmission(permissions::canJoin);
