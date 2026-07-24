@@ -34,6 +34,14 @@ Per-module test counts live in [`Tested.md`](../Tested.md); ordering/priority an
 > L-47 moves to RETIRING; the validated-state halves (region-piece extraction, committee
 > re-validation) stay with their owning rows.
 
+> **T14 environment engine cores RETIRED (2026-07-24):** L-3 (instant-settle gravity + bounded
+> fire), L-4 (deterministic lighting as a pure function of committed state), and L-5 (observer +
+> quasi-connectivity) move to `LIMITATIONS.fixed.md` — each core landed with a headless exit test
+> (`GravityFireRulesTest`, `LightFieldTest`, `ObserverQcTest`) and its stated acceptance met; the
+> cross-border/live items were polish, not the core limitation. Bar 76.4 → 78.9%. The T15 entity
+> lane (L-7/L-8/L-9: mob-AI, spawn, TNT/projectile/minecart + knockback + entity-hit + redstone-gated
+> rails) stays OPEN pending live evidence + the L-13 combat (EntityKind.MOB/MobState) refactor.
+
 > **Rust infrastructure cluster complete (2026-07-19):** the monorepo restructure (now the default
 > architecture — see [`docs/Task.0.md`](docs/Task.0.md) §3), the standalone `nodera-tracker` service
 > ([Task 3](docs/Task.3.md)), and the `nodera-rendezvous` relay for NAT reach
