@@ -538,12 +538,27 @@ public final class NoderaHost {
         return w.toBytes();
     }
 
-    /** Send a chat line to every online host player (the sharer), best-effort. */
+    /**
+     * Send a chat line to the SHARER (the integrated-server owner), best-effort. Issue #47: this
+     * used to broadcast to every online player — a password-change notice reached joiners who
+     * had no business seeing host-lane messages. Target only the involved player; fall back to
+     * broadcast solely on a dedicated server (no owner concept there).
+     */
     private static void tellHost(MinecraftServer server, String message) {
         try {
             net.minecraft.network.chat.Component line = net.minecraft.network.chat.Component.literal(message);
+            boolean delivered = false;
             for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-                p.sendSystemMessage(line);
+                if (server.isSingleplayerOwner(p.getGameProfile())) {
+                    p.sendSystemMessage(line);
+                    delivered = true;
+                    break;
+                }
+            }
+            if (!delivered && server.isDedicatedServer()) {
+                for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+                    p.sendSystemMessage(line);
+                }
             }
         } catch (RuntimeException ignored) {
             // chat is best-effort; never let it derail a reconfigure
