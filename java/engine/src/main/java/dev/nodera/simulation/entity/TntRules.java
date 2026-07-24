@@ -135,14 +135,23 @@ public final class TntRules {
             if (victimDistSq == 0 || victimDistSq > BLAST_RADIUS_SQ) {
                 continue;
             }
+            // Blast damage first (L-13): an engine-owned MOB loses health by proximity and a
+            // kill removes it from the root — the dead take no knockback. GHOST vitals are
+            // server-authoritative, so ghosts are shoved but never wounded here.
+            MobCombatRules.damage(state, victim,
+                    MobCombatRules.blastDamageAt(victimDistSq, BLAST_RADIUS_SQ));
+            PersistedEntityState survivor = state.entity(victim.id());
+            if (survivor == null) {
+                continue;
+            }
             long mag = multiplyFixed(KNOCKBACK_BASE, (long) (BLAST_RADIUS_SQ - victimDistSq) << 32);
-            long nvx = victim.vel().x() + impulse(ddx, mag);
-            long nvy = victim.vel().y() + impulse(ddy, mag);
-            long nvz = victim.vel().z() + impulse(ddz, mag);
+            long nvx = survivor.vel().x() + impulse(ddx, mag);
+            long nvy = survivor.vel().y() + impulse(ddy, mag);
+            long nvz = survivor.vel().z() + impulse(ddz, mag);
             state.updateEntity(new PersistedEntityState(
-                    victim.id(), victim.kind(), victim.typeId(), victim.pos(),
+                    survivor.id(), survivor.kind(), survivor.typeId(), survivor.pos(),
                     new FixedVec3(nvx, nvy, nvz),
-                    victim.ageTicks(), victim.despawnTick(), victim.payload()));
+                    survivor.ageTicks(), survivor.despawnTick(), survivor.payload()));
         }
         // Chain ignition: every other TNT within the radius detonates one tick later.
         for (PersistedEntityState other : state.entities()) {

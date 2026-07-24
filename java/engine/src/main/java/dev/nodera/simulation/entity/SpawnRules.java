@@ -1,6 +1,5 @@
 package dev.nodera.simulation.entity;
 
-import dev.nodera.core.Bytes;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NBlockPos;
@@ -21,8 +20,8 @@ import dev.nodera.simulation.rules.FlatWorldRules;
  * one attempt runs: a random owned column and a ground scan pick the candidate cell (solid
  * floor, two transparent cells of headroom); the attempt succeeds when the region's ghost-mob
  * population is under {@link #MOB_CAP} and the cell's combined light is below
- * {@link #MAX_SPAWN_LIGHT}. Spawned mobs enter the root as {@link EntityKind#GHOST} entities
- * — the live lane mirrors them into vanilla view exactly like captured mobs, and the vanilla
+ * {@link #MAX_SPAWN_LIGHT}. Spawned mobs enter the root as {@link EntityKind#MOB} entities —
+ * fully engine-owned, carrying their vitals in the canonical payload (L-13) — and the vanilla
  * rate envelope is matched by interval x cap rather than per-chunk density heuristics
  * (documented envelope).
  *
@@ -55,10 +54,10 @@ public final class SpawnRules {
         if (tick % SPAWN_INTERVAL_TICKS != 0) {
             return;
         }
-        long ghosts = state.entities().stream()
-                .filter(e -> e.kind() == EntityKind.GHOST)
+        long population = state.entities().stream()
+                .filter(e -> e.kind() == EntityKind.MOB || e.kind() == EntityKind.GHOST)
                 .count();
-        if (ghosts >= MOB_CAP) {
+        if (population >= MOB_CAP) {
             return; // cap reached: population state is replicated, so replicas agree
         }
         // One attempt: a random owned column, then a downward ground scan.
@@ -80,14 +79,16 @@ public final class SpawnRules {
         NetworkEntityId id = NetworkEntityId.allocate(
                 state.region(), state.baseVersion(), SPAWN_SEQ_DOMAIN | tick);
         state.createEntity(new PersistedEntityState(
-                id, EntityKind.GHOST, ZOMBIE_TYPE_ID,
+                id, EntityKind.MOB, ZOMBIE_TYPE_ID,
                 // Half-block-centred fixed position, pure integer math (no double round-trip —
                 // the determinism rule: spawn coords never touch a JVM double).
                 new FixedVec3(
                         ((long) x << 32) + (1L << 31),
                         (long) cell.y() << 32,
                         ((long) z << 32) + (1L << 31)),
-                FixedVec3.ZERO, 0, (int) (tick + DESPAWN_AFTER_TICKS), Bytes.empty()));
+                FixedVec3.ZERO, 0, (int) (tick + DESPAWN_AFTER_TICKS),
+                MobCombatRules.vitalsPayload(
+                        MobCombatRules.ZOMBIE_MAX_HEALTH, MobCombatRules.ZOMBIE_MAX_HEALTH)));
     }
 
     /** Every cell in the column with a solid floor and two air cells of headroom (top-down). */

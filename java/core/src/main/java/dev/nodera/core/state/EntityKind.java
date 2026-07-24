@@ -19,5 +19,12 @@ public enum EntityKind {
     /** An engine-owned projectile — arrows/pearls/snowballs, fixed-point ballistics (Task 15, L-9). */
     PROJECTILE,
     /** An engine-owned minecart — fixed-point kinematics on the rail graph (Task 15, L-9). */
-    MINECART
+    MINECART,
+    /**
+     * An engine-owned validated mob — health/vitals live in the root as the MOB payload and are
+     * mutated only by engine rules (AI wander, projectile/blast damage, death). The retirement
+     * target of {@link #GHOST}: a species whose behaviour AND vitals originate here no longer
+     * needs {@code mobCapture} (Task 16, L-13).
+     */
+    MOB
 }
