@@ -144,6 +144,8 @@ public final class FlatWorldRules implements RuleSet {
     public static final int COMPARATOR_EAST = 82;
     /** Note block — validated palette presence; the sound itself is client presentation. */
     public static final int NOTE_BLOCK = 83;
+    /** Nether portal — an entity standing here transfers to the other dimension (L-14). */
+    public static final int NETHER_PORTAL = 84;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -220,6 +222,7 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(COMPARATOR_WEST, "comparator_west"),
             new PaletteEntry(COMPARATOR_EAST, "comparator_east"),
             new PaletteEntry(NOTE_BLOCK, "note_block"),
+            new PaletteEntry(NETHER_PORTAL, "nether_portal"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),

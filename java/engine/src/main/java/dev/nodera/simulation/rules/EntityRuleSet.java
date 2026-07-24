@@ -135,5 +135,6 @@ public final class EntityRuleSet implements RuleSet {
         dev.nodera.simulation.entity.TntRules.tick(state, tick, rng);
         dev.nodera.simulation.entity.ProjectileRules.tick(state, tick, rng);
         dev.nodera.simulation.entity.RailRules.tick(state, tick, rng);
+        dev.nodera.simulation.entity.PortalRules.tick(state, tick);
     }
 }
