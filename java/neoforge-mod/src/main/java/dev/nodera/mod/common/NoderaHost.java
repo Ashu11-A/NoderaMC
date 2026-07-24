@@ -641,24 +641,35 @@ public final class NoderaHost {
                                 planned.lease()));
                     }
                 }
-                if (bindings.isEmpty()) {
-                    return;
-                }
                 // Prefer the world's certified genesis (30c); the seed-derived interim manifest
                 // remains the fallback for a save that has never certified one.
                 GenesisManifest manifest = WorldGenesisService.read(saveRoot)
                         .map(dev.nodera.storage.CertifiedWorldGenesis::manifest)
                         .orElseGet(() -> EntityLaneBootstrap.genesis(worldSeed, new HashService()));
-                List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
-                for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
-                    peers.add(new LiveEntityLaneSession.CommitteePeer(
-                            dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
-                            node.publicKey()));
+                // An empty local binding set is NOT a reason to stop: this node simply owns none
+                // of the planned regions (every region fell to another player's view). The plan
+                // must still reach the clients below — skipping the broadcast would leave them
+                // deriving ownership from a stale payload, so two players could each believe they
+                // primary the same region.
+                if (!bindings.isEmpty()) {
+                    List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
+                    for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
+                        peers.add(new LiveEntityLaneSession.CommitteePeer(
+                                dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
+                                node.publicKey()));
+                    }
+                    activateEntityLane(server, manifest, bindings, peers);
+                    LOG.info("Nodera: entity lane live on {} region(s) across {} member node(s) "
+                                    + "(genesis {})",
+                            bindings.size(), views.size(), manifest.genesisRoot().toShortHex(4));
+                } else {
+                    LOG.info("Nodera: no regions fall to this node in the new plan "
+                            + "({} member node(s)) — broadcasting it for the owners", views.size());
                 }
-                activateEntityLane(server, manifest, bindings, peers);
-                LOG.info("Nodera: entity lane live on {} region(s) across {} member node(s) "
-                                + "(genesis {})",
-                        bindings.size(), views.size(), manifest.genesisRoot().toShortHex(4));
+                // The re-plan swap ends here, where the outcome is actually known: a lane that
+                // activated replaces the held ownership, one that did not drops it.
+                dev.nodera.mod.server.entity.LiveRegionOwnershipProvider
+                        .endSwap(!bindings.isEmpty());
                 // Broadcast the plan inputs so every player's client derives the identical plan
                 // and activates its own regions (the shared-computation ownership model).
                 NoderaLanePlanPayload payload = new NoderaLanePlanPayload(
@@ -675,6 +686,7 @@ public final class NoderaHost {
                     }
                 });
             } catch (RuntimeException | LinkageError e) {
+                dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.endSwap(false);
                 LOG.warn("Nodera: entity lane bootstrap failed: {}", e.toString());
             }
         });
@@ -688,14 +700,73 @@ public final class NoderaHost {
     /** The member set the current lane was planned for — an identical set never re-plans. */
     private static volatile String lastPlanKey = "";
 
-    /** Stable key over (player, node) pairs; a re-plan is only warranted when this changes. */
+    /**
+     * Stable key over (player, node, <b>region</b>) triples; a re-plan is warranted when this
+     * changes.
+     *
+     * <p>The region coordinate is load-bearing: ownership is a function of where each player's
+     * field-of-view disc sits, so a key over membership alone would freeze the plan at the
+     * positions held when the last player joined or left. Players would then walk out of the
+     * regions they own and read {@code FOREIGN} (owned by whoever was nearest at join time) or
+     * {@code UNASSIGNED} (never claimed) for the ground under their feet. Keying on the region
+     * makes the owned footprint follow the player — it re-plans exactly when someone crosses a
+     * region boundary, not on every step.
+     */
     private static String planKey(MinecraftServer server) {
         java.util.TreeSet<String> entries = new java.util.TreeSet<>();
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             PlayerNodeRegistry.PlayerNode node = PlayerNodeRegistry.nodeOf(p.getUUID());
-            entries.add(p.getUUID() + "→" + (node == null ? "host" : node.nodeId().value()));
+            dev.nodera.core.region.RegionId region =
+                    dev.nodera.mod.server.entity.MinecraftEntityAdapters.region(p);
+            entries.add(p.getUUID() + "→" + (node == null ? "host" : node.nodeId().value())
+                    + "@" + region.dimension() + ":" + region.regionX() + "," + region.regionZ());
         }
         return String.join(",", entries);
+    }
+
+    /** Ticks between movement checks — the FOV plan cannot go stale faster than a player walks. */
+    private static final int OWNERSHIP_TICK_INTERVAL = 20;
+
+    /**
+     * Minimum ticks between two movement-triggered re-plans. A re-plan closes and reopens the
+     * lane, so a player jittering across a region boundary must not churn it every second;
+     * membership changes (join/leave) bypass this and re-plan immediately.
+     */
+    private static final int MOVEMENT_REPLAN_COOLDOWN_TICKS = 100;
+
+    /**
+     * Tick of the last movement-triggered re-plan. Seeded one full cooldown in the past so the
+     * FIRST movement re-plans immediately — never {@code Long.MIN_VALUE}, whose subtraction from
+     * a small positive tick count overflows to a negative value and suppresses every re-plan.
+     */
+    private static volatile long lastMovementReplanTick = -MOVEMENT_REPLAN_COOLDOWN_TICKS;
+
+    /**
+     * Re-plan region ownership when a player's field of view has moved to a new region — the
+     * "ownership follows the player" half of the FOV model. Cheap: runs once a second, compares
+     * the plan key, and defers to {@link #replanEntityLane} which no-ops on an unchanged key.
+     *
+     * @param server the session server.
+     * @Thread-context server thread (tick).
+     */
+    public static void tickOwnership(MinecraftServer server) {
+        long tick = server.getTickCount();
+        if (tick % OWNERSHIP_TICK_INTERVAL != 0) {
+            return;
+        }
+        if (!NoderaConfig.ENTITY_LANE_AUTO.get() || !NoderaPeerService.get().isHosting()
+                || server.getPlayerList().getPlayers().isEmpty()) {
+            return;
+        }
+        if (planKey(server).equals(lastPlanKey)) {
+            return; // nobody crossed a region boundary
+        }
+        if (tick - lastMovementReplanTick < MOVEMENT_REPLAN_COOLDOWN_TICKS) {
+            return; // a boundary-straddling player must not churn the lane
+        }
+        lastMovementReplanTick = tick;
+        LOG.debug("Nodera: player view moved to a new region — re-planning ownership");
+        replanEntityLane(server);
     }
 
     /**
@@ -722,18 +793,29 @@ public final class NoderaHost {
         }
         lastPlanKey = key;
         Thread.ofPlatform().name("nodera-entity-lane-replan").daemon().start(() -> {
+            // A re-plan is a swap, not a teardown: hold the outgoing ownership on the diagnostics
+            // surfaces so the panels never blink to "no delegated regions" / UNASSIGNED mid-swap.
+            dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.beginSwap();
             try {
                 synchronized (NoderaHost.class) {
                     closeEntityLane();
                 }
                 server.execute(() -> {
+                    boolean planning = false;
                     try {
-                        activateEntityLaneFromWorld(server);
+                        planning = activateEntityLaneFromWorld(server);
                     } finally {
+                        // When a plan is being computed its boot thread ends the swap once the
+                        // outcome is known; when it never started, end it here.
+                        if (!planning) {
+                            dev.nodera.mod.server.entity.LiveRegionOwnershipProvider
+                                    .endSwap(false);
+                        }
                         REPLANNING.set(false);
                     }
                 });
             } catch (RuntimeException e) {
+                dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.endSwap(false);
                 REPLANNING.set(false);
                 LOG.warn("Nodera: entity lane re-plan failed: {}", e.toString());
             }

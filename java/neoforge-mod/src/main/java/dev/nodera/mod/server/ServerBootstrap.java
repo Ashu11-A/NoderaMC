@@ -217,8 +217,18 @@ public final class ServerBootstrap {
     }
 
     private static void onServerTickPost(ServerTickEvent.Post event) {
-        // Region enter/leave evidence log + the scripted ownership drive (docs/Testing.Live.md).
+        // Region enter/leave evidence log + the scripted ownership drive (docs/Testing.md).
         dev.nodera.mod.server.entity.RegionDriveDebug.onServerTick(event.getServer());
+        // FOV ownership follows the player: re-plan when someone crosses a region boundary, so the
+        // regions a player owns track their view instead of staying frozen at their join position.
+        // Self-catching on purpose — NeoForge's EventBus rethrows listener exceptions straight into
+        // the tick loop, so an ownership hiccup must never take the integrated server down.
+        try {
+            NoderaHost.tickOwnership(event.getServer());
+        } catch (RuntimeException e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost")
+                    .warn("Nodera: ownership tick failed: {}", e.toString());
+        }
         // Complete a parked integrated-server publish once the host player is fully in the world
         // (a world shared before login — every auto-re-share — parks it). Cheap flag check when idle.
         NoderaHost.tickGamePublish(event.getServer());
