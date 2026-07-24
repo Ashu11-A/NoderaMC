@@ -79,7 +79,9 @@ vanilla, matching what a player sees, never matching a vanilla float trajectory 
   land only on walkable cells. Targeting/combat remain vanilla-side until their increments ship.
 - **TNT (L-9):** vanilla fuse (`80`) and radius (`4`); the blast shape is a seeded per-cell
   destruction sphere (`P(destroy)=1−distSq/R²`) — a Nodera crater, not vanilla's ray pattern.
-  Chain ignition and border fail-closed (cross-region blast rides the T13 migration lane).
+  The blast also knocks back nearby kinematic entities (items/projectiles/minecarts), impulse
+  decaying with squared distance; mobs are not yet kinematic. Chain ignition and border fail-closed
+  (cross-region blast rides the T13 migration lane).
 - **Projectiles (L-9):** vanilla-shaped arc (drag `0.99`, gravity `0.05`) in Q32.32; an opaque
   block stops the shot. Hit detection is destination-block (a voxel-DDA face-snap is a later
   refinement — very fast shots may tunnel through a one-block wall in a single tick).

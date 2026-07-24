@@ -2,6 +2,7 @@ package dev.nodera.simulation.entity;
 
 import dev.nodera.core.crypto.StableHash;
 import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.simulation.DeterministicRandom;
@@ -34,9 +35,15 @@ import java.util.List;
  * blast radius to {@code detonateTick + 1}, so chained TNT clears in deterministic sequence
  * (vanilla ignites primed TNT caught in a blast — replicated here without a captured mob).
  *
- * <p>Remaining (later L-9 increments): entity knockback impulse, blast-destruction hooks into
- * redstone/gravity/observer recompute, cross-region blast via migration, and the player action
- * that ignites a placed TNT block into a primed entity.
+ * <p><b>Knockback:</b> every kinematic non-TNT entity inside the blast radius is shoved outward —
+ * a per-axis impulse whose direction is the delta sign and whose magnitude decays linearly with
+ * squared distance ({@code (R²−dist²)×KNOCKBACK_BASE}; centre strongest, edge vanishes), added to
+ * the entity's velocity. Pure fixed-point, no sqrt. (Mobs are not yet kinematic — {@code MobAiRules}
+ * teleports them and ignores velocity; mob knockback arrives when the AI consumes velocity.)
+ *
+ * <p>Remaining (later L-9 increments): blast-destruction hooks into redstone/gravity/observer
+ * recompute, mob knockback, cross-region blast via migration, and the player action that ignites a
+ * placed TNT block into a primed entity.
  *
  * @Thread-context stateless; safe from any thread.
  */
@@ -52,6 +59,8 @@ public final class TntRules {
     public static final int TNT_TYPE_ID = 200;
     /** Tag mixed into the blast-seed domain (never collides with action seqs / the spawn domain). */
     private static final long BLAST_DOMAIN = 0x544E_5452L << 32; // "TNTR"
+    /** Per-axis knockback impulse per unit of (R²−dist²) decay, Q32.32 (1/16 ⇒ 1 block/tick at the centre). */
+    public static final long KNOCKBACK_BASE = FixedVec3.ONE / 16;
 
     private TntRules() {
     }
@@ -112,6 +121,29 @@ public final class TntRules {
                 }
             }
         }
+        // Knockback: shove every kinematic non-TNT entity inside the blast radius outward, impulse
+        // decaying linearly with squared distance (centre strongest, edge vanishes). Pure fixed-point
+        // — the per-axis direction is the delta sign, the magnitude is (R²−dist²)×KNOCKBACK_BASE.
+        for (PersistedEntityState victim : state.entities()) {
+            if (victim.kind() == EntityKind.TNT || victim.id().equals(tnt.id())) {
+                continue; // TNT is not kinematic here; the detonator is removed by the caller
+            }
+            int ddx = victim.pos().blockX() - cx;
+            int ddy = victim.pos().blockY() - cy;
+            int ddz = victim.pos().blockZ() - cz;
+            int victimDistSq = ddx * ddx + ddy * ddy + ddz * ddz;
+            if (victimDistSq == 0 || victimDistSq > BLAST_RADIUS_SQ) {
+                continue;
+            }
+            long mag = multiplyFixed(KNOCKBACK_BASE, (long) (BLAST_RADIUS_SQ - victimDistSq) << 32);
+            long nvx = victim.vel().x() + impulse(ddx, mag);
+            long nvy = victim.vel().y() + impulse(ddy, mag);
+            long nvz = victim.vel().z() + impulse(ddz, mag);
+            state.updateEntity(new PersistedEntityState(
+                    victim.id(), victim.kind(), victim.typeId(), victim.pos(),
+                    new FixedVec3(nvx, nvy, nvz),
+                    victim.ageTicks(), victim.despawnTick(), victim.payload()));
+        }
         // Chain ignition: every other TNT within the radius detonates one tick later.
         for (PersistedEntityState other : state.entities()) {
             if (other.kind() != EntityKind.TNT || other.id().equals(tnt.id())) {
@@ -134,5 +166,21 @@ public final class TntRules {
                         other.ageTicks(), (int) (detonateAt + 1), other.payload()));
             }
         }
+    }
+
+    /** Knockback impulse along one axis: ±mag by the delta sign, 0 when the axis is level. */
+    private static long impulse(int delta, long mag) {
+        if (delta > 0) {
+            return mag;
+        }
+        if (delta < 0) {
+            return -mag;
+        }
+        return 0L;
+    }
+
+    /** Signed Q32.32 product (the sanctioned {@code Math.multiplyHigh} idiom). */
+    private static long multiplyFixed(long value, long multiplier) {
+        return Math.multiplyHigh(value, multiplier) << 32 | (value * multiplier) >>> 32;
     }
 }

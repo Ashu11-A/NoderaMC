@@ -153,6 +153,40 @@ final class TntRulesTest {
     }
 
     @Test
+    void blastKnocksBackNearbyItemsDeterministically() {
+        // Short fuse so the item is still at blast height when it fires (items have no block
+        // collision — a long fuse lets them free-fall to the floor, clear of the radius).
+        RegionSnapshot stone = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.STONE);
+        PersistedEntityState tnt = tnt(region, 1, CX, CZ, 2);
+        // A resting item one block east of the detonation centre.
+        PersistedEntityState item = new PersistedEntityState(
+                NetworkEntityId.allocate(region, SnapshotVersion.INITIAL, 2),
+                dev.nodera.core.state.EntityKind.ITEM, 0x11,
+                FixedVec3.fromExternal(CX + 1 + 0.5, CY + 0.5, CZ + 0.5),
+                FixedVec3.ZERO, 0, PersistedEntityState.NEVER_DESPAWN,
+                dev.nodera.simulation.entity.ItemEntityRules.payload(0x11, 1));
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                stone.chunks(), List.of(tnt, item));
+
+        RegionExecutionResult first = executeTicks(base, List.of(), 4);
+        RegionExecutionResult second = executeTicks(base, List.of(), 4);
+        assertThat(second.resultingRoot())
+                .as("the knockback settles to one root on every replica")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 4L);
+        PersistedEntityState victim = settled.entities().stream()
+                .filter(e -> e.kind() == dev.nodera.core.state.EntityKind.ITEM).findFirst().orElseThrow();
+        assertThat(victim.vel().x())
+                .as("the blast shoved the east-side item further east (positive impulse)")
+                .isGreaterThan(0L);
+        assertThat(victim.pos().blockX())
+                .as("the item was knocked clear of the crater centre")
+                .isGreaterThan(CX);
+    }
+
+    @Test
     void chainIgnitionDetonatesAdjacentTntDeterministically() {
         RegionSnapshot stone = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.STONE);
         PersistedEntityState a = tnt(region, 1, CX, CZ, TntRules.FUSE_TICKS);
