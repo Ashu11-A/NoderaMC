@@ -5,7 +5,7 @@
      from the most recent `./gradlew check`. Keep emojis consistent with README:
      ✅ all green · 🚧 partial (some sub-systems stubbed) · ⏳ in progress · ❌ failing. -->
 
-**Tests:** `1,295 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,439 total**).
+**Tests:** `1,298 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,442 total**).
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
@@ -39,10 +39,10 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) `SocketPeerTransportAuthTest` pins the authenticated challenge-response handshake (key-proven interop, legacy/forged/replay refusal) | 90 | 0 | 0 | ✅ | 2026-07-24 |
 | `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103); issue #36/33 add the signed identity/permission stores | 97 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
-| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`GRANT`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries; `RekeyVerbIT` proves the password re-key crypto+identity round trip), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 368 | 0 | 0 | 🚧 | 2026-07-24 |
+| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`GRANT`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries; `RekeyVerbIT` proves the password re-key crypto+identity round trip), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 371 | 0 | 0 | 🚧 | 2026-07-24 |
 | `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), issue #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (bind failure never crashes the integrated server), and the #43 continuity hardening (`WorldArchiver` continuous streaming cadence + bounded final flush + seeded-version freshness marker — `WorldArchiverStreamingTest`) | 68 | 0 | 0 | 🚧 | 2026-07-24 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **1295** | **0** | **0** | ✅ | 2026-07-24 |
+| **TOTAL (implemented modules)** | | **1298** | **0** | **0** | ✅ | 2026-07-24 |
 
 Line coverage (JaCoCo XML/HTML under `java/<m>/build/reports/jacoco/`): core 82.21% · engine
 87.18% · transport 85.32% · storage 79.96% · peer 82.17% · testing 90.91% · neoforge-mod 8.79%.

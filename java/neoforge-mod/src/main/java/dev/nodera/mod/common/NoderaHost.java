@@ -784,6 +784,14 @@ public final class NoderaHost {
         return entityLane != null;
     }
 
+    /**
+     * The live lane's per-peer relay metrics (who processes whose events, and how long), or null
+     * without an active lane. Read by {@code /nodera debug relay} + the verbose console stream.
+     */
+    public static synchronized dev.nodera.diagnostics.metric.RelayMetrics entityLaneRelayMetrics() {
+        return entityLane == null ? null : entityLane.runtime().validation().relayMetrics();
+    }
+
     /** Stop local validation resources without changing the world's shared flag. */
     public static synchronized void onServerStopping(MinecraftServer server) {
         // The game endpoint dies with the game. Tell the worker so the world stays LISTED on the
