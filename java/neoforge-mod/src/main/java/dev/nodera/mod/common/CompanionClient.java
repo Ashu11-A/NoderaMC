@@ -203,6 +203,36 @@ public final class CompanionClient implements CompanionProbe {
     }
 
     /**
+     * Ask the worker (world author) to re-key the world's password (issue #37 / L-51): re-encrypt
+     * the freshly-packed archive under the new password + re-sign the {@code WorldIdentity} with the
+     * new {@code manifestRef}. The loopback control socket is the trust boundary.
+     *
+     * @param worldIdHex      the world id (hex).
+     * @param archivePath     absolute path of the freshly-packed plaintext archive file.
+     * @param newPasswordB64  base64 of the new plaintext password.
+     * @param currentIdentity the current signed {@code WorldIdentity} canonical bytes.
+     * @return the re-signed identity's canonical bytes, or empty (worker unavailable / declined).
+     */
+    public Optional<Bytes> rekey(String worldIdHex, java.nio.file.Path archivePath,
+                                 String newPasswordB64, Bytes currentIdentity) {
+        String req = CompanionProtocol.REKEY + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " " + worldIdHex + " " + b64Path(archivePath)
+                + " " + newPasswordB64 + " " + b64(currentIdentity);
+        // splitting + Argon2id + hashing a multi-MB save takes more than the probe budget
+        String reply = exchange(req, 30_000);
+        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        try {
+            byte[] bytes = java.util.Base64.getDecoder().decode(
+                    reply.substring(CompanionProtocol.OK.length() + 1).trim());
+            return Optional.of(Bytes.unsafeWrap(bytes));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Ask the worker (world author) to mint a signed permission grant bound to a subject key (issue
      * #36). Returns the signed grant's canonical bytes, or empty when the worker is unreachable /
      * declines.
