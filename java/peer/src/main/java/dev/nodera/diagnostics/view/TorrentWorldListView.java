@@ -16,8 +16,8 @@ import java.util.Locale;
  * policy, the mod-side {@code Palette} decides colour, the widget only renders cells.
  *
  * <p>Layering: consumes plain values plus the {@code core} {@link WorldHealth} enum only
- * ({@code diagnostics} → {@code core}, nothing else); the mod-side {@code TrackerDataSource}
- * unpacks {@code TrackerResponse} before handing data over.
+ * ({@code diagnostics} → {@code core}, nothing else); the mod-side {@code MultiplayerWorldFeed}
+ * unpacks tracker catalog data before handing rows over.
  *
  * @Thread-context stateless static functions over immutable inputs; any thread.
  */
