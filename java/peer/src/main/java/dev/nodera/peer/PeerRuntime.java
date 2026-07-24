@@ -542,6 +542,14 @@ public final class PeerRuntime implements DiagnosticsSource {
             // never mesh — so re-announce every heartbeat until the membership view seeds.
             sendTo(bootstrapAddress, new PeerJoin(selfId, selfRoute, capabilities, false));
         }
+        if (isGateway() && members.size() > 1) {
+            // Anti-entropy: the join-time gossip is one message per event; a lost one leaves a
+            // member with a permanently partial view (observed on CI: a player stuck at
+            // {self, bootstrap} never learning the other player). The gateway re-broadcasts the
+            // full membership snapshot every heartbeat — onMembershipUpdate ingest is idempotent,
+            // so a converged mesh just refreshes routes.
+            broadcast(snapshotUpdate());
+        }
         keepAliveSeqCounter++;
         List<RegionProgress> progress = tickSync == null
                 ? List.of()
