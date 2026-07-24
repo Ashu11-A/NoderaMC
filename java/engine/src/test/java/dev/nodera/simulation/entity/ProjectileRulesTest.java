@@ -147,8 +147,40 @@ final class ProjectileRulesTest {
     }
 
     @Test
-    void arrowDespawnsAtItsLifetimeHorizon() {
+    void fastShotDoesNotTunnelThroughAThinWall() {
         RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        // A vanilla-speed bow shot (~3 blocks/tick) at a 1-block-thick wall (air on both sides).
+        PersistedEntityState arrow = new PersistedEntityState(
+                NetworkEntityId.allocate(region, SnapshotVersion.INITIAL, 1),
+                EntityKind.PROJECTILE, ProjectileRules.ARROW_TYPE_ID,
+                FixedVec3.fromExternal(60.5, 64.5, 64.5),
+                new FixedVec3(3 * FixedVec3.ONE, 0L, 0L),
+                0, ProjectileRules.LIFETIME_TICKS, Bytes.empty());
+        RegionSnapshot base = new RegionSnapshot(region, SnapshotVersion.INITIAL, 0L,
+                air.chunks(), List.of(arrow));
+        List<ActionEnvelope> wall = new ArrayList<>();
+        wall.add(TestFixtures.envelope(region, 0L, 1L,
+                TestFixtures.place(new NBlockPos(62, 64, 64), FlatWorldRules.STONE)));
+
+        RegionExecutionResult first = executeTicks(base, wall, 5);
+        RegionExecutionResult second = executeTicks(base, wall, 5);
+        assertThat(second.resultingRoot())
+                .as("the stick is replica-identical")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 5L);
+        PersistedEntityState stuck = soleProjectile(settled);
+        assertThat(stuck.vel())
+                .as("the march sampled the thin wall and stopped the shot")
+                .isEqualTo(FixedVec3.ZERO);
+        assertThat(stuck.pos().blockX())
+                .as("the shot stopped short of the wall — it did not tunnel through to x≥62")
+                .isLessThan(62);
+    }
+
+    @Test
+    void arrowDespawnsAtItsLifetimeHorizon() {        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
         MutableRegionState state = new MutableRegionState(air, RegionBounds.of(region));
         PersistedEntityState arrow = arrow(region, 1, 64.5, 64.5, 64.5, 0.5, 0.0, 0.0, 50);
         state.createEntity(arrow);

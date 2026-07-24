@@ -27,15 +27,16 @@ import java.util.List;
  * pinned). Constants are pre-baked Q32.32 literals (drag 0.99, gravity 0.05 blocks/tick² — the
  * arrow envelope); no float ever enters hashed state.
  *
- * <p><b>Hit detection (block stop):</b> after the move, if the projectile's destination block is
- * opaque (not {@link LightField#isTransparent}), the shot STICKS — velocity is zeroed and the
- * position is held at the last free cell (one tick short of the wall, the player-visible "arrow
- * embedded in the wall"). Transparent cells (air, fluids) are passed through; a precise voxel-DDA
- * raycast (sub-tunnel face snap) is a later refinement. Border crossings transfer the entity to
- * the neighbour region exactly like items (the validated lane owns the trajectory across regions).
+ * <p><b>Hit detection (block stop):</b> the per-tick move is marched in ≤1-block sub-steps and
+ * the shot STICKS at the first opaque cell (not {@link LightField#isTransparent}) it meets —
+ * velocity zeroed, held one sub-step short (the player-visible "arrow embedded in the wall"). The
+ * march never skips a voxel, so a thin wall stops even a fast shot; transparent cells (air, fluids)
+ * are passed. If a block mutation earlier in the same tick filled the shot's own cell, it is held
+ * in place. Border crossings hand the entity to the neighbour region exactly like items.
  *
- * <p>Remaining (later L-9 increments): entity-hit detection (arrow strikes a mob), voxel-DDA
- * face-snap + water slow-down, the player action that fires a projectile, live evidence.
+ * <p>Remaining (later L-9 increments): entity-hit detection (arrow strikes a mob), a true voxel-DDA
+ * face-snap (the unit-step march is exact on the dominant axis, approximate on diagonals) + water
+ * slow-down, the player action that fires a projectile, live evidence.
  *
  * @Thread-context stateless; safe from any thread.
  */
@@ -82,25 +83,62 @@ public final class ProjectileRules {
         long vx = multiplyFixed(vel.x(), DRAG);
         long vz = multiplyFixed(vel.z(), DRAG);
         FixedVec3 nextVel = new FixedVec3(vx, vy, vz);
-        FixedVec3 nextPos = shot.pos().add(nextVel);
 
-        NBlockPos dest = new NBlockPos(nextPos.blockX(), nextPos.blockY(), nextPos.blockZ());
-        if (!state.inOwnedRegion(dest)) {
-            // Crossed into a neighbour region: the trajectory continues under its committee.
-            RegionId target = RegionId.fromChunk(
-                    state.region().dimension(),
-                    Math.floorDiv(nextPos.blockX(), 16),
-                    Math.floorDiv(nextPos.blockZ(), 16));
-            state.transferEntity(target, withMotion(shot, nextPos, nextVel));
-            return;
+        // Origin embed: if a block mutation earlier this tick filled the projectile's own cell, the
+        // shot is trapped — kill its velocity in place (it despawns at its lifetime horizon).
+        FixedVec3 origin = shot.pos();
+        NBlockPos originCell = new NBlockPos(origin.blockX(), origin.blockY(), origin.blockZ());
+        if (state.inOwnedRegion(originCell)) {
+            int originBlock = state.getBlock(originCell);
+            if (originBlock != FlatWorldRules.AIR && !LightField.isTransparent(originBlock)) {
+                state.updateEntity(withMotion(shot, origin, FixedVec3.ZERO));
+                return;
+            }
         }
-        int block = state.getBlock(dest);
-        if (block != FlatWorldRules.AIR && !LightField.isTransparent(block)) {
-            // Hit an opaque block: stick just short of the wall, velocity killed.
-            state.updateEntity(withMotion(shot, shot.pos(), FixedVec3.ZERO));
-            return;
+
+        // March from the current position toward pos+vel in <=1-block sub-steps so no voxel is
+        // skipped (kills tunneling through a thin wall at high speed). Stick at the first opaque
+        // cell, one sub-step short; hand off to the neighbour region at the first off-region step.
+        long remX = vx;
+        long remY = vy;
+        long remZ = vz;
+        FixedVec3 pos = origin;
+        while (remX != 0 || remY != 0 || remZ != 0) {
+            long sx = clampStep(remX);
+            long sy = clampStep(remY);
+            long sz = clampStep(remZ);
+            FixedVec3 candidate = pos.add(new FixedVec3(sx, sy, sz));
+            NBlockPos cell = new NBlockPos(candidate.blockX(), candidate.blockY(), candidate.blockZ());
+            if (!state.inOwnedRegion(cell)) {
+                RegionId target = RegionId.fromChunk(
+                        state.region().dimension(),
+                        Math.floorDiv(candidate.blockX(), 16),
+                        Math.floorDiv(candidate.blockZ(), 16));
+                state.transferEntity(target, withMotion(shot, candidate, nextVel));
+                return;
+            }
+            int block = state.getBlock(cell);
+            if (block != FlatWorldRules.AIR && !LightField.isTransparent(block)) {
+                state.updateEntity(withMotion(shot, pos, FixedVec3.ZERO)); // stick one sub-step short
+                return;
+            }
+            pos = candidate;
+            remX -= sx;
+            remY -= sy;
+            remZ -= sz;
         }
-        state.updateEntity(withMotion(shot, nextPos, nextVel));
+        state.updateEntity(withMotion(shot, pos, nextVel));
+    }
+
+    /** One sub-step of the march: the remaining displacement, clamped to ±1 block. */
+    private static long clampStep(long remaining) {
+        if (remaining > FixedVec3.ONE) {
+            return FixedVec3.ONE;
+        }
+        if (remaining < -FixedVec3.ONE) {
+            return -FixedVec3.ONE;
+        }
+        return remaining;
     }
 
     private static PersistedEntityState withMotion(

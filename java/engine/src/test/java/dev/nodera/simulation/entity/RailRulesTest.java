@@ -147,6 +147,31 @@ final class RailRulesTest {
     }
 
     @Test
+    void cartTransfersAcrossTheRegionBorder() {
+        // Region(0,0) owns blocks x in [0,127]; a powered track runs to the east edge.
+        RegionSnapshot base = airWorldWith(cart(region, 1, 124.5, 64.5,
+                RailRules.MAX_SPEED, 0L));
+        List<ActionEnvelope> track = new ArrayList<>();
+        long[] seq = {1};
+        for (int x = 124; x <= 127; x++) {
+            place(track, seq, x, 64, FlatWorldRules.POWERED_RAIL);
+        }
+
+        RegionExecutionResult first = executeTicks(base, track, 60);
+        RegionExecutionResult second = executeTicks(base, track, 60);
+        assertThat(second.resultingRoot())
+                .as("the border handoff is replica-identical")
+                .isEqualTo(first.resultingRoot());
+
+        RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, first.delta(), 60L);
+        assertThat(settled.entities().stream()
+                .filter(e -> e.kind() == EntityKind.MINECART).toList())
+                .as("the cart rolled across the east border into the neighbour region")
+                .isEmpty();
+    }
+
+    @Test
     void poweredRailHoldsTheCartAtTopSpeed() {
         RegionSnapshot base = airWorldWith(cart(region, 1, 60.5, 64.5,
                 RailRules.MAX_SPEED, 0L));

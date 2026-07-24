@@ -2,7 +2,9 @@ package dev.nodera.simulation;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
+import dev.nodera.core.state.FixedVec3;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +37,9 @@ final class ForbiddenApiTest {
         // which returns 0 entries in this JDK25/Gradle layout. importPackagesOf(Class...) derives
         // each package root from the class's own code source and reliably finds the sibling
         // .class files. One representative class per subpackage covers the whole module.
-        classes = new ClassFileImporter().importPackagesOf(
+        classes = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackagesOf(
                 RegionEngine.class,
                 dev.nodera.simulation.rules.FlatWorldRules.class,
                 dev.nodera.simulation.border.BorderClassifier.class,
@@ -97,5 +101,37 @@ final class ForbiddenApiTest {
                 .resideInAnyPackage("java.io..", "java.net..", "java.sql..")
                 .because("IO/network/sql access breaks purity; execute must be a pure function (Task 0 §6)");
         rule.check(classes);
+    }
+
+    @Test
+    void noDoubleRoundTrips() {
+        // Every continuous quantity in hashed state is Q32.32 fixed-point. Round-tripping through
+        // a JVM double (Math.floor/ceil/round of a double) is NOT bit-identical across JVMs/hardware
+        // for arbitrary fractions, so it can silently diverge replica roots. Read coordinates via
+        // the pure-integer FixedVec3.blockX/Y/Z() shift instead. (int-typed Math.floorDiv/floorMod
+        // are unaffected — these signatures target the double overloads.)
+        noClasses().should().callMethod(Math.class, "floor", double.class)
+                .because("Math.floor(double) is a non-portable double round-trip; use the integer block shift")
+                .check(classes);
+        noClasses().should().callMethod(Math.class, "ceil", double.class)
+                .because("Math.ceil(double) is a non-portable double round-trip; use fixed-point math")
+                .check(classes);
+        noClasses().should().callMethod(Math.class, "round", double.class)
+                .because("Math.round(double) is a non-portable double round-trip; use fixed-point math")
+                .check(classes);
+    }
+
+    @Test
+    void noFixedVec3DoubleAdapters() {
+        // FixedVec3.fromExternal/toExternal are the ONLY double seams into the entity frame — they
+        // exist for Minecraft capture, never for simulation math. A call from the simulation module
+        // is a determinism hazard: build positions with pure integer fixed-point math instead.
+        noClasses().should().callMethod(
+                        FixedVec3.class, "fromExternal", double.class, double.class, double.class)
+                .because("fromExternal routes a JVM double into hashed state; build FixedVec3 with integer math")
+                .check(classes);
+        noClasses().should().callMethod(FixedVec3.class, "toExternal", long.class)
+                .because("toExternal produces a JVM double from hashed state; read the integer block shift instead")
+                .check(classes);
     }
 }
