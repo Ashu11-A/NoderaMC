@@ -211,7 +211,8 @@ public final class NoderaPeerService {
      * @throws dev.nodera.transport.TransportException if the P2P socket bind fails.
      */
     private String bootHostTransport(String bindHost, int port, String advertise, Bytes worldId) {
-        serverTransport = new SocketPeerTransport(serverIdentity.nodeId(), bindHost, port, advertise);
+        // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
+        serverTransport = new SocketPeerTransport(serverIdentity, bindHost, port, advertise);
         TrafficMeter serverMeter = new TrafficMeter();
         MessageCounters serverCounts = new MessageCounters();
 
@@ -545,7 +546,8 @@ public final class NoderaPeerService {
         }
         clientIdentity = NodeIdentity.generate();
         String advertise = resolveHost(advertiseHost);
-        clientTransport = new SocketPeerTransport(clientIdentity.nodeId(), "0.0.0.0", 0, advertise);
+        // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
+        clientTransport = new SocketPeerTransport(clientIdentity, "0.0.0.0", 0, advertise);
         TrafficMeter clientMeter = new TrafficMeter();
         MessageCounters clientCounts = new MessageCounters();
         MeteredPeerTransport clientMetered = new MeteredPeerTransport(clientTransport, clientMeter);

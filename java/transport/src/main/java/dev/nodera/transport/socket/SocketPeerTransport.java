@@ -1,6 +1,7 @@
 package dev.nodera.transport.socket;
 
 import dev.nodera.core.identity.NodeId;
+import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.codec.ChunkedStreams;
 import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
@@ -41,6 +42,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * route (which may differ from the socket's ephemeral local port). All later frames are opaque
  * application frames handed to the {@link MessageHandler}.
  *
+ * <p><b>Authenticated mode</b> (issue #41 / L-53): constructed with a {@link NodeIdentity}, the
+ * transport replaces the claimed hello with a challenge-response proof — each side opens with a
+ * fresh 32-byte challenge and answers the remote's challenge with an Ed25519-signed hello
+ * ({@link TransportAuth}), so the {@link NodeId} attribution is key-proven. Unverifiable peers
+ * (legacy hellos included) are torn down before any frame reaches the handler.
+ *
  * <h2>Threading</h2>
  * {@link #start()}/{@link #stop()}/{@link #send}/{@link #sendStream}/{@link #setHandler} are safe
  * from any thread. Inbound frames and {@link MessageHandler#onPeerDown} are delivered on the
@@ -64,6 +71,8 @@ public final class SocketPeerTransport implements PeerTransport {
     private final String bindHost;
     private final int bindPort;
     private final String advertiseHost;
+    /** Non-null ⇒ authenticated handshake (issue #41 / L-53); null ⇒ legacy unauthenticated hello. */
+    private final NodeIdentity identity;
 
     private final Object lifecycleLock = new Object();
     private final Object dialLock = new Object();
@@ -86,7 +95,29 @@ public final class SocketPeerTransport implements PeerTransport {
      * @throws IllegalArgumentException if any argument is null or the port is out of range.
      */
     public SocketPeerTransport(NodeId self, String bindHost, int bindPort, String advertiseHost) {
+        this(self, null, bindHost, bindPort, advertiseHost);
+    }
+
+    /**
+     * Create an <b>authenticated</b> transport (issue #41 / L-53): every connection performs a
+     * challenge-response handshake — each side sends a fresh 32-byte challenge and the peer
+     * answers with an Ed25519-signed hello over {@code challenge ‖ nodeId ‖ route ‖ publicKey},
+     * so a connection's {@link NodeId} attribution is key-proven, not claimed. A peer that
+     * presents a legacy hello, a malformed frame, or a signature that does not verify is torn
+     * down before any application frame reaches the {@link MessageHandler}. Authenticated and
+     * legacy transports cannot interoperate by design.
+     *
+     * @param identity this peer's signing identity; its {@code nodeId()} is the transport's id.
+     */
+    public SocketPeerTransport(NodeIdentity identity, String bindHost, int bindPort, String advertiseHost) {
+        this(Objects.requireNonNull(identity, "identity").nodeId(), identity,
+                bindHost, bindPort, advertiseHost);
+    }
+
+    private SocketPeerTransport(NodeId self, NodeIdentity identity,
+                                String bindHost, int bindPort, String advertiseHost) {
         this.self = Objects.requireNonNull(self, "self");
+        this.identity = identity;
         this.bindHost = Objects.requireNonNull(bindHost, "bindHost");
         this.advertiseHost = Objects.requireNonNull(advertiseHost, "advertiseHost");
         if (bindPort < 0 || bindPort > 65535) {
@@ -240,10 +271,18 @@ public final class SocketPeerTransport implements PeerTransport {
                 }
                 return;
             }
-            // Inbound connection: route is unknown until the peer's hello arrives.
-            Connection c = new Connection(socket, null);
-            c.startReader();
-            c.sendHello();
+            // Inbound connection: route is unknown until the peer's hello arrives. A failure
+            // handling ONE inbound socket (e.g. the peer closed before our hello write — seen
+            // as "write failed … Socket closed" on CI) must never kill the accept loop: an
+            // uncaught throw here leaves the transport running but deaf, and the whole session
+            // silently stops forming.
+            try {
+                Connection c = new Connection(socket, null);
+                c.startReader();
+                c.sendHello();
+            } catch (RuntimeException e) {
+                closeQuietly(socket);
+            }
         }
     }
 
@@ -279,6 +318,15 @@ public final class SocketPeerTransport implements PeerTransport {
         private volatile NodeId remoteNodeId;
         private volatile String remoteRoute; // remote's advertised listen route (map key)
         private volatile boolean helloReceived;
+        /** The challenge WE sent on this connection (authenticated mode only). */
+        private volatile byte[] localChallenge;
+        /**
+         * Released once OUR signed hello has been written (authenticated mode). Application
+         * frames must not interleave between our challenge and our hello — the remote expects
+         * the hello as our second frame — so {@link #writeFrame} awaits this latch.
+         */
+        private final java.util.concurrent.CountDownLatch authHelloWritten =
+                new java.util.concurrent.CountDownLatch(1);
 
         Connection(Socket socket, String remoteRoute) {
             this.socket = socket;
@@ -299,6 +347,16 @@ public final class SocketPeerTransport implements PeerTransport {
             if (!helloSent.compareAndSet(false, true)) {
                 return;
             }
+            if (identity != null) {
+                // Authenticated mode: open with a fresh challenge; the hello answering the
+                // REMOTE's challenge is sent from the read loop once that challenge arrives.
+                byte[] frame = TransportAuth.newChallengeFrame();
+                byte[] challenge = new byte[TransportAuth.CHALLENGE_BYTES];
+                System.arraycopy(frame, 1, challenge, 0, TransportAuth.CHALLENGE_BYTES);
+                this.localChallenge = challenge;
+                writeRaw(frame);
+                return;
+            }
             byte[] routeBytes = listenRouteOrEmpty().getBytes(StandardCharsets.UTF_8);
             byte[] hello = new byte[16 + 2 + routeBytes.length];
             UUID id = self.value();
@@ -313,6 +371,20 @@ public final class SocketPeerTransport implements PeerTransport {
         void writeFrame(byte[] frame) {
             if (frame.length > MAX_FRAME_BYTES) {
                 throw new TransportException("frame too large: " + frame.length);
+            }
+            if (identity != null) {
+                // Application frames wait for the handshake's write half: the remote reads our
+                // hello as our second frame, so nothing may interleave before it. (The read half
+                // — verifying the REMOTE — gates delivery in readLoop, not sending.)
+                try {
+                    if (!authHelloWritten.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                        closeQuietly();
+                        throw new TransportException("auth handshake timed out to " + remoteRoute);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new TransportException("interrupted awaiting auth handshake", e);
+                }
             }
             writeRaw(frame);
         }
@@ -337,9 +409,23 @@ public final class SocketPeerTransport implements PeerTransport {
 
         private void readLoop() {
             try {
-                // First frame is always the hello.
-                byte[] helloFrame = readFrame();
-                parseHello(helloFrame);
+                if (identity != null) {
+                    // Authenticated handshake (issue #41 / L-53), symmetric on both ends:
+                    // 1. read the remote's challenge; 2. answer with our signed hello;
+                    // 3. read the remote's signed hello and verify it against OUR challenge.
+                    // Any malformed frame / legacy hello / bad signature throws → the finally
+                    // block tears the connection down before the handler sees a single frame.
+                    byte[] remoteChallenge = TransportAuth.parseChallenge(readFrame());
+                    writeRaw(TransportAuth.encodeHello(identity, listenRouteOrEmpty(), remoteChallenge));
+                    authHelloWritten.countDown();
+                    TransportAuth.VerifiedHello verified =
+                            TransportAuth.verifyHello(readFrame(), localChallenge);
+                    registerVerified(verified.nodeId(), verified.route());
+                } else {
+                    // Legacy mode: first frame is the unauthenticated hello.
+                    byte[] helloFrame = readFrame();
+                    parseHello(helloFrame);
+                }
                 MessageHandler h = handler;
                 while (running) {
                     byte[] frame = readFrame();
@@ -371,7 +457,12 @@ public final class SocketPeerTransport implements PeerTransport {
                 throw new TransportException("malformed hello length");
             }
             String advertised = new String(hello, 18, routeLen, StandardCharsets.UTF_8);
-            this.remoteNodeId = new NodeId(new UUID(msb, lsb));
+            registerVerified(new NodeId(new UUID(msb, lsb)), advertised);
+        }
+
+        /** Register the connection under its (now attributed) identity + advertised route. */
+        private void registerVerified(NodeId nodeId, String advertised) {
+            this.remoteNodeId = nodeId;
             String key = advertised.isEmpty() ? ("anon:" + socket.getRemoteSocketAddress()) : advertised;
             // Register / re-key under the remote's advertised route. LAST-WINS on collision:
             // a fresh hello proves THIS socket is alive right now, while the prior entry may be
