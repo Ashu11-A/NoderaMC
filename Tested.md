@@ -5,7 +5,7 @@
      from the most recent `./gradlew check`. Keep emojis consistent with README:
      ✅ all green · 🚧 partial (some sub-systems stubbed) · ⏳ in progress · ❌ failing. -->
 
-**Tests:** `1,239 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,383 total**).
+**Tests:** `1,278 passing · 0 failing · 0 skipped` (+**144 Rust**, **1,422 total**).
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
@@ -22,8 +22,8 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green | 84 | 0 | 0 | ✅ | 2026-07-24 |
 | `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103) | 82 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
-| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 364 | 0 | 0 | 🚧 | 2026-07-24 |
-| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, and the continuity halves (`WorldArchiver` share/stop seeding, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload) | 37 | 0 | 0 | 🚧 | 2026-07-24 |
+| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`GRANT`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries; `RekeyVerbIT` proves the password re-key crypto+identity round trip), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 368 | 0 | 0 | 🚧 | 2026-07-24 |
+| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), and the creator-OP + re-key control surfaces (`OperatorBridge`, `/nodera op|deop`, `CompanionClient.rekey`) | 59 | 0 | 0 | 🚧 | 2026-07-24 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
 | **TOTAL (implemented modules)** | | **1239** | **0** | **0** | ✅ | 2026-07-24 |
 
