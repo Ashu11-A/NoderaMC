@@ -156,6 +156,9 @@ public final class TypeTags {
     /** {@code ContainerEntry} — one container's canonical slot contents in the root (Task 16 / L-10). */
     public static final int CONTAINER_ENTRY = 105;
 
+    /** {@code MovePlayerAction} — a signed, committee-validated player step (Task 16 / L-12). */
+    public static final int MOVE_PLAYER_ACTION = 106;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 105;
+    public static final int NEXT = 106;
 }

@@ -19,7 +19,7 @@ import dev.nodera.core.crypto.TypeTags;
  */
 public sealed interface GameAction extends Encodable
         permits PlaceBlockAction, BreakBlockAction, DropItemAction, PickupItemAction,
-                InteractBlockAction, AttackEntityAction, ContainerAction {
+                InteractBlockAction, AttackEntityAction, ContainerAction, MovePlayerAction {
 
     /**
      * Decode a polymorphic {@code GameAction} by reading the next typeTag and dispatching to the
@@ -42,6 +42,7 @@ public sealed interface GameAction extends Encodable
             case TypeTags.INTERACT_BLOCK_ACTION -> InteractBlockAction.decodeBody(r);
             case TypeTags.ATTACK_ENTITY_ACTION -> AttackEntityAction.decodeBody(r);
             case TypeTags.CONTAINER_ACTION -> ContainerAction.decodeBody(r);
+            case TypeTags.MOVE_PLAYER_ACTION -> MovePlayerAction.decodeBody(r);
             default -> throw new IllegalStateException("unknown GameAction tag " + tag);
         };
     }
