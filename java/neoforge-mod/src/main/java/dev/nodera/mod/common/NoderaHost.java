@@ -276,18 +276,38 @@ public final class NoderaHost {
         return existing.get().authorNodeId().value().toString().equals(workerNodeId);
     }
 
-    /** Grant the connected host player in-game operator permissions (level 4). */
+    /**
+     * Op the world author only (issue #36 F3 fix — no longer blanket-ops every online player). The
+     * integrated-server owner is the author when {@link #localWorkerIsAuthor} holds; a dedicated
+     * server ops nobody automatically (operator authority flows through signed grants + the
+     * {@link dev.nodera.mod.server.OperatorBridge}). Anyone else's op comes from a key-checked role.
+     */
     private static void grantHostOperator(MinecraftServer server) {
+        if (server.isDedicatedServer() || !localWorkerIsAuthor(server)) {
+            return;
+        }
         try {
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                if (!server.getPlayerList().isOp(player.getGameProfile())) {
-                    server.getPlayerList().op(player.getGameProfile());
-                    LOG.info("Nodera: granted operator to host player {}",
-                            player.getGameProfile().getName());
+                if (server.isSingleplayerOwner(player.getGameProfile())) {
+                    dev.nodera.mod.server.OperatorBridge.get().opAuthor(server, player);
                 }
             }
         } catch (RuntimeException e) {
-            LOG.warn("Nodera: could not grant host operator: {}", e.getMessage());
+            LOG.warn("Nodera: could not grant author operator: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Op the integrated-server owner as author on login (covers an auto-re-share that ran before the
+     * owner joined, when {@link #grantHostOperator} saw no players). Safe no-op on a dedicated server
+     * or when this install did not author the world.
+     */
+    public static void syncAuthorOnLogin(MinecraftServer server, ServerPlayer player) {
+        if (server.isDedicatedServer() || hostedPermissions == null || !localWorkerIsAuthor(server)) {
+            return;
+        }
+        if (server.isSingleplayerOwner(player.getGameProfile())) {
+            dev.nodera.mod.server.OperatorBridge.get().opAuthor(server, player);
         }
     }
 

@@ -115,6 +115,10 @@ public final class ModNetworking {
             } catch (RuntimeException malformed) {
                 return; // a malformed announce simply never becomes an owner
             }
+            // F4: reconcile this now-verified player's vanilla op status with their key-checked role
+            // (op operators/owner, disconnect BANNED). The announce proof authenticated the key.
+            dev.nodera.mod.server.OperatorBridge.get()
+                    .syncPlayer(player.serverLevel().getServer(), player);
             NoderaHost.replanEntityLane(player.serverLevel().getServer());
         });
     }
