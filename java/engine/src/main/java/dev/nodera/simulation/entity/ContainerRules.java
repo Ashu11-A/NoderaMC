@@ -59,28 +59,60 @@ public final class ContainerRules {
     }
 
     /**
+     * The comparator fill signal of a container: 0 when empty/absent, else
+     * {@code 1 + floor(14 × totalItems / (slots × 64))} capped at 15 — the vanilla shape with the
+     * 64-stack denominator, pure integer math.
+     */
+    public static int containerSignal(ContainerEntry entry, int slots) {
+        if (entry == null) {
+            return 0;
+        }
+        long total = 0;
+        for (ItemSlot s : entry.slots()) {
+            total += Math.min(s.count(), 64);
+        }
+        if (total == 0) {
+            return 0;
+        }
+        return (int) Math.min(15, 1 + (14 * total) / ((long) slots * 64));
+    }
+
+    /**
      * One hopper transfer cycle on the hashed queue: push the hopper's first item down into a
      * container below, pull one item from a container above, then reschedule — a placed hopper
      * is a deterministic 8-tick machine whose whole behaviour is committed state.
      */
-    public static void hopperTick(MutableRegionState state, NBlockPos pos, long tick) {
+    public static void hopperTick(MutableRegionState state, NBlockPos pos, long tick,
+                                  dev.nodera.simulation.DeterministicRandom rng) {
         if (state.getBlock(pos) != FlatWorldRules.HOPPER) {
             return; // broken since scheduling — stale entry no-ops
         }
-        moveOne(state, pos, new NBlockPos(pos.x(), pos.y() - 1, pos.z()));
-        moveOne(state, new NBlockPos(pos.x(), pos.y() + 1, pos.z()), pos);
+        NBlockPos below = new NBlockPos(pos.x(), pos.y() - 1, pos.z());
+        NBlockPos above = new NBlockPos(pos.x(), pos.y() + 1, pos.z());
+        boolean pushed = moveOne(state, pos, below);
+        boolean pulled = moveOne(state, above, pos);
+        if (pushed || pulled) {
+            // Fill levels changed: adjacent comparators re-settle their networks now.
+            dev.nodera.simulation.rules.RedstoneRules.onContainerChanged(state, pos, rng, tick);
+            if (pushed) {
+                dev.nodera.simulation.rules.RedstoneRules.onContainerChanged(state, below, rng, tick);
+            }
+            if (pulled) {
+                dev.nodera.simulation.rules.RedstoneRules.onContainerChanged(state, above, rng, tick);
+            }
+        }
         state.scheduleTick(pos, FlatWorldRules.HOPPER, tick + HOPPER_INTERVAL_TICKS, 0);
     }
 
     /** Move ONE item from {@code from}'s first non-empty slot into {@code to}, if both accept. */
-    private static void moveOne(MutableRegionState state, NBlockPos from, NBlockPos to) {
+    private static boolean moveOne(MutableRegionState state, NBlockPos from, NBlockPos to) {
         if (!state.inOwnedRegion(from) || !state.inOwnedRegion(to)
                 || !isContainer(state.getBlock(from)) || !isContainer(state.getBlock(to))) {
-            return;
+            return false;
         }
         ContainerEntry source = state.container(from);
         if (source == null) {
-            return;
+            return false;
         }
         int fromSlot = -1;
         for (int i = 0; i < source.slots().size(); i++) {
@@ -90,7 +122,7 @@ public final class ContainerRules {
             }
         }
         if (fromSlot < 0) {
-            return;
+            return false;
         }
         ItemSlot moving = source.slots().get(fromSlot);
         ContainerEntry target = state.container(to);
@@ -110,7 +142,7 @@ public final class ContainerRules {
             }
         }
         if (toSlot < 0) {
-            return; // destination full — the item waits
+            return false; // destination full — the item waits
         }
         ItemSlot dest = target.slots().get(toSlot);
         state.putContainer(target.withSlot(toSlot,
@@ -123,6 +155,7 @@ public final class ContainerRules {
         } else {
             state.putContainer(drained);
         }
+        return true;
     }
 
     /** Pre-apply validation of one {@link ContainerAction} against committed state. */
@@ -161,7 +194,8 @@ public final class ContainerRules {
     }
 
     /** Apply a validated {@link ContainerAction} to working state. */
-    public static void apply(MutableRegionState state, ActionEnvelope env, ContainerAction action) {
+    public static void apply(MutableRegionState state, ActionEnvelope env, ContainerAction action,
+                             dev.nodera.simulation.DeterministicRandom rng) {
         ContainerEntry entry = state.container(action.pos());
         if (entry == null) {
             int slots = slotsFor(state.getBlock(action.pos()));
@@ -175,6 +209,8 @@ public final class ContainerRules {
         if (action.mode() == ContainerAction.Mode.DEPOSIT) {
             state.putContainer(entry.withSlot(action.slot(),
                     new ItemSlot(action.itemStackId(), current.count() + action.count())));
+            dev.nodera.simulation.rules.RedstoneRules.onContainerChanged(
+                    state, action.pos(), rng, env.targetTick());
             return;
         }
         int remaining = current.count() - action.count();
@@ -191,6 +227,8 @@ public final class ContainerRules {
                 NetworkEntityId.allocate(state.region(), state.baseVersion(),
                         DROP_SEQ_DOMAIN | env.serverSeq()),
                 action.itemStackId(), action.count()));
+        dev.nodera.simulation.rules.RedstoneRules.onContainerChanged(
+                state, action.pos(), rng, env.targetTick());
     }
 
     /**

@@ -212,6 +212,51 @@ final class ContainerRulesTest {
     }
 
     @Test
+    void comparatorEmitsTheChestFillLevelAndReactsToDepositsAndWithdrawals() {
+        NBlockPos comparator = new NBlockPos(65, 64, 64);
+        NBlockPos wirePos = new NBlockPos(66, 64, 64);
+        RegionSnapshot air = TestFixtures.fullUniformSnapshot(region, FlatWorldRules.AIR);
+        RegionSnapshot built = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                air,
+                executeTicks(air, List.of(
+                        TestFixtures.envelope(region, 0L, 1L,
+                                TestFixtures.place(CHEST_POS, FlatWorldRules.CHEST)),
+                        TestFixtures.envelope(region, 0L, 2L,
+                                TestFixtures.place(comparator, FlatWorldRules.COMPARATOR_EAST)),
+                        TestFixtures.envelope(region, 0L, 3L,
+                                TestFixtures.place(wirePos, FlatWorldRules.WIRE_0))), 1).delta(),
+                1L);
+        int emptyWire = new dev.nodera.simulation.MutableRegionState(
+                built, dev.nodera.core.region.RegionBounds.of(region)).getBlock(wirePos);
+        assertThat(dev.nodera.simulation.rules.RedstoneRules.wirePower(emptyWire))
+                .as("an empty chest emits nothing through the comparator")
+                .isZero();
+
+        RegionSnapshot afterDeposit = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                built,
+                executeTicks(built, List.of(TestFixtures.envelope(region, 1L, 4L,
+                        deposit(42, 5))), 1).delta(),
+                2L);
+        int poweredWire = new dev.nodera.simulation.MutableRegionState(
+                afterDeposit, dev.nodera.core.region.RegionBounds.of(region)).getBlock(wirePos);
+        assertThat(dev.nodera.simulation.rules.RedstoneRules.wirePower(poweredWire))
+                .as("the deposit re-settles the comparator's network to the fill signal")
+                .isEqualTo(ContainerRules.containerSignal(
+                        afterDeposit.containers().get(0), ContainerRules.CHEST_SLOTS));
+
+        RegionSnapshot afterWithdraw = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                afterDeposit,
+                executeTicks(afterDeposit, List.of(TestFixtures.envelope(region, 2L, 5L,
+                        withdraw(42, 5))), 1).delta(),
+                3L);
+        int drainedWire = new dev.nodera.simulation.MutableRegionState(
+                afterWithdraw, dev.nodera.core.region.RegionBounds.of(region)).getBlock(wirePos);
+        assertThat(dev.nodera.simulation.rules.RedstoneRules.wirePower(drainedWire))
+                .as("emptying the chest drops the comparator output back to 0")
+                .isZero();
+    }
+
+    @Test
     void breakingAChestSpillsItsContentsAsValidatedItems() {
         RegionSnapshot base = chestWorld(new ItemSlot(42, 5));
         RegionExecutionResult result = executeTicks(base,

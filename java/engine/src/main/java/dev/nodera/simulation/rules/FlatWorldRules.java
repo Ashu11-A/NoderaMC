@@ -137,6 +137,13 @@ public final class FlatWorldRules implements RuleSet {
     public static final int CHEST = 77;
     /** Hopper — a 5-slot container that pulls from above and pushes below on an 8-tick cycle. */
     public static final int HOPPER = 78;
+    /** Comparator (facing = output): emits the fill level of the container BEHIND it (L-10). */
+    public static final int COMPARATOR_NORTH = 79;
+    public static final int COMPARATOR_SOUTH = 80;
+    public static final int COMPARATOR_WEST = 81;
+    public static final int COMPARATOR_EAST = 82;
+    /** Note block — validated palette presence; the sound itself is client presentation. */
+    public static final int NOTE_BLOCK = 83;
 
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
@@ -208,6 +215,11 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(DAYLIGHT_SENSOR, "daylight_sensor"),
             new PaletteEntry(CHEST, "chest"),
             new PaletteEntry(HOPPER, "hopper"),
+            new PaletteEntry(COMPARATOR_NORTH, "comparator_north"),
+            new PaletteEntry(COMPARATOR_SOUTH, "comparator_south"),
+            new PaletteEntry(COMPARATOR_WEST, "comparator_west"),
+            new PaletteEntry(COMPARATOR_EAST, "comparator_east"),
+            new PaletteEntry(NOTE_BLOCK, "note_block"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
