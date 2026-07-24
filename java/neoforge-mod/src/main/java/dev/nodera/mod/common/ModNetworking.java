@@ -20,8 +20,23 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 public final class ModNetworking {
 
-    /** NeoForge payload registrar version string (Task 0 §2: wire protocol version "1"). */
-    public static final String PROTOCOL_VERSION = "1";
+    /**
+     * NeoForge payload registrar version. Bumped {@code "1"→"2"} for issue #36's challenge-response
+     * announce (F1): the session/announce payloads gained fields, so mismatched mod builds must
+     * fail the handshake loudly rather than silently mis-decode.
+     */
+    public static final String PROTOCOL_VERSION = "2";
+
+    /**
+     * Server-side per-login announce challenges (issue #36 F1). Issued in
+     * {@code ServerBootstrap.onPlayerLoggedIn}, consumed here before an announce is trusted.
+     */
+    private static final AnnounceChallenges ANNOUNCE_CHALLENGES = new AnnounceChallenges();
+
+    /** @return the host's announce-challenge store (server side). */
+    public static AnnounceChallenges announceChallenges() {
+        return ANNOUNCE_CHALLENGES;
+    }
 
     /**
      * Client-dist hook for the session's world identity (worldIdHex, worldName) — set by
@@ -70,13 +85,33 @@ public final class ModNetworking {
             if (!(context.player() instanceof net.minecraft.server.level.ServerPlayer player)) {
                 return;
             }
+            org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger("NoderaAnnounce");
             try {
+                dev.nodera.core.Bytes publicKey = dev.nodera.core.Bytes.unsafeWrap(
+                        java.util.Base64.getDecoder().decode(payload.publicKeyB64()));
+                // F1: prove possession of the announced key over the server's single-use challenge
+                // BEFORE trusting the node. No valid, unexpired challenge or a bad signature drops
+                // the announce — a spoofed NodeId+key never becomes an owner.
+                java.util.Optional<dev.nodera.core.Bytes> challenge =
+                        ANNOUNCE_CHALLENGES.consume(player.getUUID(), System.currentTimeMillis());
+                if (challenge.isEmpty()) {
+                    log.warn("Nodera: announce from {} dropped — no valid challenge", player.getUUID());
+                    return;
+                }
+                dev.nodera.core.Bytes signature = payload.signatureB64().isBlank()
+                        ? dev.nodera.core.Bytes.empty()
+                        : dev.nodera.core.Bytes.unsafeWrap(
+                                java.util.Base64.getDecoder().decode(payload.signatureB64()));
+                if (!NodeAnnounceProof.verify(publicKey, signature, challenge.get(),
+                        payload.nodeIdUuid(), player.getUUID().toString())) {
+                    log.warn("Nodera: announce from {} dropped — announce proof failed",
+                            player.getUUID());
+                    return;
+                }
                 PlayerNodeRegistry.announce(player.getUUID(), new PlayerNodeRegistry.PlayerNode(
                         new dev.nodera.core.identity.NodeId(
                                 java.util.UUID.fromString(payload.nodeIdUuid())),
-                        dev.nodera.core.Bytes.unsafeWrap(
-                                java.util.Base64.getDecoder().decode(payload.publicKeyB64())),
-                        payload.route()));
+                        publicKey, payload.route()));
             } catch (RuntimeException malformed) {
                 return; // a malformed announce simply never becomes an owner
             }
@@ -117,12 +152,19 @@ public final class ModNetworking {
             // makes this PLAYER an owner of its own field-of-view regions.
             var identity = NoderaPeerService.get().clientIdentity();
             var runtime = NoderaPeerService.get().clientRuntime();
-            if (identity != null && runtime != null && runtime.selfRoute() != null) {
+            if (identity != null && runtime != null && runtime.selfRoute() != null
+                    && context.player() != null && !payload.challengeB64().isBlank()) {
+                // F1: prove key possession over the server's challenge, bound to this MC UUID.
+                dev.nodera.core.Bytes challenge = dev.nodera.core.Bytes.unsafeWrap(
+                        java.util.Base64.getDecoder().decode(payload.challengeB64()));
+                dev.nodera.core.Bytes proof = NodeAnnounceProof.sign(identity, challenge,
+                        context.player().getUUID().toString());
                 context.reply(new NoderaNodeAnnouncePayload(
                         identity.nodeId().value().toString(),
                         java.util.Base64.getEncoder().encodeToString(
                                 identity.publicKeyBytes().toArray()),
-                        runtime.selfRoute()));
+                        runtime.selfRoute(),
+                        java.util.Base64.getEncoder().encodeToString(proof.toArray())));
             }
         });
     }

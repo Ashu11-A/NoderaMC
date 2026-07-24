@@ -151,8 +151,13 @@ public final class ServerBootstrap {
             String worldIdHex = dev.nodera.mod.common.NoderaWorldStore
                     .read(server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT))
                     .map(id -> id.worldId().toHex()).orElse("");
+            // Issue #36 F1: a fresh single-use announce challenge rides the session payload; the
+            // client must sign it (bound to its key + MC UUID) for its node announce to be trusted.
+            String challengeB64 = java.util.Base64.getEncoder().encodeToString(
+                    dev.nodera.mod.common.ModNetworking.announceChallenges()
+                            .issue(player.getUUID(), System.currentTimeMillis()).toArray());
             PacketDistributor.sendToPlayer(player, new NoderaSessionPayload(
-                    route, worldIdHex, server.getWorldData().getLevelName()));
+                    route, worldIdHex, server.getWorldData().getLevelName(), challengeB64));
             // Keep the worker's live player count fresh (multiplayer-list rows, Task 33).
             NoderaHost.refreshWorkerPresence(server);
         }
@@ -181,6 +186,7 @@ public final class ServerBootstrap {
             // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
             // and absorb its regions (the FOV planner reassigns deterministically).
             dev.nodera.mod.common.PlayerNodeRegistry.forget(player.getUUID());
+            dev.nodera.mod.common.ModNetworking.announceChallenges().forget(player.getUUID());
             NoderaHost.replanEntityLane(player.serverLevel().getServer());
         }
     }

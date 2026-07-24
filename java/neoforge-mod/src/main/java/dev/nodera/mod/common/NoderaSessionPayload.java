@@ -26,28 +26,33 @@ import net.minecraft.resources.ResourceLocation;
  * @param bootstrapRoute the server's dialable {@code host:port} P2P route.
  * @param worldIdHex     the shared world's id (hex), or {@code ""} when the world has none yet.
  * @param worldName      the world's display name, or {@code ""}.
+ * @param challengeB64   base64 of the server's single-use announce challenge (issue #36 F1), or
+ *                       {@code ""} when none is issued; the client signs it in its node announce.
  */
-public record NoderaSessionPayload(String bootstrapRoute, String worldIdHex, String worldName)
+public record NoderaSessionPayload(String bootstrapRoute, String worldIdHex, String worldName,
+                                   String challengeB64)
         implements CustomPacketPayload {
 
-    /** Route-only convenience (world identity unknown/absent). */
+    /** Route-only convenience (world identity unknown/absent, no challenge). */
     public NoderaSessionPayload(String bootstrapRoute) {
-        this(bootstrapRoute, "", "");
+        this(bootstrapRoute, "", "", "");
     }
 
     /** The payload type id ({@code nodera:session}). */
     public static final Type<NoderaSessionPayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(dev.nodera.mod.NoderaMod.MOD_ID, "session"));
 
-    /** Wire codec: three UTF-8 strings (route, worldId hex, world name). */
+    /** Wire codec: four UTF-8 strings (route, worldId hex, world name, announce challenge). */
     public static final StreamCodec<RegistryFriendlyByteBuf, NoderaSessionPayload> STREAM_CODEC =
             CustomPacketPayload.codec(
                     (payload, buf) -> {
                         buf.writeUtf(payload.bootstrapRoute());
                         buf.writeUtf(payload.worldIdHex());
                         buf.writeUtf(payload.worldName());
+                        buf.writeUtf(payload.challengeB64());
                     },
-                    buf -> new NoderaSessionPayload(buf.readUtf(), buf.readUtf(), buf.readUtf()));
+                    buf -> new NoderaSessionPayload(buf.readUtf(), buf.readUtf(), buf.readUtf(),
+                            buf.readUtf()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

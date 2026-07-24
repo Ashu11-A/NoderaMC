@@ -15,23 +15,28 @@ import net.minecraft.resources.ResourceLocation;
  * @param nodeIdUuid   the client peer's {@code NodeId} as a UUID string.
  * @param publicKeyB64 base64 of the peer's Ed25519 public key (X.509).
  * @param route        the peer's dialable {@code host:port} P2P route.
+ * @param signatureB64 base64 of the peer's signature over the session's announce challenge (issue
+ *                     #36 F1: {@code challenge ‖ nodeId ‖ publicKey ‖ mcUuid}), or {@code ""}.
  */
-public record NoderaNodeAnnouncePayload(String nodeIdUuid, String publicKeyB64, String route)
+public record NoderaNodeAnnouncePayload(String nodeIdUuid, String publicKeyB64, String route,
+                                        String signatureB64)
         implements CustomPacketPayload {
 
     /** The payload type id ({@code nodera:node}). */
     public static final Type<NoderaNodeAnnouncePayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(dev.nodera.mod.NoderaMod.MOD_ID, "node"));
 
-    /** Wire codec: three UTF-8 strings. */
+    /** Wire codec: four UTF-8 strings. */
     public static final StreamCodec<RegistryFriendlyByteBuf, NoderaNodeAnnouncePayload> STREAM_CODEC =
             CustomPacketPayload.codec(
                     (payload, buf) -> {
                         buf.writeUtf(payload.nodeIdUuid());
                         buf.writeUtf(payload.publicKeyB64());
                         buf.writeUtf(payload.route());
+                        buf.writeUtf(payload.signatureB64());
                     },
-                    buf -> new NoderaNodeAnnouncePayload(buf.readUtf(), buf.readUtf(), buf.readUtf()));
+                    buf -> new NoderaNodeAnnouncePayload(buf.readUtf(), buf.readUtf(), buf.readUtf(),
+                            buf.readUtf()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {
