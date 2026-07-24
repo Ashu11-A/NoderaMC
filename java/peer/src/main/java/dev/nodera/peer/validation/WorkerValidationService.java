@@ -114,13 +114,16 @@ public final class WorkerValidationService {
     private final class Replica {
         final RegionLease lease;
         final RegionPipeline pipeline;
-        RegionSnapshot snapshot;
-        StateRoot headRoot;
+        // snapshot/headRoot/lastCertificate are read by observer threads (control probes, test
+        // pollers) while the worldExecutor/proposer threads write them — volatile so an observer
+        // that sees the new head also sees the certificate committed before it.
+        volatile RegionSnapshot snapshot;
+        volatile StateRoot headRoot;
         MemberBallot pendingBallot;
         ActionBatch pendingBatch;
         RegionProposal pendingProposal;
         long pendingTickTo;
-        QuorumCertificate lastCertificate;
+        volatile QuorumCertificate lastCertificate;
 
         Replica(RegionSnapshot base, RegionLease lease) {
             this.lease = lease;
@@ -820,13 +823,17 @@ public final class WorkerValidationService {
                     + replica.snapshot.region() + " at " + applied.failedAt());
         }
         SnapshotVersion next = replica.snapshot.version().next();
-        replica.snapshot = world.reExtract(replica.snapshot.region(), next, tick);
-        StateRoot extractedRoot = StateRoot.of(hashes.hash(replica.snapshot));
-        if (!replica.snapshot.equals(expected) || !extractedRoot.equals(cert.resultingRoot())) {
+        RegionSnapshot committed = world.reExtract(replica.snapshot.region(), next, tick);
+        StateRoot extractedRoot = StateRoot.of(hashes.hash(committed));
+        if (!committed.equals(expected) || !extractedRoot.equals(cert.resultingRoot())) {
             throw new IllegalStateException("certified commit did not reproduce resulting root");
         }
-        replica.headRoot = cert.resultingRoot();
+        // Publish order matters for lock-free observers (control probes poll snapshot/head/cert
+        // without this lock): certificate and head first, the advanced snapshot LAST, so anyone
+        // who sees the new version also sees the certificate that committed it.
         replica.lastCertificate = cert;
+        replica.headRoot = cert.resultingRoot();
+        replica.snapshot = committed;
         replica.pipeline.committeeCommitted(next);
         recordCommittedSequences(batch);
         replica.pendingBallot = null;
@@ -858,13 +865,16 @@ public final class WorkerValidationService {
         if (!(outcome instanceof EntityTransferCoordinator.TransferResult result)) {
             return Optional.empty();
         }
-        source.snapshot = world.reExtract(
+        RegionSnapshot sourceCommitted = world.reExtract(
                 source.snapshot.region(), sourceDelta.resultingVersion(), tick);
-        target.snapshot = world.reExtract(
+        RegionSnapshot targetCommitted = world.reExtract(
                 target.snapshot.region(), result.targetDelta().resultingVersion(), tick);
+        // Certificate + heads before the snapshots (see commitLocally's publish-order note).
+        source.lastCertificate = sourceActionCertificate;
         source.headRoot = result.certificate().descriptor().sourceResultingRoot();
         target.headRoot = result.certificate().descriptor().targetResultingRoot();
-        source.lastCertificate = sourceActionCertificate;
+        source.snapshot = sourceCommitted;
+        target.snapshot = targetCommitted;
         recordCommittedSequences(source.pendingBatch);
         source.pendingBallot = null;
         source.pendingBatch = null;
@@ -1007,16 +1017,19 @@ public final class WorkerValidationService {
             }
             if (source != null) {
                 source.pipeline.crossRegionCommitted(descriptor.sourceResultingVersion());
-                source.snapshot = world.reExtract(
+                RegionSnapshot sourceCommitted = world.reExtract(
                         descriptor.sourceRegion(), descriptor.sourceResultingVersion(), descriptor.tick());
-                source.headRoot = descriptor.sourceResultingRoot();
+                // Certificate + head before the snapshot (commitLocally's publish-order note).
                 source.lastCertificate = commit.sourceActionCertificate();
+                source.headRoot = descriptor.sourceResultingRoot();
+                source.snapshot = sourceCommitted;
             }
             if (target != null) {
                 target.pipeline.crossRegionCommitted(descriptor.targetResultingVersion());
-                target.snapshot = world.reExtract(
+                RegionSnapshot targetCommitted = world.reExtract(
                         descriptor.targetRegion(), descriptor.targetResultingVersion(), descriptor.tick());
                 target.headRoot = descriptor.targetResultingRoot();
+                target.snapshot = targetCommitted;
             }
             committeeCommits.incrementAndGet();
         } catch (RuntimeException invalidOrUnavailable) {

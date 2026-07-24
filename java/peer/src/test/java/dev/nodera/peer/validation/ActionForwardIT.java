@@ -154,10 +154,15 @@ final class ActionForwardIT {
                 actor.sign(unsigned.signedPortion()));
         assertThat(capturerNode.service.forwardToPrimary(signed)).isTrue();
 
-        long deadline = System.currentTimeMillis() + 10_000;
+        // Wait for BOTH members to converge (the capturer applies the commit asynchronously —
+        // waiting on the owner alone races the capturer's vote/apply on slow runners).
+        long deadline = System.currentTimeMillis() + 15_000;
         while (System.currentTimeMillis() < deadline) {
-            if (ownerNode.service.currentSnapshot(region).orElseThrow().version()
-                    .value() > SnapshotVersion.INITIAL.value()) {
+            var head = ownerNode.service.headRoot(region);
+            var mirrored = capturerNode.service.headRoot(region);
+            if (head.isPresent() && mirrored.isPresent() && head.equals(mirrored)
+                    && ownerNode.service.currentSnapshot(region).orElseThrow().version()
+                            .value() > SnapshotVersion.INITIAL.value()) {
                 break;
             }
             Thread.sleep(50);
