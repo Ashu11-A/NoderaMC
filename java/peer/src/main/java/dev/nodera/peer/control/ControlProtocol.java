@@ -93,6 +93,20 @@ public final class ControlProtocol {
      */
     public static final String GRANT = "NODERA-GRANT";
 
+    /**
+     * Re-key a world's password (issue #37 / L-51): the mod hands the worker a freshly-packed archive
+     * file path + the new plaintext password + the current signed {@code WorldIdentity}; the worker
+     * re-encrypts the archive under a fresh Argon2id salt (new key → new ciphertext → new
+     * {@code manifestRoot} + bumped version), re-signs the identity with the new {@code manifestRef},
+     * re-announces, and returns the re-signed identity bytes.
+     * {@code NODERA-REKEY <ver> <worldIdHex> <archivePathB64> <newPasswordB64>
+     * <currentWorldIdentityB64>}; reply is {@code NODERA-OK <worldIdentityBytesB64>} or
+     * {@code NODERA-ERR <reason>} — never silent success. The loopback (127.0.0.1) socket is the
+     * local trust boundary; the file-path handoff mirrors {@link #SEED}. Additive verb — an older
+     * worker answers {@code NODERA-ERR unknown verb}.
+     */
+    public static final String REKEY = "NODERA-REKEY";
+
     private ControlProtocol() {
     }
 

@@ -472,37 +472,70 @@ public final class NoderaHost {
     public static void reconfigure(MinecraftServer server, ShareOptions options) {
         ShareOptions current = NoderaPeerService.get().hostOptions();
         if (current != null && options != null && !current.password().equals(options.password())) {
-            // F6: a password change is a full re-key (re-derive content key → re-encrypt + re-split →
-            // new manifest → WorldIdentity.resign → refresh announce). That pipeline is not wired yet,
-            // so the change is surfaced honestly to the sharer — NEVER a silent success. The verb now
-            // carries plaintext over loopback; the worker is the sole password authority.
-            String outcome = "password re-key is pending the worker pipeline";
-            if (dev.nodera.mod.common.CompanionLink.isPresent()) {
-                String worldIdHex = dev.nodera.mod.common.NoderaWorldStore
-                        .read(server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT))
-                        .map(id -> id.worldId().toHex()).orElse("");
-                if (!worldIdHex.isBlank()) {
-                    String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
-                            options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    java.util.Optional<String> err = dev.nodera.mod.common.CompanionLink.client()
-                            .changePassword(worldIdHex, newPwdB64);
-                    outcome = err.orElse(null); // null = success
-                }
-            }
-            if (outcome == null) {
-                LOG.info("Nodera: password re-key accepted for '{}'", server.getWorldData().getLevelName());
-                tellHost(server, "Nodera: password changed — joiners must use the new password.");
-            } else {
-                LOG.warn("Nodera: password re-key FAILED for '{}': {}", server.getWorldData().getLevelName(),
-                        outcome);
-                tellHost(server, "Nodera: password change FAILED — " + outcome
-                        + ". The world keeps its current password.");
-                // Do not proceed with the new password: re-share with the unchanged options.
-                activate(server, options.withPassword(current.password()));
+            // Issue #37 / L-51: a password change is a full re-key — re-pack the save, re-encrypt the
+            // archive under the new password (fresh salt → new key → new ciphertext → new manifestRoot
+            // + bumped version), re-sign the WorldIdentity with the new manifestRef, persist it, and
+            // re-announce (the worker does that in the verb). The plaintext save on the author's own
+            // machine is the source — no old password is needed (nothing is escrowed). Surfaced
+            // honestly to the sharer; NEVER silent success.
+            Path saveRoot = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
+            WorldIdentity currentId = NoderaWorldStore.read(saveRoot).orElse(null);
+            if (currentId == null) {
+                LOG.warn("Nodera: password re-key for '{}' skipped — no persisted identity",
+                        server.getWorldData().getLevelName());
+                activate(server, options);
                 return;
             }
+            String worldIdHex = currentId.worldId().toHex();
+            String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
+                    options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            java.util.Optional<dev.nodera.core.Bytes> reKeyed = java.util.Optional.empty();
+            if (dev.nodera.mod.common.CompanionLink.isPresent()) {
+                try {
+                    // Flush so the packed blob reflects the live world, then hand it to the worker.
+                    server.saveEverything(true, true, true);
+                    Path spool = WorldArchiver.packToSpool(saveRoot, worldIdHex);
+                    reKeyed = dev.nodera.mod.common.CompanionLink.client()
+                            .rekey(worldIdHex, spool, newPwdB64, encodeIdentity(currentId));
+                } catch (RuntimeException | java.io.IOException e) {
+                    LOG.warn("Nodera: password re-key call failed for '{}': {}",
+                            server.getWorldData().getLevelName(), e.toString());
+                }
+            }
+            if (reKeyed.isPresent()) {
+                // Persist the re-signed identity (carrying the new manifestRef). ensureIdentity would
+                // reuse this manifestRef on a later activate, but we do NOT re-activate here: a full
+                // activate re-seeds a PLAINTEXT archive (live encryption at share is L-39's domain),
+                // which would supersede the re-key's encrypted manifest as newest and let joiners
+                // bypass the password. The host peer is already up; the worker re-announced.
+                WorldIdentity reSigned = WorldIdentity.decode(
+                        new dev.nodera.core.crypto.CanonicalReader(reKeyed.get()));
+                try {
+                    NoderaWorldStore.write(saveRoot, reSigned);
+                } catch (java.io.IOException e) {
+                    LOG.warn("Nodera: could not persist re-keyed identity for '{}': {}",
+                            server.getWorldData().getLevelName(), e.toString());
+                }
+                LOG.info("Nodera: password re-key complete for '{}' (new manifest root {})",
+                        server.getWorldData().getLevelName(), reSigned.manifestRef().toShortHex(8));
+                tellHost(server, "Nodera: password changed — joiners must use the new password.");
+                return;
+            }
+            // Failure: surface honestly and re-share with the UNCHANGED password (never silent success).
+            LOG.warn("Nodera: password re-key FAILED for '{}': worker unavailable or declined",
+                    server.getWorldData().getLevelName());
+            tellHost(server, "Nodera: password change FAILED — the world keeps its current password.");
+            activate(server, options.withPassword(current.password()));
+            return;
         }
         activate(server, options);
+    }
+
+    /** Canonical-encode a {@link WorldIdentity} to bytes (for the re-key verb). */
+    private static dev.nodera.core.Bytes encodeIdentity(WorldIdentity identity) {
+        dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
+        identity.encode(w);
+        return w.toBytes();
     }
 
     /** Send a chat line to every online host player (the sharer), best-effort. */

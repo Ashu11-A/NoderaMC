@@ -271,6 +271,71 @@ public final class WorkerControlHandler implements ControlHandler {
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
     }
 
+    @Override
+    public String rekey(String worldIdHex, String archivePathB64, String newPasswordB64,
+                        String currentWorldIdentityB64) {
+        // Issue #37 / L-51: the actual password re-key. The mod hands a freshly-packed plaintext
+        // archive (the author's own machine — loopback trust boundary) + the new password + the
+        // current signed identity. We re-encrypt under a fresh Argon2id salt (new key → new
+        // ciphertext → new manifestRoot + bumped version), re-sign the identity with the new
+        // manifestRef, re-announce, and return the re-signed identity. No old password is needed
+        // (none is escrowed) — the plaintext save is the source. Authorship is enforced by resign.
+        // Returns null only when the archive lane is absent (older worker → "unknown verb" /
+        // "archive lane unavailable"); validation failures throw → the dispatch surfaces them as
+        // NODERA-ERR (mirrors SEED/ARCHIVE/WORLDID — never silent success).
+        if (archive == null) {
+            return null;
+        }
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            throw new IllegalArgumentException("missing worldId");
+        }
+        if (archivePathB64 == null || archivePathB64.isBlank()) {
+            throw new IllegalArgumentException("missing archive path");
+        }
+        if (newPasswordB64 == null || newPasswordB64.isBlank()) {
+            throw new IllegalArgumentException("missing new password");
+        }
+        if (currentWorldIdentityB64 == null || currentWorldIdentityB64.isBlank()) {
+            throw new IllegalArgumentException("missing current world identity");
+        }
+        // 1. read the freshly-packed plaintext blob.
+        java.nio.file.Path archiveFile = java.nio.file.Path.of(decodeB64(archivePathB64));
+        byte[] blob;
+        try {
+            blob = java.nio.file.Files.readAllBytes(archiveFile);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot read archive file: " + e.getMessage(), e);
+        }
+        // 2. decode the current signed identity the mod read from nodera-world.dat.
+        WorldIdentity current = WorldIdentity.decode(new dev.nodera.core.crypto.CanonicalReader(
+                decodeBytes(currentWorldIdentityB64)));
+        if (!current.worldId().toHex().equalsIgnoreCase(worldIdHex)) {
+            throw new IllegalArgumentException("worldId mismatch");
+        }
+        // 3. honest author pre-check (the signature is the real authority; resign enforces it too).
+        if (!identity.nodeId().equals(current.authorNodeId())) {
+            throw new IllegalArgumentException("not the author of this world");
+        }
+        // 4. re-key: seedEncryptedArchive mints a fresh salt, bumps the version, publishes ciphertext.
+        char[] pwd = new String(Base64.getDecoder().decode(newPasswordB64),
+                java.nio.charset.StandardCharsets.UTF_8).toCharArray();
+        dev.nodera.distribution.PieceManifest manifest;
+        try {
+            manifest = archive.seedEncryptedArchive(worldIdHex, blob, pwd);
+        } finally {
+            java.util.Arrays.fill(pwd, '\0');
+        }
+        // 5. re-sign the identity with the new manifestRef (encrypted=true; password is non-blank).
+        WorldIdentity reSigned = current.resign(identity, current.shared(),
+                current.listedOnTracker(), true, manifest.manifestRoot());
+        // 6. re-announce so the new manifestRoot appears in the tracker holdings immediately.
+        hosting.refreshNow(worldIdHex);
+        // 7. return the re-signed identity (B64 canonical bytes), mirroring mintWorldIdentity.
+        CanonicalWriter w = new CanonicalWriter();
+        reSigned.encode(w);
+        return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+    }
+
     private static String endpointArray(List<WorldHostingService.EndpointHealth> health) {
         List<String> rows = new ArrayList<>(health.size());
         for (WorldHostingService.EndpointHealth e : health) {

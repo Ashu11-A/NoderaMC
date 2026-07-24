@@ -182,6 +182,13 @@ public final class ControlServer implements AutoCloseable {
                         (int) parseLong(arg(parts, 5)), parseLong(arg(parts, 6)));
                 return grant == null ? err("cannot mint grant") : ControlProtocol.OK + " " + grant;
             }
+            if (ControlProtocol.REKEY.equals(verb)) {
+                // NODERA-REKEY <ver> <worldIdHex> <archivePathB64> <newPasswordB64> <currentIdentityB64>
+                String reKeyed = handler.rekey(arg(parts, 2), arg(parts, 3), arg(parts, 4),
+                        arg(parts, 5));
+                return reKeyed == null ? err("archive lane unavailable")
+                        : ControlProtocol.OK + " " + reKeyed;
+            }
             return err("unknown verb");
         } catch (RuntimeException e) {
             return err(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());

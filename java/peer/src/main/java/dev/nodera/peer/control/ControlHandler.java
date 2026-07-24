@@ -125,4 +125,22 @@ public interface ControlHandler {
                              int roleOrdinal, long grantVersion) {
         return null;
     }
+
+    /**
+     * Re-key a world's password (issue #37 / L-51): re-encrypt the archive under the new password,
+     * re-sign the {@code WorldIdentity} with the new {@code manifestRef}, re-announce, and return the
+     * re-signed identity's canonical bytes (base64). Returns {@code null} when the archive lane is
+     * unavailable (older worker), or a non-null error string surfaced as {@code NODERA-ERR} — never
+     * silent success. Authorship is enforced by the signature itself.
+     *
+     * @param worldIdHex              the world id (hex).
+     * @param archivePathB64          base64 of the freshly-packed plaintext archive file path.
+     * @param newPasswordB64          base64 of the new plaintext password.
+     * @param currentWorldIdentityB64 base64 of the current signed {@code WorldIdentity} canonical bytes.
+     * @return base64 of the re-signed identity, or {@code null}/error.
+     */
+    default String rekey(String worldIdHex, String archivePathB64, String newPasswordB64,
+                         String currentWorldIdentityB64) {
+        return null;
+    }
 }
