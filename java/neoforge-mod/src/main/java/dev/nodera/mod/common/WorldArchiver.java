@@ -88,23 +88,37 @@ public final class WorldArchiver {
         seed(saveRoot, identity.get().worldId().toHex());
     }
 
+    /**
+     * Pack the save into {@code <saveRoot>/nodera/spool/<worldIdHex-prefix>.nar} (atomic temp+move)
+     * and return its path — the freshly-packed plaintext archive blob a re-key (issue #37) hands to
+     * the worker. MC-free (pure {@link WorldArchive#packSaveDirectory} + file IO).
+     *
+     * @param saveRoot   the save folder.
+     * @param worldIdHex the world id (hex).
+     * @return the spooled archive file path.
+     * @Thread-context server thread (call after a save flush so the blob is current).
+     */
+    public static Path packToSpool(Path saveRoot, String worldIdHex) throws java.io.IOException {
+        byte[] blob = WorldArchive.packSaveDirectory(saveRoot);
+        Path spool = saveRoot.resolve("nodera/spool");
+        Files.createDirectories(spool);
+        Path archiveFile = spool.resolve(worldIdHex.substring(0, Math.min(12, worldIdHex.length()))
+                + ".nar");
+        Path tmp = archiveFile.resolveSibling(archiveFile.getFileName() + ".tmp");
+        Files.write(tmp, blob);
+        Files.move(tmp, archiveFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        return archiveFile;
+    }
+
     private static void seed(Path saveRoot, String worldIdHex) {
         try {
             long startedAt = System.nanoTime();
-            byte[] blob = WorldArchive.packSaveDirectory(saveRoot);
-            Path spool = saveRoot.resolve("nodera/spool");
-            Files.createDirectories(spool);
-            Path archiveFile = spool.resolve(worldIdHex.substring(0, Math.min(12, worldIdHex.length()))
-                    + ".nar");
-            Path tmp = archiveFile.resolveSibling(archiveFile.getFileName() + ".tmp");
-            Files.write(tmp, blob);
-            Files.move(tmp, archiveFile, StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE);
+            Path archiveFile = packToSpool(saveRoot, worldIdHex);
             Optional<String> seeded = CompanionLink.client().seedArchive(worldIdHex, archiveFile);
             long millis = (System.nanoTime() - startedAt) / 1_000_000;
             if (seeded.isPresent()) {
                 LOG.info("Nodera: world archive seeded to the worker ({} bytes in {} ms — {})",
-                        blob.length, millis, seeded.get());
+                        Files.size(archiveFile), millis, seeded.get());
             } else {
                 LOG.warn("Nodera: worker did not accept the world archive (worker offline or "
                         + "predates the continuity lane); the world is listed but not yet durable");
