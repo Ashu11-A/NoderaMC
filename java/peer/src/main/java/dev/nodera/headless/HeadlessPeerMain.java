@@ -67,8 +67,9 @@ public final class HeadlessPeerMain {
         NodeCapabilities caps = NodeCapabilities.initial().withRoles(
                 EnumSet.of(PeerRole.FULL_ARCHIVE, PeerRole.BOOTSTRAP, PeerRole.REGION_VALIDATOR));
 
+        // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
         SocketPeerTransport transport =
-                new SocketPeerTransport(identity.nodeId(), bindHost, p2pPort, advertise);
+                new SocketPeerTransport(identity, bindHost, p2pPort, advertise);
         TrafficMeter meter = new TrafficMeter();
         MeteredPeerTransport metered = new MeteredPeerTransport(transport, meter);
         MessageCounters counters = new MessageCounters();
