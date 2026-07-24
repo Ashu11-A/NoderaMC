@@ -124,7 +124,8 @@ public final class NoderaHost {
         // permission set starts author-only; grants applied to it take effect on the same gate.
         if (identity != null) {
             dev.nodera.storage.WorldPermissions permissions =
-                    new dev.nodera.storage.WorldPermissions(worldId, identity.authorNodeId());
+                    new dev.nodera.storage.WorldPermissions(worldId, identity.authorNodeId(),
+                            identity.authorPublicKey());
             hostedPermissions = permissions;
             NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
             if (host != null) {

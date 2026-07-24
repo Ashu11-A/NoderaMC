@@ -9,9 +9,10 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Task 33: the author/operator-signed permission grant. */
+/** Task 33 / issue #36: the author/operator-signed, key-bound permission grant. */
 final class WorldPermissionGrantTest {
 
     private static Bytes worldId() {
@@ -19,28 +20,49 @@ final class WorldPermissionGrantTest {
     }
 
     @Test
-    void createSignsAndVerifies() {
+    void createSignsAndBindsSubjectKey() {
         NodeIdentity author = NodeIdentity.generate();
         NodeIdentity subject = NodeIdentity.generate();
         WorldPermissionGrant g = WorldPermissionGrant.create(author, worldId(), subject.nodeId(),
-                WorldRole.OPERATOR, 1L);
+                subject.publicKeyBytes(), WorldRole.OPERATOR, 1L);
         assertTrue(g.verifySignature());
+        assertEquals(WorldPermissionGrant.V2, g.version());
         assertEquals(WorldRole.OPERATOR, g.role());
         assertEquals(subject.nodeId(), g.subject());
+        assertEquals(subject.publicKeyBytes(), g.subjectPublicKey());
     }
 
     @Test
-    void canonicalRoundTrip() {
+    void v2CanonicalRoundTrip() {
         NodeIdentity author = NodeIdentity.generate();
         NodeIdentity subject = NodeIdentity.generate();
         WorldPermissionGrant g = WorldPermissionGrant.create(author, worldId(), subject.nodeId(),
-                WorldRole.BANNED, 7L);
+                subject.publicKeyBytes(), WorldRole.BANNED, 7L);
         CanonicalWriter w = new CanonicalWriter();
         g.encode(w);
         WorldPermissionGrant back = WorldPermissionGrant.decode(new CanonicalReader(w.toBytes()));
         assertEquals(g, back);
         assertTrue(back.verifySignature());
-        assertEquals(WorldRole.BANNED, back.role());
+        assertEquals(subject.publicKeyBytes(), back.subjectPublicKey());
+    }
+
+    @Test
+    void v1CanonicalRoundTripKeepsEmptySubjectKeyAndValidSignature() {
+        // A grant minted by an older build (key-less v1) must still decode and verify — the
+        // signedPortion re-encodes in v1 so the legacy signature stays valid.
+        NodeIdentity author = NodeIdentity.generate();
+        NodeIdentity subject = NodeIdentity.generate();
+        WorldPermissionGrant g = WorldPermissionGrant.createLegacyV1(author, worldId(),
+                subject.nodeId(), WorldRole.MEMBER, 1L);
+        assertEquals(WorldPermissionGrant.V1, g.version());
+        assertTrue(g.subjectPublicKey().isEmpty());
+        assertTrue(g.verifySignature());
+        CanonicalWriter w = new CanonicalWriter();
+        g.encode(w);
+        WorldPermissionGrant back = WorldPermissionGrant.decode(new CanonicalReader(w.toBytes()));
+        assertEquals(g, back);
+        assertTrue(back.verifySignature());
+        assertTrue(back.subjectPublicKey().isEmpty());
     }
 
     @Test
@@ -48,10 +70,42 @@ final class WorldPermissionGrantTest {
         NodeIdentity author = NodeIdentity.generate();
         NodeIdentity subject = NodeIdentity.generate();
         WorldPermissionGrant g = WorldPermissionGrant.create(author, worldId(), subject.nodeId(),
-                WorldRole.MEMBER, 1L);
-        WorldPermissionGrant tampered = new WorldPermissionGrant(g.worldId(), g.subject(),
-                WorldRole.OWNER, g.grantVersion(), g.granter(), g.granterPublicKey(), g.signature());
+                subject.publicKeyBytes(), WorldRole.MEMBER, 1L);
+        WorldPermissionGrant tampered = new WorldPermissionGrant(g.version(), g.worldId(), g.subject(),
+                g.subjectPublicKey(), WorldRole.OWNER, g.grantVersion(), g.granter(),
+                g.granterPublicKey(), g.signature());
         assertFalse(tampered.verifySignature());
+    }
+
+    @Test
+    void tamperedSubjectKeyFailsVerification() {
+        // Swapping the bound subject key must break the signature (it is inside signedPortion).
+        NodeIdentity author = NodeIdentity.generate();
+        NodeIdentity subject = NodeIdentity.generate();
+        NodeIdentity attacker = NodeIdentity.generate();
+        WorldPermissionGrant g = WorldPermissionGrant.create(author, worldId(), subject.nodeId(),
+                subject.publicKeyBytes(), WorldRole.OPERATOR, 1L);
+        WorldPermissionGrant tampered = new WorldPermissionGrant(g.version(), g.worldId(), g.subject(),
+                attacker.publicKeyBytes(), g.role(), g.grantVersion(), g.granter(),
+                g.granterPublicKey(), g.signature());
+        assertFalse(tampered.verifySignature());
+    }
+
+    @Test
+    void v1GrantCannotCarrySubjectKey() {
+        NodeIdentity author = NodeIdentity.generate();
+        NodeIdentity subject = NodeIdentity.generate();
+        assertThrows(IllegalArgumentException.class, () -> new WorldPermissionGrant(
+                WorldPermissionGrant.V1, worldId(), subject.nodeId(), subject.publicKeyBytes(),
+                WorldRole.MEMBER, 1L, author.nodeId(), author.publicKeyBytes(), Bytes.empty()));
+    }
+
+    @Test
+    void v2CreateRequiresNonEmptySubjectKey() {
+        NodeIdentity author = NodeIdentity.generate();
+        NodeIdentity subject = NodeIdentity.generate();
+        assertThrows(IllegalArgumentException.class, () -> WorldPermissionGrant.create(
+                author, worldId(), subject.nodeId(), Bytes.empty(), WorldRole.MEMBER, 1L));
     }
 
     @Test
