@@ -179,6 +179,17 @@ public final class RedstoneRules {
         return false;
     }
 
+    /**
+     * Whether {@code cell} is receiving redstone power from any neighbour (a powered wire or an
+     * emitting source pointing into it). The generic power-query consumed by non-redstone-family
+     * blocks that read redstone — e.g. a powered rail gating its boost on redstone (L-9).
+     *
+     * @Thread-context pure read over committed state; safe from any thread.
+     */
+    public static boolean cellReceivingPower(MutableRegionState state, NBlockPos cell) {
+        return cellWouldBePowered(state, cell, null);
+    }
+
     // --- Observers (L-5: watch the front, pulse out the back) -------------------------------
 
     /** @return whether {@code id} is an observer state (any facing, either output state). */

@@ -89,7 +89,9 @@ vanilla, matching what a player sees, never matching a vanilla float trajectory 
   is the L-13 lane.
 - **Minecarts (L-9):** vanilla top speed (`0.4`); a cart follows the rail graph by connectivity
   (no rail-shape states), powered rails boost, plain rails bleed speed. Slopes/ascent gravity
-  and redstone-gated powered rails are not yet modelled.
+  A powered rail boosts only when its cell receives redstone power (a plain
+  `REDSTONE_BLOCK`/lever/wire beside it); unpowered, it coasts like a plain rail. Slopes/ascent
+  gravity are not yet modelled.
 
 Unretired species keep the ghost fallback (Task 12) — the world is never broken mid-program. A
 region reverts to ghosting a species on divergence alarm (the species-retirement rollback, Task
