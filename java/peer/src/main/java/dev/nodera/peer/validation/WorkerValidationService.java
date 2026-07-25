@@ -185,7 +185,11 @@ public final class WorkerValidationService {
     private final EntityTransferCoordinator transferCoordinator;
     private final ActionReservationPersistence actionPersistence;
     private final Consumer<Runnable> worldExecutor;
-    private final long worldSeed;
+    // Not final: a worker boots with a placeholder seed (it has no world yet) and is bound to the
+    // real one when a world meshes it. The seed feeds DeterministicRandom, so a validator running
+    // the wrong seed re-executes to a different root and votes against every batch it is sent —
+    // a committee that can never reach quorum, with no error anywhere to explain it.
+    private volatile long worldSeed;
     private final int rulesVersion;
     private final long registryFingerprint;
     private final long voteTimeoutMillis;
@@ -338,6 +342,34 @@ public final class WorkerValidationService {
     /** @return the region ids with an active replica on this node (diagnostics/ownership HUD). */
     public List<dev.nodera.core.region.RegionId> activeRegionIds() {
         return List.copyOf(replicas.keySet());
+    }
+
+    /**
+     * Bind this worker's validation lane to the world it has been meshed into, so its re-execution
+     * uses the same {@code worldSeed} — and therefore the same {@link
+     * dev.nodera.simulation.DeterministicRandom} stream — as the region primaries it votes with.
+     *
+     * <p>Refused once replicas are live: changing the seed under an active committee would silently
+     * fork this node's execution from the rest of the committee mid-round.
+     *
+     * @param seed the hosted world's seed.
+     * @return {@code true} if the lane was (re)bound, {@code false} if replicas are already active.
+     * @Thread-context any thread.
+     */
+    public boolean bindWorld(long seed) {
+        if (worldSeed == seed) {
+            return true;
+        }
+        if (!replicas.isEmpty()) {
+            return false;
+        }
+        worldSeed = seed;
+        return true;
+    }
+
+    /** @return the world seed this lane re-executes against. */
+    public long worldSeed() {
+        return worldSeed;
     }
 
     /** Register a committee peer's authenticated transport address and Ed25519 public key. */
@@ -655,6 +687,7 @@ public final class WorkerValidationService {
      */
     public void onMessage(PeerAddress from, NoderaMessage message) {
         switch (message) {
+            case dev.nodera.protocol.assignment.RegionAssigned m -> onRegionAssigned(m);
             case ActionBatchMsg m -> onBatch(from, m.batch());
             case dev.nodera.protocol.simulationmsg.ActionForward f -> onActionForward(f);
             case RegionProposal p -> onProposal(from, p);
@@ -1459,6 +1492,46 @@ public final class WorkerValidationService {
             return;
         }
         replica.pendingProposal = proposal;
+    }
+
+    /**
+     * Take a committee seat handed out by the hosting world (the headless half of the no-host
+     * ownership plan). The mod plans regions from player views, tops the leftover validator seats
+     * up with the session's playerless members, and sends each of them a
+     * {@link dev.nodera.protocol.assignment.RegionAssigned} — this is where an always-on peer
+     * stops being a bystander and starts re-executing the world.
+     *
+     * <p>Everything needed is reconstructible: the lease from the message, and the base snapshot
+     * from {@link EntityLaneBootstrap#initialSnapshot} — byte-identical to the primary's, which is
+     * what makes the first {@code prevRoot} comparison in {@link #onProposal} line up without any
+     * state transfer.
+     *
+     * <p>Ignored unless the assignment names this node as a VALIDATOR. A worker is never a
+     * primary: primacy is geometric and a peer with no player view is nowhere. Re-assignment at an
+     * epoch this node already holds is also ignored — the mod re-plans on every membership or
+     * movement change, and replacing a live replica would rewind its head root mid-round and make
+     * every subsequent proposal fail its {@code prevRoot} check.
+     */
+    private void onRegionAssigned(dev.nodera.protocol.assignment.RegionAssigned assigned) {
+        if (assigned.role() != dev.nodera.core.region.RegionReplicaRole.VALIDATOR
+                || assigned.committee().isEmpty()
+                || !assigned.committee().contains(identity.nodeId())) {
+            return;
+        }
+        Replica existing = replicas.get(assigned.region());
+        if (existing != null && existing.lease.epoch().value() >= assigned.epoch().value()) {
+            return; // already seated at this epoch or a newer one
+        }
+        NodeId primary = assigned.committee().get(0);
+        if (primary.equals(identity.nodeId())) {
+            return; // a resident validator must never be handed primacy
+        }
+        List<NodeId> validators = assigned.committee().subList(1, assigned.committee().size());
+        RegionLease lease = new RegionLease(
+                assigned.region(), assigned.epoch(), primary, validators,
+                assigned.leaseExpiryTick() - dev.nodera.core.NoderaConstants.LEASE_LENGTH_TICKS,
+                assigned.leaseExpiryTick());
+        activateRegion(EntityLaneBootstrap.initialSnapshot(assigned.region()), lease);
     }
 
     private boolean isAuthenticatedMember(PeerAddress from, NodeId expected) {

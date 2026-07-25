@@ -9,38 +9,129 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-/// One connected peer this node is exchanging data with.
+/// One connected peer this node is exchanging data with — a row of the Peers tab.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct PeerRow {
     pub node_id: String,
+    /// The peer's dialable route, rendered as `tcp://<host>:<port>` in the UI.
     #[serde(default)]
     pub route: String,
-    /// `direct` | `punched` | `relayed`.
+    /// How the peer is reached: `direct` | `relayed` | `unknown`.
     #[serde(default)]
     pub path: String,
+    /// The peer's self-declared client agent, e.g. `NoderaMC 0.1.0`. Descriptive only.
+    #[serde(default)]
+    pub client: String,
     #[serde(default)]
     pub up_bytes_per_sec: u64,
     #[serde(default)]
     pub down_bytes_per_sec: u64,
+    /// Bytes exchanged with this peer over the life of the connection.
+    #[serde(default)]
+    pub total_up_bytes: u64,
+    #[serde(default)]
+    pub total_down_bytes: u64,
 }
 
-/// One world this node is keeping discoverable on the network.
+/// One world this node is keeping discoverable on the network — a row of the Info tab.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct WorldRow {
     pub world_id: String,
     pub name: String,
     #[serde(default)]
     pub players: u32,
+    /// The host's open Minecraft endpoint while its game is running; empty once it closes.
+    #[serde(default)]
+    pub mc_route: String,
+    /// Epoch millis this world entered the Nodera network from this node ("Date added").
+    #[serde(default)]
+    pub added_at: u64,
+    /// Epoch millis of this world's most recent content change here ("Last updated").
+    #[serde(default)]
+    pub updated_at: u64,
+    /// Total content size in bytes.
+    #[serde(default)]
+    pub total_bytes: u64,
+    /// The manifest root — the content checksum identifying these exact bytes.
+    #[serde(default)]
+    pub checksum: String,
+    /// Manifest version; bumps on every re-seed.
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default)]
+    pub piece_count: u64,
+    #[serde(default)]
+    pub pieces_held: u64,
+    /// Peers believed to hold some of this world.
+    #[serde(default)]
+    pub seeders: u64,
+    /// `true` when this node only keeps the world's bytes alive; `false` when it hosts it.
+    #[serde(default)]
+    pub seeding: bool,
+}
+
+/// A world's piece picture, fetched on demand for the Pieces tab (`NODERA-PIECES`).
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct PieceMap {
+    #[serde(default)]
+    pub world_id: String,
+    #[serde(default)]
+    pub manifest_root: String,
+    #[serde(default)]
+    pub version: u64,
+    #[serde(default)]
+    pub piece_count: u64,
+    #[serde(default)]
+    pub held_count: u64,
+    #[serde(default)]
+    pub total_bytes: u64,
+    /// Base64 of the little-endian piece bitmap: bit *i* set = piece *i* verified present here.
+    #[serde(default)]
+    pub held_bitmap: String,
+    /// Peers believed to hold some of this world.
+    #[serde(default)]
+    pub holders: Vec<String>,
+}
+
+impl PieceMap {
+    /// Expand [`Self::held_bitmap`] into one boolean per piece — what the grid renders.
+    ///
+    /// A bitmap that fails to decode yields all-missing rather than an error: an honest grey grid
+    /// says "we do not know what is here", which is true, whereas failing the whole tab is not.
+    pub fn held_flags(&self) -> Vec<bool> {
+        use base64::Engine as _;
+        let count = self.piece_count as usize;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(self.held_bitmap.as_bytes())
+            .unwrap_or_default();
+        (0..count)
+            .map(|index| {
+                bytes
+                    .get(index / 8)
+                    .is_some_and(|byte| byte & (1u8 << (index % 8)) != 0)
+            })
+            .collect()
+    }
 }
 
 /// A configured discovery service (tracker / rendezvous) plus its last-probed reachability — the
 /// "VPN server list" health rows.
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointHealth {
     pub host: String,
     pub port: u16,
+    /// `tcp` / `udp` — how this endpoint is actually reached, so the UI renders a real URI.
+    #[serde(default)]
+    pub scheme: String,
     #[serde(default)]
     pub reachable: bool,
+    /// Handshake round-trip in milliseconds, or `-1` when unreachable / not yet probed.
+    #[serde(default = "unprobed_latency")]
+    pub latency_ms: i64,
+}
+
+fn unprobed_latency() -> i64 {
+    -1
 }
 
 /// The full dashboard snapshot pushed to the React frontend.
@@ -51,6 +142,9 @@ pub struct Metrics {
     pub node_id: String,
     #[serde(default)]
     pub worker_version: String,
+    /// This node's own client agent, e.g. `NoderaMC 0.1.0`.
+    #[serde(default)]
+    pub client: String,
     /// Seconds the worker has been online this run.
     #[serde(default)]
     pub uptime_seconds: u64,
@@ -75,6 +169,16 @@ pub struct Metrics {
     pub total_sent_bytes: u64,
     #[serde(default)]
     pub total_received_bytes: u64,
+    /// Pieces this node tracks across every world it holds or hosts.
+    #[serde(default)]
+    pub total_chunks: u64,
+    /// Upload ÷ download in permille (1000 = 1.00). Integers, so every surface renders the same
+    /// number — no float-formatting drift between this app and the in-game HUD.
+    #[serde(default)]
+    pub share_ratio_permille: u64,
+    /// Verified-present pieces as a permille of all pieces this node tracks.
+    #[serde(default)]
+    pub availability_permille: u64,
 
     /// Peers currently exchanging data with this node.
     #[serde(default)]
@@ -92,6 +196,51 @@ pub struct Metrics {
     /// Whether the supervised headless peer is currently up.
     #[serde(default)]
     pub daemon_up: bool,
+
+    /// The worker's own view of whether it is moving bytes.
+    ///
+    /// Mirrored from STATE rather than read back from the app's [`crate::power::PauseHandle`] on
+    /// purpose: the handle records what the app *asked for*, and a push that never landed would
+    /// then show a pause that is not happening. Only the worker can say it is paused. Without this
+    /// field on screen the whole feature is indistinguishable from a stalled node.
+    #[serde(default)]
+    pub transfers_paused: bool,
+}
+
+/// A piece map with its bitmap already expanded, as handed to the frontend.
+///
+/// The grid wants one boolean per cell; doing the expansion here keeps base64 and bit arithmetic
+/// out of the UI, and means the frontend cannot disagree with the backend about which bit is which
+/// piece.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct PieceMapView {
+    pub world_id: String,
+    pub manifest_root: String,
+    pub version: u64,
+    pub piece_count: u64,
+    pub held_count: u64,
+    pub total_bytes: u64,
+    /// One entry per piece: `true` = verified present locally (the green cell).
+    pub held: Vec<bool>,
+    /// Peers believed to hold some of this world.
+    pub holders: Vec<String>,
+}
+
+impl PieceMapView {
+    /// Expand a worker report into the render-ready form.
+    pub fn of(map: PieceMap) -> Self {
+        let held = map.held_flags();
+        Self {
+            world_id: map.world_id,
+            manifest_root: map.manifest_root,
+            version: map.version,
+            piece_count: map.piece_count,
+            held_count: map.held_count,
+            total_bytes: map.total_bytes,
+            held,
+            holders: map.holders,
+        }
+    }
 }
 
 /// Thread-safe holder the supervisor updates and the UI/control read.
@@ -118,5 +267,90 @@ impl MetricsHandle {
     /// Flip just the daemon-up flag (supervisor lifecycle transitions).
     pub fn set_daemon_up(&self, up: bool) {
         self.inner.lock().unwrap().daemon_up = up;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine as _;
+
+    fn bitmap(bits: &[usize], byte_len: usize) -> String {
+        let mut bytes = vec![0u8; byte_len];
+        for &bit in bits {
+            bytes[bit / 8] |= 1u8 << (bit % 8);
+        }
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// The bit order must match Java's `BitSet.toByteArray()` (little-endian within each byte), or
+    /// the grid would show the right *number* of green cells in the wrong *places* — a bug that
+    /// looks plausible on screen and is therefore worth pinning.
+    #[test]
+    fn held_flags_match_the_java_bitset_byte_order() {
+        let map = PieceMap {
+            piece_count: 10,
+            held_bitmap: bitmap(&[0, 3, 9], 2),
+            ..PieceMap::default()
+        };
+        let held = map.held_flags();
+        assert_eq!(held.len(), 10);
+        for (index, present) in held.iter().enumerate() {
+            let expected = matches!(index, 0 | 3 | 9);
+            assert_eq!(*present, expected, "piece {index}");
+        }
+    }
+
+    #[test]
+    fn held_flags_are_bounded_by_piece_count_not_by_the_bitmap() {
+        // A bitmap with trailing capacity must not invent pieces beyond the manifest.
+        let map = PieceMap {
+            piece_count: 3,
+            held_bitmap: bitmap(&[0, 1, 2, 7], 1),
+            ..PieceMap::default()
+        };
+        assert_eq!(map.held_flags(), vec![true, true, true]);
+    }
+
+    #[test]
+    fn a_short_bitmap_reads_as_missing_rather_than_panicking() {
+        // Fewer bytes than pieces: the tail is simply not held yet.
+        let map = PieceMap {
+            piece_count: 20,
+            held_bitmap: bitmap(&[1], 1),
+            ..PieceMap::default()
+        };
+        let held = map.held_flags();
+        assert_eq!(held.len(), 20);
+        assert!(held[1]);
+        assert!(!held[19]);
+    }
+
+    #[test]
+    fn an_undecodable_bitmap_is_all_missing_not_an_error() {
+        let map = PieceMap {
+            piece_count: 4,
+            held_bitmap: "!!! not base64 !!!".to_owned(),
+            ..PieceMap::default()
+        };
+        assert_eq!(map.held_flags(), vec![false, false, false, false]);
+    }
+
+    #[test]
+    fn an_empty_map_expands_to_no_cells() {
+        assert!(PieceMap::default().held_flags().is_empty());
+        assert!(PieceMapView::of(PieceMap::default()).held.is_empty());
+    }
+
+    /// Unknown fields must not break the parse: the worker adds fields additively and an older app
+    /// has to keep working against a newer worker.
+    #[test]
+    fn unknown_state_fields_are_ignored() {
+        let json = r#"{"node_id":"n","peers":[],"future_field":42,
+                       "connected_worlds":[{"world_id":"w","name":"W","brand_new":true}]}"#;
+        let metrics: Metrics = serde_json::from_str(json).expect("additive fields must parse");
+        assert_eq!(metrics.node_id, "n");
+        assert_eq!(metrics.connected_worlds.len(), 1);
+        assert_eq!(metrics.connected_worlds[0].name, "W");
     }
 }

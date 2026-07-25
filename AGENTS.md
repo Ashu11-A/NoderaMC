@@ -23,6 +23,7 @@
 - `scripts/dev.sh --build-only` — compile both toolchains + collect artifacts (2 binaries + the jar) into `build/`; the CI `release-latest` workflow runs this on every push and attaches them to a rolling `latest` prerelease
 - `scripts/dev.sh --test` — build both toolchains + run the full gate (no server to start; Task 30 retired it)
 - `scripts/dev.sh` — build everything, then run the two infrastructure services (tracker + rendezvous) from `build/`, health-checked; worlds are hosted by a player's client (pause-menu "Share"), not a dedicated server. `--install-mod` drops the jar into `~/.minecraft/mods` for a real-client test
+- `scripts/dev.sh --play` — the hands-on two-player stack (2 Minecraft clients · 1 tracker · 1 rendezvous · 3 peer workers), through the same `scripts/lib/e2e-main.sh` launcher the scripted suites use, so manual play matches what CI measures. `--with-app` adds one Tauri companion window **per player**, each attached in `NODERA_APP_ATTACH` mode to that player's own worker. Absorbed the former `scripts/play-two.sh`, which no longer exists
 
 A red cargo job blocks a commit exactly like a red `./gradlew check`: the Rust services speak the
 same frozen wire contract, so a codec regression is a consensus regression.

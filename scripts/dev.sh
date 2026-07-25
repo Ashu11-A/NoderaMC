@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# nodera dev — build the stack + run the decentralized infrastructure.
+# nodera dev — build the stack, run the decentralized infrastructure, and (with
+# --play) bring up a full hands-on two-player session.
 #
 # Task 30 retired the central NeoForge dedicated server: a world now lives on
 # the player who hosts it (press "Share" in the pause menu) and on the peers who
@@ -16,32 +17,74 @@
 #      --with-app it also builds + launches the Tauri companion app alongside
 #      the worker. Ctrl-C stops everything.
 #
-# To play/test: drop build/neoforge-mod.jar into a NeoForge 1.21.1 client's
-# mods/ folder (or use --install-mod), keep this script running (so the worker
-# is up), launch the client, open a world, and use the pause-menu "Share to
-# Nodera" button.
+# ---------------------------------------------------------------------------
+# TWO MODES
+# ---------------------------------------------------------------------------
+#
+# INFRA (default) — one tracker, one rendezvous, one worker, optionally one
+# companion app. You supply the Minecraft client (use --install-mod to drop the
+# jar into ~/.minecraft). This is also what CI runs, via --build-only.
+#
+# PLAY (--play) — the whole two-player stack on one machine, absorbed from the
+# former scripts/play-two.sh:
+#
+#   Player 1 window ("HostDev"):   create/open a world, pause menu → "Open to
+#                                  Nodera" — the world goes on the network.
+#   Player 2 window ("JoinerDev"): title → "Nodera Network" → Worlds tab →
+#                                  the shared world appears (tracker) → Join.
+#
+#   With --with-app each player ALSO gets its own Tauri companion window,
+#   attached to that player's own worker — so you watch two independent nodes
+#   trade pieces in real time, which is the whole point of a P2P dashboard and
+#   is not observable with a single app.
+#
+# PLAY mode is NOT a test: no assertions, nothing exits on its own. It stages
+# the same topology the scripted suites use, through the same launcher
+# (scripts/lib/e2e-main.sh), so what you see by hand is what CI measures:
+#
+#   2 players · 1 tracker · 1 rendezvous · 3 headless peers (+ 0–2 companion apps)
+#
+# Each player has its OWN companion worker (control 25610 / 25611) so hosting,
+# archive seeding, and continuity behave exactly as in production. The third
+# peer is a SPARE standalone worker (25612) with no client attached: it holds
+# the swarm at the quorum floor, and it keeps seeding the world archive after
+# you close Player 1's window — which is exactly the state to be in when you
+# watch Player 2 recover the world. Unlike the scripted suites, PLAY's workers
+# bind 0.0.0.0 and advertise their real address, so a peer on your LAN can reach
+# this stack.
 #
 # Usage:
 #   scripts/dev.sh [options]
 #
 # Options:
+#   --play          Two Minecraft clients + the full peer topology (see above).
+#                   Implies the live-suite launcher; combine with --with-app for
+#                   one companion window per player.
 #   --build-only    Compile everything, collect artifacts into build/, then exit.
 #                   No services run. This is what CI runs.
 #   --test          Run the full gate (gradlew build + cargo test) instead of a fast build.
 #   --no-build      Skip the build phase; use whatever is already collected in build/.
 #   --install-mod   After building, copy build/neoforge-mod.jar into the client mods/ dir
 #                   (NODERA_MC_DIR, default ~/.minecraft), then continue.
-#   --with-app      Also build + launch the Tauri companion app (rust/nodera-app) in attach
-#                   mode alongside the worker. Uses plain cargo build (no .deb / no bundle);
-#                   skipped if cargo is absent.
-#   --no-worker     Do not run the peer worker (infra services only). The mod will refuse to
-#                   launch unless a worker is running elsewhere.
+#   --with-app      Build + launch the Tauri companion app (rust/nodera-app) in attach mode.
+#                   INFRA mode: one app beside the single worker.
+#                   PLAY mode:  one app PER PLAYER, each attached to that player's worker.
+#                   Uses plain cargo build (no .deb / no bundle); skipped if cargo is absent.
+#   --apps <n>      PLAY mode only: launch exactly n companion apps (0 disables, capped at the
+#                   player count). Overrides --with-app's one-per-player default.
+#   --spare-peers <n>  PLAY mode only: standalone workers with no client (default 1). 0 drops the
+#                   swarm below the quorum floor, which is a useful thing to watch degrade.
+#   --no-worker     INFRA mode only: do not run the peer worker (infra services only). The mod
+#                   will refuse to launch unless a worker is running elsewhere.
 #   -h, --help      Show this help.
 #
 # Common env overrides (all optional):
 #   NODERA_TRACKER_PORT=25600   NODERA_RENDEZVOUS_PORT=25601
 #   NODERA_CONTROL_PORT=25610   NODERA_WORKER_P2P_PORT=25620
 #   NODERA_MC_DIR=~/.minecraft  NODERA_BUILD_DIR=./build  NODERA_LOG_DIR=./run/logs
+#
+# Logs: INFRA → run/logs/*.log.  PLAY → run/logs/play/*.log, plus each client's
+# own game dir under java/neoforge-mod/run (player 1) and run-join (player 2).
 # ===========================================================================
 set -euo pipefail
 
@@ -80,7 +123,7 @@ log()  { printf '\033[1;36m[nodera]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[nodera]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[nodera] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,86p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- args ----------------------------------------------------------------
 DO_BUILD=1
@@ -89,18 +132,33 @@ RUN_TESTS=0
 INSTALL_MOD=0
 WITH_APP=0
 RUN_WORKER=1
-for arg in "$@"; do
-    case "$arg" in
-        --build-only)  BUILD_ONLY=1 ;;
-        --test)        RUN_TESTS=1 ;;
-        --no-build)    DO_BUILD=0 ;;
-        --install-mod) INSTALL_MOD=1 ;;
-        --with-app)    WITH_APP=1 ;;
-        --no-worker)   RUN_WORKER=0 ;;
+PLAY=0
+# -1 = "not given": --with-app then means one app per player in PLAY mode.
+APP_COUNT=-1
+SPARE_PEERS=1
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --play)        PLAY=1; shift ;;
+        --build-only)  BUILD_ONLY=1; shift ;;
+        --test)        RUN_TESTS=1; shift ;;
+        --no-build)    DO_BUILD=0; shift ;;
+        --install-mod) INSTALL_MOD=1; shift ;;
+        --with-app)    WITH_APP=1; shift ;;
+        --apps)        [[ $# -ge 2 ]] || die "--apps needs a count"
+                       APP_COUNT="$2"; WITH_APP=1; shift 2 ;;
+        --spare-peers) [[ $# -ge 2 ]] || die "--spare-peers needs a count"
+                       SPARE_PEERS="$2"; shift 2 ;;
+        --no-worker)   RUN_WORKER=0; shift ;;
         -h|--help)     usage; exit 0 ;;
-        *)             die "unknown option: $arg (see --help)" ;;
+        *)             die "unknown option: $1 (see --help)" ;;
     esac
 done
+
+[[ "$APP_COUNT" =~ ^-?[0-9]+$ ]] || die "--apps takes a number, got '$APP_COUNT'"
+[[ "$SPARE_PEERS" =~ ^[0-9]+$ ]] || die "--spare-peers takes a non-negative number, got '$SPARE_PEERS'"
+if [[ "$PLAY" -eq 1 && "$BUILD_ONLY" -eq 1 ]]; then
+    die "--play and --build-only are mutually exclusive (--build-only never starts anything)"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Build — Rust workspace + the mod jar — then collect BOTH into build/.
@@ -277,17 +335,29 @@ start_worker() {
     return 1
 }
 
-# Launch the Tauri companion app in ATTACH mode (connects to already-running worker).
-# Uses pre-built release binary — no bundling/install needed.
-start_app() {
+# Launch ONE Tauri companion app in ATTACH mode against an already-running worker.
+#   start_app <control-port> <window-title> <app-log> <worker-log> [multi]
+#
+# Attach mode is what makes several apps safe: none of them spawns a worker, so they cannot fight
+# over a control port — each simply watches the one it was pointed at. `multi` additionally lifts
+# the app's single-instance guard (see multi_instance() in main.rs), which otherwise makes a second
+# launch focus the first window and exit — the exact behaviour a two-player stack must not have.
+# The window title and the worker log are per-instance so two windows are tellable apart and each
+# tails its own node's output rather than all of them sharing one.
+start_app() { # control-port title app-log worker-log [multi]
+    local port="$1" title="$2" app_log="$3" worker_log="$4" multi="${5:-0}"
     local bin="$APP_DIR/target/release/nodera-app"
     if [[ ! -x "$bin" ]]; then
         warn "companion app binary not found ($bin) — build with --with-app. Skipping app launch."
         return 1
     fi
-    log "Starting Tauri companion app (attach mode) → $bin"
-    NODERA_APP_ATTACH="1" NODERA_CONTROL_PORT="$CONTROL_PORT" \
-        "$bin" >"$LOG_DIR/nodera-app.log" 2>&1 &
+    log "Starting Tauri companion app '$title' (attach → 127.0.0.1:$port) → $app_log"
+    NODERA_APP_ATTACH="1" \
+    NODERA_APP_MULTI="$multi" \
+    NODERA_APP_TITLE="$title" \
+    NODERA_CONTROL_PORT="$port" \
+    NODERA_WORKER_LOG="$worker_log" \
+        "$bin" >"$app_log" 2>&1 &
     SERVICE_PIDS+=("$!")
 }
 
@@ -303,7 +373,10 @@ start_stack() {
         start_worker || true
     fi
     if [[ "$WITH_APP" -eq 1 ]]; then
-        start_app || true
+        # Infra mode is one node, so one app, and the single-instance guard stays ON — a second
+        # copy launched by hand should still focus this window rather than start a rival.
+        start_app "$CONTROL_PORT" "Nodera" \
+            "$LOG_DIR/nodera-app.log" "$LOG_DIR/nodera-worker.log" 0 || true
     fi
 
     log "Nodera stack running. Ctrl-C to stop."
@@ -317,8 +390,189 @@ start_stack() {
 }
 
 # ---------------------------------------------------------------------------
+# 3. PLAY mode — two Minecraft clients, the full peer topology, N companion apps.
+# ---------------------------------------------------------------------------
+
+# Game dirs, taken from the run tasks in nodera.neoforge-mod.gradle.kts. NOTE:
+# `runClient` registers no gameDirectory, so player 1 lands in the MDG default
+# `run/` — NOT `run-host/`, which belongs to the scripted `runClientHost`. This
+# used to seed player 1's config into run-host, where the client never looked:
+# its worlds kept host.onlineAuth=true and rejected the offline joiner at the
+# vanilla LOGIN phase with a bare "Disconnected".
+PLAY_P1_GAME_DIR=run          # runClient    → HostDev
+PLAY_P2_GAME_DIR=run-join     # runClientTwo → JoinerDev
+
+# Distinct in-process P2P ports for the two dev CLIENTS (the mod's own peer, not the workers).
+# Both otherwise share the mod's fixed default p2p.port (25566) and collide when both host/rehost.
+PLAY_HOST_MOD_P2P=25566
+PLAY_JOINER_MOD_P2P=25567
+
+# The whole of PLAY mode runs inside ONE subshell. That is deliberate: the live-suite launcher
+# (scripts/lib/e2e-main.sh) defines its own log(), cleanup(), NODERA_ROOT, LOG_DIR, TRACKER_PORT,
+# start_worker() … every one of which collides with a name this script already uses for the INFRA
+# path that CI depends on. Sourcing it in a subshell means those definitions win *inside* PLAY,
+# where they are the right ones, and cannot reach --build-only, which must keep behaving exactly
+# as it did.
+run_play() {
+    (
+        # The launcher's suites deliberately do not use `-e`: they check and report rather than
+        # dying at the first non-zero, and several helpers return non-zero as information.
+        set +e
+
+        # Pinned BEFORE the source — the launcher's loaders honour anything already set. A hands-on
+        # stack wants to be reachable, and it wants the two dev clients' own peer ports preflighted
+        # alongside the services'.
+        export NODERA_P2P_BIND_ADDR=0.0.0.0
+        export NODERA_P2P_ADVERTISE_ADDR=auto
+        export NODERA_EXTRA_PORTS="$PLAY_HOST_MOD_P2P $PLAY_JOINER_MOD_P2P"
+        export NODERA_SPARE_PEERS="$SPARE_PEERS"
+
+        local app_dir="$APP_DIR"        # captured before e2e-main.sh reassigns anything
+        local want_apps="$WITH_APP" app_count="$APP_COUNT" no_build="$((1 - DO_BUILD))"
+
+        # A subshell isolates the launcher's FUNCTIONS from this script, but not its VARIABLES:
+        # every loader in e2e-main.sh reads `${X:-default}`, so any same-named value inherited from
+        # here silently wins. Two of these names mean different things on the two sides —
+        # WORKER_DIST is a *directory* here and the worker *binary* there, which failed as
+        # "setsid: Permission denied" on a directory — so they are cleared and the launcher's own
+        # definitions apply. Ports are deliberately NOT cleared: TRACKER_PORT/RENDEZVOUS_PORT mean
+        # the same thing in both, so an operator's NODERA_TRACKER_PORT override should carry into
+        # PLAY, and the launcher writes the client configs from those same values.
+        unset WORKER_DIST RUST_RELEASE LOG_DIR RESULTS_DIR
+
+        source "$NODERA_ROOT/scripts/lib/e2e-main.sh"
+        LOG_DIR="$NODERA_ROOT/run/logs/play"
+        RESULTS_DIR="$LOG_DIR"
+        nodera_suite play play
+        NO_BUILD="$no_build"
+        nodera_load
+
+        # Stale NeoForge client JVMs from a prior crashed run can hold a mod p2p port into the next
+        # launch (the launcher's process-group kill only reaches a clean Ctrl-C tree). Match the dev
+        # launch target so an orphaned runClient/runClientTwo does not doom the next bind. runClient
+        # has no per-run argfile token, so the shared cleanup's RunProgramArgs match misses it.
+        # Companion apps are ours to reap too — they are attach-mode, so nothing else will.
+        play_cleanup() {
+            cleanup
+            pkill -f 'forgeclientdev' 2>/dev/null
+            local pid
+            for pid in "${PLAY_APP_PIDS[@]:-}"; do
+                [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+            done
+        }
+        PLAY_APP_PIDS=()
+        trap play_cleanup EXIT INT TERM
+
+        # One call: lock, build, port preflight, tracker, rendezvous, all peers, probe.
+        nodera_stack_up
+
+        # Each client's config points at ITS OWN worker; the spare peer has no client.
+        write_client_config "$PLAY_P1_GAME_DIR" "$PEER1_CONTROL"
+        write_client_config "$PLAY_P2_GAME_DIR" "$PEER2_CONTROL"
+
+        play_write_server_defaultconfigs "$PLAY_P1_GAME_DIR" "$PLAY_HOST_MOD_P2P"
+        play_write_server_defaultconfigs "$PLAY_P2_GAME_DIR" "$PLAY_JOINER_MOD_P2P"
+
+        # --- companion apps, one per player unless --apps says otherwise -------------------
+        # Default when --with-app is given without --apps: one per player. That is the shape the
+        # dashboard is actually for — a single app cannot show you two nodes trading pieces.
+        local apps=0
+        if [[ "$want_apps" -eq 1 ]]; then
+            if [[ "$app_count" -ge 0 ]]; then
+                apps="$app_count"
+            else
+                apps="$NODERA_PLAYERS"
+            fi
+            (( apps > NODERA_PLAYERS )) && apps="$NODERA_PLAYERS"
+        fi
+
+        local i name control title
+        for (( i = 0; i < apps; i++ )); do
+            name="${NODERA_WORKER_NAMES[$i]}"
+            control="${NODERA_WORKER_CONTROLS[$i]}"
+            title="Nodera — player $(( i + 1 )) ($name, control $control)"
+            play_start_app "$app_dir" "$control" "$title" \
+                "$LOG_DIR/app-player$(( i + 1 )).log" "$LOG_DIR/worker-$name.log"
+        done
+
+        log "launching Player 1 (HostDev) — create/open a world, then 'Open to Nodera'"
+        start_client runClient "$LOG_DIR/client-one.log"
+
+        log "launching Player 2 (JoinerDev) — title → Nodera Network → join the world"
+        start_client runClientTwo "$LOG_DIR/client-two.log"
+
+        log "stack up — $NODERA_PLAYERS players, $NODERA_TRACKERS tracker, $NODERA_RENDEZVOUS rendezvous, $NODERA_WORKERS peers ($NODERA_SPARE_PEERS spare), $apps companion app(s)"
+        log "logs in $LOG_DIR; Ctrl-C stops everything"
+        wait
+    )
+}
+
+# NeoForge copies defaultconfigs/<file> into each NEW world's serverconfig/ on creation, so seeding
+# it here makes each dev client's freshly-created world inherit dev-only server knobs without the
+# script having to patch a world that does not exist yet. Two knobs:
+#   host.onlineAuth=false — defaults true (correct for a real production host) but the dev/e2e lane
+#     joins with OFFLINE accounts (HostDev/JoinerDev) that cannot pass Mojang session auth; a host
+#     left in online-mode rejects every joiner at the vanilla LOGIN phase with a bare "Disconnected".
+#     Same knob the scripted e2e runs set per-world (nodera_staged_world / stage_dedicated_server).
+#   p2p.port = DISTINCT per client — the mod's in-process peer defaults to a FIXED 25566
+#     (NoderaConfig P2P_PORT) for every install, so two dev clients that both host/rehost the SAME
+#     world (e.g. a simultaneous world-continuity rehost) race to bind 0.0.0.0:25566 and the loser's
+#     SocketPeerTransport bind throws an uncaught TransportException that crashes the integrated
+#     server ("Exception in server tick loop"). The headless workers already avoid this with distinct
+#     ports (25620/25621/25622); this mirrors that for the mod's own peer. (gamePort already defaults
+#     0 = free-port; p2p.port does not — this per-client override is the dev-harness half of the fix.
+#     The production half — making the bind non-fatal + elastic — is tracked in the remediation plan.)
+play_write_server_defaultconfigs() { # game_dir p2p_port
+    mkdir -p "$MOD_DIR/$1/defaultconfigs"
+    cat > "$MOD_DIR/$1/defaultconfigs/nodera-server.toml" <<EOF
+[host]
+	onlineAuth = false
+[p2p]
+	port = $2
+EOF
+}
+
+# One companion app for one player's worker. Separate from the INFRA-mode start_app() because PLAY
+# runs after e2e-main.sh has redefined the surrounding namespace — and because these are the
+# instances that must bypass the single-instance guard (NODERA_APP_MULTI=1).
+play_start_app() { # app-dir control-port title app-log worker-log
+    local app_dir="$1" port="$2" title="$3" app_log="$4" worker_log="$5"
+    local bin="$app_dir/target/release/nodera-app"
+    if [[ ! -x "$bin" ]]; then
+        log "WARNING: companion app binary not found ($bin) — build it with --with-app (without --no-build). Skipping."
+        return 1
+    fi
+    log "companion app → 127.0.0.1:$port  ($title)"
+    NODERA_APP_ATTACH="1" \
+    NODERA_APP_MULTI="1" \
+    NODERA_APP_TITLE="$title" \
+    NODERA_CONTROL_PORT="$port" \
+    NODERA_WORKER_LOG="$worker_log" \
+        setsid "$bin" >"$app_log" 2>&1 &
+    PLAY_APP_PIDS+=("$!")
+    PIDS+=("$!")
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+
+# PLAY mode builds through the live-suite launcher (nodera_stack_up → build_stack), which produces
+# exactly what the scripted suites run against — running this script's collect-into-build/ pass as
+# well would compile the same three things twice. The companion app is the exception: the launcher
+# knows nothing about it, so build it here.
+if [[ "$PLAY" -eq 1 ]]; then
+    if [[ "$DO_BUILD" -eq 1 && "$WITH_APP" -eq 1 ]]; then
+        build_app
+    fi
+    if [[ "$INSTALL_MOD" -eq 1 ]]; then
+        warn "--install-mod is ignored in --play mode: both players run from the Gradle dev clients,"
+        warn "not from $MC_DIR."
+    fi
+    run_play
+    exit $?
+fi
+
 if [[ "$DO_BUILD" -eq 1 ]]; then
     build_rust
     build_mod

@@ -71,7 +71,10 @@ public final class PeerRuntime implements DiagnosticsSource {
     private final boolean bootstrapCapable;
     private final PeerTransport transport;
     private final Supplier<String> selfRouteSupplier;
-    private final PeerAddress bootstrapAddress; // null iff this runtime is the bootstrap
+    // Not final: a bootstrap-capable runtime (a headless worker) starts as its own session of one
+    // and may later be told to dial into a world's live session via joinSession(). Volatile because
+    // joinSession() may be called from any thread while the state thread reads it in the heartbeat.
+    private volatile PeerAddress bootstrapAddress; // null iff this runtime has no session to dial
     private final PeerRuntimeConfig config;
     private final PeerEventListener listener;
     private final MessageCounters messageCounters; // nullable; if null, per-type counting is off
@@ -240,11 +243,73 @@ public final class PeerRuntime implements DiagnosticsSource {
         } else {
             // Player: announce myself to the bootstrap; the reply seeds my view.
             publishView();
-            sendTo(bootstrapAddress, new PeerJoin(selfId, selfRoute, capabilities, false));
+            sendTo(bootstrapAddress, selfJoin());
         }
     }
 
     // ---- public API ----------------------------------------------------------------------
+
+    /**
+     * Dial into an already-running session through {@code remote}, after this runtime has started.
+     *
+     * <p>This is what turns an always-on headless peer from a bystander into a <b>member</b>. A
+     * worker boots as its own bootstrap (a session of one) because it has no world to join yet;
+     * when a world starts hosting, the mod hands the worker the server's P2P route and the worker
+     * calls this. It announces itself with {@link #selfJoin()}; the reply is an ordinary
+     * {@code MembershipUpdate}, so the existing ingest path seeds the member set and adopts the
+     * remote gateway ({@code u.epoch() >= epoch} holds — both sides start at epoch 0 and the
+     * incoming view wins ties, so the worker yields its self-elected gateway claim).
+     *
+     * <p>Idempotent and re-targetable: calling it again with the same address re-announces (the
+     * heartbeat already re-announces while the view has not seeded, so a dropped first packet is
+     * recovered); calling it with a different address re-points the runtime at a new session.
+     * {@code null} detaches, leaving the runtime a session of one again.
+     *
+     * <p>The runtime stays {@code bootstrapCapable}: a worker that outlives the hosting game is
+     * exactly who <i>should</i> win the next gateway election and keep the world's session alive.
+     *
+     * @param remote the session peer to announce to (typically the hosting game's server node).
+     * @Thread-context any thread.
+     */
+    public void joinSession(PeerAddress remote) {
+        this.bootstrapAddress = remote;
+        if (remote == null || stopped.get()) {
+            return;
+        }
+        stateExec.execute(() -> sendTo(remote, selfJoin()));
+    }
+
+    /**
+     * Announce this node to one discovered peer <b>without</b> re-pointing the session.
+     *
+     * <p>{@link #joinSession} answers "which peer is my way into the session"; this answers "here
+     * is another member I found — introduce myself". It is what {@code PeerDiscoveryService} calls
+     * for every peer a tracker or rendezvous service reports, so membership is no longer limited to
+     * whatever the single bootstrap route happened to gossip. The reply is an ordinary
+     * {@code MembershipUpdate} and lands on the existing ingest path, so a peer learned this way is
+     * indistinguishable from one learned through the bootstrap.
+     *
+     * <p>Announcing to a peer already in the view is harmless (the ingest is idempotent); announcing
+     * to self is ignored. Failures are swallowed — an unreachable discovered peer is the normal
+     * case, not an error.
+     *
+     * @param remote the peer to introduce this node to; {@code null} is ignored.
+     * @Thread-context any thread.
+     */
+    public void announceTo(PeerAddress remote) {
+        if (remote == null || stopped.get() || selfId.equals(remote.nodeId())) {
+            return;
+        }
+        if (remote.route() != null && remote.route().equals(selfRoute)) {
+            return; // our own advertised route; dialing it would mesh us with ourselves
+        }
+        stateExec.execute(() -> sendTo(remote, selfJoin()));
+    }
+
+    /** @return the session peer this runtime dials, or {@code null} if it is a session of one. */
+    public PeerAddress sessionAddress() {
+        return bootstrapAddress;
+    }
 
     /** @return this runtime's node id. */
     public NodeId nodeId() {
@@ -444,7 +509,11 @@ public final class PeerRuntime implements DiagnosticsSource {
             // learns nothing about the mesh from this node.
             return;
         }
-        PeerEntry entry = new PeerEntry(j.joiner(), j.listenRoute(), j.capabilities(), j.bootstrap());
+        // Carry the joiner's key into the membership entry: it is what every other member will
+        // later verify this peer's committee work against. Dropping it here would admit the peer
+        // to the session but leave it permanently ineligible for a seat.
+        PeerEntry entry = new PeerEntry(j.joiner(), j.listenRoute(), j.capabilities(), j.bootstrap(),
+                j.publicKey(), j.clientVersion());
         boolean isNew = !members.containsKey(j.joiner());
         members.put(j.joiner(), entry);
         markSeen(j.joiner());
@@ -540,7 +609,7 @@ public final class PeerRuntime implements DiagnosticsSource {
             // The startup PeerJoin is a single message over a possibly-not-yet-listening socket
             // (sendTo swallows transport failures by design). If it was lost, this runtime would
             // never mesh — so re-announce every heartbeat until the membership view seeds.
-            sendTo(bootstrapAddress, new PeerJoin(selfId, selfRoute, capabilities, false));
+            sendTo(bootstrapAddress, selfJoin());
         }
         if (isGateway() && members.size() > 1) {
             // Anti-entropy: the join-time gossip is one message per event; a lost one leaves a
@@ -637,7 +706,14 @@ public final class PeerRuntime implements DiagnosticsSource {
     }
 
     private PeerEntry selfEntry() {
-        return new PeerEntry(selfId, selfRoute, capabilities, bootstrapCapable);
+        return new PeerEntry(selfId, selfRoute, capabilities, bootstrapCapable,
+                identity.publicKeyBytes(), dev.nodera.core.NoderaConstants.CLIENT_AGENT);
+    }
+
+    /** The join announce this runtime sends to a session it is dialing into. */
+    private PeerJoin selfJoin() {
+        return new PeerJoin(selfId, selfRoute, capabilities, bootstrapCapable,
+                identity.publicKeyBytes(), dev.nodera.core.NoderaConstants.CLIENT_AGENT);
     }
 
     private MembershipUpdate snapshotUpdate() {

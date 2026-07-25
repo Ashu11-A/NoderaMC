@@ -9,11 +9,13 @@ import dev.nodera.core.identity.PeerRole;
 import dev.nodera.diagnostics.metric.TrafficMeter;
 import dev.nodera.peer.PeerRuntime;
 import dev.nodera.peer.control.ControlHandler;
+import dev.nodera.peer.metric.PeerTrafficMeter;
 import dev.nodera.storage.WorldIdentity;
 
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Task 32/33: the worker's {@link ControlHandler} — answers the mod's / companion app's control verbs
@@ -38,6 +40,9 @@ public final class WorkerControlHandler implements ControlHandler {
     private final WorldHostingService hosting;
     private final dev.nodera.peer.validation.WorkerValidationService validation;
     private final WorldArchiveService archive;
+    private final PeerTrafficMeter peerMeter; // nullable — per-peer rows fall back to zeros
+    private final dev.nodera.peer.discovery.PeerDiscoveryService discovery; // nullable
+    private final ConfigSeams config; // nullable — no config plane wired
     private final long startedAtMillis;
 
     /** Compatibility constructor without a validation lane (tests, minimal embeddings). */
@@ -53,10 +58,47 @@ public final class WorkerControlHandler implements ControlHandler {
         this(version, identity, capabilities, runtime, meter, hosting, validation, null);
     }
 
+    /** Compatibility constructor without per-peer metering (peer rows report zero throughput). */
     public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
                                 PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
                                 dev.nodera.peer.validation.WorkerValidationService validation,
                                 WorldArchiveService archive) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, archive, null);
+    }
+
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive, PeerTrafficMeter peerMeter) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, archive,
+                peerMeter, null);
+    }
+
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive, PeerTrafficMeter peerMeter,
+                                dev.nodera.peer.discovery.PeerDiscoveryService discovery) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, archive,
+                peerMeter, discovery, null);
+    }
+
+    /**
+     * Full constructor, including the runtime-configuration seams behind
+     * {@link dev.nodera.peer.control.ControlProtocol#CONFIG}.
+     *
+     * @param config the live objects a configuration push may re-bound, or {@code null} when this
+     *               embedding has no configuration plane — the verb then declines with
+     *               {@code NODERA-ERR unsupported} rather than reporting a success it did not
+     *               perform.
+     */
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive, PeerTrafficMeter peerMeter,
+                                dev.nodera.peer.discovery.PeerDiscoveryService discovery,
+                                ConfigSeams config) {
+        this.config = config;
         this.version = version;
         this.identity = identity;
         this.capabilities = capabilities;
@@ -65,6 +107,8 @@ public final class WorkerControlHandler implements ControlHandler {
         this.hosting = hosting;
         this.validation = validation;
         this.archive = archive;
+        this.peerMeter = peerMeter;
+        this.discovery = discovery;
         this.startedAtMillis = System.currentTimeMillis();
     }
 
@@ -83,25 +127,62 @@ public final class WorkerControlHandler implements ControlHandler {
     public String stateJson() {
         NodeId self = runtime.nodeId();
 
-        // Peers currently in the mesh (excluding self).
+        // Peers currently in the mesh (excluding self), with real routes, real client agents, and
+        // real per-peer throughput. The membership view supplies identity/route/agent; the
+        // per-peer meter supplies the bytes actually moved with each of them.
         List<String> peerJson = new ArrayList<>();
-        for (NodeId id : runtime.sessionView().memberIds()) {
-            if (id.equals(self)) {
+        for (dev.nodera.protocol.membership.PeerEntry member : runtime.sessionView().members()) {
+            if (member.nodeId().equals(self)) {
                 continue;
             }
-            peerJson.add("{\"node_id\":\"" + escape(id.value().toString()) + "\",\"route\":\"\","
-                    + "\"path\":\"direct\",\"up_bytes_per_sec\":0,\"down_bytes_per_sec\":0}");
+            PeerTrafficMeter.PeerTraffic traffic =
+                    peerMeter == null ? null : peerMeter.forNode(member.nodeId());
+            // The route the peer publishes is where we dial it; the meter's route is where bytes
+            // actually crossed. Prefer the published one and fall back to the observed one.
+            String route = member.route();
+            if ((route == null || route.isBlank()) && traffic != null) {
+                route = traffic.route();
+            }
+            peerJson.add("{\"node_id\":\"" + escape(member.nodeId().value().toString()) + "\","
+                    + "\"route\":\"" + escape(nullToEmpty(route)) + "\","
+                    + "\"path\":\"" + escape(pathOf(route)) + "\","
+                    + "\"client\":\"" + escape(clientOf(member)) + "\","
+                    + "\"up_bytes_per_sec\":" + (traffic == null ? 0 : traffic.txBytesPerSec()) + ","
+                    + "\"down_bytes_per_sec\":" + (traffic == null ? 0 : traffic.rxBytesPerSec()) + ","
+                    + "\"total_up_bytes\":" + (traffic == null ? 0 : traffic.totalTxBytes()) + ","
+                    + "\"total_down_bytes\":" + (traffic == null ? 0 : traffic.totalRxBytes()) + "}");
         }
 
-        // Worlds this worker keeps discoverable, as objects (name + id + player count + game
-        // endpoint). "mc_route" is additive (serde defaults on the Tauri side): present while the
-        // hosting player's game is open — the joinability signal for the multiplayer UI.
+        // Worlds this worker keeps discoverable. Beyond the identity fields the multiplayer UI
+        // needs, each row now carries what an Info tab asks of a torrent: how big it is, the
+        // checksum that identifies those exact bytes, when it entered the network, and when its
+        // content last changed. "mc_route" is present while the hosting player's game is open —
+        // the joinability signal.
         List<String> worldJson = new ArrayList<>();
+        long totalPieces = 0;
+        long totalHeldPieces = 0;
         for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
             String mc = world.mcRoute();
+            WorldArchiveService.PieceReport report =
+                    archive == null ? null : archive.pieceReport(world.worldIdHex());
+            if (report != null) {
+                totalPieces += report.pieceCount();
+                totalHeldPieces += report.heldCount();
+            }
             worldJson.add("{\"world_id\":\"" + escape(world.worldIdHex()) + "\",\"name\":\""
                     + escape(world.name()) + "\",\"players\":" + world.players()
-                    + ",\"mc_route\":\"" + (mc == null ? "" : escape(mc)) + "\"}");
+                    + ",\"mc_route\":\"" + (mc == null ? "" : escape(mc)) + "\""
+                    + ",\"added_at\":" + world.addedAtEpochMillis()
+                    + ",\"updated_at\":" + world.updatedAtEpochMillis()
+                    + ",\"total_bytes\":" + (report == null ? 0 : report.totalBytes())
+                    + ",\"checksum\":\""
+                    + (report == null ? "" : escape(report.manifestRoot().toHex())) + "\""
+                    + ",\"version\":" + (report == null ? 0 : report.version())
+                    + ",\"piece_count\":" + (report == null ? 0 : report.pieceCount())
+                    + ",\"pieces_held\":" + (report == null ? 0 : report.heldCount())
+                    + ",\"seeders\":" + (report == null ? 0 : report.holders().size())
+                    + ",\"seeding\":" + world.seeding()
+                    + "}");
         }
 
         // The worker's declared roles (BOOTSTRAP / FULL_ARCHIVE / REGION_VALIDATOR …).
@@ -111,24 +192,111 @@ public final class WorkerControlHandler implements ControlHandler {
         }
 
         long uptimeSeconds = Math.max(0, (System.currentTimeMillis() - startedAtMillis) / 1000);
+        long sent = meter.bytesTx();
+        long received = meter.bytesRx();
 
         return "{"
                 + "\"node_id\":\"" + escape(self.value().toString()) + "\","
                 + "\"worker_version\":\"" + escape(version) + "\","
+                + "\"client\":\"" + escape(dev.nodera.core.NoderaConstants.CLIENT_AGENT) + "\","
                 + "\"uptime_seconds\":" + uptimeSeconds + ","
                 + "\"is_gateway\":" + runtime.isGateway() + ","
                 + "\"self_route\":\"" + escape(nullToEmpty(runtime.selfRoute())) + "\","
                 + "\"roles\":[" + String.join(",", roleJson) + "],"
                 + "\"maintained_pieces\":" + (archive == null ? 0 : archive.maintainedPieces()) + ","
                 + "\"maintained_bytes\":" + (archive == null ? 0 : archive.maintainedBytes()) + ","
-                + "\"total_sent_bytes\":" + meter.bytesTx() + ","
-                + "\"total_received_bytes\":" + meter.bytesRx() + ","
+                + "\"total_sent_bytes\":" + sent + ","
+                + "\"total_received_bytes\":" + received + ","
+                + "\"total_chunks\":" + totalPieces + ","
+                // Ratio and availability are permille integers so every consumer renders the same
+                // number — no float formatting drift between the Rust UI and the Minecraft HUD.
+                + "\"share_ratio_permille\":" + shareRatioPermille(sent, received) + ","
+                + "\"availability_permille\":" + availabilityPermille(totalHeldPieces, totalPieces) + ","
                 + "\"peers\":[" + String.join(",", peerJson) + "],"
                 + "\"connected_worlds\":[" + String.join(",", worldJson) + "],"
                 + "\"trackers\":[" + endpointArray(hosting.trackerHealth()) + "],"
                 + "\"rendezvous\":[" + endpointArray(hosting.rendezvousHealth()) + "],"
                 + validationJson()
+                // Whether this node is currently moving content bytes at all. Without it a paused
+                // node — battery rule, tray toggle, manual pause — looks exactly like a broken one:
+                // zero throughput and no explanation. The app renders it as a "Paused" pill.
+                + "\"transfers_paused\":" + transfersPaused() + ","
+                // Inbound sockets turned away by the connection cap. A climbing value is the only
+                // signal that distinguishes "my cap is too low" from "nobody is connecting".
+                + "\"refused_connections\":" + refusedConnections() + ","
                 + "\"daemon_up\":true"
+                + "}";
+    }
+
+    /** @return whether content transfers are suspended; {@code false} when there is no content plane. */
+    private boolean transfersPaused() {
+        if (config != null && config.content != null) {
+            return config.content.transfersPaused();
+        }
+        return archive != null && archive.content().transfersPaused();
+    }
+
+    /** @return inbound connections refused by the cap; {@code 0} when no transport seam is wired. */
+    private long refusedConnections() {
+        return config == null || config.transport == null ? 0 : config.transport.refusedConnections();
+    }
+
+    /**
+     * Upload ÷ download as a permille. A node that has downloaded nothing but uploaded something
+     * is reported as {@code 0} rather than infinity — "ratio" is undefined with no denominator,
+     * and a UI showing ∞ on a fresh seeder is noise, not information.
+     */
+    static long shareRatioPermille(long sentBytes, long receivedBytes) {
+        return receivedBytes <= 0 ? 0 : sentBytes * 1000L / receivedBytes;
+    }
+
+    /** Locally-verified pieces as a permille of all pieces this node tracks; 1000 when none. */
+    static long availabilityPermille(long heldPieces, long totalPieces) {
+        return totalPieces <= 0 ? 1000 : heldPieces * 1000L / totalPieces;
+    }
+
+    /**
+     * How a peer is reached, as the Peers tab's "connection" column. The relay transport routes by
+     * the literal route {@code "relay"}; everything else is a direct socket dial. This reports the
+     * route's shape rather than guessing — it is never used to make a routing decision.
+     */
+    private static String pathOf(String route) {
+        if (route == null || route.isBlank()) {
+            return "unknown";
+        }
+        return "relay".equals(route) ? "relayed" : "direct";
+    }
+
+    /** The peer's self-declared client agent, or a neutral placeholder when it publishes none. */
+    private static String clientOf(dev.nodera.protocol.membership.PeerEntry member) {
+        String agent = member.clientVersion();
+        return agent == null || agent.isBlank()
+                ? dev.nodera.core.NoderaConstants.PRODUCT_NAME + " (unknown)" : agent;
+    }
+
+    @Override
+    public String piecesJson(String worldId) {
+        if (archive == null || worldId == null || worldId.isBlank()) {
+            return null;
+        }
+        WorldArchiveService.PieceReport report = archive.pieceReport(worldId.trim());
+        if (report == null) {
+            return null;
+        }
+        List<String> holderJson = new ArrayList<>();
+        for (NodeId holder : report.holders()) {
+            holderJson.add("\"" + escape(holder.value().toString()) + "\"");
+        }
+        return "{"
+                + "\"world_id\":\"" + escape(report.worldIdHex()) + "\","
+                + "\"manifest_root\":\"" + escape(report.manifestRoot().toHex()) + "\","
+                + "\"version\":" + report.version() + ","
+                + "\"piece_count\":" + report.pieceCount() + ","
+                + "\"held_count\":" + report.heldCount() + ","
+                + "\"total_bytes\":" + report.totalBytes() + ","
+                + "\"held_bitmap\":\""
+                + Base64.getEncoder().encodeToString(report.held().toByteArray()) + "\","
+                + "\"holders\":[" + String.join(",", holderJson) + "]"
                 + "}";
     }
 
@@ -161,14 +329,71 @@ public final class WorkerControlHandler implements ControlHandler {
         return hosting.stop(worldId);
     }
 
+    /**
+     * Join the hosting world's live membership session (ControlProtocol.MESH). The mod hands over
+     * the game server's advertised P2P route; the runtime dials it and, from the reply, becomes an
+     * ordinary member — counted in session health, eligible for committee seats, and eligible to
+     * win the gateway election if the hosting game exits. An empty route detaches.
+     */
+    @Override
+    public String mesh(String bootstrapRoute, String worldSeed) {
+        if (bootstrapRoute == null || bootstrapRoute.isBlank()) {
+            runtime.joinSession(null);
+            return null;
+        }
+        String route = bootstrapRoute.trim();
+        if (route.equals(runtime.selfRoute())) {
+            return "refusing to dial self";
+        }
+        // Bind the validation lane to the world BEFORE joining: a seat can arrive as soon as the
+        // membership reply lands, and a replica activated on the wrong seed re-executes to roots
+        // nobody else computes.
+        if (worldSeed != null && !worldSeed.isBlank() && validation != null) {
+            long seed;
+            try {
+                seed = Long.parseLong(worldSeed.trim());
+            } catch (NumberFormatException malformed) {
+                return "malformed worldSeed '" + worldSeed + "'";
+            }
+            if (!validation.bindWorld(seed)) {
+                return "cannot rebind world seed while regions are active";
+            }
+        }
+        try {
+            // Routed by host:port; the node id is learned from the membership reply.
+            runtime.joinSession(dev.nodera.transport.PeerAddress.of(null, route));
+        } catch (RuntimeException e) {
+            return "cannot join session at " + route + ": " + e.getMessage();
+        }
+        return null;
+    }
+
     @Override
     public String join(String worldId) {
         if (worldId == null || worldId.isBlank()) {
             return "missing worldId";
         }
-        // Resolve via tracker + dial via rendezvous/socket is the joiner data plane (Phase D); the
-        // discovery half (tracker query / rendezvous discover) already works — accepted as a no-op
-        // here until the worker drives the joiner PeerRuntime dial.
+        if (discovery == null) {
+            return "discovery lane unavailable";
+        }
+        Bytes id;
+        try {
+            id = Bytes.fromHex(worldId.trim());
+        } catch (RuntimeException e) {
+            return "malformed worldId";
+        }
+        // Join a world's swarm without hosting it: register the world with the hosting service so
+        // it enters the discovery sweep set, then sweep immediately rather than waiting out the
+        // cadence. Every routable peer the trackers and rendezvous services report for the world is
+        // announced to, and the ordinary membership reply meshes us.
+        //
+        // (This verb used to accept and do nothing — reporting success for a join that never
+        // happened, which is worse than an error because nothing upstream could tell.)
+        String error = hosting.seed(id.toHex(), "");
+        if (error != null) {
+            return error;
+        }
+        discovery.sweepNow();
         return null;
     }
 
@@ -336,11 +561,350 @@ public final class WorkerControlHandler implements ControlHandler {
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
     }
 
+    // --- NODERA-CONFIG: the settings screen's other end ---------------------------------------
+
+    /**
+     * The live objects a configuration push is allowed to re-bound.
+     *
+     * <p>Deliberately a bundle of the <b>real</b> services rather than a copy of their values: the
+     * whole point of the verb is that a setting changes what the running node does, so there is no
+     * intermediate "config state" to drift out of sync with the objects. A seam left {@code null}
+     * makes every key that depends on it {@code rejected} with a reason — never silently dropped.
+     *
+     * @Thread-context immutable holder; the services behind it are individually thread-safe.
+     */
+    public static final class ConfigSeams {
+
+        private final dev.nodera.distribution.ContentTransferService content;
+        private final WorldReplicationService replication;
+        private final dev.nodera.transport.socket.SocketPeerTransport transport;
+        private final dev.nodera.peer.discovery.TrackerClient tracker;
+
+        /**
+         * @param content     the piece plane (upload/download bounds, the pause flag); nullable.
+         * @param replication the replication lane (byte budget, sweep cadence); nullable.
+         * @param transport   the socket transport (connection cap); nullable.
+         * @param tracker     the node's shared tracker client (endpoint list); nullable.
+         */
+        public ConfigSeams(dev.nodera.distribution.ContentTransferService content,
+                           WorldReplicationService replication,
+                           dev.nodera.transport.socket.SocketPeerTransport transport,
+                           dev.nodera.peer.discovery.TrackerClient tracker) {
+            this.content = content;
+            this.replication = replication;
+            this.transport = transport;
+            this.tracker = tracker;
+        }
+    }
+
+    // Config keys.
+    //
+    // These are the companion app's OWN settings-document field names, not this worker's internal
+    // ones — `network.default_trackers`, not `network.tracker_endpoints`; `storage.peer_worlds_dir`,
+    // not `storage.archive_dir`. That identity is the whole mechanism behind the app's honesty
+    // badges: it decides whether a control is "live" purely by looking for that control's key in
+    // the `applied` list this handler returns. A worker-internal name would need a translation
+    // table on the app side, and the day the two drifted the app would quietly badge a setting as
+    // enforced because a *differently-named* key came back.
+    //
+    // The strings are therefore wire contract. `rust/nodera-app/src/config.rs` has a golden-string
+    // test pinning what it emits; these must equal it.
+    static final String K_UPLOAD = "network.max_upload_bytes_per_sec";
+    static final String K_DOWNLOAD = "network.max_download_bytes_per_sec";
+    /** The UI calls this "upload slots per world"; it lands on the per-manifest in-flight serve cap. */
+    static final String K_SERVE_INFLIGHT = "network.max_upload_slots_per_world";
+    static final String K_MAX_CONNECTIONS = "network.max_connections";
+    static final String K_TRACKERS = "network.default_trackers";
+    static final String K_PAUSED = "behavior.transfers_paused";
+    static final String K_REPL_BUDGET = "storage.replication_budget_bytes";
+    static final String K_REPL_SWEEP = "storage.replication_sweep_seconds";
+
+    /**
+     * Keys the worker understands but cannot change without being restarted — they are read once
+     * at startup from the spawn environment and rebuilding their owner would drop live state
+     * (an open listener, an open content store). Reported as {@code restart_required} so the app
+     * can offer the restart button instead of pretending the value took effect.
+     */
+    private static final List<String> RESTART_REQUIRED_KEYS = List.of(
+            "network.p2p_port", "network.port_range", "network.rendezvous_endpoints",
+            "storage.peer_worlds_dir");
+
+    /**
+     * Keys this worker will <b>never</b> honour, each with the reason the app shows in a tooltip.
+     * These are not "not yet": they are unimplementable against the wire as it exists, and saying
+     * so once here is what stops the UI from carrying a permanent lie.
+     */
+    private static final Map<String, String> NEVER_KEYS = Map.of(
+            "network.max_connections_per_world",
+            "the transport has no world dimension; a socket is not owned by a world",
+            "network.unlimited_connections_only",
+            "no peer advertises a connection cap on the wire, so there is nothing to filter on");
+
+    @Override
+    public String applyConfig(String configJsonB64) {
+        if (config == null) {
+            return null; // → NODERA-ERR unsupported
+        }
+        if (configJsonB64 == null || configJsonB64.isBlank()) {
+            // The dispatch routes an empty payload to readConfig, so reaching here means a direct
+            // caller handed us nothing. "Nothing" is not "unset everything".
+            throw new IllegalArgumentException("missing config payload");
+        }
+        String json;
+        try {
+            json = new String(Base64.getDecoder().decode(configJsonB64.trim()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException malformed) {
+            // Thrown out so the dispatch turns it into NODERA-ERR: a payload we could not read is
+            // NOT an empty config, and applying "nothing" would silently unset the user's settings.
+            throw new IllegalArgumentException("malformed base64 config payload");
+        }
+        Map<String, String> fields = parseFlatJson(json);
+        if (fields.isEmpty() && !json.trim().equals("{}")) {
+            throw new IllegalArgumentException("config payload is not a flat JSON object");
+        }
+
+        List<String> applied = new ArrayList<>();
+        List<String> restart = new ArrayList<>();
+        Map<String, String> rejected = new java.util.LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            String key = entry.getKey();
+            String raw = entry.getValue();
+            String never = NEVER_KEYS.get(key);
+            if (never != null) {
+                rejected.put(key, never);
+                continue;
+            }
+            if (RESTART_REQUIRED_KEYS.contains(key)) {
+                restart.add(key);
+                continue;
+            }
+            try {
+                String failure = applyOne(key, raw);
+                if (failure == null) {
+                    applied.add(key);
+                } else {
+                    rejected.put(key, failure);
+                }
+            } catch (RuntimeException e) {
+                // A bad value for one key must not lose the other keys in the same push.
+                rejected.put(key, e.getMessage() == null ? e.getClass().getSimpleName()
+                        : e.getMessage());
+            }
+        }
+        return outcomeJson(applied, restart, rejected);
+    }
+
+    /**
+     * Apply one key. Returns {@code null} when it was genuinely applied, or the reason it was not —
+     * an unknown key included, because a key we drop on the floor would otherwise be indistinguishable
+     * to the app from one we honoured.
+     */
+    private String applyOne(String key, String raw) {
+        switch (key) {
+            case K_UPLOAD -> {
+                if (config.content == null) {
+                    return "this worker has no content plane";
+                }
+                config.content.setServeBounds(config.content.serveMaxInflight(), asLong(raw));
+                return null;
+            }
+            case K_SERVE_INFLIGHT -> {
+                if (config.content == null) {
+                    return "this worker has no content plane";
+                }
+                config.content.setServeBounds((int) asLong(raw),
+                        config.content.serveBandwidthBudget());
+                return null;
+            }
+            case K_DOWNLOAD -> {
+                if (config.content == null) {
+                    return "this worker has no content plane";
+                }
+                config.content.setDownloadBandwidthBudget(asLong(raw));
+                return null;
+            }
+            case K_PAUSED -> {
+                if (config.content == null) {
+                    return "this worker has no content plane";
+                }
+                config.content.setTransfersPaused(asBool(raw));
+                return null;
+            }
+            case K_MAX_CONNECTIONS -> {
+                if (config.transport == null) {
+                    return "this worker's transport does not expose a connection cap";
+                }
+                long limit = asLong(raw);
+                // 0 is the app's "unlimited"; the transport's unbounded value is MAX_VALUE.
+                config.transport.setMaxConnections(
+                        limit <= 0 ? Integer.MAX_VALUE : (int) Math.min(limit, Integer.MAX_VALUE));
+                return null;
+            }
+            case K_TRACKERS -> {
+                if (config.tracker == null) {
+                    return "this worker has no tracker client";
+                }
+                List<dev.nodera.peer.discovery.TrackerClient.Endpoint> parsed = new ArrayList<>();
+                for (String route : asStringList(raw)) {
+                    parsed.add(dev.nodera.peer.discovery.TrackerClient.Endpoint.parse(route));
+                }
+                config.tracker.setEndpoints(parsed);
+                return null;
+            }
+            case K_REPL_BUDGET -> {
+                if (config.replication == null) {
+                    return "this worker has no replication lane";
+                }
+                config.replication.reconfigure(asLong(raw), config.replication.sweepSeconds());
+                return null;
+            }
+            case K_REPL_SWEEP -> {
+                if (config.replication == null) {
+                    return "this worker has no replication lane";
+                }
+                config.replication.reconfigure(config.replication.budgetBytes(), (int) asLong(raw));
+                return null;
+            }
+            default -> {
+                return "unknown setting";
+            }
+        }
+    }
+
+    @Override
+    public String readConfig() {
+        if (config == null) {
+            return null; // → NODERA-ERR unsupported
+        }
+        // The worker's own effective view, not an echo of the last push: a value the worker clamped
+        // (a sweep cadence below its 30 s floor, a connection cap of 0) must read back at what it
+        // actually enforces, or the settings screen becomes a second facade over the first.
+        List<String> fields = new ArrayList<>();
+        if (config.content != null) {
+            fields.add("\"" + K_UPLOAD + "\":" + config.content.serveBandwidthBudget());
+            fields.add("\"" + K_DOWNLOAD + "\":" + config.content.downloadBandwidthBudget());
+            fields.add("\"" + K_SERVE_INFLIGHT + "\":" + config.content.serveMaxInflight());
+            fields.add("\"" + K_PAUSED + "\":" + config.content.transfersPaused());
+        }
+        if (config.transport != null) {
+            int cap = config.transport.maxConnections();
+            fields.add("\"" + K_MAX_CONNECTIONS + "\":" + (cap == Integer.MAX_VALUE ? 0 : cap));
+        }
+        if (config.replication != null) {
+            fields.add("\"" + K_REPL_BUDGET + "\":" + config.replication.budgetBytes());
+            fields.add("\"" + K_REPL_SWEEP + "\":" + config.replication.sweepSeconds());
+        }
+        if (config.tracker != null) {
+            List<String> routes = new ArrayList<>();
+            for (var e : config.tracker.endpoints()) {
+                routes.add("\"" + escape(e.toString()) + "\"");
+            }
+            fields.add("\"" + K_TRACKERS + "\":[" + String.join(",", routes) + "]");
+        }
+        return "{" + String.join(",", fields) + "}";
+    }
+
+    /** Render the outcome the app badges its settings from. Empty collections are still emitted. */
+    private static String outcomeJson(List<String> applied, List<String> restartRequired,
+                                      Map<String, String> rejected) {
+        List<String> appliedJson = new ArrayList<>(applied.size());
+        for (String key : applied) {
+            appliedJson.add("\"" + escape(key) + "\"");
+        }
+        List<String> restartJson = new ArrayList<>(restartRequired.size());
+        for (String key : restartRequired) {
+            restartJson.add("\"" + escape(key) + "\"");
+        }
+        List<String> rejectedJson = new ArrayList<>(rejected.size());
+        for (Map.Entry<String, String> e : rejected.entrySet()) {
+            rejectedJson.add("\"" + escape(e.getKey()) + "\":\"" + escape(e.getValue()) + "\"");
+        }
+        return "{\"applied\":[" + String.join(",", appliedJson) + "],"
+                + "\"restart_required\":[" + String.join(",", restartJson) + "],"
+                + "\"rejected\":{" + String.join(",", rejectedJson) + "}}";
+    }
+
+    /**
+     * Split a <b>flat</b> JSON object into key → raw-value text, preserving order.
+     *
+     * <p>Hand-rolled on purpose: the worker's classpath carries no JSON library, and adding one for
+     * a dozen scalar settings would be the largest dependency in the module. The grammar accepted is
+     * exactly what the config payload is defined to be — one object, string keys, values that are
+     * numbers, booleans, quoted strings, or flat arrays of quoted strings. A nested object is not
+     * accepted, which is why the key namespace is dotted rather than hierarchical.
+     */
+    static Map<String, String> parseFlatJson(String json) {
+        Map<String, String> out = new java.util.LinkedHashMap<>();
+        java.util.regex.Matcher m = FLAT_FIELD.matcher(json);
+        while (m.find()) {
+            out.put(m.group(1), m.group(2).trim());
+        }
+        return out;
+    }
+
+    private static final java.util.regex.Pattern FLAT_FIELD = java.util.regex.Pattern.compile(
+            "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*:\\s*(\\[[^\\]]*\\]|\"(?:[^\"\\\\]|\\\\.)*\"|[^,}\\s]+)");
+
+    /** Coerce a raw JSON scalar to a long, tolerating a quoted number (the app may send either). */
+    private static long asLong(String raw) {
+        String v = unquote(raw);
+        try {
+            return Long.parseLong(v.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("expected a number, got '" + raw + "'");
+        }
+    }
+
+    /** Coerce a raw JSON scalar to a boolean; anything but true/false is an error, never "false". */
+    private static boolean asBool(String raw) {
+        String v = unquote(raw).trim();
+        if ("true".equalsIgnoreCase(v)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(v)) {
+            return false;
+        }
+        throw new IllegalArgumentException("expected true/false, got '" + raw + "'");
+    }
+
+    /** Coerce a raw JSON array of strings (or a single comma-separated string) to a list. */
+    private static List<String> asStringList(String raw) {
+        List<String> out = new ArrayList<>();
+        String v = raw.trim();
+        if (v.startsWith("[")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(v);
+            while (m.find()) {
+                String item = m.group(1).trim();
+                if (!item.isEmpty()) {
+                    out.add(item);
+                }
+            }
+            return out;
+        }
+        for (String item : unquote(v).split(",")) {
+            if (!item.trim().isEmpty()) {
+                out.add(item.trim());
+            }
+        }
+        return out;
+    }
+
+    private static String unquote(String raw) {
+        String v = raw.trim();
+        return v.length() >= 2 && v.startsWith("\"") && v.endsWith("\"")
+                ? v.substring(1, v.length() - 1) : v;
+    }
+
     private static String endpointArray(List<WorldHostingService.EndpointHealth> health) {
         List<String> rows = new ArrayList<>(health.size());
         for (WorldHostingService.EndpointHealth e : health) {
             rows.add("{\"host\":\"" + escape(e.host()) + "\",\"port\":" + e.port()
-                    + ",\"reachable\":" + e.reachable() + "}");
+                    + ",\"scheme\":\"" + escape(e.scheme()) + "\""
+                    + ",\"reachable\":" + e.reachable()
+                    + ",\"latency_ms\":" + e.latencyMillis() + "}");
         }
         return String.join(",", rows);
     }

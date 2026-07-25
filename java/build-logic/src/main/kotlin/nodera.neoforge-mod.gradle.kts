@@ -66,7 +66,7 @@ the<NeoForgeExtension>().apply {
         programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
                 "--username", "JoinerTwo")
     }
-    // Second interactive client for manual two-player testing (scripts/play-two.sh): own game
+    // Second interactive client for manual two-player testing (scripts/dev.sh --play): own game
     // dir + username, no quick play — the player drives the Nodera multiplayer UI by hand.
     runs.register("clientTwo") {
         client()

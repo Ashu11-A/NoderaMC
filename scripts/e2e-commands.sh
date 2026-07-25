@@ -2,8 +2,9 @@
 # ===========================================================================
 # nodera e2e-commands — TWO PLAYERS × EVERY /nodera COMMAND (live).
 #
-#   K0  infrastructure: tracker + rendezvous + three workers (server + one per
-#       player), clean-slate dedicated server with RCON
+#   K0  infrastructure: the standard topology (2 players, 1 tracker,
+#       1 rendezvous, 3 headless peers) + a clean-slate dedicated server
+#       with RCON
 #   K1  server up + sharing; JoinerDev and JoinerTwo both join; lane live
 #   K2  each player executes every read-surface /nodera command (driven via
 #       RCON `execute as <player> at <player> run …`) and the response text is
@@ -20,56 +21,22 @@
 # ===========================================================================
 set -uo pipefail
 
-TAG=cmds
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="$NODERA_ROOT/run/logs/e2e-commands"
-RESULTS_DIR="$NODERA_ROOT/run/results/e2e-commands/$(date +%Y%m%d-%H%M%S)"
-source "$NODERA_ROOT/scripts/lib/e2e-lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-main.sh"
+nodera_suite cmds commands
+nodera_parse_args "$@"
 
-NO_BUILD=0
-[[ "${1:-}" == "--no-build" ]] && NO_BUILD=1
-
-mkdir -p "$LOG_DIR"
-acquire_suite_lock
-
-# --- K0: infrastructure ---------------------------------------------------------------------
+# --- K0/K1: infrastructure + two players -----------------------------------------------------
 log "K0: build + infrastructure (dedicated server + two joiners)"
-[[ "$NO_BUILD" -eq 0 ]] && build_stack
-check_binaries
-check_ports "$TRACKER_PORT" "$RENDEZVOUS_PORT" "$HOST_CONTROL" "$JOINER_CONTROL" \
-            "$JOINER2_CONTROL" "$GAME_PORT" "$RCON_PORT"
-start_infra
-start_worker host    "$HOST_CONTROL"    "$HOST_P2P"
-start_worker joiner  "$JOINER_CONTROL"  "$JOINER_P2P"
-start_worker joiner2 "$JOINER2_CONTROL" "$JOINER2_P2P"
-sleep 3
-control_verb "$HOST_CONTROL" "NODERA-PROBE 2" | grep -q NODERA-OK || fail "K0: host worker probe"
-stage_dedicated_server
-pass "K0: infra + three workers + clean server staging"
+nodera_stack_up
+pass "K0: infra + $NODERA_WORKERS peers ready"
 
-# --- K1: server + two players ---------------------------------------------------------------
-log "K1: booting the dedicated server"
-start_dedicated_server "$LOG_DIR/server.log"
-wait_log "$LOG_DIR/server.log" "sharing world" 420 \
-    || fail "K1: the dedicated server never shared its world"
-
-log "K1: launching JoinerDev + JoinerTwo"
-write_client_config run-join  "$JOINER_CONTROL"
-write_client_config run-join2 "$JOINER2_CONTROL"
-start_client runClientJoin    "$LOG_DIR/client-join.log"
-wait_log "$LOG_DIR/server.log" "JoinerDev joined the game" 600 \
-    || fail "K1: JoinerDev never joined"
-start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
-wait_log "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
-    || fail "K1: JoinerTwo never joined"
-wait_log "$LOG_DIR/server.log" "entity lane live" 300 \
-    || fail "K1: the entity lane never activated"
+log "K1: dedicated server + JoinerDev + JoinerTwo"
+nodera_dedicated_two_players
 pass "K1: two players connected, lane live"
 sleep 5  # let the FOV plan + diagnostics sampling settle
 
 # --- K2: every command, per player, with response validation --------------------------------
 # run_cmd <player> <command…> — execute as the player, capture + transcript the response.
-mkdir -p "$RESULTS_DIR"
 run_cmd() {
     local player="$1"; shift
     local cmd="$*"
@@ -136,6 +103,7 @@ ls "$MOD_DIR"/run/world/nodera-selftest/selftest-*.json >/dev/null 2>&1 \
 pass "K3: selftest + selftest full complete, reports persisted"
 
 # --- K4: collect everything -----------------------------------------------------------------
-collect_results "$RESULTS_DIR"
+nodera_collect_worker_state
+collect_results
 pass "K4: COMMANDS TEST PASSED — artifacts in $RESULTS_DIR"
 exit 0

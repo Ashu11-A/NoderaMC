@@ -69,7 +69,9 @@ public final class SocketPeerTransport implements PeerTransport {
 
     private final NodeId self;
     private final String bindHost;
-    private final int bindPort;
+    /** Inclusive bind range; a single-port transport is simply a 1-wide range. */
+    private final int bindPortStart;
+    private final int bindPortEnd;
     private final String advertiseHost;
     /** Non-null ⇒ authenticated handshake (issue #41 / L-53); null ⇒ legacy unauthenticated hello. */
     private final NodeIdentity identity;
@@ -85,6 +87,24 @@ public final class SocketPeerTransport implements PeerTransport {
     private volatile String listenRoute;
 
     /**
+     * Ceiling on concurrently-held peer connections; {@link Integer#MAX_VALUE} (the default) means
+     * unbounded, so wiring this class changes nothing until an operator sets a cap.
+     *
+     * <p><b>Honest caveat:</b> the cap counts <i>route-keyed established</i> connections — entries
+     * in {@link #connections}, which a socket only joins once its hello has been received and
+     * attributed. A burst of sockets that have connected but not yet said hello is therefore not
+     * counted, so the true number of open file descriptors can transiently exceed the cap by the
+     * size of that burst. Counting raw accepted sockets instead would be a different (and, for a
+     * peer that legitimately cross-dials, worse) bound: it would refuse peers we are ourselves in
+     * the middle of meeting. This is a fairness/resource limit, not a security boundary.
+     */
+    private volatile int maxConnections = Integer.MAX_VALUE;
+
+    /** How many inbound sockets were refused by {@link #maxConnections} (surfaced in STATE). */
+    private final java.util.concurrent.atomic.AtomicLong refusedConnections =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /**
      * Create a transport that will bind {@code bindHost:bindPort} and advertise
      * {@code advertiseHost:<actual-port>} as its dialable route.
      *
@@ -95,7 +115,7 @@ public final class SocketPeerTransport implements PeerTransport {
      * @throws IllegalArgumentException if any argument is null or the port is out of range.
      */
     public SocketPeerTransport(NodeId self, String bindHost, int bindPort, String advertiseHost) {
-        this(self, null, bindHost, bindPort, advertiseHost);
+        this(self, null, bindHost, bindPort, bindPort, advertiseHost);
     }
 
     /**
@@ -111,19 +131,58 @@ public final class SocketPeerTransport implements PeerTransport {
      */
     public SocketPeerTransport(NodeIdentity identity, String bindHost, int bindPort, String advertiseHost) {
         this(Objects.requireNonNull(identity, "identity").nodeId(), identity,
-                bindHost, bindPort, advertiseHost);
+                bindHost, bindPort, bindPort, advertiseHost);
     }
 
-    private SocketPeerTransport(NodeId self, NodeIdentity identity,
-                                String bindHost, int bindPort, String advertiseHost) {
+    /**
+     * Create an authenticated transport that binds the <b>first free port</b> in the inclusive
+     * range {@code [rangeStart, rangeEnd]}.
+     *
+     * <p>Why a range and not just port {@code 0}: a peer behind a router needs a <i>predictable</i>
+     * external port to forward, which an ephemeral port cannot give — but a fixed single port makes
+     * a second node on the same machine (a dev worker beside a game, two accounts, a stale JVM)
+     * fail to start outright. A small range is the honest middle: still forwardable, still
+     * deterministic enough to document, and self-healing against one busy neighbour.
+     *
+     * <p>Every port in the range is tried in ascending order; the first successful bind wins and
+     * {@link #listenRoute()} carries it, so the advertised route is always the port actually bound.
+     * If the whole range is busy the transport throws {@link TransportException} naming the range —
+     * silently falling back to an ephemeral port would advertise a route nobody has forwarded.
+     *
+     * @param identity    this peer's signing identity.
+     * @param bindHost    local bind address.
+     * @param rangeStart  first port to try; {@code 0} means "ephemeral" (and then the range is
+     *                    meaningless, so it degenerates to a single OS-chosen port).
+     * @param rangeEnd    last port to try, inclusive; must not be below {@code rangeStart}.
+     * @param advertiseHost host other peers use to dial this peer.
+     * @throws IllegalArgumentException if a port is out of range or the range runs backwards.
+     */
+    public SocketPeerTransport(NodeIdentity identity, String bindHost, int rangeStart, int rangeEnd,
+                               String advertiseHost) {
+        this(Objects.requireNonNull(identity, "identity").nodeId(), identity,
+                bindHost, rangeStart, rangeEnd, advertiseHost);
+    }
+
+    private SocketPeerTransport(NodeId self, NodeIdentity identity, String bindHost,
+                                int rangeStart, int rangeEnd, String advertiseHost) {
         this.self = Objects.requireNonNull(self, "self");
         this.identity = identity;
         this.bindHost = Objects.requireNonNull(bindHost, "bindHost");
         this.advertiseHost = Objects.requireNonNull(advertiseHost, "advertiseHost");
-        if (bindPort < 0 || bindPort > 65535) {
-            throw new IllegalArgumentException("bindPort out of range: " + bindPort);
+        if (rangeStart < 0 || rangeStart > 65535) {
+            throw new IllegalArgumentException("bindPort out of range: " + rangeStart);
         }
-        this.bindPort = bindPort;
+        if (rangeEnd < 0 || rangeEnd > 65535) {
+            throw new IllegalArgumentException("bindPort out of range: " + rangeEnd);
+        }
+        if (rangeEnd < rangeStart) {
+            throw new IllegalArgumentException(
+                    "bind port range runs backwards: " + rangeStart + "-" + rangeEnd);
+        }
+        this.bindPortStart = rangeStart;
+        // Port 0 already means "let the OS choose"; scanning upward from it would bind an arbitrary
+        // low port instead, so the range collapses to the single ephemeral attempt.
+        this.bindPortEnd = rangeStart == 0 ? 0 : rangeEnd;
     }
 
     /** @return this peer's stable id. */
@@ -132,11 +191,43 @@ public final class SocketPeerTransport implements PeerTransport {
     }
 
     /**
+     * Cap how many peer connections this transport will hold at once.
+     *
+     * @param limit the ceiling; {@code 0} or negative is read as "1" (a transport that can hold no
+     *              connection at all cannot participate in a session, so refusing to express that
+     *              is more honest than pretending to honour it).
+     * @Thread-context any thread; takes effect on the next inbound connection.
+     */
+    public void setMaxConnections(int limit) {
+        this.maxConnections = limit <= 0 ? 1 : limit;
+    }
+
+    /** @return the current connection ceiling; {@link Integer#MAX_VALUE} means unbounded. */
+    public int maxConnections() {
+        return maxConnections;
+    }
+
+    /**
+     * @return how many inbound sockets have been refused because the connection cap was reached.
+     *         Surfaced in {@code NODERA-STATE}: a non-zero, climbing value is the only way an
+     *         operator can tell "my cap is too low" from "nobody is connecting".
+     */
+    public long refusedConnections() {
+        return refusedConnections.get();
+    }
+
+    /** @return how many peer connections are currently established and route-keyed. */
+    public int connectionCount() {
+        return connections.size();
+    }
+
+    /**
      * The dialable route other peers use to reach this transport, valid only while started:
      * {@code advertiseHost:<actual-bound-port>}.
      *
      * @return the advertised listen route, or {@code null} if not started.
      */
+    @Override
     public String listenRoute() {
         return listenRoute;
     }
@@ -147,20 +238,36 @@ public final class SocketPeerTransport implements PeerTransport {
             if (running) {
                 return;
             }
-            try {
-                ServerSocket ss = new ServerSocket();
-                ss.setReuseAddress(true);
-                ss.bind(new InetSocketAddress(bindHost, bindPort));
-                this.serverSocket = ss;
-                this.listenRoute = advertiseHost + ":" + ss.getLocalPort();
-                this.running = true;
-                this.acceptThread = Thread.ofVirtual()
-                        .name("nodera-socket-accept-" + ss.getLocalPort())
-                        .start(this::acceptLoop);
-            } catch (IOException e) {
-                throw new TransportException("failed to bind " + bindHost + ":" + bindPort, e);
+            // Try every port in the range, ascending, and keep the first that binds. A single-port
+            // transport is a 1-wide range, so its behaviour — including the exact "failed to bind
+            // host:port" message the elastic-retry path in the mod matches on — is unchanged.
+            IOException lastFailure = null;
+            for (int port = bindPortStart; port <= bindPortEnd; port++) {
+                try {
+                    ServerSocket ss = new ServerSocket();
+                    ss.setReuseAddress(true);
+                    ss.bind(new InetSocketAddress(bindHost, port));
+                    this.serverSocket = ss;
+                    this.listenRoute = advertiseHost + ":" + ss.getLocalPort();
+                    this.running = true;
+                    this.acceptThread = Thread.ofVirtual()
+                            .name("nodera-socket-accept-" + ss.getLocalPort())
+                            .start(this::acceptLoop);
+                    return;
+                } catch (IOException busy) {
+                    lastFailure = busy;
+                }
             }
+            throw new TransportException("failed to bind " + bindHost + ":" + describeRange(),
+                    lastFailure);
         }
+    }
+
+    /** The bind target as it appears in the failure message: a port, or {@code start-end}. */
+    private String describeRange() {
+        return bindPortStart == bindPortEnd
+                ? Integer.toString(bindPortStart)
+                : bindPortStart + "-" + bindPortEnd;
     }
 
     @Override
@@ -270,6 +377,19 @@ public final class SocketPeerTransport implements PeerTransport {
                     continue;
                 }
                 return;
+            }
+            // Connection cap (issue: bounded resource use on a shared machine). Refuse by closing
+            // the socket immediately rather than accepting-then-idling: a peer that gets a clean
+            // TCP close re-selects another holder at once, whereas a socket held open with nobody
+            // reading it looks like a live-but-silent peer and costs both sides a timeout.
+            //
+            // See the maxConnections field for the honest caveat: the count is of route-keyed
+            // ESTABLISHED connections, so a burst of not-yet-hello'd sockets can transiently push
+            // the real descriptor count above the cap.
+            if (connections.size() >= maxConnections) {
+                refusedConnections.incrementAndGet();
+                closeQuietly(socket);
+                continue;
             }
             // Inbound connection: route is unknown until the peer's hello arrives. A failure
             // handling ONE inbound socket (e.g. the peer closed before our hello write — seen

@@ -51,7 +51,8 @@ jobs:
         with:
           name: e2e-continuity-logs
           path: |
-            run/logs/e2e/
+            run/logs/e2e-continuity/
+            run/results/e2e-continuity/
             run/logs/e2e-crash/
             run/results/e2e-crash/
             java/neoforge-mod/run-host/logs/
@@ -90,7 +91,9 @@ jobs:
           name: e2e-pickup-logs
           path: |
             run/logs/e2e-pickup/
+            run/results/e2e-pickup/
             java/neoforge-mod/run-join/logs/
+            java/neoforge-mod/run-join2/logs/
           if-no-files-found: ignore
 
   # The command + far-apart suites: self-contained (clean-slate dedicated server + two joining
@@ -139,4 +142,6 @@ jobs:
             run/results/e2e-farlands/
             run/logs/e2e-ownership-follow/
             run/results/e2e-ownership-follow/
+            java/neoforge-mod/run-join/logs/
+            java/neoforge-mod/run-join2/logs/
           if-no-files-found: ignore

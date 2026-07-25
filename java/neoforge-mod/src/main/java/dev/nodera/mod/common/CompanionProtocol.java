@@ -34,6 +34,9 @@ public final class CompanionProtocol {
     /** Join request. */
     public static final String JOIN = ControlProtocol.JOIN;
 
+    /** Join-the-world's-P2P-session request (makes the always-on worker a real member). */
+    public static final String MESH = ControlProtocol.MESH;
+
     /** Stop-hosting request. */
     public static final String STOP = ControlProtocol.STOP;
 
@@ -54,6 +57,9 @@ public final class CompanionProtocol {
 
     /** Password re-key request — re-encrypt the archive + re-sign the identity (issue #37 / L-51). */
     public static final String REKEY = ControlProtocol.REKEY;
+
+    /** Per-world piece picture request — the data behind the client's piece map. */
+    public static final String PIECES = ControlProtocol.PIECES;
 
     private CompanionProtocol() {
     }

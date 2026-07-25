@@ -3,18 +3,28 @@
 # nodera run-tests — THE consolidated live-suite runner (docs/Testing.md).
 #
 # Runs the scripted live acceptance suites STRICTLY ONE AT A TIME (they share
-# the port block 25599–25622 and the Minecraft run dirs; the batch holds an
-# exclusive flock the individual suites honour). Builds once up front, then
-# every suite runs --no-build.
+# the port block and the Minecraft run dirs; the batch holds an exclusive flock
+# the individual suites honour). Builds once up front, then every suite runs
+# --no-build.
+#
+# Every suite launches its services through scripts/lib/e2e-main.sh, so the
+# topology is identical everywhere and set in exactly one place:
+#
+#   2 players · 1 tracker · 1 rendezvous · 3 headless peers
+#
+# This runner sources the same file, which is why `--players`/`--spare-peers`
+# below can retopologise the whole batch: the values are exported and every
+# suite's nodera_load picks them up instead of its defaults.
 #
 # Usage:
 #   scripts/run-tests.sh                  # every suite, canonical order
 #   scripts/run-tests.sh commands crash   # just these suites
 #   scripts/run-tests.sh --no-build …     # skip the up-front build too
+#   scripts/run-tests.sh --spare-peers 0  # thin the swarm below the quorum floor
 #
 # Canonical order (continuity FIRST — it bakes the shared NoderaE2E world the
 # host-client suites reuse):
-#   continuity ownership churn pickup commands farlands crash
+#   continuity ownership ownership-follow churn pickup commands farlands crash
 #
 # Each suite's stdout+stderr is teed to run/results/runner/<stamp>/<suite>.out
 # and a PASS/FAIL summary lands in summary.txt. The runner keeps going after a
@@ -23,38 +33,54 @@
 # ===========================================================================
 set -uo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ALL_SUITES=(continuity ownership ownership-follow churn pickup commands farlands crash)
-LOCK_FILE="$NODERA_ROOT/run/.e2e-suite.lock"
-STAMP=$(date +%Y%m%d-%H%M%S)
-OUT_DIR="$NODERA_ROOT/run/results/runner/$STAMP"
 
-NO_BUILD=0
+# The batch's own flags, on top of the shared --no-build. Suite names are not
+# options, so they are collected here too.
 SUITES=()
-for arg in "$@"; do
-    case "$arg" in
-        --no-build) NO_BUILD=1 ;;
-        all) SUITES=("${ALL_SUITES[@]}") ;;
-        continuity|ownership|ownership-follow|churn|pickup|commands|farlands|crash) SUITES+=("$arg") ;;
-        *) echo "unknown suite/option: $arg (suites: ${ALL_SUITES[*]})" >&2; exit 2 ;;
+nodera_suite_arg() {
+    case "$1" in
+        --players)     export NODERA_PLAYERS="$2";     NODERA_ARGS_EATEN=2 ;;
+        --spare-peers) export NODERA_SPARE_PEERS="$2"; NODERA_ARGS_EATEN=2 ;;
+        --trackers)    export NODERA_TRACKERS="$2";    NODERA_ARGS_EATEN=2 ;;
+        --rendezvous)  export NODERA_RENDEZVOUS="$2";  NODERA_ARGS_EATEN=2 ;;
+        all) SUITES=("${ALL_SUITES[@]}"); NODERA_ARGS_EATEN=1 ;;
+        *)
+            if [[ " ${ALL_SUITES[*]} " == *" $1 "* ]]; then
+                SUITES+=("$1"); NODERA_ARGS_EATEN=1
+            else
+                echo "unknown suite/option: $1 (suites: ${ALL_SUITES[*]})" >&2
+                NODERA_ARGS_EATEN=0
+            fi
+            ;;
     esac
-done
+}
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-main.sh"
+
+STAMP=$(date +%Y%m%d-%H%M%S)
+TAG=run-tests
+LOG_DIR="$NODERA_ROOT/run/logs/runner/$STAMP"
+RESULTS_DIR="$NODERA_ROOT/run/results/runner/$STAMP"
+mkdir -p "$LOG_DIR" "$RESULTS_DIR"
+
+nodera_parse_args "$@"
 [[ ${#SUITES[@]} -eq 0 ]] && SUITES=("${ALL_SUITES[@]}")
+# The topology reload is what makes the flags above reach the child suites'
+# derived values (worker count, per-slot ports) inside THIS process too.
+nodera_load
 
-log() { printf '\033[1;35m[run-tests]\033[0m %s\n' "$*"; }
-
-mkdir -p "$OUT_DIR" "$(dirname "$LOCK_FILE")"
-exec 9>"$LOCK_FILE"
-flock -n 9 || { echo "[run-tests] another live suite/batch is running — one at a time" >&2; exit 1; }
+# The batch owns the lock for its whole duration; children see the flag and skip
+# their own acquire instead of deadlocking on their parent.
+nodera_acquire_lock
 export NODERA_E2E_LOCK_HELD=1
 
 if [[ "$NO_BUILD" -eq 0 ]]; then
     log "building once (rust services + worker + mod)"
-    ( cd "$NODERA_ROOT/rust" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous ) \
-        || { echo "[run-tests] cargo build failed" >&2; exit 1; }
-    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist :neoforge-mod:build -x test -x check ) \
-        || { echo "[run-tests] gradle build failed" >&2; exit 1; }
+    build_stack
 fi
+
+log "topology for this batch: $NODERA_PLAYERS players · $NODERA_TRACKERS tracker(s) · $NODERA_RENDEZVOUS rendezvous · $NODERA_WORKERS peers ($NODERA_SPARE_PEERS spare)"
 
 declare -A STATUS
 FAILED=0
@@ -62,7 +88,7 @@ for suite in "${SUITES[@]}"; do
     script="$NODERA_ROOT/scripts/e2e-$suite.sh"
     log "── suite: $suite ──────────────────────────────────────────"
     start=$(date +%s)
-    if "$script" --no-build 2>&1 | tee "$OUT_DIR/$suite.out"; then
+    if "$script" --no-build 2>&1 | tee "$RESULTS_DIR/$suite.out"; then
         STATUS[$suite]=PASS
     else
         STATUS[$suite]=FAIL
@@ -70,18 +96,18 @@ for suite in "${SUITES[@]}"; do
     fi
     log "suite $suite: ${STATUS[$suite]} ($(( $(date +%s) - start ))s)"
     # Belt-and-braces between suites: nothing from the previous run may survive.
-    pkill -f 'nodera-tracker --config' 2>/dev/null
-    pkill -f 'nodera-rendezvous --config' 2>/dev/null
-    pkill -f 'dev.nodera.headless.HeadlessPeerMain' 2>/dev/null
-    pkill -f RunProgramArgs 2>/dev/null
+    # cleanup is the same teardown the suites' EXIT trap runs, so a suite that
+    # died before its trap fired cannot leak a worker onto the next one's ports.
+    cleanup
     sleep 5
 done
 
 {
     echo "nodera live-suite batch $STAMP"
+    echo "topology: $NODERA_PLAYERS players / $NODERA_TRACKERS tracker / $NODERA_RENDEZVOUS rendezvous / $NODERA_WORKERS peers"
     for suite in "${SUITES[@]}"; do
-        printf '%-12s %s\n' "$suite" "${STATUS[$suite]}"
+        printf '%-18s %s\n' "$suite" "${STATUS[$suite]}"
     done
-} | tee "$OUT_DIR/summary.txt"
-log "outputs in $OUT_DIR"
+} | tee "$RESULTS_DIR/summary.txt"
+log "outputs in $RESULTS_DIR"
 exit "$FAILED"

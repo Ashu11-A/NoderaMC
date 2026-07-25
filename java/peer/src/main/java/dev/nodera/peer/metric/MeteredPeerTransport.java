@@ -26,16 +26,35 @@ public final class MeteredPeerTransport implements PeerTransport {
 
     private final PeerTransport delegate;
     private final TrafficMeter meter;
+    private final PeerTrafficMeter peerMeter; // nullable — per-peer attribution is opt-in
 
     /** @param delegate the real transport. @param meter the meter to feed. */
     public MeteredPeerTransport(PeerTransport delegate, TrafficMeter meter) {
+        this(delegate, meter, null);
+    }
+
+    /**
+     * As {@link #MeteredPeerTransport(PeerTransport, TrafficMeter)}, additionally attributing every
+     * frame to the peer it crossed with, so the companion app's Peers tab can show real per-peer
+     * totals and live rates instead of placeholders.
+     *
+     * @param peerMeter the per-peer meter, or {@code null} to count node totals only.
+     */
+    public MeteredPeerTransport(PeerTransport delegate, TrafficMeter meter,
+                                PeerTrafficMeter peerMeter) {
         this.delegate = java.util.Objects.requireNonNull(delegate, "delegate");
         this.meter = java.util.Objects.requireNonNull(meter, "meter");
+        this.peerMeter = peerMeter;
     }
 
     /** @return the meter this decorator feeds. */
     public TrafficMeter meter() {
         return meter;
+    }
+
+    /** @return the per-peer meter this decorator feeds, or {@code null} when not enabled. */
+    public PeerTrafficMeter peerMeter() {
+        return peerMeter;
     }
 
     @Override
@@ -51,6 +70,9 @@ public final class MeteredPeerTransport implements PeerTransport {
     @Override
     public void send(PeerAddress to, byte[] frame) {
         meter.record(Direction.TX, frame.length);
+        if (peerMeter != null) {
+            peerMeter.recordTx(to, frame.length);
+        }
         delegate.send(to, frame);
     }
 
@@ -58,32 +80,45 @@ public final class MeteredPeerTransport implements PeerTransport {
     public void sendStream(PeerAddress to, long streamId, byte[] payload) {
         // Logical bytes + one logical frame (chunking happens inside the delegate).
         meter.record(Direction.TX, payload.length);
+        if (peerMeter != null) {
+            peerMeter.recordTx(to, payload.length);
+        }
         delegate.sendStream(to, streamId, payload);
     }
 
     @Override
     public void setHandler(MessageHandler handler) {
-        delegate.setHandler(new CountingHandler(handler, meter));
+        delegate.setHandler(new CountingHandler(handler, meter, peerMeter));
     }
 
     /** Wraps the real handler so each delivered inbound frame counts one RX frame + its bytes. */
     private static final class CountingHandler implements MessageHandler {
         private final MessageHandler real;
         private final TrafficMeter meter;
+        private final PeerTrafficMeter peerMeter;
 
-        CountingHandler(MessageHandler real, TrafficMeter meter) {
+        CountingHandler(MessageHandler real, TrafficMeter meter, PeerTrafficMeter peerMeter) {
             this.real = real;
             this.meter = meter;
+            this.peerMeter = peerMeter;
         }
 
         @Override
         public void onMessage(PeerAddress from, byte[] frame) {
             meter.record(Direction.RX, frame.length);
+            if (peerMeter != null) {
+                peerMeter.recordRx(from, frame.length);
+            }
             real.onMessage(from, frame);
         }
 
         @Override
         public void onPeerDown(PeerAddress peer) {
+            // Drop the row so a reconnecting peer starts from zero instead of inheriting a stale
+            // rate that would never decay (nothing else writes to it once it is gone).
+            if (peerMeter != null) {
+                peerMeter.forget(peer);
+            }
             real.onPeerDown(peer);
         }
     }

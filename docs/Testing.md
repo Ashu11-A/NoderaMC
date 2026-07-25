@@ -35,7 +35,9 @@ scripts/e2e-pickup.sh    --no-build
 scripts/e2e-commands.sh  --no-build
 scripts/e2e-farlands.sh  --no-build
 scripts/e2e-crash.sh     --no-build
-scripts/play-two.sh      --no-build     # not a test: two interactive clients
+scripts/e2e-ownership-follow.sh --no-build
+scripts/dev.sh --play    --no-build     # not a test: two interactive clients
+scripts/dev.sh --play --with-app        # …plus one Tauri companion window per player
 ```
 
 Canonical order matters once: `e2e-continuity.sh` bakes
@@ -67,7 +69,7 @@ rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
 | `e2e-farlands.sh` | Two players **~566 km apart**: positions verified, per-player chunk-control interrogated (`nodera zone` + `REGION:` owner evidence) | ~8 min |
 | `e2e-crash.sh` | One client **SIGKILLed mid-session**: the survivor sees no disruption, no continuity arm, **no migration screen**; the crashed player rejoins | ~7 min |
 | `e2e-ownership-follow.sh` | **Ownership follows the player**: after a multi-thousand-block teleport the session re-plans and the player's client re-derives its owned region set at the new position | ~5 min |
-| `play-two.sh` | Not a test — full stack + two interactive clients for hands-on play | manual |
+| `dev.sh --play` | Not a test — same launcher + same topology, two **interactive** clients for hands-on play (workers bind `0.0.0.0` so a LAN peer can reach them). `--with-app` adds one Tauri companion window per player, each attached to that player's own worker; `--apps N` / `--spare-peers N` retopologise it. Absorbed the former `play-two.sh` | manual |
 
 **How Minecraft is launched** — no GUI automation anywhere: the scripts use quick play.
 `runClientHost` boots straight into the shared world (`--quickPlaySingleplayer NoderaE2E`; the
@@ -76,10 +78,58 @@ into the session (`--quickPlayMultiplayer 127.0.0.1:25599`, usernames JoinerDev/
 `runClientRejoin` is player A returning as a network client. Distinct usernames prevent the
 duplicate-login kick. Staged worlds pin `host.gamePort=25599`, disable Mojang session auth
 (`host.onlineAuth=false` — offline dev accounts), and enable `entity.laneAutoActivate`. The
-dedicated-server suites (`pickup`, `commands`, `farlands`) drive gameplay over **RCON**
-(port 25575) — teleports, inventory reads, and `execute as <player> run …` command execution.
-Shared staging lives in `scripts/lib/e2e-lib.sh` (ports, infra, workers, RCON client, log
-collection) — new suites source it instead of re-pasting the stack.
+dedicated-server suites (`pickup`, `commands`, `farlands`, `ownership-follow`) drive gameplay over
+**RCON** (port 25575) — teleports, inventory reads, and `execute as <player> run …` execution.
+
+### The shared launcher and the standard topology
+
+No suite starts a service itself. `scripts/lib/e2e-main.sh` is **the** launcher: a suite sources
+it, names itself, and calls `nodera_stack_up` (lock → build → port preflight → tracker →
+rendezvous → workers → control-socket probe). Every suite therefore runs the same topology, set in
+exactly one place:
+
+> **2 players · 1 tracker · 1 rendezvous · 3 headless peers**
+
+The three peers are the quorum floor — `DiagnosticsCollector.deriveHealth` reports `DEGRADED`
+("below quorum (3)") under three session members, so a thinner run measures a degraded system.
+Peer 1 and peer 2 are the players' companion workers (control 25610/25611, p2p 25620/25621);
+peer 3 is a **spare standalone worker** with no client attached (25612/25622).
+
+The companion peers are **real members** of the world's session (issue #45). On host start the mod
+hands its companion the game's P2P route over `NODERA-MESH`; `PeerRuntime.joinSession` dials it and
+membership gossip publishes every member's Ed25519 key. A joined peer therefore counts toward
+`deriveHealth`'s quorum, is handed committee seats via `RegionAssigned`, and can inherit the gateway
+when the hosting game exits.
+
+Membership is per-JVM plus the peers that joined:
+
+| shape | members |
+|---|---|
+| dedicated server + 2 joiners + companions | 5–6 |
+| host client + 1 joiner + companions | 4–5 |
+
+The hosting JVM deliberately does not *also* start a client peer
+(`ModNetworking.handleSessionOnClient` — "already in the mesh as the server peer"): one JVM, one
+node. That used to cap a player-hosted two-player world at **2 members — permanently DEGRADED** no
+matter how many peers were running (observed live 2026-07-24). Peer membership is what now carries
+such a world over the quorum floor without needing a third human.
+
+> ⚠️ The **spare** peer has no client attached, so nothing meshes it on its own — it is swarm and
+> archive ballast plus a standby gateway, and becomes a session member only when some world's mod
+> meshes it. Only the suites' own companions auto-join.
+
+Every parameter is a variable a function loads into memory, with `${VAR:-default}`, so pinning one
+is just setting it before the run:
+
+```bash
+NODERA_SPARE_PEERS=0 scripts/e2e-crash.sh          # thin the swarm on purpose
+NODERA_E2E_TIMEOUT_MULT=3 scripts/e2e-pickup.sh    # slow machine / CI
+scripts/run-tests.sh --spare-peers 2 --players 2   # retopologise a whole batch
+```
+
+Two composite stages cover the two player shapes: `nodera_hosted_two_players` (player A hosts from
+its client, player B joins — the suites that kill a hosting player) and
+`nodera_dedicated_two_players` (dedicated server + JoinerDev + JoinerTwo — the RCON suites).
 
 ## Test 1 — region ownership (`e2e-ownership.sh`)
 
@@ -88,7 +138,7 @@ Stages (each `PASS`/`FAIL` line names its stage):
 - **O1** — player A shares; player B joins through the tracker; the plan spans both nodes
   (`entity lane live on N region(s) across 2 member node(s)` in `client-host.log`) and player B's
   client runs its own validation lane (`client validation lane active on N region(s)` in
-  `client-joiner.log`).
+  `client-join.log`).
 - **O2** — the **drive** (`debug.regionDrive=true`): the server teleports each player to a region
   its own node owns, then sends player B into player A's region. Evidence lines in
   `client-host.log`:
@@ -221,7 +271,7 @@ Quick greps:
 
 ```bash
 grep -a "REGION: \|DRIVE " run/logs/e2e-ownership/client-host.log   # ownership evidence
-grep -a "validation lane active" run/logs/e2e-ownership/client-joiner.log
+grep -a "validation lane active" run/logs/e2e-ownership/client-join.log
 grep -aE "ERROR|FATAL" run/logs/e2e-churn/*.log                     # should be empty/benign
 grep -a "SELFTEST complete" run/logs/e2e-commands/server.log        # the in-game suite verdict
 ```
@@ -293,15 +343,15 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
-| `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 228 | 0 | 0 | ✅ | 2026-07-24 |
+| `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102), and the product-identity constants (`CLIENT_AGENT`) peers publish | 233 | 0 | 0 | ✅ | 2026-07-24 |
 | `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics | 430 | 0 | 0 | ✅ | 2026-07-24 |
-| `transport` | unified wire/carrier API; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) `SocketPeerTransportAuthTest` pins the authenticated challenge-response handshake (key-proven interop, legacy/forged/replay refusal) | 90 | 0 | 0 | ✅ | 2026-07-24 |
+| `transport` | unified wire/carrier API; port-range bind retry + a live max-connections cap; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) `SocketPeerTransportAuthTest` pins the authenticated challenge-response handshake (key-proven interop, legacy/forged/replay refusal) | 93 | 0 | 0 | ✅ | 2026-07-25 |
 | `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103); issue #36/33 add the signed identity/permission stores | 97 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
-| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`GRANT`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries; `RekeyVerbIT` proves the password re-key crypto+identity round trip), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`) | 371 | 0 | 0 | 🚧 | 2026-07-24 |
-| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), issue #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (bind failure never crashes the integrated server), the #43 continuity hardening (`WorldArchiver` continuous streaming cadence + bounded final flush + seeded-version freshness marker — `WorldArchiverStreamingTest`), and the `/nodera selftest` in-game command test+benchmark drive (tree walk, per-player capturing execution, persisted JSON/MD reports) | 68 | 0 | 0 | 🚧 | 2026-07-24 |
+| `peer` | unified distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill replay, durable vote/action/inventory-credit journals, entity-lane bootstrap planning, dirty-shutdown compensation, and the world-continuity lane (`WorldArchive` codec + worker `WorldArchiveService` seeding/manifest-serving/swarm-fetch + `SEED`/`ARCHIVE`/`GRANT`/`REKEY` control verbs; `WorldContinuityIT` proves host-death survival over the real tracker + rendezvous binaries; `RekeyVerbIT` proves the password re-key crypto+identity round trip), plus the no-host ownership lane (`ActionForward` routing, forwarded-quorum `ActionForwardIT`), the discovery plane (`PeerDiscoveryService` tracker+rendezvous sweeps feeding `PeerRuntime.announceTo`; scheme-aware `TrackerClient.Endpoint` with a real UDP datagram path + TCP fallback — `TrackerEndpointTest`, `TrackerClientUdpTest`), per-peer throughput attribution (`PeerTrafficMeter`), and network-wide replication (`WorldReplicationService` adopts worlds this node is deterministically placed for; `WorldHostingService.seed`), and the **live configuration surface** (`NODERA-CONFIG` verb + `ContentTransferService` volatile serve bounds / `transfersPaused` gate / download pacing, `WorldReplicationService.reconfigure`, one shared `TrackerClient` with a mutable endpoint list; `ConfigVerbIT` proves a pushed setting actually changes worker behaviour, and pins the cross-language key contract against the companion app's golden string) | 415 | 0 | 0 | 🚧 | 2026-07-25 |
+| `neoforge-mod` | host/GUI/control surfaces plus Task 12 persistent attachments, capture bridge, canonical projection, persistent host identity, lifecycle-owned live entity session, self-bootstrapping activation, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate, world identity on the session payload), issue #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (bind failure never crashes the integrated server), the #43 continuity hardening (`WorldArchiver` continuous streaming cadence + bounded final flush + seeded-version freshness marker — `WorldArchiverStreamingTest`), the `/nodera selftest` in-game command test+benchmark drive (tree walk, per-player capturing execution, persisted JSON/MD reports), and the piece-map lane (`WorkerPiecesParser` reads the worker's `NODERA-PIECES` reply, `PieceMapFeed` turns it into the grid and finally installs the `setPieceMapSource` seam that nothing had ever called — `WorkerPiecesParserTest`, `PieceMapFeedTest`) | 79 | 0 | 0 | 🚧 | 2026-07-24 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | — | — | ⬜ | — |
-| **TOTAL (implemented modules)** | | **1298** | **0** | **0** | ✅ | 2026-07-24 |
+| **TOTAL (implemented modules)** | | **1361** | **0** | **0** | ✅ | 2026-07-25 |
 
 Line coverage (JaCoCo XML/HTML under `java/<m>/build/reports/jacoco/`): core 82.21% · engine
 87.18% · transport 85.32% · storage 79.96% · peer 82.17% · testing 90.91% · neoforge-mod 8.79%.
@@ -311,9 +361,10 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 
 | Crate | Responsibility | Tests | Failures | Status | Last run |
 |---|---|---:|---:|:---:|---|
-| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify, frozen mirror through type tag 102/message tag 48, framing, and fixture conformance | 35 | 0 | ✅ | 2026-07-22 |
-| `nodera-tracker` | standalone tracker service: signed announce lifecycle + TTL expiry, per-world registry + isolation, sampling, health/countdown, quotas, TCP wire | 54 | 0 | ✅ | 2026-07-22 |
-| `nodera-rendezvous` | signed registration/discovery, HMAC relay reservations, metered circuits, punch coordination, and TCP wire | 55 | 0 | ✅ | 2026-07-22 |
+| `nodera-codec` | byte-exact canonical encoding port, Ed25519 verify, frozen mirror through type tag 102/message tag 48, framing, and fixture conformance | 35 | 0 | ✅ | 2026-07-24 |
+| `nodera-tracker` | standalone tracker service: signed announce lifecycle + TTL expiry, per-world registry + isolation, sampling, health/countdown, quotas, **TCP + UDP wire** (one datagram per request, shared registry, anti-reflection amplification cap, silent drop of undecodable datagrams) | 60 | 0 | ✅ | 2026-07-24 |
+| `nodera-rendezvous` | signed registration/discovery, HMAC relay reservations, metered circuits, punch coordination, and TCP wire | 55 | 0 | ✅ | 2026-07-24 |
+| `nodera-app` | companion app (workspace-excluded; `cd rust/nodera-app && cargo test`): piece-bitmap decode matching Java's `BitSet` byte order, bounded/short/undecodable bitmaps, additive-field tolerance, log ring, system sampling; plus the configuration lane — `worker_env` spawn pairs, `Settings → WorkerConfig` golden JSON, `power::should_transfer` truth table, control-socket error surfacing + read timeout, and the `ENFORCEMENT` coverage/live-only-if-confirmed invariants | 56 | 0 | ✅ | 2026-07-25 |
 
 > `simulation/ForbiddenApiTest` is now **re-enabled** (0 skipped): the repo compiles to Java 21
 > bytecode (v65) via `--release 21`, so ArchUnit 1.3's bundled ASM parses the classes again. The
@@ -343,6 +394,126 @@ Rust workspace (`cd rust && cargo test`) — a separate, equally-required gate (
 > **239 entities across 12 delegated regions**. Also confirmed live: with `mobCapture` off, every
 > mob-holding region gracefully revokes (acceptance #3) — now logged. Drop→pickup-exactly-once and
 > pearl scripted drives remain (L-50).
+>
+> **Test growth (1298 → 1345; Rust 144 → 154 +10 app) is the discovery/telemetry audit remediation
+> (2026-07-24).** An end-to-end audit of the tracker/rendezvous/companion chain found four things
+> built but not connected, and each fix is pinned by tests:
+>
+> * **The rendezvous transport could never choose the direct path.** It advertised only a relay
+>   candidate, so `hasDirectCandidate` was false for every peer, `Path.DIRECT` was never in the
+>   available set, and 100% of its traffic crossed the relay — the inversion `rendezvous.md` §12.2
+>   warns about. It now publishes a host candidate from the direct transport's listen route
+>   (`PeerTransport.listenRoute()` joined the seam), dials the peer's best direct candidate, and
+>   renews its registration lease at half the TTL instead of silently expiring at five minutes. The
+>   joiner is wrapped in the same transport as the host, so relay fallback is no longer one-sided.
+> * **Trackers were never asked for peers.** `TrackerClient.query` fed only the archive lane;
+>   membership came exclusively from one bootstrap route. `PeerDiscoveryService` now sweeps every
+>   tracker and rendezvous for every world and announces each routable peer through the new
+>   `PeerRuntime.announceTo` — merged, never arbitrated (`trackers.md` §16/§17).
+> * **A shared world's bytes lived only on the machine that shared it.** `WorldReplicationService`
+>   runs the Task-21 placement policy over the tracker directory and adopts the worlds this node is
+>   deterministically placed for, under a byte budget; `WorldHostingService.seed` advertises them.
+>   `NODERA-JOIN` stopped being a no-op that reported success.
+> * **The piece map had no data source.** `NoderaMultiplayerScreen.setPieceMapSource` had never been
+>   called, so "View pieces" always opened an empty grid. New `NODERA-PIECES` control verb →
+>   `WorkerPiecesParser` → `PieceMapFeed`, plus grid scrolling and a "peers sharing" count
+>   (`PieceMapView.holders`) distinct from complete seeders.
+>
+> Also: tracker endpoints are scheme-aware (`tcp://` / `udp://`, bare = TCP) with a real UDP
+> datagram surface on both sides, bounded against reflection amplification; `PeerJoin`/`PeerEntry`
+> carry a `clientVersion` (membership layout only — the Rust-visible discovery layout stays
+> byte-frozen); `PeerTrafficMeter` replaces the STATE peer rows' hardcoded zeros. Two long-standing
+> flakes in `SocketPeerTransportAuthTest` were fixed for real (a TCP-reset race on the refusal path,
+> and a two-queue handoff where the frame was polled without a timeout).
+>
+> **Tailwind migration + the configuration lane (2026-07-25).** Two changes, three parallel agents.
+>
+> The companion app's 1177-line hand-written stylesheet is gone: `ui/src/styles.css` is now 136
+> lines of design tokens and document-level base rules, and every component carries its own
+> Tailwind v4 utilities. The theming mechanism is unchanged — `@theme inline` re-exports the
+> existing custom properties **by reference**, so `bg-surface` compiles to `var(--surface)` and the
+> `[data-theme]` attribute still repaints the whole tree. No `dark:` variant is written anywhere and
+> `theme.ts` needed no edit. Three constructs were removed rather than translated: the rail's
+> `::before` indicator, the switch's `input:checked + ::after` knob, and `.stat.up .stat-value` are
+> now ordinary elements driven by React state. Gates: zero class selectors left in the stylesheet,
+> and zero occurrences of the `active` class — which previously carried **four different visual
+> treatments** disambiguated only by parent selector.
+>
+> **Settings now actually reach the worker.** Before this, `save_settings` wrote a JSON file and
+> applied exactly one thing (auto-start), and `daemon.rs` spawned the worker with *no environment at
+> all* — so a user's tracker list had never once reached the JVM. Now: env-at-spawn for the
+> identity-shaped values, a new additive `NODERA-CONFIG` verb (base64 payload, because
+> `ControlServer` splits on whitespace) for everything adjustable at runtime, and a worker restart
+> the app offers **only when it owns the process**. `ContentTransferService` gained volatile serve
+> bounds and a `transfersPaused` gate — the single seam every live knob and the battery rules route
+> through.
+>
+> The badge is now computed, not asserted: a control reads "live" **only** if the connected worker
+> named its key in the `applied` list of its own reply. An older worker therefore degrades to
+> "worker too old" by itself, and the app has no way to claim enforcement that was not confirmed.
+> The two structurally impossible controls (`max_connections_per_world`,
+> `unlimited_connections_only`) stay in the UI with a *distinct* muted "not supported" badge and the
+> worker's own written reason — deliberately not the amber "not enforced yet", which would imply
+> they are coming.
+>
+> ⚠️ **A real cross-agent defect this caught.** The Java and Rust halves were written in parallel
+> against the same spec and picked different key names — `network.tracker_endpoints` vs
+> `network.default_trackers`, `storage.archive_dir` vs `storage.peer_worlds_dir`,
+> `network.serve_max_inflight` vs `network.max_upload_slots_per_world`. Nothing crashed: the keys
+> came back under `rejected` as "unknown setting", so three controls would have looked saved and
+> done nothing. Java was corrected to the app's settings-document names (that identity is what lets
+> the badge match a reply to a control with no translation table), and
+> `ConfigVerbIT.everyKeyTheCompanionAppSendsIsOneThisWorkerRecognises` now feeds the app's real
+> golden string through the real worker so the two cannot drift silently again.
+>
+> **Verified live (2026-07-25):** a real `nodera-headless` worker on control 25640, driven with the
+> companion's exact default payload — `applied` named 6 keys, `restart_required` named
+> `network.port_range` + `storage.peer_worlds_dir`, and the only two rejections were the two
+> permanent ones with their documented reasons; zero "unknown setting". Pushing
+> `transfers_paused:true` flipped `NODERA-STATE`'s `transfers_paused`, and an upload cap of 65536
+> read back as 65536. The app rendered against that worker showing the restart banner in its
+> **attach-mode form** (no button — the app must not kill a worker it did not start).
+
+> **PROVEN LIVE (2026-07-24, `scripts/run-tests.sh` — all 8 suites PASS).** Batch
+> `run/results/runner/20260724-211542`: continuity · ownership · ownership-follow · churn · pickup ·
+> commands · farlands · crash, every one green, clean teardown (no leaked process, no held port).
+> The new lanes are visible in the collected worker `STATE` snapshots rather than merely not
+> breaking anything — `run/results/e2e-ownership/20260724-211633/state-peer{1,2}.json`:
+>
+> ```
+> peer1  client=NoderaMC 0.1.0  total_chunks=94  avail‰=1000
+>   peer route=127.0.0.1:25621 path=direct client=NoderaMC 0.1.0
+>        up/s=475 down/s=46  totUp=17837451 totDown=4230
+>   world pieces=94/94 bytes=24548067 checksum=e0d88b94c8fcc313 seeding=false
+> peer2  client=NoderaMC 0.1.0  total_chunks=68  avail‰=1000
+>   peer route=127.0.0.1:25620 path=direct client=NoderaMC 0.1.0
+>        up/s=35  down/s=371 totUp=4230     totDown=17837451
+> ```
+>
+> That single pair of rows exercises most of the increment at once: the `clientVersion` field
+> crossed a real `PeerJoin`/`MembershipUpdate` between two processes; `route` and `path` are real
+> where they used to be `""` and a hardcoded `"direct"`; the rates are live; and the per-peer totals
+> **mirror exactly** across the two independent workers (17 837 451 / 4 230 each way), which is the
+> assertion that per-peer accounting is attributing bytes to the right peer rather than merely
+> counting them. `server.log` also shows `Nodera rendezvous: host registered with [127.0.0.1:25601]`
+> — the host candidate lane — and the piece/world metadata (`piece_count`, `pieces_held`,
+> `checksum`, `added_at`/`updated_at`) is populated from the real archive.
+>
+> ⚠️ **Pre-existing, unchanged: the dedicated-server suites' companion never meshes.** In
+> `farlands` all three workers report `peers=[] is_gateway=true` — each is its own session of one,
+> so the mod's `NODERA-MESH` handoff is not landing on the dedicated-server path (the host-client
+> suites, e.g. `ownership`, mesh correctly — hence the peer rows above). Byte-identical to the
+> pre-change run `run/results/e2e-farlands/20260724-164414`, so it is **not** a regression from this
+> work; it is an open gap in the dedicated-server lane worth its own issue.
+>
+> ⚠️ **Known environment flake — `SocketPeerTransportAuthTest` under maximum parallelism.** On a
+> busy machine `./gradlew check --rerun-tasks` (parallel, all workers) can fail this class with
+> `auth handshake timed out`: the transport's 10-second handshake latch is a *production* timeout,
+> and every module's tests competing for cores can starve two Ed25519 handshakes past it. This
+> reproduces on a clean `HEAD` worktree with none of the above changes, so it is the gate's CPU
+> budget, not a regression — deliberately **not** "fixed" by weakening the production timeout.
+> `./gradlew check --rerun-tasks --no-parallel --max-workers=2` is green end to end
+> (1345 / 0 failures / 0 skipped).
 >
 > **Test growth (1014 → 1015; tag 53) is the no-host ownership lane (2026-07-23, PASSED LIVE):**
 > every connected player now owns + validates its own FOV region set. The client announces its

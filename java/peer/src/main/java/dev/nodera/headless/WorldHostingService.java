@@ -65,7 +65,6 @@ public final class WorldHostingService implements AutoCloseable {
     /** Supplies the worker's currently-advertised P2P route (may change as the runtime settles). */
     private final Supplier<String> selfRoute;
 
-    private final List<TrackerClient.Endpoint> trackerEndpoints;
     private final List<RendezvousEndpoint> rendezvousEndpoints;
     private final TrackerClient tracker;
     private final RendezvousClient rendezvous;
@@ -80,8 +79,10 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     private final Map<String, HostedWorld> worlds = new ConcurrentHashMap<>();
-    private final Map<String, Boolean> trackerReachable = new ConcurrentHashMap<>();
-    private final Map<String, Boolean> rendezvousReachable = new ConcurrentHashMap<>();
+    private final Map<String, dev.nodera.transport.Reachability.Probe> trackerReachable =
+            new ConcurrentHashMap<>();
+    private final Map<String, dev.nodera.transport.Reachability.Probe> rendezvousReachable =
+            new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler;
 
@@ -104,13 +105,37 @@ public final class WorldHostingService implements AutoCloseable {
                                List<RendezvousEndpoint> rendezvousEndpoints,
                                java.util.function.Function<String,
                                        List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor) {
+        this(identity, capabilities, selfRoute,
+                new TrackerClient(List.copyOf(trackerEndpoints), identity),
+                rendezvousEndpoints, holdingsFor);
+    }
+
+    /**
+     * As above, but announcing through the node's <b>one shared</b> {@link TrackerClient} rather
+     * than a private instance.
+     *
+     * <p>This service, the archive lane, peer discovery and replication used to each hold their own
+     * client — four announce cadences and four copies of the endpoint list describing a single
+     * node. Sharing one client makes the tracker list a live setting
+     * ({@link TrackerClient#setEndpoints}) instead of a restart-required one: this class reads
+     * {@code tracker.endpoints()} on every announce and health probe, so a change is picked up on
+     * the next cadence with no reconstruction.
+     *
+     * <p>The shared client is <b>not</b> closed by {@link #close()} — its owner (the worker main)
+     * closes it once.
+     */
+    public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
+                               Supplier<String> selfRoute,
+                               TrackerClient sharedTracker,
+                               List<RendezvousEndpoint> rendezvousEndpoints,
+                               java.util.function.Function<String,
+                                       List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor) {
         this.identity = identity;
         this.capabilities = capabilities;
         this.selfRoute = selfRoute;
         this.holdingsFor = holdingsFor;
-        this.trackerEndpoints = List.copyOf(trackerEndpoints);
         this.rendezvousEndpoints = List.copyOf(rendezvousEndpoints);
-        this.tracker = new TrackerClient(this.trackerEndpoints, identity);
+        this.tracker = java.util.Objects.requireNonNull(sharedTracker, "tracker");
         this.rendezvous = new RendezvousClient(identity, Duration.ofSeconds(3), Duration.ofSeconds(5));
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "nodera-worker-hosting");
@@ -148,6 +173,8 @@ public final class WorldHostingService implements AutoCloseable {
                 return new HostedWorld(key, worldId, name, UUID.nameUUIDFromBytes(worldId.toArray()));
             }
             existing.name = name;
+            // Hosting is the stronger claim: a world this node was merely seeding is promoted.
+            existing.seeding = false;
             return existing;
         });
         // A re-HOST is the mod's refresh path: it updates the game endpoint (present while the
@@ -158,8 +185,53 @@ public final class WorldHostingService implements AutoCloseable {
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
         LOG.info("Now hosting world '{}' ({}) on {} tracker(s) / {} rendezvous (game endpoint: {})",
-                name, shortId(worldIdHex), trackerEndpoints.size(), rendezvousEndpoints.size(),
+                name, shortId(worldIdHex), tracker.endpoints().size(), rendezvousEndpoints.size(),
                 world.mcRoute == null ? "offline" : world.mcRoute);
+        return null;
+    }
+
+    /**
+     * Begin <b>seeding</b> a world this node does not host: keep its content available to the
+     * network and advertise the pieces held for it, without claiming to run the world.
+     *
+     * <p>This is what makes a shared world the <i>network's</i> rather than its author's. Hosting
+     * announces "the game lives here"; seeding announces "the bytes live here too". A world with
+     * only its host as a holder dies with that host's machine no matter how many peers can see it
+     * listed — which is exactly the failure the archive lane exists to prevent.
+     *
+     * @param worldIdHex the world identity, hex-encoded.
+     * @param worldName  the display name learned from the tracker directory (kept so a seeder's
+     *                   announce does not blank a world's name for everyone).
+     * @return {@code null} on success, or a short error message.
+     * @Thread-context any thread.
+     */
+    public String seed(String worldIdHex, String worldName) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return "missing worldId";
+        }
+        Bytes worldId;
+        try {
+            worldId = Bytes.fromHex(worldIdHex.trim());
+        } catch (RuntimeException e) {
+            return "malformed worldId";
+        }
+        String name = worldName == null || worldName.isBlank() ? worldIdHex : worldName;
+        HostedWorld world = worlds.compute(worldIdHex, (key, existing) -> {
+            if (existing == null) {
+                HostedWorld created = new HostedWorld(key, worldId, name,
+                        UUID.nameUUIDFromBytes(worldId.toArray()));
+                created.seeding = true;
+                return created;
+            }
+            // A world we already HOST is never demoted to a seeder by this call: hosting is the
+            // stronger claim and carries the game endpoint.
+            existing.name = name;
+            return existing;
+        });
+        announce(world, AnnounceEvent.STARTED);
+        registerRendezvous(world, RegistrationEvent.REGISTER);
+        LOG.info("Seeding world '{}' ({}) for the network on {} tracker(s)",
+                name, shortId(worldIdHex), tracker.endpoints().size());
         return null;
     }
 
@@ -200,30 +272,39 @@ public final class WorldHostingService implements AutoCloseable {
         if (world == null) {
             return;
         }
+        // refreshNow is called immediately after a seed/re-key publishes new content, so it is the
+        // honest "last updated" moment: the network can now fetch a newer version than before.
+        world.updatedAtEpochMillis = System.currentTimeMillis();
         scheduler.execute(() -> {
             announce(world, AnnounceEvent.HEARTBEAT);
             registerRendezvous(world, RegistrationEvent.REFRESH);
         });
     }
 
-    /** @return the configured tracker endpoints, each tagged with its last-probed reachability. */
+    /** @return the configured tracker endpoints, each tagged with reachability + probe latency. */
     public List<EndpointHealth> trackerHealth() {
-        List<EndpointHealth> out = new ArrayList<>(trackerEndpoints.size());
-        for (TrackerClient.Endpoint e : trackerEndpoints) {
-            out.add(new EndpointHealth(e.host(), e.port(),
-                    trackerReachable.getOrDefault(key(e.host(), e.port()), false)));
+        List<EndpointHealth> out = new ArrayList<>(tracker.endpoints().size());
+        for (TrackerClient.Endpoint e : tracker.endpoints()) {
+            out.add(health(e.host(), e.port(), e.transport().scheme(), trackerReachable));
         }
         return out;
     }
 
-    /** @return the configured rendezvous endpoints, each tagged with its last-probed reachability. */
+    /** @return the configured rendezvous endpoints, each tagged with reachability + probe latency. */
     public List<EndpointHealth> rendezvousHealth() {
         List<EndpointHealth> out = new ArrayList<>(rendezvousEndpoints.size());
         for (RendezvousEndpoint e : rendezvousEndpoints) {
-            out.add(new EndpointHealth(e.host(), e.port(),
-                    rendezvousReachable.getOrDefault(key(e.host(), e.port()), false)));
+            out.add(health(e.host(), e.port(), "tcp", rendezvousReachable));
         }
         return out;
+    }
+
+    private static EndpointHealth health(String host, int port, String scheme,
+                                         Map<String, dev.nodera.transport.Reachability.Probe> cache) {
+        dev.nodera.transport.Reachability.Probe probe = cache.get(key(host, port));
+        return new EndpointHealth(host, port, scheme,
+                probe != null && probe.reachable(),
+                probe == null ? -1 : probe.latencyMillis());
     }
 
     @Override
@@ -249,7 +330,7 @@ public final class WorldHostingService implements AutoCloseable {
 
     /** Build + send a signed tracker announce for one world. Never throws. */
     private void announce(HostedWorld world, AnnounceEvent event) {
-        if (trackerEndpoints.isEmpty()) {
+        if (tracker.endpoints().isEmpty()) {
             return;
         }
         try {
@@ -301,18 +382,18 @@ public final class WorldHostingService implements AutoCloseable {
         }
     }
 
-    /** Refresh the cached reachability of every tracker + rendezvous endpoint (dashboard health). */
+    /** Refresh the cached reachability + latency of every tracker + rendezvous endpoint. */
     private void probeHealth() {
-        for (TrackerClient.Endpoint e : trackerEndpoints) {
-            trackerReachable.put(key(e.host(), e.port()), reachable(e.host(), e.port()));
+        for (TrackerClient.Endpoint e : tracker.endpoints()) {
+            trackerReachable.put(key(e.host(), e.port()), measure(e.host(), e.port()));
         }
         for (RendezvousEndpoint e : rendezvousEndpoints) {
-            rendezvousReachable.put(key(e.host(), e.port()), reachable(e.host(), e.port()));
+            rendezvousReachable.put(key(e.host(), e.port()), measure(e.host(), e.port()));
         }
     }
 
-    private static boolean reachable(String host, int port) {
-        return dev.nodera.transport.Reachability.probe(
+    private static dev.nodera.transport.Reachability.Probe measure(String host, int port) {
+        return dev.nodera.transport.Reachability.measure(
                 host, port, java.time.Duration.ofMillis(PROBE_TIMEOUT_MILLIS));
     }
 
@@ -335,12 +416,20 @@ public final class WorldHostingService implements AutoCloseable {
         volatile String mcRoute;
         /** Players currently online in-world, as last reported by the mod. */
         volatile long players;
+        /** When this world first entered the Nodera network from this node (the "Date added"). */
+        final long addedAtEpochMillis;
+        /** When this world's content last changed here — bumped by every seed (the "Last updated"). */
+        volatile long updatedAtEpochMillis;
+        /** {@code true} when this node only holds the world's bytes; {@code false} when it hosts it. */
+        volatile boolean seeding;
 
         HostedWorld(String worldIdHex, Bytes worldId, String name, UUID networkId) {
             this.worldIdHex = worldIdHex;
             this.worldId = worldId;
             this.name = name;
             this.networkId = networkId;
+            this.addedAtEpochMillis = System.currentTimeMillis();
+            this.updatedAtEpochMillis = this.addedAtEpochMillis;
         }
 
         public String worldIdHex() {
@@ -349,6 +438,24 @@ public final class WorldHostingService implements AutoCloseable {
 
         public String name() {
             return name;
+        }
+
+        /** @return epoch millis when this world was added to the network from this node. */
+        public long addedAtEpochMillis() {
+            return addedAtEpochMillis;
+        }
+
+        /** @return epoch millis of this world's most recent content update on this node. */
+        public long updatedAtEpochMillis() {
+            return updatedAtEpochMillis;
+        }
+
+        /**
+         * @return {@code true} when this node is only keeping the world's content alive for the
+         *         network, {@code false} when it is the world's host.
+         */
+        public boolean seeding() {
+            return seeding;
         }
 
         /** @return the game endpoint joiners connect to, or {@code null} (host's game closed). */
@@ -395,7 +502,15 @@ public final class WorldHostingService implements AutoCloseable {
         }
     }
 
-    /** A configured discovery endpoint plus its last-probed reachability, for the dashboard. */
-    public record EndpointHealth(String host, int port, boolean reachable) {
+    /**
+     * A configured discovery endpoint plus its last probe, for the dashboard.
+     *
+     * @param scheme        how the endpoint is reached ({@code tcp} / {@code udp}), so the UI can
+     *                      render the source as a URI rather than guessing the protocol.
+     * @param reachable     whether the last probe completed.
+     * @param latencyMillis last handshake round-trip, or {@code -1} when unreachable / unprobed.
+     */
+    public record EndpointHealth(String host, int port, String scheme, boolean reachable,
+                                 long latencyMillis) {
     }
 }

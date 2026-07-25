@@ -77,4 +77,49 @@ final class SocketPeerTransportBindTest {
         int boundPort = Integer.parseInt(route.substring("127.0.0.1:".length()));
         assertThat(boundPort).isNotZero().isPositive().isNotEqualTo(busyPort);
     }
+
+    /**
+     * The port-range bind: a fixed port is forwardable but fails outright against a busy
+     * neighbour, and an ephemeral port always binds but is not forwardable. The range gives both —
+     * and, crucially, the <b>advertised route carries the port actually bound</b>, so a peer that
+     * skipped a busy port is still dialable at the address it publishes.
+     */
+    @Test
+    void aPortRangeSkipsTheBusyPortAndAdvertisesTheOneItBound() throws Exception {
+        int busyPort = holdPort();
+
+        SocketPeerTransport tx = new SocketPeerTransport(
+                dev.nodera.core.identity.NodeIdentity.generate(),
+                "127.0.0.1", busyPort, busyPort + 3, "127.0.0.1");
+        tx.start();
+        started.add(tx);
+
+        // listenRoute() is the assertion, not an internal field: the advertised route is what
+        // peers dial, so a range bind that did not update it would be worse than not binding.
+        String route = tx.listenRoute();
+        assertThat(route).startsWith("127.0.0.1:");
+        int boundPort = Integer.parseInt(route.substring("127.0.0.1:".length()));
+        // Normally busyPort + 1 — the first free port, ascending. Asserted as a range rather than
+        // an equality because the ports just above an OS-assigned ephemeral one can legitimately
+        // be taken by another process on a shared machine; what must hold is that the transport
+        // skipped the busy port and stayed inside the range it was given.
+        assertThat(boundPort).isGreaterThan(busyPort).isLessThanOrEqualTo(busyPort + 3);
+        assertThat(tx.connectionCount()).isZero();
+    }
+
+    /** A wholly busy range fails loudly, naming the range — never a silent ephemeral fallback. */
+    @Test
+    void anExhaustedRangeThrowsNamingTheRange() throws Exception {
+        // Hold a 1-wide range so every candidate port is taken.
+        int busyPort = holdPort();
+
+        SocketPeerTransport tx = new SocketPeerTransport(
+                dev.nodera.core.identity.NodeIdentity.generate(),
+                "127.0.0.1", busyPort, busyPort, "127.0.0.1");
+        assertThatThrownBy(tx::start)
+                .isInstanceOf(TransportException.class)
+                .hasMessageContaining("failed to bind")
+                .hasMessageContaining(Integer.toString(busyPort));
+        assertThat(tx.listenRoute()).isNull();
+    }
 }
