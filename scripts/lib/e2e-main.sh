@@ -298,6 +298,33 @@ wait_log_guarded() {
     return 1
 }
 
+# Screens a QUICK-PLAY client must never be sitting on: quick play connects (or loads) with no
+# GUI interaction at all, so any of these means quick play never ran and the game is waiting for
+# a human who will never arrive. ClientStallReporter names the screen ten seconds in; matching it
+# turns a 30-minute timeout that says "never joined" into a one-line cause.
+#
+# Deliberately NOT here: DisconnectedScreen and NoderaMultiplayerScreen. A client legitimately
+# passes through both when the host it was playing on dies — which is the whole point of the
+# continuity and crash suites — so guarding on them would fail the runs they exist to prove.
+CLIENT_BLOCKED_SCREENS='AccessibilityOnboardingScreen|TitleScreen|BanNotice'
+
+# wait_join <server-or-host-log> <needle> <timeout> <client-log> <what> — wait for the join
+# evidence, but bail the moment the client parks on a screen from CLIENT_BLOCKED_SCREENS.
+wait_join() {
+    local file="$1" needle="$2" timeout="${3:-120}" client="$4" what="$5" waited=0 screen
+    timeout=$(( timeout * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+    while (( waited < timeout )); do
+        [[ -f "$file" ]] && grep -qF -- "$needle" "$file" && return 0
+        if [[ -f "$client" ]]; then
+            screen=$(grep -oE "screen: ($CLIENT_BLOCKED_SCREENS)[A-Za-z]*" "$client" | tail -1)
+            [[ -n "$screen" ]] && fail "$what — the client is parked on a screen quick play never \
+reaches (${screen#screen: }); see $client"
+        fi
+        sleep 2; waited=$((waited + 2))
+    done
+    return 1
+}
+
 # A world baked before a FlatWorldRules.RULES_VERSION bump carries a certified genesis the
 # current engine refuses ("rulesVersion N does not match ..."), so the entity lane never boots
 # and every ownership assertion times out with no stated cause. Suites that REUSE the bake call
@@ -526,10 +553,42 @@ nodera_stack_up() {
 # Game side: client config, dedicated server, clients
 # ---------------------------------------------------------------------------
 
+# First-run vanilla options for a client game dir: stage_client_options <game-dir-name>
+#
+# Written ONLY when the dir has no options.txt yet — a real options.txt is the
+# player's (and Minecraft rewrites it on exit), so this seeds a first launch and
+# never overwrites tuned settings.
+#
+# Why this exists: on a game dir with no options.txt, `Options.onboardAccessibility`
+# defaults to TRUE and `Minecraft.addInitialScreens` puts AccessibilityOnboardingScreen
+# IN FRONT of quick play — quick play is the onboarding screen's continue callback, so
+# it simply never runs. Every scripted client boots fine, ticks its loop, and sits on
+# that screen forever. Invisible on a developer machine (whose run dirs kept an
+# options.txt from the first manual launch) and fatal in CI on a fresh checkout: it is
+# exactly why the three e2e-live jobs each burned 30 minutes and reported "never
+# joined" (screen: AccessibilityOnboardingScreen, per ClientStallReporter).
+stage_client_options() {
+    local dir="$MOD_DIR/$1"
+    mkdir -p "$dir"
+    [[ -f "$dir/options.txt" ]] && return 0
+    # onboardAccessibility  — the blocker above; must be false before the first frame.
+    # skipMultiplayerWarning — the third-party-server notice sits in front of the
+    #                          multiplayer screen for any suite that drives the GUI.
+    # pauseOnLostFocus      — under Xvfb there is no window manager, so a client may
+    #                          never be "active"; a paused singleplayer client stops
+    #                          ticking and would never share its world.
+    cat > "$dir/options.txt" <<'EOF'
+onboardAccessibility:false
+skipMultiplayerWarning:true
+pauseOnLostFocus:false
+EOF
+}
+
 # Point a client game dir's nodera-client.toml at its OWN companion worker and
 # the dev services: write_client_config <game-dir-name> <control-port>
 write_client_config() {
     mkdir -p "$MOD_DIR/$1/config"
+    stage_client_options "$1"
     cat > "$MOD_DIR/$1/config/nodera-client.toml" <<EOF
 [companion]
 	controlEndpoint = "127.0.0.1:$2"
@@ -598,10 +657,12 @@ nodera_dedicated_two_players() {
     write_client_config run-join2 "$PEER2_CONTROL"
     start_client runClientJoin    "$LOG_DIR/client-join.log"
     P1_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/server.log" "JoinerDev joined the game" 600 || fail "JoinerDev never joined"
+    wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" 600 \
+        "$LOG_DIR/client-join.log" "JoinerDev never joined" || fail "JoinerDev never joined"
     start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
     P2_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 || fail "JoinerTwo never joined"
+    wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
+        "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
     wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
 }
 
@@ -659,11 +720,13 @@ nodera_hosted_two_players() {
     write_client_config run-join "$PEER2_CONTROL"
     start_client runClientHost "$LOG_DIR/client-host.log"
     HOST_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+    wait_join "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+        "$LOG_DIR/client-host.log" "player A never opened the shared world" \
         || fail "player A never opened the shared world"
     start_client runClientJoin "$LOG_DIR/client-join.log"
     JOINER_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+    wait_join "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+        "$LOG_DIR/client-join.log" "player B never joined" \
         || fail "player B never joined"
 }
 

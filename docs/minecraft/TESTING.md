@@ -111,7 +111,34 @@ with no obvious cause. Those suites now bail out immediately naming this. The fi
 rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
 ```
 
-## 1.6 Reading the artifacts
+## 1.6 The first-run trap: a game dir with no `options.txt`
+
+A client game dir that has never been launched has no `options.txt`, so `onboardAccessibility`
+defaults to **true** and `Minecraft.addInitialScreens` puts the accessibility onboarding screen
+**in front of quick play** — quick play is that screen's *continue* callback, so it never runs. The
+client boots correctly, ticks its loop, and sits there forever; nothing in its log says why.
+
+This is invisible on a developer machine, whose `run-*/` dirs kept an `options.txt` from the first
+manual launch, and fatal on a fresh CI checkout — it is exactly what the first three `e2e-live` jobs
+hit, each burning its full timeout to report "never joined". `ClientStallReporter` named the screen
+(`screen: AccessibilityOnboardingScreen`, 60 times per run), which is what turned a mystery into a
+one-line fix.
+
+The launcher now seeds `options.txt` for every client game dir it configures, and only when the file
+is absent — a real `options.txt` belongs to the player and Minecraft rewrites it on exit:
+
+| Key | Why |
+|---|---|
+| `onboardAccessibility:false` | The blocker above; must be false before the first frame |
+| `skipMultiplayerWarning:true` | The third-party-server notice otherwise sits in front of the multiplayer screen |
+| `pauseOnLostFocus:false` | Under Xvfb there is no window manager, so a client may never be "active"; a paused singleplayer client stops ticking and would never share its world |
+
+The waits for a join are guarded to match: a quick-play client parked on a screen quick play never
+reaches (onboarding, title, ban notice) fails immediately, naming the screen, instead of burning
+thirty minutes. `DisconnectedScreen` is deliberately **not** guarded — the continuity and crash
+suites pass through it by design.
+
+## 1.7 Reading the artifacts
 
 | File | What to look for |
 |---|---|
