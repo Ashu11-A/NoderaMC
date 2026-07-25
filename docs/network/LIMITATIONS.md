@@ -7,7 +7,7 @@
      move it to LIMITATIONS.fixed.md with its evidence. Update in the SAME commit that stages or
      retires a row. -->
 
-**Category:** network · **Last audit:** 2026-07-25 · Open or retiring rows: **2**
+**Category:** network · **Last audit:** 2026-07-25 · Open or retiring rows: **3**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -44,3 +44,4 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
   in the same commit. A tag appended on one side alone fails CI, by design.
 - When a design choice trades against a §B entry, prefer the choice that keeps the exit test
   achievable.
+| L-62 | The **production** content store has no byte budget. L-37 retired on `BoundedClientWorldStore` (quota + oldest-cold-first eviction + pinned-never-evicted + repair signalling), but nothing constructs it: the worker stores blobs in `FsContentStore` and the in-memory `InMemoryContentStore` backs `EventSourcedWorldStore`, neither of which is bounded. What holds the disk down today is narrower — a per-world archive retention window (**L-61**) and the replication lane's own `NODERA_REPLICATION_BUDGET` for worlds this node does not host — so nothing bounds the total. The policy is written and tested; the wiring is missing | [7](Task.7.md) | `FsContentStore` enforces a byte budget with the L-37 policy (pinned assigned-region state never evicted, eviction signalled to repair), proven against a real directory, and the budget is an operator setting | OPEN |

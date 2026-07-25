@@ -35,13 +35,6 @@ public record StorageQuotaManager(long budgetBytes, long usedBytes) {
             throw new IllegalArgumentException(
                     "usedBytes " + usedBytes + " exceeds budget " + budgetBytes);
         }
-        budgetBytes = budgetBytes;
-        usedBytes = usedBytes;
-    }
-
-    /** @return a fresh manager at the default budget, empty. */
-    public StorageQuotaManager empty() {
-        return new StorageQuotaManager(budgetBytes, 0L);
     }
 
     /** @return how many bytes remain under the budget. */
