@@ -107,6 +107,9 @@ nodera_ports() {
     WORKER_P2P_BASE="${WORKER_P2P_BASE:-25620}"
     RCON_PORT="${RCON_PORT:-25575}"
     RCON_PASS="${RCON_PASS:-nodera-dev}"
+    # How long preflight waits for a busy port to come free before calling it a failure. Suites
+    # run back to back in one CI job and a killed JVM can hold its listener for a few seconds.
+    PORT_FREE_TIMEOUT="${PORT_FREE_TIMEOUT:-60}"
     # Ports a caller binds outside this launcher but still wants preflighted —
     # space separated. scripts/dev.sh --play uses it for the two dev clients' own
     # in-process mod peer ports.
@@ -244,6 +247,15 @@ cleanup() {
     pkill -f 'nodera-rendezvous --config' 2>/dev/null
     pkill -f 'dev.nodera.headless.HeadlessPeerMain' 2>/dev/null
     pkill -f RunProgramArgs 2>/dev/null
+    # Then WAIT for the listeners to actually go. A dedicated server saves its world on SIGTERM
+    # and can hold RCON for seconds after the kill returns; suites run back to back in one CI job,
+    # so leaving a bound port behind fails the next suite's preflight for no real reason.
+    local port waited=0
+    for port in ${RCON_PORT:-} ${GAME_PORT:-}; do
+        while ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null && (( waited < 30 )); do
+            sleep 1; waited=$((waited + 1))
+        done
+    done
 }
 trap cleanup EXIT
 
@@ -405,12 +417,22 @@ check_binaries() {
     [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :peer:installDist)"
 }
 
+# Preflight every port the topology is about to bind. A busy port gets a bounded WAIT before it
+# is called a failure: suites run back to back in one CI job, and the previous suite's JVMs (the
+# dedicated server holding RCON 25575 in particular) can outlive their kill by a few seconds —
+# the ports come free on their own, so failing on the first probe fails a healthy stack.
+# Genuinely foreign occupants (scripts/dev.sh, a stale client) never free up and still fail.
 check_ports() { # ports...
-    local port
+    local port waited
     for port in "$@"; do
-        if ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null; then
-            fail "port $port busy — stop the other stack first (scripts/dev.sh? stale client JVM?)"
-        fi
+        waited=0
+        while ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null; do
+            (( waited >= PORT_FREE_TIMEOUT )) \
+                && fail "port $port busy after ${PORT_FREE_TIMEOUT}s — stop the other stack first \
+(scripts/dev.sh? stale client JVM?)"
+            (( waited == 0 )) && log "port $port still held — waiting for it to come free"
+            sleep 2; waited=$((waited + 2))
+        done
     done
 }
 
