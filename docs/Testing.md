@@ -314,9 +314,9 @@ grep -a "SELFTEST complete" run/logs/e2e-commands/server.log        # the in-gam
 
 # Part 2 — module test status
 
-**Tests:** `1,420 passing · 0 failing · 0 skipped` (+**150 Rust workspace**, **56 `nodera-app`**;
+**Tests:** `1,429 passing · 0 failing · 0 skipped` (+**150 Rust workspace**, **56 `nodera-app`**;
 **1,588 total**). Per module (authoritative `./gradlew check` XML): core 233 · engine 430 ·
-transport 93 · storage 97 · testing 14 · peer 445 · neoforge-mod 83 (engine 430 → 455).
+transport 93 · storage 102 · testing 14 · peer 449 · neoforge-mod 83 (engine 430 → 455).
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 

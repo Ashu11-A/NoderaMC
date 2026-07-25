@@ -22,6 +22,7 @@ import dev.nodera.transport.PeerAddress;
 import dev.nodera.transport.PeerTransport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -113,7 +114,13 @@ final class ConfigVerbIT {
     }
 
     /** Boot the worker's real lanes behind a real control endpoint. */
+    private dev.nodera.storage.rocksdb.FsContentStore diskStore;
+
     private NodeIdentity worker() {
+        return worker(null);
+    }
+
+    private NodeIdentity worker(java.nio.file.Path archiveDir) {
         NodeIdentity identity = NodeIdentity.generate();
         NodeCapabilities caps = NodeCapabilities.initial()
                 .withRoles(EnumSet.of(PeerRole.FULL_ARCHIVE, PeerRole.BOOTSTRAP));
@@ -125,8 +132,10 @@ final class ConfigVerbIT {
 
         contentTransport = new RecordingTransport();
         tracker = new TrackerClient(List.of(), identity);
+        diskStore = archiveDir == null ? null
+                : new dev.nodera.storage.rocksdb.FsContentStore(archiveDir, hashes);
         archive = new WorldArchiveService(identity, contentTransport,
-                new InMemoryContentStore(hashes), tracker);
+                diskStore != null ? diskStore : new InMemoryContentStore(hashes), tracker);
         hosting = new WorldHostingService(identity, caps, runtime::selfRoute, tracker,
                 List.of(), archive::holdingsFor);
         replication = new WorldReplicationService(identity.nodeId(), tracker, archive, hosting,
@@ -135,7 +144,8 @@ final class ConfigVerbIT {
         WorkerControlHandler handler = new WorkerControlHandler("config-test", identity, caps,
                 runtime, new dev.nodera.diagnostics.metric.TrafficMeter(), hosting, null, archive,
                 null, null,
-                new WorkerControlHandler.ConfigSeams(archive.content(), replication, null, tracker));
+                new WorkerControlHandler.ConfigSeams(archive.content(), replication, null, tracker,
+                        diskStore));
         control = new ControlServer("127.0.0.1", 0, handler);
         try {
             control.start();
@@ -244,6 +254,45 @@ final class ConfigVerbIT {
      * A rename on either side reintroduces exactly that, and only a test that feeds one side's real
      * output into the other can catch it.
      */
+    @Test
+    void changingTheArchiveDirectoryRelocatesWhatThisNodeIsSeeding(@TempDir java.nio.file.Path tmp)
+            throws Exception {
+        // L-58: this key used to be reported as restart_required, which quietly stranded the
+        // node's seeding obligations — the world would stay listed while every piece request
+        // missed. The content has to move with the setting.
+        java.nio.file.Path oldDir = tmp.resolve("old");
+        java.nio.file.Path newDir = tmp.resolve("new");
+        worker(oldDir);
+
+        String worldIdHex = hashes.sha256("relocating-world".getBytes(StandardCharsets.UTF_8))
+                .toHex();
+        byte[] blob = new byte[128_000];
+        new java.util.Random(11L).nextBytes(blob);
+        var manifest = archive.seedArchive(worldIdHex, blob);
+        assertTrue(diskStore.size() > 0, "the node is actually holding something to strand");
+
+        String reply = config("{\"storage.peer_worlds_dir\":\"" + newDir + "\"}");
+        assertNotNull(reply);
+        assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+        assertTrue(reply.contains("\"applied\":[\"storage.peer_worlds_dir\"]"),
+                "the directory change must be APPLIED, not deferred to a restart: " + reply);
+
+        assertTrue(diskStore.contentRoot().startsWith(newDir), diskStore.contentRoot().toString());
+        assertTrue(diskStore.has(manifest.blob()),
+                "the seeded blob survived the move, so the swarm's requests still hit");
+        assertFalse(archive.holdingsFor(worldIdHex).isEmpty(),
+                "and the node still advertises what it holds");
+    }
+
+    @Test
+    void anEmptyArchiveDirectoryIsRefusedRatherThanTreatedAsALocation() throws Exception {
+        worker();
+        String reply = config("{\"storage.peer_worlds_dir\":\"\"}");
+        assertNotNull(reply);
+        assertFalse(reply.contains("unknown setting"), reply);
+        assertTrue(reply.contains("rejected"), reply);
+    }
+
     @Test
     void everyKeyTheCompanionAppSendsIsOneThisWorkerRecognises() throws Exception {
         worker();
