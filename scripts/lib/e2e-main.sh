@@ -404,7 +404,22 @@ tp_player() {
     reply=$(rcon "execute in $dim run tp $who $x $y $z")
     grep -qa "Teleported" <<<"$reply" \
         || fail "the teleport of $who to ($x, $y, $z) was not accepted: ${reply:-<no reply>}"
+    # A long teleport is a chunk-generation request: the server thread can stay busy for minutes
+    # afterwards, and RCON is answered on that thread. Waiting for it to talk again is the
+    # difference between "the next command failed" and "the next command was never heard" — the
+    # pickup drive reported `summon failed` for exactly this reason, with nothing wrong at all.
+    rcon_wait_ready "$who"
     printf '%s' "$reply"
+}
+
+# Block until the server answers again (bounded). Cheap probe, no side effects.
+rcon_wait_ready() {
+    local who="$1" waited=0 limit=$(( 240 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+    while (( waited < limit )); do
+        grep -qa "$who" <<<"$(rcon "list")" && return 0
+        sleep 5; waited=$((waited + 5))
+    done
+    fail "the server never answered again after teleporting $who (busy for over ${limit}s)"
 }
 
 rcon_once() {
