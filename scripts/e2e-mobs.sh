@@ -51,16 +51,28 @@ done
 # COMMAND ran on — the server — and under field-of-view ownership the regions belong to the
 # PLAYERS' nodes, so the server's total is legitimately 0 while capture is working perfectly.
 # That is what made the first two runs of this suite disagree with each other (163, then 0).
-wait_log_after "$LOG_DIR/server.log" "GHOST:" 240 "$mark" \
+#
+# The line is emitted once per region, the first time that region holds a ghost — and a live world
+# is full of cows and chickens, so regions announce as soon as the lane goes live, seconds before
+# any summon lands. So the assertion is over the WHOLE log, not the window after the summons: what
+# it proves is that capture runs in this dimension at all. What the summons then have to prove is
+# the opposite of revocation — that adding mobs where capture is enabled does not cost the lane a
+# region.
+wait_log "$LOG_DIR/server.log" "GHOST:" 240 \
     || fail "G1: no region ever reported holding ghost mobs where capture is enabled \
 (see $LOG_DIR/server.log)"
-ghost=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "GHOST:" | tail -1)
-transcript "=== capture: $ghost"
+grep -a "GHOST:" "$LOG_DIR/server.log" | tail -5 >> "$RESULTS_DIR/mobs.log"
+# Hostiles specifically: a lane that only ever captured passive animals would satisfy the line
+# above and still be broken for the mobs that matter.
+grep -qa "GHOST:.*minecraft:\(zombie\|skeleton\|creeper\|spider\)" "$LOG_DIR/server.log" \
+    || log "G1: note — no hostile named in a first-capture line (regions announce on their first \
+ghost, which is often an ambient animal)"
 
-# Capture and revocation are opposites: seeing the revoke reason here would mean the lane dropped
-# the region it was supposed to be holding.
+# Capture and revocation are opposites: a revoke in the window after the summons would mean the
+# lane dropped the very region it was supposed to be holding.
 tail -n +"$mark" "$LOG_DIR/server.log" | grep -qa "entity lane revoked" \
     && fail "G1: the lane REVOKED a region in a dimension where capture is enabled"
+
 pass "G1: ghost capture — the lane controls the mobs and keeps its region"
 
 # --- G2: revocation where the dimension never opted in ------------------------------------------
