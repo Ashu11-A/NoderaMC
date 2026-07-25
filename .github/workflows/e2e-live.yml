@@ -50,7 +50,10 @@ jobs:
               [[ -x "scripts/e2e-$s.sh" ]] || { echo "::error::unknown suite '$s'"; exit 1; }
             done
           fi
-          printf 'suites=%s\n' "$(printf '%s\n' "${picked[@]}" | jq -Rrc . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          json=$(printf '%s\n' "${picked[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
+          # A malformed list would reach fromJSON as an expression error 20 lines away from here.
+          [[ $json == \[*\] ]] || { echo "::error::could not build the matrix: '$json'"; exit 1; }
+          printf 'suites=%s\n' "$json" >> "$GITHUB_OUTPUT"
           printf 'running: %s\n' "${picked[*]}"
 
   suite:
