@@ -108,6 +108,7 @@ fn type_tag_registry_mirrors_java() {
     assert_mirrors(&source, "CONTAINER_ENTRY", CONTAINER_ENTRY, FILE);
     assert_mirrors(&source, "MOVE_PLAYER_ACTION", MOVE_PLAYER_ACTION, FILE);
     assert_mirrors(&source, "WORLD_PERMISSION_SET", WORLD_PERMISSION_SET, FILE);
+    assert_mirrors(&source, "COMMAND_ACTION", COMMAND_ACTION, FILE);
     assert_mirrors(&source, "SCHEDULED_TICK_ENTRY", SCHEDULED_TICK_ENTRY, FILE);
     assert_mirrors(&source, "BLOCK_EVENT_ENTRY", BLOCK_EVENT_ENTRY, FILE);
     assert_mirrors(&source, "NEXT", NEXT, FILE);

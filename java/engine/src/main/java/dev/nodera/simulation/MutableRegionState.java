@@ -63,6 +63,13 @@ public final class MutableRegionState implements RegionWorldView {
     // hashed into the snapshot/delta (like the rng seed). Time-coupled rules (daylight sensor) read
     // it; defaults to 0 for time-free rule sets.
     private final long worldTime;
+
+    /**
+     * The committee-agreed operator set (Task 16 / L-14). Transient context like {@link #worldTime}
+     * — never hashed, because it is an INPUT every member already agrees on, not state. Empty means
+     * nobody may run a command here.
+     */
+    private java.util.Set<dev.nodera.core.identity.NodeId> operators = java.util.Set.of();
     private final Map<Long, ColumnModel> columnsByChunk;
     private final BlockMutationBuffer mutationBuffer = new BlockMutationBuffer();
     private final EntityStore entityStore;
@@ -160,6 +167,16 @@ public final class MutableRegionState implements RegionWorldView {
      *         hashed. Time-coupled rules (the daylight sensor) read it; 0 for time-free rule sets.
      * @Thread-context thread-confined per call.
      */
+    /** Install the committee-agreed operator set for this execution (see {@link #operators()}). */
+    public void bindOperators(java.util.Set<dev.nodera.core.identity.NodeId> ops) {
+        this.operators = ops == null ? java.util.Set.of() : java.util.Set.copyOf(ops);
+    }
+
+    @Override
+    public java.util.Set<dev.nodera.core.identity.NodeId> operators() {
+        return operators;
+    }
+
     public long worldTime() {
         return worldTime;
     }

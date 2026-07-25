@@ -147,6 +147,9 @@ public final class FlatWorldRegionEngine implements RegionEngine {
 
         RegionBounds bounds = RegionBounds.of(ctx.region());
         MutableRegionState state = new MutableRegionState(request.snapshot(), bounds, ctx.committedWorldTime());
+        // L-14: who may run a command is a committee-agreed input, exactly like the world time —
+        // so it travels on the context and every member evaluates the same predicate.
+        state.bindOperators(ctx.operators());
 
         List<ActionRejection> rejections = new ArrayList<>();
         int applied = 0;

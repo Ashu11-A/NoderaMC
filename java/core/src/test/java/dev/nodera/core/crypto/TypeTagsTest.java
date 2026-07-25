@@ -117,7 +117,8 @@ final class TypeTagsTest {
         assertThat(TypeTags.CONTAINER_ENTRY).isEqualTo(105);
         assertThat(TypeTags.MOVE_PLAYER_ACTION).isEqualTo(106);
         assertThat(TypeTags.WORLD_PERMISSION_SET).isEqualTo(107);
-        assertThat(TypeTags.NEXT).isEqualTo(107);
+        assertThat(TypeTags.COMMAND_ACTION).isEqualTo(108);
+        assertThat(TypeTags.NEXT).isEqualTo(108);
     }
 
     @Test
