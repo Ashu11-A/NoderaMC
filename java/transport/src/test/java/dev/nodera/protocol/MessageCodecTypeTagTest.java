@@ -124,7 +124,8 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_GENESIS_APPROVAL_REQUEST).isEqualTo(58);
         assertThat(MessageCodec.TAG_GENESIS_APPROVAL_GRANT).isEqualTo(59);
         assertThat(MessageCodec.TAG_WORLD_GRANT_GOSSIP).isEqualTo(60);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(60);
+        assertThat(MessageCodec.TAG_REGION_REFUSAL).isEqualTo(61);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(61);
     }
 
     @Test

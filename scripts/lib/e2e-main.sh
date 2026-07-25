@@ -27,7 +27,8 @@
 #   peer 3  spare standalone headless     control 25612 · p2p 25622
 #
 # Player 1 / player 2 are role slots, not game dirs — a host-client suite maps
-# them to run-host + run-join, a dedicated-server suite to run-join + run-join2.
+# them to run-host + run-join, a dedicated-server suite to run-join + run-join2
+# (+ run-join3 when a suite asks for the third player).
 # The spare peer has no client attached; it exists to hold the swarm above the
 # quorum floor and to seed/serve archives when a player's worker dies with its
 # game.
@@ -139,7 +140,9 @@ nodera_topology() {
     # suite runs, player 1 gets PEER1_*, player 2 gets PEER2_*.
     PEER1_CONTROL=$(( WORKER_CONTROL_BASE + 0 )); PEER1_P2P=$(( WORKER_P2P_BASE + 0 ))
     PEER2_CONTROL=$(( WORKER_CONTROL_BASE + 1 )); PEER2_P2P=$(( WORKER_P2P_BASE + 1 ))
-    # The spare standalone peer (slot 3) — no client, quorum ballast.
+    # Slot 3. On the usual two-player topology this is the spare standalone peer (no client,
+    # quorum ballast); a three-player suite gives it to player 3 and the spare moves to slot 4.
+    # Either way NODERA_WORKERS above decides how many workers actually start.
     PEER3_CONTROL=$(( WORKER_CONTROL_BASE + 2 )); PEER3_P2P=$(( WORKER_P2P_BASE + 2 ))
 }
 
@@ -784,6 +787,15 @@ nodera_dedicated_two_players() {
         wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" "$JOIN_TIMEOUT" \
             "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
     fi
+    # A third player is the Phase-1 exit gate's shape (issue #5): three nodes re-executing the same
+    # regions, because two can only ever disagree pairwise.
+    if (( NODERA_PLAYERS >= 3 )); then
+        write_client_config run-join3 "$PEER3_CONTROL"
+        start_client runClientJoinThree "$LOG_DIR/client-join3.log"
+        P3_GRADLE_PID=$LAST_CLIENT_PID
+        wait_join "$LOG_DIR/server.log" "JoinerThree joined the game" "$JOIN_TIMEOUT" \
+            "$LOG_DIR/client-join3.log" "JoinerThree never joined" || fail "JoinerThree never joined"
+    fi
     wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
 }
 
@@ -918,7 +930,7 @@ collect_results() { # dest-dir (defaults to $RESULTS_DIR)
     mkdir -p "$dest"
     cp -r "$LOG_DIR"/. "$dest/" 2>/dev/null
     local d
-    for d in run run-host run-join run-join2; do
+    for d in run run-host run-join run-join2 run-join3; do
         [[ -f "$MOD_DIR/$d/logs/latest.log" ]] \
             && cp "$MOD_DIR/$d/logs/latest.log" "$dest/client-$d-latest.log"
     done

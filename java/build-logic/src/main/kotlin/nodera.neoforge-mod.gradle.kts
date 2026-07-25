@@ -66,6 +66,16 @@ the<NeoForgeExtension>().apply {
         programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
                 "--username", "JoinerTwo")
     }
+    // Third scripted joiner (scripts/e2e-determinism.sh): the Phase-1 exit gate asks for THREE
+    // dev clients playing at once, which is one more independent node re-executing the same
+    // regions — the whole point of the determinism soak is disagreement between nodes, and two
+    // nodes can only ever disagree pairwise. Own game dir + username, same as the others.
+    runs.register("clientJoinThree") {
+        client()
+        gameDirectory.set(project.layout.projectDirectory.dir("run-join3"))
+        programArguments.addAll("--quickPlayMultiplayer", "127.0.0.1:25599",
+                "--username", "JoinerThree")
+    }
     // Second interactive client for manual two-player testing (scripts/dev.sh --play): own game
     // dir + username, no quick play — the player drives the Nodera multiplayer UI by hand.
     runs.register("clientTwo") {

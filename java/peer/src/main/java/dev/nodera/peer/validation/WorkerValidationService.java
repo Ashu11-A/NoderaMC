@@ -59,6 +59,7 @@ import dev.nodera.protocol.simulationmsg.EntityTransferCommit;
 import dev.nodera.protocol.simulationmsg.EntityTransferPrepare;
 import dev.nodera.protocol.simulationmsg.ExternalDelta;
 import dev.nodera.protocol.simulationmsg.RegionProposal;
+import dev.nodera.protocol.simulationmsg.RegionRefusal;
 import dev.nodera.protocol.simulationmsg.ValidationVote;
 import dev.nodera.simulation.RegionEngine;
 import dev.nodera.simulation.RegionExecutionContext;
@@ -142,8 +143,12 @@ public final class WorkerValidationService {
         }
     }
 
-    /** One in-flight primary-side vote round. */
+    /**
+     * One in-flight primary-side vote round. {@code ownRoot} is what THIS node computed for the
+     * batch — the thing an incoming vote is compared against to detect divergence (issue #5).
+     */
     private record Round(VoteCollector collector, RegionLease lease, StateRoot batchRoot,
+                         StateRoot ownRoot,
                          CountDownLatch done,
                           AtomicReference<Decision> decision) {
     }
@@ -215,6 +220,18 @@ public final class WorkerValidationService {
     private final AtomicLong votesReceived = new AtomicLong();
     private final AtomicLong committeeCommits = new AtomicLong();
     private final AtomicLong fallbackCommits = new AtomicLong();
+
+    /**
+     * Re-executions that did not agree (issue #5 — the Phase-1 exit gate's measurement).
+     *
+     * <p>Counted from both chairs: a validator whose own root differs from the primary's proposal,
+     * and a primary receiving a vote whose resulting root differs from its own. Zero over hours of
+     * multi-client play is the gate; a non-zero value is the divergence hunt starting.
+     */
+    private final AtomicLong divergences = new AtomicLong();
+
+    private static final org.slf4j.Logger LOG =
+            org.slf4j.LoggerFactory.getLogger("NoderaWorker");
 
     /**
      * Per-peer event-relay accounting (live TPS investigation, 2026-07-24): who captures, who
@@ -411,6 +428,13 @@ public final class WorkerValidationService {
 
     /** Activate a region replica on this worker under {@code lease}. */
     public void activateRegion(RegionSnapshot base, RegionLease lease) {
+        if (refused.contains(base.region())) {
+            // A refusal outlives the moment it was observed: re-activating a region that a peer
+            // (or this node) has already established cannot be validated would restart exactly the
+            // work the refusal exists to stop. (This class carries no logger by design — the
+            // observing node logs the refusal where a player can see it.)
+            return;
+        }
         registerLease(lease);
         replicas.put(base.region(), new Replica(base, lease));
     }
@@ -535,6 +559,53 @@ public final class WorkerValidationService {
         }
     }
 
+    /** Regions refused outright: no replica of these is activated again this session (L-60). */
+    private final java.util.Set<RegionId> refused =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Refuse a region for a reason that holds on <b>every</b> node, and tell the mesh (L-60).
+     *
+     * <p>Revoking is not enough when the observing node holds no replica — which is the normal case
+     * under field-of-view ownership, where entities spawn on a session server that owns nothing. So
+     * this both revokes whatever this node has and announces the refusal to every peer it knows,
+     * because the node that can see the disqualifying condition and the nodes holding the region are
+     * usually different machines.
+     *
+     * <p>The announcement carries no authority. Acting on it can only <i>stop</i> validation of one
+     * region, never commit anything, so a lying peer costs a region its validated lane and nothing
+     * else — the same thing that peer could achieve by simply not participating.
+     *
+     * @return {@code true} if this was the first refusal of the region (callers log once).
+     */
+    public boolean refuseRegion(RegionId region, RegionRefusal.Reason reason) {
+        java.util.Objects.requireNonNull(region, "region");
+        java.util.Objects.requireNonNull(reason, "reason");
+        boolean first = refused.add(region);
+        revokeRegion(region);
+        replicas.remove(region);
+        if (first) {
+            RegionRefusal announcement = new RegionRefusal(region, reason);
+            for (PeerAddress address : peers.values()) {
+                transport.send(address, MessageCodec.encode(announcement));
+            }
+        }
+        return first;
+    }
+
+    /** @return whether {@code region} has been refused and must not be activated again. */
+    public boolean isRefused(RegionId region) {
+        return refused.contains(region);
+    }
+
+    private void onRegionRefusal(PeerAddress from, RegionRefusal refusal) {
+        if (from == null || !refused.add(refusal.region())) {
+            return;
+        }
+        revokeRegion(refusal.region());
+        replicas.remove(refusal.region());
+    }
+
     /** @return the most recently committed quorum certificate for an activated region. */
     public Optional<QuorumCertificate> latestCertificate(RegionId region) {
         Replica r = replicas.get(region);
@@ -610,7 +681,8 @@ public final class WorkerValidationService {
                 replica.headRoot, voteTimeoutMillis);
         collector.submit(ownBallot.vote());
         Round round = new Round(
-                collector, lease, batchRoot, new CountDownLatch(1), new AtomicReference<>());
+                collector, lease, batchRoot, ownBallot.root(),
+                new CountDownLatch(1), new AtomicReference<>());
         activeRound.set(round);
 
         CanonicalWriter deltaW = new CanonicalWriter();
@@ -698,6 +770,7 @@ public final class WorkerValidationService {
             case EntityTransferAccept a -> onTransferAccept(from, a);
             case EntityTransferCommit c -> worldExecutor.accept(() -> onTransferCommit(from, c));
             case ExternalDelta e -> worldExecutor.accept(() -> onExternalDelta(from, e));
+            case RegionRefusal r -> onRegionRefusal(from, r);
             default -> { /* not a validation message */ }
         }
     }
@@ -850,6 +923,18 @@ public final class WorkerValidationService {
         ballot.delta().encode(deltaWriter);
         if (!proposal.resultingRoot().equals(ballot.root())
                 || !proposal.encodedDelta().equals(deltaWriter.toBytes())) {
+            // THE Phase-1 signal (issue #5). Two nodes re-executed the same batch on the same base
+            // and did not agree: this node simply declines to vote, which is correct — but it used
+            // to do so in total silence, so the project's hard gate ("hours of play, zero
+            // unexplained divergences") had nothing to read. Divergence is not an error the node
+            // can fix; it is the measurement the soak exists to take, so it is counted and named.
+            divergences.incrementAndGet();
+            boolean rootsAgree = proposal.resultingRoot().equals(ballot.root());
+            LOG.warn("DIVERGENCE in {} v{} from primary {} — {}: theirs {}, ours {}",
+                    batch.region(), batch.baseVersion().value(), replica.lease.primary(),
+                    rootsAgree ? "identical roots but different deltas" : "different state roots",
+                    proposal.resultingRoot().hash().toShortHex(8),
+                    ballot.root().hash().toShortHex(8));
             return;
         }
         replica.pendingProposal = null;
@@ -884,6 +969,16 @@ public final class WorkerValidationService {
         if (publicKey == null || !signatures.verify(
                 publicKey, vote.vote().signedPortion(), vote.vote().signature())) {
             return;
+        }
+        if (!round.ownRoot().equals(vote.vote().resultingRoot())) {
+            // The same disagreement seen from the primary's chair: a validator re-executed our
+            // batch and got a different world. Counted here too, because whether a divergence is
+            // observable at all otherwise depends on which node happens to hold the seat.
+            divergences.incrementAndGet();
+            LOG.warn("DIVERGENCE in {} v{} — validator {} reports {}, we computed {}",
+                    vote.region(), vote.version().value(), vote.vote().voter(),
+                    vote.vote().resultingRoot().hash().toShortHex(8),
+                    round.ownRoot().hash().toShortHex(8));
         }
         votesReceived.incrementAndGet();
         relayMetrics.recordVote(vote.vote().voter());
@@ -2033,14 +2128,21 @@ public final class WorkerValidationService {
     }
 
     /** Live counters for the worker STATE telemetry. */
+    /** @return how many disagreeing re-executions this node has observed (issue #5). */
+    public long divergences() {
+        return divergences.get();
+    }
+
     public Snapshot snapshot() {
         return new Snapshot(replicas.size(), proposalsSent.get(), votesCast.get(),
-                votesReceived.get(), committeeCommits.get(), fallbackCommits.get());
+                votesReceived.get(), committeeCommits.get(), fallbackCommits.get(),
+                divergences.get());
     }
 
     /** Immutable counter snapshot. */
     public record Snapshot(int activeRegions, long proposalsSent, long votesCast,
-                           long votesReceived, long committeeCommits, long fallbackCommits) {
+                           long votesReceived, long committeeCommits, long fallbackCommits,
+                           long divergences) {
     }
 
     private dev.nodera.core.region.RegionEpoch replicaEpochOrInitial(RegionId region) {

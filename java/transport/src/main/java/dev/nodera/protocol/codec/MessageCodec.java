@@ -256,8 +256,11 @@ public final class MessageCodec {
     /** One world-permission grant, gossiped to co-hosting peers (issue #36 / L-54). */
     public static final int TAG_WORLD_GRANT_GOSSIP = 60;
 
+    /** A region no node can validate, observed by a node that owns none of it (L-60). */
+    public static final int TAG_REGION_REFUSAL = 61;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 60;
+    public static final int NEXT_TAG = 61;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -288,7 +291,7 @@ public final class MessageCodec {
             TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER,
             TAG_HALO_UPDATE, TAG_GROUP_MIGRATION,
             TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT,
-            TAG_WORLD_GRANT_GOSSIP);
+            TAG_WORLD_GRANT_GOSSIP, TAG_REGION_REFUSAL);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -355,6 +358,7 @@ public final class MessageCodec {
             case TAG_WORLD_MANIFEST_QUERY -> "WorldManifestQuery";
             case TAG_WORLD_MANIFEST_ANSWER -> "WorldManifestAnswer";
             case TAG_ACTION_FORWARD -> "ActionForward";
+            case TAG_REGION_REFUSAL -> "RegionRefusal";
             case TAG_EVENT_SYNC_QUERY -> "EventSyncQuery";
             case TAG_EVENT_SYNC_ANSWER -> "EventSyncAnswer";
             case TAG_HALO_UPDATE -> "HaloUpdate";
@@ -514,6 +518,7 @@ public final class MessageCodec {
         if (msg instanceof WorldManifestQuery) return TAG_WORLD_MANIFEST_QUERY;
         if (msg instanceof WorldManifestAnswer) return TAG_WORLD_MANIFEST_ANSWER;
         if (msg instanceof ActionForward) return TAG_ACTION_FORWARD;
+        if (msg instanceof dev.nodera.protocol.simulationmsg.RegionRefusal) return TAG_REGION_REFUSAL;
         if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncQuery) return TAG_EVENT_SYNC_QUERY;
         if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncAnswer) return TAG_EVENT_SYNC_ANSWER;
         if (msg instanceof dev.nodera.protocol.simulationmsg.HaloUpdate) return TAG_HALO_UPDATE;
@@ -599,6 +604,11 @@ public final class MessageCodec {
                 w.writeU16(TAG_ACTION_FORWARD).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 w.writeBytes(m.encodedEnvelope());
+            }
+            case dev.nodera.protocol.simulationmsg.RegionRefusal m -> {
+                w.writeU16(TAG_REGION_REFUSAL).writeU16(ENCODING_VERSION);
+                m.region().encode(w);
+                w.writeU16(m.reasonCode());
             }
             case RegionProposal m -> {
                 w.writeU16(TAG_REGION_PROPOSAL).writeU16(m.bodyVersion());
@@ -1284,6 +1294,11 @@ public final class MessageCodec {
             case TAG_ACTION_FORWARD -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
                 yield new ActionForward(region, r.readBytesValue());
+            }
+            case TAG_REGION_REFUSAL -> {
+                dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
+                yield new dev.nodera.protocol.simulationmsg.RegionRefusal(region,
+                        dev.nodera.protocol.simulationmsg.RegionRefusal.reasonOf(r.readU16()));
             }
             case TAG_EVENT_SYNC_QUERY -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);

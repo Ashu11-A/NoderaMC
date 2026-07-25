@@ -310,6 +310,8 @@ public final class WorkerControlHandler implements ControlHandler {
                 + "\"votes_received\":" + s.votesReceived() + ","
                 + "\"committee_commits\":" + s.committeeCommits() + ","
                 + "\"fallback_commits\":" + s.fallbackCommits() + ","
+                // Issue #5's Phase-1 gate is a NUMBER, and this is where a scripted soak reads it.
+                + "\"divergences\":" + s.divergences() + ","
                 + "\"region_roots\":{" + regionRootsJson() + "}"
                 + "},";
     }
