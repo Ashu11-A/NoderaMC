@@ -111,6 +111,33 @@ final class SpawnRulesTest {
     }
 
     @Test
+    void theSpawnRateStaysInsideTheVanillaRateEnvelope() {
+        // The envelope IS the cycle: one attempt every SPAWN_INTERVAL_TICKS, at most one spawn per
+        // attempt, never above MOB_CAP. So after k intervals the population cannot exceed k — a
+        // lane that spawned per tick, or twice per attempt, blows past this immediately — and given
+        // enough intervals it fills to the cap and stops there.
+        RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
+        List<ActionEnvelope> actions = darkShelter();
+
+        for (int intervals = 1; intervals <= 4; intervals++) {
+            int ticks = intervals * SpawnRules.SPAWN_INTERVAL_TICKS;
+            RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                    base, executeTicks(base, actions, ticks).delta(), ticks);
+            assertThat(ghosts(settled))
+                    .as("%d spawn interval(s) allow at most %d attempts, one spawn each",
+                            intervals, intervals + 1)
+                    .hasSizeLessThanOrEqualTo(intervals + 1);
+        }
+
+        RegionSnapshot soaked = dev.nodera.shadow.SnapshotDeltaApplier.apply(
+                base, executeTicks(base, actions, 2000).delta(), 2000L);
+        assertThat(ghosts(soaked))
+                .as("2000 ticks is 100 attempts: the cap holds, and the lane is not dead")
+                .hasSizeLessThanOrEqualTo(SpawnRules.MOB_CAP)
+                .isNotEmpty();
+    }
+
+    @Test
     void litGroundNeverSpawns() {
         RegionSnapshot base = TestFixtures.fullUniformSnapshot(region, 0);
         RegionSnapshot settled = dev.nodera.shadow.SnapshotDeltaApplier.apply(

@@ -27,7 +27,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [8](Task.8.md) | Entity & mob lane | 🚧 IN PROGRESS | Headless/durable green; proven live; scripted CI drives remain (L-50) |
 | [9](Task.9.md) | Validated redstone | 🚧 IN PROGRESS | Palette complete (L-26 retired); contraption migration remains |
 | [10](Task.10.md) | Environment lane | 🚧 IN PROGRESS | L-3/L-4/L-5/L-6 retired; L-1/L-2 retiring |
-| [11](Task.11.md) | Deterministic entity simulation | 🚧 IN PROGRESS | L-9 retired; L-7/L-8 retiring; L-24 open |
+| [11](Task.11.md) | Deterministic entity simulation | 🚧 IN PROGRESS | L-8 + L-9 retired; L-7 retiring; L-24 open |
 | [12](Task.12.md) | Player lane & trustless closure | 🚧 IN PROGRESS | L-10/L-11/L-13/L-14/L-15/L-18/L-20/L-21 retired; L-12/L-16/L-17/L-25 remain |
 
 ---

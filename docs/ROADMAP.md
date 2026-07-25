@@ -203,7 +203,7 @@ Every category owns its limitations. A task is only done when its register rows 
 
 | Category | Register | Open/retiring rows |
 |---|---|---|
-| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-8, L-12, L-16, L-17, L-24, L-25 |
+| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-24, L-25, L-50 |
 | Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33 |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | — (announce scheduling tracked in minecraft) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | — (live numbers tracked with rendezvous 3) |
