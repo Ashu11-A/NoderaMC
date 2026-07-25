@@ -10,34 +10,58 @@
 # `fail-fast: false` on purpose — one red suite must not cancel the evidence from the others.
 #
 # Heavy by design (real Minecraft clients): manual dispatch + nightly schedule, never per-push.
+#
+# A dispatch may name a SUBSET (`suites: mesh-soak,pickup`). Iterating on one suite used to mean
+# booting eleven machines to read one of them; the nightly and a bare dispatch still run all.
 name: e2e-live
 on:
   workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Comma-separated suites to run (blank = all)'
+        required: false
+        default: ''
   schedule:
     - cron: '17 3 * * *'   # nightly, off-peak
 
 jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      suites: ${{ steps.pick.outputs.suites }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pick
+        env:
+          REQUESTED: ${{ inputs.suites }}
+        # Each entry is one scripts/e2e-<suite>.sh. Suites that reuse the shared NoderaE2E world
+        # bake it themselves — the launcher bakes on first use — so no entry depends on another.
+        # An unknown name is a hard error: a typo must not silently run nothing.
+        run: |
+          set -euo pipefail
+          all=(continuity crash pickup mobs pearl password rekey commands farlands \
+               ownership-follow mesh-soak)
+          if [[ -z "${REQUESTED// /}" ]]; then
+            picked=("${all[@]}")
+          else
+            IFS=',' read -ra picked <<< "${REQUESTED// /}"
+            for s in "${picked[@]}"; do
+              [[ -x "scripts/e2e-$s.sh" ]] || { echo "::error::unknown suite '$s'"; exit 1; }
+            done
+          fi
+          printf 'suites=%s\n' "$(printf '%s\n' "${picked[@]}" | jq -Rrc . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          printf 'running: %s\n' "${picked[*]}"
+
   suite:
     name: ${{ matrix.suite }}
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        # Each entry is one scripts/e2e-<suite>.sh. Suites that reuse the shared NoderaE2E world
-        # bake it themselves — the launcher bakes on first use — so no entry depends on another.
-        suite:
-          - continuity          # host killed → joiner recovers and re-hosts
-          - crash               # a client SIGKILLed mid-session; the survivor sees nothing
-          - pickup              # clean-slate validated pickup, exactly once
-          - mobs                # ghost capture; revocation where the dimension never opted in
-          - pearl               # the pearl's ghost → flight → teleport
-          - password            # the live-join password gate (L-52)
-          - rekey               # the author changes the world password (L-51)
-          - commands            # every /nodera command + the in-game selftest
-          - farlands            # two players ~566 km apart; per-player chunk control
-          - ownership-follow    # ownership re-plans when the player crosses a region boundary
-          - mesh-soak           # sustained load: votes cross the transport, roots agree (L-30)
+        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
