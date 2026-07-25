@@ -50,6 +50,12 @@ public final class ClientBootstrap {
                 dev.nodera.mod.client.multiplayer.NoderaContinuity::onScreenOpening); // continuity rehost
         dev.nodera.mod.common.ModNetworking.setSessionWorldListener(
                 dev.nodera.mod.client.multiplayer.NoderaContinuity::onJoining);
+        // L-52: answer a host's live-join password challenge from the passwords this player typed,
+        // and offer the prompt on the disconnect screen when a join is refused for lack of one.
+        dev.nodera.mod.common.ModNetworking.setJoinProofProvider(
+                dev.nodera.mod.client.multiplayer.ClientJoinPasswords::answer);
+        NeoForge.EVENT_BUS.addListener(
+                dev.nodera.mod.client.multiplayer.JoinPasswordScreen::onScreenInit);
         // No-host ownership: every plan broadcast re-derives this player's own region set and
         // starts/refreshes the client-side validation lane (re-execute + vote over the mesh).
         dev.nodera.mod.common.ModNetworking.setPlanListener(

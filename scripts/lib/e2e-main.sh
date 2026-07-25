@@ -107,6 +107,9 @@ nodera_ports() {
     WORKER_P2P_BASE="${WORKER_P2P_BASE:-25620}"
     RCON_PORT="${RCON_PORT:-25575}"
     RCON_PASS="${RCON_PASS:-nodera-dev}"
+    # How long preflight waits for a busy port to come free before calling it a failure. Suites
+    # run back to back in one CI job and a killed JVM can hold its listener for a few seconds.
+    PORT_FREE_TIMEOUT="${PORT_FREE_TIMEOUT:-60}"
     # Ports a caller binds outside this launcher but still wants preflighted —
     # space separated. scripts/dev.sh --play uses it for the two dev clients' own
     # in-process mod peer ports.
@@ -244,6 +247,15 @@ cleanup() {
     pkill -f 'nodera-rendezvous --config' 2>/dev/null
     pkill -f 'dev.nodera.headless.HeadlessPeerMain' 2>/dev/null
     pkill -f RunProgramArgs 2>/dev/null
+    # Then WAIT for the listeners to actually go. A dedicated server saves its world on SIGTERM
+    # and can hold RCON for seconds after the kill returns; suites run back to back in one CI job,
+    # so leaving a bound port behind fails the next suite's preflight for no real reason.
+    local port waited=0
+    for port in ${RCON_PORT:-} ${GAME_PORT:-}; do
+        while ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null && (( waited < 30 )); do
+            sleep 1; waited=$((waited + 1))
+        done
+    done
 }
 trap cleanup EXIT
 
@@ -292,6 +304,33 @@ wait_log_guarded() {
         if [[ -f "$file" ]]; then
             grep -qF -- "$needle" "$file" && return 0
             grep -qF -- "$guard" "$file" && fail "$message"
+        fi
+        sleep 2; waited=$((waited + 2))
+    done
+    return 1
+}
+
+# Screens a QUICK-PLAY client must never be sitting on: quick play connects (or loads) with no
+# GUI interaction at all, so any of these means quick play never ran and the game is waiting for
+# a human who will never arrive. ClientStallReporter names the screen ten seconds in; matching it
+# turns a 30-minute timeout that says "never joined" into a one-line cause.
+#
+# Deliberately NOT here: DisconnectedScreen and NoderaMultiplayerScreen. A client legitimately
+# passes through both when the host it was playing on dies — which is the whole point of the
+# continuity and crash suites — so guarding on them would fail the runs they exist to prove.
+CLIENT_BLOCKED_SCREENS='AccessibilityOnboardingScreen|TitleScreen|BanNotice'
+
+# wait_join <server-or-host-log> <needle> <timeout> <client-log> <what> — wait for the join
+# evidence, but bail the moment the client parks on a screen from CLIENT_BLOCKED_SCREENS.
+wait_join() {
+    local file="$1" needle="$2" timeout="${3:-120}" client="$4" what="$5" waited=0 screen
+    timeout=$(( timeout * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+    while (( waited < timeout )); do
+        [[ -f "$file" ]] && grep -qF -- "$needle" "$file" && return 0
+        if [[ -f "$client" ]]; then
+            screen=$(grep -oE "screen: ($CLIENT_BLOCKED_SCREENS)[A-Za-z]*" "$client" | tail -1)
+            [[ -n "$screen" ]] && fail "$what — the client is parked on a screen quick play never \
+reaches (${screen#screen: }); see $client"
         fi
         sleep 2; waited=$((waited + 2))
     done
@@ -349,7 +388,11 @@ def read_packet(sock):
     pid, ptype = struct.unpack('<ii', data[:8])
     return pid, ptype, data[8:-2].decode(errors='replace')
 
-with socket.create_connection(('127.0.0.1', port), timeout=10) as s:
+# 30 s, not 10: RCON is answered on the server thread, so a tick that runs long (generating
+# terrain 200 km out on a 2-core CI runner puts it hundreds of ticks behind) delays the reply
+# rather than losing it. A short timeout turns that into an empty answer the caller reads as a
+# failed assertion.
+with socket.create_connection(('127.0.0.1', port), timeout=30) as s:
     s.sendall(packet(1, 3, password))
     pid, _, _ = read_packet(s)
     if pid == -1:
@@ -378,12 +421,22 @@ check_binaries() {
     [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :peer:installDist)"
 }
 
+# Preflight every port the topology is about to bind. A busy port gets a bounded WAIT before it
+# is called a failure: suites run back to back in one CI job, and the previous suite's JVMs (the
+# dedicated server holding RCON 25575 in particular) can outlive their kill by a few seconds —
+# the ports come free on their own, so failing on the first probe fails a healthy stack.
+# Genuinely foreign occupants (scripts/dev.sh, a stale client) never free up and still fail.
 check_ports() { # ports...
-    local port
+    local port waited
     for port in "$@"; do
-        if ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null; then
-            fail "port $port busy — stop the other stack first (scripts/dev.sh? stale client JVM?)"
-        fi
+        waited=0
+        while ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null; do
+            (( waited >= PORT_FREE_TIMEOUT )) \
+                && fail "port $port busy after ${PORT_FREE_TIMEOUT}s — stop the other stack first \
+(scripts/dev.sh? stale client JVM?)"
+            (( waited == 0 )) && log "port $port still held — waiting for it to come free"
+            sleep 2; waited=$((waited + 2))
+        done
     done
 }
 
@@ -526,11 +579,48 @@ nodera_stack_up() {
 # Game side: client config, dedicated server, clients
 # ---------------------------------------------------------------------------
 
-# Point a client game dir's nodera-client.toml at its OWN companion worker and
-# the dev services: write_client_config <game-dir-name> <control-port>
+# First-run vanilla options for a client game dir: stage_client_options <game-dir-name>
+#
+# Written ONLY when the dir has no options.txt yet — a real options.txt is the
+# player's (and Minecraft rewrites it on exit), so this seeds a first launch and
+# never overwrites tuned settings.
+#
+# Why this exists: on a game dir with no options.txt, `Options.onboardAccessibility`
+# defaults to TRUE and `Minecraft.addInitialScreens` puts AccessibilityOnboardingScreen
+# IN FRONT of quick play — quick play is the onboarding screen's continue callback, so
+# it simply never runs. Every scripted client boots fine, ticks its loop, and sits on
+# that screen forever. Invisible on a developer machine (whose run dirs kept an
+# options.txt from the first manual launch) and fatal in CI on a fresh checkout: it is
+# exactly why the three e2e-live jobs each burned 30 minutes and reported "never
+# joined" (screen: AccessibilityOnboardingScreen, per ClientStallReporter).
+stage_client_options() {
+    local dir="$MOD_DIR/$1"
+    mkdir -p "$dir"
+    [[ -f "$dir/options.txt" ]] && return 0
+    # onboardAccessibility  — the blocker above; must be false before the first frame.
+    # skipMultiplayerWarning — the third-party-server notice sits in front of the
+    #                          multiplayer screen for any suite that drives the GUI.
+    # pauseOnLostFocus      — under Xvfb there is no window manager, so a client may
+    #                          never be "active"; a paused singleplayer client stops
+    #                          ticking and would never share its world.
+    cat > "$dir/options.txt" <<'EOF'
+onboardAccessibility:false
+skipMultiplayerWarning:true
+pauseOnLostFocus:false
+EOF
+}
+
+# Point a client game dir's nodera-client.toml at its OWN companion worker and the dev services:
+# write_client_config <game-dir-name> <control-port> [join-password]
+#
+# The optional join password is the L-52 gate's joiner half: a scripted client has no keyboard, so
+# the password it offers a password-gated world comes from its own config.
 write_client_config() {
     mkdir -p "$MOD_DIR/$1/config"
+    stage_client_options "$1"
     cat > "$MOD_DIR/$1/config/nodera-client.toml" <<EOF
+[join]
+	password = "${3:-}"
 [companion]
 	controlEndpoint = "127.0.0.1:$2"
 	required = true
@@ -561,6 +651,9 @@ EOF
 [host]
 	gamePort = $GAME_PORT
 	onlineAuth = false
+	sharePassword = "${NODERA_SHARE_PASSWORD:-}"
+[archive]
+	streamIntervalTicks = ${NODERA_STREAM_INTERVAL_TICKS:-2400}
 [entity]
 	laneAutoActivate = true
 	mobCaptureDimensions = ["minecraft:overworld"]
@@ -572,6 +665,26 @@ start_dedicated_server() { # log-file (defaults to $LOG_DIR/server.log)
         </dev/null >"${1:-$LOG_DIR/server.log}" 2>&1 ) &
     SERVER_PID=$!
     PIDS+=("$SERVER_PID")
+}
+
+# stop_client <mdg-run-id> [gradle-wrapper-pid] — stop ONE client and wait for it to be gone.
+#
+# The run id is MDG's per-run token (clientJoin, clientJoinTwo, clientHost, …), which appears in
+# that JVM's command line as "<run>RunProgramArgs". Matching it is the whole point: a bare
+# `pkill -f RunProgramArgs` also kills the dedicated SERVER, and the next stage then dials a game
+# port nothing is listening on — a "the joiner never joined" failure with an innocent client.
+#
+# The game JVM is a child of the GRADLE DAEMON, not of the wrapper this harness started, so killing
+# the wrapper's process group is not enough on its own.
+stop_client() {
+    local run="$1" pid="${2:-}" waited=0
+    if [[ -n "$pid" ]]; then
+        kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null
+    fi
+    pkill -f -- "${run}RunProgramArgs" 2>/dev/null
+    while (( waited < 30 )) && pgrep -f -- "${run}RunProgramArgs" >/dev/null 2>&1; do
+        sleep 2; waited=$((waited + 2))
+    done
 }
 
 start_client() { # gradle-run-task log-file
@@ -598,10 +711,12 @@ nodera_dedicated_two_players() {
     write_client_config run-join2 "$PEER2_CONTROL"
     start_client runClientJoin    "$LOG_DIR/client-join.log"
     P1_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/server.log" "JoinerDev joined the game" 600 || fail "JoinerDev never joined"
+    wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" 600 \
+        "$LOG_DIR/client-join.log" "JoinerDev never joined" || fail "JoinerDev never joined"
     start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
     P2_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 || fail "JoinerTwo never joined"
+    wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
+        "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
     wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
 }
 
@@ -659,11 +774,13 @@ nodera_hosted_two_players() {
     write_client_config run-join "$PEER2_CONTROL"
     start_client runClientHost "$LOG_DIR/client-host.log"
     HOST_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+    wait_join "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+        "$LOG_DIR/client-host.log" "player A never opened the shared world" \
         || fail "player A never opened the shared world"
     start_client runClientJoin "$LOG_DIR/client-join.log"
     JOINER_GRADLE_PID=$LAST_CLIENT_PID
-    wait_log "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+    wait_join "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+        "$LOG_DIR/client-join.log" "player B never joined" \
         || fail "player B never joined"
 }
 

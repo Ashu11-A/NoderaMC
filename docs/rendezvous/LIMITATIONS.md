@@ -25,9 +25,10 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 **Empty.** No open or retiring rows.
 
 The remaining work in this category — real cross-internet numbers and the pure-relay continuity run —
-is [`Task.3.md`](Task.3.md), which is **blocked on the live/NAT environment**. That environment is
-tracked once, as **L-45** in [`../minecraft/LIMITATIONS.md`](../minecraft/LIMITATIONS.md); duplicating
-it here would create two register rows for one gap.
+is [`Task.3.md`](Task.3.md), which is **blocked on a real cross-internet/NAT environment**. The
+single-machine live harness that used to block it (L-45) is retired and green in CI; what Task 3 still
+needs is two genuinely separate networks, which no CI runner provides. Tracked there, not duplicated
+into a register row here.
 
 ---
 

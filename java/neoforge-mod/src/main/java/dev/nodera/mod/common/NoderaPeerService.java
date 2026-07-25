@@ -455,6 +455,23 @@ public final class NoderaPeerService {
         return serverRuntime == null ? null : hostOptions;
     }
 
+    /**
+     * Replace the live share options without re-hosting — the re-key path (L-51).
+     *
+     * <p>A successful password re-key deliberately does not re-`activate` (that would re-seed a
+     * plaintext archive over the fresh ciphertext), so nothing else would update the options this
+     * service reports. Leaving them stale means the next change compares against a password the
+     * world no longer has, and the live-join gate keeps testing the old one.
+     *
+     * @param options the options now in force; ignored when not hosting or null.
+     * @Thread-context any thread.
+     */
+    public synchronized void updateHostOptions(ShareOptions options) {
+        if (serverRuntime != null && options != null) {
+            this.hostOptions = options;
+        }
+    }
+
     /** @return the server-side runtime (for the {@code /nodera} command), or {@code null}. */
     public synchronized PeerRuntime serverRuntime() {
         return serverRuntime;

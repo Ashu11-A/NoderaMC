@@ -26,9 +26,9 @@ the trust model, not facts of the platform.
 
 Two adjacent gaps are tracked in the categories that own them, not here:
 
-- The mod's periodic announce loop is constructed but not scheduled on a timer — tracked with the
-  live GUI pass in [`../minecraft/LIMITATIONS.md`](../minecraft/LIMITATIONS.md) (L-45), and moved into
-  the always-on worker by [`../worker/Task.3.md`](../worker/Task.3.md).
+- The mod's periodic announce loop is constructed but not scheduled on a timer — moved into the
+  always-on worker by [`../worker/Task.3.md`](../worker/Task.3.md) (its L-41 row), where the timer
+  belongs: an announce that stops when the game closes is the gap that task exists to remove.
 - Operator hardening (`STATS`, listing policy, deployment docs) is ordinary remaining scope in
   [`Task.3.md`](Task.3.md), not a limitation: nothing about the network is degraded by its absence.
 

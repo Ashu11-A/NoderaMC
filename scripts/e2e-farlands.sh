@@ -48,12 +48,26 @@ rcon "execute in minecraft:overworld run tp JoinerTwo $X2 200 $Z2" >/dev/null
 log "F1: waiting for far chunks + the ownership replan to settle"
 sleep 20
 
-# assert_pos <player> <x> <z>
+# assert_pos <player> <x> <z> — POLLED, not sampled once. Generating terrain 200 km out puts the
+# server tens of seconds behind on a 2-core CI runner ("Can't keep up! … 274 ticks behind"), and a
+# single read taken during that window comes back EMPTY — the teleport had in fact worked. Retry
+# until the position parses and matches, and only then call it a failure.
 assert_pos() {
-    local player="$1" x="$2" z="$3" pos
-    pos=$(rcon "data get entity $player Pos")
+    local player="$1" x="$2" z="$3" pos waited=0
+    local limit=$(( 180 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+    while (( waited < limit )); do
+        pos=$(rcon "data get entity $player Pos")
+        check_pos "$pos" "$x" "$z" && break
+        sleep 5; waited=$((waited + 5))
+    done
     transcript "=== $player position: $pos"
-    python3 - "$pos" "$x" "$z" <<'PYEOF' || fail "F1: $player is not at ($x, $z): $pos"
+    check_pos "$pos" "$x" "$z" || fail "F1: $player is not at ($x, $z) after ${limit}s: $pos"
+}
+
+# check_pos <rcon-reply> <x> <z> — true when the reply parses and is within ±16 blocks.
+check_pos() {
+    # stderr is dropped: a failed poll is an ordinary "not yet", not a traceback in the log.
+    python3 - "$1" "$2" "$3" 2>/dev/null <<'PYEOF'
 import re, sys
 nums = re.findall(r'(-?\d+\.?\d*)d', sys.argv[1])
 assert len(nums) >= 3, f'unparseable Pos: {sys.argv[1]}'
