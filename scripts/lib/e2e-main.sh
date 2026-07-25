@@ -262,11 +262,24 @@ trap cleanup EXIT
 # Serialize live suites: two at once fight over ports + run dirs. FD 9 is held
 # for the process lifetime; run-tests.sh holds the same lock around its batch
 # and exports NODERA_E2E_LOCK_HELD so a child does not deadlock on its parent.
+# The lock is held on FD 9 for the process lifetime — and every child this launcher spawns closes
+# it explicitly (`9>&-`). Without that, a **Gradle daemon** started by one suite inherits the
+# descriptor, outlives the suite, and keeps the lock held forever: the next suite in the same CI
+# job then fails with "another live suite is running" while nothing is.
+#
+# The wait is also bounded rather than instant: a suite that has just exited may still have a
+# JVM releasing the file, and failing on the first probe would call that a conflict.
 nodera_acquire_lock() {
     [[ "${NODERA_E2E_LOCK_HELD:-0}" == 1 ]] && return 0
     mkdir -p "$(dirname "$E2E_LOCK_FILE")"
     exec 9>"$E2E_LOCK_FILE"
-    flock -n 9 || fail "another live suite is running (lock: $E2E_LOCK_FILE) — one test at a time"
+    local waited=0
+    until flock -n 9; do
+        (( waited >= ${E2E_LOCK_TIMEOUT:-90} )) \
+            && fail "another live suite is running (lock: $E2E_LOCK_FILE) — one test at a time"
+        (( waited == 0 )) && log "waiting for the live-suite lock to be released"
+        sleep 3; waited=$((waited + 3))
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -484,7 +497,7 @@ sample_size = 10
 seeder_floor = 5
 EOF
         setsid "$RUST_RELEASE/nodera-tracker" --config "$cfg" \
-            >"$LOG_DIR/tracker$suffix.log" 2>&1 &
+            >"$LOG_DIR/tracker$suffix.log" 2>&1 9>&- &
         PIDS+=("$!")
         NODERA_TRACKER_ENDPOINT_LIST="${NODERA_TRACKER_ENDPOINT_LIST:+$NODERA_TRACKER_ENDPOINT_LIST,}127.0.0.1:$port"
     done
@@ -506,7 +519,7 @@ per_ip_request_quota = 0
 reservation_hmac_key_hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 EOF
         setsid "$RUST_RELEASE/nodera-rendezvous" --config "$cfg" \
-            >"$LOG_DIR/rendezvous$suffix.log" 2>&1 &
+            >"$LOG_DIR/rendezvous$suffix.log" 2>&1 9>&- &
         PIDS+=("$!")
         NODERA_RENDEZVOUS_ENDPOINT_LIST="${NODERA_RENDEZVOUS_ENDPOINT_LIST:+$NODERA_RENDEZVOUS_ENDPOINT_LIST,}127.0.0.1:$port"
     done
@@ -522,7 +535,7 @@ start_worker() {
     NODERA_ARCHIVE_DIR="$LOG_DIR/$1-archive" \
     NODERA_TRACKER_ENDPOINTS="$NODERA_TRACKER_ENDPOINT_LIST" \
     NODERA_RENDEZVOUS_ENDPOINTS="$NODERA_RENDEZVOUS_ENDPOINT_LIST" \
-        setsid "$WORKER_DIST" >"$LOG_DIR/worker-$1.log" 2>&1 &
+        setsid "$WORKER_DIST" >"$LOG_DIR/worker-$1.log" 2>&1 9>&- &
     PIDS+=("$!")
 }
 
@@ -662,7 +675,7 @@ EOF
 
 start_dedicated_server() { # log-file (defaults to $LOG_DIR/server.log)
     ( cd "$NODERA_ROOT" && exec setsid ./gradlew :neoforge-mod:runServer --console=plain \
-        </dev/null >"${1:-$LOG_DIR/server.log}" 2>&1 ) &
+        </dev/null >"${1:-$LOG_DIR/server.log}" 2>&1 ) 9>&- &
     SERVER_PID=$!
     PIDS+=("$SERVER_PID")
 }
@@ -689,7 +702,7 @@ stop_client() {
 
 start_client() { # gradle-run-task log-file
     ( cd "$NODERA_ROOT" && exec setsid ./gradlew ":neoforge-mod:$1" --console=plain \
-        >"$2" 2>&1 ) &
+        >"$2" 2>&1 ) 9>&- &
     LAST_CLIENT_PID=$!
     PIDS+=("$LAST_CLIENT_PID")
 }
