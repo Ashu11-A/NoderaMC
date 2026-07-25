@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# nodera e2e-ownership — live Test 1 (docs/Testing.md):
+# nodera e2e-ownership — live Test 1 (docs/minecraft/TESTING.md):
 #
 #   O1  player A shares a world on the Nodera network; player B joins through
 #       the tracker/rendezvous — each player's node owns its own FOV regions

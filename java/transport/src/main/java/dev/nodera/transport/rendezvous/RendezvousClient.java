@@ -32,7 +32,7 @@ import java.util.UUID;
  * The peer half of the rendezvous service (Task 29): registers this peer's signed candidate record,
  * discovers others in a {@code (network, world)} namespace, and opens relay reservations / circuits.
  *
- * <p>Nothing here is trusted (rendezvous.md §8.1). A rendezvous point can hide peers or invent
+ * <p>Nothing here is trusted (RENDEZVOUS.md §8.1). A rendezvous point can hide peers or invent
  * unreachable ones; it cannot forge a record (records are Ed25519-signed by the peer they describe
  * and verified against the same canonical bytes on both sides) or read a relayed payload
  * ({@link EndToEndCipher}). This client treats a discovery response as a set of hints.

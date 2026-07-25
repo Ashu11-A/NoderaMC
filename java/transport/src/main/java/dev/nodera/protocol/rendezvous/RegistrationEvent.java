@@ -3,7 +3,7 @@ package dev.nodera.protocol.rendezvous;
 import dev.nodera.core.crypto.CanonicalReader;
 
 /**
- * What a {@link SignedPeerRecord} asks the rendezvous point to do (Task 29; rendezvous.md §4.1).
+ * What a {@link SignedPeerRecord} asks the rendezvous point to do (Task 29; RENDEZVOUS.md §4.1).
  *
  * <p>The event is part of the signed record so an {@link #UNREGISTER} cannot be forged by flipping a
  * captured {@link #REGISTER}. Ordinals are the encoded form and are <b>frozen</b>: append, never

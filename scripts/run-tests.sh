@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ===========================================================================
-# nodera run-tests — THE consolidated live-suite runner (docs/Testing.md).
+# nodera run-tests — THE consolidated live-suite runner (docs/minecraft/TESTING.md).
 #
 # Runs the scripted live acceptance suites STRICTLY ONE AT A TIME (they share
 # the port block and the Minecraft run dirs; the batch holds an exclusive flock

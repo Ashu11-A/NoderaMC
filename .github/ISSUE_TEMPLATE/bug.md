@@ -31,5 +31,5 @@ assignees: ''
 - [ ] Reproduction now passes / red test is green
 - [ ] Regression test added so this cannot return
 - [ ] `./gradlew check` green
-- [ ] `docs/Testing.md` + README updated
+- [ ] `docs/<category>/TESTING.md` + README updated
 - [ ] Closes via `fixes #N`

@@ -1,66 +1,126 @@
-# nodera-app — the Nodera companion app (Task 32)
+# `rust/nodera-app`
 
-A [Tauri](https://tauri.app) desktop app (Rust backend + React frontend) that runs the **always-on
-Nodera peer** so a node stays on the network even with Minecraft closed — this is what lets a
-player-hosted world survive the host closing their game, and turns every install into a persistent
-network node.
+<!-- AI-AGENT-INSTRUCTION: This crate is WORKSPACE-EXCLUDED — `cd rust && cargo test` does NOT cover
+     it, so never present the green workspace gate as covering the app; run `cd rust/nodera-app &&
+     cargo test`. The app is a SUPERVISOR + TRAY + RENDERER, not a peer: it holds no signing keys and
+     serves nothing to the network. ATTACH SEMANTICS ARE LOAD-BEARING — never kill a worker the app
+     did not spawn. Keep control.rs a strict mirror of the worker's ControlProtocol, and change all
+     three mirrors in one commit. Update this file when a module or a build step changes. -->
 
-**Architecture — Option B (locked):** this app *supervises the bundled headless Java Nodera peer
-worker* (`nodera-headless`, reusing all of the tested Java peer/validation logic — the determinism
-rule forbids a second region engine). The **worker owns the loopback control endpoint** that the
-Minecraft mod probes; this app is the UI, system tray, autostart, the **worker supervisor**
-(`daemon.rs`), and a **control-endpoint monitor** (`control.rs`) that probes the worker for liveness.
+**The Nodera companion.** A [Tauri](https://tauri.app) desktop application (Rust backend, React
+frontend) that players install: it launches at login, sits in the system tray, supervises the
+always-on peer worker, and shows a live dashboard.
 
-**Attach mode** (`NODERA_APP_ATTACH=1`): the app does not spawn its own worker — it attaches to one
-already running (e.g. started by `scripts/dev.sh`). Used so dev runs don't fight over the control
-port. In production the app supervises the worker itself.
+Because the mod refuses to start without the worker, this is **the thing every player actually runs**.
+It must be boring, small, and reliable.
 
-## Why it is excluded from the `rust/` workspace
+- **Depends on:** the worker's loopback control endpoint (`java/peer`, `dev.nodera.headless`).
+- **Depended on by:** players; the mod's presence gate assumes it keeps the worker alive.
+- **Docs:** [`docs/app/`](../../docs/app/Task.0.md)
 
-Tauri pulls per-OS native webview deps (webkit2gtk on Linux, WebView2 on Windows, WebKit on macOS)
-that are not part of the headless CI toolchain, so `cargo test` / `cargo build --workspace` must not
-try to compile it. It is listed under `exclude` in `rust/Cargo.toml` and built with its own toolchain.
+---
 
-## Prerequisites
+## Architecture
 
-- Rust (workspace `rust-toolchain.toml`) + the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-  for your OS.
-- Node.js 18+ (for the Vite/React frontend under `ui/`).
-- `cargo install tauri-cli --version '^2'` (provides `cargo tauri`).
-
-## Build / run
-
-```bash
-cd rust/nodera-app
-npm --prefix ui install          # first time
-cargo tauri dev                  # window + tray + control endpoint + daemon supervisor
-cargo tauri build                # release installer (with autostart + tray)
+```
+rust/nodera-app/
+├── Cargo.toml        tauri, autostart plugin, tokio, serde — WORKSPACE-EXCLUDED
+├── tauri.conf.json   tray, autostart, single instance, window and bundle configuration
+├── src/
+│   ├── main.rs       tray + window + single-instance + autostart + the 1 Hz metrics pump
+│   ├── daemon.rs     the supervisor: spawn the bundled worker OR attach to an external one
+│   ├── control.rs    loopback control client — a strict mirror of ControlProtocol
+│   ├── metrics.rs    the Metrics struct the UI renders
+│   ├── settings.rs   the settings surface backed by the worker's CONFIG verb
+│   ├── config.rs     app configuration and the worker's spawn environment
+│   ├── power.rs      power-state policy (whether to transfer)
+│   ├── logs.rs       a bounded log ring
+│   └── system.rs     host sampling
+└── ui/src/           React + Vite: App, Settings, World, components, theme, ipc
+                      — Info / State / Peers / Trackers / Pieces, in VPN-client chrome
 ```
 
-The supervised worker launcher is resolved from `NODERA_WORKER_BIN`, else the bundled
-`resources/nodera-headless/bin/nodera-headless` (the `:nodera-headless` `installDist` output, copied
-in at bundle time). Build the worker with `./gradlew :nodera-headless:installDist` and copy
-`java/nodera-headless/build/install/nodera-headless` to `resources/nodera-headless` before
-`cargo tauri build`.
+**Option B is locked.** The app supervises the bundled **headless Java peer worker**, reusing all of
+the tested Java peer and validation logic. The determinism rule forbids a second region engine, so a
+Rust-native peer could only ever seed, relay, and route — never validate.
+
+## Why it is shaped this way
+
+**It is not a peer, and that boundary is what keeps it cheap.** All network behaviour lives in the
+worker and the Rust service binaries. A UI mistake here cannot corrupt a world, and the dashboard's
+data path is already asserted **on the Java gate** through the worker's `STATE` verb — so the app's
+own test surface is parsing, not logic.
+
+**Attach mode is a correctness rule, not a convenience.** Two supervisors both believing they own one
+worker would fight over its lifecycle. The app distinguishes a worker it spawned from one it merely
+found, and quitting stops only the former. A blanket kill-on-exit would terminate a worker started by
+a script or a service manager.
+
+**Minimise to tray, do not quit.** The product promise is that the node stays online; a close button
+that ends the node would break it the first time someone tidied their taskbar.
+
+**Parse tolerantly, by contract.** Worker `STATE` fields are additive, so unknown fields use serde
+defaults: a worker newer than its dashboard shows fewer panels, never an error.
+
+**Byte order is a real bug class.** The piece bitmap is produced by Java's `BitSet` and consumed here;
+a mis-decoded bitmap renders a *plausible but wrong* picture, which is worse than rendering nothing.
+The decoder is tested against that exact contract.
+
+**Badges must not lie.** A setting the node cannot honour gets a distinct muted "not supported" badge
+carrying the worker's own reason — deliberately not the amber "not enforced yet", which would imply
+the feature is coming. Two connection settings are permanently in that state and are kept in the UI on
+purpose: deleting them would silently discard values users already saved and would hide a known
+limitation.
+
+**The workspace exclusion is deliberate and owned.** Tauri pulls per-OS native webview dependencies
+(webkit2gtk, WebView2, WebKit) that are not part of the headless CI toolchain, so the workspace gate
+must not try to compile it. The cost — CI not compiling the app — is a tracked deliverable rather than
+an unnoticed gap.
 
 ## Control endpoint
 
-The **worker** (`nodera-headless`) owns `127.0.0.1:25610` and answers the presence probe
-(`dev.nodera.peer.control.ControlProtocol`, mirrored by the mod's `CompanionProtocol`):
+The **worker** owns `127.0.0.1:25610` and answers the presence probe; this app *connects* to it and
+never binds it.
 
 ```
 client → worker:  NODERA-PROBE <protocolVersion>
 worker → client:  NODERA-OK <protocolVersion> <workerVersion>
 ```
 
-This app *connects* to that endpoint (`control::monitor`) for liveness; it does not bind it. Keep
-`PROTOCOL_VERSION` in `src/control.rs` in lockstep with the Java `ControlProtocol`. Loopback-only and
-non-authoritative: peers still verify everything the node serves on the real network (Task 0 rule 7).
+Keep `PROTOCOL_VERSION` in `src/control.rs` in lockstep with the Java `ControlProtocol` and the mod's
+`CompanionProtocol` — three mirrors, one commit. The channel is loopback-only and
+**non-authoritative**: peers still verify everything the node serves on the real network.
 
-## Status
+## Build and run
 
-Scaffold: Rust backend (`main`/`control`/`daemon`/`metrics`) + React dashboard (the four required
-panels: maintained chunks/data, GB ↑/↓, peers, current world) + tray + autostart + single-instance +
-attach mode. The **worker itself is real and runnable** (`java/nodera-headless`, proven to boot +
-answer the probe). Deferred (the live lane): the worker's telemetry pump feeding real dashboard
-metrics, the host/join control verbs, per-OS installers, and app icons under `icons/`.
+Prerequisites: the pinned Rust toolchain plus the Tauri v2 prerequisites for your OS, Node.js 18+ for
+the frontend, and `cargo install tauri-cli --version '^2'`.
+
+```bash
+cd rust/nodera-app
+npm --prefix ui install       # first time
+cargo tauri dev               # window + tray + supervisor + control monitor
+cargo tauri build             # release bundle (autostart + tray)
+cargo test                    # REQUIRED — the workspace gate does not cover this crate
+
+scripts/dev.sh --with-app     # manual smoke, in attach mode
+```
+
+The supervised worker launcher resolves from `NODERA_WORKER_BIN`, otherwise from the bundled worker
+distribution copied in at bundle time (build it with the worker's `installDist` task first).
+`NODERA_APP_ATTACH=1` selects attach mode, so development runs do not fight over the control port.
+
+## Rules
+
+- The worker must work without the app; the app must degrade gracefully when the worker is down —
+  tray offline, daemon shown as down, no crash loops.
+- No logic in the UI worth testing beyond parsing. If a panel needs a rule, put the rule in the worker
+  where it is asserted headlessly.
+- Never kill a worker the app did not spawn.
+
+## Tests
+
+56 tests: bitmap decoding and its edge cases, additive-field tolerance, control-socket error
+surfacing and timeouts, the settings golden JSON (the cross-language key contract),
+worker-environment spawn pairs, a power-state truth table, the log ring, system sampling, and the
+badge-enforcement invariants.

@@ -10,7 +10,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The peer half of hole-punch coordination (Task 29; rendezvous.md §4.6, DCUtR-style).
+ * The peer half of hole-punch coordination (Task 29; RENDEZVOUS.md §4.6, DCUtR-style).
  *
  * <p>Over an established relay circuit (a reliable signaling channel), the peers exchange observed
  * addresses via {@link PunchSync} and agree on a shared go-signal the relay stamps; each then

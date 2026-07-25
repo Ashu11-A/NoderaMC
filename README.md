@@ -11,35 +11,37 @@
 
 <!-- AI-AGENT-INSTRUCTION: README.md is a living document. Every commit that completes a task or
      changes test status MUST update: (1) the progress bar below, (2) the module status table,
-     (3) docs/Testing.md. Keep comments like this one intact — they guide future agents. See
+     (3) docs/minecraft/TESTING.md. Keep comments like this one intact — they guide future agents. See
      .github/ISSUE_SYSTEM.md and AGENTS.md for the full workflow. -->
 
 ---
 
 ## Progress
 
-<!-- AI-AGENT-INSTRUCTION: Recompute `overall` as a weighted fraction of the 8 implementation
-     phases (Plan §6) and keep filled blocks / 20 ≈ the percentage. The DETAILED per-phase
-     table + milestone notes live in docs/PROGRESS.md — update THAT file (and docs/Testing.md) on
-     every outcome-changing commit; this section keeps only the bar. -->
+<!-- AI-AGENT-INSTRUCTION: Recompute `overall` as the weighted fraction of completed tasks across the
+     seven categories (docs/ROADMAP.md §1) and keep filled blocks / 20 ≈ the percentage. The DETAILED
+     per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
+     TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
 **Overall system completion: `93.1%`**
 `██████████████████░░`
 
-Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · test counts:
-[`docs/Testing.md`](docs/Testing.md) · order/priority: [`docs/Roadmap.md`](docs/Roadmap.md)
+Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test counts:
+`docs/<category>/TESTING.md` · order, priority, and difficulty:
+[`docs/ROADMAP.md`](docs/ROADMAP.md) · documentation entry point:
+[`docs/README.md`](docs/README.md)
 
 ---
 
 ## Module status
 
-<!-- AI-AGENT-INSTRUCTION: This table mirrors docs/Testing.md. Update both together. Status emojis:
+<!-- AI-AGENT-INSTRUCTION: This table mirrors docs/minecraft/TESTING.md. Update both together. Status emojis:
      ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. -->
 
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
 | `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 108, incl. `CommandAction`) | 233 | ✅ |
-| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics; Task 16 adds the **rule-pack SDK** (L-21) — `PackRules` execution hooks dispatched by declared palette ownership through `PackDelegatingRuleSet`, canonical namespace tick order, and a registry-derived engine fingerprint (`docs/SDK.md` is the public contract), the **deterministic command subset** (L-14 — `CommandAction` tag 108 + `CommandRules`: engine-side authority against a committee-agreed operator set on `RegionExecutionContext`, no minting of unplaceable states, volume-bounded fills, `/time set` refused as a context input), the combat-vitals `@Invariant(10)` extension (L-13), and **palette v2 completed** (L-26 — pressure plates couple the entity lane to the redstone lane; sticky pistons pull on retraction; `RULES_VERSION` 4 / `palette.v4`) | 455 | ✅ |
+| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics; Task 16 adds the **rule-pack SDK** (L-21) — `PackRules` execution hooks dispatched by declared palette ownership through `PackDelegatingRuleSet`, canonical namespace tick order, and a registry-derived engine fingerprint (`docs/engine/SDK.md` is the public contract), the **deterministic command subset** (L-14 — `CommandAction` tag 108 + `CommandRules`: engine-side authority against a committee-agreed operator set on `RegionExecutionContext`, no minting of unplaceable states, volume-bounded fills, `/time set` refused as a context input), the combat-vitals `@Invariant(10)` extension (L-13), and **palette v2 completed** (L-26 — pressure plates couple the entity lane to the redstone lane; sticky pistons pull on retraction; `RULES_VERSION` 4 / `palette.v4`) | 455 | ✅ |
 | `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 60 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`, genesis approval, `WorldGrantGossip`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) adds the authenticated challenge-response handshake — key-proven NodeId attribution at accept | 93 | ✅ |
 | `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores | 97 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
@@ -141,21 +143,21 @@ nodera/
 │   ├── nodera-codec/        (Task 27) byte-exact canonical-encoding port + Ed25519 verify + tag mirror + framing
 │   ├── nodera-tracker/      (Task 28) standalone tracker service — announce/query, real binary driven by TrackerServiceIT
 │   └── nodera-rendezvous/   (Task 29) rendezvous + relay service — registration/discovery/reservations/circuit bridging
+│   └── nodera-app/          (workspace-excluded) Tauri companion app — supervises the peer worker
 ├── fixtures/wire/       golden canonical frames, emitted by Java, re-encoded byte-exactly by Rust
 ├── scripts/             dev (build Rust + mod, run tracker + rendezvous; --install-mod for a real client)
-└── docs/                Task.0.md (base doc: orientation + conventions + index),
-                         Task.1..7.md (one task per Nodera module), Plan.0.md, LIMITATIONS.md,
-                         Roadmap.md, LEGACY.md, torrent/ (tracker + rendezvous reference specs),
-                         minecraft/ (MultiPaper + Folia studies), old/ (legacy per-increment
-                         Task.0..33.md specs + Prompt.base.md + MONOREPO.md — preserved verbatim),
-                         Context/
+└── docs/                README.md (entry point + documentation format), ROADMAP.md (the central
+                         roadmap), plans/ (programme plans), and ONE FOLDER PER CATEGORY —
+                         engine/ network/ tracker/ rendezvous/ minecraft/ worker/ app/ — each with
+                         Task.0..n.md, PROGRESS.md, TESTING.md, LIMITATIONS.md, LIMITATIONS.fixed.md
 ```
 
-> **Monorepo is the default architecture** (restructure landed 2026-07-19; former migration file
-> `MONOREPO.md` retired — durable content lives in [`docs/Task.0.md`](docs/Task.0.md) §3 and
-> `AGENTS.md`): [`docs/LEGACY.md`](docs/LEGACY.md) ledgers the Java code the Rust services
-> replace. Module names did not change — only paths — so every `./gradlew` invocation and every
-> `build.gradle.kts` kept working untouched.
+Every package also carries its own `README.md` describing that package's architecture
+(`java/<module>/README.md`, `rust/<crate>/README.md`).
+
+> **Monorepo is the default architecture.** Module names did not change — only paths — so every
+> `./gradlew` invocation and every `build.gradle.kts` kept working untouched. The conventions,
+> layering rules, and frozen contracts live in [`docs/README.md`](docs/README.md).
 
 ---
 
@@ -203,56 +205,51 @@ nodera/
 - **One task = one branch = one PR.** Branch name: `<emoji-less-type>/<short-slug>-#<issue>` e.g.
   `feature/shadow-capture-#5`. Commits cite the issue (`refs #5` while working, `fixes #5` /
   `closes #5` to close).
-- **Closing an issue requires**: `./gradlew check` green, README progress + docs/Testing.md updated, the
+- **Closing an issue requires**: `./gradlew check` green, README progress + docs/minecraft/TESTING.md updated, the
   task's acceptance criteria linked from the PR description.
 
 See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules.
 
 ---
 
-## Roadmap (tasks → issues)
+## Roadmap (categories → tasks)
 
-<!-- AI-AGENT-INSTRUCTION: This mirrors docs/Task.0.md §4 (module-task index) and each
-     docs/Task.<n>.md "Implementation status" table. When a phase completes, tick it here, update
-     the owning task file's status table, AND close the phase's GitHub issue. Legacy per-increment
-     history (old Tasks 0–33 + their issue numbers) is preserved in docs/old/ and mapped in
-     docs/Task.0.md §4 — GitHub issues keep their legacy titles; find them by title, never by
-     number. -->
+<!-- AI-AGENT-INSTRUCTION: This table MIRRORS docs/ROADMAP.md §1, which itself mirrors each
+     docs/<category>/Task.<n>.md status header. The task file is the source of truth for scope;
+     update it FIRST, then docs/<category>/PROGRESS.md, then docs/ROADMAP.md, then this table.
+     GitHub issues keep their historical titles — find them by title, never by number. -->
 
-**2026-07-21 consolidation:** the 33 per-increment specs were consolidated into **one task per
-Nodera module** (Tasks 0–7). The old files are preserved verbatim in
-[`docs/old/`](docs/old/); the legacy→new mapping lives in [`docs/Task.0.md`](docs/Task.0.md) §4.
+**2026-07-25 reorganization:** the documentation is organised into **one folder per system
+category**, each with its own sequential task set and its own status, testing, and limitation
+registers. The entry point is [`docs/README.md`](docs/README.md); the single central roadmap is
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-| # | Task (module) | Spec | Status |
-|---|---|---|---|
-| 0 | **Base document** — orientation, conventions, task index (absorbs `Prompt.base.md` + old Task 0; monorepo default) | [`docs/Task.0.md`](docs/Task.0.md) | ✅ living doc |
-| 1 | **Deterministic engine & committee validation** — `core`/`simulation`/`consensus`/`committee`/`coordinator`/`shadow-validation`/`fallback` | [`docs/Task.1.md`](docs/Task.1.md) | 🚧 (1a–1g ✅ headless; 1h headless/durable acceptance green with live adapters composed, but Task 5b genesis bindings + `runClient` remain; 1i redstone next, 1j/1k/1l waiting) |
-| 2 | **P2P network** — `protocol`/`transport-*`/`peer-runtime`/`storage-*`/`distribution`/`diagnostics` | [`docs/Task.2.md`](docs/Task.2.md) | 🚧 (2a/2c–2k ✅ headless — wire+transports, event-sourced+RocksDB storage, torrent data plane, discovery/multi-bootstrap, replication+repair, reliability/quotas/retention, encryption, crash safety+stream, tick-lag handoff, telemetry; 2b gateway-migration remainder + every live half rides Task 5) |
-| 3 | **P2P network tracker** — `rust/nodera-tracker` + Java `TrackerClient` | [`docs/Task.3.md`](docs/Task.3.md) | ✅ core (L-44 RETIRED; 3b announce scheduling rides 5d; 3c ops hardening 🚧) |
-| 4 | **P2P rendezvous** — `rust/nodera-rendezvous` + `transport-rendezvous` (NAT reach) | [`docs/Task.4.md`](docs/Task.4.md) | ✅ core (L-23/L-27 RETIRED; 4c live cross-internet soak ⏳ waits 5b) |
-| 5 | **NeoForge Minecraft (Java) module** — `neoforge-mod` + `transport-neoforge` | [`docs/Task.5.md`](docs/Task.5.md) | 🚧 (5g gate ✅; 5c HUD + 5d GUI + 5e host lane + 5f identity/permissions landed compile+headless; 5a `runClient` harness (L-45) and 5b live validation lane are the blockers) |
-| 6 | **Peer worker** — `nodera-headless` + `peer-runtime/control` (required always-on node) | [`docs/Task.6.md`](docs/Task.6.md) | 🚧 (6a boot+probe ✅, 6b control v2+telemetry ✅ verified live; 6c host/join delegation + seeding 🚧; 6d out-of-game validation ⏳ — L-41 RETIRING, L-48) |
-| 7 | **Tauri companion app** — `rust/nodera-app` | [`docs/Task.7.md`](docs/Task.7.md) | 🚧 (7a scaffold + 7b live metrics ✅; 7c installers/CI 🚧; 7d end-to-end continuity ⏳ — L-47) |
+| Category | Scope | Docs | Tasks | Status |
+|---|---|---|---|---|
+| **Engine** | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | [`docs/engine/`](docs/engine/Task.0.md) | 12 | 🚧 7 done |
+| **Network** | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | [`docs/network/`](docs/network/Task.0.md) | 11 | 🚧 10 done |
+| **Tracker** | Always-on world/peer discovery service + its Java client | [`docs/tracker/`](docs/tracker/Task.0.md) | 3 | 🚧 2 done |
+| **Rendezvous** | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | [`docs/rendezvous/`](docs/rendezvous/Task.0.md) | 3 | 🚧 2 done |
+| **Minecraft** | The NeoForge mod: capture, live lanes, GUI, host lane, world identity, companion gate | [`docs/minecraft/`](docs/minecraft/Task.0.md) | 7 | 🚧 2 done |
+| **Worker** | The required always-on headless peer + its loopback control protocol | [`docs/worker/`](docs/worker/Task.0.md) | 4 | 🚧 3 done |
+| **App** | The Tauri desktop companion that supervises the worker | [`docs/app/`](docs/app/Task.0.md) | 4 | 🚧 2 done |
 
 The **"torrent hosting" feature** (a world becomes a shared, content-addressed, multi-seeder
-resource) is Task 2 phases 2d–2j + the Task 5 GUI/host phases. Additive to committee validation:
-seeders store/propagate only; the active region's committee (1e) still re-executes+commits.
+resource) is network tasks 4–10 plus the minecraft GUI and host tasks. It is additive to committee
+validation: seeders store and propagate only; the active region's committee still re-executes and
+commits.
 
-The **Rust infrastructure services** (Tasks 3/4) are verified-never-trusted: an outage degrades
-discovery/reach, never correctness ([`LEGACY.md`](docs/LEGACY.md) ledgers the Java code they
-replaced).
+The **Rust infrastructure services** (tracker, rendezvous) are verified-never-trusted: an outage
+degrades discovery and reachability, never correctness.
 
-Full task specs: [`docs/Task.0.md`](docs/Task.0.md) … [`docs/Task.7.md`](docs/Task.7.md);
-legacy class-level specs: [`docs/old/`](docs/old/).
-Implementation order + priority + difficulty rankings (legacy numbering):
-[`docs/Roadmap.md`](docs/Roadmap.md).
+Delivery order, priority, and difficulty: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ---
 
 ## Agent memory & discipline
 
 <!-- AI-AGENT-INSTRUCTION: AGENTS.md is the always-loaded agent memory. The three non-negotiable
-     disciplines are: (1) run tests before commit, (2) update README progress + docs/Testing.md, (3) use
+     disciplines are: (1) run tests before commit, (2) update README progress + docs/minecraft/TESTING.md, (3) use
      the commit-message standard above. Re-read AGENTS.md at the start of every session. -->
 
 The single source of agent instructions is [`AGENTS.md`](AGENTS.md). It is auto-loaded by coding
@@ -260,6 +257,14 @@ agents (opencode, Cursor, Claude Code, …) and encodes: build/test commands, la
 frozen contracts, the test-before-commit / update-README / commit-format disciplines, and the
 GitHub issue workflow. **Read it before doing anything.**
 
-The **base document** (orientation prompt + conventions + task index — which files are
-load-bearing, the project pattern, where progress lives, how to open/close issues) is
-[`docs/Task.0.md`](docs/Task.0.md).
+The **documentation entry point** — the documentation format, the binding conventions (layering,
+frozen contracts, determinism rules, naming, version pins), where progress lives, and the mandatory
+documentation-maintenance discipline — is [`docs/README.md`](docs/README.md).
+
+<!-- AI-AGENT-INSTRUCTION: Documentation is part of the deliverable, not a follow-up. On every
+     outcome-changing commit, update the owning docs/<category>/Task.<n>.md, that category's
+     PROGRESS.md / TESTING.md / LIMITATIONS.md, docs/ROADMAP.md, this README, and the affected
+     package README — in the SAME commit as the code. The full rule is docs/README.md §5. -->
+
+**Documentation discipline:** a commit that changes behaviour and leaves the docs stale is an
+incomplete delivery. The mandatory checklist is [`docs/README.md`](docs/README.md) §5.

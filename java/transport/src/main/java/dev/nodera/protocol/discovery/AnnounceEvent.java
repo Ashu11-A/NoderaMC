@@ -4,7 +4,7 @@ import dev.nodera.core.crypto.CanonicalReader;
 
 /**
  * The lifecycle event carried by a {@link TrackerAnnounce} (Task 28; BitTorrent-style
- * {@code started}/heartbeat/{@code stopped} — {@code docs/torrent/trackers.md} §3).
+ * {@code started}/heartbeat/{@code stopped} — {@code docs/tracker/REFERENCE.md} §3).
  *
  * <p>Ordinals are the encoded form and are <b>frozen</b>: append new constants, never reorder.
  *
