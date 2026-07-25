@@ -182,6 +182,11 @@ public final class EntityCaptureBridge {
         runtime.tickEnd(event.getServer());
     }
 
+    /** @return the entity's type id, e.g. {@code minecraft:zombie} (L-24's per-species switch). */
+    private static String speciesOf(Entity entity) {
+        return entity.getType().builtInRegistryHolder().key().location().toString();
+    }
+
     private void captureJoin(Entity entity) {
         RegionId region = MinecraftEntityAdapters.region(entity);
         // L-60: "this dimension never opted into mob capture" is a CONFIG fact, true on every node,
@@ -190,7 +195,8 @@ public final class EntityCaptureBridge {
         // on the session server, which routinely owns nothing — so the node that SEES the
         // disqualifying entity is usually not the node holding the region. Checking this before the
         // ownership gate is what lets that node say so instead of returning in silence.
-        if (!(entity instanceof ItemEntity) && !NoderaConfig.mobCapture(entity.level().dimension())) {
+        if (!(entity instanceof ItemEntity)
+                && !NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity))) {
             runtime.revokeForEntity(region, entity);
             return;
         }
