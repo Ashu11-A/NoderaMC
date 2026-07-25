@@ -7,7 +7,7 @@
      lifecycle paths, and most defects in this category were only catchable live. -->
 
 **Category:** minecraft · **Last run:** 2026-07-25 · **97 unit tests · 0 failing** (module
-`neoforge-mod`), plus **13 scripted live suites**
+`neoforge-mod`), plus **14 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -43,6 +43,7 @@ scripts/e2e-pickup.sh    --no-build
 scripts/e2e-mobs.sh      --no-build
 scripts/e2e-pearl.sh     --no-build
 scripts/e2e-mesh-soak.sh --no-build
+scripts/e2e-determinism.sh --no-build   # SOAK_SECONDS=7200 for issue #5's acceptance run
 scripts/e2e-password.sh  --no-build
 scripts/e2e-rekey.sh     --no-build
 scripts/e2e-commands.sh  --no-build
@@ -66,9 +67,10 @@ run first — or alone on its own machine, which is what CI does.
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
-| `e2e-mobs.sh` | The ghost-mob lane: regions report holding ghost mobs where capture is enabled and are not revoked. The revocation half asserts only on a node that owns regions — on a dedicated server under field-of-view ownership it reports SKIPPED and names **L-60**, which is the gap it found | ~9 min |
+| `e2e-mobs.sh` | The ghost-mob lane: regions report holding ghost mobs where capture is enabled and are not revoked. G2 asserts the other half — a non-delegable entity in a dimension that never opted in refuses its region, names the reason, and announces the refusal to the mesh even when the observing node owns no seat (L-60) | ~8 min |
 | `e2e-pearl.sh` | The pearl drive: the teleport lands the thrower where the lane says it did (a hard assertion — the event is not ownership-dependent); the ghost-capture half reports SKIPPED naming **L-60** on a node that owns no regions | ~7 min |
 | `e2e-mesh-soak.sh` | The live mesh under sustained load: the walking player's lane re-executes and votes for its regions through 180 s of edits, mobs and movement. The root-agreement half asserts only when a **worker** holds a replica — on today's topology none does, and the stage says so naming L-30/L-60 | ~9 min |
+| `e2e-determinism.sh` | **The Phase-1 exit gate** (issue #5): THREE clients on one server, ≥4 regions, sustained random play, and `validation.divergences` read from every node at the end — zero, or the suite names the disagreeing nodes. Records the bandwidth/interference numbers to `phase1-numbers.json`. Default 15 min; the acceptance run is `SOAK_SECONDS=7200` | ~20 min (2 h+ for the acceptance run) |
 | `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
 | `e2e-rekey.sh` | The author changes the world password: the worker seeds and announces the re-keyed manifest, **no refresh of a password-protected world is ever plaintext**, the **old** password is refused at the game server, and the new one joins | ~9 min |
 | `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |

@@ -21,6 +21,10 @@ on:
         description: 'Comma-separated suites to run (blank = all)'
         required: false
         default: ''
+      soak_seconds:
+        description: 'Soak length for e2e-determinism (issue #5 acceptance = 7200)'
+        required: false
+        default: ''
   schedule:
     - cron: '17 3 * * *'   # nightly, off-peak
 
@@ -41,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           all=(continuity crash pickup mobs pearl password rekey commands farlands \
-               ownership-follow mesh-soak)
+               ownership-follow mesh-soak determinism)
           if [[ -z "${REQUESTED// /}" ]]; then
             picked=("${all[@]}")
           else
@@ -60,7 +64,10 @@ jobs:
     name: ${{ matrix.suite }}
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 minutes fits every suite except a long determinism soak, whose whole point is duration —
+    # issue #5's acceptance is a 2-hour run, dispatched with SOAK_SECONDS=7200. The nightly runs
+    # the short version, so the ceiling only has to accommodate the dispatch.
+    timeout-minutes: ${{ matrix.suite == 'determinism' && 200 || 45 }}
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +92,9 @@ jobs:
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
       - name: ${{ matrix.suite }} under Xvfb
+        env:
+          # Only e2e-determinism reads it; an empty value leaves the suite's own default in place.
+          SOAK_SECONDS: ${{ inputs.soak_seconds }}
         run: |
           NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
             scripts/e2e-${{ matrix.suite }}.sh --no-build
@@ -99,4 +109,5 @@ jobs:
             java/neoforge-mod/run-host/logs/
             java/neoforge-mod/run-join/logs/
             java/neoforge-mod/run-join2/logs/
+            java/neoforge-mod/run-join3/logs/
           if-no-files-found: ignore

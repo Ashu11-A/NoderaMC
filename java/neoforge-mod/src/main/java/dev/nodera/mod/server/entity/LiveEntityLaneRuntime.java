@@ -296,9 +296,18 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     @Override
     public void revokeForEntity(RegionId region, Entity entity) {
-        LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep it)",
-                region, entity.getType().builtInRegistryHolder().key().location());
-        validation.revokeRegion(region);
+        // L-60: this runs on whichever node SAW the entity, which under field-of-view ownership is
+        // usually not a node that owns the region — entities spawn and tick on the session server,
+        // and the seats sit on the players' nodes. `refuseRegion` therefore both drops whatever
+        // this node holds and tells the mesh, and answers false for every repeat so a dimension
+        // full of mobs logs once per region rather than once per spawn.
+        boolean first = validation.refuseRegion(
+                region, dev.nodera.protocol.simulationmsg.RegionRefusal.Reason.NON_DELEGABLE_ENTITY);
+        if (first) {
+            LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep "
+                            + "it); refusal announced to the mesh",
+                    region, entity.getType().builtInRegistryHolder().key().location());
+        }
         regions.remove(region);
         EntityCaptureBridge.get().releaseRegion(region);
     }

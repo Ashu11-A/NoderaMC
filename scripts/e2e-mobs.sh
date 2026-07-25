@@ -10,12 +10,10 @@
 #       region. The exit: a region reports that it now holds ghost mobs
 #       ("GHOST: Region[...] now holds ghost mobs") and is NOT revoked — a
 #       captured ghost is the lane holding a mob, not giving up on one
-#   G2  REVOCATION: the same summon in the NETHER, which never opted in. When
-#       the node under test owns the region, the exit is that it revokes with
-#       the reason stated by name ("non-delegable entity minecraft:zombie") and
-#       the world keeps playing. On a dedicated server under field-of-view
-#       ownership the server's lane owns nothing, so the stage reports SKIPPED
-#       and names L-60 rather than asserting something no node here can do
+#   G2  REVOCATION: the same summon in the NETHER, which never opted in. The
+#       node that SEES the entity refuses the region — naming the reason
+#       ("non-delegable entity minecraft:zombie") — and announces the refusal to
+#       the mesh, whether or not it owns a seat itself. The world keeps playing
 #   G3  transcripts + worker STATE snapshots collected
 #
 # Why the nether rather than a config flip and a restart: capture is decided
@@ -78,12 +76,12 @@ tail -n +"$mark" "$LOG_DIR/server.log" | grep -qa "entity lane revoked" \
 pass "G1: ghost capture — the lane controls the mobs and keeps its region"
 
 # --- G2: revocation where the dimension never opted in ------------------------------------------
-# Revocation is decided by the node whose lane OWNS the region: `captureJoin` only reaches
-# `revokeForEntity` when `runtime.delegated(region)` holds. On a dedicated server under
-# field-of-view ownership the plan hands every region to the PLAYERS' nodes ("no regions fall to
-# this node"), so the server's lane owns nothing and never refuses anything — tracked as L-60.
-# Until that is fixed, asserting the revoke here would fail for a reason this suite did not cause,
-# so the stage states the condition it needs and says which one it found.
+# This used to skip. Revocation was gated on `runtime.delegated(region)` — the node's OWN lane —
+# and under field-of-view ownership a dedicated server owns nothing ("no regions fall to this
+# node"), so the one node that could see the mob was the one node forbidden from acting on it.
+# L-60's fix evaluates the dimension's opt-in BEFORE the ownership gate and announces a
+# `RegionRefusal` (tag 61), so the observer refuses and the owners drop the region. The assertion
+# is therefore the same on every topology, which is what makes it worth running.
 log "G2: the same summon in the NETHER (capture is OFF there)"
 mark=$(wc -l < "$LOG_DIR/server.log")
 tp_player JoinerDev 0 100 0 minecraft:the_nether >/dev/null
@@ -93,11 +91,7 @@ rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
 # Ask the precondition BEFORE spending the timeout on it: when the server's lane owns no regions
 # there is nothing here that can revoke, and waiting nine minutes to be told so is the single
 # slowest thing this suite does.
-if grep -qa "no regions fall to this node" "$LOG_DIR/server.log"; then
-    transcript "=== G2 skipped: the server's lane owns no regions (L-60)"
-    log "G2: SKIPPED — this server's lane owns no regions, so nothing on it can refuse a \
-non-delegable entity (L-60). The assertion needs the owning node, which is a player's."
-elif wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
+if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
     revoked=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "entity lane revoked" | tail -1)
     transcript "=== revocation: $revoked"
     grep -qa "non-delegable entity" <<<"$revoked" \
@@ -111,10 +105,14 @@ elif wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; the
         || fail "G2: the player is gone after the revocation: $alive"
     errors=$(nodera_audit_errors "$LOG_DIR/server.log" "$mark")
     [[ -z "$errors" ]] || fail "G2: the revocation left errors in the log: $errors"
-    pass "G2: revocation — the region is released, the reason is named, the session plays on"
+    # L-60: the whole point is that the refusal LEAVES this node. A revoke that stopped at the
+    # observer would leave every owning lane still validating the region it just refused.
+    grep -qa "refusal announced to the mesh" <<<"$revoked" \
+        || fail "G2: the region was revoked locally but no refusal was announced: $revoked"
+    pass "G2: revocation — the region is released, the reason is named, the refusal reaches the \
+mesh, and the session plays on"
 else
-    fail "G2: a non-delegable entity did NOT revoke its region on a node that DOES own regions \
-(see $LOG_DIR/server.log)"
+    fail "G2: a non-delegable entity did NOT revoke its region (see $LOG_DIR/server.log)"
 fi
 
 # --- G3: artifacts ------------------------------------------------------------------------------

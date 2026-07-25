@@ -184,6 +184,16 @@ public final class EntityCaptureBridge {
 
     private void captureJoin(Entity entity) {
         RegionId region = MinecraftEntityAdapters.region(entity);
+        // L-60: "this dimension never opted into mob capture" is a CONFIG fact, true on every node,
+        // and it disqualifies the region from the validated lane no matter who owns it. Under
+        // field-of-view ownership the seats sit on the players' nodes while entities spawn and tick
+        // on the session server, which routinely owns nothing — so the node that SEES the
+        // disqualifying entity is usually not the node holding the region. Checking this before the
+        // ownership gate is what lets that node say so instead of returning in silence.
+        if (!(entity instanceof ItemEntity) && !NoderaConfig.mobCapture(entity.level().dimension())) {
+            runtime.revokeForEntity(region, entity);
+            return;
+        }
         if (!runtime.delegated(region)) {
             return;
         }
@@ -202,10 +212,6 @@ public final class EntityCaptureBridge {
             // (PickupItemAction admission), so the projection must be immediately touchable.
             item.setPickUpDelay(0);
             runtime.adoptEntity(region, state);
-            return;
-        }
-        if (!NoderaConfig.mobCapture(entity.level().dimension())) {
-            runtime.revokeForEntity(region, entity);
             return;
         }
         PersistedEntityState state = MinecraftEntityAdapters.ghost(entity);
