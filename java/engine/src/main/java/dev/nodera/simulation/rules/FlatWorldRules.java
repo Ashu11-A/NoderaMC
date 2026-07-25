@@ -309,8 +309,6 @@ public final class FlatWorldRules implements RuleSet {
         return s;
     }
 
-    private static final BitSet WHITELIST = buildWhitelist();
-
     private static BitSet buildWhitelist() {
         BitSet s = new BitSet();
         for (PaletteEntry e : PALETTE) {

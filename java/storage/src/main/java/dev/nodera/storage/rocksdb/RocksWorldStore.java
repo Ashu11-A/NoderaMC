@@ -197,14 +197,6 @@ public final class RocksWorldStore implements WorldStore, AutoCloseable {
         return key;
     }
 
-    private static long suffixOf(byte[] key) {
-        long id = 0;
-        for (int i = key.length - Long.BYTES; i < key.length; i++) {
-            id = (id << 8) | (key[i] & 0xFF);
-        }
-        return id;
-    }
-
     private static boolean hasPrefix(byte[] key, byte[] prefix) {
         if (key.length < prefix.length) {
             return false;
