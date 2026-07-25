@@ -9,6 +9,30 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Settings that lied stop lying — L-57 and L-58 RETIRED (2026-07-25, §B 20 → 18 rows).** Both
+> rows described settings the app exposed but the node did not honour as documented.
+>
+> **L-57** asked for the download cap's overshoot bound to be *measured*, and measuring it found the
+> documented claim was false: the gate admitted a request whenever any credit remained and then
+> charged the whole request, so a multi-piece batch overshot by several pieces while the docs
+> promised one. `admitRequestBytes` now discounts the request's largest piece and requires the rest
+> to fit — bounding the overshoot at exactly one piece, while still letting a budget smaller than a
+> single piece make progress instead of deadlocking the download. The pacing-not-shaping framing was
+> always correct (the budget is checked *before* a piece is asked for, because by the time bytes
+> arrive they have already crossed the wire); what changed is that the promise it makes is now the
+> promise the code keeps.
+>
+> **L-58** was reported as `restart_required`, and that framing hid the real defect: the blobs a node
+> holds *are* its seeding obligations, so re-pointing the archive directory without moving them would
+> leave a world listed on the tracker while every piece request missed — worse than refusing the
+> change. `FsContentStore.relocateTo` moves the content first and re-points the store only after;
+> content addressing makes it safe, since a blob's filename is its hash and a file already at the
+> destination is byte-identical. The key moved out of `RESTART_REQUIRED_KEYS` into the applied path,
+> an embedding without a relocatable store gets an honest `rejected` reason rather than a false
+> success, and an empty path is refused rather than treated as a location. `ConfigVerbIT` proves it
+> end to end over the real control socket. The p2p bind port stays restart-required — an open
+> listener is a different problem from a movable directory. Bar 92.6 → 93.1%.
+
 > **Palette v2 completed — L-26 RETIRED (2026-07-25, §B 21 → 20 rows).** The row's exit is a
 > three-stage list, and stages 2 (observer/QC/daylight, with L-5/L-6) and 3 (comparator/hopper/note,
 > with L-10) had long been green. The gap was **stage 1**: Task 13's palette v2 was still missing two
@@ -189,7 +213,7 @@ Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priorit
 > 1. **Direct-first was structurally unreachable.** `RendezvousPeerTransport` advertised only a
 >    RELAY candidate, so `hasDirectCandidate` was false for every discovered peer and
 >    `Path.DIRECT` never entered the available set — every byte on that transport crossed the
->    relay, the exact inversion `docs/torrent/rendezvous.md` §12.2 warns about. It now publishes a
+>    relay, the exact inversion `docs/net/RENDEZVOUS.md` §12.2 warns about. It now publishes a
 >    HOST candidate from the direct transport's listen route (`PeerTransport.listenRoute()` joined
 >    the seam), substitutes that address when the caller addresses by node id alone, and renews its
 >    registration at half the TTL (§9.3) instead of silently vanishing from discovery after five

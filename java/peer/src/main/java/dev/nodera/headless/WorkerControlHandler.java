@@ -608,6 +608,7 @@ public final class WorkerControlHandler implements ControlHandler {
         private final WorldReplicationService replication;
         private final dev.nodera.transport.socket.SocketPeerTransport transport;
         private final dev.nodera.peer.discovery.TrackerClient tracker;
+        private final dev.nodera.storage.rocksdb.FsContentStore contentStore;
 
         /**
          * @param content     the piece plane (upload/download bounds, the pause flag); nullable.
@@ -619,10 +620,26 @@ public final class WorkerControlHandler implements ControlHandler {
                            WorldReplicationService replication,
                            dev.nodera.transport.socket.SocketPeerTransport transport,
                            dev.nodera.peer.discovery.TrackerClient tracker) {
+            this(content, replication, transport, tracker, null);
+        }
+
+        /**
+         * As above, plus the relocatable blob store behind {@code storage.peer_worlds_dir} (L-58).
+         *
+         * @param contentStore the on-disk content store, or {@code null} when this embedding has
+         *                     none — the archive-directory key is then {@code rejected} with a
+         *                     reason rather than silently reported as applied.
+         */
+        public ConfigSeams(dev.nodera.distribution.ContentTransferService content,
+                           WorldReplicationService replication,
+                           dev.nodera.transport.socket.SocketPeerTransport transport,
+                           dev.nodera.peer.discovery.TrackerClient tracker,
+                           dev.nodera.storage.rocksdb.FsContentStore contentStore) {
             this.content = content;
             this.replication = replication;
             this.transport = transport;
             this.tracker = tracker;
+            this.contentStore = contentStore;
         }
     }
 
@@ -647,6 +664,7 @@ public final class WorkerControlHandler implements ControlHandler {
     static final String K_PAUSED = "behavior.transfers_paused";
     static final String K_REPL_BUDGET = "storage.replication_budget_bytes";
     static final String K_REPL_SWEEP = "storage.replication_sweep_seconds";
+    static final String K_ARCHIVE_DIR = "storage.peer_worlds_dir";
 
     /**
      * Keys the worker understands but cannot change without being restarted — they are read once
@@ -655,8 +673,7 @@ public final class WorkerControlHandler implements ControlHandler {
      * can offer the restart button instead of pretending the value took effect.
      */
     private static final List<String> RESTART_REQUIRED_KEYS = List.of(
-            "network.p2p_port", "network.port_range", "network.rendezvous_endpoints",
-            "storage.peer_worlds_dir");
+            "network.p2p_port", "network.port_range", "network.rendezvous_endpoints");
 
     /**
      * Keys this worker will <b>never</b> honour, each with the reason the app shows in a tooltip.
@@ -794,6 +811,21 @@ public final class WorkerControlHandler implements ControlHandler {
                     return "this worker has no replication lane";
                 }
                 config.replication.reconfigure(config.replication.budgetBytes(), (int) asLong(raw));
+                return null;
+            }
+            case K_ARCHIVE_DIR -> {
+                // L-58: this used to be restart_required, which quietly stranded whatever the node
+                // was already seeding — the blobs a node holds ARE its seeding obligations, so
+                // re-pointing the path without moving them leaves every piece request missing.
+                // The content moves first; the store re-points only after.
+                if (config.contentStore == null) {
+                    return "this worker has no relocatable content store";
+                }
+                String path = raw == null ? "" : unquote(raw).trim();
+                if (path.isEmpty()) {
+                    return "an empty archive directory is not a location";
+                }
+                config.contentStore.relocateTo(java.nio.file.Path.of(path));
                 return null;
             }
             default -> {

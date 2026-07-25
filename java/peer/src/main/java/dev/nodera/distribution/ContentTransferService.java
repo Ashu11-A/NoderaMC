@@ -487,15 +487,25 @@ public final class ContentTransferService implements MessageHandler {
         }
         LocalContent content = local.get(request.manifestRoot());
         long bytes = 0;
+        long largestPiece = 0;
         if (content != null) {
             for (Integer index : request.pieceIndexes()) {
                 if (index >= 0 && index < content.manifest.pieceCount()) {
-                    bytes += content.manifest.piece(index).length();
+                    long length = content.manifest.piece(index).length();
+                    bytes += length;
+                    largestPiece = Math.max(largestPiece, length);
                 }
             }
         }
         synchronized (this) {
-            if (requestedBytesThisWindow >= budget) {
+            // The documented guarantee is "within ONE PIECE of overshoot" (L-57). Admitting on
+            // `requestedBytesThisWindow < budget` alone would overshoot by the whole request, which
+            // for a multi-piece request is several pieces — so discount the largest piece and
+            // require the rest to fit. A request whose every piece is the largest one still gets
+            // through when the window is empty, which is what stops a budget smaller than a single
+            // piece from deadlocking the download entirely.
+            if (requestedBytesThisWindow > 0
+                    && requestedBytesThisWindow + bytes - largestPiece > budget) {
                 pacedRequests++;
                 return false;
             }
