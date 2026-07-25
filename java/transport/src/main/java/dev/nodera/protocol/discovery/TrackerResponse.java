@@ -84,22 +84,6 @@ public record TrackerResponse(
         seeders = List.copyOf(seeders);
     }
 
-    /**
-     * Quantise a {@code [0,1]} reliability into basis points, clamping out-of-range inputs rather
-     * than throwing — a caller's EMA drifting a hair past 1.0 must not take down a tracker answer.
-     *
-     * @param reliability a reliability in {@code [0,1]}.
-     * @return the value in basis points.
-     * @Thread-context any thread.
-     */
-    public static int toBasisPoints(double reliability) {
-        if (Double.isNaN(reliability)) {
-            return 0;
-        }
-        long bps = Math.round(reliability * RELIABILITY_BPS_SCALE);
-        return (int) Math.max(0, Math.min(RELIABILITY_BPS_SCALE, bps));
-    }
-
     @Override
     public String toString() {
         return "TrackerResponse[" + genesisHash.toShortHex(6) + " '" + worldName + "' peers="

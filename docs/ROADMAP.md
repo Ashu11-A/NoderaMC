@@ -8,7 +8,7 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-25** · Overall system completion **93.1%** · 1,451 Java tests · 150 Rust
+**Snapshot: 2026-07-25** · Overall system completion **93.1%** · 1,453 Java tests · 150 Rust
 workspace tests · 56 `nodera-app` tests · 0 failing.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).

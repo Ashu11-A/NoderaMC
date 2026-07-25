@@ -187,13 +187,4 @@ public final class BootstrapClient {
         return Optional.empty();
     }
 
-    /** @return the configured bootstrap routes. */
-    public List<String> configuredRoutes() {
-        return configuredRoutes;
-    }
-
-    /** @return the backing cached-peer store. */
-    public CachedPeerStore cachedPeers() {
-        return cachedPeers;
-    }
 }

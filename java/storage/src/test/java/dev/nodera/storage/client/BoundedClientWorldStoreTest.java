@@ -65,6 +65,42 @@ final class BoundedClientWorldStoreTest {
     }
 
     @Test
+    void unpinningReleasesTheOnlyThingThatCanWedgeTheBudget() {
+        // The counterpart of the pin rule, and the reason `unpin` exists at all: a region this
+        // client no longer owns must stop being un-evictable, or its budget stays wedged by state
+        // nobody needs. Pinned ⇒ the put is refused; unpinned ⇒ the same put evicts it and fits.
+        BoundedClientWorldStore store = new BoundedClientWorldStore(
+                new StorageQuotaManager(500, 0), null);
+        ContentId pinned = store.put(blob(1, 500));
+        store.pin(pinned);
+        assertThat(store.isPinned(pinned)).isTrue();
+        assertThatThrownBy(() -> store.put(blob(2, 1)))
+                .isInstanceOf(QuotaException.class);
+
+        store.unpin(pinned);
+
+        assertThat(store.isPinned(pinned)).isFalse();
+        ContentId next = store.put(blob(2, 1));
+        assertThat(store.has(next)).isTrue();
+        assertThat(store.has(pinned))
+                .as("once unpinned it is ordinary cold content, and the budget reclaims it")
+                .isFalse();
+    }
+
+    @Test
+    void unpinningSomethingAbsentIsAQuietNoOp() {
+        // Callers unpin on region hand-off without first checking presence; that must not throw.
+        BoundedClientWorldStore store = new BoundedClientWorldStore(
+                new StorageQuotaManager(500, 0), null);
+        ContentId absent = store.put(blob(9, 10));
+        store.remove(absent);
+
+        store.unpin(absent);
+
+        assertThat(store.isPinned(absent)).isFalse();
+    }
+
+    @Test
     void refusesWhenOnlyPinnedContentRemains() {
         BoundedClientWorldStore store = new BoundedClientWorldStore(
                 new StorageQuotaManager(500, 0), null);

@@ -87,11 +87,6 @@ public final class NoderaMultiplayerScreen extends Screen {
         pieceMapSource = s == null ? (name -> PieceMapView.map(name, List.of(), 0)) : s;
     }
 
-    /** Install the join handler (defaults to the real {@link NoderaJoinFlow}). */
-    public static void setJoinHandler(BiConsumer<TorrentWorldEntry, Screen> h) {
-        joinHandler = h == null ? NoderaJoinFlow::join : h;
-    }
-
     /** Install the Refresh-button action (defaults to a no-op until the live feed installs). */
     public static void setRefreshHandler(Runnable r) {
         refreshHandler = r == null ? () -> {} : r;

@@ -70,11 +70,6 @@ public final class DebugConsole {
         detachIfIdle();
     }
 
-    /** @return whether {@code player} currently receives the console stream. */
-    public static boolean subscribed(UUID player) {
-        return SUBSCRIBERS.contains(player);
-    }
-
     /** Server-tick drain: deliver captured lines to every subscribed online player. */
     public static void flush(MinecraftServer server) {
         if (SUBSCRIBERS.isEmpty() || PENDING.isEmpty()) {

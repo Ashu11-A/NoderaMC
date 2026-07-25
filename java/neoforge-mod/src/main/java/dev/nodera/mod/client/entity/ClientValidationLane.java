@@ -142,11 +142,6 @@ public final class ClientValidationLane {
         return replicaView;
     }
 
-    /** @return regions this player currently validates (diagnostics). */
-    public static synchronized int activeRegionCount() {
-        return service == null ? 0 : activeRegions;
-    }
-
     private static void stopLocked() {
         if (service != null) {
             dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.deactivate(service);
