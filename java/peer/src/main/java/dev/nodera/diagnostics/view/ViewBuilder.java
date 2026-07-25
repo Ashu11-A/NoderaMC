@@ -126,10 +126,40 @@ public final class ViewBuilder {
         rows.add(Row.of(Cell.bold("replica", Semantic.REPLICA),
                 cell(r.replica().size() + " region(s)", Semantic.REPLICA)));
         rows.add(row("chunks", cell(String.valueOf(r.ownedChunks()), Semantic.NEUTRAL)));
+        rows.addAll(certificationRows(r));
         if (r.isEmpty()) {
             rows.add(row("note", Cell.of("no delegated regions (Task 6)", Semantic.UNASSIGNED)));
         }
         return Panel.titled(REGIONS, Semantic.HEADING, rows);
+    }
+
+    /**
+     * The certification rows of the regions panel (issue #47.3): what consensus has actually done
+     * to the leases this node holds. Only non-zero states are rendered, and {@code solo} carries
+     * its reason inline so a population shortfall never reads as a stalled commit.
+     */
+    private static List<Row> certificationRows(RegionOwnership r) {
+        int certified = r.countCertification(RegionOwnership.Certification.CERTIFIED);
+        int pending = r.countCertification(RegionOwnership.Certification.PENDING);
+        int solo = r.countCertification(RegionOwnership.Certification.SOLO);
+        List<Row> rows = new ArrayList<>();
+        if (certified + pending + solo == 0) {
+            return rows;
+        }
+        if (certified > 0) {
+            rows.add(Row.of(Cell.bold("certified", Semantic.OWNED),
+                    cell(certified + " region(s) co-signed", Semantic.OWNED)));
+        }
+        if (pending > 0) {
+            rows.add(Row.of(Cell.bold("pending", Semantic.VALIDATING),
+                    cell(pending + " region(s) awaiting quorum", Semantic.VALIDATING)));
+        }
+        if (solo > 0) {
+            rows.add(Row.of(Cell.bold("solo", Semantic.UNASSIGNED),
+                    cell(solo + " region(s) self-signed — no other peer on this committee",
+                            Semantic.UNASSIGNED)));
+        }
+        return rows;
     }
 
     /** The zone panel: the region at the position + its {@link OwnershipState}. */

@@ -9,6 +9,65 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Limitation burn-down (2026-07-25): L-10, L-11, L-15, L-18 RETIRED (§B 30 → 26 rows).** Four
+> rows sat at RETIRING while their *stated exit tests* were already green — each "remaining" note
+> listed follow-on scope (a chest GUI, a deposit debit, caves and biomes, live rotation cadence) that
+> the exit clause never asked for. Every clause was re-verified against the code rather than the
+> prose before the row moved: `OUTSIDE_GENERATED_TERRAIN` and its `terrainGenerated` input are
+> grep-absent from both languages (L-15); the container palette entries are present and
+> `UNSUPPORTED_PALETTE` is the only palette gate, so container regions genuinely are delegable
+> (L-10); `PlayerInventoryTest.portalHandOffCarriesTheInventoryExactlyOnce` is the dupe-proof
+> cross-region clause (L-11).
+>
+> **L-18's fourth clause was genuinely unmet and is closed here.** "Byzantine ITs green under
+> adversarial peers" was being credited to `ByzantineWorkerTest`, which hands lying ballots directly
+> to `CommitteeSession` — no adversary had ever spoken the wire. New `ByzantineMeshIT` (3) puts a
+> real adversarial peer on the mesh (a raw `MessageHandler` that reads the primary's `RegionProposal`
+> and answers dishonestly, never running the engine) while the honest members run the production
+> path: a lying validator is outvoted and the fabricated root never reaches the certificate; a vote
+> forged in an absent member's name buys no seat, so the round times out rather than commits; an
+> equivocating voter gets one seat, not two.
+>
+> Two rows were examined and deliberately **left** RETIRING, with the reason recorded in the
+> register: **L-25** (its exit names the RuleSet SDK, which is L-21/OPEN, and
+> `MutationGuard.verdictChecked` still has no live mixin call site) and **L-26** (its exit is "full
+> redstone parity" and pressure plates — entity coupling — are still missing from the palette).
+
+> **Mesh population + boundary independence (2026-07-25, issues #45/#46/#47 closed):** the three
+> remaining live-play defects shared one root — a region's committee was whatever players happened to
+> stand in it, and nothing on the live lane ever noticed when its primary stopped keeping up.
+>
+> 1. **Workers hold committee seats through a player's disconnect (#45).** The resident lane
+>    (`ViewOwnershipPlanner` resident top-up + `NoderaHost.assignResidentSeats` + `NODERA-MESH`
+>    session join) now has its exit proof: `ResidentQuorumIT` runs the issue's own scenario — two
+>    standing workers plus player nodes — and shows the committee holding at `QUORUM_MVP_SIZE`
+>    across a logout, still committing, with the quorum certificate co-signed by a peer that has no
+>    Minecraft process. The counterfactual (no residents ⇒ committee of one) is asserted alongside,
+>    so the row cannot silently regress to the DEGRADED shape it was reported in.
+> 2. **A laggy player no longer wedges its regions for everyone (#46.1).** The Task 25 handoff lane
+>    existed and was tested but had **no live call site**: a client thousands of ticks behind stayed
+>    primary of every region its view covered. `WorkerValidationService.forwardLagTickBps` measures
+>    the age of the oldest forwarded action the primary has not answered — literally what the player
+>    at the boundary is waiting on — and `tickLagHandoff` (one window/100 ticks, three unhealthy
+>    windows to fire) drives `LagHandoffPolicy` into `CommitteeFailover.promoteOnLag`. Only the
+>    deterministic successor may initiate, so one slow window cannot split a committee
+>    (`LiveLagHandoffIT`, 4).
+> 3. **Region status stops reading as a permanent "unsigned" (#47.3).** `RegionOwnership.Certification`
+>    separates CERTIFIED / PENDING / **SOLO** — a committee of one is a population shortfall that no
+>    amount of waiting fixes, and the panel now says so instead of implying a stalled commit
+>    (`RegionCertificationTest`, 8). #47.2 was audited end to end and is *not* a bug:
+>    `TrafficDirectionSplitTest` pins that up and down never share a field; the symmetry seen live is
+>    real two-peer gossip.
+>
+> Two latent faults surfaced en route and are fixed: a `CommitAnnounce` for a **revoked** replica
+> threw an illegal pipeline transition out of the peer state thread (killing it), and a newer-epoch
+> `RegionAssigned` re-activated a **live** replica from the genesis snapshot — rewinding it to v0 and
+> failing every later `prevRoot` check. Also closed with their acceptance met: #39 (a P2P bind
+> failure degrades instead of crashing the integrated server), #43 (continuous archive streaming +
+> bounded final flush + freshness guard + exit progress), #44 (vanilla is cancelled only on the
+> synchronous local-primary path — now pinned Minecraft-free by `VanillaCancelGate`).
+> Bar 89.1 → 89.5%.
+
 > **Discovery/telemetry audit remediation (2026-07-24):** an end-to-end audit of the
 > tracker → rendezvous → worker → mod → companion chain found four capabilities that were *built
 > and tested but never connected*, each of which made the system quietly weaker than its own docs

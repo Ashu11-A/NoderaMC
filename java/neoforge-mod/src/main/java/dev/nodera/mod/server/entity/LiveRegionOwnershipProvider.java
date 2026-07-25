@@ -112,8 +112,16 @@ public final class LiveRegionOwnershipProvider implements RegionOwnershipProvide
             } else {
                 replica.add(region);
             }
+            // Issue #47.3: say what consensus has actually done to this lease. A committee of one
+            // is a population fact ("solo"), never the same thing as "not yet certified".
+            int committeeSize = 1 + l.validators().size();
+            var certificate = lane.service().latestCertificate(region).orElse(null);
+            var head = lane.service().currentSnapshot(region)
+                    .map(dev.nodera.core.state.RegionSnapshot::version).orElse(null);
             leases.put(region, new RegionOwnership.LeaseInfo(
-                    l.epoch().value(), l.expiresAtTick()));
+                    l.epoch().value(), l.expiresAtTick(),
+                    RegionOwnership.classify(committeeSize, head, certificate),
+                    committeeSize, certificate == null ? 0 : certificate.votes().size()));
         }
         // 8×8 chunks per region (NoderaConstants.REGION_SIZE_CHUNKS²).
         RegionOwnership ownership =
