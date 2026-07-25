@@ -62,6 +62,9 @@ public final class ClientBootstrap {
                 dev.nodera.mod.client.title.TitleScreenAddon::onScreenInit);   // Realms slot → Nodera Network
         NeoForge.EVENT_BUS.addListener(
                 dev.nodera.mod.client.create.CreateWorldNoderaAddon::onScreenInit); // create-world share options
+        // Says WHICH screen a client is stuck on when it never reaches a world — the fact the
+        // scripted live suites (L-45) have been missing every time they fail in CI.
+        ClientStallReporter.register();
     }
 
     /**
