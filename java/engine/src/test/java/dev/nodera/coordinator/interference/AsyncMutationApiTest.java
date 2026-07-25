@@ -85,7 +85,7 @@ final class AsyncMutationApiTest {
                 .as("the off-thread write is rejected with the DOCUMENTED error")
                 .isInstanceOf(MutationGuard.AsyncWriteException.class)
                 .hasMessageContaining("AsyncActionGate.submit")
-                .hasMessageContaining("L-25");
+                .hasMessageContaining("docs/SDK.md");
 
         // The applier scope stays a legal writer through the checked entry point.
         guard.applierScope(() -> assertThat(

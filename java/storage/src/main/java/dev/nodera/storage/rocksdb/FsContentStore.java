@@ -93,6 +93,23 @@ public final class FsContentStore implements ContentStore {
     }
 
     @Override
+    public boolean remove(ContentId id) {
+        if (id == null) {
+            throw new IllegalArgumentException("id must not be null");
+        }
+        Path target = pathFor(id.hash());
+        try {
+            if (!Files.deleteIfExists(target)) {
+                return false;
+            }
+        } catch (java.io.IOException e) {
+            throw new StorageException("cannot remove content blob " + id, e);
+        }
+        count--;
+        return true;
+    }
+
+    @Override
     public int size() {
         return count;
     }

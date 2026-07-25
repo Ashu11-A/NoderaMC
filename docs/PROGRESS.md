@@ -9,6 +9,64 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Rule-pack SDK ships — L-21 RETIRED (2026-07-25, §B 24 → 23 rows).** A pack could declare palette
+> entries and an identity but had no *behaviour*: its blocks were inert ids the base rules did not
+> know what to do with. `PackRules` is the executable half (validate / apply / tick, opt-in through a
+> default-empty `rules()`, so palette-only packs are unchanged), and `PackDelegatingRuleSet`
+> dispatches by **declared palette ownership** via the new `RulePackRegistry.ownerOf`. That is what
+> makes it safe by construction rather than by convention: the base palette is frozen below
+> `PACK_ID_FLOOR` so a pack can never intercept a vanilla block, registration already refuses
+> cross-pack id collisions so ownership is a function, pack ticks run in canonical namespace order so
+> installation order cannot change a root, and `FlatWorldRegionEngine` gained a registry constructor
+> that **derives** its expected fingerprint from the packs it will actually run — it cannot be handed
+> a number that disagrees with its own behaviour.
+>
+> Writing the test caught a real defect: `combinedFingerprint` folded an *empty* pack list through
+> the hash, so a modded-but-packless node computed a different fingerprint from an unmodded one and
+> the two could never have validated each other — merely shipping the SDK would have forked the
+> network. An empty registry is now identity-equal to the base. `PackRuleExecutionTest` (5) pins the
+> rest: a pack's block reaches consensus state through the pack's own code, replica-identical across
+> independently-built registries; a pack's own rejection leaves the world untouched; tick order
+> survives reversed installation order; base blocks behave byte-identically with a pack installed.
+> `docs/SDK.md` is the public contract — the determinism rules, why breaking them is a *refusal*
+> rather than a corruption, and `AsyncActionGate.submit` as the legal off-thread path (the
+> `AsyncWriteException` message now points there instead of at the register).
+>
+> **L-25 is deliberately still RETIRING.** Its SDK clause is now green — the SDK is shipped and
+> documented — but `MutationGuard.verdictChecked` still has no live mixin call site, and a guard
+> nothing calls rejects nothing in practice. That switch rides the same NeoForge live lane as L-45's
+> harness. Bar 90.8 → 91.3%.
+
+> **Limitation burn-down, second pass (2026-07-25): L-54, L-55 RETIRED (§B 26 → 24 rows).** Both
+> were "noted" follow-ups from issues #36/#37 that had never been built, and both were quietly
+> security-relevant.
+>
+> **L-54 — grants now exist on the mesh, not just on the author's disk.** `WorldPermissionStore`
+> persisted grants locally and nowhere else, so a co-hosting peer's permission set stayed
+> author-local: an operator promotion or a ban simply did not exist for the rest of the network, and
+> a banned peer could still be admitted by any peer that had not been told. New
+> `WorldGrantGossipService` relays every grant this node issues or accepts over the new
+> `WorldGrantGossip` message (tag 60, Rust-mirrored), `WorkerControlHandler.grantRole` publishes
+> through it, and `HeadlessPeerMain` wires it as the application lane's third consumer — so it is a
+> live call site, not another built-but-never-called capability. The transport carries the decision
+> without ever being trusted with it: the grant is opaque bytes and every receiver re-runs
+> `WorldPermissions.apply`, which re-verifies both the signature and the granter's authority against
+> the world's author key. `GrantGossipIT` (6) covers the attacks too — a correctly-signed grant from
+> a non-author is refused by every receiver and is not even relayed by the attacker's own node; a
+> stale version neither applies nor propagates (which is also what terminates the flood); a world
+> this node has no author key for is left with no opinion rather than half-applied.
+>
+> **L-55 — a password re-key now actually revokes the old password.** A re-key appended a new
+> encrypted manifest and left the previous one seeded, and the superseded blob is still decryptable
+> with the OLD password — so rotating it revoked nothing. `supersedeOlderVersions` drops every older
+> version from the manifest table, from `holdingsFor`, and from the content store itself (new
+> `ContentStore.remove` / `ContentTransferService.unpublish`). The "across seeders" half needed no
+> new protocol: learning from the ordinary manifest exchange that a newer version exists is enough,
+> because "only the newest version is maintained" is a policy each seeder applies on its own — and a
+> late-arriving older version is dropped rather than re-adopted. Deliberately not called from
+> `seedArchive`: #43's continuous streaming appends a version every interval, and evicting under a
+> joiner mid-fetch would trade a security fix for a data-availability regression. Bar 90.2 → 90.8%.
+
 > **Limitation burn-down (2026-07-25): L-10, L-11, L-15, L-18 RETIRED (§B 30 → 26 rows).** Four
 > rows sat at RETIRING while their *stated exit tests* were already green — each "remaining" note
 > listed follow-on scope (a chest GUI, a deposit debit, caves and biomes, live rotation cadence) that

@@ -36,4 +36,17 @@ public interface RulePack {
 
     /** @return a stable hash of the pack's SEMANTICS — bump on any behavioral change. */
     long semanticFingerprint();
+
+    /**
+     * The pack's executable rules, or empty for a palette-only pack.
+     *
+     * <p>Default-empty on purpose: a pack that only contributes ids stays valid and keeps its
+     * identity folded into the registry fingerprint exactly as before. Behaviour is opt-in, and
+     * opting in does not change how the pack is identified.
+     *
+     * @return this pack's {@link PackRules}, or {@link java.util.Optional#empty()}.
+     */
+    default java.util.Optional<PackRules> rules() {
+        return java.util.Optional.empty();
+    }
 }

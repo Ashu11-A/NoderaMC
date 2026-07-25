@@ -121,7 +121,10 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_EVENT_SYNC_ANSWER).isEqualTo(55);
         assertThat(MessageCodec.TAG_HALO_UPDATE).isEqualTo(56);
         assertThat(MessageCodec.TAG_GROUP_MIGRATION).isEqualTo(57);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(59);
+        assertThat(MessageCodec.TAG_GENESIS_APPROVAL_REQUEST).isEqualTo(58);
+        assertThat(MessageCodec.TAG_GENESIS_APPROVAL_GRANT).isEqualTo(59);
+        assertThat(MessageCodec.TAG_WORLD_GRANT_GOSSIP).isEqualTo(60);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(60);
     }
 
     @Test

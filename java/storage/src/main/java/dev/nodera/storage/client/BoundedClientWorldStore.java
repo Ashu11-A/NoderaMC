@@ -164,6 +164,26 @@ public final class BoundedClientWorldStore implements ContentStore {
         return blobs.containsKey(id);
     }
 
+    /**
+     * Drop a blob outright, pinned or not. Distinct from eviction: eviction is this store making
+     * room and is reported to the repair listener so the replica is re-created elsewhere, whereas
+     * removal is the owner saying the content must stop existing (a superseded re-key ciphertext,
+     * L-55) — re-replicating that would defeat the point, so no listener fires.
+     */
+    @Override
+    public synchronized boolean remove(ContentId id) {
+        if (id == null) {
+            throw new IllegalArgumentException("id must not be null");
+        }
+        byte[] blob = blobs.remove(id);
+        if (blob == null) {
+            return false;
+        }
+        meta.remove(id);
+        usedBytes -= blob.length;
+        return true;
+    }
+
     @Override
     public synchronized int size() {
         return blobs.size();
