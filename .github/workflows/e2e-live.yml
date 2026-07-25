@@ -37,6 +37,7 @@ jobs:
           - commands            # every /nodera command + the in-game selftest
           - farlands            # two players ~566 km apart; per-player chunk control
           - ownership-follow    # ownership re-plans when the player crosses a region boundary
+          - mesh-soak           # sustained load: votes cross the transport, roots agree (L-30)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

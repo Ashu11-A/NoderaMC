@@ -309,8 +309,30 @@ public final class WorkerControlHandler implements ControlHandler {
                 + "\"votes_cast\":" + s.votesCast() + ","
                 + "\"votes_received\":" + s.votesReceived() + ","
                 + "\"committee_commits\":" + s.committeeCommits() + ","
-                + "\"fallback_commits\":" + s.fallbackCommits()
+                + "\"fallback_commits\":" + s.fallbackCommits() + ","
+                + "\"region_roots\":{" + regionRootsJson() + "}"
                 + "},";
+    }
+
+    /**
+     * Every activated region's head root, keyed by region (L-30). The counters above say validation
+     * happened; only the roots say the peers agree about WHAT happened — which is the claim a live
+     * mesh has to support, and the one thing no reply carried before.
+     *
+     * @return the {@code "region":"roothex"} pairs, comma separated (possibly empty).
+     */
+    private String regionRootsJson() {
+        List<String> rows = new ArrayList<>();
+        for (dev.nodera.core.region.RegionId region : validation.activeRegionIds()) {
+            validation.headRoot(region).ifPresent(root -> rows.add(
+                    "\"" + escape(regionKey(region)) + "\":\"" + root.hash().toHex() + "\""));
+        }
+        return String.join(",", rows);
+    }
+
+    /** {@code dimension@x,z} — stable across peers, so two workers' replies are comparable. */
+    private static String regionKey(dev.nodera.core.region.RegionId region) {
+        return region.dimension() + "@" + region.regionX() + "," + region.regionZ();
     }
 
     @Override
