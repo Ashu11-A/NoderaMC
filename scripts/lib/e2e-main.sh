@@ -388,7 +388,11 @@ def read_packet(sock):
     pid, ptype = struct.unpack('<ii', data[:8])
     return pid, ptype, data[8:-2].decode(errors='replace')
 
-with socket.create_connection(('127.0.0.1', port), timeout=10) as s:
+# 30 s, not 10: RCON is answered on the server thread, so a tick that runs long (generating
+# terrain 200 km out on a 2-core CI runner puts it hundreds of ticks behind) delays the reply
+# rather than losing it. A short timeout turns that into an empty answer the caller reads as a
+# failed assertion.
+with socket.create_connection(('127.0.0.1', port), timeout=30) as s:
     s.sendall(packet(1, 3, password))
     pid, _, _ = read_packet(s)
     if pid == -1:
