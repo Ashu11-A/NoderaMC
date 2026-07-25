@@ -610,12 +610,17 @@ pauseOnLostFocus:false
 EOF
 }
 
-# Point a client game dir's nodera-client.toml at its OWN companion worker and
-# the dev services: write_client_config <game-dir-name> <control-port>
+# Point a client game dir's nodera-client.toml at its OWN companion worker and the dev services:
+# write_client_config <game-dir-name> <control-port> [join-password]
+#
+# The optional join password is the L-52 gate's joiner half: a scripted client has no keyboard, so
+# the password it offers a password-gated world comes from its own config.
 write_client_config() {
     mkdir -p "$MOD_DIR/$1/config"
     stage_client_options "$1"
     cat > "$MOD_DIR/$1/config/nodera-client.toml" <<EOF
+[join]
+	password = "${3:-}"
 [companion]
 	controlEndpoint = "127.0.0.1:$2"
 	required = true
@@ -646,6 +651,7 @@ EOF
 [host]
 	gamePort = $GAME_PORT
 	onlineAuth = false
+	sharePassword = "${NODERA_SHARE_PASSWORD:-}"
 [entity]
 	laneAutoActivate = true
 	mobCaptureDimensions = ["minecraft:overworld"]

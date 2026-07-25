@@ -6,8 +6,8 @@
      the host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-07-25 · **85 unit tests · 0 failing** (module
-`neoforge-mod`), plus **8 scripted live suites**
+**Category:** minecraft · **Last run:** 2026-07-25 · **96 unit tests · 0 failing** (module
+`neoforge-mod`), plus **9 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -36,6 +36,7 @@ scripts/e2e-continuity.sh               # also BAKES the shared world the others
 scripts/e2e-ownership.sh --no-build
 scripts/e2e-churn.sh     --no-build [--cycles 5]
 scripts/e2e-pickup.sh    --no-build
+scripts/e2e-password.sh  --no-build
 scripts/e2e-commands.sh  --no-build
 scripts/e2e-farlands.sh  --no-build
 scripts/e2e-crash.sh     --no-build
@@ -57,6 +58,7 @@ reuse.
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
+| `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
 | `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |
 | `e2e-farlands.sh` | Two players ~566 km apart: positions verified and per-player chunk control interrogated | ~8 min |
 | `e2e-crash.sh` | One client **SIGKILLed** mid-session: the survivor sees no disruption, no continuity arm, **no migration screen**; the crashed player rejoins | ~7 min |
@@ -155,7 +157,7 @@ suites pass through it by design.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 85 | 🚧 |
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 96 | 🚧 |
 
 Landmark unit tests:
 
@@ -168,6 +170,7 @@ Landmark unit tests:
 | `WorldArchiverStreamingTest` | Continuous archive streaming cadence, the bounded final flush, and the seeded-version freshness marker |
 | `WorkerPiecesParserTest` / `PieceMapFeedTest` | The worker's piece reply becomes the grid — the seam that had never been called by anything |
 | `ClientStallReporterTest` | A client outside a world for ten seconds logs the active screen's class, repeating while it does not change — the fact every opaque live CI failure was missing |
+| `HostJoinGateTest` | The live-join password gate's whole admission rule, Minecraft-free: right password in, wrong password out, no password out, per-connection nonces, single use, expiry, a bounded challenge store, and a **sealed** gate that refuses everyone rather than silently opening the world |
 | `NoderaWorldStoreTest` | The per-world signed identity file, written atomically |
 
 ## Conventions

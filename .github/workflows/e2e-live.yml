@@ -84,6 +84,12 @@ jobs:
       - name: Clean-slate pickup drive under Xvfb
         run: |
           NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-pickup.sh --no-build
+      # The live-join password gate (L-52): a passwordless joiner is refused at the game server,
+      # and the same client with the password joins. Rides this job — it is clean-slate too, and
+      # the live suites run strictly one at a time.
+      - name: Live-join password gate under Xvfb
+        run: |
+          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-password.sh --no-build
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -92,6 +98,8 @@ jobs:
           path: |
             run/logs/e2e-pickup/
             run/results/e2e-pickup/
+            run/logs/e2e-password/
+            run/results/e2e-password/
             java/neoforge-mod/run-join/logs/
             java/neoforge-mod/run-join2/logs/
           if-no-files-found: ignore

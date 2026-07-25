@@ -25,6 +25,26 @@ public final class PasswordKeyDerivations {
         return argon2Available() ? new Argon2KeyDerivation() : new Pbkdf2KeyDerivation();
     }
 
+    /**
+     * The KDF a piece of public key material names, built with <b>that material's</b> cost
+     * parameters. Selection by id (never by what this side prefers) is what makes the two ends of
+     * a join derive identically; carrying the material's memory and lane counts into the Argon2
+     * instance is what keeps a world encrypted with non-default costs decryptable at all.
+     *
+     * @param material the public salt + parameters from a manifest or a join challenge.
+     * @return the matching derivation.
+     * @throws IllegalArgumentException if the material names a KDF this build does not implement.
+     * @Thread-context any thread.
+     */
+    public static PasswordKeyDerivation forMaterial(WorldKeyMaterial material) {
+        return switch (material.kdf()) {
+            case PasswordKeyDerivation.ARGON2ID ->
+                    new Argon2KeyDerivation((int) material.memoryKib(), material.parallelism());
+            case PasswordKeyDerivation.PBKDF2 -> new Pbkdf2KeyDerivation();
+            default -> throw new IllegalArgumentException("unknown KDF: " + material.kdf());
+        };
+    }
+
     /** @return whether the pinned BouncyCastle Argon2 implementation is on the classpath. */
     public static boolean argon2Available() {
         try {

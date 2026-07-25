@@ -24,7 +24,7 @@
 #
 # Canonical order (continuity FIRST — it bakes the shared NoderaE2E world the
 # host-client suites reuse):
-#   continuity ownership ownership-follow churn pickup commands farlands crash
+#   continuity ownership ownership-follow churn pickup password commands farlands crash
 #
 # Each suite's stdout+stderr is teed to run/results/runner/<stamp>/<suite>.out
 # and a PASS/FAIL summary lands in summary.txt. The runner keeps going after a
@@ -33,7 +33,7 @@
 # ===========================================================================
 set -uo pipefail
 
-ALL_SUITES=(continuity ownership ownership-follow churn pickup commands farlands crash)
+ALL_SUITES=(continuity ownership ownership-follow churn pickup password commands farlands crash)
 
 # The batch's own flags, on top of the shared --no-build. Suite names are not
 # options, so they are collected here too.

@@ -5,7 +5,7 @@
      MUST use real OS processes and real SIGKILLs; a mocked daemon proves nothing about the property
      this category exists for. Keep counts and Last run current. -->
 
-**Category:** worker · **Last run:** 2026-07-25 · Covered inside `java/peer` (449 tests, 0 failing)
+**Category:** worker · **Last run:** 2026-07-25 · Covered inside `java/peer` (457 tests, 0 failing)
 
 The worker is packages inside `java/peer` (`dev.nodera.headless`, `dev.nodera.peer.control`), not a
 separate Gradle module, so its tests are counted there — see

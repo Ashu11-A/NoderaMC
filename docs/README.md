@@ -9,7 +9,7 @@
      `<!-- AI-AGENT-INSTRUCTION: ... -->` comment intact when editing a document. -->
 
 Last documentation reorganization: **2026-07-25** · Overall system completion: **93.1%** ·
-Tests: **1,431 Java · 150 Rust workspace · 56 `nodera-app`** (1,588 total).
+Tests: **1,450 Java · 150 Rust workspace · 56 `nodera-app`** (1,607 total).
 
 ---
 

@@ -56,6 +56,33 @@ public final class ModNetworking {
     /** Called from {@link dev.nodera.mod.NoderaMod}. Idempotent: subscribing twice is a no-op. */
     public static void register(IEventBus modBus) {
         modBus.addListener(ModNetworking::onRegisterPayloads);
+        modBus.addListener(ModNetworking::onRegisterConfigurationTasks);
+    }
+
+    /**
+     * Client-dist hook for answering a live-join password challenge (L-52): the challenge in, the
+     * MAC out, or empty when this client has no password for that world. Volatile: written on the
+     * mod-loading thread, read on the proof-derivation thread.
+     */
+    private static volatile java.util.function.Function<
+            NoderaJoinChallengePayload, java.util.Optional<dev.nodera.core.Bytes>> joinProofProvider;
+
+    /** Register the client-side answerer for live-join password challenges. */
+    public static void setJoinProofProvider(java.util.function.Function<
+            NoderaJoinChallengePayload, java.util.Optional<dev.nodera.core.Bytes>> provider) {
+        joinProofProvider = provider;
+    }
+
+    /**
+     * Server-side: add the password step to this connection's configuration, but only while a
+     * password-protected world is actually hosted. A plaintext world registers nothing, so its
+     * joins are unchanged.
+     */
+    private static void onRegisterConfigurationTasks(
+            net.neoforged.neoforge.network.event.RegisterConfigurationTasksEvent event) {
+        if (HostJoinGate.get().isArmed()) {
+            event.register(new JoinPasswordTask(event.getListener()));
+        }
     }
 
     /** Client-dist hook for the region-ownership plan payload (set by {@code ClientBootstrap}). */
@@ -76,6 +103,67 @@ public final class ModNetworking {
                 NoderaNodeAnnouncePayload.STREAM_CODEC, ModNetworking::handleNodeAnnounce);
         registrar.playToClient(NoderaLanePlanPayload.TYPE,
                 NoderaLanePlanPayload.STREAM_CODEC, ModNetworking::handleLanePlan);
+        // L-52, the live-join password gate. Configuration phase, not play: a joiner who cannot
+        // answer must never be created as a player in the world.
+        registrar.configurationToClient(NoderaJoinChallengePayload.TYPE,
+                NoderaJoinChallengePayload.STREAM_CODEC, ModNetworking::handleJoinChallenge);
+        registrar.configurationToServer(NoderaJoinProofPayload.TYPE,
+                NoderaJoinProofPayload.STREAM_CODEC, ModNetworking::handleJoinProof);
+    }
+
+    /**
+     * Client-side: answer the host's password challenge. The derivation is a memory-hard KDF, so it
+     * runs on its own short-lived thread — blocking the client's main thread (or the netty thread)
+     * for the length of an Argon2 pass during a join is exactly the kind of stall players read as
+     * a hang.
+     */
+    private static void handleJoinChallenge(NoderaJoinChallengePayload payload,
+                                            IPayloadContext context) {
+        var provider = joinProofProvider;
+        Thread.ofPlatform().name("nodera-join-proof").daemon().start(() -> {
+            String proofB64 = "";
+            try {
+                var proof = provider == null ? java.util.Optional.<dev.nodera.core.Bytes>empty()
+                        : provider.apply(payload);
+                if (proof.isPresent()) {
+                    proofB64 = java.util.Base64.getEncoder()
+                            .encodeToString(proof.get().toArray());
+                }
+            } catch (RuntimeException malformed) {
+                // A malformed challenge (or a KDF this build cannot do) is answered with "no
+                // proof" rather than a dropped connection: the host then refuses us with a
+                // message the player can read instead of a silent timeout.
+                org.slf4j.LoggerFactory.getLogger("NoderaJoin")
+                        .warn("Nodera: join challenge could not be answered: {}",
+                                malformed.toString());
+            }
+            context.reply(new NoderaJoinProofPayload(proofB64));
+        });
+    }
+
+    /**
+     * Server-side: judge the answer. A pass finishes the configuration step and the join continues
+     * normally; anything else ends the connection with a stated reason — never a silent hang and
+     * never a player in the world.
+     */
+    private static void handleJoinProof(NoderaJoinProofPayload payload, IPayloadContext context) {
+        dev.nodera.core.Bytes answer;
+        try {
+            answer = payload.proofB64().isBlank() ? dev.nodera.core.Bytes.empty()
+                    : dev.nodera.core.Bytes.unsafeWrap(
+                            java.util.Base64.getDecoder().decode(payload.proofB64()));
+        } catch (IllegalArgumentException notBase64) {
+            answer = dev.nodera.core.Bytes.empty();
+        }
+        HostJoinGate.Verdict verdict = HostJoinGate.get()
+                .verify(context.connection(), answer, System.currentTimeMillis());
+        if (verdict == HostJoinGate.Verdict.PASS || verdict == HostJoinGate.Verdict.NOT_GATED) {
+            context.finishCurrentTask(JoinPasswordTask.TYPE);
+            return;
+        }
+        org.slf4j.LoggerFactory.getLogger("NoderaJoin")
+                .info("Nodera: refused a joiner at the password gate ({})", verdict);
+        context.disconnect(JoinPasswordTask.REFUSED);
     }
 
     /** Server-side: a player announced its peer node — record it and re-plan region ownership. */
