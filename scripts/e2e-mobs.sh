@@ -46,12 +46,27 @@ pass "G0: two players in-world, lane live, $NODERA_WORKERS peers up"
 
 transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/mobs.log"; }
 
+# summon_at <player> <species> — summon and PROVE it happened.
+#
+# The reply used to go to /dev/null, so "the lane did not react" and "there was nothing to react
+# to" were the same observation. That is exactly how G2 failed for nine minutes with no zombie in
+# the world at all: the whole stage rested on a command nobody checked. Minecraft answers
+# "Summoned new Zombie", or an error naming the reason.
+summon_at() {
+    local who="$1" species="$2" reply
+    reply=$(rcon "execute at $who run summon $species ~ ~ ~")
+    transcript "=== summon $species at $who: ${reply:-<no reply>}"
+    grep -qa "Summoned new" <<<"$reply" \
+        || fail "the summon of $species at $who did not happen: ${reply:-<no reply>}"
+    printf '%s' "$reply"
+}
+
 # --- G1: capture in an opted-in dimension -------------------------------------------------------
 log "G1: summoning ${MOB_COUNT}x $MOB at JoinerDev (overworld — mob capture is ON)"
 rcon "gamemode creative JoinerDev" >/dev/null
 mark=$(wc -l < "$LOG_DIR/server.log")
 for _ in $(seq 1 "$MOB_COUNT"); do
-    rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
+    summon_at JoinerDev "$MOB" >/dev/null
 done
 
 # The evidence is the lane's own line, not a counter. `nodera entities` reports the node the
@@ -100,7 +115,7 @@ sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))   # let the nether chunks + the 
 # originates in the validated engine, so it is captured HERE — a dimension that opted nothing in —
 # purely because the species is understood.
 mark=$(wc -l < "$LOG_DIR/server.log")
-rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
+summon_at JoinerDev "$MOB" >/dev/null
 sleep $(( 10 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
 if grep -qa "entity lane revoked" <(tail -n +"$mark" "$LOG_DIR/server.log"); then
     fail "G2a: a $MOB was treated as non-delegable in a dimension that opted nothing in — the \
@@ -113,7 +128,7 @@ pass "G2a: the engine-owned species is captured with no dimension opt-in (L-24)"
 # it refuses the region and announces that refusal — whether or not it holds a seat (L-60).
 log "G2b: summoning $MOB_UNKNOWN — a species the engine does not own"
 mark=$(wc -l < "$LOG_DIR/server.log")
-rcon "execute at JoinerDev run summon $MOB_UNKNOWN ~ ~ ~" >/dev/null
+summon_at JoinerDev "$MOB_UNKNOWN" >/dev/null
 
 if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
     revoked=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "entity lane revoked" | tail -1)
@@ -136,7 +151,18 @@ if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
     pass "G2: revocation — the region is released, the reason is named, the refusal reaches the \
 mesh, and the session plays on"
 else
-    fail "G2: a non-delegable entity did NOT revoke its region (see $LOG_DIR/server.log)"
+    # Self-diagnosing: the summon is now proven above, so a missing revoke is genuinely the lane's
+    # silence. Say WHICH silence it is — the three candidates read very differently.
+    {
+        printf '=== G2b: no revoke within the window. What the log did show:\n'
+        printf -- '--- lane activity since the summon ---\n'
+        tail -n +"$mark" "$LOG_DIR/server.log" | grep -aE "GHOST:|entity lane|REGION:" | tail -20
+        printf -- '--- did the nether region ever appear? ---\n'
+        grep -aE "the_nether" "$LOG_DIR/server.log" | tail -10
+    } >> "$RESULTS_DIR/mobs.log"
+    fail "G2b: $MOB_UNKNOWN was summoned but no region was refused — see the lane transcript in \
+$RESULTS_DIR/mobs.log (the summon itself is asserted, so this is the lane's silence, not a \
+missing mob)"
 fi
 
 # --- G3: artifacts ------------------------------------------------------------------------------
