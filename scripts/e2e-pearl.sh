@@ -35,11 +35,14 @@ transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/pearl.log"; }
 
 # --- E1/E2: one throw, three assertions ----------------------------------------------------------
 log "E1: throwing a pearl from JoinerDev"
-rcon "gamemode survival JoinerDev" >/dev/null      # a creative-mode pearl does not teleport
-rcon "clear JoinerDev" >/dev/null
-rcon "give JoinerDev minecraft:ender_pearl 4" >/dev/null
-# Flat ground and a known start: the pearl must fly a while, not land on the thrower's head.
-tp_player JoinerDev 100 -58 100 >/dev/null
+# Creative: the thrower is about to stand in mid-air, and fall damage would kill the drive rather
+# than the pearl. Creative changes nothing about the teleport itself — it only stops the item being
+# consumed and the fall hurting.
+rcon "gamemode creative JoinerDev" >/dev/null
+# The pearl needs AIR to fly through. The first version of this drive put the thrower at y=-58 —
+# buried in stone — where the pearl spawned inside solid blocks, never produced a hit result, and
+# so never teleported anybody. y=100 is open sky over ordinary terrain.
+tp_player JoinerDev 100 100 100 >/dev/null
 sleep $(( 8 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
 start=$(rcon "data get entity JoinerDev Pos")
 transcript "=== start position: $start"
@@ -52,7 +55,10 @@ mark=$(wc -l < "$LOG_DIR/server.log")
 uuid=$(rcon "data get entity JoinerDev UUID" | grep -oE '\[I;[^]]*\]')
 [[ -n "$uuid" ]] || fail "E1: could not read JoinerDev's UUID (needed to own the pearl)"
 transcript "=== thrower UUID: $uuid"
-summoned=$(rcon "execute at JoinerDev run summon minecraft:ender_pearl ^ ^1 ^1 {Motion:[0.0,0.6,1.4],Owner:$uuid}")
+# ABSOLUTE offsets, not caret coords: `^` is relative to the thrower's FACING, which a teleport
+# does not pin, so the pearl's launch direction was luck. `~ ~1 ~` with a downward-and-forward
+# motion always sends it across open air into the ground below.
+summoned=$(rcon "execute at JoinerDev run summon minecraft:ender_pearl ~ ~1 ~ {Motion:[0.0,-0.2,1.2],Owner:$uuid}")
 transcript "=== summon: $summoned"
 grep -qa "Summoned" <<<"$summoned" \
     || fail "E1: the pearl was not summoned: ${summoned:-<no reply>}"
