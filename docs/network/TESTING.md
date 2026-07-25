@@ -6,14 +6,14 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-25 · **644 Java tests + 35 Rust (`nodera-codec`) ·
+**Category:** network · **Last run:** 2026-07-25 · **673 Java tests + 35 Rust (`nodera-codec`) ·
 0 failing · 0 skipped**
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `transport` | Wire plane + socket/rendezvous carriers; tags through 60; authenticated handshake; bind-failure invariants | 93 | ✅ |
-| `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores | 104 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, headless worker, validation lane | 457 | 🚧 |
+| `transport` | Wire plane + socket/rendezvous carriers; tags through 61; authenticated handshake; bind-failure invariants | 93 | ✅ |
+| `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores | 112 | ✅ |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, headless worker, validation lane | 468 | 🚧 |
 | `rust/nodera-codec` | Byte-exact canonical encoding port, Ed25519 verify, tag mirror, framing, fixture conformance | 35 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything
