@@ -119,6 +119,30 @@ public final class LeaseManager {
         return copy;
     }
 
+    /**
+     * Adopt a lease this manager did not issue, at its own epoch.
+     *
+     * <p>In the decentralized model leases come from the deterministic FOV plan rather than from a
+     * coordinator's manager, so a node that needs manager-backed operations on such a region (the
+     * lag handoff, which must compare a decision against the live lease) has to install the lease
+     * it is actually running under. An older epoch is ignored: adoption never rewinds an epoch.
+     *
+     * @param lease the externally-agreed lease.
+     * @return {@code true} if it was installed.
+     */
+    public boolean adopt(RegionLease lease) {
+        if (lease == null) {
+            throw new IllegalArgumentException("lease must not be null");
+        }
+        Long current = epochs.get(lease.region());
+        if (current != null && current > lease.epoch().value()) {
+            return false;
+        }
+        epochs.put(lease.region(), lease.epoch().value());
+        leases.put(lease.region(), lease);
+        return true;
+    }
+
     /** Restore a persisted epoch for {@code region} (used when loading {@code NoderaSavedData}). */
     public void restoreEpoch(RegionId region, long epochValue) {
         if (epochValue < 0) {
