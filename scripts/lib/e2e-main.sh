@@ -107,6 +107,11 @@ nodera_ports() {
     WORKER_P2P_BASE="${WORKER_P2P_BASE:-25620}"
     RCON_PORT="${RCON_PORT:-25575}"
     RCON_PASS="${RCON_PASS:-nodera-dev}"
+    # How long ONE client may take to reach the world, before the timeout multiplier. A healthy CI
+    # join takes about two minutes; this was 600 s, which at MULT=3 is thirty minutes PER JOIN —
+    # two joins then exceed the job's own 45-minute limit, so a slow client killed the whole job
+    # instead of failing its own stage with a reason. The blocked-screen guard fails fast anyway.
+    JOIN_TIMEOUT="${JOIN_TIMEOUT:-300}"
     # How long preflight waits for a busy port to come free before calling it a failure. Suites
     # run back to back in one CI job and a killed JVM can hold its listener for a few seconds.
     PORT_FREE_TIMEOUT="${PORT_FREE_TIMEOUT:-60}"
@@ -751,7 +756,7 @@ nodera_dedicated_two_players() {
     write_client_config run-join  "$PEER1_CONTROL"
     start_client runClientJoin    "$LOG_DIR/client-join.log"
     P1_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" 600 \
+    wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" "$JOIN_TIMEOUT" \
         "$LOG_DIR/client-join.log" "JoinerDev never joined" || fail "JoinerDev never joined"
     # The SECOND client only when the topology asks for it. It used to launch unconditionally, so
     # `NODERA_PLAYERS=1` said one slot and started two anyway — and a second real Minecraft client
@@ -761,7 +766,7 @@ nodera_dedicated_two_players() {
         write_client_config run-join2 "$PEER2_CONTROL"
         start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
         P2_GRADLE_PID=$LAST_CLIENT_PID
-        wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
+        wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" "$JOIN_TIMEOUT" \
             "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
     fi
     wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
@@ -852,12 +857,12 @@ nodera_hosted_two_players() {
     write_client_config run-join "$PEER2_CONTROL"
     start_client runClientHost "$LOG_DIR/client-host.log"
     HOST_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+    wait_join "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" "$JOIN_TIMEOUT" \
         "$LOG_DIR/client-host.log" "player A never opened the shared world" \
         || fail "player A never opened the shared world"
     start_client runClientJoin "$LOG_DIR/client-join.log"
     JOINER_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+    wait_join "$LOG_DIR/client-host.log" "JoinerDev joined the game" "$JOIN_TIMEOUT" \
         "$LOG_DIR/client-join.log" "player B never joined" \
         || fail "player B never joined"
 }
