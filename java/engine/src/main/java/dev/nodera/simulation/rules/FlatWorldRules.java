@@ -316,6 +316,10 @@ public final class FlatWorldRules implements RuleSet {
             case dev.nodera.core.action.ContainerAction c -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.MovePlayerAction m -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
             case dev.nodera.core.action.InteractBlockAction i -> validateInteract(view, env, i);
+            // L-14: the deterministic command subset. Authority is checked HERE, against the
+            // committee-agreed operator set, not at the capture point a modified client controls.
+            case dev.nodera.core.action.CommandAction c ->
+                    CommandRules.validate(view, env, c, view.operators(), PLACEABLE::get);
         };
     }
 
@@ -403,6 +407,7 @@ public final class FlatWorldRules implements RuleSet {
                 GravityRules.onVacated(state, b.pos(), rng);
                 RedstoneRules.observersOnChange(state, b.pos(), env.targetTick());
             }
+            case dev.nodera.core.action.CommandAction c -> CommandRules.apply(state, env, c, rng);
             case dev.nodera.core.action.InteractBlockAction i -> {
                 RedstoneRules.interact(state, i.pos(), env, rng, env.targetTick());
             }

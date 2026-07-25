@@ -29,6 +29,10 @@ import dev.nodera.core.state.SnapshotVersion;
  * @param registryFingerprint fingerprint of the block registry the caller expects; the engine
  *                            refuses mismatches so two builds hashing different palettes never
  *                            validate each other.
+ * @param committedWorldTime  the member-agreed world time for time-coupled rules (L-6).
+ * @param operators           the node ids permitted to run {@link dev.nodera.core.action.CommandAction}s
+ *                            (Task 16 / L-14) — member-agreed and root-determining, derived from the
+ *                            signed grant chain, never from a local permission file.
  * @Thread-context immutable, any thread.
  */
 public record RegionExecutionContext(
@@ -40,7 +44,8 @@ public record RegionExecutionContext(
         long worldSeed,
         int rulesVersion,
         long registryFingerprint,
-        long committedWorldTime
+        long committedWorldTime,
+        java.util.Set<dev.nodera.core.identity.NodeId> operators
 ) {
 
     /**
@@ -54,7 +59,22 @@ public record RegionExecutionContext(
             long tickFrom, long tickTo, long worldSeed,
             int rulesVersion, long registryFingerprint) {
         this(region, epoch, baseVersion, tickFrom, tickTo, worldSeed,
-                rulesVersion, registryFingerprint, 0L);
+                rulesVersion, registryFingerprint, 0L, java.util.Set.of());
+    }
+
+    /**
+     * Compatibility constructor without an operator set (nobody may run a command).
+     *
+     * <p>Empty is the safe default on purpose: an unset operator set must mean "no command is
+     * authorised here", never "every command is". A caller that wants commands validated has to
+     * say who may run them.
+     */
+    public RegionExecutionContext(
+            RegionId region, RegionEpoch epoch, SnapshotVersion baseVersion,
+            long tickFrom, long tickTo, long worldSeed,
+            int rulesVersion, long registryFingerprint, long committedWorldTime) {
+        this(region, epoch, baseVersion, tickFrom, tickTo, worldSeed,
+                rulesVersion, registryFingerprint, committedWorldTime, java.util.Set.of());
     }
 
     /**
@@ -77,5 +97,9 @@ public record RegionExecutionContext(
             throw new IllegalArgumentException(
                     "tickTo must be >= tickFrom: " + tickFrom + ".." + tickTo);
         }
+        // Root-determining like committedWorldTime: every member must agree on WHO may run a
+        // command, or one replica applies a /fill the others reject. The set is derived from the
+        // signed grant chain (WorldPermissions), which is gossiped to every co-hosting peer.
+        operators = operators == null ? java.util.Set.of() : java.util.Set.copyOf(operators);
     }
 }

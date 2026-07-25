@@ -9,6 +9,34 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Commands enter the validated lane — L-14 and L-13 RETIRED (2026-07-25, §B 23 → 21 rows).**
+>
+> **L-14.** Commands sat outside the validated path entirely, and that is a bigger hole than it
+> sounds: an operator's `/setblock` mutated a delegated region *behind the committee's back*, so the
+> operator's world and every validator's replica silently diverged — precisely the failure class the
+> validated lane exists to make impossible. `CommandAction` (type tag 108, Rust-mirrored) +
+> `CommandRules` make a command an ordinary signed action. Two decisions are load-bearing:
+> **authority is checked in the engine**, against a committee-agreed operator set that now rides
+> `RegionExecutionContext` (root-determining like `committedWorldTime`, derived from the signed grant
+> chain L-54 gossips to every peer) — a capture-point check is advice a modified client can skip,
+> whereas this rejection happens on every honest validator independently; and **a command may not
+> mint a block a player could not place**, or `/setblock` becomes a way to conjure network-computed
+> states like a powered wire. The subset is deliberately narrow and says why: `/setblock` and `/fill`
+> are pure functions of committed state, while `/time set` is **refused** because committed world
+> time is a member-agreed context input, not region state — mutating it mid-batch would leave one
+> replica's context disagreeing with the others' for the rest of that batch. Fills are
+> volume-bounded (32,768) so one authorised action cannot stall every validator and trip the lag
+> handoff, and iterate in canonical (y, z, x) order so the delta's bytes are identical rather than
+> merely equivalent. An unset operator set means **nobody**, never everyone. `CommandSubsetTest` (8).
+>
+> **L-13.** Its PvP/PvE and state-in-root clauses were long green; the `@Invariant(10)` clause was
+> the one actually missing. `CombatStateRootTest` (4) proves identical blocks with different mob
+> health produce different roots — a replica that could not see that difference would certify a
+> divergence the next arrow makes visible — that identical vitals produce identical roots, that a
+> dead mob is *absent* from the root rather than present at zero (zero health is not a representable
+> state), and that committed player health diverges the root the same way. XP and mob drops remain
+> as ordinary follow-on scope, outside this row's exit. Bar 91.3 → 92.0%.
+
 > **Rule-pack SDK ships — L-21 RETIRED (2026-07-25, §B 24 → 23 rows).** A pack could declare palette
 > entries and an identity but had no *behaviour*: its blocks were inert ids the base rules did not
 > know what to do with. `PackRules` is the executable half (validate / apply / tick, opt-in through a

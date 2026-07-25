@@ -87,6 +87,9 @@ public final class BorderClassifier {
             case dev.nodera.core.action.MovePlayerAction ignored -> throw new IllegalStateException(
                     "MovePlayerAction is region-local by construction; handled before targetPosition");
                     case dev.nodera.core.action.InteractBlockAction i -> i.pos();
+            // A command's box is validated against the owned region on both corners, so the
+            // "from" corner is a faithful single target for the cross-region classifier.
+            case dev.nodera.core.action.CommandAction c -> c.from();
         };
     }
 }
