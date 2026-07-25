@@ -23,7 +23,7 @@
      table + milestone notes live in docs/PROGRESS.md — update THAT file (and docs/Testing.md) on
      every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `92.6%`**
+**Overall system completion: `93.1%`**
 `██████████████████░░`
 
 Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · test counts:

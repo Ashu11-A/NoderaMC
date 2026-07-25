@@ -151,6 +151,70 @@ final class ContentTransferBoundsTest {
     }
 
     @Test
+    void aSustainedDownloadHonoursTheCapWithinOnePieceOfOvershoot() {
+        // L-57's exit, MEASURED rather than asserted in prose: run a multi-window transfer and
+        // check the per-window request volume against the configured cap.
+        //
+        // The overshoot is real and structural — the budget is checked BEFORE a piece is asked
+        // for, because by the time bytes arrive they have already crossed the wire — so the honest
+        // claim is a bound, not equality. The bound is ONE PIECE: a request is admitted only when
+        // everything but its largest piece fits, which is what keeps a multi-piece request from
+        // overshooting by several pieces while still letting a budget smaller than one piece make
+        // progress instead of deadlocking.
+        RecordingTransport transport = new RecordingTransport();
+        ContentTransferService content = service(transport);
+        byte[] blob = blob();
+        PieceManifest manifest = WorldArchive.manifestFor(1L, blob);
+        long largestPiece = 0;
+        for (int i = 0; i < manifest.pieceCount(); i++) {
+            largestPiece = Math.max(largestPiece, manifest.piece(i).length());
+        }
+
+        long cap = largestPiece * 2;
+        content.setDownloadBandwidthBudget(cap);
+        PieceDownloader downloader = content.download(manifest, null);
+        downloader.addHolder(PEER, allIndexes(manifest));
+        downloader.start();
+
+        long worstWindow = 0;
+        for (int window = 0; window < 8; window++) {
+            long requested = content.requestedBytesThisWindow();
+            worstWindow = Math.max(worstWindow, requested);
+            assertThat(requested)
+                    .as("window %d requested %d B against a %d B cap", window, requested, cap)
+                    .isLessThanOrEqualTo(cap + largestPiece);
+            content.resetDownloadWindow();
+            downloader.retryPending();
+        }
+
+        assertThat(worstWindow)
+                .as("the cap is actually engaged — otherwise the bound is vacuously true")
+                .isPositive();
+        assertThat(content.pacedRequests())
+                .as("requests really were held back rather than the budget never binding")
+                .isPositive();
+    }
+
+    @Test
+    void aMultiPieceRequestOvershootsByOnePieceNotByTheWholeRequest() {
+        // The failure this pins: admitting on "any credit left" charges the ENTIRE request, so a
+        // 16-piece batch blew a one-piece budget by fifteen pieces while the docs claimed one.
+        RecordingTransport transport = new RecordingTransport();
+        ContentTransferService content = service(transport);
+        PieceManifest manifest = WorldArchive.manifestFor(1L, blob());
+        long piece = manifest.piece(0).length();
+
+        content.setDownloadBandwidthBudget(piece);
+        PieceDownloader downloader = content.download(manifest, null);
+        downloader.addHolder(PEER, allIndexes(manifest));
+        downloader.start();
+
+        assertThat(content.requestedBytesThisWindow())
+                .as("one window never exceeds the cap by more than a single piece")
+                .isLessThanOrEqualTo(piece * 2);
+    }
+
+    @Test
     void theDownloadBudgetPacesRequestsAndIsRestoredByTheWindow() {
         RecordingTransport transport = new RecordingTransport();
         ContentTransferService content = service(transport);

@@ -108,9 +108,12 @@ public final class HeadlessPeerMain {
         // shared world's save bytes survive the hosting player's game — and machine — going away.
         Path archiveDir = Path.of(env("NODERA_ARCHIVE_DIR",
                 System.getProperty("user.home") + "/.nodera/archive"));
-        WorldArchiveService archive = new WorldArchiveService(identity, metered,
+        // Held by reference so the archive directory is a live setting rather than a
+        // restart-required one that strands what this node is already seeding (L-58).
+        dev.nodera.storage.rocksdb.FsContentStore contentStore =
                 new dev.nodera.storage.rocksdb.FsContentStore(
-                        archiveDir, new dev.nodera.core.crypto.HashService()),
+                        archiveDir, new dev.nodera.core.crypto.HashService());
+        WorldArchiveService archive = new WorldArchiveService(identity, metered, contentStore,
                 tracker);
 
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
@@ -194,7 +197,7 @@ public final class HeadlessPeerMain {
                 WORKER_VERSION, identity, caps, runtime, meter, hosting, validation, archive,
                 peerMeter, discovery,
                 new WorkerControlHandler.ConfigSeams(
-                        archive.content(), replication, transport, tracker),
+                        archive.content(), replication, transport, tracker, contentStore),
                 grants);
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
