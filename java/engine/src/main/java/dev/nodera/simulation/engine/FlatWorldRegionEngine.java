@@ -92,6 +92,42 @@ public final class FlatWorldRegionEngine implements RegionEngine {
         this.ruleSet = new EntityRuleSet();
     }
 
+    /**
+     * An engine that runs third-party {@link dev.nodera.simulation.rules.RulePack}s (Task 16 /
+     * L-21) alongside the built-in rules.
+     *
+     * <p>The registry is taken rather than a fingerprint on purpose: the engine <b>derives</b> the
+     * expected fingerprint from the packs it is actually going to run
+     * ({@code registry.combinedFingerprint(base)}), so it cannot be handed a number that disagrees
+     * with its own behaviour. A member whose pack set differs computes a different fingerprint and
+     * is refused by the same gate that already guards palette drift — the pack lane adds no new way
+     * to diverge silently.
+     *
+     * @param rulesVersion the rules version this engine supports.
+     * @param registry     the frozen pack registry; its packs' rules run after the built-in ones.
+     * @param hashService  the SHA-256 service used to compute the post-state root.
+     * @throws IllegalArgumentException if {@code rulesVersion} is not this build's.
+     * @Thread-context deterministic; safe from any thread.
+     */
+    public FlatWorldRegionEngine(int rulesVersion,
+                                 dev.nodera.simulation.rules.RulePackRegistry registry,
+                                 HashService hashService) {
+        if (hashService == null || registry == null) {
+            throw new IllegalArgumentException("registry and hashService must not be null");
+        }
+        if (rulesVersion != FlatWorldRules.RULES_VERSION) {
+            throw new IllegalArgumentException(
+                    "rulesVersion " + rulesVersion + " does not match FlatWorldRules.RULES_VERSION "
+                            + FlatWorldRules.RULES_VERSION);
+        }
+        this.rulesVersion = rulesVersion;
+        this.expectedRegistryFingerprint =
+                registry.combinedFingerprint(FlatWorldRules.registryFingerprint());
+        this.hashService = hashService;
+        this.ruleSet = new dev.nodera.simulation.rules.PackDelegatingRuleSet(
+                new EntityRuleSet(), registry);
+    }
+
     @Override
     public RegionExecutionResult execute(RegionExecutionRequest request) {
         if (request == null) {

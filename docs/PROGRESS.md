@@ -9,6 +9,34 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Rule-pack SDK ships — L-21 RETIRED (2026-07-25, §B 24 → 23 rows).** A pack could declare palette
+> entries and an identity but had no *behaviour*: its blocks were inert ids the base rules did not
+> know what to do with. `PackRules` is the executable half (validate / apply / tick, opt-in through a
+> default-empty `rules()`, so palette-only packs are unchanged), and `PackDelegatingRuleSet`
+> dispatches by **declared palette ownership** via the new `RulePackRegistry.ownerOf`. That is what
+> makes it safe by construction rather than by convention: the base palette is frozen below
+> `PACK_ID_FLOOR` so a pack can never intercept a vanilla block, registration already refuses
+> cross-pack id collisions so ownership is a function, pack ticks run in canonical namespace order so
+> installation order cannot change a root, and `FlatWorldRegionEngine` gained a registry constructor
+> that **derives** its expected fingerprint from the packs it will actually run — it cannot be handed
+> a number that disagrees with its own behaviour.
+>
+> Writing the test caught a real defect: `combinedFingerprint` folded an *empty* pack list through
+> the hash, so a modded-but-packless node computed a different fingerprint from an unmodded one and
+> the two could never have validated each other — merely shipping the SDK would have forked the
+> network. An empty registry is now identity-equal to the base. `PackRuleExecutionTest` (5) pins the
+> rest: a pack's block reaches consensus state through the pack's own code, replica-identical across
+> independently-built registries; a pack's own rejection leaves the world untouched; tick order
+> survives reversed installation order; base blocks behave byte-identically with a pack installed.
+> `docs/SDK.md` is the public contract — the determinism rules, why breaking them is a *refusal*
+> rather than a corruption, and `AsyncActionGate.submit` as the legal off-thread path (the
+> `AsyncWriteException` message now points there instead of at the register).
+>
+> **L-25 is deliberately still RETIRING.** Its SDK clause is now green — the SDK is shipped and
+> documented — but `MutationGuard.verdictChecked` still has no live mixin call site, and a guard
+> nothing calls rejects nothing in practice. That switch rides the same NeoForge live lane as L-45's
+> harness. Bar 90.8 → 91.3%.
+
 > **Limitation burn-down, second pass (2026-07-25): L-54, L-55 RETIRED (§B 26 → 24 rows).** Both
 > were "noted" follow-ups from issues #36/#37 that had never been built, and both were quietly
 > security-relevant.

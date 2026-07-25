@@ -314,9 +314,9 @@ grep -a "SELFTEST complete" run/logs/e2e-commands/server.log        # the in-gam
 
 # Part 2 — module test status
 
-**Tests:** `1,395 passing · 0 failing · 0 skipped` (+**150 Rust workspace**, **56 `nodera-app`**;
+**Tests:** `1,400 passing · 0 failing · 0 skipped` (+**150 Rust workspace**, **56 `nodera-app`**;
 **1,588 total**). Per module (authoritative `./gradlew check` XML): core 233 · engine 430 ·
-transport 93 · storage 97 · testing 14 · peer 445 · neoforge-mod 83.
+transport 93 · storage 97 · testing 14 · peer 445 · neoforge-mod 83 (engine 430 → 435).
 
 Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳ in progress · ❌ failing
 
@@ -346,7 +346,7 @@ Status legend: ✅ passing · 🚧 partial (passing but incomplete scope) · ⏳
 | Module | Responsibility | Tests | Failures | Skipped | Status | Last run |
 |---|---|---:|---:|---:|:---:|---|
 | `core` | domain types, canonical encoding, JDK-only crypto, transition-bound authority/vote/joint-transfer certificates, Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102), and the product-identity constants (`CLIENT_AGENT`) peers publish | 233 | 0 | 0 | ✅ | 2026-07-24 |
-| `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics | 430 | 0 | 0 | ✅ | 2026-07-24 |
+| `engine` | unified deterministic engine + consensus/shadow/coordinator/committee/fallback stack; Task 12 fixed-point items, throttled ghosts, transactional entity/credit CAS, delegability/playerless isolation, transfer recovery, pearl policy, and soak metrics; Task 16's **rule-pack SDK** closes L-21 — `PackRules` (validate/apply/tick) dispatched by declared palette ownership via `RulePackRegistry.ownerOf` + `PackDelegatingRuleSet`, packs ticking in canonical namespace order, and a `FlatWorldRegionEngine` constructor that DERIVES its expected fingerprint from the registry it will run (`PackRuleExecutionTest`, 5: a pack's block reaches consensus state through the pack's own code, replica-identical across independently-built registries, a pack rejection leaves the world untouched, tick order survives reversed installation order, and base blocks behave byte-identically with a pack installed — which also caught `combinedFingerprint` folding an EMPTY pack list, so a modded-but-packless node could never have validated with an unmodded one) | 435 | 0 | 0 | ✅ | 2026-07-25 |
 | `transport` | unified wire/carrier API; port-range bind retry + a live max-connections cap; transfer prepare/accept/commit + tracker routes + the continuity lane's `WorldManifestQuery`/`Answer` + the no-host `ActionForward` extend append-only message tags through 53; Java/Rust tag mirror stays green; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) `SocketPeerTransportAuthTest` pins the authenticated challenge-response handshake (key-proven interop, legacy/forged/replay refusal) | 93 | 0 | 0 | ✅ | 2026-07-25 |
 | `storage` | unified event-sourced/RocksDB/client storage; Task 12 adds atomic paired event append, joint transfer certificates, durable stage records, reopen validation, forced-kill WAL recovery; Task 30c adds the host-signed `CertifiedWorldGenesis` (tag 103); issue #36/33 add the signed identity/permission stores | 97 | 0 | 0 | ✅ | 2026-07-24 |
 | `testing` | shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | 0 | 0 | ✅ | 2026-07-24 |
