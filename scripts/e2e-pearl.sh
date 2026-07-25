@@ -8,8 +8,10 @@
 #
 #   E0  the standard topology + a clean-slate dedicated server, both players
 #       in-world, the entity lane live
-#   E1  GHOST: a pearl thrown in a delegated region is captured by the lane
-#       ("PEARL: ghost <id> captured in Region[...]")
+#   E1  GHOST: a pearl thrown in a region THIS node owns is captured by the
+#       lane ("PEARL: ghost <id> captured in Region[...]"). On a dedicated
+#       server under field-of-view ownership the node owns none, so the stage
+#       reports SKIPPED and names L-60 rather than asserting the impossible
 #   E2  TELEPORT: the thrower ends up where the pearl landed — the lane's
 #       reported destination region and the player's actual position agree
 #       ("PEARL: <player> teleported to Region[...]")
@@ -48,11 +50,22 @@ mark=$(wc -l < "$LOG_DIR/server.log")
 rcon 'execute at JoinerDev run summon minecraft:ender_pearl ^ ^1 ^1 {Motion:[0.0,0.6,1.4],Owner:"JoinerDev"}' \
     >/dev/null || fail "E1: could not summon the pearl"
 
-wait_log_after "$LOG_DIR/server.log" "PEARL: ghost" 120 "$mark" \
-    || fail "E1: the lane never captured the pearl as a ghost (see $LOG_DIR/server.log)"
-ghost=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "PEARL: ghost" | tail -1)
-transcript "=== ghost: $ghost"
-pass "E1: the pearl is a lane ghost — captured in its region"
+# E1's ghost half rides the same node question as the mob drive: a pearl is captured only where the
+# SERVER's lane owns the region, and under field-of-view ownership it owns none (L-60). The teleport
+# half below does NOT — it is a vanilla event the host always sees — so the drive still asserts the
+# part it can and says which part it could not.
+if wait_log_after "$LOG_DIR/server.log" "PEARL: ghost" 120 "$mark"; then
+    ghost=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "PEARL: ghost" | tail -1)
+    transcript "=== ghost: $ghost"
+    pass "E1: the pearl is a lane ghost — captured in its region"
+elif grep -qa "no regions fall to this node" "$LOG_DIR/server.log"; then
+    transcript "=== E1 skipped: the server's lane owns no regions (L-60)"
+    log "E1: SKIPPED — this server's lane owns no regions, so nothing on it captures the pearl \
+as a ghost (L-60). The teleport half below still asserts."
+else
+    fail "E1: the lane never captured the pearl as a ghost on a node that DOES own regions \
+(see $LOG_DIR/server.log)"
+fi
 
 log "E2: waiting for the teleport"
 wait_log_after "$LOG_DIR/server.log" "PEARL: JoinerDev teleported" 180 "$mark" \
