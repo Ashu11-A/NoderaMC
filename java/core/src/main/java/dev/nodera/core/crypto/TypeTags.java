@@ -162,6 +162,9 @@ public final class TypeTags {
     /** Persisted set of {@code WorldPermissionGrant}s for one world (issue #36 F5 persistence). */
     public static final int WORLD_PERMISSION_SET = 107;
 
+    /** One command from the deterministic command subset (Task 16 / L-14). */
+    public static final int COMMAND_ACTION = 108;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 107;
+    public static final int NEXT = 108;
 }

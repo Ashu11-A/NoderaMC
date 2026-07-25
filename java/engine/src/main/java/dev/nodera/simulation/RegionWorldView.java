@@ -56,6 +56,20 @@ public interface RegionWorldView {
      *         views predating the container lane (Task 16 / L-10).
      * @Thread-context thread-confined per call.
      */
+    /**
+     * The committee-agreed set of node ids permitted to run a
+     * {@link dev.nodera.core.action.CommandAction} against this region (Task 16 / L-14).
+     *
+     * <p>Empty by default, and empty means <b>nobody</b>: an unset operator set must never read as
+     * "everyone is an operator". Views that carry the execution context override this; the set is
+     * root-determining, so every member evaluates the same predicate.
+     *
+     * @return the operator node ids; never null.
+     */
+    default java.util.Set<dev.nodera.core.identity.NodeId> operators() {
+        return java.util.Set.of();
+    }
+
     default dev.nodera.core.state.ContainerEntry container(NBlockPos pos) {
         return null;
     }

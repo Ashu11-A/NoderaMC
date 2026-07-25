@@ -38,6 +38,7 @@ public final class EntityRuleSet implements RuleSet {
                     dev.nodera.simulation.entity.ContainerRules.validate(view, env, container);
             case dev.nodera.core.action.MovePlayerAction move ->
                     dev.nodera.simulation.entity.MovementRules.validate(view, env, move);
+            case dev.nodera.core.action.CommandAction command -> blocks.validate(view, env);
         };
     }
 
@@ -97,6 +98,7 @@ public final class EntityRuleSet implements RuleSet {
                     dev.nodera.simulation.entity.ContainerRules.apply(state, env, container, rng);
             case dev.nodera.core.action.MovePlayerAction move ->
                     dev.nodera.simulation.entity.MovementRules.apply(state, env, move);
+            case dev.nodera.core.action.CommandAction command -> blocks.apply(state, env, rng);
         }
     }
 
