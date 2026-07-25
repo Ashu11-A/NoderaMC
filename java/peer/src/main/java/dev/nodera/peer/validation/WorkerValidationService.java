@@ -8,6 +8,7 @@ import dev.nodera.consensus.MajorityQuorumPolicy;
 import dev.nodera.consensus.ProposalKey;
 import dev.nodera.consensus.VoteCollector;
 import dev.nodera.coordinator.InMemoryWorldView;
+import dev.nodera.coordinator.LagHandoffPolicy;
 import dev.nodera.coordinator.LeaseManager;
 import dev.nodera.coordinator.MutableWorldView;
 import dev.nodera.coordinator.RegionPipeline;
@@ -784,8 +785,38 @@ public final class WorkerValidationService {
                 new dev.nodera.protocol.simulationmsg.ActionForward(envelope.region(), w.toBytes())));
         relayMetrics.recordLocalSubmitted();
         relayMetrics.recordForwardedTo(primary);
+        // Issue #46.1: the moment a forwarded action goes unanswered is the live, observable
+        // definition of "the primary of this region cannot keep up" — it is exactly what the
+        // player at the region boundary is waiting on. Timed from the FIRST unanswered forward,
+        // so a burst of actions does not reset the clock.
+        oldestUnansweredForwardNanos.putIfAbsent(envelope.region(), System.nanoTime());
         return true;
     }
+
+    /** First unanswered forwarded action per region (issue #46.1 lag signal); cleared on commit. */
+    private final java.util.concurrent.ConcurrentMap<RegionId, Long> oldestUnansweredForwardNanos =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * How far this region's primary is behind, expressed as the age of the oldest forwarded action
+     * it has not committed yet (issue #46.1).
+     *
+     * @param region   the region.
+     * @param nowNanos the current monotonic time (supplied so the math is testable).
+     * @return skew in {@link LagHandoffPolicy#TICK_BASIS_POINTS}; {@code 0} when nothing is pending.
+     * @Thread-context any thread.
+     */
+    public long forwardLagTickBps(RegionId region, long nowNanos) {
+        Long since = oldestUnansweredForwardNanos.get(region);
+        if (since == null) {
+            return 0L;
+        }
+        long elapsedMillis = Math.max(0L, (nowNanos - since) / 1_000_000L);
+        return (elapsedMillis / MILLIS_PER_TICK) * LagHandoffPolicy.TICK_BASIS_POINTS;
+    }
+
+    /** Vanilla tick budget: the unit the lag signal is expressed in. */
+    private static final long MILLIS_PER_TICK = 50L;
 
     /** Validator-side: re-execute the primary's batch on the local replica and vote. */
     private void onBatch(PeerAddress from, ActionBatch batch) {
@@ -871,6 +902,14 @@ public final class WorkerValidationService {
                 || !isAuthenticatedMember(from, replica.lease.primary())) {
             return;
         }
+        // A revoked replica has deliberately withdrawn from committee work (the player walked out
+        // of the region, or the entity lane gave it up). A commit announce already in flight when
+        // that happened is ordinary, not a fault — applying it would throw an illegal pipeline
+        // transition out of the peer state thread and kill it. Drop it: the region will resync
+        // from the committed head if it is ever re-assigned.
+        if (replica.pipeline.state() == dev.nodera.coordinator.PipelineState.REVOKED) {
+            return;
+        }
         relayMetrics.recordCommit(replica.lease.primary());
         QuorumCertificate cert;
         try {
@@ -921,6 +960,8 @@ public final class WorkerValidationService {
         recordCommittedSequences(batch);
         replica.pendingBallot = null;
         replica.pendingBatch = null;
+        // The primary answered: whatever this node forwarded has landed, so the lag clock stops.
+        oldestUnansweredForwardNanos.remove(committed.region());
         committeeCommits.incrementAndGet();
     }
 
@@ -1531,7 +1572,142 @@ public final class WorkerValidationService {
                 assigned.region(), assigned.epoch(), primary, validators,
                 assigned.leaseExpiryTick() - dev.nodera.core.NoderaConstants.LEASE_LENGTH_TICKS,
                 assigned.leaseExpiryTick());
+        if (existing != null) {
+            // A re-seat of a LIVE replica (committee rotation, lag handoff, ownership re-plan) is a
+            // change of committee, not of state: keep the committed snapshot. Re-activating from the
+            // genesis snapshot here would rewind this member to v0, and every subsequent proposal
+            // would fail its prevRoot check against the rest of the committee.
+            registerLease(lease);
+            replicas.put(assigned.region(), adopt(existing, lease));
+            return;
+        }
         activateRegion(EntityLaneBootstrap.initialSnapshot(assigned.region()), lease);
+    }
+
+    /**
+     * Sustained-lag handoff on the LIVE mesh (issue #46.1): observe one skew window for a region
+     * this node validates and, when the primary has been behind the network reference for
+     * {@link LagHandoffPolicy} consecutive windows, take primacy at {@code epoch + 1} and tell the
+     * rest of the committee.
+     *
+     * <p>Before this, a player whose client fell far behind held its regions hostage: every
+     * cross-border action into them waited on a primary that could not keep up, and nothing on the
+     * live lane ever consulted the Task 25 policy that exists precisely for this. The handoff is
+     * the boundary-independence half — the region's work moves to a member that can do it.
+     *
+     * <p>Only the <b>deterministic successor</b> — {@code validators.get(0)} of the current lease,
+     * the node {@link CommitteeFailover#promoteOnPrimaryLoss} would promote — may initiate, so a
+     * committee cannot split-brain into two competing epochs from one slow window. The lagging
+     * primary and every other validator adopt the result from the broadcast
+     * {@code RegionAssigned}.
+     *
+     * @param region      the region being observed.
+     * @param skewTickBps the primary's skew in tick-basis-points ({@link LagHandoffPolicy#TICK_BASIS_POINTS} = 1 tick).
+     * @param leases      the lease manager holding this region's epoch.
+     * @param reliability the ledger that records the handoff penalty.
+     * @param nowTick     the current tick.
+     * @return the promoted lease when a handoff happened, otherwise {@code null}.
+     * @Thread-context the lane's tick thread (one caller).
+     */
+    public RegionLease observeSkew(RegionId region, long skewTickBps, LeaseManager leases,
+                                   dev.nodera.coordinator.ReliabilityLedger reliability,
+                                   long nowTick) {
+        Replica replica = replicas.get(region);
+        if (replica == null) {
+            return null;
+        }
+        RegionLease current = replica.lease;
+        if (identity.nodeId().equals(current.primary())
+                || current.validators().isEmpty()
+                || !identity.nodeId().equals(current.validators().get(0))) {
+            return null; // not the successor this committee would agree on
+        }
+        var decision = lagPolicy.observe(current, skewTickBps, nowTick);
+        if (decision.isEmpty()) {
+            return null;
+        }
+        // The lease came from the deterministic FOV plan, not from this manager: install it so the
+        // guarded handoff can compare the decision against the lease this node is actually running.
+        leases.adopt(current);
+        RegionLease promoted =
+                CommitteeFailover.promoteOnLag(decision.get(), leases, reliability, nowTick);
+        if (promoted == null) {
+            return null;
+        }
+        registerLease(promoted);
+        replicas.put(region, adopt(replica, promoted));
+        announceSeats(promoted);
+        return promoted;
+    }
+
+    /** Tell every other committee member to re-seat under {@code lease} (its committee order). */
+    private void announceSeats(RegionLease lease) {
+        List<NodeId> committee = new java.util.ArrayList<>();
+        committee.add(lease.primary());
+        committee.addAll(lease.validators());
+        var assigned = new dev.nodera.protocol.assignment.RegionAssigned(
+                lease.region(), lease.epoch(), dev.nodera.core.region.RegionReplicaRole.VALIDATOR,
+                replicas.get(lease.region()).snapshot.version(), lease.expiresAtTick(), committee);
+        byte[] frame = MessageCodec.encode(assigned);
+        for (NodeId member : committee) {
+            if (identity.nodeId().equals(member)) {
+                continue;
+            }
+            PeerAddress address = peers.get(member);
+            if (address == null) {
+                continue;
+            }
+            try {
+                transport.send(address, frame);
+            } catch (dev.nodera.transport.TransportException unreachable) {
+                // An unreachable member re-seats when the next plan or assignment reaches it;
+                // one dead peer must never stop the handoff that is fixing the lag.
+            }
+        }
+    }
+
+    /** Sustained-lag detection for the regions this node validates (Task 25 policy, live lane). */
+    private final LagHandoffPolicy lagPolicy = new LagHandoffPolicy();
+
+    /** Epoch bookkeeping for handoffs this node initiates (the FOV plan issues leases elsewhere). */
+    private final LeaseManager handoffLeases =
+            new LeaseManager(dev.nodera.core.NoderaConstants.LEASE_LENGTH_TICKS);
+
+    /** Handoff penalties; local to this node's view, exactly like the Task 22 scorer's inputs. */
+    private final dev.nodera.coordinator.ReliabilityLedger handoffReliability =
+            new dev.nodera.coordinator.ReliabilityLedger();
+
+    /** Ticks between lag windows — three of these must be unhealthy before a region hands off. */
+    private static final long LAG_WINDOW_TICKS = 100L;
+
+    private long lastLagWindowTick = Long.MIN_VALUE;
+
+    /**
+     * Drive the live lag lane once per server tick (issue #46.1): every {@value #LAG_WINDOW_TICKS}
+     * ticks, each region this node validates is measured by how long its primary has left this
+     * node's forwarded actions unanswered, and a sustained offender loses primacy.
+     *
+     * <p>Cheap and side-effect-free between windows, so it is safe on the tick path.
+     *
+     * @param nowTick  the current server tick.
+     * @param nowNanos the current monotonic time.
+     * @return the regions handed off in this window (usually empty).
+     * @Thread-context the server tick thread.
+     */
+    public List<RegionId> tickLagHandoff(long nowTick, long nowNanos) {
+        if (nowTick - lastLagWindowTick < LAG_WINDOW_TICKS) {
+            return List.of();
+        }
+        lastLagWindowTick = nowTick;
+        List<RegionId> handedOff = new java.util.ArrayList<>();
+        for (RegionId region : replicas.keySet()) {
+            RegionLease promoted = observeSkew(region, forwardLagTickBps(region, nowNanos),
+                    handoffLeases, handoffReliability, Math.max(0L, nowTick));
+            if (promoted != null) {
+                handedOff.add(region);
+            }
+        }
+        return handedOff;
     }
 
     private boolean isAuthenticatedMember(PeerAddress from, NodeId expected) {

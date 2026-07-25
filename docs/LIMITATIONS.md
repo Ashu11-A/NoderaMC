@@ -305,6 +305,32 @@ observable in normal play.
 > the L-1…L-16 event families not yet in the validated lane (random ticks, fluids, mobs, combat,
 > …) which join region-by-region as their tasks land.
 
+> **Mesh population + boundary independence (2026-07-25, issues #45/#46/#47).** Three live-play
+> defects that all reduced to the same root: *a region's committee was whatever players happened to
+> be standing in it, and nothing on the live lane ever noticed when its primary stopped keeping up.*
+> (1) **Workers are first-class committee members** — `ViewOwnershipPlanner.plan` tops every
+> committee up from the standing resident pool, `NoderaHost.assignResidentSeats` hands each resident
+> its seats over `RegionAssigned`, and `ResidentQuorumIT` proves the exit: with two workers on the
+> mesh a player's logout leaves the committee at `QUORUM_MVP_SIZE` and the region keeps committing
+> with a certificate co-signed by a peer that has no Minecraft process (the same scenario collapses
+> to a committee of one without them — asserted as the counterfactual). (2) **A laggy player no
+> longer wedges its regions**: `WorkerValidationService.forwardLagTickBps` measures the age of the
+> oldest forwarded action its primary has not answered — the exact thing a player at the boundary is
+> waiting on — and `tickLagHandoff` (one window per 100 ticks, three unhealthy windows to fire)
+> drives the Task 25 `LagHandoffPolicy` into `CommitteeFailover.promoteOnLag`, which had never had a
+> live call site. Only the deterministic successor (`validators.get(0)`, canonically ordered) may
+> initiate, so one slow window cannot split a committee into competing epochs (`LiveLagHandoffIT`).
+> (3) **Region status is honest**: `RegionOwnership.Certification` distinguishes CERTIFIED (co-signed
+> head) from PENDING (can co-sign, has not yet) from **SOLO** (a committee of one — a population
+> shortfall that more time will never fix), so the panel stops reading as a permanent "unsigned"
+> (`RegionCertificationTest`). Two latent faults surfaced and were fixed en route: a `CommitAnnounce`
+> arriving for a **revoked** replica threw an illegal pipeline transition out of the peer state
+> thread (killing it), and a newer-epoch `RegionAssigned` re-activated a **live** replica from the
+> genesis snapshot, rewinding it to v0 — re-seating now preserves the committed snapshot. The
+> up/down-rate report (#47.2) was audited end to end and is correct: `TrafficDirectionSplitTest`
+> pins that the two directions never share a field; the symmetry observed live is real two-peer
+> gossip, not a display bug. **Live evidence for all three rides L-45's CI harness.**
+
 ## §C — Retired by assumption A0 (every player is a peer)
 
 | ID | Former limitation | Why void |

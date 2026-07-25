@@ -146,10 +146,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         // lane stalled (the live play-two "players fail to drop items" repro) — the same failure
         // shape issue #33 fixed for pickups. Local action stays vanilla-immediate; the validated
         // lane observes and reconciles via external capture instead of gating the player.
-        boolean localPrimary = validation.lease(region)
-                .map(lease -> lease.primary().equals(authority.nodeId()))
-                .orElse(false);
-        if (!localPrimary) {
+        if (!VanillaCancelGate.mayCancelVanilla(validation.lease(region), authority.nodeId())) {
             return false;
         }
         int itemId = BuiltInRegistries.ITEM.getId(vanillaDrop.getItem().getItem());
@@ -167,10 +164,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         // vanish (no credit, no vanilla delivery). Falling back to vanilla here is lossless:
         // the item is delivered vanilla-style and the external-capture lane reconciles the
         // canonical item's removal, with no PickupItemAction proposed so no duplicate credit.
-        boolean localPrimary = validation.lease(region)
-                .map(lease -> lease.primary().equals(authority.nodeId()))
-                .orElse(false);
-        if (!localPrimary) {
+        if (!VanillaCancelGate.mayCancelVanilla(validation.lease(region), authority.nodeId())) {
             return false;
         }
         boolean committed = submit(player, region, new PickupItemAction(id));
@@ -328,6 +322,18 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             committer.onTickEnd(validation::pipelineState);
         } catch (RuntimeException requiresResync) {
             metrics.recordResync();
+        }
+        // Issue #46.1: a player whose client cannot keep up must not hold its regions — and every
+        // other player's border crossing into them — hostage. Sustained unanswered forwards move
+        // primacy to a member that can do the work. Network failures degrade, never crash a tick.
+        try {
+            for (RegionId handedOff : validation.tickLagHandoff(currentTick, System.nanoTime())) {
+                LOG.info("region {} handed off: its primary left forwarded actions unanswered "
+                        + "past the lag threshold", handedOff);
+            }
+        } catch (RuntimeException degraded) {
+            LOG.warn("Nodera: lag-handoff window failed (region work continues): {}",
+                    degraded.toString());
         }
     }
 
