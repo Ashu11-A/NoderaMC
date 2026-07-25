@@ -27,7 +27,12 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-main.sh"
 nodera_suite pickup pickup
 nodera_parse_args "$@"
 
-PARK_X="${PARK_X:--500000}"; PARK_Z="${PARK_Z:--500000}"
+# 20 000 blocks is ~39 regions away — far past any FOV-disc overlap (a region is 512 blocks, a
+# render-distance disc a few hundred). The park used to be 500 000, which is a MINUTES-long chunk
+# generation: the server thread stalls, the connected clients time out and are disconnected, and
+# the next command fails with "No entity was found" — the suite blaming a feature for its own
+# setup. Distance was never the point here; non-overlap was.
+PARK_X="${PARK_X:--20000}"; PARK_Z="${PARK_Z:--20000}"
 
 # ---------------------------------------------------------------------------
 # P0/P1/P2 — infrastructure, clean-slate server, both players
