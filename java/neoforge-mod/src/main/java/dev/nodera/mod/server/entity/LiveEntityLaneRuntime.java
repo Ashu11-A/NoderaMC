@@ -55,7 +55,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
     private long currentTick;
-    private RegionId lastPearlDestination;
 
     public LiveEntityLaneRuntime(
             WorkerValidationService validation,
@@ -306,7 +305,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     @Override
     public void pearlTeleported(ServerPlayer player, RegionId destination) {
-        lastPearlDestination = destination;
+        // The destination is evidence, not state: EntityCaptureBridge logs it on the pearl drive's
+        // own logger, and nothing in the lane reads it back. Keeping a field for it would be a
+        // second, silently-stale copy of something already recorded.
     }
 
     @Override
@@ -358,10 +359,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     public EntityLaneSoakMetrics.Snapshot metrics() {
         return metrics.snapshot();
-    }
-
-    public Optional<RegionId> lastPearlDestination() {
-        return Optional.ofNullable(lastPearlDestination);
     }
 
     /** Live action admission: event capture proves actor/session; position is recomputed per action. */

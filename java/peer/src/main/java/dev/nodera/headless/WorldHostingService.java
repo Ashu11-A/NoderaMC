@@ -90,7 +90,7 @@ public final class WorldHostingService implements AutoCloseable {
     private final java.util.function.Function<String,
             List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor;
 
-    /** Compatibility constructor without an archive lane (announces carry no holdings). */
+    /** A hosting service with no archive lane: its announces carry no piece holdings. */
     public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
                                Supplier<String> selfRoute,
                                List<TrackerClient.Endpoint> trackerEndpoints,

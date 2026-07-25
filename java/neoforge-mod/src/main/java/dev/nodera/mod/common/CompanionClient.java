@@ -157,18 +157,6 @@ public final class CompanionClient implements CompanionProbe {
                 + " " + worldId));
     }
 
-    /** Ask the worker (author-only) to re-key a world. @return empty on success, else the error. */
-    /**
-     * Ask the worker (world author) to re-key the world's password (issue #36 F6). Carries the new
-     * password <b>plaintext</b> base64 — the loopback control socket is the trust boundary.
-     *
-     * @return empty on success, or the worker's error message (never silent success).
-     */
-    public Optional<String> changePassword(String worldId, String newPasswordB64) {
-        return errorOf(exchange(CompanionProtocol.PASSWORD + " " + CompanionProtocol.PROTOCOL_VERSION
-                + " " + worldId + " " + newPasswordB64));
-    }
-
     /**
      * Ask the worker to seed a world-archive snapshot from a local file (continuity lane).
      *

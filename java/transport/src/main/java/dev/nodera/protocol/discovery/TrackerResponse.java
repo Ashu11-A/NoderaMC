@@ -100,11 +100,6 @@ public record TrackerResponse(
         return (int) Math.max(0, Math.min(RELIABILITY_BPS_SCALE, bps));
     }
 
-    /** @return {@code true} if a Task 22 retention countdown is running for this world. */
-    public boolean hasRetentionCountdown() {
-        return retentionDeadlineEpochMillis > 0;
-    }
-
     @Override
     public String toString() {
         return "TrackerResponse[" + genesisHash.toShortHex(6) + " '" + worldName + "' peers="

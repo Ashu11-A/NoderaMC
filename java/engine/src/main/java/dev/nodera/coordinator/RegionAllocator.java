@@ -114,11 +114,6 @@ public final class RegionAllocator {
         }
     }
 
-    /** @return the current committee for {@code region}, or {@code null}. */
-    public Committee committeeOf(RegionId region) {
-        return committees.get(region);
-    }
-
     /** @return the number of regions this node is currently primary of. */
     public int primaryLoad(NodeId node) {
         return primaryLoad.getOrDefault(node, 0);

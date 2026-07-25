@@ -130,26 +130,19 @@ final class ControlServerTest {
     }
 
     @Test
-    void passwordVerbSurfacesHonestErrorNeverSilentSuccess() throws Exception {
-        // F6: a worker that declines (the re-key pipeline is absent) must reply NODERA-ERR — never OK.
+    void aRetiredVerbIsRefusedRatherThanQuietlyAccepted() throws Exception {
+        // NODERA-PASSWORD was the pre-re-key password lane. It could only ever decline ("not yet
+        // implemented"), the pipeline shipped as NODERA-REKEY, and the verb is gone — so the
+        // dispatch must now treat it as any other unknown verb: an error, never an OK.
         ControlHandler handler = new ControlHandler() {
             @Override
             public String workerVersion() {
                 return "1.0";
             }
-
-            @Override
-            public String password(String worldId, String newPasswordB64) {
-                if (worldId.isBlank()) {
-                    return "missing worldId";
-                }
-                return "password re-key pipeline not yet implemented";
-            }
         };
         try (ControlServer server = new ControlServer("127.0.0.1", 0, handler)) {
             server.start();
             int port = server.boundPort();
-            assertEquals("NODERA-ERR missing worldId", request(port, "NODERA-PASSWORD 2"));
             assertTrue(request(port, "NODERA-PASSWORD 2 deadbeef cGFzcw==").startsWith("NODERA-ERR"));
         }
     }

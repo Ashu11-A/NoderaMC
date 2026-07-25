@@ -152,9 +152,6 @@ public final class ControlServer implements AutoCloseable {
             if (ControlProtocol.STOP.equals(verb)) {
                 return ackOrErr(handler.stop(arg(parts, 2)));
             }
-            if (ControlProtocol.PASSWORD.equals(verb)) {
-                return ackOrErr(handler.password(arg(parts, 2), arg(parts, 3)));
-            }
             if (ControlProtocol.STATUS.equals(verb)) {
                 return handler.statusJson(arg(parts, 2));
             }
