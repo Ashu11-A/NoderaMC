@@ -6,8 +6,8 @@
      the host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-07-25 · **85 unit tests · 0 failing** (module
-`neoforge-mod`), plus **8 scripted live suites**
+**Category:** minecraft · **Last run:** 2026-07-25 · **97 unit tests · 0 failing** (module
+`neoforge-mod`), plus **10 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -36,6 +36,8 @@ scripts/e2e-continuity.sh               # also BAKES the shared world the others
 scripts/e2e-ownership.sh --no-build
 scripts/e2e-churn.sh     --no-build [--cycles 5]
 scripts/e2e-pickup.sh    --no-build
+scripts/e2e-password.sh  --no-build
+scripts/e2e-rekey.sh     --no-build
 scripts/e2e-commands.sh  --no-build
 scripts/e2e-farlands.sh  --no-build
 scripts/e2e-crash.sh     --no-build
@@ -57,6 +59,8 @@ reuse.
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
+| `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
+| `e2e-rekey.sh` | The author changes the world password: the worker seeds and announces the re-keyed manifest, **no refresh of a password-protected world is ever plaintext**, the **old** password is refused at the game server, and the new one joins | ~9 min |
 | `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |
 | `e2e-farlands.sh` | Two players ~566 km apart: positions verified and per-player chunk control interrogated | ~8 min |
 | `e2e-crash.sh` | One client **SIGKILLed** mid-session: the survivor sees no disruption, no continuity arm, **no migration screen**; the crashed player rejoins | ~7 min |
@@ -111,7 +115,34 @@ with no obvious cause. Those suites now bail out immediately naming this. The fi
 rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
 ```
 
-## 1.6 Reading the artifacts
+## 1.6 The first-run trap: a game dir with no `options.txt`
+
+A client game dir that has never been launched has no `options.txt`, so `onboardAccessibility`
+defaults to **true** and `Minecraft.addInitialScreens` puts the accessibility onboarding screen
+**in front of quick play** — quick play is that screen's *continue* callback, so it never runs. The
+client boots correctly, ticks its loop, and sits there forever; nothing in its log says why.
+
+This is invisible on a developer machine, whose `run-*/` dirs kept an `options.txt` from the first
+manual launch, and fatal on a fresh CI checkout — it is exactly what the first three `e2e-live` jobs
+hit, each burning its full timeout to report "never joined". `ClientStallReporter` named the screen
+(`screen: AccessibilityOnboardingScreen`, 60 times per run), which is what turned a mystery into a
+one-line fix.
+
+The launcher now seeds `options.txt` for every client game dir it configures, and only when the file
+is absent — a real `options.txt` belongs to the player and Minecraft rewrites it on exit:
+
+| Key | Why |
+|---|---|
+| `onboardAccessibility:false` | The blocker above; must be false before the first frame |
+| `skipMultiplayerWarning:true` | The third-party-server notice otherwise sits in front of the multiplayer screen |
+| `pauseOnLostFocus:false` | Under Xvfb there is no window manager, so a client may never be "active"; a paused singleplayer client stops ticking and would never share its world |
+
+The waits for a join are guarded to match: a quick-play client parked on a screen quick play never
+reaches (onboarding, title, ban notice) fails immediately, naming the screen, instead of burning
+thirty minutes. `DisconnectedScreen` is deliberately **not** guarded — the continuity and crash
+suites pass through it by design.
+
+## 1.7 Reading the artifacts
 
 | File | What to look for |
 |---|---|
@@ -128,7 +159,7 @@ rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 85 | 🚧 |
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 97 | 🚧 |
 
 Landmark unit tests:
 
@@ -141,6 +172,7 @@ Landmark unit tests:
 | `WorldArchiverStreamingTest` | Continuous archive streaming cadence, the bounded final flush, and the seeded-version freshness marker |
 | `WorkerPiecesParserTest` / `PieceMapFeedTest` | The worker's piece reply becomes the grid — the seam that had never been called by anything |
 | `ClientStallReporterTest` | A client outside a world for ten seconds logs the active screen's class, repeating while it does not change — the fact every opaque live CI failure was missing |
+| `HostJoinGateTest` | The live-join password gate's whole admission rule, Minecraft-free: right password in, wrong password out, no password out, per-connection nonces, single use, expiry, a bounded challenge store, and a **sealed** gate that refuses everyone rather than silently opening the world |
 | `NoderaWorldStoreTest` | The per-world signed identity file, written atomically |
 
 ## Conventions

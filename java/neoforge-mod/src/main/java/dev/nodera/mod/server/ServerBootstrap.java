@@ -88,7 +88,10 @@ public final class ServerBootstrap {
         // never auto-broadcasts a private world — it waits for the pause-menu "Share" action so
         // singleplayer stays private by default (Task 30a).
         if (server.isDedicatedServer() && NoderaConfig.HOST_AUTO_SHARE.get()) {
-            safeActivate(server, ShareOptions.dedicatedDefault());
+            // L-52: `host.sharePassword` is the dedicated server's only way to protect a world —
+            // it has no Share screen. Empty keeps the previous plaintext behaviour exactly.
+            safeActivate(server, ShareOptions.dedicatedDefault()
+                    .withPassword(NoderaConfig.HOST_SHARE_PASSWORD.get()));
             return;
         }
         // Task 5d create pipeline: a world created with "Nodera: Shared" goes on the network the

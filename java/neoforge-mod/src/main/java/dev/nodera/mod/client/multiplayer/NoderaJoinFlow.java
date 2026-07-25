@@ -49,7 +49,7 @@ public final class NoderaJoinFlow {
         }
         if (!entry.mcRoute().isBlank()) {
             NoderaContinuity.onJoining(entry.worldIdHex(), entry.name());
-            connect(parent, entry.name(), entry.mcRoute());
+            connect(parent, entry.name(), entry.mcRoute(), entry.worldIdHex());
             return;
         }
         if (entry.worldIdHex().isBlank()) {
@@ -66,7 +66,7 @@ public final class NoderaJoinFlow {
                 }
                 if (route.isPresent()) {
                     NoderaContinuity.onJoining(entry.worldIdHex(), entry.name());
-                    connect(parent, entry.name(), route.get());
+                    connect(parent, entry.name(), route.get(), entry.worldIdHex());
                 } else if (!NoderaContinuity.openFromNetwork(entry.worldIdHex(), entry.name())) {
                     // No live game endpoint AND no worker to materialize from the network.
                     fail(parent, entry.name(),
@@ -88,11 +88,44 @@ public final class NoderaJoinFlow {
         }
     }
 
-    private static void connect(Screen parent, String worldName, String hostPort) {
+    /**
+     * The last connection this flow started, so a join refused at the password gate (L-52) can be
+     * retried with the password the player then types instead of making them find the row again.
+     *
+     * @param worldName  the world's display name.
+     * @param hostPort   the game endpoint that was dialled.
+     * @param worldIdHex the world's id, or {@code ""} when the row had none.
+     */
+    record LastJoin(String worldName, String hostPort, String worldIdHex) {
+    }
+
+    private static volatile LastJoin lastJoin;
+
+    /** @return the last connection this flow started, or {@code null}. */
+    static LastJoin lastJoin() {
+        return lastJoin;
+    }
+
+    /**
+     * Re-dial the last join target — the password-gate retry. The password itself is already in
+     * {@link ClientJoinPasswords}; this only re-runs the connection.
+     *
+     * @param parent the screen to return to on failure.
+     */
+    static void retryLastJoin(Screen parent) {
+        LastJoin target = lastJoin;
+        if (target != null) {
+            connect(parent, target.worldName(), target.hostPort(), target.worldIdHex());
+        }
+    }
+
+    private static void connect(Screen parent, String worldName, String hostPort,
+                                String worldIdHex) {
         if (!ServerAddress.isValidAddress(hostPort)) {
             fail(parent, worldName, Component.translatable("nodera.join.error.bad_route", hostPort));
             return;
         }
+        lastJoin = new LastJoin(worldName, hostPort, worldIdHex == null ? "" : worldIdHex);
         LOG.info("Nodera join: connecting to '{}' at {}", worldName, hostPort);
         Minecraft mc = Minecraft.getInstance();
         ServerData data = new ServerData(worldName, hostPort, ServerData.Type.OTHER);

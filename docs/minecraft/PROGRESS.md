@@ -17,7 +17,7 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | Skeleton, build, run harness | 🚧 IN PROGRESS | Dev runs + 8 scripted suites work; CI under a headless display remains (L-45) |
+| [1](Task.1.md) | Skeleton, build, run harness | ✅ DONE | Dev runs + 9 scripted suites, green under Xvfb in CI (`e2e-live`) — L-45 retired 2026-07-25 |
 | [2](Task.2.md) | Live validation lane | ⏳ BLOCKED | Entity lane and ownership run live; capture/mixin lane and repeatable evidence remain |
 | [3](Task.3.md) | Diagnostics HUD + commands | ✅ COMPLETED | Live providers replaced the placeholders (L-31 retired) |
 | [4](Task.4.md) | Multiplayer + share GUI | 🚧 IN PROGRESS | Built and feed-wired; live presentation pass remains (L-43, L-46) |

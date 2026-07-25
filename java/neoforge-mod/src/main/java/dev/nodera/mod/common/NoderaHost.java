@@ -182,6 +182,12 @@ public final class NoderaHost {
             }
         }
 
+        // L-52: the password stops being a property of the archive alone. While a password-protected
+        // world is hosted, every joining connection must prove it knows the password in the
+        // configuration phase, before a player is created. Arming derives a memory-hard key, so it
+        // runs off the server thread; a plaintext world disarms (nothing to prove).
+        armJoinGate(worldId, opts, world);
+
         // Continuity lane: the world becomes durable the moment it is shared — pack the save and
         // seed the archive to the always-on worker (final flush happens again on server stop).
         WorldArchiver.seedAsync(server);
@@ -263,6 +269,41 @@ public final class NoderaHost {
             LOG.warn("Nodera: could not persist world identity for '{}': {}", world, e.getMessage());
             return existing.orElse(null);
         }
+    }
+
+    /**
+     * Arm (or disarm) the live-join password gate for the world being shared (L-52).
+     *
+     * <p>Off the server thread: arming derives the gate key with the same memory-hard KDF the
+     * content plane uses, which is deliberately expensive and has no business inside a tick. Until
+     * it completes the gate stays disarmed, so the only risk of the asynchrony is a join in the
+     * first fraction of a second after a share — and that joiner is the sharer's own client.
+     *
+     * @param worldId the world's id.
+     * @param opts    the share options carrying the password (blank ⇒ disarm).
+     * @param world   the world's display name, for the log line.
+     */
+    private static void armJoinGate(Bytes worldId, ShareOptions opts, String world) {
+        if (!opts.encryptionEnabled()) {
+            HostJoinGate.get().disarm();
+            return;
+        }
+        char[] password = opts.password().toCharArray();
+        Thread.ofPlatform().name("nodera-join-gate-arm").daemon().start(() -> {
+            try {
+                HostJoinGate.get().arm(worldId, password);
+                LOG.info("Nodera: '{}' is password-gated — joiners must supply the world password",
+                        world);
+            } catch (RuntimeException e) {
+                // Fail CLOSED: a gate that could not be armed must not leave a password-protected
+                // world open to anyone who resolves its route, so the world seals instead.
+                HostJoinGate.get().seal();
+                LOG.error("Nodera: could not arm the join password gate for '{}' ({}) — the world "
+                        + "is NOT joinable until you re-share it", world, e.toString());
+            } finally {
+                java.util.Arrays.fill(password, '\0');
+            }
+        });
     }
 
     /**
@@ -489,7 +530,7 @@ public final class NoderaHost {
             String worldIdHex = currentId.worldId().toHex();
             String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
                     options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            java.util.Optional<dev.nodera.core.Bytes> reKeyed = java.util.Optional.empty();
+            java.util.Optional<CompanionClient.Rekeyed> reKeyed = java.util.Optional.empty();
             if (dev.nodera.mod.common.CompanionLink.isPresent()) {
                 try {
                     // Flush so the packed blob reflects the live world, then hand it to the worker.
@@ -509,7 +550,7 @@ public final class NoderaHost {
                 // which would supersede the re-key's encrypted manifest as newest and let joiners
                 // bypass the password. The host peer is already up; the worker re-announced.
                 WorldIdentity reSigned = WorldIdentity.decode(
-                        new dev.nodera.core.crypto.CanonicalReader(reKeyed.get()));
+                        new dev.nodera.core.crypto.CanonicalReader(reKeyed.get().identity()));
                 try {
                     NoderaWorldStore.write(saveRoot, reSigned);
                 } catch (java.io.IOException e) {
@@ -518,6 +559,12 @@ public final class NoderaHost {
                 }
                 LOG.info("Nodera: password re-key complete for '{}' (new manifest root {})",
                         server.getWorldData().getLevelName(), reSigned.manifestRef().toShortHex(8));
+                // The new password is in force from here: the reported options must say so (the next
+                // change compares against them), and the live-join gate must test the NEW password —
+                // otherwise "joiners must use the new password" would be true of the archive and
+                // false of the game server, which is the exact split L-52 closed.
+                NoderaPeerService.get().updateHostOptions(options);
+                armJoinGate(currentId.worldId(), options, server.getWorldData().getLevelName());
                 tellHost(server, "Nodera: password changed — joiners must use the new password.");
                 return;
             }
@@ -532,7 +579,7 @@ public final class NoderaHost {
     }
 
     /** Canonical-encode a {@link WorldIdentity} to bytes (for the re-key verb). */
-    private static dev.nodera.core.Bytes encodeIdentity(WorldIdentity identity) {
+    static dev.nodera.core.Bytes encodeIdentity(WorldIdentity identity) {
         dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
         identity.encode(w);
         return w.toBytes();
@@ -983,6 +1030,9 @@ public final class NoderaHost {
         }
         publishedGamePort = -1;
         closeEntityLane();
+        // The gate belongs to the hosted game, not to the process: a stale armed gate would keep
+        // challenging joiners of whatever world is opened next (L-52).
+        HostJoinGate.get().disarm();
         NoderaPeerService.get().stopHosting();
     }
 
@@ -1017,6 +1067,7 @@ public final class NoderaHost {
             CompanionLink.client().stop(id.worldId().toHex());
         }
         closeEntityLane();
+        HostJoinGate.get().disarm();
         NoderaPeerService.get().stopHosting();
     }
 

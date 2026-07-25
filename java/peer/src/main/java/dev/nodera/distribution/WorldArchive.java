@@ -282,13 +282,8 @@ public final class WorldArchive {
             throw new IllegalArgumentException("manifest is not an encrypted archive");
         }
         WorldKeyMaterial material = manifest.keyMaterial();
-        dev.nodera.core.crypto.symmetric.PasswordKeyDerivation kdf = switch (material.kdf()) {
-            case dev.nodera.core.crypto.symmetric.PasswordKeyDerivation.ARGON2ID ->
-                    new Argon2KeyDerivation();
-            case dev.nodera.core.crypto.symmetric.PasswordKeyDerivation.PBKDF2 ->
-                    new dev.nodera.core.crypto.symmetric.Pbkdf2KeyDerivation();
-            default -> throw new IllegalArgumentException("unknown KDF: " + material.kdf());
-        };
+        dev.nodera.core.crypto.symmetric.PasswordKeyDerivation kdf =
+                PasswordKeyDerivations.forMaterial(material);
         dev.nodera.core.crypto.symmetric.ContentKey key =
                 kdf.derive(password, material.salt(), material.iterations());
         return EncryptedRegion.decrypt(manifest, Bytes.unsafeWrap(ciphertext), key)

@@ -247,8 +247,8 @@ public final class CompanionClient implements CompanionProbe {
      * @param currentIdentity the current signed {@code WorldIdentity} canonical bytes.
      * @return the re-signed identity's canonical bytes, or empty (worker unavailable / declined).
      */
-    public Optional<Bytes> rekey(String worldIdHex, java.nio.file.Path archivePath,
-                                 String newPasswordB64, Bytes currentIdentity) {
+    public Optional<Rekeyed> rekey(String worldIdHex, java.nio.file.Path archivePath,
+                                   String newPasswordB64, Bytes currentIdentity) {
         String req = CompanionProtocol.REKEY + " " + CompanionProtocol.PROTOCOL_VERSION
                 + " " + worldIdHex + " " + b64Path(archivePath)
                 + " " + newPasswordB64 + " " + b64(currentIdentity);
@@ -258,12 +258,34 @@ public final class CompanionClient implements CompanionProbe {
             return Optional.empty();
         }
         try {
-            byte[] bytes = java.util.Base64.getDecoder().decode(
-                    reply.substring(CompanionProtocol.OK.length() + 1).trim());
-            return Optional.of(Bytes.unsafeWrap(bytes));
+            // `NODERA-OK <identityB64> [<version>]`. The version is the archive version the world
+            // now seeds; the caller records it as this save's seeded version, so an encrypted
+            // refresh keeps the freshness marker honest instead of leaving it pinned at whatever
+            // the last plaintext seed reported.
+            String[] parts = reply.substring(CompanionProtocol.OK.length() + 1).trim()
+                    .split("\\s+");
+            byte[] bytes = java.util.Base64.getDecoder().decode(parts[0]);
+            long version = -1;
+            if (parts.length >= 2) {
+                try {
+                    version = Long.parseLong(parts[1]);
+                } catch (NumberFormatException older) {
+                    version = -1;   // a worker that predates the version token
+                }
+            }
+            return Optional.of(new Rekeyed(Bytes.unsafeWrap(bytes), version));
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * What a re-key produced.
+     *
+     * @param identity the re-signed {@code WorldIdentity} (canonical bytes).
+     * @param version  the archive version now seeded, or -1 when the worker did not report one.
+     */
+    public record Rekeyed(Bytes identity, long version) {
     }
 
     /**

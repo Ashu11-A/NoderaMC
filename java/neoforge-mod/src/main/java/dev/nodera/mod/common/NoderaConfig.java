@@ -43,6 +43,14 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue HOST_AUTO_SHARE =
             SERVER_BUILDER.define("host.autoShare", true);
 
+    // The auto-shared world's password (L-52). A dedicated server has no Share screen at all, so
+    // without this its operator has no way to protect a world: empty (the default) is plaintext
+    // hosting exactly as before, and a non-empty value both encrypts the archived content and gates
+    // the LIVE game — joiners must supply it in the configuration phase or the connection is refused.
+    // Server-side config, so it lives with the world rather than with any player's client.
+    public static final ModConfigSpec.ConfigValue<String> HOST_SHARE_PASSWORD =
+            SERVER_BUILDER.define("host.sharePassword", "");
+
     // Task 12 live entity lane. When true, sharing a world also bootstraps the validated entity
     // lane over the host player's field of view (EntityLaneBootstrap plan; DelegabilityPolicy still
     // gates every region). Off by default until the lane is soak-proven on real worlds.
@@ -198,6 +206,14 @@ public final class NoderaConfig {
             CLIENT_BUILDER.define("continuity.autoRehost", true);
     public static final ModConfigSpec.IntValue CONTINUITY_FETCH_TIMEOUT_SECONDS =
             CLIENT_BUILDER.defineInRange("continuity.fetchTimeoutSeconds", 120, 5, 3600);
+
+    // L-52 joiner side: a password offered to any world that challenges this client, when the
+    // player has not typed one for that world in this session. Empty by default — passwords a
+    // player types stay in memory and are never written anywhere. Setting this is an explicit,
+    // local choice (the same one every launcher's "save server password" is), and it is what makes
+    // the gate drivable headlessly: a scripted client has no keyboard to type into a prompt.
+    public static final ModConfigSpec.ConfigValue<String> JOIN_PASSWORD =
+            CLIENT_BUILDER.define("join.password", "");
 
     // Live-test drive (docs/Testing.Live.md, Test 1): with two players online and the entity lane
     // active, teleport each player to a region its own node owns, then send player 2 into player

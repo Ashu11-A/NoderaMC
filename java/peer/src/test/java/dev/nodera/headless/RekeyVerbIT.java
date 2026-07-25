@@ -114,8 +114,20 @@ final class RekeyVerbIT {
         }
     }
 
+    /**
+     * The identity half of an {@code NODERA-OK <identityB64> <version>} payload. The version token
+     * is what an encrypted refresh records as the save's seeded version (L-59) — SEED's reply is no
+     * longer the only place a version comes from.
+     */
     private static Bytes b64ToBytes(String b64) {
-        return Bytes.unsafeWrap(Base64.getDecoder().decode(b64.trim()));
+        return Bytes.unsafeWrap(Base64.getDecoder().decode(b64.trim().split("\\s+")[0]));
+    }
+
+    /** The version token of an {@code NODERA-OK <identityB64> <version>} payload. */
+    private static long replyVersion(String reply) {
+        String[] parts = reply.substring(ControlProtocol.OK.length() + 1).trim().split("\\s+");
+        assertEquals(2, parts.length, "the reply must carry the seeded version: " + reply);
+        return Long.parseLong(parts[1]);
     }
 
     private static String b64(Bytes bytes) {
@@ -158,6 +170,8 @@ final class RekeyVerbIT {
                 + " " + b64(encodeIdentity(current)));
 
         assertTrue(reply.startsWith(ControlProtocol.OK + " "), "expected OK, got: " + reply);
+        assertTrue(replyVersion(reply) > 0,
+                "the reply reports the archive version now seeded: " + reply);
         WorldIdentity reSigned = WorldIdentity.decode(
                 new CanonicalReader(b64ToBytes(reply.substring(ControlProtocol.OK.length() + 1))));
 

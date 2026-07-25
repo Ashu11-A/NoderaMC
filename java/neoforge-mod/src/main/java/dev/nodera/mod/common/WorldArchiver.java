@@ -221,7 +221,74 @@ public final class WorldArchiver {
         }
     }
 
+    /**
+     * Seed a password-protected world's archive as <b>ciphertext</b> (L-59).
+     *
+     * <p>Found live: a world shared with a password had its content re-encrypted at share and at
+     * every re-key, and then the ordinary streaming lane published a fresh <b>plaintext</b> archive
+     * a minute later — a newer version than the ciphertext, so the password protected nothing on
+     * the content plane. The refresh has to go through the same re-encrypting path the re-key uses:
+     * fresh salt, new ciphertext, new manifest root, re-signed identity, re-announce, and the
+     * superseded versions evicted.
+     *
+     * <p>There is deliberately <b>no plaintext fallback</b>. If the encrypted refresh fails, the
+     * network keeps serving the last good ciphertext and the log says so; publishing the save in
+     * the clear because encryption failed would be the failure this method exists to prevent.
+     *
+     * @param saveRoot   the save folder.
+     * @param worldIdHex the world id (hex).
+     * @param password   the world password (non-blank).
+     */
+    private static void seedEncrypted(Path saveRoot, String worldIdHex, String password) {
+        Optional<WorldIdentity> identity = NoderaWorldStore.read(saveRoot);
+        if (identity.isEmpty()) {
+            LOG.warn("Nodera: cannot seed the encrypted archive — the world has no signed identity");
+            return;
+        }
+        try {
+            long startedAt = System.nanoTime();
+            PHASE = SeedPhase.PACKING;
+            Path archiveFile = packToSpool(saveRoot, worldIdHex);
+            PHASE = SeedPhase.UPLOADING;
+            String passwordB64 = java.util.Base64.getEncoder().encodeToString(
+                    password.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Optional<CompanionClient.Rekeyed> sealed = CompanionLink.client().rekey(
+                    worldIdHex, archiveFile, passwordB64,
+                    NoderaHost.encodeIdentity(identity.get()));
+            long millis = (System.nanoTime() - startedAt) / 1_000_000;
+            if (sealed.isEmpty()) {
+                PHASE = SeedPhase.FAILED;
+                LOG.warn("Nodera: the worker did not accept the ENCRYPTED world archive — the "
+                        + "network keeps the previous ciphertext (nothing is published in the clear)");
+                return;
+            }
+            PHASE = SeedPhase.DONE;
+            // The identity was re-signed with the new manifestRef; persist it or the next refresh
+            // hands the worker a stale one and the re-key is refused.
+            try {
+                NoderaWorldStore.write(saveRoot, WorldIdentity.decode(
+                        new dev.nodera.core.crypto.CanonicalReader(sealed.get().identity())));
+            } catch (IOException e) {
+                LOG.warn("Nodera: could not persist the re-signed identity: {}", e.toString());
+            }
+            if (sealed.get().version() >= 0) {
+                recordSeededVersion(saveRoot, "encrypted " + sealed.get().version());
+            }
+            LOG.info("Nodera: ENCRYPTED world archive seeded to the worker ({} bytes in {} ms — v{})",
+                    Files.size(archiveFile), millis, sealed.get().version());
+        } catch (IOException | RuntimeException e) {
+            PHASE = SeedPhase.FAILED;
+            LOG.warn("Nodera: encrypted world-archive seeding failed: {}", e.toString());
+        }
+    }
+
     private static void seed(Path saveRoot, String worldIdHex) {
+        // A password-protected world never publishes its save in the clear (L-59).
+        ShareOptions opts = NoderaPeerService.get().hostOptions();
+        if (opts != null && opts.encryptionEnabled()) {
+            seedEncrypted(saveRoot, worldIdHex, opts.password());
+            return;
+        }
         try {
             long startedAt = System.nanoTime();
             PHASE = SeedPhase.PACKING;
