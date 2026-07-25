@@ -8,7 +8,7 @@
      test BEFORE the discovering PR merges; (4) never delete a row — move it to LIMITATIONS.fixed.md
      with its evidence. Update this file in the SAME commit that stages or retires a row. -->
 
-**Category:** engine · **Last audit:** 2026-07-25 · Open or retiring rows: **8**
+**Category:** engine · **Last audit:** 2026-07-25 · Open or retiring rows: **9**
 
 Status values: `OPEN` → `RETIRING` (owner task in progress) → `RETIRED` (exit test green, row moves
 to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
