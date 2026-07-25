@@ -32,7 +32,7 @@ jobs:
       - name: Xvfb + GL
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0
+          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
       - name: Build stack
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
@@ -76,7 +76,7 @@ jobs:
       - name: Xvfb + GL
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0
+          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
       - name: Build stack
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
@@ -116,7 +116,7 @@ jobs:
       - name: Xvfb + GL
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0
+          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
       - name: Build stack
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)

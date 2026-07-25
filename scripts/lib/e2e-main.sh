@@ -205,8 +205,29 @@ dump_threads() {
     done
 }
 
+# What a stuck CLIENT is actually showing. A thread dump proves the game loop is
+# alive but says nothing about which screen it is sitting on, and that is exactly
+# the question when a client boots fine yet never joins (the CI failure mode
+# behind L-45: quick-play never connects and the log simply stops after the
+# resource reload). One frame of the virtual display answers it immediately.
+# Best-effort by design: a missing capture tool must never mask the real failure.
+dump_screens() {
+    [[ -z "${DISPLAY:-}" ]] && return 0
+    local shot="$LOG_DIR/screen-$(date +%s).png"
+    if command -v import >/dev/null 2>&1; then
+        import -window root -display "$DISPLAY" "$shot" 2>/dev/null || true
+    elif command -v xwd >/dev/null 2>&1; then
+        xwd -root -display "$DISPLAY" -silent > "${shot%.png}.xwd" 2>/dev/null || true
+    fi
+    # The window titles alone often name the screen ("Minecraft* 1.21.1" vs a
+    # crash/aborted window), and cost nothing when a capture tool is absent.
+    command -v xwininfo >/dev/null 2>&1 \
+        && xwininfo -root -tree -display "$DISPLAY" > "$LOG_DIR/windows.txt" 2>/dev/null || true
+}
+
 fail() {
     dump_threads
+    dump_screens
     printf '\033[1;31m[%s] FAIL %s\033[0m\n' "${TAG:-e2e}" "$*" >&2
     cleanup
     exit 1
