@@ -7,9 +7,9 @@
 #       players in-world and the entity lane live. `mobCaptureDimensions`
 #       is the standard staging: the OVERWORLD opts in, nothing else does
 #   G1  CAPTURE: summon mobs at a player's feet in a delegated overworld
-#       region. The exit: the lane's controlled-entity count rises and the
-#       region is NOT revoked — a captured ghost is the lane holding a mob,
-#       not the lane giving up on one
+#       region. The exit: a region reports that it now holds ghost mobs
+#       ("GHOST: Region[...] now holds ghost mobs") and is NOT revoked — a
+#       captured ghost is the lane holding a mob, not giving up on one
 #   G2  REVOCATION: the same summon in the NETHER, which never opted in. The
 #       exit: the region revokes with the reason stated by name
 #       ("non-delegable entity minecraft:zombie"), and the world keeps
@@ -39,42 +39,23 @@ pass "G0: two players in-world, lane live, $NODERA_WORKERS peers up"
 
 transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/mobs.log"; }
 
-# The lane's controlled-entity total, as the server node reports it. Polled until the panel
-# actually answers: an RCON reply that arrives while the server is busy comes back empty, and a
-# missing number must not read as "zero controlled entities".
-entity_total() {
-    local reply total
-    for _ in $(seq 1 $(( 10 * ${NODERA_E2E_TIMEOUT_MULT:-1} )) ); do
-        reply=$(rcon "execute as JoinerDev at JoinerDev run nodera entities")
-        total=$(grep -aoE "total[^0-9]*[0-9]+" <<<"$reply" | grep -oE "[0-9]+" | head -1)
-        [[ -n "$total" ]] && { printf '%s' "$total"; return 0; }
-        sleep 2
-    done
-    return 1
-}
-
 # --- G1: capture in an opted-in dimension -------------------------------------------------------
-log "G1: summoning ${MOB_COUNT}× $MOB at JoinerDev (overworld — mob capture is ON)"
+log "G1: summoning ${MOB_COUNT}x $MOB at JoinerDev (overworld — mob capture is ON)"
 rcon "gamemode creative JoinerDev" >/dev/null
 mark=$(wc -l < "$LOG_DIR/server.log")
-before=$(entity_total)
-transcript "=== entities before: ${before:-?}"
 for _ in $(seq 1 "$MOB_COUNT"); do
     rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
 done
 
-sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
-after=$(entity_total)
-transcript "=== entities after: ${after:-?}"
-
-# The assertion is "the lane holds mobs", not "the number went up by exactly three". The count is
-# a live population: mobs spawn, despawn, and cross into regions other nodes own, so a rising
-# total is not something a scripted drive can demand. What capture means is that the lane is in
-# control of mobs at all — and stays in control after more arrive.
-[[ -n "$before" && "$before" -gt 0 ]] \
-    || fail "G1: the lane controls no entities at all where capture is enabled (before=${before:-?})"
-[[ -n "$after" && "$after" -gt 0 ]] \
-    || fail "G1: the lane lost control of every entity after the summons (after=${after:-?})"
+# The evidence is the lane's own line, not a counter. `nodera entities` reports the node the
+# COMMAND ran on — the server — and under field-of-view ownership the regions belong to the
+# PLAYERS' nodes, so the server's total is legitimately 0 while capture is working perfectly.
+# That is what made the first two runs of this suite disagree with each other (163, then 0).
+wait_log_after "$LOG_DIR/server.log" "GHOST:" 240 "$mark" \
+    || fail "G1: no region ever reported holding ghost mobs where capture is enabled \
+(see $LOG_DIR/server.log)"
+ghost=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "GHOST:" | tail -1)
+transcript "=== capture: $ghost"
 
 # Capture and revocation are opposites: seeing the revoke reason here would mean the lane dropped
 # the region it was supposed to be holding.
