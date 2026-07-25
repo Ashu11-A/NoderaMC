@@ -51,7 +51,7 @@ import java.util.Optional;
 public final class FlatWorldRules implements RuleSet {
 
     /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 3;
+    public static final int RULES_VERSION = 4;
 
     /** Palette id for air. */
     public static final int AIR = 0;
@@ -144,6 +144,20 @@ public final class FlatWorldRules implements RuleSet {
     public static final int COMPARATOR_EAST = 82;
     /** Note block — validated palette presence; the sound itself is client presentation. */
     public static final int NOTE_BLOCK = 83;
+
+    /** Stone pressure plate, unpressed — placeable (Task 13 palette v2, L-26). */
+    public static final int PRESSURE_PLATE_OFF = 85;
+    /** Stone pressure plate, pressed — network/entity-computed, never placeable. */
+    public static final int PRESSURE_PLATE_ON = 86;
+
+    /** Sticky piston, retracted base (4 facings) — placeable (Task 13 palette v2, L-26). */
+    public static final int STICKY_PISTON_RETRACTED_BASE = 87;
+    /** Sticky piston, extended base (4 facings) — network-computed. */
+    public static final int STICKY_PISTON_EXTENDED_BASE = 91;
+    /** Sticky piston head (4 facings) — network-computed. */
+    public static final int STICKY_PISTON_HEAD_BASE = 95;
+    /** Highest sticky-piston id ({@code STICKY_PISTON_HEAD_BASE + 3}). */
+    public static final int STICKY_PISTON_MAX = 98;
     /** Nether portal — an entity standing here transfers to the other dimension (L-14). */
     public static final int NETHER_PORTAL = 84;
 
@@ -222,6 +236,20 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(COMPARATOR_WEST, "comparator_west"),
             new PaletteEntry(COMPARATOR_EAST, "comparator_east"),
             new PaletteEntry(NOTE_BLOCK, "note_block"),
+            new PaletteEntry(PRESSURE_PLATE_OFF, "pressure_plate"),
+            new PaletteEntry(PRESSURE_PLATE_ON, "pressure_plate_pressed"),
+            new PaletteEntry(STICKY_PISTON_RETRACTED_BASE, "sticky_piston_north"),
+            new PaletteEntry(STICKY_PISTON_RETRACTED_BASE + 1, "sticky_piston_south"),
+            new PaletteEntry(STICKY_PISTON_RETRACTED_BASE + 2, "sticky_piston_west"),
+            new PaletteEntry(STICKY_PISTON_RETRACTED_BASE + 3, "sticky_piston_east"),
+            new PaletteEntry(STICKY_PISTON_EXTENDED_BASE, "sticky_piston_north_extended"),
+            new PaletteEntry(STICKY_PISTON_EXTENDED_BASE + 1, "sticky_piston_south_extended"),
+            new PaletteEntry(STICKY_PISTON_EXTENDED_BASE + 2, "sticky_piston_west_extended"),
+            new PaletteEntry(STICKY_PISTON_EXTENDED_BASE + 3, "sticky_piston_east_extended"),
+            new PaletteEntry(STICKY_PISTON_HEAD_BASE, "sticky_piston_head_north"),
+            new PaletteEntry(STICKY_PISTON_HEAD_BASE + 1, "sticky_piston_head_south"),
+            new PaletteEntry(STICKY_PISTON_HEAD_BASE + 2, "sticky_piston_head_west"),
+            new PaletteEntry(STICKY_PISTON_HEAD_BASE + 3, "sticky_piston_head_east"),
             new PaletteEntry(NETHER_PORTAL, "nether_portal"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
@@ -259,7 +287,12 @@ public final class FlatWorldRules implements RuleSet {
         for (int f = 0; f < 4; f++) {
             s.clear(PISTON_EXTENDED_BASE + f);
             s.clear(PISTON_HEAD_BASE + f);
+            s.clear(STICKY_PISTON_EXTENDED_BASE + f);
+            s.clear(STICKY_PISTON_HEAD_BASE + f);
         }
+        // A pressed plate is an ENTITY-computed state: placing one directly would be a way to
+        // mint 15 power with no entity standing anywhere near it.
+        s.clear(PRESSURE_PLATE_ON);
         for (int level = 0; level < 7; level++) {
             s.clear(WATER_FLOW_BASE + level);
         }
@@ -294,7 +327,7 @@ public final class FlatWorldRules implements RuleSet {
     public static long registryFingerprint() {
         long[] parts = new long[2 + PALETTE.length * 2];
         int i = 0;
-        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v3");
+        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v4");
         for (PaletteEntry e : PALETTE) {
             parts[i++] = e.id();
             parts[i++] = StableHash.of(e.name());
