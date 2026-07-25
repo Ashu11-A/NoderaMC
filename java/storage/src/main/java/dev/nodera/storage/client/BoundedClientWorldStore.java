@@ -2,7 +2,7 @@ package dev.nodera.storage.client;
 
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.storage.ContentId;
-import dev.nodera.storage.ContentStore;
+import dev.nodera.storage.PinnableContentStore;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -34,7 +34,7 @@ import java.util.Optional;
  * <p>Thread-context: thread-safe; mutable state is guarded by the store monitor. Eviction callbacks
  * run after the atomic mutation and outside that monitor.
  */
-public final class BoundedClientWorldStore implements ContentStore {
+public final class BoundedClientWorldStore implements PinnableContentStore {
 
     /**
      * Notified when a blob is evicted, so repair can re-replicate it elsewhere.

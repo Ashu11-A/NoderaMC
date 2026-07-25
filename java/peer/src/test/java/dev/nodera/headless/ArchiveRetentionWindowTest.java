@@ -8,7 +8,9 @@ import dev.nodera.storage.event.InMemoryContentStore;
 import dev.nodera.testkit.LoopbackTransport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -125,6 +127,57 @@ final class ArchiveRetentionWindowTest {
         assertThat(archive.heldVersions(worldIdHex)).hasSize(1);
         assertThat(store.has(newest.blob())).isTrue();
         assertThat(archive.holdingsFor(worldIdHex)).isNotEmpty();
+    }
+
+    @Test
+    void aBoundedDiskStoreNeverEvictsTheWorldThisNodeSeeds(@TempDir Path dir) {
+        // L-62's wiring, from the archive lane's side. A budget that could delete the host's own
+        // world to make room for somebody else's replica would be worse than no budget at all, so
+        // what this node SEEDS is pinned and what it merely caches is not.
+        NodeIdentity identity = NodeIdentity.generate();
+        transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
+        transport.start();
+        dev.nodera.storage.rocksdb.FsContentStore disk =
+                new dev.nodera.storage.rocksdb.FsContentStore(dir, hashes);
+        disk.setBudgetBytes(120_000);
+        service = new WorldArchiveService(identity, transport, disk, List.of());
+        String worldIdHex = hashes.sha256("l62-hosted".getBytes()).toHex();
+
+        PieceManifest hosted = service.seedArchive(worldIdHex, blob(21L, 40_000));
+        assertThat(disk.isPinned(hosted.blob())).isTrue();
+
+        // Cache pressure: unrelated content arriving until the budget is well past full.
+        for (int i = 0; i < 6; i++) {
+            disk.put(blob(200 + i, 20_000));
+        }
+
+        assertThat(disk.has(hosted.blob()))
+                .as("the hosted world survived every eviction the budget forced")
+                .isTrue();
+        assertThat(service.newestManifest(worldIdHex)).isPresent();
+        assertThat(disk.usedBytes()).isLessThanOrEqualTo(120_000);
+    }
+
+    @Test
+    void anEvictedVersionReleasesItsPin(@TempDir Path dir) {
+        // A pin left behind after the retention window drops a version would protect a blob that no
+        // longer exists, while the store went on believing it was holding something.
+        NodeIdentity identity = NodeIdentity.generate();
+        transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
+        transport.start();
+        dev.nodera.storage.rocksdb.FsContentStore disk =
+                new dev.nodera.storage.rocksdb.FsContentStore(dir, hashes);
+        service = new WorldArchiveService(identity, transport, disk, List.of());
+        service.setRetainedVersions(1);
+        String worldIdHex = hashes.sha256("l62-window".getBytes()).toHex();
+
+        PieceManifest first = service.seedArchive(worldIdHex, blob(31L, 10_000));
+        PieceManifest second = service.seedArchive(worldIdHex, blob(32L, 10_000));
+
+        assertThat(disk.isPinned(first.blob())).isFalse();
+        assertThat(disk.has(first.blob())).isFalse();
+        assertThat(disk.isPinned(second.blob())).isTrue();
+        assertThat(disk.has(second.blob())).isTrue();
     }
 
     @Test

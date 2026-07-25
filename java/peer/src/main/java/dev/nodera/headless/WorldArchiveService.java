@@ -110,6 +110,15 @@ public final class WorldArchiveService implements AutoCloseable {
     private volatile int retainedVersions = DEFAULT_RETAINED_VERSIONS;
 
     /**
+     * The content store's pin seam, when it has one (L-62). What this node SEEDS is content it is
+     * responsible for, not content it is caching: a bounded store must never make room for somebody
+     * else's replica by deleting the world this node is hosting. Adopted replicas arrive through
+     * {@link #fetchArchive} and are deliberately NOT pinned — they are exactly what the budget is
+     * meant to bound.
+     */
+    private final dev.nodera.storage.PinnableContentStore pins;
+
+    /**
      * @param identity         this worker's identity (tracker queries are made with it).
      * @param transport        the worker's peer transport (shared with the runtime).
      * @param store            the local blob tier; wrapped in a monitor here (FsContentStore is
@@ -145,6 +154,7 @@ public final class WorldArchiveService implements AutoCloseable {
     private WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
                                 TrackerClient tracker, boolean ownsTracker) {
         this.self = identity.nodeId();
+        this.pins = store instanceof dev.nodera.storage.PinnableContentStore p ? p : null;
         this.transport = Objects.requireNonNull(transport, "transport");
         // Bulk bounds: the archive lane moves whole saves worker-to-worker, so the in-game
         // defaults (8 pieces / 1 MiB-per-window, sized to never starve a simulation thread) would
@@ -190,6 +200,7 @@ public final class WorldArchiveService implements AutoCloseable {
         long version = versions.isEmpty() ? 1 : versions.lastKey() + 1;
         PieceManifest manifest = WorldArchive.manifestFor(version, blob);
         content.publish(manifest, Bytes.unsafeWrap(blob));
+        pin(manifest);
         versions.put(version, manifest);
         LOG.info("Seeding world archive {} v{} — {} piece(s), {} byte(s), root {}",
                 shortId(worldIdHex), version, manifest.pieceCount(), manifest.totalLength(),
@@ -223,6 +234,7 @@ public final class WorldArchiveService implements AutoCloseable {
         dev.nodera.distribution.EncryptedRegion encrypted = dev.nodera.distribution.WorldArchive
                 .encryptArchive(version, blob, password, Bytes.unsafeWrap(salt));
         content.publish(encrypted.manifest(), encrypted.ciphertextBlob());
+        pin(encrypted.manifest());
         versions.put(version, encrypted.manifest());
         LOG.info("Seeding ENCRYPTED world archive {} v{} — {} piece(s), {} ciphertext byte(s), "
                         + "kdf {}, root {}",
@@ -286,6 +298,11 @@ public final class WorldArchiveService implements AutoCloseable {
             if (gone == null) {
                 continue;
             }
+            if (pins != null) {
+                // Unpin first: an evicted version is no longer content this node owes the swarm,
+                // and a pin left behind would protect a blob that is already gone.
+                pins.unpin(gone.blob());
+            }
             content.unpublish(gone.manifestRoot());
             evicted++;
             LOG.info("Evicted world archive {} v{} (root {}) — {}",
@@ -323,6 +340,13 @@ public final class WorldArchiveService implements AutoCloseable {
         }
         return evictVersionsBelow(worldIdHex, versions, versions.lastKey(),
                 "superseded, no longer seeded");
+    }
+
+    /** Protect a seeded archive from a bounded store's eviction (L-62); a no-op when unbounded. */
+    private void pin(PieceManifest manifest) {
+        if (pins != null) {
+            pins.pin(manifest.blob());
+        }
     }
 
     /** @return every manifest version this node still holds for a world, oldest first. */

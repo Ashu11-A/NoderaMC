@@ -121,6 +121,16 @@ public final class HeadlessPeerMain {
         // archive of a hosted world IS the world.
         archive.setRetainedVersions((int) envLong("NODERA_ARCHIVE_RETAINED_VERSIONS",
                 WorldArchiveService.DEFAULT_RETAINED_VERSIONS));
+        // Total disk ceiling for this node's blob tier (L-62). Unbounded by default: this store also
+        // holds the worlds this node HOSTS, and "evict to fit" is the wrong answer for those. Set it
+        // and the store evicts oldest-cold-first — never a seeded archive, which the archive lane
+        // pins, so what a budget bounds is replicas of other people's worlds.
+        long contentBudget = envLong("NODERA_CONTENT_BUDGET", 0L);
+        if (contentBudget > 0) {
+            contentStore.setBudgetBytes(contentBudget);
+            LOG.info("Content store bounded to {} byte(s) — seeded archives pinned, "
+                    + "oldest cold content evicted first", contentBudget);
+        }
 
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
                 tracker, rendezvousEndpoints, archive::holdingsFor);
