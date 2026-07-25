@@ -1,0 +1,696 @@
+# shellcheck shell=bash
+# ===========================================================================
+# nodera e2e-main — THE service launcher every scripted live suite sources.
+#
+# Sourced, never executed. No suite starts a tracker, a rendezvous, a worker,
+# a dedicated server or a client itself: it sources this file, names itself,
+# and calls nodera_stack_up. One launcher, one topology, one port plan.
+#
+#   #!/usr/bin/env bash
+#   set -uo pipefail
+#   source "$(dirname "${BASH_SOURCE[0]}")/lib/e2e-main.sh"
+#   nodera_suite own ownership          # TAG + LOG_DIR + RESULTS_DIR
+#   nodera_parse_args "$@"              # --no-build / --keep-running / suite hook
+#   nodera_stack_up                     # lock, build, ports, services, probe
+#
+# ---------------------------------------------------------------------------
+# THE STANDARD TOPOLOGY (every suite, no exceptions)
+#
+#   2 players   · 1 tracker · 1 rendezvous · 3 headless peers
+#
+# The three peers are the quorum floor: DiagnosticsCollector.deriveHealth
+# reports DEGRADED "below quorum (3)" under three session members, so a live
+# suite that runs thinner is measuring a degraded system.
+#
+#   peer 1  player 1's companion worker   control 25610 · p2p 25620
+#   peer 2  player 2's companion worker   control 25611 · p2p 25621
+#   peer 3  spare standalone headless     control 25612 · p2p 25622
+#
+# Player 1 / player 2 are role slots, not game dirs — a host-client suite maps
+# them to run-host + run-join, a dedicated-server suite to run-join + run-join2.
+# The spare peer has no client attached; it exists to hold the swarm above the
+# quorum floor and to seed/serve archives when a player's worker dies with its
+# game.
+#
+# The peers are REAL session members (issue #45, landed): on host start the mod
+# hands its companion the game's P2P route over NODERA-MESH, the worker's
+# PeerRuntime.joinSession dials it, and membership gossip publishes every
+# member's public key. So each worker counts toward deriveHealth's quorum, is
+# handed committee seats via RegionAssigned, and can inherit the gateway when
+# the hosting game exits.
+#
+# Member count is per-JVM plus the peers that joined:
+#   dedicated server + 2 joiners + 3 peers = 6 members
+#   host client      + 1 joiner  + 3 peers = 5 members
+# The hosting JVM deliberately does not ALSO start a client peer
+# (ModNetworking.handleSessionOnClient: "already in the mesh as the server
+# peer") — one JVM, one node. That used to cap a player-hosted 2-player world at
+# 2 members, permanently DEGRADED no matter how many peers ran; the spare peer
+# is what now carries such a world over the quorum floor without a third human.
+#
+# Only the suites' own companions auto-join (the mod drives that). The SPARE
+# peer has no client, so it joins nothing on its own — it is swarm/archive
+# ballast and a standby gateway, and it becomes a session member only when a
+# world's mod meshes it.
+# ---------------------------------------------------------------------------
+#
+# PARAMETERS. Every knob is a variable loaded into memory by a function, and
+# every assignment is `${VAR:-default}` — so pinning a parameter is just
+# setting it in the environment BEFORE the source:
+#
+#   NODERA_SPARE_PEERS=0 scripts/e2e-crash.sh            # drop the spare peer
+#   GAME_PORT=25699 NODERA_E2E_TIMEOUT_MULT=2 scripts/e2e-churn.sh
+#
+# nodera_load runs at source time and is idempotent; re-call it after changing
+# a base value (e.g. TRACKER_PORT) to re-derive everything downstream.
+#
+# PORT PLAN
+#   25575  RCON (dedicated-server suites)
+#   25599  game
+#   25600  tracker 1        · 25640+i extra trackers
+#   25601  rendezvous 1     · 25650+i extra rendezvous
+#   25610+i worker control  · 25620+i worker p2p
+#
+# LOGS      $LOG_DIR/{tracker,rendezvous,worker-*,server,client-*}.log
+# LOCK      the suites share the port block and the Minecraft run dirs, so they
+#           run STRICTLY one at a time — nodera_stack_up takes the lock, and
+#           scripts/run-tests.sh holds the same one around a whole batch.
+# ===========================================================================
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "e2e-main.sh is a library — source it, do not execute it" >&2
+    exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# Parameter loaders
+# ---------------------------------------------------------------------------
+
+# Repository roots + build outputs.
+nodera_paths() {
+    NODERA_ROOT="${NODERA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+    RUST_RELEASE="${RUST_RELEASE:-$NODERA_ROOT/rust/target/release}"
+    MOD_DIR="${MOD_DIR:-$NODERA_ROOT/java/neoforge-mod}"
+    WORKER_DIST="${WORKER_DIST:-$NODERA_ROOT/java/peer/build/install/nodera-headless/bin/nodera-headless}"
+    E2E_LOCK_FILE="${E2E_LOCK_FILE:-$NODERA_ROOT/run/.e2e-suite.lock}"
+}
+
+# The port plan. Extra trackers/rendezvous live in their own blocks so raising
+# a count never walks onto the next service's port.
+nodera_ports() {
+    GAME_PORT="${GAME_PORT:-25599}"
+    TRACKER_PORT="${TRACKER_PORT:-25600}"
+    RENDEZVOUS_PORT="${RENDEZVOUS_PORT:-25601}"
+    TRACKER_EXTRA_BASE="${TRACKER_EXTRA_BASE:-25640}"
+    RENDEZVOUS_EXTRA_BASE="${RENDEZVOUS_EXTRA_BASE:-25650}"
+    WORKER_CONTROL_BASE="${WORKER_CONTROL_BASE:-25610}"
+    WORKER_P2P_BASE="${WORKER_P2P_BASE:-25620}"
+    RCON_PORT="${RCON_PORT:-25575}"
+    RCON_PASS="${RCON_PASS:-nodera-dev}"
+    # Ports a caller binds outside this launcher but still wants preflighted —
+    # space separated. scripts/dev.sh --play uses it for the two dev clients' own
+    # in-process mod peer ports.
+    NODERA_EXTRA_PORTS="${NODERA_EXTRA_PORTS:-}"
+    # Where the workers' p2p sockets listen / advertise. Loopback is right for a
+    # scripted suite; an interactive session that wants a LAN peer to reach it
+    # sets 0.0.0.0 / auto before sourcing.
+    NODERA_P2P_BIND_ADDR="${NODERA_P2P_BIND_ADDR:-127.0.0.1}"
+    NODERA_P2P_ADVERTISE_ADDR="${NODERA_P2P_ADVERTISE_ADDR:-127.0.0.1}"
+}
+
+# The standard topology + the per-slot ports derived from it.
+nodera_topology() {
+    NODERA_PLAYERS="${NODERA_PLAYERS:-2}"
+    NODERA_TRACKERS="${NODERA_TRACKERS:-1}"
+    NODERA_RENDEZVOUS="${NODERA_RENDEZVOUS:-1}"
+    NODERA_SPARE_PEERS="${NODERA_SPARE_PEERS:-1}"
+    # One companion worker per player, plus the spare standalone peer(s).
+    NODERA_WORKERS=$(( NODERA_PLAYERS + NODERA_SPARE_PEERS ))
+
+    # Player-slot companions. PEER1/PEER2 are ROLES: whichever two clients the
+    # suite runs, player 1 gets PEER1_*, player 2 gets PEER2_*.
+    PEER1_CONTROL=$(( WORKER_CONTROL_BASE + 0 )); PEER1_P2P=$(( WORKER_P2P_BASE + 0 ))
+    PEER2_CONTROL=$(( WORKER_CONTROL_BASE + 1 )); PEER2_P2P=$(( WORKER_P2P_BASE + 1 ))
+    # The spare standalone peer (slot 3) — no client, quorum ballast.
+    PEER3_CONTROL=$(( WORKER_CONTROL_BASE + 2 )); PEER3_P2P=$(( WORKER_P2P_BASE + 2 ))
+}
+
+# Timeouts, RAM advisory, log-audit allowlist.
+nodera_tuning() {
+    NODERA_E2E_TIMEOUT_MULT="${NODERA_E2E_TIMEOUT_MULT:-1}"
+    NODERA_MIN_FREE_GB="${NODERA_MIN_FREE_GB:-5}"
+    NODERA_WORKER_SETTLE="${NODERA_WORKER_SETTLE:-3}"
+    # Benign lines an abrupt client kill always produces; anything else at
+    # ERROR/FATAL fails an audit.
+    NODERA_BENIGN_ERRORS="${NODERA_BENIGN_ERRORS:-Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException}"
+    NODERA_BENIGN_NETTY="${NODERA_BENIGN_NETTY:-Connection reset|ClosedChannelException|closed by remote}"
+}
+
+# Load every parameter block into memory. Idempotent.
+nodera_load() {
+    nodera_paths
+    nodera_ports
+    nodera_topology
+    nodera_tuning
+}
+
+# ---------------------------------------------------------------------------
+# Suite identity + argument parsing
+# ---------------------------------------------------------------------------
+
+# nodera_suite <tag> <suite-name> — log prefix + the suite's log/results dirs.
+nodera_suite() {
+    TAG="$1"
+    NODERA_SUITE="$2"
+    LOG_DIR="${LOG_DIR:-$NODERA_ROOT/run/logs/e2e-$NODERA_SUITE}"
+    RESULTS_DIR="${RESULTS_DIR:-$NODERA_ROOT/run/results/e2e-$NODERA_SUITE/$(date +%Y%m%d-%H%M%S)}"
+    mkdir -p "$LOG_DIR" "$RESULTS_DIR"
+}
+
+# nodera_parse_args "$@" — the flags every suite shares. A suite with its own
+# flag defines nodera_suite_arg() before calling this; it receives the
+# unrecognised argument and the rest of the line, and sets NODERA_ARGS_EATEN to
+# how many arguments it consumed (0 / unset = reject).
+#
+# The hook is called directly, NOT in a command substitution: a suite flag
+# almost always sets a suite variable, and a subshell would swallow it.
+nodera_parse_args() {
+    NO_BUILD="${NO_BUILD:-0}"
+    KEEP_RUNNING="${KEEP_RUNNING:-0}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-build) NO_BUILD=1; shift ;;
+            --keep-running) KEEP_RUNNING=1; shift ;;
+            *)
+                NODERA_ARGS_EATEN=0
+                declare -F nodera_suite_arg >/dev/null && nodera_suite_arg "$@"
+                [[ "${NODERA_ARGS_EATEN:-0}" -gt 0 ]] \
+                    || { echo "unknown option: $1" >&2; exit 2; }
+                shift "$NODERA_ARGS_EATEN"
+                ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Logging + teardown
+# ---------------------------------------------------------------------------
+
+log()  { printf '\033[1;36m[%s]\033[0m %s\n' "${TAG:-e2e}" "$*"; }
+pass() { printf '\033[1;32m[%s] PASS %s\033[0m\n' "${TAG:-e2e}" "$*"; }
+
+dump_threads() {
+    for pid in $(pgrep -f 'neoforge|RunProgramArgs' 2>/dev/null); do
+        jcmd "$pid" Thread.print > "$LOG_DIR/threads-$pid.txt" 2>/dev/null || true
+    done
+}
+
+fail() {
+    dump_threads
+    printf '\033[1;31m[%s] FAIL %s\033[0m\n' "${TAG:-e2e}" "$*" >&2
+    cleanup
+    exit 1
+}
+
+PIDS=()
+cleanup() {
+    [[ "${KEEP_RUNNING:-0}" -eq 1 ]] && { log "--keep-running: leaving processes up"; return; }
+    for pid in "${PIDS[@]:-}"; do
+        [[ -n "$pid" ]] && kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null
+    done
+    sleep 1
+    pkill -f 'nodera-tracker --config' 2>/dev/null
+    pkill -f 'nodera-rendezvous --config' 2>/dev/null
+    pkill -f 'dev.nodera.headless.HeadlessPeerMain' 2>/dev/null
+    pkill -f RunProgramArgs 2>/dev/null
+}
+trap cleanup EXIT
+
+# Serialize live suites: two at once fight over ports + run dirs. FD 9 is held
+# for the process lifetime; run-tests.sh holds the same lock around its batch
+# and exports NODERA_E2E_LOCK_HELD so a child does not deadlock on its parent.
+nodera_acquire_lock() {
+    [[ "${NODERA_E2E_LOCK_HELD:-0}" == 1 ]] && return 0
+    mkdir -p "$(dirname "$E2E_LOCK_FILE")"
+    exec 9>"$E2E_LOCK_FILE"
+    flock -n 9 || fail "another live suite is running (lock: $E2E_LOCK_FILE) — one test at a time"
+}
+
+# ---------------------------------------------------------------------------
+# Log waiting
+# ---------------------------------------------------------------------------
+
+# Wait until $2 appears in file $1 (timeout $3 seconds, optional from-line $4).
+#
+# NOTE on $4: it is the first line CONSIDERED, so callers marking "everything from here is new"
+# must pass (current line count + 1). Passing the bare line count re-includes the last existing
+# line and a needle already sitting there matches instantly — an assertion that silently proves
+# nothing. Use wait_log_after for that, which does the arithmetic for you.
+wait_log() {
+    local file="$1" needle="$2" timeout="${3:-120}" from="${4:-1}" waited=0
+    timeout=$(( timeout * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+    while (( waited < timeout )); do
+        [[ -f "$file" ]] && tail -n +"$from" "$file" | grep -qF -- "$needle" && return 0
+        sleep 2; waited=$((waited + 2))
+    done
+    return 1
+}
+
+# Wait for a needle that appears STRICTLY AFTER the given line count — the "a NEW one of these
+# must show up" assertion. Takes the mark as a plain `wc -l` count and does the +1 itself.
+wait_log_after() { # file needle timeout mark
+    wait_log "$1" "$2" "${3:-120}" "$(( ${4:-0} + 1 ))"
+}
+
+# wait_log with a bail-out needle: if the guard appears first, fail immediately with its
+# message instead of burning the whole timeout. Args: file needle timeout guard message
+wait_log_guarded() {
+    local file="$1" needle="$2" timeout="${3:-120}" guard="$4" message="$5" waited=0
+    timeout=$(( timeout * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+    while (( waited < timeout )); do
+        if [[ -f "$file" ]]; then
+            grep -qF -- "$needle" "$file" && return 0
+            grep -qF -- "$guard" "$file" && fail "$message"
+        fi
+        sleep 2; waited=$((waited + 2))
+    done
+    return 1
+}
+
+# A world baked before a FlatWorldRules.RULES_VERSION bump carries a certified genesis the
+# current engine refuses ("rulesVersion N does not match ..."), so the entity lane never boots
+# and every ownership assertion times out with no stated cause. Suites that REUSE the bake call
+# this the moment the host log exists.
+STALE_BAKE_GUARD="entity lane bootstrap failed"
+STALE_BAKE_MESSAGE="the staged world's certified genesis predates the current \
+FlatWorldRules.RULES_VERSION — the entity lane cannot boot. Re-bake it: \
+rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh"
+
+# ---------------------------------------------------------------------------
+# Wire protocols: worker control socket + Minecraft RCON
+# ---------------------------------------------------------------------------
+
+# One control-verb exchange with a worker: control_verb <port> <line>
+control_verb() {
+    local port="$1" line="$2" reply
+    exec 3<>"/dev/tcp/127.0.0.1/$port" || return 1
+    printf '%s\n' "$line" >&3
+    IFS= read -r -t 10 reply <&3
+    exec 3>&- 3<&-
+    printf '%s' "$reply"
+}
+
+# Minimal Source-RCON client (auth + one command per call) → stdout.
+rcon() {
+    python3 - "$RCON_PORT" "$RCON_PASS" "$1" <<'PYEOF'
+import socket, struct, sys
+
+port, password, command = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+
+def packet(pid, ptype, body):
+    payload = struct.pack('<ii', pid, ptype) + body.encode() + b'\x00\x00'
+    return struct.pack('<i', len(payload)) + payload
+
+def read_packet(sock):
+    raw = b''
+    while len(raw) < 4:
+        chunk = sock.recv(4 - len(raw))
+        if not chunk:
+            raise ConnectionError('rcon closed')
+        raw += chunk
+    (length,) = struct.unpack('<i', raw)
+    data = b''
+    while len(data) < length:
+        chunk = sock.recv(length - len(data))
+        if not chunk:
+            raise ConnectionError('rcon closed mid-packet')
+        data += chunk
+    pid, ptype = struct.unpack('<ii', data[:8])
+    return pid, ptype, data[8:-2].decode(errors='replace')
+
+with socket.create_connection(('127.0.0.1', port), timeout=10) as s:
+    s.sendall(packet(1, 3, password))
+    pid, _, _ = read_packet(s)
+    if pid == -1:
+        print('RCON-AUTH-FAILED'); sys.exit(1)
+    s.sendall(packet(2, 2, command))
+    _, _, body = read_packet(s)
+    print(body)
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# Build + preflight
+# ---------------------------------------------------------------------------
+
+# Full build of everything a live suite needs (skipped by --no-build).
+build_stack() {
+    ( cd "$NODERA_ROOT/rust" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous ) \
+        || fail "build: cargo"
+    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist :neoforge-mod:build -x test -x check ) \
+        || fail "build: gradle"
+}
+
+check_binaries() {
+    [[ -x "$RUST_RELEASE/nodera-tracker" && -x "$RUST_RELEASE/nodera-rendezvous" ]] \
+        || fail "service binaries missing — run without --no-build first"
+    [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :peer:installDist)"
+}
+
+check_ports() { # ports...
+    local port
+    for port in "$@"; do
+        if ( exec 3<>"/dev/tcp/127.0.0.1/$port" ) 2>/dev/null; then
+            fail "port $port busy — stop the other stack first (scripts/dev.sh? stale client JVM?)"
+        fi
+    done
+}
+
+# Every port the current topology will bind, in one list — what check_ports gets.
+nodera_all_ports() {
+    local i port
+    printf '%s\n' "$GAME_PORT" "$TRACKER_PORT" "$RENDEZVOUS_PORT"
+    for (( i = 1; i < NODERA_TRACKERS; i++ ));   do printf '%s\n' "$(( TRACKER_EXTRA_BASE + i - 1 ))"; done
+    for (( i = 1; i < NODERA_RENDEZVOUS; i++ )); do printf '%s\n' "$(( RENDEZVOUS_EXTRA_BASE + i - 1 ))"; done
+    for (( i = 0; i < NODERA_WORKERS; i++ )); do
+        printf '%s\n%s\n' "$(( WORKER_CONTROL_BASE + i ))" "$(( WORKER_P2P_BASE + i ))"
+    done
+    # RCON only matters to the dedicated-server suites, but a stale server holding
+    # it would break them silently, so it is always checked.
+    printf '%s\n' "$RCON_PORT"
+    for port in $NODERA_EXTRA_PORTS; do printf '%s\n' "$port"; done
+}
+
+# Two clients in one machine's RAM is the real constraint; warn, never block.
+nodera_check_ram() {
+    local free_gb
+    free_gb=$(free -g 2>/dev/null | awk '/^Mem:/{print $7}')
+    [[ "${free_gb:-99}" -lt "$NODERA_MIN_FREE_GB" ]] \
+        && log "WARNING: only ${free_gb} GB available RAM — $NODERA_PLAYERS clients may thrash"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Service launchers — the reason no suite starts anything itself
+# ---------------------------------------------------------------------------
+
+nodera_start_trackers() {
+    local i port cfg suffix
+    NODERA_TRACKER_ENDPOINT_LIST=""
+    for (( i = 0; i < NODERA_TRACKERS; i++ )); do
+        if (( i == 0 )); then port="$TRACKER_PORT"; suffix=""
+        else port=$(( TRACKER_EXTRA_BASE + i - 1 )); suffix="-$i"; fi
+        cfg="$LOG_DIR/tracker$suffix.toml"
+        cat > "$cfg" <<EOF
+bind_addr = "127.0.0.1:$port"
+announce_interval_seconds = 5
+peer_ttl_seconds = 60
+healthy_seeder_floor = 1
+sample_size = 10
+seeder_floor = 5
+EOF
+        setsid "$RUST_RELEASE/nodera-tracker" --config "$cfg" \
+            >"$LOG_DIR/tracker$suffix.log" 2>&1 &
+        PIDS+=("$!")
+        NODERA_TRACKER_ENDPOINT_LIST="${NODERA_TRACKER_ENDPOINT_LIST:+$NODERA_TRACKER_ENDPOINT_LIST,}127.0.0.1:$port"
+    done
+}
+
+nodera_start_rendezvous() {
+    local i port cfg suffix
+    NODERA_RENDEZVOUS_ENDPOINT_LIST=""
+    for (( i = 0; i < NODERA_RENDEZVOUS; i++ )); do
+        if (( i == 0 )); then port="$RENDEZVOUS_PORT"; suffix=""
+        else port=$(( RENDEZVOUS_EXTRA_BASE + i - 1 )); suffix="-$i"; fi
+        cfg="$LOG_DIR/rendezvous$suffix.toml"
+        cat > "$cfg" <<EOF
+bind_addr = "127.0.0.1:$port"
+registration_ttl_seconds = 300
+refresh_interval_seconds = 60
+reservation_max_bytes = 1073741824
+per_ip_request_quota = 0
+reservation_hmac_key_hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+EOF
+        setsid "$RUST_RELEASE/nodera-rendezvous" --config "$cfg" \
+            >"$LOG_DIR/rendezvous$suffix.log" 2>&1 &
+        PIDS+=("$!")
+        NODERA_RENDEZVOUS_ENDPOINT_LIST="${NODERA_RENDEZVOUS_ENDPOINT_LIST:+$NODERA_RENDEZVOUS_ENDPOINT_LIST,}127.0.0.1:$port"
+    done
+}
+
+# start_worker <name> <control-port> <p2p-port> — one headless peer with its
+# own identity file and archive dir under $LOG_DIR.
+start_worker() {
+    NODERA_CONTROL_PORT="$2" NODERA_P2P_PORT="$3" \
+    NODERA_P2P_BIND="$NODERA_P2P_BIND_ADDR" \
+    NODERA_P2P_ADVERTISE="$NODERA_P2P_ADVERTISE_ADDR" \
+    NODERA_IDENTITY_FILE="$LOG_DIR/$1-identity.bin" \
+    NODERA_ARCHIVE_DIR="$LOG_DIR/$1-archive" \
+    NODERA_TRACKER_ENDPOINTS="$NODERA_TRACKER_ENDPOINT_LIST" \
+    NODERA_RENDEZVOUS_ENDPOINTS="$NODERA_RENDEZVOUS_ENDPOINT_LIST" \
+        setsid "$WORKER_DIST" >"$LOG_DIR/worker-$1.log" 2>&1 &
+    PIDS+=("$!")
+}
+
+# The whole peer set: one companion per player, then the spare standalone
+# peer(s) that hold the swarm at the quorum floor. Names are stable so
+# $LOG_DIR/worker-peer1.log always means player 1's companion.
+nodera_start_workers() {
+    local i
+    NODERA_WORKER_NAMES=()
+    NODERA_WORKER_CONTROLS=()
+    for (( i = 0; i < NODERA_PLAYERS; i++ )); do
+        NODERA_WORKER_NAMES+=("peer$(( i + 1 ))")
+    done
+    for (( i = 0; i < NODERA_SPARE_PEERS; i++ )); do
+        NODERA_WORKER_NAMES+=("spare$(( i + 1 ))")
+    done
+    for (( i = 0; i < NODERA_WORKERS; i++ )); do
+        NODERA_WORKER_CONTROLS+=("$(( WORKER_CONTROL_BASE + i ))")
+        start_worker "${NODERA_WORKER_NAMES[$i]}" \
+            "$(( WORKER_CONTROL_BASE + i ))" "$(( WORKER_P2P_BASE + i ))"
+    done
+    sleep "$NODERA_WORKER_SETTLE"
+}
+
+# Every worker must answer its control socket — a worker that died on a bound
+# port turns every later assertion into an unexplained timeout.
+nodera_probe_workers() {
+    local i name port
+    for (( i = 0; i < NODERA_WORKERS; i++ )); do
+        name="${NODERA_WORKER_NAMES[$i]}"; port="${NODERA_WORKER_CONTROLS[$i]}"
+        control_verb "$port" "NODERA-PROBE 2" | grep -q NODERA-OK \
+            || fail "worker $name did not answer NODERA-PROBE on $port (see $LOG_DIR/worker-$name.log)"
+    done
+    log "topology up: $NODERA_PLAYERS player slot(s) · $NODERA_TRACKERS tracker(s) · $NODERA_RENDEZVOUS rendezvous · $NODERA_WORKERS peer(s) ($NODERA_SPARE_PEERS spare)"
+}
+
+# nodera_stack_up — THE launcher. Lock, build, preflight, services, probe.
+# After this returns the network exists and every worker has answered.
+nodera_stack_up() {
+    local ports=()
+    nodera_acquire_lock
+    nodera_check_ram
+    [[ "${NO_BUILD:-0}" -eq 0 ]] && build_stack
+    check_binaries
+    mapfile -t ports < <(nodera_all_ports)
+    check_ports "${ports[@]}"
+    nodera_start_trackers
+    nodera_start_rendezvous
+    nodera_start_workers
+    nodera_probe_workers
+}
+
+# ---------------------------------------------------------------------------
+# Game side: client config, dedicated server, clients
+# ---------------------------------------------------------------------------
+
+# Point a client game dir's nodera-client.toml at its OWN companion worker and
+# the dev services: write_client_config <game-dir-name> <control-port>
+write_client_config() {
+    mkdir -p "$MOD_DIR/$1/config"
+    cat > "$MOD_DIR/$1/config/nodera-client.toml" <<EOF
+[companion]
+	controlEndpoint = "127.0.0.1:$2"
+	required = true
+[tracker]
+	endpoints = ["127.0.0.1:$TRACKER_PORT"]
+[rendezvous]
+	endpoints = ["127.0.0.1:$RENDEZVOUS_PORT"]
+EOF
+}
+
+# Clean-slate dedicated-server staging: fresh world, RCON on, offline auth,
+# entity lane auto-activation + overworld mob capture (the standard live-drive knobs).
+stage_dedicated_server() {
+    rm -rf "$MOD_DIR/run/world"
+    mkdir -p "$MOD_DIR/run"
+    echo "eula=true" > "$MOD_DIR/run/eula.txt"
+    cat > "$MOD_DIR/run/server.properties" <<EOF
+server-port=$GAME_PORT
+online-mode=false
+level-name=world
+enable-rcon=true
+rcon.port=$RCON_PORT
+rcon.password=$RCON_PASS
+broadcast-rcon-to-ops=false
+EOF
+    mkdir -p "$MOD_DIR/run/world/serverconfig"
+    cat > "$MOD_DIR/run/world/serverconfig/nodera-server.toml" <<EOF
+[host]
+	gamePort = $GAME_PORT
+	onlineAuth = false
+[entity]
+	laneAutoActivate = true
+	mobCaptureDimensions = ["minecraft:overworld"]
+EOF
+}
+
+start_dedicated_server() { # log-file (defaults to $LOG_DIR/server.log)
+    ( cd "$NODERA_ROOT" && exec setsid ./gradlew :neoforge-mod:runServer --console=plain \
+        </dev/null >"${1:-$LOG_DIR/server.log}" 2>&1 ) &
+    SERVER_PID=$!
+    PIDS+=("$SERVER_PID")
+}
+
+start_client() { # gradle-run-task log-file
+    ( cd "$NODERA_ROOT" && exec setsid ./gradlew ":neoforge-mod:$1" --console=plain \
+        >"$2" 2>&1 ) &
+    LAST_CLIENT_PID=$!
+    PIDS+=("$LAST_CLIENT_PID")
+}
+
+# ---------------------------------------------------------------------------
+# Composite player stages — the two standard 2-player shapes
+# ---------------------------------------------------------------------------
+
+# Dedicated server + JoinerDev + JoinerTwo, entity lane live. The shape for
+# suites that interrogate a neutral server over RCON (commands, farlands,
+# pickup, ownership-follow). Player 1 = run-join, player 2 = run-join2.
+# Sets P1_GRADLE_PID / P2_GRADLE_PID.
+nodera_dedicated_two_players() {
+    stage_dedicated_server
+    start_dedicated_server "$LOG_DIR/server.log"
+    wait_log "$LOG_DIR/server.log" "sharing world" 420 \
+        || fail "the dedicated server never shared its world (see $LOG_DIR/server.log)"
+    write_client_config run-join  "$PEER1_CONTROL"
+    write_client_config run-join2 "$PEER2_CONTROL"
+    start_client runClientJoin    "$LOG_DIR/client-join.log"
+    P1_GRADLE_PID=$LAST_CLIENT_PID
+    wait_log "$LOG_DIR/server.log" "JoinerDev joined the game" 600 || fail "JoinerDev never joined"
+    start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
+    P2_GRADLE_PID=$LAST_CLIENT_PID
+    wait_log "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 || fail "JoinerTwo never joined"
+    wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
+}
+
+# nodera_set_host_cfg <section> <key> <value> — set a key in the staged world's
+# nodera-server.toml ($HOST_CFG).
+#
+# A missing key is inserted directly BELOW its section header, never appended at
+# EOF: TOML section membership is positional, so an appended key silently joins
+# whichever section happens to be last. That is how mobCaptureDimensions ends up
+# under [debug], the entity lane never captures, and every region revokes
+# mid-drive for no stated reason.
+nodera_set_host_cfg() {
+    local section="$1" key="$2" value="$3" tmp
+    tmp=$(mktemp)
+    if grep -q "^[[:space:]]*$key = " "$HOST_CFG" 2>/dev/null; then
+        sed "s|^\([[:space:]]*\)$key = .*|\1$key = $value|" "$HOST_CFG" > "$tmp"
+    elif grep -q "^\[$section\]" "$HOST_CFG" 2>/dev/null; then
+        awk -v sec="$section" -v line=$'\t'"$key = $value" '
+            { print }
+            !done && $0 ~ "^\\[" sec "\\][[:space:]]*$" { print line; done = 1 }' \
+            "$HOST_CFG" > "$tmp"
+    else
+        cat "$HOST_CFG" > "$tmp" 2>/dev/null
+        printf '[%s]\n\t%s = %s\n' "$section" "$key" "$value" >> "$tmp"
+    fi
+    mv "$tmp" "$HOST_CFG"
+}
+
+# The staged NoderaE2E world, re-checked and re-pointed at this run's ports.
+# Baked once by e2e-continuity; every other host-client suite reuses it. Sets
+# HOST_SAVE + HOST_CFG.
+nodera_staged_world() {
+    HOST_SAVE="$MOD_DIR/run-host/saves/NoderaE2E"
+    [[ -f "$HOST_SAVE/nodera-world.dat" ]] \
+        || fail "no staged world — run scripts/e2e-continuity.sh once first (it bakes NoderaE2E)"
+    HOST_CFG="$HOST_SAVE/serverconfig/nodera-server.toml"
+    mkdir -p "$HOST_SAVE/serverconfig"
+    [[ -f "$HOST_CFG" ]] || printf '[host]\n' > "$HOST_CFG"
+    # Pin the published game port (deterministic quick-play target) and disable
+    # Mojang session auth — dev offline accounts cannot pass it; real hosts keep
+    # the secure default.
+    nodera_set_host_cfg host gamePort "$GAME_PORT"
+    nodera_set_host_cfg host onlineAuth false
+    # No-host region ownership: the validated entity lane assigns every connected
+    # player's node its own FOV region set.
+    nodera_set_host_cfg entity laneAutoActivate true
+}
+
+# Player A hosts the staged world from its client, player B joins over the
+# network. The shape for suites that kill a hosting PLAYER (continuity,
+# ownership, churn, crash). Player 1 = run-host, player 2 = run-join.
+# Sets HOST_GRADLE_PID / JOINER_GRADLE_PID for the suites that kill them.
+nodera_hosted_two_players() {
+    write_client_config run-host "$PEER1_CONTROL"
+    write_client_config run-join "$PEER2_CONTROL"
+    start_client runClientHost "$LOG_DIR/client-host.log"
+    HOST_GRADLE_PID=$LAST_CLIENT_PID
+    wait_log "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+        || fail "player A never opened the shared world"
+    start_client runClientJoin "$LOG_DIR/client-join.log"
+    JOINER_GRADLE_PID=$LAST_CLIENT_PID
+    wait_log "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+        || fail "player B never joined"
+}
+
+# ---------------------------------------------------------------------------
+# Audits + artifacts
+# ---------------------------------------------------------------------------
+
+# nodera_audit_errors <file> [from-line] — echo the non-benign ERROR/FATAL
+# lines. Empty output means clean. Vanilla's "Exception caught in connection"
+# header is benign iff its cause line is the reset/close of a peer this harness
+# itself killed; any other cause still counts.
+nodera_audit_errors() {
+    local file="$1" from="${2:-1}"
+    tail -n +"$from" "$file" 2>/dev/null | awk \
+        -v netty="$NODERA_BENIGN_NETTY" -v benign="$NODERA_BENIGN_ERRORS" '
+        /Exception caught in connection/ {
+            getline cause
+            if (cause !~ netty) { print; print cause }
+            next
+        }
+        /ERROR|FATAL/ { if ($0 !~ benign) print }' | head -6
+}
+
+# Snapshot every worker's STATE JSON into the results dir.
+nodera_collect_worker_state() {
+    local i name port
+    for (( i = 0; i < NODERA_WORKERS; i++ )); do
+        name="${NODERA_WORKER_NAMES[$i]}"; port="${NODERA_WORKER_CONTROLS[$i]}"
+        control_verb "$port" "NODERA-STATE 2" > "$RESULTS_DIR/state-$name.json" 2>/dev/null
+    done
+}
+
+# Copy every artifact of a run — suite logs, service logs, client latest.log
+# per game dir, and any in-game selftest reports — into one results folder.
+collect_results() { # dest-dir (defaults to $RESULTS_DIR)
+    local dest="${1:-$RESULTS_DIR}"
+    mkdir -p "$dest"
+    cp -r "$LOG_DIR"/. "$dest/" 2>/dev/null
+    local d
+    for d in run run-host run-join run-join2; do
+        [[ -f "$MOD_DIR/$d/logs/latest.log" ]] \
+            && cp "$MOD_DIR/$d/logs/latest.log" "$dest/client-$d-latest.log"
+    done
+    for d in "$MOD_DIR"/run/world/nodera-selftest "$MOD_DIR"/run-host/saves/*/nodera-selftest; do
+        [[ -d "$d" ]] && cp -r "$d" "$dest/" 2>/dev/null
+    done
+    log "results collected in $dest"
+}
+
+# Parameters into memory the moment this file is sourced.
+nodera_load

@@ -14,17 +14,100 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Notify;
 
 use crate::logs::LogBuffer;
 use crate::metrics::MetricsHandle;
+use crate::settings::{Settings, SettingsHandle};
 
 /// True when the app should attach to an already-running worker instead of supervising its own.
 pub fn attach_mode() -> bool {
     std::env::var("NODERA_APP_ATTACH")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
+}
+
+/// Who owns the worker process — what the UI needs to decide whether to offer a Restart button.
+///
+/// Exposed as its own shape rather than a bare boolean because "attached" and "may I restart it"
+/// are different questions that happen to share an answer today; a future headless-remote mode
+/// would separate them, and the UI would not have to change.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct WorkerOwnership {
+    /// `true` when the worker was started outside this app (`NODERA_APP_ATTACH=1`).
+    pub attached: bool,
+    /// `true` only when this app spawned the worker and may therefore stop it.
+    pub can_restart: bool,
+}
+
+/// Report who owns the worker process.
+pub fn ownership() -> WorkerOwnership {
+    let attached = attach_mode();
+    WorkerOwnership {
+        attached,
+        can_restart: !attached,
+    }
+}
+
+/// Signal that asks the supervisor to cycle the worker.
+///
+/// A newtype rather than a bare `Notify` because Tauri keys managed state by type, and this app
+/// carries a second unrelated `Notify` (the configuration push). Two bare `Arc<Notify>` states
+/// would silently resolve to whichever was registered last.
+#[derive(Default)]
+pub struct RestartSignal(pub Notify);
+
+/// The environment a freshly spawned worker inherits from the user's settings.
+///
+/// Pure and separately testable because it is the *whole* of transport #1 (see the config plan):
+/// identity-shaped values the worker reads exactly once in `HeadlessPeerMain.main()` and has no
+/// re-read path for. Until this existed the supervisor passed **no** environment at all, so a user
+/// who edited Settings → Network was editing a file nothing read — the tracker list never reached
+/// the JVM.
+///
+/// Two encoding rules that are contracts, not style:
+/// * **A key whose value is empty is omitted entirely.** `HeadlessPeerMain.env()` treats blank as
+///   absent and substitutes its own default, so sending `""` and omitting mean the same thing to
+///   the worker — but only omitting says so to anyone reading `env` on the running process.
+/// * **`NODERA_P2P_PORT_RANGE` is omitted when a random port is wanted.** Absent range means "do
+///   not walk a range"; encoding it as `0-0` would read as a real one-wide range on port 0.
+pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = Vec::new();
+
+    // Comma-separated, schemes preserved: `HeadlessPeerMain.parseTrackers` splits on ',' and
+    // `TrackerClient.Endpoint.parse` understands `tcp://` / `udp://` / bare `host:port`.
+    let trackers = settings.network.default_trackers.join(",");
+    if !trackers.trim().is_empty() {
+        env.push(("NODERA_TRACKER_ENDPOINTS".to_owned(), trackers));
+    }
+
+    let archive_dir = settings.storage.peer_worlds_dir.trim();
+    if !archive_dir.is_empty() {
+        env.push(("NODERA_ARCHIVE_DIR".to_owned(), archive_dir.to_owned()));
+    }
+
+    if settings.network.use_random_port {
+        // Port 0 = let the OS assign. The advertised route comes from the bound socket, so this is
+        // the only value that is correct without knowing anything about the machine's free ports.
+        env.push(("NODERA_P2P_PORT".to_owned(), "0".to_owned()));
+    } else {
+        env.push((
+            "NODERA_P2P_PORT".to_owned(),
+            settings.network.port_range_start.to_string(),
+        ));
+        env.push((
+            "NODERA_P2P_PORT_RANGE".to_owned(),
+            format!(
+                "{}-{}",
+                settings.network.port_range_start, settings.network.port_range_end
+            ),
+        ));
+    }
+
+    env
 }
 
 /// Locate the worker launcher: `NODERA_WORKER_BIN`, else the bundled installDist under resources.
@@ -36,7 +119,17 @@ fn worker_launcher() -> PathBuf {
 
 /// Run the supervisor loop until the process exits. Restarts the worker with a capped backoff.
 /// No-op (returns) in attach mode.
-pub async fn supervise(metrics: Arc<MetricsHandle>, logs: Arc<LogBuffer>) {
+///
+/// `restart` makes the *existing* backoff/respawn loop the only path that starts a worker: an
+/// explicit restart kills the child and falls through to the same spawn, which recomputes
+/// [`worker_env`] from the settings as they are now. There is deliberately no second spawn site to
+/// keep in sync — a settings change plus a restart is how env-shaped configuration takes effect.
+pub async fn supervise(
+    metrics: Arc<MetricsHandle>,
+    logs: Arc<LogBuffer>,
+    settings: Arc<SettingsHandle>,
+    restart: Arc<RestartSignal>,
+) {
     if attach_mode() {
         eprintln!("nodera-app: attach mode — not supervising a worker (one runs externally)");
         // The worker's output goes to its own log file in attach mode — follow it instead.
@@ -49,7 +142,9 @@ pub async fn supervise(metrics: Arc<MetricsHandle>, logs: Arc<LogBuffer>) {
     let max_backoff = Duration::from_secs(30);
 
     loop {
+        let env = worker_env(&settings.snapshot());
         let spawn = Command::new(&launcher)
+            .envs(env)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
@@ -76,9 +171,33 @@ pub async fn supervise(metrics: Arc<MetricsHandle>, logs: Arc<LogBuffer>) {
                         }
                     });
                 }
-                let status = child.wait().await;
-                logs.push(format!("nodera-app: peer worker exited: {status:?}"));
-                eprintln!("nodera-app: peer worker exited: {status:?}");
+                // Whichever happens first wins. The `child.wait()` borrow ends with the select, so
+                // the kill below is free to take its own mutable borrow.
+                //
+                // A restart requested while the worker was *already* down leaves a stored permit
+                // that this select consumes immediately, cycling the fresh child once. Wasteful,
+                // not wrong — the respawn reads the same settings either way, and the alternative
+                // (dropping the permit) would silently ignore a restart the user asked for.
+                let exited = tokio::select! {
+                    status = child.wait() => Some(status),
+                    _ = restart.0.notified() => None,
+                };
+                match exited {
+                    Some(status) => {
+                        logs.push(format!("nodera-app: peer worker exited: {status:?}"));
+                        eprintln!("nodera-app: peer worker exited: {status:?}");
+                    }
+                    None => {
+                        let _ = child.kill().await;
+                        // A requested restart is not a crash, so it must not inherit crash backoff:
+                        // a user who just pressed Restart should not wait 30 seconds because the
+                        // worker happened to be flapping beforehand.
+                        backoff = RESTART_SETTLE;
+                        logs.push(
+                            "nodera-app: restarting the peer worker to apply new settings".to_owned(),
+                        );
+                    }
+                }
             }
             Err(e) => {
                 logs.push(format!("nodera-app: failed to start peer worker: {e}"));
@@ -88,5 +207,106 @@ pub async fn supervise(metrics: Arc<MetricsHandle>, logs: Arc<LogBuffer>) {
         metrics.set_daemon_up(false);
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(max_backoff);
+    }
+}
+
+/// Pause between killing a worker and respawning it.
+///
+/// Not zero: the worker owns the loopback control port, and a respawn that races the dying
+/// process's socket teardown fails to bind — which the supervisor would then treat as a crash and
+/// back off from, turning a restart into an outage.
+const RESTART_SETTLE: Duration = Duration::from_millis(500);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env_of(settings: &Settings) -> std::collections::HashMap<String, String> {
+        worker_env(settings).into_iter().collect()
+    }
+
+    /// The bug this function exists to fix: the tracker list the user typed must reach the JVM.
+    #[test]
+    fn the_user_tracker_list_reaches_the_worker_as_a_comma_separated_list() {
+        let mut settings = Settings::default();
+        settings.network.default_trackers = vec![
+            "tcp://a.example:25600".to_owned(),
+            "udp://b.example:25601".to_owned(),
+        ];
+        assert_eq!(
+            env_of(&settings)["NODERA_TRACKER_ENDPOINTS"],
+            "tcp://a.example:25600,udp://b.example:25601"
+        );
+    }
+
+    /// An empty archive directory means "the worker's own default", which is said by *omitting* the
+    /// key — never by sending `""`, which reads as a configured empty path.
+    #[test]
+    fn an_empty_archive_dir_omits_the_key_rather_than_sending_an_empty_string() {
+        let mut settings = Settings::default();
+        settings.storage.peer_worlds_dir = "   ".to_owned();
+        assert!(!env_of(&settings).contains_key("NODERA_ARCHIVE_DIR"));
+
+        settings.storage.peer_worlds_dir = "/srv/nodera".to_owned();
+        assert_eq!(env_of(&settings)["NODERA_ARCHIVE_DIR"], "/srv/nodera");
+    }
+
+    #[test]
+    fn an_empty_tracker_list_omits_the_key_too() {
+        let mut settings = Settings::default();
+        settings.network.default_trackers = vec![];
+        assert!(!env_of(&settings).contains_key("NODERA_TRACKER_ENDPOINTS"));
+    }
+
+    #[test]
+    fn a_random_port_is_port_zero_with_no_range_to_walk() {
+        let mut settings = Settings::default();
+        settings.network.use_random_port = true;
+        let env = env_of(&settings);
+        assert_eq!(env["NODERA_P2P_PORT"], "0");
+        assert!(
+            !env.contains_key("NODERA_P2P_PORT_RANGE"),
+            "an absent range is how 'do not walk a range' is said"
+        );
+    }
+
+    #[test]
+    fn a_fixed_range_sends_its_first_port_and_the_whole_range() {
+        let mut settings = Settings::default();
+        settings.network.use_random_port = false;
+        settings.network.port_range_start = 37000;
+        settings.network.port_range_end = 37009;
+        let env = env_of(&settings);
+        assert_eq!(env["NODERA_P2P_PORT"], "37000");
+        assert_eq!(env["NODERA_P2P_PORT_RANGE"], "37000-37009");
+    }
+
+    /// Nothing else may creep in: every key here is one the worker actually reads, and an unread
+    /// key in the process environment is a claim the app cannot honour.
+    #[test]
+    fn no_keys_beyond_the_documented_four_are_ever_sent() {
+        let mut settings = Settings::default();
+        settings.storage.peer_worlds_dir = "/srv/nodera".to_owned();
+        settings.network.use_random_port = false;
+        for (key, _) in worker_env(&settings) {
+            assert!(
+                matches!(
+                    key.as_str(),
+                    "NODERA_TRACKER_ENDPOINTS"
+                        | "NODERA_ARCHIVE_DIR"
+                        | "NODERA_P2P_PORT"
+                        | "NODERA_P2P_PORT_RANGE"
+                ),
+                "unexpected worker env key {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn ownership_refuses_restart_exactly_when_the_worker_is_someone_elses() {
+        // `attach_mode` reads the process environment, so assert the invariant rather than mutate
+        // it: a test that sets NODERA_APP_ATTACH would race every other test in the binary.
+        let owned = ownership();
+        assert_eq!(owned.can_restart, !owned.attached);
     }
 }

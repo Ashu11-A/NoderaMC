@@ -59,6 +59,11 @@ public final class HeadlessPeerMain {
         int controlPort = envInt("NODERA_CONTROL_PORT", 25610);
         String bindHost = env("NODERA_P2P_BIND", "0.0.0.0");
         int p2pPort = envInt("NODERA_P2P_PORT", 25620);
+        // NODERA_P2P_PORT_RANGE=start-end widens the bind to the first free port in a range. A
+        // single fixed port is forwardable but fails outright when anything else already holds it
+        // (a second worker, a stale JVM, a dev client); an ephemeral port always binds but is not
+        // forwardable. A small range is the honest middle. Unset ⇒ the 1-wide range {p2pPort}.
+        int[] portRange = parsePortRange(env("NODERA_P2P_PORT_RANGE", ""), p2pPort);
         String advertise = resolveHost(env("NODERA_P2P_ADVERTISE", "auto"));
         Path identityFile = Path.of(env("NODERA_IDENTITY_FILE",
                 System.getProperty("user.home") + "/.nodera/worker-identity.bin"));
@@ -69,14 +74,19 @@ public final class HeadlessPeerMain {
 
         // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
         SocketPeerTransport transport =
-                new SocketPeerTransport(identity, bindHost, p2pPort, advertise);
+                new SocketPeerTransport(identity, bindHost, portRange[0], portRange[1], advertise);
         TrafficMeter meter = new TrafficMeter();
-        MeteredPeerTransport metered = new MeteredPeerTransport(transport, meter);
+        // Per-peer attribution rides the same choke points as the node totals, so the companion
+        // app's Peers tab reports bytes actually moved with each peer instead of placeholders.
+        dev.nodera.peer.metric.PeerTrafficMeter peerMeter =
+                new dev.nodera.peer.metric.PeerTrafficMeter();
+        MeteredPeerTransport metered = new MeteredPeerTransport(transport, meter, peerMeter);
         MessageCounters counters = new MessageCounters();
 
+        LoggingListener sessionListener = new LoggingListener();
         PeerRuntime runtime = PeerRuntime.bootstrap(identity, caps, metered,
                 transport::listenRoute, PeerRuntimeConfig.defaults(),
-                new LoggingListener(), counters);
+                sessionListener, counters);
 
         // Discovery services this worker announces hosted worlds to (Task 32 live lane). Defaults
         // match the mod's DEFAULT_TRACKER/RENDEZVOUS_ENDPOINTS so a fresh install is functional; the
@@ -86,6 +96,13 @@ public final class HeadlessPeerMain {
         List<RendezvousEndpoint> rendezvousEndpoints = parseRendezvous(
                 env("NODERA_RENDEZVOUS_ENDPOINTS", "127.0.0.1:25601"));
 
+        // ONE tracker client for the whole node. The archive lane, the hosting/announce lane, peer
+        // discovery and replication each used to hold their own — four announce cadences and four
+        // copies of the endpoint list describing a single node, and no single place to change them,
+        // which is precisely why the tracker list used to be a restart-required setting. Sharing one
+        // client makes TrackerClient.setEndpoints reach every lane at once.
+        TrackerClient tracker = new TrackerClient(trackerEndpoints, identity);
+
         // The world-archive lane (the continuity increment): this worker seeds the canonical
         // archives of the worlds it hosts and can fetch any world's archive from the swarm, so a
         // shared world's save bytes survive the hosting player's game — and machine — going away.
@@ -94,10 +111,10 @@ public final class HeadlessPeerMain {
         WorldArchiveService archive = new WorldArchiveService(identity, metered,
                 new dev.nodera.storage.rocksdb.FsContentStore(
                         archiveDir, new dev.nodera.core.crypto.HashService()),
-                trackerEndpoints);
+                tracker);
 
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
-                trackerEndpoints, rendezvousEndpoints, archive::holdingsFor);
+                tracker, rendezvousEndpoints, archive::holdingsFor);
 
         // The validation lane (L-48/L-30): this worker re-executes region batches out-of-game
         // with THE engine and participates in committee quorum over the same PeerTransport its
@@ -116,6 +133,13 @@ public final class HeadlessPeerMain {
                 dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
                 dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
                 2000L);
+        // Committee peers come from membership now: bind the listener so every view change
+        // republishes members' routes + keys into the validation lane. Bind BEFORE any join so a
+        // view that lands during startup is not missed, and replay the current view once for the
+        // members already known.
+        sessionListener.bind(validation);
+        sessionListener.onSessionChanged(runtime.sessionView());
+
         // One application lane, two consumers: the validation flow and the archive/content flow.
         // Each ignores message types it does not own.
         runtime.onApplicationMessage((from, msg) -> {
@@ -123,8 +147,45 @@ public final class HeadlessPeerMain {
             archive.onMessage(from, msg);
         });
 
+        // Peer discovery (the plane that was built but never asked): on a cadence, ask every
+        // tracker and every rendezvous service who else is in each world this worker hosts, and
+        // introduce ourselves to each one. Without it a worker only ever meets peers that the one
+        // route it was handed happened to gossip.
+        dev.nodera.peer.discovery.PeerDiscoveryService discovery =
+                new dev.nodera.peer.discovery.PeerDiscoveryService(
+                        tracker,
+                        new dev.nodera.transport.rendezvous.RendezvousClient(identity,
+                                java.time.Duration.ofSeconds(3), java.time.Duration.ofSeconds(5)),
+                        rendezvousEndpoints,
+                        () -> {
+                            List<dev.nodera.core.Bytes> ids = new ArrayList<>();
+                            for (WorldHostingService.HostedWorld w : hosting.hostedWorlds()) {
+                                ids.add(dev.nodera.core.Bytes.fromHex(w.worldIdHex()));
+                            }
+                            return ids;
+                        },
+                        runtime::announceTo);
+        discovery.start();
+
+        // Replication: adopt worlds this node is deterministically placed for, so a shared world's
+        // bytes live on more than the machine that shared it. Bounded by NODERA_REPLICATION_BUDGET
+        // (bytes; 0 disables the whole lane for operators who only want to host their own worlds).
+        WorldReplicationService replication = new WorldReplicationService(
+                identity.nodeId(), tracker, archive, hosting,
+                envLong("NODERA_REPLICATION_BUDGET",
+                        WorldReplicationService.DEFAULT_BUDGET_BYTES),
+                (int) envLong("NODERA_REPLICATION_SWEEP_SECONDS",
+                        WorldReplicationService.DEFAULT_SWEEP_SECONDS));
+        replication.start();
+
+        // The seams a NODERA-CONFIG push may re-bound. Passing the real services (not a copy of
+        // their values) is what makes a setting change what this node does, with no second copy of
+        // the configuration to drift out of sync.
         WorkerControlHandler handler = new WorkerControlHandler(
-                WORKER_VERSION, identity, caps, runtime, meter, hosting, validation, archive);
+                WORKER_VERSION, identity, caps, runtime, meter, hosting, validation, archive,
+                peerMeter, discovery,
+                new WorkerControlHandler.ConfigSeams(
+                        archive.content(), replication, transport, tracker));
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
@@ -136,9 +197,12 @@ public final class HeadlessPeerMain {
         CountDownLatch stop = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Nodera peer worker shutting down");
+            discovery.close();
+            replication.close();
             hosting.close();
             control.close();
             archive.close();
+            tracker.close(); // shared by every lane above, so it is closed once, here.
             runtime.stop();
             stop.countDown();
         }, "nodera-worker-shutdown"));
@@ -175,6 +239,38 @@ public final class HeadlessPeerMain {
             LOG.warn("Bad integer in {}='{}', using {}", key, v, fallback);
             return fallback;
         }
+    }
+
+    /**
+     * Parse {@code NODERA_P2P_PORT_RANGE} as {@code start-end}.
+     *
+     * <p>An unset or malformed value falls back to the single {@code fallbackPort}, logged — a peer
+     * that silently bound a range its operator did not ask for would advertise a port nobody
+     * forwarded, which reads as "the network is broken" rather than "the config is wrong".
+     *
+     * @param spec         the raw env value, possibly empty.
+     * @param fallbackPort the single port to use when no range is configured.
+     * @return {@code {start, end}}, inclusive.
+     */
+    static int[] parsePortRange(String spec, int fallbackPort) {
+        if (spec == null || spec.isBlank()) {
+            return new int[]{fallbackPort, fallbackPort};
+        }
+        int dash = spec.indexOf('-');
+        if (dash > 0) {
+            try {
+                int start = Integer.parseInt(spec.substring(0, dash).trim());
+                int end = Integer.parseInt(spec.substring(dash + 1).trim());
+                if (start > 0 && end >= start && end <= 65535) {
+                    return new int[]{start, end};
+                }
+            } catch (NumberFormatException ignored) {
+                // fall through to the warning below
+            }
+        }
+        LOG.warn("Bad port range in NODERA_P2P_PORT_RANGE='{}', using single port {}",
+                spec, fallbackPort);
+        return new int[]{fallbackPort, fallbackPort};
     }
 
     /** Parse a comma-separated {@code host:port} list into tracker endpoints (malformed entries skipped). */
@@ -238,7 +334,28 @@ public final class HeadlessPeerMain {
     }
 
     /** Logs the session lifecycle so operators (and the Tauri dashboard) can watch the mesh. */
+    /**
+     * Logs session lifecycle and — the part that matters — mirrors the membership view into the
+     * validation lane as committee peers.
+     *
+     * <p>A worker can only verify a proposal or a vote from a node whose Ed25519 key it holds, and
+     * membership is now where every member's key is published ({@code PeerEntry.publicKey}). So
+     * every time the view changes, every member with a route and a key is (re)registered. Without
+     * this the worker would take a committee seat it could not act on: proposals from the primary
+     * would fail their signature lookup and be silently dropped.
+     *
+     * <p>The validation service is wired in after construction because the runtime (which needs
+     * this listener) is built before it.
+     */
     private static final class LoggingListener implements PeerEventListener {
+
+        private final java.util.concurrent.atomic.AtomicReference<WorkerValidationService> validation =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        void bind(WorkerValidationService service) {
+            validation.set(service);
+        }
+
         @Override
         public void onGatewayChanged(NodeId previous, NodeId current, long epoch) {
             LOG.info("gateway → {} (epoch {})", current, epoch);
@@ -258,6 +375,22 @@ public final class HeadlessPeerMain {
         public void onSessionChanged(SessionView view) {
             LOG.debug("session epoch={} gateway={} members={}",
                     view.epoch(), view.gatewayId(), view.size());
+            WorkerValidationService service = validation.get();
+            if (service == null) {
+                return;
+            }
+            for (dev.nodera.protocol.membership.PeerEntry member : view.members()) {
+                if (member.route().isEmpty() || !member.hasPublicKey()) {
+                    continue;
+                }
+                try {
+                    service.registerPeer(member.nodeId(),
+                            dev.nodera.transport.PeerAddress.of(member.nodeId(), member.route()),
+                            member.publicKey());
+                } catch (RuntimeException ignored) {
+                    // A malformed entry must not tear down membership handling for the rest.
+                }
+            }
         }
     }
 }

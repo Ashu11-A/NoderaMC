@@ -65,8 +65,16 @@ public final class RendezvousPeerTransport implements PeerTransport {
     private final CopyOnWriteArrayList<Thread> threads = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean();
 
+    /** Priority of this peer's own direct (host) candidate — dialed before the relay. */
+    private static final int DIRECT_CANDIDATE_PRIORITY = 100;
+    /** Priority of the relay candidate: usable, but only after every direct candidate failed. */
+    private static final int RELAY_CANDIDATE_PRIORITY = 1;
+    /** Registration lease; the refresh thread renews at half this interval. */
+    private static final Duration REGISTRATION_TTL = Duration.ofMinutes(5);
+
     private volatile MessageHandler handler;
     private volatile String relayRoute;
+    private volatile String lastRegistrationError;
 
     /**
      * Build a transport for {@code identity} in the {@code (networkId, genesisHash)} namespace.
@@ -168,6 +176,13 @@ public final class RendezvousPeerTransport implements PeerTransport {
             acceptor.setDaemon(true);
             threads.add(acceptor);
             acceptor.start();
+            // Registrations are leases, not permanent state: without renewal this peer silently
+            // vanished from discovery after REGISTRATION_TTL while still believing it was
+            // published (rendezvous.md §9.3).
+            Thread refresher = new Thread(this::refreshLoop, "rendezvous-refresh-" + nodeId());
+            refresher.setDaemon(true);
+            threads.add(refresher);
+            refresher.start();
         } catch (IOException e) {
             running.set(false);
             throw new TransportException("failed to start rendezvous transport", e);
@@ -217,13 +232,21 @@ public final class RendezvousPeerTransport implements PeerTransport {
         TransportSelector.Path path = selector.select(peer, messageClass, availablePaths(peer));
 
         if (path == TransportSelector.Path.DIRECT && directTransport != null) {
-            try {
-                directTransport.send(to, frame);
-                selector.recordSuccess(peer, TransportSelector.Path.DIRECT);
-                return;
-            } catch (RuntimeException directFailed) {
+            // The caller usually addresses by node id alone; the dialable host:port comes from the
+            // peer's own advertised host candidate. Without this substitution the direct send had
+            // nothing to dial and every attempt failed straight into the relay.
+            PeerAddress directTarget = directAddressFor(peer, to);
+            if (directTarget != null) {
+                try {
+                    directTransport.send(directTarget, frame);
+                    selector.recordSuccess(peer, TransportSelector.Path.DIRECT);
+                    return;
+                } catch (RuntimeException directFailed) {
+                    selector.recordFailure(peer, TransportSelector.Path.DIRECT);
+                    // fall through to the relay fallback
+                }
+            } else {
                 selector.recordFailure(peer, TransportSelector.Path.DIRECT);
-                // fall through to the relay fallback
             }
         }
         try {
@@ -340,20 +363,110 @@ public final class RendezvousPeerTransport implements PeerTransport {
     private void registerSelf() throws IOException {
         long now = System.currentTimeMillis();
         SignedRecord record = client.sign(networkId, genesisHash, RegistrationEvent.REGISTER,
-                selfCandidates(), capabilities, now, now + Duration.ofMinutes(5).toMillis());
+                selfCandidates(), capabilities, now, now + REGISTRATION_TTL.toMillis());
+        IOException last = null;
+        int registered = 0;
         for (RendezvousEndpoint endpoint : endpoints) {
-            client.register(endpoint, record);
+            try {
+                client.register(endpoint, record);
+                registered++;
+            } catch (IOException e) {
+                last = e;
+            }
         }
+        // Publishing to a subset is a working registration (rendezvous.md §9.1 merges results);
+        // only a total failure is an error worth propagating.
+        if (registered == 0 && last != null) {
+            throw last;
+        }
+        lastRegistrationError = null;
     }
 
+    /**
+     * @return the last registration failure, or {@code null} while registration is healthy. Read by
+     *         diagnostics so a silently-unpublished peer is visible rather than merely undiscovered.
+     * @Thread-context any thread.
+     */
+    public String lastRegistrationError() {
+        return lastRegistrationError;
+    }
+
+    /** @return this peer's relay route, or {@code null} before start / when unreserved. */
+    public String relayRoute() {
+        return relayRoute;
+    }
+
+    /**
+     * The rendezvous transport's own inbound route is the direct transport's — a peer that can be
+     * dialed directly should be dialed directly.
+     */
+    @Override
+    public String listenRoute() {
+        return directTransport == null ? null : directTransport.listenRoute();
+    }
+
+    /**
+     * The candidates this peer publishes: its <b>direct</b> listen route first, then the relay
+     * reservation as fallback (rendezvous.md §2.5 / §4.7 preference order).
+     *
+     * <p>Publishing the host candidate is what makes direct-first real. While only a relay
+     * candidate was advertised, {@link #hasDirectCandidate} was false for every discovered peer, so
+     * {@link TransportSelector.Path#DIRECT} was never even an available path and <em>all</em>
+     * traffic on this transport crossed the relay — the opposite of the documented policy, and a
+     * standing bandwidth cost on the relay operator.
+     */
     private List<PeerCandidate> selfCandidates() {
-        // Advertise the relay candidate; a direct transport that exposes its listen route can add a
-        // host candidate here in a later pass (the direct path is discovered per-candidate anyway).
-        String route = relayRoute;
-        if (route == null) {
-            return List.of();
+        List<PeerCandidate> candidates = new java.util.ArrayList<>(2);
+        String direct = directTransport == null ? null : directTransport.listenRoute();
+        if (direct != null && !direct.isBlank()) {
+            candidates.add(new PeerCandidate(CandidateKind.HOST, direct, DIRECT_CANDIDATE_PRIORITY));
         }
-        return List.of(new PeerCandidate(CandidateKind.RELAY, route, 1));
+        String relay = relayRoute;
+        if (relay != null && !relay.isBlank()) {
+            candidates.add(new PeerCandidate(CandidateKind.RELAY, relay, RELAY_CANDIDATE_PRIORITY));
+        }
+        return List.copyOf(candidates);
+    }
+
+    /**
+     * The address to dial a peer directly on: the caller's own route when it already has one,
+     * otherwise the peer's best advertised direct candidate. Returns {@code null} when neither
+     * exists, which is exactly the case the relay fallback is for.
+     */
+    private PeerAddress directAddressFor(NodeId peer, PeerAddress requested) {
+        if (requested.route() != null && !requested.route().isBlank()) {
+            return requested;
+        }
+        List<PeerCandidate> candidates = knownCandidates.get(peer);
+        if (candidates == null) {
+            return null;
+        }
+        List<PeerCandidate> direct = CandidateDialer.directCandidates(candidates);
+        return direct.isEmpty() ? null : PeerAddress.of(peer, direct.get(0).address());
+    }
+
+    /** Re-publish this peer's record before the registration lease expires (rendezvous.md §9.3). */
+    private void refreshLoop() {
+        long periodMillis = REGISTRATION_TTL.toMillis() / 2;
+        while (running.get()) {
+            try {
+                Thread.sleep(periodMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (!running.get()) {
+                return;
+            }
+            try {
+                registerSelf();
+            } catch (IOException | RuntimeException e) {
+                // A rendezvous that is briefly down must not tear this transport down; the next
+                // tick retries. Losing the registration only costs discoverability, and the
+                // already-open circuits keep carrying traffic meanwhile.
+                lastRegistrationError = e.toString();
+            }
+        }
     }
 
     private static void closeQuietly(RelayCircuit circuit) {

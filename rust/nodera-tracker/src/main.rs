@@ -32,7 +32,7 @@ use service::Tracker;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Mutex;
 
 fn usage() -> &'static str {
@@ -141,8 +141,34 @@ async fn serve(
     // port from this line rather than guessing it.
     println!("nodera-tracker: listening on {bound}");
 
+    // The UDP surface binds the port the TCP listener actually got, so `--bind 127.0.0.1:0` gives
+    // both surfaces the same port and a peer can reach either at one address.
+    let udp = if config.udp_enabled {
+        match UdpSocket::bind(bound).await {
+            Ok(socket) => {
+                println!("nodera-tracker: udp listening on {bound}");
+                Some(socket)
+            }
+            Err(e) => {
+                // A refused UDP bind must not take the service down: TCP is the complete surface,
+                // UDP is the cheap one. Say so loudly rather than appearing to serve both.
+                eprintln!("nodera-tracker: udp bind on {bound} failed ({e}); serving TCP only");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let tracker = Arc::new(Mutex::new(Tracker::new(config)));
-    wire::run(tracker, listener, shutdown_signal()).await?;
+    let udp_task = udp.map(|socket| {
+        let tracker = Arc::clone(&tracker);
+        tokio::spawn(async move { wire::serve_udp(tracker, socket).await })
+    });
+    wire::run(Arc::clone(&tracker), listener, shutdown_signal()).await?;
+    if let Some(task) = udp_task {
+        task.abort();
+    }
     println!("nodera-tracker: stopped");
     Ok(())
 }

@@ -59,14 +59,48 @@ public final class TrackerClient implements AutoCloseable {
     /** Interval assumed before any tracker has answered. */
     public static final int DEFAULT_ANNOUNCE_INTERVAL_SECONDS = 120;
 
+    /** Largest request this client will put in a datagram; anything larger goes over TCP. */
+    static final int UDP_MAX_REQUEST_BYTES = 8 * 1024;
+    /** Receive-buffer bound for a UDP reply — the datagram analogue of the frame-length cap. */
+    static final int UDP_MAX_REPLY_BYTES = 32 * 1024;
+    /** Datagram send attempts before falling back to TCP (UDP may drop either direction). */
+    static final int UDP_ATTEMPTS = 2;
+
+    /**
+     * How a tracker endpoint is reached. Both surfaces carry the same frozen message family; they
+     * differ only in framing and in what a service is willing to answer (see
+     * {@code docs/torrent/trackers.md} §12–§13).
+     */
+    public enum Transport {
+        /**
+         * Length-prefixed frames over TCP: the complete surface. Any answer size, any request
+         * size, and the handshake proves the source address.
+         */
+        TCP,
+        /**
+         * One datagram per request, no length prefix — the datagram boundary is the frame. Cheaper
+         * (no handshake) for a peer sweeping many trackers on a cadence, but the service bounds
+         * both the request and the answer because a UDP source address is forgeable. A query whose
+         * answer exceeds those bounds simply goes unanswered, which is why {@link #query} retries
+         * such an endpoint over TCP rather than reporting the world as empty.
+         */
+        UDP;
+
+        /** The URI scheme this transport is written as in config ({@code tcp} / {@code udp}). */
+        public String scheme() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
     /**
      * One tracker endpoint.
      *
-     * @param host the host name or literal address.
-     * @param port the TCP port.
+     * @param host      the host name or literal address.
+     * @param port      the port.
+     * @param transport how to reach it.
      * @Thread-context immutable record, safe for any thread.
      */
-    public record Endpoint(String host, int port) {
+    public record Endpoint(String host, int port, Transport transport) {
 
         /**
          * Compact constructor.
@@ -81,41 +115,78 @@ public final class TrackerClient implements AutoCloseable {
             if (port <= 0 || port > 65_535) {
                 throw new IllegalArgumentException("port out of range: " + port);
             }
+            transport = transport == null ? Transport.TCP : transport;
+        }
+
+        /** A TCP endpoint — the default surface, and what a bare {@code host:port} means. */
+        public Endpoint(String host, int port) {
+            this(host, port, Transport.TCP);
         }
 
         /**
-         * Parse a {@code host:port} route, as it appears in config.
+         * Parse a route as it appears in config: {@code host:port}, {@code tcp://host:port}, or
+         * {@code udp://host:port}.
+         *
+         * <p>A bare {@code host:port} is TCP, so every existing config keeps working unchanged and
+         * an operator opts into UDP explicitly.
          *
          * @param route the route.
          * @return the endpoint.
-         * @throws IllegalArgumentException if the route is malformed.
+         * @throws IllegalArgumentException if the route is malformed or names an unknown scheme.
          * @Thread-context any thread.
          */
         public static Endpoint parse(String route) {
             Objects.requireNonNull(route, "route");
-            int idx = route.lastIndexOf(':');
-            if (idx <= 0 || idx == route.length() - 1) {
+            String remainder = route.trim();
+            Transport transport = Transport.TCP;
+            int scheme = remainder.indexOf("://");
+            if (scheme > 0) {
+                String name = remainder.substring(0, scheme);
+                try {
+                    transport = Transport.valueOf(name.toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException unknown) {
+                    throw new IllegalArgumentException(
+                            "unknown tracker scheme '" + name + "' in " + route
+                                    + " (expected tcp:// or udp://)", unknown);
+                }
+                remainder = remainder.substring(scheme + 3);
+            }
+            int idx = remainder.lastIndexOf(':');
+            if (idx <= 0 || idx == remainder.length() - 1) {
                 throw new IllegalArgumentException("malformed tracker endpoint: " + route);
             }
-            String host = route.substring(0, idx);
+            String host = remainder.substring(0, idx);
             // Strip the brackets of a literal IPv6 route so InetSocketAddress accepts it.
             if (host.startsWith("[") && host.endsWith("]")) {
                 host = host.substring(1, host.length() - 1);
             }
             try {
-                return new Endpoint(host, Integer.parseInt(route.substring(idx + 1)));
+                return new Endpoint(host, Integer.parseInt(remainder.substring(idx + 1)), transport);
             } catch (NumberFormatException e) {
                 throw new IllegalArgumentException("malformed tracker endpoint port: " + route, e);
             }
         }
 
+        /** @return this endpoint as the same TCP host:port, for a UDP endpoint's fallback. */
+        public Endpoint asTcp() {
+            return transport == Transport.TCP ? this : new Endpoint(host, port, Transport.TCP);
+        }
+
+        /** @return the canonical config form, e.g. {@code "udp://127.0.0.1:25600"}. */
         @Override
         public String toString() {
-            return host + ":" + port;
+            return transport.scheme() + "://" + host + ":" + port;
         }
     }
 
-    private final List<Endpoint> endpoints;
+    /**
+     * The configured endpoints. Volatile and replaceable ({@link #setEndpoints}) because one client
+     * is now shared by every lane of a node (announce, query, catalog, replication), so changing
+     * the tracker list has to reach all of them at once — and because it moves "tracker endpoints"
+     * from a restart-required setting to a live one. Replaced wholesale, never mutated in place, so
+     * an in-flight sweep iterates a consistent list.
+     */
+    private volatile List<Endpoint> endpoints;
     private final NodeIdentity identity;
     private final Duration connectTimeout;
     private final Duration readTimeout;
@@ -163,6 +234,25 @@ public final class TrackerClient implements AutoCloseable {
     /** @return the configured endpoints, in order. */
     public List<Endpoint> endpoints() {
         return endpoints;
+    }
+
+    /**
+     * Replace the tracker list while the node is running.
+     *
+     * <p>Takes effect on the next announce/query — there is no connection state to migrate, since
+     * every exchange opens and closes its own short-lived socket. A node that drops a tracker stops
+     * announcing to it and simply ages out of that tracker's listing; one that adds a tracker
+     * appears in it on the next heartbeat. Neither needs a restart.
+     *
+     * <p>An empty list is legitimate and means "announce nowhere" (a LAN-only or fully-manual
+     * deployment); it is not treated as a mistake.
+     *
+     * @param newEndpoints the endpoints to use from now on; copied defensively.
+     * @throws IllegalArgumentException if {@code newEndpoints} is null.
+     * @Thread-context any thread.
+     */
+    public void setEndpoints(List<Endpoint> newEndpoints) {
+        this.endpoints = List.copyOf(Objects.requireNonNull(newEndpoints, "endpoints"));
     }
 
     /**
@@ -366,11 +456,31 @@ public final class TrackerClient implements AutoCloseable {
         return capabilities.hasRole(PeerRole.FULL_ARCHIVE);
     }
 
+    /**
+     * Send one request to one endpoint and decode its reply.
+     *
+     * <p>A UDP endpoint that does not answer is retried over TCP against the same {@code host:port}
+     * before giving up. That fallback is not defensive padding: the service deliberately drops a
+     * UDP answer that would exceed its size or amplification bounds, so "no datagram came back" is
+     * an expected outcome for a large world's peer list — and reporting it as "no peers" would make
+     * a busy world look dead precisely because it is busy.
+     */
     private Optional<NoderaMessage> exchange(Endpoint endpoint, NoderaMessage request) {
         if (closed.get()) {
             return Optional.empty();
         }
         byte[] frame = MessageCodec.encode(request);
+        if (endpoint.transport() == Transport.UDP) {
+            Optional<NoderaMessage> answered = exchangeUdp(endpoint, frame);
+            if (answered.isPresent()) {
+                return answered;
+            }
+            return exchangeTcp(endpoint.asTcp(), frame);
+        }
+        return exchangeTcp(endpoint, frame);
+    }
+
+    private Optional<NoderaMessage> exchangeTcp(Endpoint endpoint, byte[] frame) {
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(endpoint.host(), endpoint.port()),
                     (int) connectTimeout.toMillis());
@@ -382,6 +492,55 @@ public final class TrackerClient implements AutoCloseable {
         } catch (IOException | RuntimeException e) {
             // Unreachable, slow, or misbehaving trackers are an expected steady state, not an
             // error to propagate: discovery degrades, the peer keeps playing.
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * One datagram out, one datagram back. The datagram boundary is the frame, so there is no
+     * length prefix — and the receive buffer is a hard bound on what a tracker can make this peer
+     * hold, which is the UDP analogue of {@link Frames}' length cap.
+     *
+     * <p>Retried a bounded number of times: UDP may silently drop either direction, and a single
+     * lost packet must not read as "this tracker knows nothing".
+     */
+    private Optional<NoderaMessage> exchangeUdp(Endpoint endpoint, byte[] frame) {
+        if (frame.length > UDP_MAX_REQUEST_BYTES) {
+            return Optional.empty(); // too large for a datagram; the caller falls back to TCP
+        }
+        try (java.net.DatagramSocket socket = new java.net.DatagramSocket()) {
+            socket.setSoTimeout((int) Math.max(1, readTimeout.toMillis() / UDP_ATTEMPTS));
+            java.net.InetSocketAddress target =
+                    new InetSocketAddress(endpoint.host(), endpoint.port());
+            if (target.isUnresolved()) {
+                return Optional.empty();
+            }
+            byte[] buffer = new byte[UDP_MAX_REPLY_BYTES];
+            for (int attempt = 0; attempt < UDP_ATTEMPTS; attempt++) {
+                try {
+                    socket.send(new java.net.DatagramPacket(frame, frame.length, target));
+                    java.net.DatagramPacket reply =
+                            new java.net.DatagramPacket(buffer, buffer.length);
+                    socket.receive(reply);
+                    // Only accept an answer from the address we asked; an off-path spoofer that
+                    // guesses the ephemeral port still has to match the source.
+                    if (!reply.getAddress().equals(target.getAddress())
+                            || reply.getPort() != target.getPort()) {
+                        continue;
+                    }
+                    byte[] body = java.util.Arrays.copyOfRange(reply.getData(), reply.getOffset(),
+                            reply.getOffset() + reply.getLength());
+                    return Optional.of(MessageCodec.decode(body));
+                } catch (java.net.SocketTimeoutException retry) {
+                    // Lost datagram; try again within the overall read budget.
+                } catch (RuntimeException undecodable) {
+                    // A datagram we cannot decode is not an answer. Stop here and let the caller
+                    // fall back to TCP rather than spinning on a broken service.
+                    return Optional.empty();
+                }
+            }
+            return Optional.empty();
+        } catch (IOException e) {
             return Optional.empty();
         }
     }

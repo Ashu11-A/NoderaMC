@@ -80,4 +80,20 @@ public interface PeerTransport {
      * @Thread-context any thread.
      */
     void setHandler(MessageHandler handler);
+
+    /**
+     * The route at which this transport accepts inbound connections (for the socket transport a
+     * {@code "host:port"} string), or {@code null} when it is dial-out only or not yet started.
+     *
+     * <p>This exists so a composing transport can <b>advertise</b> where the peer is directly
+     * reachable. Without it the rendezvous transport could only publish a relay candidate, which
+     * silently made every discovered path relayed — direct-first requires the direct address to be
+     * discoverable in the first place (rendezvous.md §2.5 "host candidate", §4.4).
+     *
+     * @return the inbound route, or {@code null}.
+     * @Thread-context any thread.
+     */
+    default String listenRoute() {
+        return null;
+    }
 }

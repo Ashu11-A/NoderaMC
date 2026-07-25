@@ -118,8 +118,28 @@ public final class NoderaConfig {
      * @return whether it parses as a {@code host:port} route.
      * @Thread-context config-loading thread.
      */
+    /**
+     * Validate one configured rendezvous route.
+     *
+     * <p>Deliberately <b>not</b> delegated to {@link #isTrackerEndpoint} any more: tracker routes
+     * now accept a {@code tcp://} / {@code udp://} scheme, but a rendezvous relay circuit is a
+     * long-lived stream and has no UDP surface. Accepting {@code udp://} here would validate a
+     * route that can never connect.
+     *
+     * @param raw the configured value.
+     * @return whether it parses as a bare {@code host:port} rendezvous route.
+     * @Thread-context config-loading thread.
+     */
     private static boolean isRendezvousEndpoint(Object raw) {
-        return isTrackerEndpoint(raw);
+        if (!(raw instanceof String route)) {
+            return false;
+        }
+        try {
+            dev.nodera.transport.rendezvous.RendezvousEndpoint.parse(route);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     private static boolean isDimensionId(Object raw) {

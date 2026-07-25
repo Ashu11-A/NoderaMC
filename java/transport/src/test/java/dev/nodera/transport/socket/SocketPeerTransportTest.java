@@ -94,6 +94,46 @@ final class SocketPeerTransportTest {
                 .isInstanceOf(TransportException.class);
     }
 
+    /**
+     * The connection cap refuses past its ceiling and counts what it refused. The counter is the
+     * point: without it "my cap is too low" and "nobody is connecting" look identical from the
+     * dashboard, which is how a bound like this turns into a silent outage.
+     */
+    @Test
+    void theConnectionCapRefusesPastItsCeilingAndCountsTheRefusals() {
+        NodeId aId = NodeId.random();
+        NodeId bId = NodeId.random();
+        NodeId cId = NodeId.random();
+        RecordingHandler bH = new RecordingHandler();
+        SocketPeerTransport a = start(aId, new RecordingHandler());
+        SocketPeerTransport b = start(bId, bH);
+        SocketPeerTransport c = start(cId, new RecordingHandler());
+
+        assertThat(b.maxConnections()).isEqualTo(Integer.MAX_VALUE); // unbounded by default
+        assertThat(b.refusedConnections()).isZero();
+
+        // One established connection, then cap at exactly that.
+        a.send(PeerAddress.of(bId, b.listenRoute()), "one".getBytes(StandardCharsets.UTF_8));
+        await("b established a's connection", () -> b.connectionCount() >= 1);
+        b.setMaxConnections(1);
+
+        // c's socket is accepted by the OS and then closed by us; c sees the close on its own
+        // reader, and b's refusal counter moves. c's send itself may or may not throw depending on
+        // which side wins the race to the FIN, so the assertion is on b's counter.
+        try {
+            c.send(PeerAddress.of(bId, b.listenRoute()), "two".getBytes(StandardCharsets.UTF_8));
+        } catch (TransportException expectedSometimes) {
+            // the refusal raced ahead of the write; either way b must have counted it.
+        }
+        await("b refused c", () -> b.refusedConnections() >= 1);
+        assertThat(b.connectionCount()).isEqualTo(1);
+
+        // A cap can never be set to "hold nothing at all" — a transport that can accept no
+        // connection cannot be in a session, so 0 is read as 1 rather than honoured.
+        b.setMaxConnections(0);
+        assertThat(b.maxConnections()).isEqualTo(1);
+    }
+
     private static void await(String what, BooleanSupplier cond) {
         long deadline = System.nanoTime() + 5_000_000_000L;
         while (System.nanoTime() < deadline) {

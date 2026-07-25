@@ -5,6 +5,21 @@
 > monorepo foundation). Binding protocol and architecture decisions live in the task file; this
 > document is the background architecture study it draws on.
 
+> **Implementation status against this document.** §4.7's path preference and §12's
+> "attempt direct connectivity first" are now real in `RendezvousPeerTransport`: a peer publishes a
+> **host candidate** built from its direct transport's listen route (priority 100) alongside its
+> relay candidate (priority 1), and a send dials the peer's best direct candidate before opening a
+> circuit. Until that host candidate existed the transport advertised *only* a relay address, so
+> `DIRECT` was never an available path and every byte crossed the relay — the exact inversion §12.2
+> warns about. Registrations are also leases now (§9.3): a refresh thread renews at half the TTL
+> instead of the record silently expiring after five minutes.
+>
+> Still deferred: DCUtR-style hole punching (§4.6) — `HolePunchCoordinator` exists but no lane
+> drives it, so an unreachable-to-unreachable pair stays relayed rather than upgrading; and the
+> headless worker's data plane is socket-only, because its transport is not scoped to one world's
+> namespace the way a game client's is. Peer *discovery* over rendezvous is wired for both
+> (`PeerDiscoveryService`).
+
 ## 1. Overview
 
 A **rendezvous relay architecture** uses one or more publicly reachable nodes to help peers discover and connect to each other across the Internet.

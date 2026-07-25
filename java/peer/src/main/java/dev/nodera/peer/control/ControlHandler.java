@@ -43,6 +43,17 @@ public interface ControlHandler {
         return "unsupported";
     }
 
+    /**
+     * Join the hosting world's P2P membership session via {@code bootstrapRoute} (empty detaches),
+     * optionally binding the validation lane to {@code worldSeed} (blank leaves it unchanged).
+     * See {@link dev.nodera.peer.control.ControlProtocol#MESH}.
+     *
+     * @return null on success, else an error message.
+     */
+    default String mesh(String bootstrapRoute, String worldSeed) {
+        return "unsupported";
+    }
+
     /** Stop hosting a world. @return null on success, else an error message. */
     default String stop(String worldId) {
         return "unsupported";
@@ -65,6 +76,17 @@ public interface ControlHandler {
     /** @return a one-line JSON status for a world (players/health/permissions), or "{}". */
     default String statusJson(String worldId) {
         return "{}";
+    }
+
+    /**
+     * The per-world piece picture ({@link ControlProtocol#PIECES}).
+     *
+     * @param worldId hex world id.
+     * @return one JSON line, or {@code null} when this worker has no piece data for the world (the
+     *         dispatch turns that into {@code NODERA-ERR}, which callers render as an empty map).
+     */
+    default String piecesJson(String worldId) {
+        return null;
     }
 
     /**
@@ -141,6 +163,48 @@ public interface ControlHandler {
      */
     default String rekey(String worldIdHex, String archivePathB64, String newPasswordB64,
                          String currentWorldIdentityB64) {
+        return null;
+    }
+
+    /**
+     * Apply a configuration push from the companion app ({@link ControlProtocol#CONFIG}).
+     *
+     * <p>Configuration is <b>app-pushed and held in memory only</b>: the worker watches no config
+     * file, so there is no third source of truth beside the spawn environment and this verb. The
+     * app re-pushes on every reconnect, which is what makes crashes, restarts and attach-mode all
+     * covered by one mechanism.
+     *
+     * <p>The returned JSON line is the <b>only</b> thing the app may base an "enforced" badge on,
+     * so an implementation must name every key it accepted under {@code applied}, every key that
+     * needs a process restart under {@code restart_required}, and every key it will not honour
+     * under {@code rejected} with a reason. Dropping an unknown key silently is forbidden: the UI
+     * would then claim an enforcement that does not exist.
+     *
+     * @param configJsonB64 base64 of a flat JSON object of {@code "namespace.key": value} pairs
+     *                      (loopback trust boundary; base64 so the whitespace-splitting dispatch
+     *                      cannot corrupt it).
+     * @return one JSON line
+     *         {@code {"applied":[…],"restart_required":[…],"rejected":{key:reason}}}, or
+     *         {@code null} when this worker has no configuration plane — the server then replies
+     *         {@code NODERA-ERR unsupported}, so a partially-upgraded worker declines loudly
+     *         instead of reporting a success it did not perform.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String applyConfig(String configJsonB64) {
+        return null;
+    }
+
+    /**
+     * Read back the configuration currently in force ({@link ControlProtocol#CONFIG} with no
+     * payload). This is the worker's own view, not an echo of the last push: a key the worker
+     * clamped or never accepted must read back at its real effective value, otherwise the app's
+     * settings screen becomes a second facade over a first one.
+     *
+     * @return one flat JSON line of {@code "namespace.key": value} pairs, or {@code null} when this
+     *         worker has no configuration plane ({@code NODERA-ERR unsupported}).
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String readConfig() {
         return null;
     }
 }

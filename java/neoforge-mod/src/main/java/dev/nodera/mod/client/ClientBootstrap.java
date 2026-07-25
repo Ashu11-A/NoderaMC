@@ -87,6 +87,10 @@ public final class ClientBootstrap {
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::snapshot);
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRefreshHandler(
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::requestRefresh);
+        // Piece map: the last feed with a seam but no source. "View pieces" opened an
+        // unconditionally empty grid because setPieceMapSource was never called; this installs the
+        // worker-backed feed (NODERA-PIECES) that fills it.
+        dev.nodera.mod.client.multiplayer.PieceMapFeed.start();
         // L-46: the single-player world-list badge was the last feed defaulting empty — feed it
         // from the same worker-backed world feed (shared summary; per-row placement is the
         // WorldSelectionListEntryMixin GUI-pass work).

@@ -109,12 +109,46 @@ public final class CompanionClient implements CompanionProbe {
         return Optional.of(reply);
     }
 
+    /**
+     * Ask the worker for a world's piece picture (the piece-map feed).
+     *
+     * @param worldIdHex hex world id.
+     * @return the raw JSON reply, or empty when the worker is unreachable, predates the verb, or
+     *         knows no manifest for the world.
+     */
+    public Optional<String> pieces(String worldIdHex) {
+        String reply = exchange(CompanionProtocol.PIECES + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " " + worldIdHex);
+        if (reply == null || reply.startsWith(CompanionProtocol.ERR)) {
+            return Optional.empty();
+        }
+        return Optional.of(reply);
+    }
+
     /** Ask the worker to host a world. @return empty on success, else the error message. */
     public Optional<String> host(String worldId, String worldName, String optionsJson) {
         String nameB64 = java.util.Base64.getEncoder().encodeToString(
                 worldName.getBytes(StandardCharsets.UTF_8));
         return errorOf(exchange(CompanionProtocol.HOST + " " + CompanionProtocol.PROTOCOL_VERSION
                 + " " + worldId + " " + nameB64 + " " + optionsJson));
+    }
+
+    /**
+     * Ask the worker to join this world's live P2P membership session at {@code bootstrapRoute}
+     * (the hosting game's advertised route); an empty route detaches it.
+     *
+     * <p>This is what promotes the companion from a private daemon into a member of the world's
+     * session: once joined it counts toward session health, it can be handed committee seats, and
+     * it can keep the session alive after the game exits.
+     *
+     * @param worldSeed the hosted world's seed, binding the worker's validation lane to it; null
+     *                  when only membership is wanted (no world loaded yet).
+     * @return empty on success, else the error message.
+     */
+    public Optional<String> mesh(String bootstrapRoute, Long worldSeed) {
+        return errorOf(exchange(CompanionProtocol.MESH + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " " + (bootstrapRoute == null ? "" : bootstrapRoute)
+                + (worldSeed == null ? "" : " " + worldSeed)));
     }
 
     /** Ask the worker to stop hosting a world. @return empty on success, else the error message. */
@@ -266,9 +300,22 @@ public final class CompanionClient implements CompanionProbe {
         return raw.length == 0 ? "" : java.util.Base64.getEncoder().encodeToString(raw);
     }
 
-    /** Interpret an ack/err reply: empty = success (or unreachable), else the error message. */
+    /**
+     * Interpret an ack/err reply: empty = the worker acknowledged, else the error message.
+     *
+     * <p>An unreachable worker ({@code reply == null}) is a <b>failure</b>, not a success. It used
+     * to return empty here, which meant every caller — {@code mesh}, {@code host}, {@code stop} —
+     * could not distinguish "the worker did it" from "nothing was listening". A silently-dropped
+     * {@code NODERA-MESH} then left the worker a session of one while the game believed it had
+     * handed over its session, and the only visible symptom was a DEGRADED badge much later with
+     * nothing in any log to explain it. Every one of these verbs documents "never silent success";
+     * this is where that contract was actually being broken.
+     */
     private static Optional<String> errorOf(String reply) {
-        if (reply == null || reply.startsWith(CompanionProtocol.OK)) {
+        if (reply == null) {
+            return Optional.of("worker did not answer (is the peer worker running?)");
+        }
+        if (reply.startsWith(CompanionProtocol.OK)) {
             return Optional.empty();
         }
         if (reply.startsWith(CompanionProtocol.ERR)) {

@@ -9,7 +9,10 @@
 # nearest at join time) or UNASSIGNED (never claimed), and the live lane could
 # disagree with what other players' clients had derived.
 #
-#   W0  clean-slate dedicated server + one joining player, entity lane live
+#   W0  clean-slate dedicated server + BOTH players, entity lane live. The
+#       second player is parked ~500 km away so the two FOV discs cannot
+#       overlap: the drive must measure the walking player's own ownership,
+#       not a tie broken by whoever happens to stand nearer to spawn
 #   W1  baseline: the PLAYER's own client lane owns a non-empty region set
 #   W2  THE DRIVE: the player is teleported thousands of blocks away, crossing
 #       many region boundaries. Within the movement re-plan window the session
@@ -17,57 +20,43 @@
 #       fresh region set — the ownership followed the player instead of staying
 #       frozen at the join position
 #   W3  the player really changed region (the teleport landed)
-#   W4  no errors accumulated across the re-plan swaps
+#   W4  no errors accumulated across the re-plan swaps, and the parked player
+#       still owns its own far-away regions (one player moving must not strip
+#       another's ownership)
 #
 # Topology note: ownership belongs to PLAYERS, not to the session server. On a
 # dedicated server the server's own node holds no PlayerView, so once players
 # announce their nodes it correctly owns zero regions and `/nodera regions`
 # (which answers for the server node) reads empty — that is the no-host model
-# working, not a blind panel. The player's real ownership is its client lane,
-# which is what this suite asserts on.
+# working, not a blind panel. The players' real ownership is their client
+# lanes, which is what this suite asserts on.
 #
 # Requires a GUI session. Usage: scripts/e2e-ownership-follow.sh [--no-build]
 # ===========================================================================
 set -uo pipefail
 
-TAG=follow
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="$NODERA_ROOT/run/logs/e2e-ownership-follow"
-RESULTS_DIR="$NODERA_ROOT/run/results/e2e-ownership-follow/$(date +%Y%m%d-%H%M%S)"
-source "$NODERA_ROOT/scripts/lib/e2e-lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-main.sh"
+nodera_suite follow ownership-follow
+nodera_parse_args "$@"
 
-NO_BUILD=0
-[[ "${1:-}" == "--no-build" ]] && NO_BUILD=1
-
-FAR_X=6000; FAR_Z=6000   # thousands of blocks = dozens of 128-block regions away
-
-mkdir -p "$LOG_DIR" "$RESULTS_DIR"
-acquire_suite_lock
+FAR_X="${FAR_X:-6000}"; FAR_Z="${FAR_Z:-6000}"   # thousands of blocks = dozens of 128-block regions
+PARK_X="${PARK_X:--500000}"; PARK_Z="${PARK_Z:--500000}"  # player 2's parking spot, discs cannot overlap
 
 transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/ownership.log"; }
 
-# --- W0: stack + one player -----------------------------------------------------------------
-log "W0: build + infrastructure + one player"
-[[ "$NO_BUILD" -eq 0 ]] && build_stack
-check_binaries
-check_ports "$TRACKER_PORT" "$RENDEZVOUS_PORT" "$HOST_CONTROL" "$JOINER_CONTROL" \
-            "$GAME_PORT" "$RCON_PORT"
-start_infra
-start_worker host   "$HOST_CONTROL"   "$HOST_P2P"
-start_worker joiner "$JOINER_CONTROL" "$JOINER_P2P"
-sleep 3
-stage_dedicated_server
-start_dedicated_server "$LOG_DIR/server.log"
-wait_log "$LOG_DIR/server.log" "sharing world" 420 || fail "W0: server never shared"
-write_client_config run-join "$JOINER_CONTROL"
-start_client runClientJoin "$LOG_DIR/client-join.log"
-wait_log "$LOG_DIR/server.log" "JoinerDev joined the game" 600 || fail "W0: player never joined"
-wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "W0: entity lane never activated"
-pass "W0: player in-world, lane live"
-sleep 8   # let the FOV plan settle
+# --- W0: stack + both players -----------------------------------------------------------------
+log "W0: build + infrastructure + two players"
+nodera_stack_up
+nodera_dedicated_two_players
+pass "W0: both players in-world, lane live, $NODERA_WORKERS peers up"
+
+log "W0: parking JoinerTwo at ($PARK_X, $PARK_Z) so the FOV discs cannot overlap"
+rcon "gamemode creative JoinerTwo" >/dev/null
+rcon "execute in minecraft:overworld run tp JoinerTwo $PARK_X 200 $PARK_Z" >/dev/null
+sleep 12  # the park is itself a move: let its re-plan land before the baseline is read
 
 # --- W1: baseline ownership (the PLAYER's own lane) -------------------------------------------
-log "W1: baseline ownership on the player's client lane"
+log "W1: baseline ownership on the walking player's client lane"
 rcon "gamemode creative JoinerDev" >/dev/null
 BASE_LANE=$(grep -a "client validation lane active" "$LOG_DIR/client-join.log" | tail -1)
 transcript "=== baseline client lane
@@ -81,7 +70,7 @@ transcript "=== baseline position: $BASE_POS"
 pass "W1: baseline — the player owns $BASE_OWNED region(s)"
 
 # --- W2: the drive — move far, ownership must follow ------------------------------------------
-log "W2: teleporting the player to ($FAR_X, $FAR_Z) — ownership must follow"
+log "W2: teleporting JoinerDev to ($FAR_X, $FAR_Z) — ownership must follow"
 smark=$(wc -l < "$LOG_DIR/server.log")
 cmark=$(wc -l < "$LOG_DIR/client-join.log")
 rcon "execute in minecraft:overworld run tp JoinerDev $FAR_X 200 $FAR_Z" >/dev/null
@@ -118,21 +107,24 @@ assert abs(px - tx) <= 32 and abs(pz - tz) <= 32, f'({px},{pz}) != ({tx},{tz})'
 PYEOF
 pass "W3: the player is at ($FAR_X, $FAR_Z) — dozens of regions from spawn"
 
-# --- W4: the swaps left no errors --------------------------------------------------------------
+# --- W4: the swaps left no errors, and the parked player kept its own regions ------------------
 log "W4: auditing the re-plan swaps"
-hits=$(tail -n +"$smark" "$LOG_DIR/server.log" | awk '
-    /ERROR|FATAL/ {
-        if ($0 !~ /Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException/) print
-    }' | head -6)
+hits=$(nodera_audit_errors "$LOG_DIR/server.log" "$smark")
 [[ -z "$hits" ]] || { printf '%s\n' "$hits" >&2; fail "W4: error lines during the re-plans (above)"; }
 grep -a "Exception in server tick loop" "$LOG_DIR/server.log" >/dev/null \
     && fail "W4: the movement re-plan crashed the server tick loop"
-pass "W4: no errors across the movement re-plans"
+# One player's re-plan must not strip the other's ownership: the parked player's
+# own client lane still has to hold a non-empty region set afterwards.
+PARK_LANE=$(grep -a "client validation lane active" "$LOG_DIR/client-join2.log" | tail -1)
+PARK_OWNED=$(grep -oE 'active on [0-9]+' <<<"$PARK_LANE" | grep -oE '[0-9]+' | head -1)
+transcript "=== parked player's client lane
+$PARK_LANE
+"
+[[ -n "$PARK_OWNED" && "$PARK_OWNED" -gt 0 ]] \
+    || fail "W4: the parked player lost its regions when the other player moved (got '${PARK_OWNED:-none}')"
+pass "W4: no errors across the re-plans; the parked player still owns $PARK_OWNED region(s)"
 
-for w in host:$HOST_CONTROL joiner:$JOINER_CONTROL; do
-    name="${w%%:*}"; port="${w##*:}"
-    control_verb "$port" "NODERA-STATE 2" > "$RESULTS_DIR/state-$name.json" 2>/dev/null
-done
-collect_results "$RESULTS_DIR"
+nodera_collect_worker_state
+collect_results
 pass "OWNERSHIP-FOLLOW TEST PASSED — artifacts in $RESULTS_DIR"
 exit 0

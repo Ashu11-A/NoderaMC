@@ -80,6 +80,13 @@ public final class NoderaPeerService {
 
     private dev.nodera.peer.discovery.TrackerClient serverTrackerClient;
 
+    /** Per-peer throughput attribution for the host lane (the `/nodera peers` + HUD columns). */
+    private final dev.nodera.peer.metric.PeerTrafficMeter serverPeerMeter =
+            new dev.nodera.peer.metric.PeerTrafficMeter();
+    /** Per-peer throughput attribution for the joiner lane. */
+    private final dev.nodera.peer.metric.PeerTrafficMeter clientPeerMeter =
+            new dev.nodera.peer.metric.PeerTrafficMeter();
+
     private NodeIdentity clientIdentity;
     private SocketPeerTransport clientTransport;
     private PeerTransport clientDataTransport;
@@ -220,7 +227,8 @@ public final class NoderaPeerService {
         // signed record and stays reachable across NATs (Task 29). The socket is the LAN path and the
         // self-route source either way.
         PeerTransport dataTransport = composeHostTransport(worldId);
-        MeteredPeerTransport serverMetered = new MeteredPeerTransport(dataTransport, serverMeter);
+        MeteredPeerTransport serverMetered = new MeteredPeerTransport(dataTransport, serverMeter,
+                serverPeerMeter);
         serverDataTransport = serverMetered;
         serverRuntime = PeerRuntime.bootstrap(serverIdentity, hostCaps,
                 serverMetered, serverTransport::listenRoute, PeerRuntimeConfig.defaults(),
@@ -243,6 +251,22 @@ public final class NoderaPeerService {
         String route = serverRuntime.selfRoute();
         LOG.info("Nodera host peer online at {} (node {}, world '{}', encryption={})",
                 route, serverIdentity.nodeId(), hostWorldName, this.hostOptions.encryptionEnabled());
+        // Promote the companion worker from a private daemon into a MEMBER of this world's
+        // session. That is what stops a world's peer set from being "whoever is logged in": the
+        // worker then counts toward session quorum, is eligible for the committee seats the lane
+        // plan hands out, and can win the gateway election and keep the session alive when this
+        // game exits. Best-effort and self-catching — a world must still host when no companion is
+        // linked, and this runs on a path reachable from server lifecycle events, where an escaping
+        // exception would take the integrated server down with it.
+        try {
+            CompanionClient companion = CompanionLink.client();
+            if (companion != null && route != null && !route.isEmpty()) {
+                companion.mesh(route, null).ifPresent(err -> LOG.warn(
+                        "Nodera: companion worker did not join the world session: {}", err));
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Nodera: companion session handoff failed: {}", e.toString());
+        }
         return route;
     }
 
@@ -293,6 +317,58 @@ public final class NoderaPeerService {
             if (serverTransport.listenRoute() != null) {
                 LOG.warn("Nodera rendezvous unreachable ({}); using direct socket only", e.getMessage());
                 return serverTransport;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Wrap the joiner's direct socket in the rendezvous transport when the world identity and
+     * endpoints are both known, mirroring {@link #composeHostTransport}. Falls back to the bare
+     * socket for a socket-only join or an unreachable rendezvous — a down relay must never stop a
+     * LAN/direct join, exactly as on the host side.
+     */
+    private PeerTransport composeClientTransport(String worldIdHex) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return clientTransport;
+        }
+        java.util.List<? extends String> routes = NoderaConfig.CLIENT_RENDEZVOUS_ENDPOINTS.get();
+        if (routes == null || routes.isEmpty()) {
+            return clientTransport;
+        }
+        Bytes worldId;
+        try {
+            worldId = Bytes.fromHex(worldIdHex.trim());
+        } catch (RuntimeException malformed) {
+            return clientTransport;
+        }
+        List<RendezvousEndpoint> endpoints = new ArrayList<>();
+        for (String route : routes) {
+            try {
+                endpoints.add(RendezvousEndpoint.parse(route));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed rendezvous endpoint '{}': {}", route, e.getMessage());
+            }
+        }
+        if (endpoints.isEmpty()) {
+            return clientTransport;
+        }
+        UUID networkId = UUID.nameUUIDFromBytes(worldId.toArray());
+        RendezvousPeerTransport rendezvous = new RendezvousPeerTransport(
+                clientIdentity, endpoints, networkId, worldId, NodeCapabilities.initial(),
+                clientTransport);
+        try {
+            rendezvous.start();
+            LOG.info("Nodera rendezvous: joiner registered with {} (network {})", endpoints, networkId);
+            return rendezvous;
+        } catch (RuntimeException e) {
+            // Same discipline as the host path: degrade to the direct socket only when the socket
+            // itself came up. A joiner binds an ephemeral port, so a bind failure here is a real
+            // fault worth surfacing rather than silently swallowing.
+            if (clientTransport.listenRoute() != null) {
+                LOG.warn("Nodera rendezvous unreachable ({}); joining over the direct socket only",
+                        e.getMessage());
+                return clientTransport;
             }
             throw e;
         }
@@ -514,6 +590,16 @@ public final class NoderaPeerService {
         }
         if (serverRuntime != null) {
             LOG.info("Nodera host peer shutting down");
+            // Detach the companion from the session this runtime is about to take down, so it
+            // returns to its own session of one instead of heartbeating at a dead route.
+            try {
+                CompanionClient companion = CompanionLink.client();
+                if (companion != null) {
+                    companion.mesh("", null);
+                }
+            } catch (RuntimeException ignored) {
+                // Teardown is best-effort; never let it block the shutdown path.
+            }
             serverRuntime.stop();
             serverRuntime = null;
         }
@@ -541,6 +627,18 @@ public final class NoderaPeerService {
      * @param advertiseHost  this client's advertise host ({@code "auto"} → best local address).
      */
     public synchronized void onServerSessionInfo(String bootstrapRoute, String advertiseHost) {
+        onServerSessionInfo(bootstrapRoute, advertiseHost, null);
+    }
+
+    /**
+     * As {@link #onServerSessionInfo(String, String)}, additionally joining the world's rendezvous
+     * namespace so this joiner is discoverable and can fall back to a relay circuit when the direct
+     * socket cannot be established (Task 29 / rendezvous.md §10.2).
+     *
+     * @param worldIdHex the world being joined, or {@code null}/blank for a socket-only join.
+     */
+    public synchronized void onServerSessionInfo(String bootstrapRoute, String advertiseHost,
+                                                 String worldIdHex) {
         if (clientRuntime != null) {
             return;
         }
@@ -550,7 +648,9 @@ public final class NoderaPeerService {
         clientTransport = new SocketPeerTransport(clientIdentity, "0.0.0.0", 0, advertise);
         TrafficMeter clientMeter = new TrafficMeter();
         MessageCounters clientCounts = new MessageCounters();
-        MeteredPeerTransport clientMetered = new MeteredPeerTransport(clientTransport, clientMeter);
+        PeerTransport clientData = composeClientTransport(worldIdHex);
+        MeteredPeerTransport clientMetered = new MeteredPeerTransport(clientData, clientMeter,
+                clientPeerMeter);
         clientDataTransport = clientMetered;
         PeerAddress bootstrapAddress = PeerAddress.of(null, bootstrapRoute); // socket routes by host:port
         clientRuntime = PeerRuntime.peer(clientIdentity, NodeCapabilities.initial(),

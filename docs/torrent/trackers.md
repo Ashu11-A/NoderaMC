@@ -5,6 +5,27 @@
 > foundation). Binding protocol and architecture decisions live in the task file; this document
 > is the background architecture study it draws on.
 
+> **Nodera deviations from the classic model** (kept here so the two are never confused):
+>
+> * **One encoding, two transports.** Nodera does not use bencode or HTTP. Both the TCP and the
+>   UDP surface carry the *same* canonical `nodera-codec` message family (§12–§13 below describe
+>   the classic split; Nodera's is transport-only). On TCP a frame is `u32 length + body`; on UDP
+>   the datagram boundary *is* the frame, so there is no length prefix.
+> * **A bare `host:port` route means TCP.** Config accepts `tcp://host:port` and `udp://host:port`;
+>   an unprefixed route stays TCP, so no existing deployment changes meaning.
+> * **UDP is bounded, and silence is a valid answer.** Because a UDP source address is forgeable
+>   (§13.2, §26 "reflected UDP"), the service refuses to emit a reply that exceeds
+>   `udp_max_reply_bytes` or `udp_max_amplification`× the request. It does not truncate — a
+>   truncated canonical frame is undecodable — it simply does not answer, and `TrackerClient`
+>   retries the same `host:port` over TCP. A large world's peer list therefore always arrives; it
+>   just arrives over the surface that proved the requester's address.
+> * **No connection-ID handshake.** The classic UDP protocol's connect/announce two-stage cookie
+>   (§13.1–§13.2) buys the same anti-reflection property Nodera gets from the amplification cap,
+>   without a second round trip. Announces are Ed25519-signed and freshness-bounded regardless of
+>   transport, so the cookie is not carrying identity weight either.
+> * **Peer records are signed.** `peer_id` here is a real cryptographic identity, so §26's Sybil
+>   and identity-takeover notes apply differently: a second key cannot claim a known identity.
+
 A **tracker** is a specialized rendezvous service for a peer-to-peer swarm. Its job is to answer one question:
 
 > “Which peers are currently participating in the same torrent as me?”

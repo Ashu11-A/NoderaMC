@@ -75,6 +75,12 @@ public final class WorldArchiveService implements AutoCloseable {
     private final PeerTransport transport;
     private final ContentTransferService content;
     private final TrackerClient tracker;
+    /**
+     * Whether {@link #close()} may close the tracker client. False when the client was handed in
+     * (the consolidated one-per-node client): closing a shared client here would silently mute
+     * discovery for every other lane on the node.
+     */
+    private final boolean ownsTracker;
 
     /** worldIdHex → version → manifest, newest last; all manifests this node can serve. */
     private final Map<String, NavigableMap<Long, PieceManifest>> manifests =
@@ -98,6 +104,32 @@ public final class WorldArchiveService implements AutoCloseable {
      */
     public WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
                                List<TrackerClient.Endpoint> trackerEndpoints) {
+        this(identity, transport, store, new TrackerClient(List.copyOf(trackerEndpoints), identity),
+                true);
+    }
+
+    /**
+     * As above, but sharing the node's <b>one</b> {@link TrackerClient} instead of minting a
+     * private one.
+     *
+     * <p>Four services on this node used to hold four independent clients, which meant four
+     * announce cadences and four copies of the endpoint list for a single node — and made the
+     * tracker list a restart-required setting, because there was no single place to change it. One
+     * shared client makes {@link TrackerClient#setEndpoints} reach every lane at once.
+     *
+     * @param identity      this worker's identity.
+     * @param transport     the worker's peer transport.
+     * @param store         the local blob tier.
+     * @param sharedTracker the node's tracker client; <b>not</b> closed by {@link #close()}.
+     */
+    public WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
+                               TrackerClient sharedTracker) {
+        this(identity, transport, store, Objects.requireNonNull(sharedTracker, "sharedTracker"),
+                false);
+    }
+
+    private WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
+                                TrackerClient tracker, boolean ownsTracker) {
         this.self = identity.nodeId();
         this.transport = Objects.requireNonNull(transport, "transport");
         // Bulk bounds: the archive lane moves whole saves worker-to-worker, so the in-game
@@ -106,14 +138,23 @@ public final class WorldArchiveService implements AutoCloseable {
         this.content = new ContentTransferService(
                 self, transport, new SynchronizedContentStore(store), this::routeOf,
                 64, 32L * 1024 * 1024);
-        this.tracker = new TrackerClient(List.copyOf(trackerEndpoints), identity);
+        this.tracker = tracker;
+        this.ownsTracker = ownsTracker;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "nodera-worker-archive");
             t.setDaemon(true);
             return t;
         });
-        scheduler.scheduleWithFixedDelay(content::resetServeWindow,
+        // One tick opens both windows: the serve budget (bytes we hand out) and the request budget
+        // (bytes we ask for). Sharing the cadence is what makes both settings read as "per second"
+        // without either class touching a clock.
+        scheduler.scheduleWithFixedDelay(this::openTransferWindows,
                 SERVE_WINDOW.toMillis(), SERVE_WINDOW.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    private void openTransferWindows() {
+        content.resetServeWindow();
+        content.resetDownloadWindow();
     }
 
     // --- seeding (the host side) -----------------------------------------------------------
@@ -216,6 +257,79 @@ public final class WorldArchiveService implements AutoCloseable {
             }
         }
         return pieces;
+    }
+
+    /**
+     * The per-world piece picture behind the torrent-style piece map: which pieces of the newest
+     * manifest this node actually holds, plus who else in the swarm holds any of it.
+     *
+     * <p>Held is the ground truth of the local content store — {@code content.heldPieces} is only
+     * set for a piece that passed its hash check on arrival, so a green cell means "verified
+     * present here", never "we asked for it".
+     *
+     * @param worldIdHex the world.
+     * @return the report, or {@code null} when this node knows no manifest for the world.
+     * @Thread-context any thread (the holder lookup may touch the tracker, so not the state thread).
+     */
+    public PieceReport pieceReport(String worldIdHex) {
+        Optional<PieceManifest> newest = newestManifest(worldIdHex);
+        if (newest.isEmpty()) {
+            return null;
+        }
+        PieceManifest manifest = newest.get();
+        BitSet held = content.heldPieces(manifest.manifestRoot());
+        return new PieceReport(worldIdHex, manifest.manifestRoot(), manifest.version().value(),
+                manifest.pieceCount(), manifest.totalLength(), (BitSet) held.clone(),
+                holdersFor(worldIdHex));
+    }
+
+    /**
+     * The peers this node believes hold some of a world's content — the "peers possessing this
+     * world" count. Merged from the tracker's seeder index and any routes learned from live
+     * traffic; self is excluded. Never throws: a tracker that is down means "nobody known", not a
+     * failed screen.
+     *
+     * @param worldIdHex the world.
+     * @return the distinct holder ids.
+     * @Thread-context any thread; performs a short tracker round-trip when trackers are configured.
+     */
+    public Set<NodeId> holdersFor(String worldIdHex) {
+        try {
+            Set<NodeId> holders = resolveSeeders(Bytes.fromHex(worldIdHex));
+            holders.remove(self);
+            return holders;
+        } catch (RuntimeException e) {
+            LOG.debug("holder resolution for {} failed: {}", shortId(worldIdHex), e.getMessage());
+            return Set.of();
+        }
+    }
+
+    /**
+     * One world's piece picture.
+     *
+     * @param worldIdHex   the world.
+     * @param manifestRoot the manifest root — the content checksum that identifies these bytes.
+     * @param version      the manifest version this report describes.
+     * @param pieceCount   total pieces in the manifest.
+     * @param totalBytes   total content length in bytes.
+     * @param held         one bit per piece: set = verified present locally.
+     * @param holders      peers believed to hold some of this world.
+     */
+    public record PieceReport(String worldIdHex, Bytes manifestRoot, long version, int pieceCount,
+                              long totalBytes, BitSet held, Set<NodeId> holders) {
+
+        /** @return pieces verified present locally. */
+        public int heldCount() {
+            return held.cardinality();
+        }
+
+        /**
+         * @return locally-held pieces as a permille (0..1000) of the total; 1000 for an empty
+         *         manifest (nothing missing).
+         */
+        public int heldPermille() {
+            return pieceCount <= 0 ? 1000 : (int) (heldCount() * 1000L / pieceCount);
+        }
     }
 
     /** @return total bytes of held pieces (the STATE {@code maintained_bytes}). */
@@ -489,7 +603,9 @@ public final class WorldArchiveService implements AutoCloseable {
     @Override
     public void close() {
         scheduler.shutdownNow();
-        tracker.close();
+        if (ownsTracker) {
+            tracker.close();
+        }
     }
 
     private static String shortId(String hex) {

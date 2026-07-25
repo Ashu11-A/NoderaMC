@@ -142,10 +142,25 @@ public final class EntityLaneBootstrap {
      */
     public static List<PlannedRegion> plan(
             Map<NodeId, PlayerView> views, NodeId localNode, long currentTick, int maxCommitteeSize) {
+        return plan(views, localNode, currentTick, maxCommitteeSize, java.util.List.of());
+    }
+
+    /**
+     * Plan overload that staffs every committee's leftover validator seats from a pool of
+     * <b>resident validators</b> — always-on headless peers that hold no player view. See
+     * {@link ViewOwnershipPlanner#plan(Map, int, java.util.Collection)}: this is what makes a
+     * one-player world run a real committee instead of a committee of one.
+     *
+     * @param residentValidators playerless session members eligible for validator seats.
+     */
+    public static List<PlannedRegion> plan(
+            Map<NodeId, PlayerView> views, NodeId localNode, long currentTick, int maxCommitteeSize,
+            java.util.Collection<NodeId> residentValidators) {
         if (views == null || localNode == null) {
             throw new IllegalArgumentException("views and localNode must not be null");
         }
-        Map<RegionId, RegionClaim> claims = ViewOwnershipPlanner.plan(views, maxCommitteeSize);
+        Map<RegionId, RegionClaim> claims =
+                ViewOwnershipPlanner.plan(views, maxCommitteeSize, residentValidators);
         List<PlannedRegion> planned = new ArrayList<>(claims.size());
         for (RegionClaim claim : claims.values()) {
             RegionLease lease = new RegionLease(

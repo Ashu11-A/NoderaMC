@@ -11,6 +11,19 @@ public final class NoderaConstants {
 
     private NoderaConstants() {}
 
+    // --- Product identity (published on the wire; shown in torrent-style peer lists) ---
+    /** The product name a peer publishes to the mesh. */
+    public static final String PRODUCT_NAME = "NoderaMC";
+    /** This build's version; keep in step with the root Gradle {@code version}. */
+    public static final String PRODUCT_VERSION = "0.1.0";
+    /**
+     * The client agent a peer publishes in its membership entry, e.g. {@code "NoderaMC 0.1.0"}.
+     * Carried by {@code PeerJoin}/{@code PeerEntry} so every member can report what software each
+     * other member runs — the "Client" column of a torrent client's peer list. It is a
+     * self-declared hint, never an authorization input.
+     */
+    public static final String CLIENT_AGENT = PRODUCT_NAME + " " + PRODUCT_VERSION;
+
     // --- Region geometry (Plan §3.2) ---
     /** 8×8 chunks per region (64 chunks = 128×128 blocks). Static grid, unlike Folia's merge/split. */
     public static final int REGION_SIZE_CHUNKS = 8;

@@ -3,8 +3,8 @@
 # nodera e2e-farlands — TWO PLAYERS EXTREMELY FAR APART: who controls which
 # chunks, and where is each player? (live)
 #
-#   F0  infrastructure + clean-slate dedicated server + two joining players
-#       (same staging as e2e-commands)
+#   F0  the standard topology (2 players, 1 tracker, 1 rendezvous, 3 headless
+#       peers) + a clean-slate dedicated server with both players joined
 #   F1  the players are teleported ~566 km apart:
 #         JoinerDev  → ( 200000, 200,  200000)
 #         JoinerTwo  → (-200000, 200, -200000)
@@ -17,50 +17,25 @@
 #       after a nudge teleport (+64 blocks) the always-on REGION boundary
 #       tracker logs `REGION: <p> … entered Region[…] (owner: <name>)` —
 #       the assertion is each far-apart player OWNS the region it stands in
-#   F3  every interrogation transcript + the worker STATE JSON of all three
-#       workers + all logs land under run/results/e2e-farlands/
+#   F3  every interrogation transcript + every worker's STATE JSON + all logs
+#       land under run/results/e2e-farlands/
 #
 # Requires a GUI session. Usage: scripts/e2e-farlands.sh [--no-build]
 # ===========================================================================
 set -uo pipefail
 
-TAG=far
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="$NODERA_ROOT/run/logs/e2e-farlands"
-RESULTS_DIR="$NODERA_ROOT/run/results/e2e-farlands/$(date +%Y%m%d-%H%M%S)"
-source "$NODERA_ROOT/scripts/lib/e2e-lib.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-main.sh"
+nodera_suite far farlands
+nodera_parse_args "$@"
 
-NO_BUILD=0
-[[ "${1:-}" == "--no-build" ]] && NO_BUILD=1
+X1="${X1:-200000}";  Z1="${Z1:-200000}"    # JoinerDev
+X2="${X2:--200000}"; Z2="${Z2:--200000}"   # JoinerTwo
 
-X1=200000;  Z1=200000    # JoinerDev
-X2=-200000; Z2=-200000   # JoinerTwo
-
-mkdir -p "$LOG_DIR" "$RESULTS_DIR"
-acquire_suite_lock
-
-# --- F0: stack + two players (same staging as e2e-commands) ---------------------------------
+# --- F0: stack + two players ----------------------------------------------------------------
 log "F0: build + infrastructure + two players"
-[[ "$NO_BUILD" -eq 0 ]] && build_stack
-check_binaries
-check_ports "$TRACKER_PORT" "$RENDEZVOUS_PORT" "$HOST_CONTROL" "$JOINER_CONTROL" \
-            "$JOINER2_CONTROL" "$GAME_PORT" "$RCON_PORT"
-start_infra
-start_worker host    "$HOST_CONTROL"    "$HOST_P2P"
-start_worker joiner  "$JOINER_CONTROL"  "$JOINER_P2P"
-start_worker joiner2 "$JOINER2_CONTROL" "$JOINER2_P2P"
-sleep 3
-stage_dedicated_server
-start_dedicated_server "$LOG_DIR/server.log"
-wait_log "$LOG_DIR/server.log" "sharing world" 420 || fail "F0: server never shared"
-write_client_config run-join  "$JOINER_CONTROL"
-write_client_config run-join2 "$JOINER2_CONTROL"
-start_client runClientJoin    "$LOG_DIR/client-join.log"
-wait_log "$LOG_DIR/server.log" "JoinerDev joined the game" 600 || fail "F0: JoinerDev never joined"
-start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
-wait_log "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 || fail "F0: JoinerTwo never joined"
-wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "F0: entity lane never activated"
-pass "F0: two players in-world, lane live"
+nodera_stack_up
+nodera_dedicated_two_players
+pass "F0: two players in-world, lane live, $NODERA_WORKERS peers up"
 
 transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/interrogation.log"; }
 
@@ -141,10 +116,7 @@ pass "F2: REGION owner evidence — each far player controls its own chunks"
 
 # --- F3: artifacts --------------------------------------------------------------------------
 log "F3: worker STATE snapshots + log collection"
-for w in host:$HOST_CONTROL joiner:$JOINER_CONTROL joiner2:$JOINER2_CONTROL; do
-    name="${w%%:*}"; port="${w##*:}"
-    control_verb "$port" "NODERA-STATE 2" > "$RESULTS_DIR/state-$name.json" 2>/dev/null
-done
-collect_results "$RESULTS_DIR"
+nodera_collect_worker_state
+collect_results
 pass "F3: FARLANDS TEST PASSED — artifacts in $RESULTS_DIR"
 exit 0

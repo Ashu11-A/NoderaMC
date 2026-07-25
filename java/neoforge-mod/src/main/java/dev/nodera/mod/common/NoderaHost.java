@@ -582,6 +582,59 @@ public final class NoderaHost {
      * @return whether the bootstrap was started (false when the host peer is not running or no
      *         player is present to anchor a field-of-view plan).
      */
+    /**
+     * Tell every resident peer which regions it validates, by sending it a
+     * {@link dev.nodera.protocol.assignment.RegionAssigned} per seat it holds in the new plan.
+     *
+     * <p>This is the outbound half of "a world is served by peers, not by whoever is logged in".
+     * The plan itself is derived identically by everyone (it is a pure function of the player
+     * views, the tick, and the resident set), but a headless peer has no Minecraft connection to
+     * receive the client lane-plan payload over — so its seats go out on the P2P transport it is
+     * already a session member of.
+     *
+     * <p>Best-effort per peer: one unreachable resident must not stop the others from being seated,
+     * and it must never stop the local lane from opening. A resident that misses an assignment
+     * simply does not vote, and the committee falls back to the members that did answer.
+     *
+     * @return the number of seats successfully dispatched.
+     */
+    private static int assignResidentSeats(
+            NoderaPeerService.HostContext host,
+            List<EntityLaneBootstrap.PlannedRegion> plan,
+            Map<NodeId, dev.nodera.protocol.membership.PeerEntry> residents) {
+        if (residents.isEmpty()) {
+            return 0;
+        }
+        int sent = 0;
+        for (EntityLaneBootstrap.PlannedRegion planned : plan) {
+            for (NodeId validator : planned.lease().validators()) {
+                dev.nodera.protocol.membership.PeerEntry entry = residents.get(validator);
+                if (entry == null) {
+                    continue; // a player's node, not a resident — it gets the client payload
+                }
+                // Committee order is primary-first: the worker rebuilds the lease from it.
+                List<NodeId> committee = new ArrayList<>();
+                committee.add(planned.lease().primary());
+                committee.addAll(planned.lease().validators());
+                try {
+                    host.transport().send(
+                            dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
+                            dev.nodera.protocol.codec.MessageCodec.encode(
+                                    new dev.nodera.protocol.assignment.RegionAssigned(
+                                            planned.region(), planned.lease().epoch(),
+                                            dev.nodera.core.region.RegionReplicaRole.VALIDATOR,
+                                            dev.nodera.core.state.SnapshotVersion.INITIAL,
+                                            planned.lease().expiresAtTick(), committee)));
+                    sent++;
+                } catch (RuntimeException unreachable) {
+                    LOG.debug("Nodera: could not seat resident {} on {}: {}",
+                            entry.nodeId(), planned.region(), unreachable.toString());
+                }
+            }
+        }
+        return sent;
+    }
+
     public static boolean activateEntityLaneFromWorld(MinecraftServer server) {
         NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
         if (host == null || server.getPlayerList().getPlayers().isEmpty()) {
@@ -621,6 +674,20 @@ public final class NoderaHost {
                     MinecraftEntityAdapters.dimension(level).path(),
                     p.blockPosition().getX(), p.blockPosition().getZ(), viewDistance));
         }
+        // Resident validators: session members that hold no player view — the always-on headless
+        // peers. They are why a world does not need extra humans logged in to be validated: they
+        // fill the committee seats player geometry leaves empty. Excluded are this node and every
+        // node that already has a view (a player's own peer is ranked geometrically), plus any
+        // member whose entry carries no route or key — an unaddressable or unverifiable peer
+        // cannot hold a seat.
+        Map<NodeId, dev.nodera.protocol.membership.PeerEntry> residents = new java.util.LinkedHashMap<>();
+        for (dev.nodera.protocol.membership.PeerEntry entry : host.runtime().sessionView().members()) {
+            if (entry.nodeId().equals(local) || views.containsKey(entry.nodeId())
+                    || entry.route().isEmpty() || !entry.hasPublicKey()) {
+                continue;
+            }
+            residents.put(entry.nodeId(), entry);
+        }
         final ServerLevel level = anchorLevel;
         long worldSeed = level.getSeed();
         long gameTime = level.getGameTime();
@@ -628,7 +695,7 @@ public final class NoderaHost {
         Thread.ofPlatform().name("nodera-entity-lane-boot").daemon().start(() -> {
             try {
                 List<EntityLaneBootstrap.PlannedRegion> plan = EntityLaneBootstrap.plan(
-                        views, local, gameTime, NoderaConstants.QUORUM_MVP_SIZE);
+                        views, local, gameTime, NoderaConstants.QUORUM_MVP_SIZE, residents.keySet());
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive
@@ -651,6 +718,25 @@ public final class NoderaHost {
                 // must still reach the clients below — skipping the broadcast would leave them
                 // deriving ownership from a stale payload, so two players could each believe they
                 // primary the same region.
+                // Bind the local companion's validation lane to THIS world's seed before it can be
+                // seated. The seed drives the deterministic RNG the region engine re-executes with,
+                // so a worker still on its boot-time placeholder would compute roots nobody else
+                // computes and vote against every batch — a committee that never reaches quorum,
+                // with nothing in any log to say why.
+                try {
+                    CompanionClient companion = CompanionLink.client();
+                    String hostRoute = NoderaPeerService.get().hostRoute();
+                    if (companion != null && hostRoute != null && !hostRoute.isEmpty()) {
+                        companion.mesh(hostRoute, worldSeed).ifPresent(err -> LOG.warn(
+                                "Nodera: could not bind the companion to this world: {}", err));
+                    }
+                } catch (RuntimeException e) {
+                    LOG.warn("Nodera: companion world bind failed: {}", e.toString());
+                }
+                // Hand every resident its committee seats BEFORE the local lane opens: the seat is
+                // what makes an always-on peer re-execute the world, and a validator that has not
+                // activated the region drops the primary's very first proposal on the floor.
+                int seats = assignResidentSeats(host, plan, residents);
                 if (!bindings.isEmpty()) {
                     List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
                     for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
@@ -658,13 +744,22 @@ public final class NoderaHost {
                                 dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
                                 node.publicKey()));
                     }
+                    // Residents are committee peers too — without their address+key here the local
+                    // lane could not send them proposals or verify the votes they send back.
+                    for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
+                        peers.add(new LiveEntityLaneSession.CommitteePeer(
+                                dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
+                                entry.publicKey()));
+                    }
                     activateEntityLane(server, manifest, bindings, peers);
                     LOG.info("Nodera: entity lane live on {} region(s) across {} member node(s) "
-                                    + "(genesis {})",
-                            bindings.size(), views.size(), manifest.genesisRoot().toShortHex(4));
+                                    + "+ {} resident peer(s) holding {} committee seat(s) (genesis {})",
+                            bindings.size(), views.size(), residents.size(), seats,
+                            manifest.genesisRoot().toShortHex(4));
                 } else {
                     LOG.info("Nodera: no regions fall to this node in the new plan "
-                            + "({} member node(s)) — broadcasting it for the owners", views.size());
+                                    + "({} member node(s), {} resident peer(s)) — broadcasting it "
+                                    + "for the owners", views.size(), residents.size());
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.

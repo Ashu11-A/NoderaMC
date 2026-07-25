@@ -671,12 +671,14 @@ public final class MessageCodec {
                 w.writeString(m.listenRoute());
                 m.capabilities().encode(w);
                 w.writeBoolean(m.bootstrap());
+                w.writeBytes(m.publicKey());
+                w.writeString(m.clientVersion());
             }
             case MembershipUpdate m -> {
                 w.writeU16(TAG_MEMBERSHIP_UPDATE).writeU16(ENCODING_VERSION);
                 w.writeU64(m.epoch());
                 m.gatewayId().encode(w);
-                w.writeList(m.members(), MessageCodec::writePeerEntry);
+                w.writeList(m.members(), MessageCodec::writeMemberEntry);
             }
             case PeerGoodbye m -> {
                 w.writeU16(TAG_PEER_GOODBYE).writeU16(ENCODING_VERSION);
@@ -932,10 +934,15 @@ public final class MessageCodec {
     }
 
     /**
-     * Write a {@link PeerEntry} body inline (used inside {@link MembershipUpdate}'s member list).
-     * Layout: {@code nodeId + route(string) + capabilities + bootstrap(bool)}. Kept as a private
-     * helper — like {@link #encodeWorkerLoadBody} — so {@link PeerEntry} does not need its own
-     * type tag; its bytes are only ever nested inside a tagged membership message.
+     * Write a {@link PeerEntry} body inline in the <b>discovery</b> layout:
+     * {@code nodeId + route(string) + capabilities + bootstrap(bool)}.
+     *
+     * <p><b>Frozen cross-language contract.</b> These bytes are nested inside
+     * {@link dev.nodera.protocol.discovery.TrackerResponse}, which the Rust {@code nodera-tracker}
+     * encodes and decodes. The peer's {@code publicKey} is deliberately NOT written here: a
+     * discovery record says where a peer is, not what it may sign for, and appending a field would
+     * silently desynchronise every deployed Rust service. Membership carries the key instead — see
+     * {@link #writeMemberEntry}.
      */
     private static void writePeerEntry(CanonicalWriter w, PeerEntry e) {
         e.nodeId().encode(w);
@@ -944,7 +951,7 @@ public final class MessageCodec {
         w.writeBoolean(e.bootstrap());
     }
 
-    /** Inverse of {@link #writePeerEntry}. */
+    /** Inverse of {@link #writePeerEntry}; yields an entry with no public key. */
     private static PeerEntry readPeerEntry(CanonicalReader r) {
         dev.nodera.core.identity.NodeId nodeId = dev.nodera.core.identity.NodeId.decode(r);
         String route = r.readString();
@@ -952,6 +959,37 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeCapabilities.decode(r);
         boolean bootstrap = r.readBoolean();
         return new PeerEntry(nodeId, route, capabilities, bootstrap);
+    }
+
+    /**
+     * Write a {@link PeerEntry} body inline in the <b>membership</b> layout: the discovery fields
+     * plus {@code publicKey(bytes)} and {@code clientVersion(string)}. Used only by
+     * {@link MembershipUpdate}, which is a Java-to-Java message (tag 20) the Rust services never
+     * parse — so it is free to carry both.
+     *
+     * <p>That key is what lets a session member be given a committee seat: a headless peer must be
+     * able to verify the primary's proposals and the hosting world must be able to verify that
+     * peer's votes, and membership gossip is the only place both sides already meet.
+     *
+     * <p>The client agent rides alongside it for the same reason — membership is the one place the
+     * whole mesh meets, so it is where "what software is that peer running" belongs. Unlike
+     * {@code PeerJoin}'s trailing field, both are written unconditionally here: entries are
+     * length-free elements of a list, so a reader cannot use "bytes remain" to decide whether a
+     * field is present.
+     */
+    private static void writeMemberEntry(CanonicalWriter w, PeerEntry e) {
+        writePeerEntry(w, e);
+        w.writeBytes(e.publicKey());
+        w.writeString(e.clientVersion());
+    }
+
+    /** Inverse of {@link #writeMemberEntry}. */
+    private static PeerEntry readMemberEntry(CanonicalReader r) {
+        PeerEntry base = readPeerEntry(r);
+        Bytes publicKey = r.readBytesValue();
+        String clientVersion = r.readString();
+        return new PeerEntry(base.nodeId(), base.route(), base.capabilities(), base.bootstrap(),
+                publicKey, clientVersion);
     }
 
     private static void writeCatalogEntry(CanonicalWriter w, TrackerCatalogEntry e) {
@@ -1151,12 +1189,17 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeCapabilities capabilities =
                         dev.nodera.core.identity.NodeCapabilities.decode(r);
                 boolean bootstrap = r.readBoolean();
-                yield new PeerJoin(joiner, listenRoute, capabilities, bootstrap);
+                Bytes joinerKey = r.readBytesValue();
+                // Trailing, tolerantly-read field: a peer built before the client-agent field
+                // simply announces without one, and joins exactly as it did before.
+                String clientVersion = r.available() > 0 ? r.readString() : "";
+                yield new PeerJoin(joiner, listenRoute, capabilities, bootstrap, joinerKey,
+                        clientVersion);
             }
             case TAG_MEMBERSHIP_UPDATE -> {
                 long epoch = r.readU64();
                 dev.nodera.core.identity.NodeId gatewayId = dev.nodera.core.identity.NodeId.decode(r);
-                java.util.List<PeerEntry> members = r.readList(MessageCodec::readPeerEntry);
+                java.util.List<PeerEntry> members = r.readList(MessageCodec::readMemberEntry);
                 yield new MembershipUpdate(epoch, gatewayId, members);
             }
             case TAG_PEER_GOODBYE -> {
