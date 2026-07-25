@@ -7,7 +7,7 @@
      lifecycle paths, and most defects in this category were only catchable live. -->
 
 **Category:** minecraft · **Last run:** 2026-07-25 · **97 unit tests · 0 failing** (module
-`neoforge-mod`), plus **10 scripted live suites**
+`neoforge-mod`), plus **12 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -36,6 +36,8 @@ scripts/e2e-continuity.sh               # also BAKES the shared world the others
 scripts/e2e-ownership.sh --no-build
 scripts/e2e-churn.sh     --no-build [--cycles 5]
 scripts/e2e-pickup.sh    --no-build
+scripts/e2e-mobs.sh      --no-build
+scripts/e2e-pearl.sh     --no-build
 scripts/e2e-password.sh  --no-build
 scripts/e2e-rekey.sh     --no-build
 scripts/e2e-commands.sh  --no-build
@@ -59,6 +61,8 @@ reuse.
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
+| `e2e-mobs.sh` | The ghost-mob lane: mobs summoned where capture is enabled are taken over by the lane and the region is kept; the same summon in a dimension that never opted in **revokes** the region, names the reason, and the session plays on | ~7 min |
+| `e2e-pearl.sh` | The pearl drive: a thrown pearl is captured as a lane ghost and its teleport lands the thrower where the lane says it did | ~6 min |
 | `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
 | `e2e-rekey.sh` | The author changes the world password: the worker seeds and announces the re-keyed manifest, **no refresh of a password-protected world is ever plaintext**, the **old** password is refused at the game server, and the new one joins | ~9 min |
 | `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |

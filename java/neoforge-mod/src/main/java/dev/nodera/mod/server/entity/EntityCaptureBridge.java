@@ -211,6 +211,13 @@ public final class EntityCaptureBridge {
         PersistedEntityState state = MinecraftEntityAdapters.ghost(entity);
         captured.put(entity.getUUID(), new Captured(region, state, false));
         runtime.adoptEntity(region, state);
+        if (isPearl(entity)) {
+            // The pearl is the named review projectile of the entity lane (L-50): it is captured
+            // as a ghost, it crosses regions, and it ends in a teleport that must land in the
+            // region the lane says it does. Each of those three moments is logged so a scripted
+            // drive can assert them — the ghost lane is otherwise silent by design.
+            PEARL_LOG.info("PEARL: ghost {} captured in {}", state.id().value(), region);
+        }
     }
 
     private void onTickPre(EntityTickEvent.Pre event) {
@@ -304,9 +311,16 @@ public final class EntityCaptureBridge {
     private void onPearlTeleport(EntityTeleportEvent.EnderPearl event) {
         ServerPlayer player = event.getPlayer();
         ServerLevel level = player.serverLevel();
-        runtime.pearlTeleported(player, MinecraftEntityAdapters.region(
-                level, event.getTargetX(), event.getTargetZ()));
+        RegionId destination = MinecraftEntityAdapters.region(
+                level, event.getTargetX(), event.getTargetZ());
+        runtime.pearlTeleported(player, destination);
+        PEARL_LOG.info("PEARL: {} teleported to {} (delegated: {})",
+                player.getGameProfile().getName(), destination, runtime.delegated(destination));
     }
+
+    /** The pearl drive's evidence stream (L-50); quiet in any session that throws none. */
+    private static final org.slf4j.Logger PEARL_LOG =
+            org.slf4j.LoggerFactory.getLogger("NoderaPearlDrive");
 
     /** True for the named Task-12 review projectile. */
     public static boolean isPearl(Entity entity) {

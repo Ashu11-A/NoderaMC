@@ -61,7 +61,9 @@ jobs:
 
   pickup:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Five clean-slate suites run back to back here (pickup, mobs, pearl, password, re-key), one
+    # at a time by construction.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -84,6 +86,14 @@ jobs:
       - name: Clean-slate pickup drive under Xvfb
         run: |
           NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-pickup.sh --no-build
+      # The entity lane's other two gameplay drives (L-50): ghost capture + revocation, and the
+      # pearl's ghost → flight → teleport. Clean-slate like the pickup drive, so they ride this job.
+      - name: Ghost-mob capture + revocation under Xvfb
+        run: |
+          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-mobs.sh --no-build
+      - name: Pearl drive under Xvfb
+        run: |
+          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-pearl.sh --no-build
       # The live-join password gate (L-52): a passwordless joiner is refused at the game server,
       # and the same client with the password joins. Rides this job — it is clean-slate too, and
       # the live suites run strictly one at a time.
@@ -107,6 +117,10 @@ jobs:
             run/results/e2e-password/
             run/logs/e2e-rekey/
             run/results/e2e-rekey/
+            run/logs/e2e-mobs/
+            run/results/e2e-mobs/
+            run/logs/e2e-pearl/
+            run/results/e2e-pearl/
             java/neoforge-mod/run-join/logs/
             java/neoforge-mod/run-join2/logs/
           if-no-files-found: ignore
