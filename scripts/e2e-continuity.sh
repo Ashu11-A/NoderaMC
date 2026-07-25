@@ -41,29 +41,10 @@ nodera_stack_up
 pass "S0: tracker + rendezvous + $NODERA_WORKERS peers up"
 
 # ---------------------------------------------------------------------------
-# S1a — bake the shared world (dedicated auto-share mints identity + genesis)
+# S1a — the shared world (the launcher bakes it on first use, then re-points it)
 # ---------------------------------------------------------------------------
-HOST_SAVE="$MOD_DIR/run-host/saves/NoderaE2E"
-if [[ ! -f "$HOST_SAVE/nodera-world.dat" ]]; then
-    log "S1a: baking a shared world via runServer (auto-share)"
-    stage_dedicated_server
-    start_dedicated_server "$LOG_DIR/bake-server.log"
-    BAKE_PID=$SERVER_PID
-    wait_log "$LOG_DIR/bake-server.log" "sharing world" 420 \
-        || fail "S1a: dedicated server never shared its world (see $LOG_DIR/bake-server.log)"
-    # Identity + genesis + archive-seed all happen at share time, and the share path flushes the
-    # save first — so a TERM here leaves a complete world folder (gradle stdin does not reach the
-    # server console, so a "stop" command cannot).
-    sleep 8
-    kill -- -"$BAKE_PID" 2>/dev/null || kill "$BAKE_PID" 2>/dev/null
-    pkill -f serverRunProgramArgs 2>/dev/null
-    for _ in $(seq 1 30); do pgrep -f serverRunProgramArgs >/dev/null || break; sleep 2; done
-    [[ -f "$MOD_DIR/run/world/nodera-world.dat" ]] \
-        || fail "S1a: no nodera-world.dat was persisted — identity minting failed"
-    mkdir -p "$(dirname "$HOST_SAVE")"
-    rm -rf "$HOST_SAVE"
-    cp -r "$MOD_DIR/run/world" "$HOST_SAVE"
-fi
+log "S1a: staging the shared world NoderaE2E"
+
 # Re-point the bake at this run's ports + the no-host ownership knobs.
 nodera_staged_world
 pass "S1a: shared world NoderaE2E staged for the host client"

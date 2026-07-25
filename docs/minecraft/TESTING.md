@@ -23,9 +23,13 @@ run on the ordinary gate.
 
 ## 1.1 Running
 
-`scripts/run-tests.sh` is the entry point. It builds once, then runs the requested suites **strictly
-one at a time** — they share a port block and the run directories, so concurrency is made structurally
-impossible by an exclusive lock that standalone runs honour too.
+`scripts/run-tests.sh` is the entry point for a local batch. It builds once, then runs the requested
+suites **strictly one at a time** — on one machine they share a port block and the run directories, so
+concurrency is made structurally impossible by an exclusive lock that standalone runs honour too.
+
+In CI the suites do not share a machine at all: `e2e-live` runs **one suite per runner** as a matrix,
+so the wall clock is the slowest suite rather than the sum, and one suite's leftovers can never reach
+another.
 
 ```bash
 scripts/run-tests.sh                    # every suite, canonical order (~45 min)
@@ -49,9 +53,9 @@ scripts/dev.sh --play --no-build        # not a test: two interactive clients
 scripts/dev.sh --play --with-app        # …plus a companion window per player
 ```
 
-**Canonical order matters once:** the continuity suite bakes the shared world (a genuinely shared save
-with a signed world identity and a certified genesis) that the ownership, churn, and crash suites
-reuse.
+**The shared world bakes itself.** The ownership, churn, and crash suites reuse a genuinely shared
+save (signed world identity, certified genesis); the launcher bakes it on first use, so any suite can
+run first — or alone on its own machine, which is what CI does.
 
 ## 1.2 The suites
 

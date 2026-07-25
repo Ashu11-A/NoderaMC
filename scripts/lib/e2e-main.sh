@@ -761,10 +761,41 @@ nodera_set_host_cfg() {
 # The staged NoderaE2E world, re-checked and re-pointed at this run's ports.
 # Baked once by e2e-continuity; every other host-client suite reuses it. Sets
 # HOST_SAVE + HOST_CFG.
+# Bake the shared NoderaE2E world: a dedicated server boots, auto-shares (which mints the signed
+# identity, certifies genesis, and seeds the archive), and its finished save becomes the host
+# client's world. Idempotent — a world that already exists is left alone.
+#
+# This lives in the launcher, not in one suite, so every suite that reuses the bake can stand on
+# its own runner. It used to belong to the continuity script, which made "run continuity first" a
+# hidden precondition of four other suites and forced them to share a machine.
+nodera_bake_staged_world() {
+    local save="$MOD_DIR/run-host/saves/NoderaE2E"
+    [[ -f "$save/nodera-world.dat" ]] && return 0
+    log "baking the shared world NoderaE2E via runServer (auto-share)"
+    stage_dedicated_server
+    start_dedicated_server "$LOG_DIR/bake-server.log"
+    local bake_pid=$SERVER_PID
+    wait_log "$LOG_DIR/bake-server.log" "sharing world" 420 \
+        || fail "the bake server never shared its world (see $LOG_DIR/bake-server.log)"
+    # Identity + genesis + archive-seed all happen at share time, and the share path flushes the
+    # save first — so a TERM here leaves a complete world folder (gradle stdin does not reach the
+    # server console, so a "stop" command cannot).
+    sleep 8
+    kill -- -"$bake_pid" 2>/dev/null || kill "$bake_pid" 2>/dev/null
+    pkill -f serverRunProgramArgs 2>/dev/null
+    for _ in $(seq 1 30); do pgrep -f serverRunProgramArgs >/dev/null || break; sleep 2; done
+    [[ -f "$MOD_DIR/run/world/nodera-world.dat" ]] \
+        || fail "the bake persisted no nodera-world.dat — identity minting failed"
+    mkdir -p "$(dirname "$save")"
+    rm -rf "$save"
+    cp -r "$MOD_DIR/run/world" "$save"
+}
+
 nodera_staged_world() {
+    nodera_bake_staged_world
     HOST_SAVE="$MOD_DIR/run-host/saves/NoderaE2E"
     [[ -f "$HOST_SAVE/nodera-world.dat" ]] \
-        || fail "no staged world — run scripts/e2e-continuity.sh once first (it bakes NoderaE2E)"
+        || fail "no staged world and the bake did not produce one"
     HOST_CFG="$HOST_SAVE/serverconfig/nodera-server.toml"
     mkdir -p "$HOST_SAVE/serverconfig"
     [[ -f "$HOST_CFG" ]] || printf '[host]\n' > "$HOST_CFG"
