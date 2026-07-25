@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@code nodera-tracker} endpoints and queries them for a world's peers and seeders.
  *
  * <p>It replaces the <b>serving</b> role that Task 20 embedded in a Java peer
- * ({@code TrackerService}, deleted with this class's arrival — see {@code docs/LEGACY.md}). The
+ * ({@code TrackerService}, deleted with this class's arrival — see {@code docs/tracker/LIMITATIONS.fixed.md}). The
  * peer-local caches it fed, {@link PeerDirectory} and {@link ArchiveInventory}, stay exactly where
  * they were: repair and rarest-first selection still read them. Only the process that answers
  * strangers moved out.
@@ -69,7 +69,7 @@ public final class TrackerClient implements AutoCloseable {
     /**
      * How a tracker endpoint is reached. Both surfaces carry the same frozen message family; they
      * differ only in framing and in what a service is willing to answer (see
-     * {@code docs/torrent/trackers.md} §12–§13).
+     * {@code docs/tracker/REFERENCE.md} §12–§13).
      */
     public enum Transport {
         /**

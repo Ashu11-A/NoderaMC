@@ -6,9 +6,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A page of discovered peer records (Task 29, wire tag 37; rendezvous.md §4.3). Each record is
+ * A page of discovered peer records (Task 29, wire tag 37; RENDEZVOUS.md §4.3). Each record is
  * independently signed and must be verified end-to-end by the discovering peer — the rendezvous
- * point introduced the peers, it did not vouch for them (rendezvous.md §8.1).
+ * point introduced the peers, it did not vouch for them (RENDEZVOUS.md §8.1).
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *

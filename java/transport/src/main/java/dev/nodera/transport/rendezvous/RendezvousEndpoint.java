@@ -4,7 +4,7 @@ import java.util.Objects;
 
 /**
  * One {@code nodera-rendezvous} endpoint (Task 29). A resilient deployment configures several; a
- * peer registers with, and discovers through, each and merges the results (rendezvous.md §9.1).
+ * peer registers with, and discovers through, each and merges the results (RENDEZVOUS.md §9.1).
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *

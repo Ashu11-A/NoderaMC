@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * The tracker's reply to a {@link TrackerAnnounce} (Task 28, wire tag 34).
  *
- * <p><b>The tracker paces the traffic, not the peer</b> ({@code docs/torrent/trackers.md} §6):
+ * <p><b>The tracker paces the traffic, not the peer</b> ({@code docs/tracker/REFERENCE.md} §6):
  * {@link #nextAnnounceAfterSeconds()} tells the peer when to come back, so an operator can widen
  * the interval under load without shipping a new client. Peers jitter around it; they do not
  * shorten it.

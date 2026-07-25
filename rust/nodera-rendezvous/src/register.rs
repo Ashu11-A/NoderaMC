@@ -2,7 +2,7 @@
 //!
 //! Everything here runs before the registry is touched, on bytes from an unauthenticated socket. It
 //! is pure (clock and binding state are passed in) so every rejection path is unit-testable without
-//! a network. Self-registration only, Ed25519-verified, TTL'd, size-capped (rendezvous.md §8.3).
+//! a network. Self-registration only, Ed25519-verified, TTL'd, size-capped (RENDEZVOUS.md §8.3).
 
 use nodera_codec::rendezvous::SignedRecord;
 use nodera_codec::sig;

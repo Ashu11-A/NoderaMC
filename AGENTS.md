@@ -3,7 +3,7 @@
 ## Repo layout (polyglot monorepo; unified Java API since issue #30, 2026-07-21)
 - `java/<module>/` — **exactly seven Gradle modules** (plus `build-logic`): `core` · `engine` ·
   `transport` · `storage` · `peer` · `testing` · `neoforge-mod`. The old fine-grained modules
-  merged into them with **packages unchanged** (mapping: `docs/Task.0.md` §5) — e.g.
+  merged into them with **packages unchanged** (package map: `docs/README.md` §3) — e.g.
   `./gradlew :engine:test` runs what used to be `:simulation` + `:consensus` + `:coordinator` +
   `:committee` + `:shadow-validation` + `:fallback`.
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
@@ -144,11 +144,15 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
 1. **Run tests before committing.** Execute `./gradlew check`. If it is red, you do NOT commit.
    If you cannot fix a failure immediately, open a `bug` issue (`.github/ISSUE_SYSTEM.md`) and stop.
    When the change touches the mod's host/join/lane/continuity/command surfaces, also run the
-   relevant live suite(s) via `scripts/run-tests.sh <suite…>` (docs/Testing.md Part 1) — the
+   relevant live suite(s) via `scripts/run-tests.sh <suite…>` (docs/minecraft/TESTING.md Part 1) — the
    headless gate cannot see NeoForge-config-gated lifecycle paths. Live suites run strictly one
    at a time (the runner + suites hold `run/.e2e-suite.lock`).
-2. **Update `README.md` + `docs/Testing.md` in the same commit** that changes outcomes: recompute the
-   progress-bar percentage, the module status table, the roadmap ticks, and the test counts.
+2. **Update the documentation in the SAME commit** that changes outcomes — it is part of the
+   deliverable, not a follow-up. The mandatory checklist is [`docs/README.md`](docs/README.md) §5:
+   the owning `docs/<category>/Task.<n>.md` status header and audit date, that category's
+   `PROGRESS.md` (a dated note naming the evidence), `TESTING.md` (counts + last run),
+   `LIMITATIONS.md` / `LIMITATIONS.fixed.md` if a row moved, `docs/ROADMAP.md`, the root
+   `README.md` bar and module table, and the affected package `README.md`.
    Keep every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment.
 3. **Use the commit-message standard** (see README.md → "Commit message standard"):
    ```
@@ -168,7 +172,7 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    both gates are green on the PR head (`gh pr checks <n>`). Never leave an open PR unreviewed
    at the end of a session.
 2. **Reconcile the issue ledger.** `gh issue list --state open --limit 100` — for each issue,
-   compare against the CURRENT tree (code + `docs/Testing.md` + `docs/LIMITATIONS.md`):
+   compare against the CURRENT tree (code + `docs/<category>/TESTING.md` + `docs/<category>/LIMITATIONS.md`):
    - work landed → `gh issue close <n> -c "<evidence: tests/register rows/commits>"` (always
      with an evidence comment, never a bare close);
    - work newly discovered (a live defect, a precise repro, a staged exit) →
@@ -194,8 +198,8 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
 ## GitHub issue workflow (see `.github/ISSUE_SYSTEM.md` for the full rules)
 - GitHub issues are the source of truth. Every task phase has an issue; every detected
   problem becomes a `bug` issue before a regression reaches `main`. Existing issues use the
-  **legacy** task numbering (old Tasks 1–33, preserved in `docs/old/`) — find issues by exact
-  title, never by number; the legacy→module-task mapping is `docs/Task.0.md` §4.
+  **legacy** task numbering — find issues by exact
+  title, never by number; the current task set is `docs/<category>/Task.<n>.md` (index: `docs/ROADMAP.md` §2).
 - One task = one branch (`<type>/<slug>-#<issue>`) = one PR.
 - A task is "done" only when: `./gradlew check` green, acceptance criteria evidenced in the PR,
   README/Tested updated, and the issue closed via `Closes #N`.
@@ -212,9 +216,22 @@ runtimes (bootstrap + two players); kill the bootstrap; assert the players detec
 same successor gateway deterministically, and keep exchanging keep-alives over their direct socket
 (the `base-peer-disconnection` continuity scenario).
 
-## Base document
-[`docs/Task.0.md`](docs/Task.0.md) is the base document (it absorbed the former
-`docs/Prompt.base.md` and the old conventions file): the ordered list of files to read first, the
-project pattern, the module-task index (Tasks 1–7, one per Nodera module) + dependency graph, the
-legacy→new task mapping, and how the issue workflow operates. Point new contributors/agents at it.
-Legacy per-increment specs (old Tasks 0–33) are preserved verbatim in `docs/old/`.
+## Documentation
+
+<!-- AI-AGENT-INSTRUCTION: Read docs/README.md before writing or editing ANY .md file in this repo.
+     It defines the documentation format, the per-category file contract, the task-file template, the
+     binding conventions, and the mandatory maintenance discipline (§5). Documentation is part of the
+     deliverable and is updated in the SAME commit as the code. -->
+
+[`docs/README.md`](docs/README.md) is the entry point: the documentation format, the binding
+conventions (layering, frozen contracts, determinism rules, naming, version pins, shared constants),
+where progress lives, and the **mandatory documentation-maintenance discipline** (§5). Read it before
+writing or editing any `.md` file.
+
+[`docs/ROADMAP.md`](docs/ROADMAP.md) is the single central roadmap across every category.
+
+The tree is one folder per system category — `engine/` `network/` `tracker/` `rendezvous/`
+`minecraft/` `worker/` `app/` — each containing `Task.0.md` (the category charter), `Task.1..n.md`
+(one task per deliverable, with a completion status in the header), `PROGRESS.md`, `TESTING.md`,
+`LIMITATIONS.md`, and `LIMITATIONS.fixed.md`. Programme plans live in `docs/plans/`. Every package
+also carries its own `README.md` describing that package's architecture.

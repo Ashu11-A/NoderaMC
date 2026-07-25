@@ -2,7 +2,7 @@
 //!
 //! The tracker is pre-auth by construction — a signature proves who signed, not that they are
 //! entitled to a share of the service. The quota is what keeps one host from filling the registry
-//! or burning the CPU on signature checks (`docs/torrent/trackers.md` §26).
+//! or burning the CPU on signature checks (`docs/tracker/REFERENCE.md` §26).
 
 use std::collections::HashMap;
 use std::net::IpAddr;

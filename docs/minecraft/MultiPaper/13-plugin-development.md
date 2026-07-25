@@ -5,7 +5,7 @@ writing one for a single server. This file collects the rules, the new API
 surface, and the recommended patterns.
 
 The companion doc
-[`DEVELOPING_A_MULTISERVER_PLUGIN.md`](../../MultiPaper/DEVELOPING_A_MULTISERVER_PLUGIN.md)
+[`DEVELOPING_A_MULTISERVER_PLUGIN.md`](../upstream/MultiPaper/DEVELOPING_A_MULTISERVER_PLUGIN.md)
 in the repo root is the upstream version of this material; this file
 integrates it with the rest of the architecture docs.
 
@@ -370,7 +370,7 @@ recommended way to do shared mutable state in MultiPaper.
 
 - Read the [MultiLib README](https://github.com/MultiPaper/MultiLib) for a
   drop-in API that also works on vanilla Paper.
-- Browse [`patches/api/*.patch`](../../MultiPaper/patches/api/) for the full
+- Browse [`patches/api/*.patch`](../upstream/MultiPaper/patches/api/) for the full
   set of API additions.
 - Use [`/mpdebug`](./12-key-classes.md) while developing to see chunk
   ownership in real time.

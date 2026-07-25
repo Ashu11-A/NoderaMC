@@ -2,7 +2,7 @@
 //!
 //! Every bound here exists because the rendezvous/relay service is unauthenticated and
 //! internet-facing: anyone can open a socket, register, and reserve. Registration and discovery are
-//! cheap metadata (rendezvous.md §3.1); relay circuits carry real bandwidth and get the hard limits
+//! cheap metadata (RENDEZVOUS.md §3.1); relay circuits carry real bandwidth and get the hard limits
 //! (§4.2/§8.4). Defaults are conservative — an operator raises them knowingly.
 
 use serde::Deserialize;
@@ -14,7 +14,7 @@ use std::net::SocketAddr;
 pub struct Config {
     /// Address to listen on.
     pub bind_addr: SocketAddr,
-    /// How long a registration survives without a refresh (rendezvous.md §9.3). Kept at ~2× the
+    /// How long a registration survives without a refresh (RENDEZVOUS.md §9.3). Kept at ~2× the
     /// refresh interval so one lost refresh does not evict a healthy peer.
     pub registration_ttl_seconds: u64,
     /// The refresh cadence the service advertises; peers refresh at about half this.
@@ -22,7 +22,7 @@ pub struct Config {
     /// How far a record's own `issuedAt` may deviate from the service clock before it is refused as
     /// stale/replayed.
     pub clock_skew_seconds: u64,
-    /// Maximum records returned in one discovery page (rendezvous.md §8.5 — no full enumeration).
+    /// Maximum records returned in one discovery page (RENDEZVOUS.md §8.5 — no full enumeration).
     pub discover_page_limit: usize,
     /// Maximum records retained per `(network, world)` namespace.
     pub max_records_per_namespace: usize,
