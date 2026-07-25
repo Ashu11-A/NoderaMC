@@ -14,7 +14,7 @@ import java.util.Objects;
 /**
  * Establishes {@link RelayCircuit}s over the relay: the dialing side wraps a fresh
  * {@code CONNECT} socket, the reserving side waits for a {@code RelayIncoming} on its reservation
- * control socket and accepts it (Task 29; rendezvous.md §4.5).
+ * control socket and accepts it (Task 29; RENDEZVOUS.md §4.5).
  *
  * <p>Both sides run the {@link EndToEndCipher} handshake before any application byte, and each binds
  * the far end to the exact identity key from the discovered record — the relay only forwards; it

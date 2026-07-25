@@ -9,7 +9,7 @@ import java.util.UUID;
 
 /**
  * A peer asking the relay to bridge it to a target's reserved slot (Task 29, wire tag 40;
- * rendezvous.md §4.5). The relay looks up the target's live reservation, delivers a
+ * RENDEZVOUS.md §4.5). The relay looks up the target's live reservation, delivers a
  * {@link RelayIncoming} on the target's control stream, and — on accept — splices the two streams
  * and meters them. Frames on the bridged circuit are opaque, end-to-end-encrypted bytes.
  *

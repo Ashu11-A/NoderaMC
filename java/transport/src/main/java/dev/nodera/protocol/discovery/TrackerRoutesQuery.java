@@ -15,7 +15,7 @@ import java.util.Objects;
  * each live peer claimed in its signed announce, so a joiner can pick the lane it needs.
  *
  * <p>Trust: routes are the peers' own signed claims relayed by the tracker verbatim
- * ({@code docs/torrent/trackers.md} §5) — the tracker adds no authority, and a joiner treats them
+ * ({@code docs/tracker/REFERENCE.md} §5) — the tracker adds no authority, and a joiner treats them
  * as dial candidates, never as proof of anything.
  *
  * @param genesisHash the world whose peers' routes are requested (the swarm id).

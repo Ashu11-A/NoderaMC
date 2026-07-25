@@ -9,9 +9,9 @@ import java.util.Objects;
 
 /**
  * One reachability candidate: how a peer might be reached, and how good it is thought to be
- * (Task 29; rendezvous.md §2.5). A candidate is a peer's own claim, never proof of identity — the
+ * (Task 29; RENDEZVOUS.md §2.5). A candidate is a peer's own claim, never proof of identity — the
  * transport handshake re-verifies the remote actually owns the expected {@code NodeId}
- * (rendezvous.md §4.4).
+ * (RENDEZVOUS.md §4.4).
  *
  * <p>Encodable (type tag {@value TypeTags#PEER_CANDIDATE}) so it nests byte-identically inside a
  * {@link SignedPeerRecord} that is signed and verified across languages.

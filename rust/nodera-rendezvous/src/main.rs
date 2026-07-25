@@ -1,6 +1,6 @@
 //! `nodera-rendezvous` — the standalone Nodera rendezvous + relay service (Task 29).
 //!
-//! Two logically separate responsibilities in one binary (rendezvous.md §1):
+//! Two logically separate responsibilities in one binary (RENDEZVOUS.md §1):
 //!
 //! * **Rendezvous** — peers *register* signed candidate records under a `(network, world)`
 //!   namespace and *discover* each other; cheap metadata, TTL'd, quota'd.
@@ -177,7 +177,7 @@ fn ephemeral_key(bound: &str) -> Vec<u8> {
 }
 
 /// Resolve when the process is asked to stop (SIGTERM or Ctrl-C). Graceful drain: stop accepting,
-/// let live circuits run out their reservation (rendezvous.md ops notes).
+/// let live circuits run out their reservation (RENDEZVOUS.md ops notes).
 async fn shutdown_signal() {
     #[cfg(unix)]
     {

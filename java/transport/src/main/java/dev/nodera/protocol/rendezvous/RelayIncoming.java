@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * The relay telling a reserver that a circuit is inbound (Task 29, wire tag 41; rendezvous.md §4.5).
+ * The relay telling a reserver that a circuit is inbound (Task 29, wire tag 41; RENDEZVOUS.md §4.5).
  * The reserver validates the echoed {@link #proof()} against its own reservation, then accepts and
  * runs an end-to-end handshake before any application byte crosses.
  *

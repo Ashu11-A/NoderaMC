@@ -6,10 +6,10 @@ import dev.nodera.protocol.NoderaMessage;
 import java.util.Objects;
 
 /**
- * The relay's answer to a {@link RelayReserve} (Task 29, wire tag 39; rendezvous.md §4.2). Carries
+ * The relay's answer to a {@link RelayReserve} (Task 29, wire tag 39; RENDEZVOUS.md §4.2). Carries
  * the relay route the peer advertises, the reservation's expiry and limits, and an HMAC
  * {@link #proof()} the relay validates statelessly on {@code CONNECT}/{@code INCOMING} so the open-
- * relay abuse hole stays closed (rendezvous.md §8.4).
+ * relay abuse hole stays closed (RENDEZVOUS.md §8.4).
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *

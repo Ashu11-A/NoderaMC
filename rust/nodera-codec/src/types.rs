@@ -438,7 +438,7 @@ impl RegistrationEvent {
 /// (tag 91), so a discovering peer verifies the *same bytes* the registering peer signed, whether
 /// the record arrives inside a `RendezvousRegister` (relay verifies) or a `RendezvousPeers` page (a
 /// discovering peer verifies). The relay carries records; peers authenticate them end-to-end
-/// (rendezvous.md §8.1).
+/// (RENDEZVOUS.md §8.1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignedPeerRecord {
     /// The network this record belongs to.

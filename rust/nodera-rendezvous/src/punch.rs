@@ -1,4 +1,4 @@
-//! Hole-punch coordination (rendezvous.md §4.6, DCUtR-style).
+//! Hole-punch coordination (RENDEZVOUS.md §4.6, DCUtR-style).
 //!
 //! Over an established circuit the two peers exchange observed addresses and agree a shared
 //! T-minus; each then attempts a TCP simultaneous-open. The service only *relays* the exchange and

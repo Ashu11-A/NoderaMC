@@ -13,7 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Tries a peer's direct reachability candidates in preference order (Task 29; rendezvous.md §4.4).
+ * Tries a peer's direct reachability candidates in preference order (Task 29; RENDEZVOUS.md §4.4).
  *
  * <p>A should attempt B's direct candidates before falling back to the relay: a direct path cuts
  * latency, relay bandwidth, and the dependency on central infrastructure (§3.3). Relay-kind

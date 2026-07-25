@@ -1,0 +1,156 @@
+# Minecraft — Testing
+
+<!-- AI-AGENT-INSTRUCTION: This file documents the SCRIPTED LIVE ACCEPTANCE SUITES as well as the
+     module's unit tests. Update it whenever a script gains or changes a stage. Counts come from the
+     `./gradlew check` XML reports, never from memory. RUN THE LIVE SUITES whenever a change touches
+     the host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
+     lifecycle paths, and most defects in this category were only catchable live. -->
+
+**Category:** minecraft · **Last run:** 2026-07-25 · **85 unit tests · 0 failing** (module
+`neoforge-mod`), plus **8 scripted live suites**
+
+The module is marked 🚧 in the root table because its scope is incomplete
+([`Task.2.md`](Task.2.md)), not because anything fails.
+
+---
+
+# Part 1 — The scripted live suites
+
+All live suites drive **real NeoForge clients** — each with its **own peer worker** — against the
+standalone tracker and rendezvous binaries: the full decentralized stack on one machine. They need a
+GUI session, roughly 6 GB of free RAM, and the Rust toolchain. Headless rehearsals of the same flows
+run on the ordinary gate.
+
+## 1.1 Running
+
+`scripts/run-tests.sh` is the entry point. It builds once, then runs the requested suites **strictly
+one at a time** — they share a port block and the run directories, so concurrency is made structurally
+impossible by an exclusive lock that standalone runs honour too.
+
+```bash
+scripts/run-tests.sh                    # every suite, canonical order (~45 min)
+scripts/run-tests.sh commands crash     # just these
+scripts/run-tests.sh --no-build churn   # skip the up-front build
+
+scripts/e2e-continuity.sh               # also BAKES the shared world the others reuse
+scripts/e2e-ownership.sh --no-build
+scripts/e2e-churn.sh     --no-build [--cycles 5]
+scripts/e2e-pickup.sh    --no-build
+scripts/e2e-commands.sh  --no-build
+scripts/e2e-farlands.sh  --no-build
+scripts/e2e-crash.sh     --no-build
+scripts/e2e-ownership-follow.sh --no-build
+
+scripts/dev.sh --play --no-build        # not a test: two interactive clients
+scripts/dev.sh --play --with-app        # …plus a companion window per player
+```
+
+**Canonical order matters once:** the continuity suite bakes the shared world (a genuinely shared save
+with a signed world identity and a certified genesis) that the ownership, churn, and crash suites
+reuse.
+
+## 1.2 The suites
+
+| Suite | What it proves | Duration |
+|---|---|---|
+| `e2e-continuity.sh` | The world survives its host: share → join → archive on the network → host killed → player B recovers and re-hosts | ~8 min |
+| `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
+| `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
+| `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
+| `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |
+| `e2e-farlands.sh` | Two players ~566 km apart: positions verified and per-player chunk control interrogated | ~8 min |
+| `e2e-crash.sh` | One client **SIGKILLed** mid-session: the survivor sees no disruption, no continuity arm, **no migration screen**; the crashed player rejoins | ~7 min |
+| `e2e-ownership-follow.sh` | Ownership follows the player: after a multi-thousand-block teleport the session re-plans and the client re-derives its owned region set | ~5 min |
+
+## 1.3 How clients are launched — no GUI automation anywhere
+
+The scripts use Minecraft's **quick play** arguments. A host client boots straight into the shared
+world; joiner clients boot straight into the session; a rejoin variant returns player A as a network
+client. Distinct usernames prevent the duplicate-login kick, staged worlds pin the game port, disable
+Mojang session auth (dev accounts), and enable entity-lane auto-activation. The dedicated-server
+suites drive gameplay over **RCON** — teleports, inventory reads, and per-player execution.
+
+Automating clicks against a game UI would make every screen change a test failure. Assertions come
+from logs and worker control sockets instead: stable, greppable, and meaningful.
+
+## 1.4 The shared launcher and the standard topology
+
+No suite starts a service itself. One launcher brings the stack up — lock, build, port preflight,
+tracker, rendezvous, workers, control-socket probe — so every suite runs the same topology, set in
+exactly one place:
+
+> **2 players · 1 tracker · 1 rendezvous · 3 headless peers**
+
+Three peers is the **quorum floor**: below three session members the health derivation reports
+degraded, so a thinner run measures a degraded system rather than failing honestly. Two peers are the
+players' companion workers; the third is a spare standalone worker with no client attached — swarm and
+archive ballast plus a standby gateway.
+
+The companion peers are **real session members**: on host start the mod hands its companion the game's
+P2P route, the peer dials it, and membership gossip publishes every member's key. A joined peer
+therefore counts toward quorum, is handed committee seats, and can inherit the gateway when the
+hosting game exits. The hosting JVM deliberately does not *also* start a client peer — one JVM, one
+node — which used to cap a player-hosted two-player world at two members and permanently degraded.
+
+Every parameter is a variable with a default, so pinning one is just setting it:
+
+```bash
+NODERA_SPARE_PEERS=0 scripts/e2e-crash.sh          # thin the swarm on purpose
+NODERA_E2E_TIMEOUT_MULT=3 scripts/e2e-pickup.sh    # slow machine / CI
+scripts/run-tests.sh --spare-peers 2 --players 2   # retopologise a whole batch
+```
+
+## 1.5 The stale-bake trap
+
+The baked shared world stores a **certified genesis pinned to the rules version of the day it was
+baked**. Bump that constant and the current engine correctly refuses the old genesis — but the symptom
+is that the entity lane never boots and every ownership assertion in the bake-reusing suites fails
+with no obvious cause. Those suites now bail out immediately naming this. The fix is a re-bake:
+
+```bash
+rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
+```
+
+## 1.6 Reading the artifacts
+
+| File | What to look for |
+|---|---|
+| `client-host.log` / `client-join*.log` / `server.log` | `Nodera: sharing world`, `game server open for joiners`, `entity lane live … member node(s)`, `client validation lane active`, drive and region lines, `SELFTEST complete:`, `Nodera continuity: host connection lost` → `restored to saves/` |
+| `worker-*.log` | `Now hosting world`, `Seeding world archive vN — P piece(s)`, `Fetched world archive` |
+| `tracker.log` / `rendezvous.log` | Announce acks; signed-record registrations |
+| `commands-*.log` / `interrogation.log` | Per-player command → response transcripts |
+| `nodera-selftest/selftest-*.{json,md}` | The in-game suite's per-command status, benchmark, and response report |
+| Control sockets (25610–25612) | Live JSON: maintained pieces, connected worlds, validation counters |
+
+---
+
+# Part 2 — Module unit tests
+
+| Module | Scope | Tests | Status |
+|---|---|---:|:---:|
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 85 | 🚧 |
+
+Landmark unit tests:
+
+| Test | What it proves |
+|---|---|
+| `ShareOptionsTest` | The share value type: a password implies encryption, defaults are correct, copies are immutable, replication must be positive, and the password never appears in `toString` |
+| `CompanionGateTest` | Against a **real** loopback server socket: present ⇒ start, absent ⇒ an actionable abort, skew ⇒ the correct classification |
+| `VanillaCancelGateTest` | The rule "cancel vanilla only where the commit is synchronous and local" is pinned **Minecraft-free**, so it is testable rather than merely observed in a session |
+| `NoderaPeerServiceIsBindFailureTest` | The cause-chain bind-failure classifier that decides retry-on-ephemeral versus degrade |
+| `WorldArchiverStreamingTest` | Continuous archive streaming cadence, the bounded final flush, and the seeded-version freshness marker |
+| `WorkerPiecesParserTest` / `PieceMapFeedTest` | The worker's piece reply becomes the grid — the seam that had never been called by anything |
+| `ClientStallReporterTest` | A client outside a world for ten seconds logs the active screen's class, repeating while it does not change — the fact every opaque live CI failure was missing |
+| `NoderaWorldStoreTest` | The per-world signed identity file, written atomically |
+
+## Conventions
+
+- **Headless first, always.** Value types, feeds, parsers, and rules are tested Minecraft-free on the
+  ordinary gate; screens are compile-clean against the pinned NeoForge.
+- **Dist-classload guard.** A test proves no client class loads on a dedicated server.
+- **Run the live suites when you touch host, join, lane, or continuity surfaces.** Configuration-gated
+  lifecycle paths are invisible to the headless gate, and nearly every defect this category has found
+  came from a live run.
+- **The harness is the multiplier.** Once the suites run in CI under a headless display
+  ([`Task.1.md`](Task.1.md)), the deferred acceptance of tasks 2–6 and of several other categories
+  runs as one batch.

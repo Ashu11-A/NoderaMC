@@ -1,6 +1,6 @@
 //! The swarm registry: which peers announced to which world, and what they hold.
 //!
-//! State is deliberately ephemeral (`docs/torrent/trackers.md` §23). A tracker restart loses
+//! State is deliberately ephemeral (`docs/tracker/REFERENCE.md` §23). A tracker restart loses
 //! nothing that matters: peers re-announce within one interval. Nothing here is authoritative —
 //! it is a directory of claims that peers verify for themselves.
 
@@ -14,7 +14,7 @@ pub struct PeerRecord {
     /// Routes the peer advertises, in preference order.
     pub routes: Vec<String>,
     /// The address the announce actually came from — appended as a low-priority hint, never
-    /// treated as proof of identity (`trackers.md` §5).
+    /// treated as proof of identity (`TRACKERS.md` §5).
     pub observed_route: Option<String>,
     /// The peer's declared capabilities (roles included).
     pub capabilities: NodeCapabilities,

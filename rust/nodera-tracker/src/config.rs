@@ -17,7 +17,7 @@ pub struct Config {
     /// Interval handed back in every ack — the tracker paces announce traffic, not the peer.
     pub announce_interval_seconds: u32,
     /// How long a record survives without a refresh. Kept at ~2× the interval so one lost
-    /// announce does not evict a healthy peer (`docs/torrent/trackers.md` §11).
+    /// announce does not evict a healthy peer (`docs/tracker/REFERENCE.md` §11).
     pub peer_ttl_seconds: u64,
     /// How far an announce's own timestamp may deviate from the tracker's clock before it is
     /// rejected as stale/replayed.
@@ -38,7 +38,7 @@ pub struct Config {
     pub max_frame_bytes: usize,
     /// Optional directory for world display-name metadata; peer state is never persisted.
     pub persist_dir: Option<PathBuf>,
-    /// Also serve the same request family over UDP on `bind_addr` (`docs/torrent/trackers.md` §13).
+    /// Also serve the same request family over UDP on `bind_addr` (`docs/tracker/REFERENCE.md` §13).
     ///
     /// UDP costs one round trip instead of a TCP handshake, which matters for a peer sweeping many
     /// trackers on a cadence. It is a *second* surface, never a replacement: anything that does not
@@ -51,7 +51,7 @@ pub struct Config {
     /// a truncated canonical frame is undecodable, so silence is the honest outcome and the peer
     /// retries over TCP.
     pub udp_max_reply_bytes: usize,
-    /// Reply-to-request size ratio ceiling for UDP (`trackers.md` §13.2 / §26 "reflected UDP").
+    /// Reply-to-request size ratio ceiling for UDP (`TRACKERS.md` §13.2 / §26 "reflected UDP").
     ///
     /// UDP source addresses are forgeable, so an unbounded answer would make this service a
     /// reflection amplifier pointed at whoever an attacker names. Capping the ratio bounds the gain

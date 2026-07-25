@@ -217,7 +217,7 @@ public final class ServerBootstrap {
     }
 
     private static void onServerTickPost(ServerTickEvent.Post event) {
-        // Region enter/leave evidence log + the scripted ownership drive (docs/Testing.md).
+        // Region enter/leave evidence log + the scripted ownership drive (docs/minecraft/TESTING.md).
         dev.nodera.mod.server.entity.RegionDriveDebug.onServerTick(event.getServer());
         // FOV ownership follows the player: re-plan when someone crosses a region boundary, so the
         // regions a player owns track their view instead of staying frozen at their join position.

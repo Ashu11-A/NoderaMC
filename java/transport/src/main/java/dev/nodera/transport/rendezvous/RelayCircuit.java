@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * An established, end-to-end-encrypted relay circuit between two peers (Task 29; rendezvous.md
+ * An established, end-to-end-encrypted relay circuit between two peers (Task 29; RENDEZVOUS.md
  * §4.5/§8.2). Frames handed to {@link #send(byte[])} are sealed by the {@link EndToEndCipher.Session}
  * before they cross the relay, so the relay forwards opaque bytes it cannot read or alter
  * undetected.

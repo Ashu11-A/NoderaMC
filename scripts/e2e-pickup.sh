@@ -17,7 +17,7 @@
 #
 # The historical failure this asserts against: on a fresh store the pickup
 # committed but the item neither landed as an inventory credit nor fell back
-# to vanilla delivery — it vanished (docs/LIMITATIONS.md L-50).
+# to vanilla delivery — it vanished (docs/minecraft/LIMITATIONS.md L-50).
 #
 # Requires a GUI session for the clients. Usage: scripts/e2e-pickup.sh [--no-build]
 # ===========================================================================

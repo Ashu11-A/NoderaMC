@@ -4,7 +4,7 @@
      NoderaMC. Read it once at session start and follow it for every change. -->
 
 This project uses **GitHub issues as the single source of truth** for tasks, bugs, and progress.
-Every task in `docs/Task.*.md` has a corresponding issue; every detected problem becomes an issue
+Every task in `docs/<category>/Task.<n>.md` has a corresponding issue; every detected problem becomes an issue
 before a regression reaches `main`. Issues + PRs + branches let multiple agents work in parallel
 without stepping on each other.
 
@@ -17,7 +17,7 @@ without stepping on each other.
 | `task` | A planned unit of work (one Task.NN.md, or a sub-task of one). |
 | `bug` | Something is broken or a test is red. |
 | `test` | Pure test work (coverage, fixtures, property tests). |
-| `docs` | Documentation only (README, docs/Testing.md, this file, task specs). |
+| `docs` | Documentation only (README, docs/<category>/TESTING.md, this file, task specs). |
 | `phase-0` … `phase-8` | Which Plan §6 phase the work belongs to. |
 | `mvp-gate` | Blocks the first playable milestone (Task 7 scenario). |
 | `blocked` | Cannot start — depends on an unresolved issue (link it). |
@@ -30,7 +30,7 @@ without stepping on each other.
 ## 2. Opening issues
 
 - **Task issue** — created from `.github/ISSUE_TEMPLATE/task.md`. Title: `Task N — <short title>`.
-  Body links to `docs/Task.N.md`, lists acceptance criteria, names the owning phase label.
+  Body links to `docs/<category>/Task.<n>.md`, lists acceptance criteria, names the owning phase label.
 - **Bug issue** — created from `.github/ISSUE_TEMPLATE/bug.md` the MOMENT a problem is detected
   (red test, divergence, crash, contract violation). Title: `bug: <one-line symptom>`. Body:
   reproduction, expected vs actual, the failing test / log excerpt, affected module(s).
@@ -66,7 +66,7 @@ Before committing, the agent MUST, in order:
    and you cannot fix it, open a `bug` issue and stop.
 2. **Update `README.md`** — recompute the progress bar percentage and update the module status
    table / roadmap ticks.
-3. **Update `docs/Testing.md`** — adjust test counts, `Last run` date, and emojis for any module whose
+3. **Update `docs/<category>/TESTING.md`** — adjust test counts, `Last run` date, and emojis for any module whose
    status changed.
 4. **Commit using the exact format** (see README.md → "Commit message standard"):
    ```
@@ -81,7 +81,7 @@ Before committing, the agent MUST, in order:
 
 - Open a PR against `main`. Set the issue to `needs-review`.
 - PR description MUST list: the issue(s) closed (`Closes #N`), the acceptance criteria met (link the
-  test names), the README/docs/Testing.md deltas, and the new overall percentage.
+  test names), the README/category TESTING.md deltas, and the new overall percentage.
 - The **orchestrator** reviews: `./gradlew check` green, README/Tested in sync, acceptance criteria
   evidenced, frozen contracts (Plan §3 / AGENTS.md) unchanged without a version bump.
 - On approval: squash-merge, delete the branch. The issue auto-closes via `Closes #N`.
@@ -107,7 +107,7 @@ Before committing, the agent MUST, in order:
 - Keep every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment. They tell the next agent exactly what to
   change. Add new ones when you introduce a new machine-maintained field.
 - The progress bar (`Overall system completion: <p>%` + the block line) is recomputed every commit.
-- The module status table and the roadmap table stay in lock-step with `docs/Testing.md` and the GitHub
+- The module status table and the roadmap table stay in lock-step with `docs/<category>/TESTING.md` and the GitHub
   issues respectively.
 - Never delete the "Commit message standard" or "GitHub issue system" sections — new agents rely on
   them.

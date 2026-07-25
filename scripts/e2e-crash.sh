@@ -17,7 +17,7 @@
 #
 # The inverse case (the HOST crashes) is the continuity recovery — that is
 # e2e-continuity.sh / e2e-ownership.sh O3; its remaining visible seam is the
-# Task 16 local-replica boundary, documented in docs/Testing.md.
+# Task 16 local-replica boundary, documented in docs/minecraft/TESTING.md.
 #
 # Topology: the standard one from scripts/lib/e2e-main.sh — 2 players,
 # 1 tracker, 1 rendezvous, 3 headless peers. The spare peer and player B's own
