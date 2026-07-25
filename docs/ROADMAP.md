@@ -8,7 +8,7 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-25** · Overall system completion **93.1%** · 1,451 Java tests · 150 Rust
+**Snapshot: 2026-07-25** · Overall system completion **93.1%** · 1,452 Java tests · 150 Rust
 workspace tests · 56 `nodera-app` tests · 0 failing.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
@@ -203,7 +203,7 @@ Every category owns its limitations. A task is only done when its register rows 
 
 | Category | Register | Open/retiring rows |
 |---|---|---|
-| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-8, L-12, L-16, L-17, L-24, L-25 |
+| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-24, L-25, L-50 |
 | Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33 |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | — (announce scheduling tracked in minecraft) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | — (live numbers tracked with rendezvous 3) |
