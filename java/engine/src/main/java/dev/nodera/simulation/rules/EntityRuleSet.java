@@ -151,5 +151,8 @@ public final class EntityRuleSet implements RuleSet {
         dev.nodera.simulation.entity.ProjectileRules.tick(state, tick, rng);
         dev.nodera.simulation.entity.RailRules.tick(state, tick, rng);
         dev.nodera.simulation.entity.PortalRules.tick(state, tick);
+        // Entity↔redstone coupling (L-26 palette v2): run AFTER the movement rules above, so a
+        // plate reads where entities ENDED this tick rather than where they started.
+        PressurePlateRules.tick(state, tick, rng);
     }
 }

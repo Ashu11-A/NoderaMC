@@ -55,7 +55,8 @@ public final class RedstoneRules {
     /** @return the omnidirectional power {@code id} emits to adjacent wires (0 when not a source). */
     public static int emittedPower(int id) {
         return id == FlatWorldRules.REDSTONE_BLOCK || id == FlatWorldRules.LEVER_ON
-                || id == FlatWorldRules.TORCH_ON || id == FlatWorldRules.BUTTON_ON ? 15 : 0;
+                || id == FlatWorldRules.TORCH_ON || id == FlatWorldRules.BUTTON_ON
+                || id == FlatWorldRules.PRESSURE_PLATE_ON ? 15 : 0;
     }
 
     /**
@@ -112,25 +113,60 @@ public final class RedstoneRules {
     /** Vanilla push limit: a line of more than 12 blocks refuses to move. */
     public static final int PISTON_PUSH_LIMIT = 12;
 
-    /** @return whether {@code id} is a piston base (retracted or extended, any facing). */
+    /**
+     * @return whether {@code id} is a STICKY piston id (base or head, any facing).
+     *
+     * <p>Sticky pistons are a separate id family rather than a flag so the palette stays a flat
+     * (id, name) table — the thing the registry fingerprint hashes. Every piston helper below is
+     * family-aware, so the extend path is shared and only retraction differs.
+     */
+    public static boolean isSticky(int id) {
+        return id >= FlatWorldRules.STICKY_PISTON_RETRACTED_BASE
+                && id <= FlatWorldRules.STICKY_PISTON_MAX;
+    }
+
+    /** @return whether {@code id} is a piston base (retracted or extended, any facing, either family). */
     public static boolean isPistonBase(int id) {
-        return id >= FlatWorldRules.PISTON_RETRACTED_BASE
-                && id < FlatWorldRules.PISTON_HEAD_BASE;
+        return (id >= FlatWorldRules.PISTON_RETRACTED_BASE && id < FlatWorldRules.PISTON_HEAD_BASE)
+                || (id >= FlatWorldRules.STICKY_PISTON_RETRACTED_BASE
+                        && id < FlatWorldRules.STICKY_PISTON_HEAD_BASE);
     }
 
-    /** @return whether {@code id} is a piston head (any facing). */
+    /** @return whether {@code id} is a piston head (any facing, either family). */
     public static boolean isPistonHead(int id) {
-        return id >= FlatWorldRules.PISTON_HEAD_BASE && id <= FlatWorldRules.PISTON_MAX;
+        return (id >= FlatWorldRules.PISTON_HEAD_BASE && id <= FlatWorldRules.PISTON_MAX)
+                || (id >= FlatWorldRules.STICKY_PISTON_HEAD_BASE
+                        && id <= FlatWorldRules.STICKY_PISTON_MAX);
     }
 
-    /** @return whether a piston base id is the extended variant. */
+    /** @return whether a piston base id is the extended variant (either family). */
     public static boolean pistonIsExtended(int id) {
-        return id >= FlatWorldRules.PISTON_EXTENDED_BASE && id < FlatWorldRules.PISTON_HEAD_BASE;
+        return (id >= FlatWorldRules.PISTON_EXTENDED_BASE && id < FlatWorldRules.PISTON_HEAD_BASE)
+                || (id >= FlatWorldRules.STICKY_PISTON_EXTENDED_BASE
+                        && id < FlatWorldRules.STICKY_PISTON_HEAD_BASE);
     }
 
-    /** The facing index (0..3 = N,S,W,E) of any piston id (base or head). */
+    /** The retracted-base id of the family {@code id} belongs to. */
+    private static int retractedBaseOf(int id) {
+        return isSticky(id)
+                ? FlatWorldRules.STICKY_PISTON_RETRACTED_BASE : FlatWorldRules.PISTON_RETRACTED_BASE;
+    }
+
+    /** The extended-base id of the family {@code id} belongs to. */
+    private static int extendedBaseOf(int id) {
+        return isSticky(id)
+                ? FlatWorldRules.STICKY_PISTON_EXTENDED_BASE : FlatWorldRules.PISTON_EXTENDED_BASE;
+    }
+
+    /** The head-base id of the family {@code id} belongs to. */
+    private static int headBaseOf(int id) {
+        return isSticky(id)
+                ? FlatWorldRules.STICKY_PISTON_HEAD_BASE : FlatWorldRules.PISTON_HEAD_BASE;
+    }
+
+    /** The facing index (0..3 = N,S,W,E) of any piston id (base or head, either family). */
     public static int pistonFacing(int id) {
-        return (id - FlatWorldRules.PISTON_RETRACTED_BASE) & 3;
+        return (id - retractedBaseOf(id)) & 3;
     }
 
     /** The block position directly in front of a piston (where its head lives when extended). */
@@ -261,6 +297,7 @@ public final class RedstoneRules {
         return isWire(id) || emittedPower(id) > 0 || isRepeater(id) || isObserver(id)
                 || id == FlatWorldRules.LEVER_OFF || id == FlatWorldRules.TORCH_OFF
                 || id == FlatWorldRules.BUTTON_OFF
+                || PressurePlateRules.isPlate(id)
                 || isPistonBase(id) || isPistonHead(id)
                 || isDaylightSensor(id) || isComparator(id);
     }
@@ -451,6 +488,8 @@ public final class RedstoneRules {
                 }
                 state.setBlock(pos, desired, null, rng);
                 recomputeNetwork(state, pos, null, rng, tick);
+            } else if (current == FlatWorldRules.PRESSURE_PLATE_ON) {
+                PressurePlateRules.onReleaseDue(state, pos, tick, rng);
             } else if (current == FlatWorldRules.BUTTON_ON) {
                 state.setBlock(pos, FlatWorldRules.BUTTON_OFF, null, rng);
                 recomputeNetwork(state, pos, null, rng, tick);
@@ -522,8 +561,8 @@ public final class RedstoneRules {
                         from.z() + FACING_DZ[facing]);
                 state.setBlock(to, state.getBlock(from), null, rng);
             }
-            state.setBlock(front, FlatWorldRules.PISTON_HEAD_BASE + facing, null, rng);
-            state.setBlock(pos, FlatWorldRules.PISTON_EXTENDED_BASE + facing, null, rng);
+            state.setBlock(front, headBaseOf(current) + facing, null, rng);
+            state.setBlock(pos, extendedBaseOf(current) + facing, null, rng);
             recomputeNetwork(state, pos, null, rng, tick);
         } else {
             if (powered || !pistonIsExtended(current)) {
@@ -532,8 +571,31 @@ public final class RedstoneRules {
             NBlockPos front = pistonFront(current, pos);
             if (state.inOwnedRegion(front) && isPistonHead(state.getBlock(front))) {
                 state.setBlock(front, FlatWorldRules.AIR, null, rng);
+                // A STICKY piston pulls the block the head was touching back into the vacated
+                // head cell — the whole point of the sticky variant, and what makes the classic
+                // two-piston contraptions expressible. Failure is CLOSED and silent, exactly like
+                // the push: an unmovable neighbour, a redstone component, or a border simply does
+                // not come back, and the piston still retracts.
+                if (isSticky(current)) {
+                    NBlockPos pulled = new NBlockPos(front.x() + FACING_DX[facing], front.y(),
+                            front.z() + FACING_DZ[facing]);
+                    if (state.inOwnedRegion(pulled)) {
+                        int pulledId = state.getBlock(pulled);
+                        boolean movable = pulledId != FlatWorldRules.AIR
+                                && !FluidRules.isFluid(pulledId)
+                                && !isRedstoneFamily(pulledId);
+                        if (movable) {
+                            state.setBlock(front, pulledId, null, rng);
+                            state.setBlock(pulled, FlatWorldRules.AIR, null, rng);
+                        }
+                    } else {
+                        state.emitBorderSignal(new dev.nodera.simulation.border.BorderSignal(
+                                dev.nodera.simulation.border.BorderSignal.Kind.PISTON,
+                                pos, pulled, tick));
+                    }
+                }
             }
-            state.setBlock(pos, FlatWorldRules.PISTON_RETRACTED_BASE + facing, null, rng);
+            state.setBlock(pos, retractedBaseOf(current) + facing, null, rng);
             recomputeNetwork(state, pos, null, rng, tick);
         }
     }

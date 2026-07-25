@@ -29,10 +29,19 @@ understand, and never delegates a region whose boundary a foreign mechanic could
 
 ## 4. Redstone
 
-The validated lane owns redstone in delegated regions (Task 13/14, palette v3): wire, torch,
-repeater, button, piston, observer — including quasi-connectivity (a piston also reads power
-through the cell above it, and only re-evaluates when it receives an update, so BUD behavior
-emerges from the scheduling model rather than being simulated). Vanilla scheduled ticks for
+The validated lane owns redstone in delegated regions (Task 13/14/16, palette v4): wire, torch,
+repeater, lever, button, **pressure plate**, piston, **sticky piston**, redstone block, observer,
+daylight sensor, comparator, hopper, note block — including quasi-connectivity (a piston also reads
+power through the cell above it, and only re-evaluates when it receives an update, so BUD behavior
+emerges from the scheduling model rather than being simulated).
+
+The pressure plate is the one source driven by the **entity** lane rather than by blocks: it is
+pressed while a validated entity's block position is the plate's own, and released after 20 ticks
+through the hashed scheduled-tick queue (so the delay is consensus state and survives a delta
+boundary). GHOST entities never press a plate — their positions are server-authoritative, and
+letting one drive validated state would put a non-validated input into the root. A sticky piston
+pulls the block its head was touching back into the vacated cell on retraction; an unmovable
+neighbour, a redstone component, or a region border all fail CLOSED and the piston still retracts. Vanilla scheduled ticks for
 delegated chunks are cancelled at the source (`LevelTicksMixin`); a contraption whose signals
 cross into a vanilla-lane region demotes its whole group (`CONTRAPTION_CROSSES_VANILLA`) and
 runs pure vanilla — correct, slower — until redelegation.

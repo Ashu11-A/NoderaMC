@@ -9,6 +9,33 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Palette v2 completed — L-26 RETIRED (2026-07-25, §B 21 → 20 rows).** The row's exit is a
+> three-stage list, and stages 2 (observer/QC/daylight, with L-5/L-6) and 3 (comparator/hopper/note,
+> with L-10) had long been green. The gap was **stage 1**: Task 13's palette v2 was still missing two
+> of its nine named components, which is why "full redstone parity" was not yet true.
+>
+> **The pressure plate is the component that couples the entity lane to the redstone lane.** Every
+> other source answers to a block or to a scheduled tick; a plate answers to where something is
+> *standing*, so it only became expressible once entities were validated root state. A plate is
+> pressed while a validated entity's block position is the plate's own, emits 15 omni, and releases
+> after 20 ticks through the **hashed** scheduled-tick queue — the delay is consensus state and
+> survives a delta boundary, and re-entering re-arms it, so a plate is a usable repeat trigger rather
+> than a stutter. GHOSTs never press one: their positions are server-authoritative, and letting a
+> non-validated input drive validated state is exactly the hole the lane exists to close. A pressed
+> plate is unplaceable, so it cannot be minted.
+>
+> **The sticky piston** made every piston helper family-aware (`isSticky` / `retractedBaseOf` /
+> `extendedBaseOf` / `headBaseOf`), sharing the whole extend path and differing only on retraction,
+> where it pulls the block its head was touching back into the vacated cell. An unmovable neighbour,
+> a redstone component, or a region border all fail CLOSED and the piston still retracts — the same
+> discipline as the push side.
+>
+> `RULES_VERSION` 3→4 and the palette literal `palette.v4`, so a peer on the old palette refuses
+> rather than silently diverging. `PressurePlateStickyPistonTest` (7) runs everything through the
+> full engine path — each assertion is also a root assertion — and pins the order-independence
+> property: the same entity set handed in reversed list order produces the identical root.
+> `COMPATIBILITY.md` §4 rewritten to the v4 palette. Bar 92.0 → 92.6%.
+
 > **Commands enter the validated lane — L-14 and L-13 RETIRED (2026-07-25, §B 23 → 21 rows).**
 >
 > **L-14.** Commands sat outside the validated path entirely, and that is a bigger hole than it
