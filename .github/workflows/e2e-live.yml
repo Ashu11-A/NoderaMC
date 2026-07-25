@@ -90,6 +90,11 @@ jobs:
       - name: Live-join password gate under Xvfb
         run: |
           NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-password.sh --no-build
+      # The author re-keys the world (L-51): the worker seeds the new manifest, the OLD password is
+      # refused at the game server, and the NEW one joins.
+      - name: World password re-key under Xvfb
+        run: |
+          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-rekey.sh --no-build
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -100,6 +105,8 @@ jobs:
             run/results/e2e-pickup/
             run/logs/e2e-password/
             run/results/e2e-password/
+            run/logs/e2e-rekey/
+            run/results/e2e-rekey/
             java/neoforge-mod/run-join/logs/
             java/neoforge-mod/run-join2/logs/
           if-no-files-found: ignore
