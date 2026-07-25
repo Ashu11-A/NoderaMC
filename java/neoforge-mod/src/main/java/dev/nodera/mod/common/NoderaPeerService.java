@@ -472,16 +472,6 @@ public final class NoderaPeerService {
         }
     }
 
-    /** @return the server-side runtime (for the {@code /nodera} command), or {@code null}. */
-    public synchronized PeerRuntime serverRuntime() {
-        return serverRuntime;
-    }
-
-    /** @return the server-side diagnostics collector (for the HUD), or {@code null}. */
-    public synchronized DiagnosticsCollector serverCollector() {
-        return serverCollector;
-    }
-
     /** @return the server-side diagnostics HUD driver, or {@code null} before the server starts. */
     public synchronized dev.nodera.mod.debug.DiagnosticsService serverDiagnostics() {
         return serverDiagnostics;
@@ -513,15 +503,6 @@ public final class NoderaPeerService {
      */
     public synchronized dev.nodera.peer.discovery.TrackerClient serverTrackerClient() {
         return serverTrackerClient;
-    }
-
-    /**
-     * @return the client-side tracker client, used by the Task 26 multiplayer world list, or
-     *         {@code null} before the client peer joins.
-     * @Thread-context any thread.
-     */
-    public synchronized dev.nodera.peer.discovery.TrackerClient clientTrackerClient() {
-        return clientTrackerClient;
     }
 
     /**

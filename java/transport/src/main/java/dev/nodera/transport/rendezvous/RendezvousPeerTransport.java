@@ -382,15 +382,6 @@ public final class RendezvousPeerTransport implements PeerTransport {
         lastRegistrationError = null;
     }
 
-    /**
-     * @return the last registration failure, or {@code null} while registration is healthy. Read by
-     *         diagnostics so a silently-unpublished peer is visible rather than merely undiscovered.
-     * @Thread-context any thread.
-     */
-    public String lastRegistrationError() {
-        return lastRegistrationError;
-    }
-
     /** @return this peer's relay route, or {@code null} before start / when unreserved. */
     public String relayRoute() {
         return relayRoute;

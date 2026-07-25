@@ -52,11 +52,6 @@ public final class MeteredPeerTransport implements PeerTransport {
         return meter;
     }
 
-    /** @return the per-peer meter this decorator feeds, or {@code null} when not enabled. */
-    public PeerTrafficMeter peerMeter() {
-        return peerMeter;
-    }
-
     @Override
     public void start() {
         delegate.start();

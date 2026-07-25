@@ -523,14 +523,6 @@ public final class MutableRegionState implements RegionWorldView {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
-    private static int unpackX(long key) {
-        return (int) (key >>> 32);
-    }
-
-    private static int unpackZ(long key) {
-        return (int) (key & 0xFFFFFFFFL);
-    }
-
     /** Mutable working copy of one chunk column, retaining the immutable base palette for CAS. */
     private static final class ColumnModel {
         final int minY;

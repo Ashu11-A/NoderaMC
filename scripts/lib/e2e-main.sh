@@ -107,6 +107,11 @@ nodera_ports() {
     WORKER_P2P_BASE="${WORKER_P2P_BASE:-25620}"
     RCON_PORT="${RCON_PORT:-25575}"
     RCON_PASS="${RCON_PASS:-nodera-dev}"
+    # How long ONE client may take to reach the world, before the timeout multiplier. A healthy CI
+    # join takes about two minutes; this was 600 s, which at MULT=3 is thirty minutes PER JOIN —
+    # two joins then exceed the job's own 45-minute limit, so a slow client killed the whole job
+    # instead of failing its own stage with a reason. The blocked-screen guard fails fast anyway.
+    JOIN_TIMEOUT="${JOIN_TIMEOUT:-300}"
     # How long preflight waits for a busy port to come free before calling it a failure. Suites
     # run back to back in one CI job and a killed JVM can hold its listener for a few seconds.
     PORT_FREE_TIMEOUT="${PORT_FREE_TIMEOUT:-60}"
@@ -262,11 +267,24 @@ trap cleanup EXIT
 # Serialize live suites: two at once fight over ports + run dirs. FD 9 is held
 # for the process lifetime; run-tests.sh holds the same lock around its batch
 # and exports NODERA_E2E_LOCK_HELD so a child does not deadlock on its parent.
+# The lock is held on FD 9 for the process lifetime — and every child this launcher spawns closes
+# it explicitly (`9>&-`). Without that, a **Gradle daemon** started by one suite inherits the
+# descriptor, outlives the suite, and keeps the lock held forever: the next suite in the same CI
+# job then fails with "another live suite is running" while nothing is.
+#
+# The wait is also bounded rather than instant: a suite that has just exited may still have a
+# JVM releasing the file, and failing on the first probe would call that a conflict.
 nodera_acquire_lock() {
     [[ "${NODERA_E2E_LOCK_HELD:-0}" == 1 ]] && return 0
     mkdir -p "$(dirname "$E2E_LOCK_FILE")"
     exec 9>"$E2E_LOCK_FILE"
-    flock -n 9 || fail "another live suite is running (lock: $E2E_LOCK_FILE) — one test at a time"
+    local waited=0
+    until flock -n 9; do
+        (( waited >= ${E2E_LOCK_TIMEOUT:-90} )) \
+            && fail "another live suite is running (lock: $E2E_LOCK_FILE) — one test at a time"
+        (( waited == 0 )) && log "waiting for the live-suite lock to be released"
+        sleep 3; waited=$((waited + 3))
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -361,7 +379,35 @@ control_verb() {
 }
 
 # Minimal Source-RCON client (auth + one command per call) → stdout.
+# One RCON command, RETRIED. RCON is answered on the server thread, so a long tick (chunk
+# generation far from spawn, a re-plan sweep) can outlast even a generous socket timeout. The
+# first version of this helper printed nothing in that case and the caller could not tell "the
+# server said nothing" from "the server said no" — a teleport that never ran then read as a
+# feature that never fired. Three attempts, and the exception text stays out of the reply.
 rcon() {
+    local reply attempt
+    for attempt in 1 2 3; do
+        reply=$(rcon_once "$1" 2>/dev/null)
+        [[ -n "$reply" ]] && { printf '%s' "$reply"; return 0; }
+        sleep 3
+    done
+    return 1
+}
+
+# tp_player <name> <x> <y> <z> [dimension] — teleport, and PROVE it happened.
+#
+# A teleport whose reply nobody reads is the worst kind of setup step: every assertion after it
+# measures a player who never moved, and the suite reports the feature as broken. Minecraft
+# answers "Teleported <name> to ..." on success and an error otherwise; both are checked.
+tp_player() {
+    local who="$1" x="$2" y="$3" z="$4" dim="${5:-minecraft:overworld}" reply
+    reply=$(rcon "execute in $dim run tp $who $x $y $z")
+    grep -qa "Teleported" <<<"$reply" \
+        || fail "the teleport of $who to ($x, $y, $z) was not accepted: ${reply:-<no reply>}"
+    printf '%s' "$reply"
+}
+
+rcon_once() {
     python3 - "$RCON_PORT" "$RCON_PASS" "$1" <<'PYEOF'
 import socket, struct, sys
 
@@ -484,7 +530,7 @@ sample_size = 10
 seeder_floor = 5
 EOF
         setsid "$RUST_RELEASE/nodera-tracker" --config "$cfg" \
-            >"$LOG_DIR/tracker$suffix.log" 2>&1 &
+            >"$LOG_DIR/tracker$suffix.log" 2>&1 9>&- &
         PIDS+=("$!")
         NODERA_TRACKER_ENDPOINT_LIST="${NODERA_TRACKER_ENDPOINT_LIST:+$NODERA_TRACKER_ENDPOINT_LIST,}127.0.0.1:$port"
     done
@@ -506,7 +552,7 @@ per_ip_request_quota = 0
 reservation_hmac_key_hex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 EOF
         setsid "$RUST_RELEASE/nodera-rendezvous" --config "$cfg" \
-            >"$LOG_DIR/rendezvous$suffix.log" 2>&1 &
+            >"$LOG_DIR/rendezvous$suffix.log" 2>&1 9>&- &
         PIDS+=("$!")
         NODERA_RENDEZVOUS_ENDPOINT_LIST="${NODERA_RENDEZVOUS_ENDPOINT_LIST:+$NODERA_RENDEZVOUS_ENDPOINT_LIST,}127.0.0.1:$port"
     done
@@ -522,7 +568,7 @@ start_worker() {
     NODERA_ARCHIVE_DIR="$LOG_DIR/$1-archive" \
     NODERA_TRACKER_ENDPOINTS="$NODERA_TRACKER_ENDPOINT_LIST" \
     NODERA_RENDEZVOUS_ENDPOINTS="$NODERA_RENDEZVOUS_ENDPOINT_LIST" \
-        setsid "$WORKER_DIST" >"$LOG_DIR/worker-$1.log" 2>&1 &
+        setsid "$WORKER_DIST" >"$LOG_DIR/worker-$1.log" 2>&1 9>&- &
     PIDS+=("$!")
 }
 
@@ -662,7 +708,7 @@ EOF
 
 start_dedicated_server() { # log-file (defaults to $LOG_DIR/server.log)
     ( cd "$NODERA_ROOT" && exec setsid ./gradlew :neoforge-mod:runServer --console=plain \
-        </dev/null >"${1:-$LOG_DIR/server.log}" 2>&1 ) &
+        </dev/null >"${1:-$LOG_DIR/server.log}" 2>&1 ) 9>&- &
     SERVER_PID=$!
     PIDS+=("$SERVER_PID")
 }
@@ -689,7 +735,7 @@ stop_client() {
 
 start_client() { # gradle-run-task log-file
     ( cd "$NODERA_ROOT" && exec setsid ./gradlew ":neoforge-mod:$1" --console=plain \
-        >"$2" 2>&1 ) &
+        >"$2" 2>&1 ) 9>&- &
     LAST_CLIENT_PID=$!
     PIDS+=("$LAST_CLIENT_PID")
 }
@@ -708,15 +754,21 @@ nodera_dedicated_two_players() {
     wait_log "$LOG_DIR/server.log" "sharing world" 420 \
         || fail "the dedicated server never shared its world (see $LOG_DIR/server.log)"
     write_client_config run-join  "$PEER1_CONTROL"
-    write_client_config run-join2 "$PEER2_CONTROL"
     start_client runClientJoin    "$LOG_DIR/client-join.log"
     P1_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" 600 \
+    wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" "$JOIN_TIMEOUT" \
         "$LOG_DIR/client-join.log" "JoinerDev never joined" || fail "JoinerDev never joined"
-    start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
-    P2_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
-        "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
+    # The SECOND client only when the topology asks for it. It used to launch unconditionally, so
+    # `NODERA_PLAYERS=1` said one slot and started two anyway — and a second real Minecraft client
+    # is the single most expensive thing in the run, which is what makes a memory-tight machine
+    # unable to execute suites that need only one player.
+    if (( NODERA_PLAYERS >= 2 )); then
+        write_client_config run-join2 "$PEER2_CONTROL"
+        start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
+        P2_GRADLE_PID=$LAST_CLIENT_PID
+        wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" "$JOIN_TIMEOUT" \
+            "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
+    fi
     wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
 }
 
@@ -748,10 +800,41 @@ nodera_set_host_cfg() {
 # The staged NoderaE2E world, re-checked and re-pointed at this run's ports.
 # Baked once by e2e-continuity; every other host-client suite reuses it. Sets
 # HOST_SAVE + HOST_CFG.
+# Bake the shared NoderaE2E world: a dedicated server boots, auto-shares (which mints the signed
+# identity, certifies genesis, and seeds the archive), and its finished save becomes the host
+# client's world. Idempotent — a world that already exists is left alone.
+#
+# This lives in the launcher, not in one suite, so every suite that reuses the bake can stand on
+# its own runner. It used to belong to the continuity script, which made "run continuity first" a
+# hidden precondition of four other suites and forced them to share a machine.
+nodera_bake_staged_world() {
+    local save="$MOD_DIR/run-host/saves/NoderaE2E"
+    [[ -f "$save/nodera-world.dat" ]] && return 0
+    log "baking the shared world NoderaE2E via runServer (auto-share)"
+    stage_dedicated_server
+    start_dedicated_server "$LOG_DIR/bake-server.log"
+    local bake_pid=$SERVER_PID
+    wait_log "$LOG_DIR/bake-server.log" "sharing world" 420 \
+        || fail "the bake server never shared its world (see $LOG_DIR/bake-server.log)"
+    # Identity + genesis + archive-seed all happen at share time, and the share path flushes the
+    # save first — so a TERM here leaves a complete world folder (gradle stdin does not reach the
+    # server console, so a "stop" command cannot).
+    sleep 8
+    kill -- -"$bake_pid" 2>/dev/null || kill "$bake_pid" 2>/dev/null
+    pkill -f serverRunProgramArgs 2>/dev/null
+    for _ in $(seq 1 30); do pgrep -f serverRunProgramArgs >/dev/null || break; sleep 2; done
+    [[ -f "$MOD_DIR/run/world/nodera-world.dat" ]] \
+        || fail "the bake persisted no nodera-world.dat — identity minting failed"
+    mkdir -p "$(dirname "$save")"
+    rm -rf "$save"
+    cp -r "$MOD_DIR/run/world" "$save"
+}
+
 nodera_staged_world() {
+    nodera_bake_staged_world
     HOST_SAVE="$MOD_DIR/run-host/saves/NoderaE2E"
     [[ -f "$HOST_SAVE/nodera-world.dat" ]] \
-        || fail "no staged world — run scripts/e2e-continuity.sh once first (it bakes NoderaE2E)"
+        || fail "no staged world and the bake did not produce one"
     HOST_CFG="$HOST_SAVE/serverconfig/nodera-server.toml"
     mkdir -p "$HOST_SAVE/serverconfig"
     [[ -f "$HOST_CFG" ]] || printf '[host]\n' > "$HOST_CFG"
@@ -774,12 +857,12 @@ nodera_hosted_two_players() {
     write_client_config run-join "$PEER2_CONTROL"
     start_client runClientHost "$LOG_DIR/client-host.log"
     HOST_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
+    wait_join "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" "$JOIN_TIMEOUT" \
         "$LOG_DIR/client-host.log" "player A never opened the shared world" \
         || fail "player A never opened the shared world"
     start_client runClientJoin "$LOG_DIR/client-join.log"
     JOINER_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
+    wait_join "$LOG_DIR/client-host.log" "JoinerDev joined the game" "$JOIN_TIMEOUT" \
         "$LOG_DIR/client-join.log" "player B never joined" \
         || fail "player B never joined"
 }

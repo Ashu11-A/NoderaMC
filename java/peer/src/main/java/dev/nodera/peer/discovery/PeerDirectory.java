@@ -140,18 +140,6 @@ public final class PeerDirectory {
     }
 
     /**
-     * @param genesisHash the world.
-     * @param nodeId      the peer.
-     * @return the remembered entry, present even if stale (callers that care ask
-     *         {@link #online(Bytes, long)} instead).
-     * @Thread-context any thread.
-     */
-    public synchronized Optional<Known> lookup(Bytes genesisHash, NodeId nodeId) {
-        LinkedHashMap<NodeId, Known> world = worlds.get(genesisHash);
-        return world == null ? Optional.empty() : Optional.ofNullable(world.get(nodeId));
-    }
-
-    /**
      * Peers currently considered online in a world, sorted by node id so two directories with the
      * same knowledge answer identically.
      *

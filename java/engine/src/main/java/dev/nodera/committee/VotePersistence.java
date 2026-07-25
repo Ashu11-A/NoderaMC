@@ -40,24 +40,26 @@ public interface VotePersistence {
     void commit(QuorumCertificate certificate);
 
     /**
-     * Compatibility persistence for callers not yet wired to a durable store. Task-24 crash-safety
-     * paths must supply a real implementation.
+     * The no-op implementation: votes are kept in memory only, so a crash loses them. Correct for
+     * embeddings that do not claim crash-safety (tests, the simple constructor); the live worker
+     * wiring supplies a durable store instead — see {@code WorkerValidationService}'s crash-safe
+     * constructor.
      */
     static VotePersistence none() {
         return NoOpHolder.INSTANCE;
     }
 
-    /** Lazy singleton avoids one allocation per legacy committee member. */
+    /** Lazy singleton: one shared no-op rather than an allocation per committee member. */
     final class NoOpHolder {
         private static final VotePersistence INSTANCE = new VotePersistence() {
             @Override
             public void prepare(RegionExecutionRequest request, RegionExecutionResult result) {
-                // Compatibility only; live crash-safe paths inject durable persistence.
+                // Nothing to write: this implementation does not claim crash-safety.
             }
 
             @Override
             public void commit(QuorumCertificate certificate) {
-                // Compatibility only; live crash-safe paths inject durable persistence.
+                // Nothing to write: this implementation does not claim crash-safety.
             }
         };
 

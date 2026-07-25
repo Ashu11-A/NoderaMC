@@ -40,11 +40,6 @@ public record StorageQuotaManager(long budgetBytes, long usedBytes) {
     }
 
     /** @return a fresh manager at the default budget, empty. */
-    public static StorageQuotaManager defaultEmpty() {
-        return new StorageQuotaManager(DEFAULT_BUDGET_BYTES, 0L);
-    }
-
-    /** @return a fresh manager at the default budget, empty. */
     public StorageQuotaManager empty() {
         return new StorageQuotaManager(budgetBytes, 0L);
     }

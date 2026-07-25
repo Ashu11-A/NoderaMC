@@ -47,8 +47,4 @@ public record SessionView(long epoch, NodeId gatewayId, List<PeerEntry> members)
         return members.size();
     }
 
-    /** @return the sorted list of member node ids. */
-    public List<NodeId> memberIds() {
-        return members.stream().map(PeerEntry::nodeId).toList();
-    }
 }

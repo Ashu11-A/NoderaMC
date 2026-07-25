@@ -69,11 +69,6 @@ public final class DiagnosticsCollector {
         this(meter, counters, DEFAULT_RATE_SAMPLES, DEFAULT_RATE_WINDOW_NANOS);
     }
 
-    /** @return the shared traffic meter (for {@code MeteredPeerTransport}). */
-    public TrafficMeter trafficMeter() {
-        return meter;
-    }
-
     /** @return the shared per-type counters (for {@code PeerRuntime}). */
     public MessageCounters messageCounters() {
         return counters;

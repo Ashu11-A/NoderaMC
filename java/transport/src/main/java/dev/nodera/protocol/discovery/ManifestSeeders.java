@@ -50,11 +50,6 @@ public record ManifestSeeders(Bytes manifestRoot, List<NodeId> seeders) {
         seeders = List.copyOf(sorted);
     }
 
-    /** @return how many peers seed this manifest. */
-    public int seederCount() {
-        return seeders.size();
-    }
-
     @Override
     public String toString() {
         return "ManifestSeeders[" + manifestRoot.toShortHex(6) + " x" + seeders.size() + "]";

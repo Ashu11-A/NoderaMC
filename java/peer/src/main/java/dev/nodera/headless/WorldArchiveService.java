@@ -501,7 +501,7 @@ public final class WorldArchiveService implements AutoCloseable {
 
     /**
      * As {@link #fetchArchive}, from an explicit candidate-seeder set (routes must already be
-     * known via {@link #registerRoute} or learned traffic) — the tracker-free path for tests and
+     * known from the tracker or learned traffic) — the tracker-free path for tests and
      * pre-resolved callers.
      *
      * @Thread-context any thread except the runtime state thread (blocks).
@@ -650,11 +650,6 @@ public final class WorldArchiveService implements AutoCloseable {
     /** The content router: answers from tracker-learned + traffic-learned routes. */
     private PeerAddress routeOf(NodeId peer) {
         return routes.get(peer);
-    }
-
-    /** Register a known peer route explicitly (tests, or pre-resolved candidates). */
-    public void registerRoute(NodeId peer, PeerAddress address) {
-        routes.put(peer, address);
     }
 
     /** @return the underlying content endpoint (metrics, tests). */

@@ -40,9 +40,6 @@ public final class CompanionProtocol {
     /** Stop-hosting request. */
     public static final String STOP = ControlProtocol.STOP;
 
-    /** Author-only re-key request. */
-    public static final String PASSWORD = ControlProtocol.PASSWORD;
-
     /** Seed-world-archive request (continuity lane, host half). */
     public static final String SEED = ControlProtocol.SEED;
 

@@ -1,13 +1,15 @@
-# Live acceptance under Xvfb — the L-45 second-half deliverable: fold the scripted
-# world-continuity series (scripts/e2e-continuity.sh) into CI. The series boots the real Rust
-# tracker + rendezvous, two headless workers, and TWO real NeoForge clients on a virtual display,
-# then kills the host and asserts the joiner recovers + re-hosts the world.
+# Live acceptance under Xvfb — the L-45 deliverable, now ONE SUITE PER RUNNER.
 #
-# Heavy by design (two Minecraft clients): manual dispatch + nightly schedule, never per-push.
-# The pickup drive (scripts/e2e-pickup.sh, issue #33's clean-slate exactly-once exit) runs as a
-# second job with one client.
+# Every suite boots the real Rust tracker + rendezvous, headless workers, and real NeoForge
+# clients on a virtual display. They used to be grouped three-to-a-job and run back to back,
+# which made a job as slow as the sum of its suites and let one suite's leftovers reach the next
+# (a Gradle daemon holding the suite lock, a dedicated server still holding RCON). A matrix gives
+# each suite its own machine: the wall clock is the SLOWEST suite rather than the total, and
+# cross-suite interference is impossible by construction instead of by a lock.
 #
-# L-45 flips to RETIRED on this workflow's first green scheduled run — not before.
+# `fail-fast: false` on purpose — one red suite must not cancel the evidence from the others.
+#
+# Heavy by design (real Minecraft clients): manual dispatch + nightly schedule, never per-push.
 name: e2e-live
 on:
   workflow_dispatch:
@@ -15,53 +17,26 @@ on:
     - cron: '17 3 * * *'   # nightly, off-peak
 
 jobs:
-  continuity:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - name: Xvfb + GL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
-      - name: Build stack
-        run: |
-          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
-          ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
-      - name: Continuity series under Xvfb
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-continuity.sh --no-build
-      # The crash suite REUSES the NoderaE2E world the step above bakes, so it rides this job
-      # rather than re-baking in its own. Sequential by construction — one live suite at a time.
-      - name: Crash suite under Xvfb (survivor sees no disruption)
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-crash.sh --no-build
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-continuity-logs
-          path: |
-            run/logs/e2e-continuity/
-            run/results/e2e-continuity/
-            run/logs/e2e-crash/
-            run/results/e2e-crash/
-            java/neoforge-mod/run-host/logs/
-            java/neoforge-mod/run-join/logs/
-          if-no-files-found: ignore
-
-  pickup:
+  suite:
+    name: ${{ matrix.suite }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each entry is one scripts/e2e-<suite>.sh. Suites that reuse the shared NoderaE2E world
+        # bake it themselves — the launcher bakes on first use — so no entry depends on another.
+        suite:
+          - continuity          # host killed → joiner recovers and re-hosts
+          - crash               # a client SIGKILLed mid-session; the survivor sees nothing
+          - pickup              # clean-slate validated pickup, exactly once
+          - mobs                # ghost capture; revocation where the dimension never opted in
+          - pearl               # the pearl's ghost → flight → teleport
+          - password            # the live-join password gate (L-52)
+          - rekey               # the author changes the world password (L-51)
+          - commands            # every /nodera command + the in-game selftest
+          - farlands            # two players ~566 km apart; per-player chunk control
+          - ownership-follow    # ownership re-plans when the player crosses a region boundary
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -81,82 +56,19 @@ jobs:
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
-      - name: Clean-slate pickup drive under Xvfb
+      - name: ${{ matrix.suite }} under Xvfb
         run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-pickup.sh --no-build
-      # The live-join password gate (L-52): a passwordless joiner is refused at the game server,
-      # and the same client with the password joins. Rides this job — it is clean-slate too, and
-      # the live suites run strictly one at a time.
-      - name: Live-join password gate under Xvfb
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-password.sh --no-build
-      # The author re-keys the world (L-51): the worker seeds the new manifest, the OLD password is
-      # refused at the game server, and the NEW one joins.
-      - name: World password re-key under Xvfb
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-rekey.sh --no-build
+          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
+            scripts/e2e-${{ matrix.suite }}.sh --no-build
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-pickup-logs
+          name: e2e-${{ matrix.suite }}-logs
           path: |
-            run/logs/e2e-pickup/
-            run/results/e2e-pickup/
-            run/logs/e2e-password/
-            run/results/e2e-password/
-            run/logs/e2e-rekey/
-            run/results/e2e-rekey/
-            java/neoforge-mod/run-join/logs/
-            java/neoforge-mod/run-join2/logs/
-          if-no-files-found: ignore
-
-  # The command + far-apart suites: self-contained (clean-slate dedicated server + two joining
-  # clients, no baked world needed), so they share one job and run back to back — the live suites
-  # are strictly one at a time by construction.
-  commands:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: gradle/actions/setup-gradle@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - name: Xvfb + GL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
-      - name: Build stack
-        run: |
-          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
-          ./gradlew :peer:installDist :neoforge-mod:build -x test -x check
-      - name: Every /nodera command + the in-game selftest under Xvfb
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-commands.sh --no-build
-      - name: Far-apart chunk-ownership interrogation under Xvfb
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-farlands.sh --no-build
-      - name: Ownership follows the player under Xvfb
-        run: |
-          NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' scripts/e2e-ownership-follow.sh --no-build
-      - name: Upload logs + reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-commands-farlands-logs
-          path: |
-            run/logs/e2e-commands/
-            run/logs/e2e-farlands/
-            run/results/e2e-commands/
-            run/results/e2e-farlands/
-            run/logs/e2e-ownership-follow/
-            run/results/e2e-ownership-follow/
+            run/logs/e2e-${{ matrix.suite }}/
+            run/results/e2e-${{ matrix.suite }}/
+            java/neoforge-mod/run-host/logs/
             java/neoforge-mod/run-join/logs/
             java/neoforge-mod/run-join2/logs/
           if-no-files-found: ignore

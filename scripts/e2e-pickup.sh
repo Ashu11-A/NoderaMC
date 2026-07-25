@@ -44,7 +44,7 @@ pass "P1/P2: players in-world, entity lane live"
 
 log "P2: parking JoinerTwo at ($PARK_X, $PARK_Z) — it must not race the pickup"
 rcon "gamemode creative JoinerTwo" >/dev/null
-rcon "execute in minecraft:overworld run tp JoinerTwo $PARK_X 200 $PARK_Z" >/dev/null
+tp_player JoinerTwo "$PARK_X" 200 "$PARK_Z" >/dev/null
 sleep 12  # let the park's ownership re-plan settle before the drive
 
 # ---------------------------------------------------------------------------

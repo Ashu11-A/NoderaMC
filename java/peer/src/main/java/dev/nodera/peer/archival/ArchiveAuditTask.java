@@ -5,7 +5,6 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.peer.discovery.ArchiveInventory;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -138,35 +137,5 @@ public final class ArchiveAuditTask {
             }
         }
         return new AuditResult(expected, List.copyOf(targets), missing);
-    }
-
-    /**
-     * Convenience: audit every manifest the inventory knows in a world.
-     *
-     * @param world          the genesis hash.
-     * @param pieceCountOf   maps a manifest root to its piece count.
-     * @param objectClassOf  maps a manifest root to its content class.
-     * @param eligible       live peers.
-     * @param fullArchive    the host subset.
-     * @param inventory      the live holdings.
-     * @return one audit result per known manifest.
-     * @Thread-context any thread.
-     */
-    public Map<Bytes, AuditResult> auditWorld(
-            Bytes world,
-            java.util.function.Function<Bytes, Integer> pieceCountOf,
-            java.util.function.Function<Bytes, ArchiveObjectClass> objectClassOf,
-            List<NodeId> eligible,
-            Set<NodeId> fullArchive,
-            ArchiveInventory inventory) {
-        Objects.requireNonNull(world, "world");
-        Map<Bytes, AuditResult> out = new LinkedHashMap<>();
-        for (Bytes manifestRoot : inventory.manifestsOfWorld(world).keySet()) {
-            out.put(manifestRoot, audit(manifestRoot,
-                    pieceCountOf.apply(manifestRoot),
-                    objectClassOf.apply(manifestRoot),
-                    eligible, fullArchive, inventory));
-        }
-        return java.util.Collections.unmodifiableMap(out);
     }
 }
