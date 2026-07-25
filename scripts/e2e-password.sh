@@ -55,14 +55,10 @@ grep -qa "JoinerDev" <<<"$players" \
     && fail "W1: the refused joiner is in the player list: $players"
 pass "W1: refused at the game server — no player, no world, no gameplay"
 
-# The refused client stays up on its disconnect screen, and W2 reuses its game dir — wait for it
-# to actually be gone rather than racing its session lock.
-kill -- -"$NOPW_PID" 2>/dev/null || kill "$NOPW_PID" 2>/dev/null
-pkill -f RunProgramArgs 2>/dev/null
-gone=0
-while (( gone < 30 )) && pgrep -f RunProgramArgs >/dev/null 2>&1; do
-    sleep 2; gone=$((gone + 2))
-done
+# The refused client stays up on its disconnect screen, and W2 reuses its game dir — stop THAT
+# client (only it: the dedicated server must keep listening for W2) and wait for it to be gone
+# rather than racing its session lock.
+stop_client clientJoin "$NOPW_PID"
 sleep 3
 
 # --- W2: the same client WITH the password joins ----------------------------------------------

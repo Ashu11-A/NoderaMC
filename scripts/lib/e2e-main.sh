@@ -665,6 +665,26 @@ start_dedicated_server() { # log-file (defaults to $LOG_DIR/server.log)
     PIDS+=("$SERVER_PID")
 }
 
+# stop_client <mdg-run-id> [gradle-wrapper-pid] — stop ONE client and wait for it to be gone.
+#
+# The run id is MDG's per-run token (clientJoin, clientJoinTwo, clientHost, …), which appears in
+# that JVM's command line as "<run>RunProgramArgs". Matching it is the whole point: a bare
+# `pkill -f RunProgramArgs` also kills the dedicated SERVER, and the next stage then dials a game
+# port nothing is listening on — a "the joiner never joined" failure with an innocent client.
+#
+# The game JVM is a child of the GRADLE DAEMON, not of the wrapper this harness started, so killing
+# the wrapper's process group is not enough on its own.
+stop_client() {
+    local run="$1" pid="${2:-}" waited=0
+    if [[ -n "$pid" ]]; then
+        kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null
+    fi
+    pkill -f -- "${run}RunProgramArgs" 2>/dev/null
+    while (( waited < 30 )) && pgrep -f -- "${run}RunProgramArgs" >/dev/null 2>&1; do
+        sleep 2; waited=$((waited + 2))
+    done
+}
+
 start_client() { # gradle-run-task log-file
     ( cd "$NODERA_ROOT" && exec setsid ./gradlew ":neoforge-mod:$1" --console=plain \
         >"$2" 2>&1 ) &

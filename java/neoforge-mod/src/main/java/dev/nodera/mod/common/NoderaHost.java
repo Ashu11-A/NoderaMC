@@ -559,6 +559,12 @@ public final class NoderaHost {
                 }
                 LOG.info("Nodera: password re-key complete for '{}' (new manifest root {})",
                         server.getWorldData().getLevelName(), reSigned.manifestRef().toShortHex(8));
+                // The new password is in force from here: the reported options must say so (the next
+                // change compares against them), and the live-join gate must test the NEW password —
+                // otherwise "joiners must use the new password" would be true of the archive and
+                // false of the game server, which is the exact split L-52 closed.
+                NoderaPeerService.get().updateHostOptions(options);
+                armJoinGate(currentId.worldId(), options, server.getWorldData().getLevelName());
                 tellHost(server, "Nodera: password changed — joiners must use the new password.");
                 return;
             }

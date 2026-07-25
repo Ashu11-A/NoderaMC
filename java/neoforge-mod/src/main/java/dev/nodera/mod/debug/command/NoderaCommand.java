@@ -53,7 +53,13 @@ public final class NoderaCommand {
                         .requires(s -> s.hasPermission(OP_LEVEL))
                         .executes(NoderaCommand::shareStart)
                         .then(literal("stop").executes(NoderaCommand::shareStop))
-                        .then(literal("status").executes(NoderaCommand::shareStatus)))
+                        .then(literal("status").executes(NoderaCommand::shareStatus))
+                        // L-51: the author changes the world password. The Share screen drives the
+                        // same NoderaHost.reconfigure; a dedicated server has no screen at all, and
+                        // neither does a scripted run.
+                        .then(literal("password")
+                                .then(argument("new", StringArgumentType.string())
+                                        .executes(NoderaCommand::sharePassword))))
                 .then(literal("worlds").executes(NoderaCommand::worlds))
                 .then(literal("session").executes(CommandTree.panel(snap, ViewBuilder::sessionPanel)))
                 .then(literal("status").executes(CommandTree.panel(snap, ViewBuilder::sessionPanel))) // alias
@@ -144,6 +150,42 @@ public final class NoderaCommand {
         dev.nodera.mod.common.NoderaHost.deactivate(server);
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "Stopped sharing '" + server.getWorldData().getLevelName() + "'"), true);
+        return 1;
+    }
+
+    /**
+     * {@code /nodera share password <new>} — re-key the shared world (op, author only).
+     *
+     * <p>A password change is a full re-key, never an in-place edit: the save is re-packed and
+     * re-encrypted under a fresh salt, the manifest root changes, the identity is re-signed, and the
+     * world is re-announced. Only the world's author may do it, and the outcome is reported — this
+     * command reports what {@link dev.nodera.mod.common.NoderaHost#reconfigure} decided, never a
+     * cheerful "done" over a failure.
+     */
+    private static int sharePassword(CommandContext<CommandSourceStack> ctx) {
+        var server = ctx.getSource().getServer();
+        var svc = dev.nodera.mod.common.NoderaPeerService.get();
+        dev.nodera.mod.common.ShareOptions current = svc.hostOptions();
+        if (!svc.isHosting() || current == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "Not sharing this world — nothing to re-key."));
+            return 0;
+        }
+        if (!dev.nodera.mod.common.NoderaHost.localWorkerIsAuthor(server)) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "Only the world's author may change its password."));
+            return 0;
+        }
+        String next = StringArgumentType.getString(ctx, "new");
+        if (next.equals(current.password())) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "That is already this world's password."));
+            return 0;
+        }
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "Nodera: re-keying '" + server.getWorldData().getLevelName()
+                        + "' — every seeder re-fetches and joiners need the new password."), true);
+        dev.nodera.mod.common.NoderaHost.reconfigure(server, current.withPassword(next));
         return 1;
     }
 
