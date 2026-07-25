@@ -3,11 +3,14 @@ package dev.nodera.core.region;
 import dev.nodera.core.identity.NodeId;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * Computes decentralized region ownership from the current set of player views — no coordinator, no
@@ -33,7 +36,7 @@ public final class ViewOwnershipPlanner {
     }
 
     /**
-     * Plan region ownership for a snapshot of player views.
+     * Plan region ownership for a snapshot of player views, with no resident validators.
      *
      * @param views           each peer's ({@link NodeId}) current field-of-view disc.
      * @param maxCommitteeSize the committee cap (primary + up to {@code size-1} validators), e.g.
@@ -41,8 +44,48 @@ public final class ViewOwnershipPlanner {
      * @return region → {@link RegionClaim}, keyed in deterministic {@link RegionId} order.
      */
     public static Map<RegionId, RegionClaim> plan(Map<NodeId, PlayerView> views, int maxCommitteeSize) {
+        return plan(views, maxCommitteeSize, List.of());
+    }
+
+    /**
+     * Plan region ownership, topping every committee up from a pool of <b>resident validators</b>.
+     *
+     * <p>A resident validator is a session member that holds no {@link PlayerView} — an always-on
+     * headless peer. It can never be a region's {@code primary} (primacy is geometric: it belongs
+     * to the nearest player, and a peer with no view is nowhere), but it can fill the validator
+     * seats that player geometry leaves empty. That is the difference between a committee whose
+     * size is dictated by how many humans happen to be standing near each other and one that is
+     * always staffed:
+     *
+     * <pre>
+     *   1 player, no residents   → committee of 1  (the player validates its own work)
+     *   1 player, 2 residents    → committee of 3  (two independent re-executions)
+     * </pre>
+     *
+     * <p>Determinism is preserved: residents are appended in {@link NodeId} order after the
+     * geometric coverers, so every peer holding the same views and the same resident set derives
+     * a byte-identical plan with no coordination — the same property the pure-geometry plan has.
+     *
+     * @param views             each peer's current field-of-view disc.
+     * @param maxCommitteeSize  the committee cap (primary + up to {@code size-1} validators).
+     * @param residentValidators playerless members eligible for leftover validator seats; entries
+     *                          that also appear in {@code views} are ignored (a player's own node
+     *                          is already ranked geometrically).
+     * @return region → {@link RegionClaim}, keyed in deterministic {@link RegionId} order.
+     */
+    public static Map<RegionId, RegionClaim> plan(Map<NodeId, PlayerView> views, int maxCommitteeSize,
+                                                  Collection<NodeId> residentValidators) {
         if (maxCommitteeSize < 1) {
             throw new IllegalArgumentException("maxCommitteeSize must be >= 1, got " + maxCommitteeSize);
+        }
+        // Deterministic, de-duplicated, and never overlapping the geometric ranking.
+        Set<NodeId> residents = new TreeSet<>(NODE_ORDER);
+        if (residentValidators != null) {
+            for (NodeId id : residentValidators) {
+                if (id != null && !views.containsKey(id)) {
+                    residents.add(id);
+                }
+            }
         }
 
         // region → list of (nodeId, distanceSq) coverers. TreeMap keeps regions in a stable order.
@@ -72,6 +115,19 @@ public final class ViewOwnershipPlanner {
             for (int i = 1; i < cs.size() && validators.size() < maxCommitteeSize - 1; i++) {
                 validators.add(cs.get(i).node());
             }
+            // Seats player geometry left empty go to the always-on residents, in NodeId order.
+            // The primary can never be a resident — it is cs.get(0), a covering player — so the
+            // "nearest player owns what they see" rule is untouched; residents only witness.
+            for (NodeId resident : residents) {
+                if (validators.size() >= maxCommitteeSize - 1) {
+                    break;
+                }
+                if (!resident.equals(primary) && !validators.contains(resident)) {
+                    validators.add(resident);
+                }
+            }
+            // coverCount stays the number of PLAYERS that see the region — residents witness it,
+            // they do not see it, and isSoloOwned() must keep meaning "only one player is here".
             plan.put(region, new RegionClaim(region, primary, validators, cs.size()));
         }
         return plan;

@@ -49,7 +49,7 @@ public final class NoderaMultiplayerScreen extends Screen {
     private static volatile Supplier<List<TrackerEndpointStatus>> trackerSupplier = List::of;
     private static volatile Supplier<List<RendezvousEndpointStatus>> rendezvousSupplier = List::of;
     private static volatile Function<String, PieceMap> pieceMapSource =
-            name -> PieceMapView.map(name, List.of(), 0);
+            name -> PieceMapView.map(name, List.of(), 0, 0);
     private static volatile BiConsumer<TorrentWorldEntry, Screen> joinHandler =
             NoderaJoinFlow::join;
     private static volatile Runnable refreshHandler = () -> {};
@@ -131,6 +131,10 @@ public final class NoderaMultiplayerScreen extends Screen {
                         TorrentWorldEntry sel = worldList == null ? null : worldList.selectedWorld();
                         if (sel != null && this.minecraft != null) {
                             String name = sel.name();
+                            // Point the feed at this world BEFORE opening the screen, so the first
+                            // frame already has a fetch in flight instead of an empty grid that
+                            // fills in a poll later.
+                            PieceMapFeed.watch(sel);
                             this.minecraft.setScreen(new PieceMapScreen(this,
                                     () -> pieceMapSource.apply(name)));
                         }

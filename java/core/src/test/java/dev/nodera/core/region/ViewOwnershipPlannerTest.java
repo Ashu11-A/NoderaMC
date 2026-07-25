@@ -5,6 +5,7 @@ import dev.nodera.core.identity.NodeId;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -118,5 +119,95 @@ final class ViewOwnershipPlannerTest {
     @Test
     void emptyViewsProduceEmptyPlan() {
         assertThat(ViewOwnershipPlanner.plan(Map.of(), NoderaConstants.QUORUM_MVP_SIZE)).isEmpty();
+    }
+
+    // ---- resident validators: the always-on peers that staff committees ----------------------
+
+    @Test
+    void residentValidatorsStaffASoloPlayersCommitteeWithoutEverBecomingPrimary() {
+        NodeId alice = node(1);
+        NodeId workerA = node(50);
+        NodeId workerB = node(51);
+        PlayerView view = viewAtChunk(0, 0, 6);
+        Map<NodeId, PlayerView> views = Map.of(alice, view);
+
+        Map<RegionId, RegionClaim> plan = ViewOwnershipPlanner.plan(
+                views, NoderaConstants.QUORUM_MVP_SIZE, List.of(workerA, workerB));
+
+        assertThat(plan).isNotEmpty();
+        assertThat(plan.values()).allSatisfy(claim -> {
+            // Primacy stays geometric: the only player present owns everything it sees.
+            assertThat(claim.primary()).isEqualTo(alice);
+            // ...but the seats player geometry left empty are now staffed.
+            assertThat(claim.validators()).containsExactly(workerA, workerB);
+            assertThat(claim.committee()).hasSize(NoderaConstants.QUORUM_MVP_SIZE);
+            // A resident witnesses the region; it does not SEE it.
+            assertThat(claim.coverCount()).isEqualTo(1);
+            assertThat(claim.isSoloOwned()).isTrue();
+        });
+    }
+
+    @Test
+    void playersAlwaysOutrankResidentsForTheRemainingSeats() {
+        NodeId alice = node(1);
+        NodeId bob = node(2);
+        NodeId worker = node(50);
+        PlayerView aliceView = viewAtChunk(3, 3, 6);
+        PlayerView bobView = viewAtChunk(20, 3, 16);
+        Map<NodeId, PlayerView> views = new LinkedHashMap<>();
+        views.put(alice, aliceView);
+        views.put(bob, bobView);
+
+        Map<RegionId, RegionClaim> plan = ViewOwnershipPlanner.plan(
+                views, 2, List.of(worker));
+
+        // Committee cap of 2 = primary + ONE validator, and the covering player takes it.
+        RegionClaim shared = plan.get(new RegionId(OW, 0, 0));
+        assertThat(shared).isNotNull();
+        assertThat(shared.primary()).isEqualTo(alice);
+        assertThat(shared.validators()).containsExactly(bob);
+        assertThat(shared.validators()).doesNotContain(worker);
+    }
+
+    @Test
+    void aResidentThatIsAlsoAPlayerIsNotSeatedTwice() {
+        NodeId alice = node(1);
+        PlayerView view = viewAtChunk(0, 0, 6);
+        Map<NodeId, PlayerView> views = Map.of(alice, view);
+
+        // alice is passed as a resident too — she must not appear as her own validator.
+        Map<RegionId, RegionClaim> plan = ViewOwnershipPlanner.plan(
+                views, NoderaConstants.QUORUM_MVP_SIZE, List.of(alice, node(50)));
+
+        assertThat(plan.values()).allSatisfy(claim -> {
+            assertThat(claim.primary()).isEqualTo(alice);
+            assertThat(claim.validators()).containsExactly(node(50));
+        });
+    }
+
+    @Test
+    void residentStaffingIsDeterministicRegardlessOfInputOrder() {
+        NodeId alice = node(1);
+        Map<NodeId, PlayerView> views = Map.of(alice, viewAtChunk(0, 0, 6));
+
+        Map<RegionId, RegionClaim> first = ViewOwnershipPlanner.plan(
+                views, NoderaConstants.QUORUM_MVP_SIZE, List.of(node(51), node(50)));
+        Map<RegionId, RegionClaim> second = ViewOwnershipPlanner.plan(
+                views, NoderaConstants.QUORUM_MVP_SIZE, List.of(node(50), node(51)));
+
+        // Same views + same resident SET → byte-identical plan, which is what lets every peer
+        // derive the committee independently instead of being told.
+        assertThat(first).isEqualTo(second);
+        assertThat(first.values()).allSatisfy(c ->
+                assertThat(c.validators()).containsExactly(node(50), node(51)));
+    }
+
+    @Test
+    void noResidentsLeavesThePureGeometryPlanUntouched() {
+        NodeId alice = node(1);
+        Map<NodeId, PlayerView> views = Map.of(alice, viewAtChunk(0, 0, 6));
+
+        assertThat(ViewOwnershipPlanner.plan(views, NoderaConstants.QUORUM_MVP_SIZE, List.of()))
+                .isEqualTo(ViewOwnershipPlanner.plan(views, NoderaConstants.QUORUM_MVP_SIZE));
     }
 }

@@ -29,8 +29,19 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-uti
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1.0"
+# The worker sends a world's piece bitmap base64-encoded; the Pieces grid decodes it.
+base64 = "0.22"
 # System + per-process RAM/CPU sampling for the dashboard's resource tiles.
 sysinfo = "0.30"
+# Host power state for the battery rules (src/power.rs). The decision itself is a pure function, so
+# the crate is only ever asked "is there a battery, is it discharging, how full" — a machine without
+# one simply reports none and every power rule goes inert.
+starship-battery = "0.10"
+
+[dev-dependencies]
+# `test-util` gives the control-socket tests a paused clock, so the read-timeout test proves the
+# timeout fires without spending five real seconds doing it.
+tokio = { version = "1", features = ["test-util"] }
 
 [features]
 default = ["custom-protocol"]

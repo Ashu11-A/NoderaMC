@@ -143,6 +143,9 @@ public final class ControlServer implements AutoCloseable {
             if (ControlProtocol.HOST.equals(verb)) {
                 return ackOrErr(handler.host(arg(parts, 2), arg(parts, 3), rest(line, 4)));
             }
+            if (ControlProtocol.MESH.equals(verb)) {
+                return ackOrErr(handler.mesh(arg(parts, 2), arg(parts, 3)));
+            }
             if (ControlProtocol.JOIN.equals(verb)) {
                 return ackOrErr(handler.join(arg(parts, 2)));
             }
@@ -154,6 +157,11 @@ public final class ControlServer implements AutoCloseable {
             }
             if (ControlProtocol.STATUS.equals(verb)) {
                 return handler.statusJson(arg(parts, 2));
+            }
+            if (ControlProtocol.PIECES.equals(verb)) {
+                // NODERA-PIECES <ver> <worldIdHex>
+                String pieces = handler.piecesJson(arg(parts, 2));
+                return pieces == null ? err("no piece data for world") : pieces;
             }
             if (ControlProtocol.SEED.equals(verb)) {
                 // NODERA-SEED <ver> <worldId> <archivePathB64>
@@ -188,6 +196,17 @@ public final class ControlServer implements AutoCloseable {
                         arg(parts, 5));
                 return reKeyed == null ? err("archive lane unavailable")
                         : ControlProtocol.OK + " " + reKeyed;
+            }
+            if (ControlProtocol.CONFIG.equals(verb)) {
+                // NODERA-CONFIG <ver> [<configJsonB64>] — with a payload it is a set, without one
+                // it is a read of the effective config. Both answer in the JSON family (a raw JSON
+                // line like STATE/PIECES), so the app parses one shape either way.
+                String payload = arg(parts, 2);
+                String json = payload.isEmpty() ? handler.readConfig() : handler.applyConfig(payload);
+                // null means "this worker has no configuration plane". Declining loudly is the
+                // point: a silent OK here would let the app badge settings as enforced that the
+                // worker never even saw.
+                return json == null ? err("unsupported") : json;
             }
             return err("unknown verb");
         } catch (RuntimeException e) {

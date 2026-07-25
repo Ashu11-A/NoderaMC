@@ -45,6 +45,17 @@ import java.util.concurrent.ConcurrentHashMap;
  * the requester's downloader already handles a missing response by re-selecting another holder, so
  * back-pressure needs no extra wire message.
  *
+ * <h2>The bounds are live</h2>
+ *
+ * <p>Both serve bounds, the request budget, and the pause flag are settable at runtime
+ * ({@link #setServeBounds}, {@link #setDownloadBandwidthBudget}, {@link #setTransfersPaused}) —
+ * this class is the seam the companion app's {@code NODERA-CONFIG} push lands on. It is the whole
+ * reason a bandwidth setting in the UI can change what the node does without restarting it.
+ *
+ * <p>The download budget is <b>request pacing, not shaping</b>: it is checked before a request is
+ * emitted, because a chunk's bytes have already crossed the wire by the time it arrives. See
+ * {@link #setDownloadBandwidthBudget}.
+ *
  * <h2>Trust</h2>
  *
  * <p>The service verifies everything it stores locally ({@link #seedPiece}) and everything it
@@ -95,8 +106,21 @@ public final class ContentTransferService implements MessageHandler {
     private final PeerTransport transport;
     private final ContentStore contentStore;
     private final PeerRouter router;
-    private final int serveMaxInflight;
-    private final long serveBandwidthBudget;
+    /**
+     * Runtime-adjustable serve bounds (the {@code NODERA-CONFIG} seam). Volatile rather than final
+     * because the companion app pushes new values into a live worker; a serve in progress finishes
+     * under whichever value it read, which is fine — the bound is a rate limit, not an invariant.
+     */
+    private volatile int serveMaxInflight;
+    private volatile long serveBandwidthBudget;
+    /**
+     * The single switch behind "pause transfers": the manual pause, the tray toggle, and the
+     * battery rules all end up setting this one flag. Checked on both directions (serving and
+     * requesting) so a paused node stops moving bytes rather than merely stopping new downloads.
+     */
+    private volatile boolean transfersPaused;
+    /** Bytes this peer may <b>request</b> per window; {@code 0} = unbounded (the default). */
+    private volatile long downloadBandwidthBudget;
 
     private final Map<Bytes, LocalContent> local = new ConcurrentHashMap<>();
     private final Map<Bytes, PieceDownloader> downloads = new ConcurrentHashMap<>();
@@ -104,6 +128,8 @@ public final class ContentTransferService implements MessageHandler {
     private long servedBytesThisWindow;
     private long servedPieces;
     private long throttledRequests;
+    private long requestedBytesThisWindow;
+    private long pacedRequests;
 
     /**
      * Create a service with default bounds.
@@ -151,6 +177,80 @@ public final class ContentTransferService implements MessageHandler {
         }
         this.serveMaxInflight = serveMaxInflight;
         this.serveBandwidthBudget = serveBandwidthBudget;
+    }
+
+    // --- runtime configuration (the NODERA-CONFIG seam) -------------------------------------
+
+    /**
+     * Re-bound the serve path while the node is running.
+     *
+     * <p>Unlike the constructor — which rejects a non-positive bound, because a service
+     * <i>created</i> unable to serve is a configuration mistake — this setter deliberately accepts
+     * {@code 0} for either bound, meaning "serve nothing". That is a legitimate operator choice
+     * (upload cap dragged to zero, seeding paused) and expressing it as a bound rather than as a
+     * separate flag keeps one code path in {@link #serve}. Negative values are clamped to zero.
+     *
+     * @param maxInflight     max pieces answered per request message; {@code 0} answers none.
+     * @param bandwidthBudget max bytes served per window; {@code 0} serves none.
+     * @Thread-context any thread; takes effect on the next request served.
+     */
+    public void setServeBounds(int maxInflight, long bandwidthBudget) {
+        this.serveMaxInflight = Math.max(0, maxInflight);
+        this.serveBandwidthBudget = Math.max(0L, bandwidthBudget);
+    }
+
+    /** @return the current cap on pieces answered per request message. */
+    public int serveMaxInflight() {
+        return serveMaxInflight;
+    }
+
+    /** @return the current cap on bytes served per window. */
+    public long serveBandwidthBudget() {
+        return serveBandwidthBudget;
+    }
+
+    /**
+     * Stop (or resume) moving content bytes in <b>both</b> directions.
+     *
+     * <p>Paused means: no {@link ContentChunk} is emitted for any request, and no piece request is
+     * issued. It does not tear down connections, forget holdings, or fail in-flight downloads — the
+     * swarm is designed around silently-dropped requests (a bounded seeder already drops them), so
+     * a pause is indistinguishable from a busy peer to everyone else and resumes without any
+     * renegotiation.
+     *
+     * @param paused whether transfers are suspended.
+     * @Thread-context any thread; takes effect on the next serve/request.
+     */
+    public void setTransfersPaused(boolean paused) {
+        this.transfersPaused = paused;
+    }
+
+    /** @return whether transfers are currently suspended. */
+    public boolean transfersPaused() {
+        return transfersPaused;
+    }
+
+    /**
+     * Bound how many bytes this peer <b>asks for</b> per window — download pacing.
+     *
+     * <p>Honest about what this is: it is <b>request pacing, not TCP-level shaping</b>. The check
+     * happens before a {@link ContentRequest} leaves, because by the time a {@link ContentChunk} is
+     * received its bytes have already crossed the wire and no decision here can un-spend them.
+     * Consequently the achieved rate tracks the budget with an overshoot of up to one piece per
+     * window (a request is admitted whenever any credit remains, then charged in full), and it
+     * cannot bound traffic this peer did not ask for. Claiming otherwise would require a custom
+     * transport.
+     *
+     * @param bytesPerWindow bytes requestable per window; {@code 0} disables the bound entirely.
+     * @Thread-context any thread; takes effect on the next request issued.
+     */
+    public void setDownloadBandwidthBudget(long bytesPerWindow) {
+        this.downloadBandwidthBudget = Math.max(0L, bytesPerWindow);
+    }
+
+    /** @return the current per-window request budget in bytes; {@code 0} = unbounded. */
+    public long downloadBandwidthBudget() {
+        return downloadBandwidthBudget;
     }
 
     // --- seeding ---------------------------------------------------------------------------
@@ -310,6 +410,18 @@ public final class ContentTransferService implements MessageHandler {
     }
 
     private void sendRequest(NodeId holder, ContentRequest request) {
+        // Both gates drop the request WITHOUT calling onRequestFailed: that callback re-pumps the
+        // downloader immediately, which under a standing pause or an exhausted budget would spin a
+        // request/fail loop at full CPU. A silently-dropped request is already the swarm's normal
+        // back-pressure signal (a bounded seeder does exactly this), and the caller's stall
+        // detection — WorldArchiveService's retryPending() nudge — recovers it once transfers
+        // resume. The cost is a bounded wait, never a lost download.
+        if (transfersPaused) {
+            return;
+        }
+        if (!admitRequestBytes(request)) {
+            return;
+        }
         PeerAddress address = router.addressOf(holder);
         if (address != null) {
             try {
@@ -329,6 +441,39 @@ public final class ContentTransferService implements MessageHandler {
                 downloader.onRequestFailed(holder, index);
             }
         }
+    }
+
+    /**
+     * Charge a request against the download budget. Returns {@code true} (and spends the credit)
+     * when the request may go out.
+     *
+     * <p>{@link PieceDownloader} bounds the request <i>count</i> ({@code maxInflight}); this bounds
+     * the bytes those requests will pull. Admission is "any credit left" rather than "enough credit
+     * for this piece" so that a budget smaller than one piece still makes progress instead of
+     * deadlocking the download — the documented ±one-piece-per-window overshoot.
+     */
+    private boolean admitRequestBytes(ContentRequest request) {
+        long budget = downloadBandwidthBudget;
+        if (budget <= 0) {
+            return true; // unbounded
+        }
+        LocalContent content = local.get(request.manifestRoot());
+        long bytes = 0;
+        if (content != null) {
+            for (Integer index : request.pieceIndexes()) {
+                if (index >= 0 && index < content.manifest.pieceCount()) {
+                    bytes += content.manifest.piece(index).length();
+                }
+            }
+        }
+        synchronized (this) {
+            if (requestedBytesThisWindow >= budget) {
+                pacedRequests++;
+                return false;
+            }
+            requestedBytesThisWindow += bytes;
+        }
+        return true;
     }
 
     // --- transport handler -----------------------------------------------------------------
@@ -364,6 +509,15 @@ public final class ContentTransferService implements MessageHandler {
     }
 
     private void serve(PeerAddress to, ContentRequest request) {
+        // The pause gate sits at the very top: a paused node answers nothing at all, so no chunk
+        // can escape via an early-exit path added later. Counted as a throttled request because
+        // that is exactly what it is from the requester's point of view.
+        if (transfersPaused) {
+            synchronized (this) {
+                throttledRequests++;
+            }
+            return;
+        }
         LocalContent content = local.get(request.manifestRoot());
         if (content == null) {
             return;
@@ -422,6 +576,27 @@ public final class ContentTransferService implements MessageHandler {
      */
     public synchronized void resetServeWindow() {
         servedBytesThisWindow = 0;
+    }
+
+    /**
+     * Open a new <i>download</i> window, restoring the request budget. Driven by the same caller
+     * tick as {@link #resetServeWindow()} (the archive lane's 1 s scheduler), which is what turns
+     * "bytes per window" into "bytes per second" without this class ever reading a clock.
+     *
+     * @Thread-context any thread.
+     */
+    public synchronized void resetDownloadWindow() {
+        requestedBytesThisWindow = 0;
+    }
+
+    /** @return bytes this peer has asked for in the current download window. */
+    public synchronized long requestedBytesThisWindow() {
+        return requestedBytesThisWindow;
+    }
+
+    /** @return how many piece requests were withheld by the download budget (request pacing). */
+    public synchronized long pacedRequests() {
+        return pacedRequests;
     }
 
     /** @return bytes served in the current window. */

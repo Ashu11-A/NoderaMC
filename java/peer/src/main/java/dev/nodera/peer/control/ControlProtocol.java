@@ -107,6 +107,96 @@ public final class ControlProtocol {
      */
     public static final String REKEY = "NODERA-REKEY";
 
+    /**
+     * Join the hosting world's live P2P membership session, so this always-on worker becomes a
+     * real member of it rather than a bystander on its own session of one:
+     * {@code NODERA-MESH <ver> <bootstrapRoute> [worldSeed]} where {@code bootstrapRoute} is the
+     * hosting game's advertised P2P route ({@code host:port}) and the optional {@code worldSeed}
+     * binds the worker's validation lane to that world. Reply {@code NODERA-OK}, or
+     * {@code NODERA-ERR <reason>} — never silent success.
+     *
+     * <p>The seed is not decoration: it feeds the deterministic RNG the region engine re-executes
+     * with, so a worker validating on the wrong seed computes different roots and votes against
+     * every batch. It is omitted when the caller only wants membership (session health) and has no
+     * world loaded yet.
+     *
+     * <p>This is the verb that lets a world be served by peers instead of by whoever happens to be
+     * logged in: once the worker is a member it is counted in session health, it is eligible for
+     * committee seats it is then handed via {@code RegionAssigned}, and it can win the gateway
+     * election when the hosting game exits. An empty route detaches the worker from the session.
+     *
+     * <p>Additive verb — an older worker answers {@code NODERA-ERR unknown verb}, which callers
+     * treat as "this worker cannot be a session member".
+     */
+    public static final String MESH = "NODERA-MESH";
+
+    /**
+     * The per-world piece picture behind the torrent-style piece map, in the Minecraft client and
+     * the companion app alike: {@code NODERA-PIECES <ver> <worldIdHex>}. Reply is one JSON line
+     *
+     * <pre>
+     * {"world_id":"…","manifest_root":"…","version":3,"piece_count":128,
+     *  "held_count":128,"total_bytes":11534336,"held_bitmap":"&lt;base64 of the piece BitSet&gt;",
+     *  "holders":["&lt;nodeId&gt;", …]}
+     * </pre>
+     *
+     * <p>{@code held_bitmap} is little-endian bit-per-piece ({@link java.util.BitSet#toByteArray()}):
+     * bit <i>i</i> set means piece <i>i</i> is present locally <b>and</b> passed its hash check —
+     * never "requested". {@code holders} is who else is believed to hold some of this world, which
+     * is the "peers sharing this world" count.
+     *
+     * <p>Additive verb — a worker predating it answers {@code NODERA-ERR unknown verb}, which
+     * callers treat as "no piece data available" and render an empty map rather than an error.
+     */
+    public static final String PIECES = "NODERA-PIECES";
+
+    /**
+     * Push (or read back) the worker's runtime configuration — the verb that turns the companion
+     * app's Settings screen from a file nothing reads into something that changes what this node
+     * actually does.
+     *
+     * <pre>
+     *   NODERA-CONFIG &lt;ver&gt; &lt;configJsonB64&gt;   → set, reply is the outcome JSON
+     *   NODERA-CONFIG &lt;ver&gt;                    → read the effective config, reply is one JSON line
+     * </pre>
+     *
+     * <h2>Why base64</h2>
+     * {@code ControlServer.dispatch} splits the request line on {@code \s+}, so any payload
+     * containing a space would be silently truncated. Base64's alphabet contains no whitespace, so
+     * the encoding makes that corruption <b>impossible by construction</b> rather than merely
+     * unlikely — the same reason {@link #SEED}, {@link #PASSWORD} and {@link #REKEY} already carry
+     * base64. (Trailing raw JSON via a {@code rest()} read would also work, but only until someone
+     * pretty-prints the payload.)
+     *
+     * <h2>Why the version token is not bumped</h2>
+     * The verb is purely additive: {@code dispatch} ignores index 1, and an older worker answers
+     * {@code NODERA-ERR unknown verb} — which the app renders as "this worker is older than the
+     * app". Bumping {@link #PROTOCOL_VERSION} would force the mod's {@code CompanionProtocol} to
+     * move in lockstep for a change it does not participate in, and would break the probe of every
+     * already-installed worker for no benefit.
+     *
+     * <h2>The reply shape is load-bearing</h2>
+     * A set replies with one JSON line (the {@link #STATE}/{@link #PIECES} family — raw JSON, not
+     * an {@code NODERA-OK} prefix):
+     *
+     * <pre>
+     * {"applied":["network.max_upload_bytes_per_sec","behavior.transfers_paused"],
+     *  "restart_required":["network.port_range"],
+     *  "rejected":{"network.max_connections_per_world":"the transport has no world dimension"}}
+     * </pre>
+     *
+     * <p>The app decides its per-setting "enforced" badge <b>from this reply</b> and from nothing
+     * else, so a key must appear in {@code applied} only when it was genuinely applied. A worker
+     * that cannot honour a key is required to name it under {@code rejected} with a human-readable
+     * reason; silently dropping it would let the UI claim an enforcement that does not exist —
+     * exactly the facade this verb was added to remove.
+     *
+     * <p>A worker that has the verb but no configuration plane at all replies
+     * {@code NODERA-ERR unsupported} (the {@code ControlHandler} default), so a partially-upgraded
+     * worker declines loudly rather than pretending.
+     */
+    public static final String CONFIG = "NODERA-CONFIG";
+
     private ControlProtocol() {
     }
 

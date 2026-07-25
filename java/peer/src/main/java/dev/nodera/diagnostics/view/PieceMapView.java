@@ -59,15 +59,30 @@ public final class PieceMapView {
      *
      * @param worldName the world's display name.
      * @param cells     one cell per piece, in index order.
-     * @param seeders   distinct seeders currently in the swarm.
+     * @param seeders   peers known to hold a <b>complete</b> copy — who can serve any piece.
+     * @param holders   peers known to hold <b>any</b> of this world, complete or partial. Always
+     *                  ≥ {@code seeders}: it is the "how many peers are sharing this world" answer
+     *                  a player actually wants, and in a healthy swarm most holders are partial.
      */
-    public record PieceMap(String worldName, List<PieceCell> cells, int seeders) {
+    public record PieceMap(String worldName, List<PieceCell> cells, int seeders, int holders) {
         public PieceMap {
             worldName = worldName == null ? "" : worldName;
             cells = cells == null ? List.of() : List.copyOf(cells);
             if (seeders < 0) {
                 throw new IllegalArgumentException("seeders must be >= 0");
             }
+            if (holders < 0) {
+                throw new IllegalArgumentException("holders must be >= 0");
+            }
+            // A complete copy is also a copy; a map claiming more full seeders than total holders
+            // is describing something that cannot exist, and silently rendering it would hide a
+            // feed bug behind a plausible-looking number.
+            holders = Math.max(holders, seeders);
+        }
+
+        /** Back-compat: a map that knows only its seeder count treats every seeder as a holder. */
+        public PieceMap(String worldName, List<PieceCell> cells, int seeders) {
+            this(worldName, cells, seeders, seeders);
         }
 
         /** @return total number of pieces. */
@@ -94,6 +109,19 @@ public final class PieceMapView {
 
     /** Build a {@link PieceMap} from a per-piece state array (index = array position). */
     public static PieceMap map(String worldName, List<PieceState> states, int seeders) {
+        return map(worldName, states, seeders, seeders);
+    }
+
+    /**
+     * Build a {@link PieceMap} from a per-piece state array, distinguishing complete seeders from
+     * the wider set of peers holding any of the world.
+     *
+     * @param worldName the world's display name.
+     * @param states    one state per piece, index = array position; {@code null} reads as MISSING.
+     * @param seeders   peers holding a complete copy.
+     * @param holders   peers holding any of it.
+     */
+    public static PieceMap map(String worldName, List<PieceState> states, int seeders, int holders) {
         List<PieceCell> cells = new ArrayList<>(states == null ? 0 : states.size());
         if (states != null) {
             for (int i = 0; i < states.size(); i++) {
@@ -101,7 +129,27 @@ public final class PieceMapView {
                 cells.add(new PieceCell(i, s == null ? PieceState.MISSING : s));
             }
         }
-        return new PieceMap(worldName, cells, seeders);
+        return new PieceMap(worldName, cells, seeders, holders);
+    }
+
+    /**
+     * Grid rows a piece count occupies at a given row width.
+     *
+     * <p>Lives here rather than in the renderer because it is load-bearing rather than cosmetic:
+     * the widget draws a scrolling window over the grid, and this number bounds both what is drawn
+     * and how far the view may scroll. Rounding it down would leave the last partial row of pieces
+     * permanently unreachable — pieces the player holds but cannot see.
+     *
+     * @param pieceCount total pieces (non-positive yields 0).
+     * @param perRow     cells per row (non-positive yields 0).
+     * @return the number of rows, counting a partial final row.
+     * @Thread-context any thread.
+     */
+    public static int rowsFor(int pieceCount, int perRow) {
+        if (pieceCount <= 0 || perRow <= 0) {
+            return 0;
+        }
+        return (pieceCount + perRow - 1) / perRow;
     }
 
     /** The colour policy for a piece state — the widget maps this {@link Semantic} to a fill colour. */
@@ -117,12 +165,21 @@ public final class PieceMapView {
         };
     }
 
-    /** The aggregates line: {@code "New World · 42.0% held · 128/305 pieces · 4 seeders"}. */
+    /**
+     * The aggregates line, e.g.
+     * {@code "New World · 42.0% held · 128/305 pieces · 4 seeders · 9 peers sharing"}.
+     *
+     * <p>Both counts are shown because they answer different questions: seeders is "can I finish
+     * this download from one peer", peers-sharing is "how alive is this world". A world with zero
+     * complete seeders but many partial holders is recoverable; a world with neither is not, and
+     * collapsing them into one number hides exactly that distinction.
+     */
     public static String aggregates(PieceMap map) {
         int permille = map.heldPermille();
         String pct = (permille / 10) + "." + (permille % 10) + "%";
         return map.worldName() + " · " + pct + " held · "
                 + map.count(PieceState.HELD) + "/" + map.total() + " pieces · "
-                + map.seeders() + " seeders";
+                + map.seeders() + " seeders · "
+                + map.holders() + " peers sharing";
     }
 }

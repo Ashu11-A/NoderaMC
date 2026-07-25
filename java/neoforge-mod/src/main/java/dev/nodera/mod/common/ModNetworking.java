@@ -147,7 +147,12 @@ public final class ModNetworking {
             if (NoderaPeerService.get().isHosting()) {
                 return;
             }
-            NoderaPeerService.get().onServerSessionInfo(payload.bootstrapRoute(), advertiseHost);
+            // The world id is the rendezvous namespace: pass it through so a joiner behind a NAT
+            // that cannot reach the host's socket can still register, discover, and fall back to
+            // the relay — the host has always done this; the joiner used to be socket-only, which
+            // made the fallback one-sided and therefore useless.
+            NoderaPeerService.get().onServerSessionInfo(payload.bootstrapRoute(), advertiseHost,
+                    payload.worldIdHex());
             var listener = sessionWorldListener;
             if (listener != null && !payload.worldIdHex().isBlank()) {
                 listener.accept(payload.worldIdHex(), payload.worldName());

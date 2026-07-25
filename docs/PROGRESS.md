@@ -9,6 +9,46 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Discovery/telemetry audit remediation (2026-07-24):** an end-to-end audit of the
+> tracker → rendezvous → worker → mod → companion chain found four capabilities that were *built
+> and tested but never connected*, each of which made the system quietly weaker than its own docs
+> claimed. All four are now wired, with tests.
+>
+> 1. **Direct-first was structurally unreachable.** `RendezvousPeerTransport` advertised only a
+>    RELAY candidate, so `hasDirectCandidate` was false for every discovered peer and
+>    `Path.DIRECT` never entered the available set — every byte on that transport crossed the
+>    relay, the exact inversion `docs/torrent/rendezvous.md` §12.2 warns about. It now publishes a
+>    HOST candidate from the direct transport's listen route (`PeerTransport.listenRoute()` joined
+>    the seam), substitutes that address when the caller addresses by node id alone, and renews its
+>    registration at half the TTL (§9.3) instead of silently vanishing from discovery after five
+>    minutes. The joiner is wrapped in the same transport as the host, so relay fallback stopped
+>    being one-sided (and therefore useless).
+> 2. **Trackers were never a peer-discovery plane.** `TrackerClient.query` fed only the archive
+>    lane; session membership came exclusively from one bootstrap route plus its gossip, so a peer
+>    whose bootstrap was unreachable never meshed no matter how many members were listed. New
+>    `PeerDiscoveryService` sweeps every tracker and rendezvous per world and introduces this node
+>    to each routable peer via the new `PeerRuntime.announceTo` — merged, never arbitrated.
+> 3. **A shared world's *bytes* were not shared.** Announcing published where a world was; nothing
+>    replicated it. `WorldReplicationService` runs the Task-21 `RendezvousArchivePolicy` over the
+>    tracker directory — a pure function of (world, peer set), so every node computes the same
+>    expected-holder list with no coordinator — and adopts the worlds this node is placed for under
+>    a byte budget (`NODERA_REPLICATION_BUDGET`); `WorldHostingService.seed` advertises them.
+>    `NODERA-JOIN` stopped being a no-op that reported success.
+> 4. **The piece map had no source.** `NoderaMultiplayerScreen.setPieceMapSource` had never been
+>    called anywhere, so "View pieces" always opened an empty grid. New `NODERA-PIECES` control
+>    verb → `WorkerPiecesParser` → `PieceMapFeed`, plus grid scrolling (it previously stopped
+>    drawing at the bottom edge with nothing said) and a "peers sharing this world" count distinct
+>    from complete seeders.
+>
+> Alongside: tracker endpoints are scheme-aware (`tcp://` / `udp://`; bare stays TCP) with a real
+> UDP datagram surface on both sides — bounded against reflection amplification, and silent rather
+> than truncating when an answer would exceed the bound, with the Java client falling back to TCP;
+> `PeerJoin`/`PeerEntry` carry a `clientVersion` in the membership layout only (the Rust-visible
+> discovery layout stays byte-frozen, so no fixture regeneration); `PeerTrafficMeter` gives the
+> companion's Peers tab real per-peer totals and rates in place of hardcoded zeros; and the Tauri
+> app is rebuilt as a torrent-client-shaped **Info / State / Peers / Trackers / Pieces** tab set
+> inside VPN-client connection chrome. 1298 → 1345 Java tests, 144 → 154 Rust (+10 `nodera-app`).
+>
 > **No-host region ownership (2026-07-23, proven live):** the validated lane now has no host
 > role. Every joining client announces its own peer node; the session broadcasts the
 > deterministic plan inputs; every member — server included, as just another player node —

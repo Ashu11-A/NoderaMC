@@ -38,6 +38,26 @@ pub struct Config {
     pub max_frame_bytes: usize,
     /// Optional directory for world display-name metadata; peer state is never persisted.
     pub persist_dir: Option<PathBuf>,
+    /// Also serve the same request family over UDP on `bind_addr` (`docs/torrent/trackers.md` §13).
+    ///
+    /// UDP costs one round trip instead of a TCP handshake, which matters for a peer sweeping many
+    /// trackers on a cadence. It is a *second* surface, never a replacement: anything that does not
+    /// fit the datagram bounds below is served over TCP.
+    pub udp_enabled: bool,
+    /// Largest accepted UDP request datagram. Deliberately far below `max_frame_bytes`: a datagram
+    /// cannot be reassembled incrementally, and a large announce belongs on TCP.
+    pub udp_max_request_bytes: usize,
+    /// Largest UDP reply the tracker will emit. A larger answer is dropped rather than truncated —
+    /// a truncated canonical frame is undecodable, so silence is the honest outcome and the peer
+    /// retries over TCP.
+    pub udp_max_reply_bytes: usize,
+    /// Reply-to-request size ratio ceiling for UDP (`trackers.md` §13.2 / §26 "reflected UDP").
+    ///
+    /// UDP source addresses are forgeable, so an unbounded answer would make this service a
+    /// reflection amplifier pointed at whoever an attacker names. Capping the ratio bounds the gain
+    /// an attacker can buy per spoofed byte; peers needing a bigger answer use TCP, where the
+    /// handshake already proves the source address.
+    pub udp_max_amplification: usize,
 }
 
 impl Default for Config {
@@ -55,6 +75,10 @@ impl Default for Config {
             per_ip_announce_quota: 60,
             max_frame_bytes: 256 * 1024,
             persist_dir: None,
+            udp_enabled: true,
+            udp_max_request_bytes: 8 * 1024,
+            udp_max_reply_bytes: 32 * 1024,
+            udp_max_amplification: 4,
         }
     }
 }
@@ -130,6 +154,22 @@ impl Config {
                 "max_frame_bytes exceeds the protocol cap of {}",
                 nodera_codec::framing::MAX_FRAME_BYTES
             )));
+        }
+        if self.udp_enabled {
+            for (name, value) in [
+                ("udp_max_request_bytes", self.udp_max_request_bytes),
+                ("udp_max_reply_bytes", self.udp_max_reply_bytes),
+                ("udp_max_amplification", self.udp_max_amplification),
+            ] {
+                if value == 0 {
+                    return Err(ConfigError::Invalid(format!("{name} must be positive")));
+                }
+            }
+            if self.udp_max_request_bytes > self.max_frame_bytes {
+                return Err(ConfigError::Invalid(
+                    "udp_max_request_bytes must not exceed max_frame_bytes".to_owned(),
+                ));
+            }
         }
         Ok(())
     }

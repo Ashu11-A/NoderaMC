@@ -38,15 +38,15 @@ Per-phase detail + milestone notes: [`docs/PROGRESS.md`](docs/PROGRESS.md) · te
 
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
-| `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 228 | ✅ |
+| `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 102) | 233 | ✅ |
 | `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics | 430 | ✅ |
-| `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 52 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) adds the authenticated challenge-response handshake — key-proven NodeId attribution at accept | 90 | ✅ |
+| `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 52 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) adds the authenticated challenge-response handshake — key-proven NodeId attribution at accept | 93 | ✅ |
 | `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores | 97 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
-| `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip, `RelayMetricsTest` per-peer event-relay accounting) | 371 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), and the `/nodera selftest` in-game command test+benchmark drive; Task 5b evidence remains | 68 | 🚧 |
+| `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip, `RelayMetricsTest` per-peer event-relay accounting) | 415 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), and the `/nodera selftest` in-game command test+benchmark drive; Task 5b evidence remains | 79 | 🚧 |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag mirror through Java type tag 102/message tag 48 + socket framing | 35 | ✅ |
-| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 54 | ✅ |
+| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 60 | ✅ |
 | `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED) | 55 | ✅ |
 | `rust/nodera-app` | (Task 32) Tauri companion app — always-on headless-peer supervisor (Option B: bundled Java peer) + loopback control endpoint (mod presence gate) + system tray + autostart + React dashboard (chunks/GB/peers/world). Workspace-EXCLUDED (Tauri native deps); built separately | scaffold | 🚧 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
@@ -92,6 +92,13 @@ scripts/dev.sh --no-worker       # infra services only (mod will refuse to launc
 scripts/dev.sh --build-only      # compile everything, collect artifacts into build/, then exit
 scripts/dev.sh --test            # run the full gate (gradlew build + cargo test) as part of the build
 scripts/dev.sh --help            # options + env overrides (ports, dirs)
+
+# Hands-on two-player session on one machine (absorbed the former scripts/play-two.sh):
+scripts/dev.sh --play            # 2 Minecraft clients + 1 tracker + 1 rendezvous + 3 peer workers
+scripts/dev.sh --play --with-app # …plus ONE Tauri companion window per player, each attached to
+                                 #   that player's own worker — two dashboards, two nodes, live
+scripts/dev.sh --play --apps 1   # exactly one companion window instead of one per player
+scripts/dev.sh --play --spare-peers 0   # thin the swarm below the quorum floor and watch it degrade
 ```
 
 To play/test: drop `build/neoforge-mod.jar` into a **NeoForge 1.21.1** client's `mods/` folder (or

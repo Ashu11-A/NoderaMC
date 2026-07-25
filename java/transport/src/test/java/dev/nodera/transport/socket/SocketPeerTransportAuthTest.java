@@ -83,11 +83,22 @@ final class SocketPeerTransportAuthTest {
         byte[] payload = "hello-over-authenticated-lane".getBytes(StandardCharsets.UTF_8);
         alice.send(PeerAddress.of(bobId.nodeId(), bob.listenRoute()), payload);
 
-        PeerAddress from = bobSaw.poll(5, TimeUnit.SECONDS);
+        // Generous on purpose. The delivery path here is two Ed25519 signatures and two
+        // verifications on top of a TCP connect, and this assertion runs inside the full `check`
+        // gate where every module's tests are competing for the same cores. Five seconds passed in
+        // isolation and failed under that load — which measured the machine, not the transport.
+        // Generous on purpose. The delivery path here is two Ed25519 signatures and two
+        // verifications on top of a TCP connect, and this assertion runs inside the full `check`
+        // gate where every module's tests are competing for the same cores.
+        PeerAddress from = bobSaw.poll(30, TimeUnit.SECONDS);
         assertThat(from).isNotNull();
         // The attribution is the KEY-PROVEN NodeId — alice proved possession of aliceId's key.
         assertThat(from.nodeId()).isEqualTo(aliceId.nodeId());
-        assertThat(bobFrames.poll()).isEqualTo(payload);
+        // Blocking, not bare poll(): the handler fills two queues in sequence, so a test thread
+        // woken by the FIRST add can reach here before the second one lands. Under the full gate's
+        // load that window is wide enough to hit, and it reported a null frame — a scheduling
+        // artifact of the test, not a dropped payload.
+        assertThat(bobFrames.poll(30, TimeUnit.SECONDS)).isEqualTo(payload);
     }
 
     @Test
@@ -117,19 +128,37 @@ final class SocketPeerTransportAuthTest {
         writeFrame(out, hello);
         writeFrame(out, "smuggled".getBytes(StandardCharsets.UTF_8));
 
-        // The server must tear the connection down (its refusal is observable as EOF) and the
-        // handler must never fire.
+        // The server must tear the connection down and the handler must never fire.
+        //
+        // The refusal is observable as end-of-stream, but *where* the stream ends is a race the
+        // assertion must not depend on: the server writes its challenge, then reads our hello, then
+        // closes. Closing a socket with unread inbound data (our smuggled frame) can make the peer
+        // send RST, which discards whatever was still in the client's receive buffer — so the
+        // challenge sometimes arrives in full and sometimes is thrown away in flight. Both are the
+        // same refusal. Asserting the challenge always survives made this test fail roughly one run
+        // in three for reasons that had nothing to do with authentication.
         InputStream in = raw.getInputStream();
         raw.setSoTimeout(5_000);
-        // First the server's challenge frame arrives (it always opens with one)...
-        byte[] header = in.readNBytes(4);
-        assertThat(header).hasSize(4);
-        int len = ((header[0] & 0xFF) << 24) | ((header[1] & 0xFF) << 16)
-                | ((header[2] & 0xFF) << 8) | (header[3] & 0xFF);
-        assertThat(in.readNBytes(len)).hasSize(len);
-        // ...then EOF: our legacy hello failed parseChallenge and the server closed the socket.
-        assertThat(in.read()).isEqualTo(-1);
+        assertThat(drainUntilClosed(in)).isTrue();
         assertThat(anyFrame.await(500, TimeUnit.MILLISECONDS)).isFalse();
+    }
+
+    /**
+     * Read until the peer closes the connection.
+     *
+     * @return {@code true} once the stream ends — by a clean EOF or by the reset that follows a
+     *         close with unread inbound data. Either is the server hanging up on us.
+     */
+    private static boolean drainUntilClosed(InputStream in) throws java.io.IOException {
+        byte[] scratch = new byte[256];
+        try {
+            while (in.read(scratch) >= 0) {
+                // discard whatever arrived before the refusal (possibly the challenge frame)
+            }
+            return true;
+        } catch (java.net.SocketException reset) {
+            return true;
+        }
     }
 
     @Test

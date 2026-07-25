@@ -28,8 +28,13 @@ public final class PieceMapWidget extends AbstractWidget {
     private static final int CELL = 8;      // px per piece
     private static final int GAP = 1;       // px between cells
     private static final int LEGEND_STATES = 5;
+    private static final int HEADER_HEIGHT = 14;
+    private static final int FOOTER_HEIGHT = 12;
 
     private final Supplier<PieceMap> mapSupplier;
+
+    /** First visible grid row. A large world has far more pieces than fit; the grid scrolls. */
+    private int scrollRow;
 
     public PieceMapWidget(int x, int y, int width, int height, Supplier<PieceMap> mapSupplier) {
         super(x, y, width, height, Component.translatable(PieceMapView.TITLE));
@@ -41,22 +46,26 @@ public final class PieceMapWidget extends AbstractWidget {
         PieceMap map = mapSupplier.get();
         var font = Minecraft.getInstance().font;
 
-        // Aggregates header line.
+        // Aggregates header line: % held, pieces, seeders, and how many peers share this world.
         graphics.drawString(font, PieceMapView.aggregates(map), getX(), getY(),
                 colorOf(dev.nodera.diagnostics.state.Semantic.HEADING));
 
-        int gridTop = getY() + 14;
-        int perRow = Math.max(1, (getWidth() + GAP) / (CELL + GAP));
+        int gridTop = getY() + HEADER_HEIGHT;
+        int perRow = piecesPerRow();
+        int visibleRows = visibleRows();
+        int totalRows = PieceMapView.rowsFor(map.total(), perRow);
+        // Clamp every frame rather than only on scroll: the map is live, so a world whose piece
+        // count shrank (a new, smaller manifest) must not leave the view scrolled past the end.
+        scrollRow = Math.max(0, Math.min(scrollRow, Math.max(0, totalRows - visibleRows)));
+
+        int first = scrollRow * perRow;
+        int last = Math.min(map.cells().size(), first + visibleRows * perRow);
         int hovered = -1;
-        for (int i = 0; i < map.cells().size(); i++) {
+        for (int i = first; i < last; i++) {
             PieceCell cell = map.cells().get(i);
-            int col = i % perRow;
-            int row = i / perRow;
-            int cx = getX() + col * (CELL + GAP);
-            int cy = gridTop + row * (CELL + GAP);
-            if (cy + CELL > getY() + getHeight() - 12) {
-                break; // ran out of vertical room; scrolling arrives with the live GUI pass
-            }
+            int offset = i - first;
+            int cx = getX() + (offset % perRow) * (CELL + GAP);
+            int cy = gridTop + (offset / perRow) * (CELL + GAP);
             graphics.fill(cx, cy, cx + CELL, cy + CELL, fillColor(cell.state()));
             if (mouseX >= cx && mouseX < cx + CELL && mouseY >= cy && mouseY < cy + CELL) {
                 hovered = i;
@@ -75,11 +84,39 @@ public final class PieceMapWidget extends AbstractWidget {
             graphics.drawString(font, name, lx + 10, legendY, 0xFFAAAAAA);
             lx += 10 + font.width(name) + 10;
         }
+        if (totalRows > visibleRows) {
+            String more = "rows " + (scrollRow + 1) + "-"
+                    + Math.min(totalRows, scrollRow + visibleRows) + " of " + totalRows
+                    + " (scroll)";
+            graphics.drawString(font, more, getX() + getWidth() - font.width(more), legendY,
+                    0xFF888888);
+        }
         if (hovered >= 0) {
             PieceCell c = map.cells().get(hovered);
             graphics.drawString(font, "#" + c.index() + " " + c.state(), getX(), getY() + 7,
                     0xFFFFFFFF);
         }
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (!isMouseOver(mouseX, mouseY)) {
+            return false;
+        }
+        // One wheel notch moves one grid row; scrollY is positive when scrolling up.
+        scrollRow = Math.max(0, scrollRow - (int) Math.signum(scrollY));
+        return true;
+    }
+
+    /** Cells that fit across the widget's width — at least one, however narrow the screen. */
+    private int piecesPerRow() {
+        return Math.max(1, (getWidth() + GAP) / (CELL + GAP));
+    }
+
+    /** Grid rows that fit between the header line and the legend — at least one. */
+    private int visibleRows() {
+        int usable = getHeight() - HEADER_HEIGHT - FOOTER_HEIGHT;
+        return Math.max(1, (usable + GAP) / (CELL + GAP));
     }
 
     private static int fillColor(PieceState state) {

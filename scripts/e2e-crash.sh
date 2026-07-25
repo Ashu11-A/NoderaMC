@@ -3,8 +3,7 @@
 # nodera e2e-crash — SUDDEN CLIENT CRASH, ZERO DISRUPTION FOR THE SURVIVOR.
 #
 #   X0  stack + player A hosting the baked NoderaE2E world + player B joined
-#       (same topology as e2e-continuity; run e2e-continuity.sh once first —
-#       it bakes the shared world)
+#       (run e2e-continuity.sh once first — it bakes the shared world)
 #   X1  player B's client JVM is SIGKILLed mid-session (a real crash: no
 #       disconnect packet, no shutdown hooks)
 #   X2  the survivor (player A, the host) experiences NO disruption:
@@ -20,52 +19,29 @@
 # e2e-continuity.sh / e2e-ownership.sh O3; its remaining visible seam is the
 # Task 16 local-replica boundary, documented in docs/Testing.md.
 #
+# Topology: the standard one from scripts/lib/e2e-main.sh — 2 players,
+# 1 tracker, 1 rendezvous, 3 headless peers. The spare peer and player B's own
+# companion both survive the crash; only the game JVM dies.
+#
 # Requires a GUI session. Usage: scripts/e2e-crash.sh [--no-build]
 # ===========================================================================
 set -uo pipefail
 
-TAG=crash
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="$NODERA_ROOT/run/logs/e2e-crash"
-RESULTS_DIR="$NODERA_ROOT/run/results/e2e-crash/$(date +%Y%m%d-%H%M%S)"
-source "$NODERA_ROOT/scripts/lib/e2e-lib.sh"
-
-NO_BUILD=0
-[[ "${1:-}" == "--no-build" ]] && NO_BUILD=1
-
-mkdir -p "$LOG_DIR"
-acquire_suite_lock
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-main.sh"
+nodera_suite crash crash
+nodera_parse_args "$@"
 
 # --- X0: stack + host + joiner --------------------------------------------------------------
 log "X0: build + infrastructure"
-[[ "$NO_BUILD" -eq 0 ]] && build_stack
-check_binaries
-check_ports "$TRACKER_PORT" "$RENDEZVOUS_PORT" "$HOST_CONTROL" "$JOINER_CONTROL" "$GAME_PORT"
-start_infra
-start_worker host   "$HOST_CONTROL"   "$HOST_P2P"
-start_worker joiner "$JOINER_CONTROL" "$JOINER_P2P"
-sleep 3
-
-HOST_SAVE="$MOD_DIR/run-host/saves/NoderaE2E"
-[[ -f "$HOST_SAVE/nodera-world.dat" ]] \
-    || fail "X0: no staged world — run scripts/e2e-continuity.sh once first (it bakes NoderaE2E)"
-sed -i 's/regionDrive = .*/regionDrive = false/' \
-    "$HOST_SAVE/serverconfig/nodera-server.toml" 2>/dev/null
-write_client_config run-join "$JOINER_CONTROL"
-
-log "X0: player A hosting"
-start_client runClientHost "$LOG_DIR/client-host.log"
-wait_log "$LOG_DIR/client-host.log" "game server open for joiners on port $GAME_PORT" 600 \
-    || fail "X0: player A never opened the shared world"
-log "X0: player B joining"
-start_client runClientJoin "$LOG_DIR/client-join.log"
-JOINER_GRADLE_PID=$LAST_CLIENT_PID
-wait_log "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 \
-    || fail "X0: player B never joined"
+nodera_stack_up
+nodera_staged_world
+# The crash test measures disruption, not the ownership drive.
+nodera_set_host_cfg debug regionDrive false
+nodera_hosted_two_players
 wait_log_guarded "$LOG_DIR/client-host.log" "member node(s)" 180 \
     "$STALE_BAKE_GUARD" "X0: $STALE_BAKE_MESSAGE" \
     || fail "X0: ownership never planned across both players"
-pass "X0: two players in-world"
+pass "X0: two players in-world, $NODERA_WORKERS peers up"
 sleep 10  # let the session settle so the crash hits a steady state
 
 # --- X1: the crash --------------------------------------------------------------------------
@@ -83,9 +59,9 @@ pass "X1: player B crashed (SIGKILL, no clean disconnect)"
 
 # --- X2: the survivor is undisturbed --------------------------------------------------------
 log "X2: asserting zero disruption on player A"
-wait_log "$LOG_DIR/client-host.log" "JoinerDev left the game" 120 "$mark" \
+wait_log_after "$LOG_DIR/client-host.log" "JoinerDev left the game" 120 "$mark" \
     || fail "X2: the crash-leave never registered on the host"
-wait_log "$LOG_DIR/client-host.log" "member node(s)" 240 "$mark" \
+wait_log_after "$LOG_DIR/client-host.log" "member node(s)" 240 "$mark" \
     || fail "X2: ownership never re-planned after the crash"
 sleep 20  # observation window: any delayed fallout shows up here
 
@@ -98,26 +74,21 @@ tail -n +"$mark" "$LOG_DIR/client-host.log" | grep -qiF "nodera.continuity.migra
 tail -n +"$mark" "$LOG_DIR/client-host.log" | grep -qF "Exception in server tick loop" \
     && fail "X2: the integrated server crashed"
 # Error audit, same allowlist discipline as e2e-churn C3 (abrupt kills make benign netty noise).
-hits=$(tail -n +"$mark" "$LOG_DIR/client-host.log" | awk '
-    /Exception caught in connection/ {
-        getline cause
-        if (cause !~ /Connection reset|ClosedChannelException|closed by remote/) { print; print cause }
-        next
-    }
-    /ERROR|FATAL/ {
-        if ($0 !~ /Lost connection|Disconnected|Connection reset|closed by remote|InterruptedException/) print
-    }' | head -6)
+hits=$(nodera_audit_errors "$LOG_DIR/client-host.log" "$mark")
 [[ -z "$hits" ]] || { printf '%s\n' "$hits" >&2; fail "X2: error lines after the crash (above)"; }
+# The peers are unaffected by a game JVM dying — a worker that fell over would
+# silently thin the swarm below the quorum floor for the rejoin below.
+nodera_probe_workers
 pass "X2: survivor undisturbed — no continuity arm, no migration screen, no errors"
 
 # --- X3: the world is still live ------------------------------------------------------------
 log "X3: player B rejoining the same session"
 mark=$(wc -l < "$LOG_DIR/client-host.log")
 start_client runClientJoin "$LOG_DIR/client-rejoin.log"
-wait_log "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 "$mark" \
+wait_log_after "$LOG_DIR/client-host.log" "JoinerDev joined the game" 600 "$mark" \
     || fail "X3: player B could not rejoin after its crash"
 pass "X3: rejoin OK — CRASH TEST PASSED"
 
-collect_results "$RESULTS_DIR"
-log "artifacts in $RESULTS_DIR"
+nodera_collect_worker_state
+collect_results
 exit 0
