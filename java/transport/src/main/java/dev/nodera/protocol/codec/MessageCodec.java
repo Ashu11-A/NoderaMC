@@ -253,8 +253,11 @@ public final class MessageCodec {
     /** One founder's signature over the genesis signed portion (Task 16 / L-20). */
     public static final int TAG_GENESIS_APPROVAL_GRANT = 59;
 
+    /** One world-permission grant, gossiped to co-hosting peers (issue #36 / L-54). */
+    public static final int TAG_WORLD_GRANT_GOSSIP = 60;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 59;
+    public static final int NEXT_TAG = 60;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -284,7 +287,8 @@ public final class MessageCodec {
             TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD,
             TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER,
             TAG_HALO_UPDATE, TAG_GROUP_MIGRATION,
-            TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT);
+            TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT,
+            TAG_WORLD_GRANT_GOSSIP);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -357,6 +361,7 @@ public final class MessageCodec {
             case TAG_GROUP_MIGRATION -> "GroupMigration";
             case TAG_GENESIS_APPROVAL_REQUEST -> "GenesisApprovalRequest";
             case TAG_GENESIS_APPROVAL_GRANT -> "GenesisApprovalGrant";
+            case TAG_WORLD_GRANT_GOSSIP -> "WorldGrantGossip";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -515,6 +520,7 @@ public final class MessageCodec {
         if (msg instanceof dev.nodera.protocol.simulationmsg.GroupMigration) return TAG_GROUP_MIGRATION;
         if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalRequest) return TAG_GENESIS_APPROVAL_REQUEST;
         if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalGrant) return TAG_GENESIS_APPROVAL_GRANT;
+        if (msg instanceof dev.nodera.protocol.membership.WorldGrantGossip) return TAG_WORLD_GRANT_GOSSIP;
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
@@ -803,6 +809,11 @@ public final class MessageCodec {
                 m.genesisRoot().encode(w);
                 m.founder().encode(w);
                 w.writeBytes(m.signature());
+            }
+            case dev.nodera.protocol.membership.WorldGrantGossip m -> {
+                w.writeU16(TAG_WORLD_GRANT_GOSSIP).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+                w.writeBytes(m.encodedGrant());
             }
             case WorldManifestQuery m -> {
                 w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
@@ -1323,6 +1334,11 @@ public final class MessageCodec {
                         dev.nodera.core.identity.NodeId.decode(r);
                 yield new dev.nodera.protocol.simulationmsg.GenesisApprovalGrant(
                         root, founder, r.readBytesValue());
+            }
+            case TAG_WORLD_GRANT_GOSSIP -> {
+                Bytes worldId = r.readBytesValue();
+                yield new dev.nodera.protocol.membership.WorldGrantGossip(
+                        worldId, r.readBytesValue());
             }
             case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());
             case TAG_WORLD_MANIFEST_ANSWER -> {

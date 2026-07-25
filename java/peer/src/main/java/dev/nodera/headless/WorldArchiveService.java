@@ -217,6 +217,53 @@ public final class WorldArchiveService implements AutoCloseable {
         return encrypted.manifest();
     }
 
+    /**
+     * Drop every manifest version of {@code worldIdHex} older than the newest (L-55).
+     *
+     * <p>A re-key appends a new encrypted manifest under the same world id, but the superseded
+     * ciphertext is <b>still decryptable with the old password</b>. Leaving it seeded means
+     * changing the password revokes nothing: a holder of the old password keeps reading the
+     * pre-re-key world from this node forever. Superseding evicts it — from the manifest table,
+     * from {@link #holdingsFor} (so the next announce stops advertising it), and from the content
+     * store itself.
+     *
+     * <p>Deliberately NOT called from {@link #seedArchive}: the continuous archive streaming added
+     * for issue #43 appends a version every interval, and evicting the previous one under a joiner
+     * that is mid-fetch would trade a security fix for a data-availability regression. The two call
+     * sites are the ones where the old bytes are actually harmful or dead — a re-key, and learning
+     * from the network that a newer version exists.
+     *
+     * @param worldIdHex the world.
+     * @return how many superseded versions were evicted.
+     * @Thread-context any thread.
+     */
+    public int supersedeOlderVersions(String worldIdHex) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
+        if (versions == null || versions.size() < 2) {
+            return 0;
+        }
+        long newest = versions.lastKey();
+        int evicted = 0;
+        for (Long version : new ArrayList<>(versions.headMap(newest, false).keySet())) {
+            PieceManifest superseded = versions.remove(version);
+            if (superseded == null) {
+                continue;
+            }
+            content.unpublish(superseded.manifestRoot());
+            evicted++;
+            LOG.info("Superseded world archive {} v{} (root {}) — evicted, no longer seeded",
+                    shortId(worldIdHex), version, superseded.manifestRoot().toShortHex(6));
+        }
+        return evicted;
+    }
+
+    /** @return every manifest version this node still holds for a world, oldest first. */
+    public List<PieceManifest> heldVersions(String worldIdHex) {
+        NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
+        return versions == null ? List.of() : List.copyOf(versions.values());
+    }
+
     /** @return the newest seeded/held manifest for a world, if any. */
     public Optional<PieceManifest> newestManifest(String worldIdHex) {
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
@@ -410,8 +457,23 @@ public final class WorldArchiveService implements AutoCloseable {
         // Remember every learned manifest so this node can later serve the metadata onward.
         NavigableMap<Long, PieceManifest> versions =
                 manifests.computeIfAbsent(worldIdHex, k -> new ConcurrentSkipListMap<>());
+        long previousNewest = versions.isEmpty() ? 0L : versions.lastKey();
         for (PieceManifest m : decoded) {
+            // Answers are unordered on the wire, so a slow seeder can deliver a version this node
+            // has already superseded. Re-adopting it would resurrect exactly the blob L-55 evicts,
+            // so anything at or below the newest known version is dropped rather than remembered.
+            if (m.version().value() < previousNewest) {
+                continue;
+            }
             versions.putIfAbsent(m.version().value(), m);
+        }
+        // L-55, the "across seeders" half: learning that a newer version of this world exists is
+        // what makes every older one superseded — no new protocol needed, because "only the newest
+        // version of a world is maintained" is a local policy every seeder can apply on its own.
+        // Without it, a peer that replicated the pre-re-key ciphertext would seed a blob the old
+        // password still opens, long after the author rotated it.
+        if (!versions.isEmpty() && versions.lastKey() > previousNewest) {
+            supersedeOlderVersions(worldIdHex);
         }
         CompletableFuture<List<PieceManifest>> pending = pendingManifests.get(worldIdHex);
         if (pending != null && !decoded.isEmpty()) {
@@ -633,6 +695,11 @@ public final class WorldArchiveService implements AutoCloseable {
         @Override
         public synchronized boolean has(dev.nodera.storage.ContentId id) {
             return delegate.has(id);
+        }
+
+        @Override
+        public synchronized boolean remove(dev.nodera.storage.ContentId id) {
+            return delegate.remove(id);
         }
 
         @Override

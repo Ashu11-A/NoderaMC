@@ -134,9 +134,11 @@ pub mod message_tags {
     pub const GENESIS_APPROVAL_REQUEST: u16 = 58;
     /// `GenesisApprovalGrant` — one founder's signature over the genesis signed portion.
     pub const GENESIS_APPROVAL_GRANT: u16 = 59;
+    /// `WorldGrantGossip` — one world-permission grant relayed to co-hosting peers (L-54).
+    pub const WORLD_GRANT_GOSSIP: u16 = 60;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 59;
+    pub const NEXT_TAG: u16 = 60;
 }
 
 /// The message tags this crate can decode today.

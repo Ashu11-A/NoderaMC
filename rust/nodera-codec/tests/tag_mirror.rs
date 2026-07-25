@@ -180,6 +180,12 @@ fn message_tag_registry_mirrors_java() {
         GENESIS_APPROVAL_GRANT,
         FILE,
     );
+    assert_mirrors(
+        &source,
+        "TAG_WORLD_GRANT_GOSSIP",
+        WORLD_GRANT_GOSSIP,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 

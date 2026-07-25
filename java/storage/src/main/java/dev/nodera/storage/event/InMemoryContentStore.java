@@ -50,6 +50,14 @@ public final class InMemoryContentStore implements ContentStore {
     }
 
     @Override
+    public boolean remove(ContentId id) {
+        if (id == null) {
+            throw new IllegalArgumentException("id must not be null");
+        }
+        return blobs.remove(id.hash()) != null;
+    }
+
+    @Override
     public int size() {
         return blobs.size();
     }

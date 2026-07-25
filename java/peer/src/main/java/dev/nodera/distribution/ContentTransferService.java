@@ -285,6 +285,34 @@ public final class ContentTransferService implements MessageHandler {
     }
 
     /**
+     * Stop seeding {@code manifestRoot} entirely and drop its bytes from the content store (L-55).
+     *
+     * <p>The inverse of {@link #publish}: after this the node holds no piece of that manifest, so
+     * it advertises none, serves none, and answers no request for it — the manifest is gone from
+     * this seeder rather than merely unadvertised. A password re-key needs exactly this: the
+     * superseded ciphertext is still readable with the OLD password, so leaving it on disk would
+     * keep a revoked password working forever.
+     *
+     * @param manifestRoot the manifest to drop.
+     * @return {@code true} if this node was holding it.
+     * @Thread-context any thread.
+     */
+    public boolean unpublish(Bytes manifestRoot) {
+        Objects.requireNonNull(manifestRoot, "manifestRoot");
+        LocalContent content = local.remove(manifestRoot);
+        downloads.remove(manifestRoot);
+        if (content == null) {
+            return false;
+        }
+        content.pieces.clear();
+        ContentId blobId = content.blobId;
+        if (blobId != null) {
+            contentStore.remove(blobId);
+        }
+        return true;
+    }
+
+    /**
      * Become a partial seeder of one piece — the state a peer is in mid-download, and the state
      * Task 21 leaves it in permanently when it is assigned only a shard of a world.
      *
