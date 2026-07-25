@@ -29,7 +29,10 @@ PASSWORD_B="${PASSWORD_B:-e2e-bravo}"
 # --- R0: stack + a password-protected dedicated server ----------------------------------------
 log "R0: build + infrastructure + a world shared under password A"
 nodera_stack_up
-NODERA_SHARE_PASSWORD="$PASSWORD_A" stage_dedicated_server
+# A fast streaming cadence (10 s instead of 2 min): R2b has to watch what the CONTINUOUS lane
+# publishes for a password-protected world, and waiting two minutes per observation is the
+# difference between an assertion and a hope.
+NODERA_SHARE_PASSWORD="$PASSWORD_A" NODERA_STREAM_INTERVAL_TICKS=200 stage_dedicated_server
 start_dedicated_server "$LOG_DIR/server.log"
 wait_log "$LOG_DIR/server.log" "sharing world" 420 \
     || fail "R0: the dedicated server never shared its world (see $LOG_DIR/server.log)"
@@ -56,12 +59,28 @@ printf '%s\n' "=== /nodera share password: $reply" >> "$RESULTS_DIR/rekey.log"
 wait_log_after "$LOG_DIR/server.log" "password re-key complete" 300 "$mark" \
     || fail "R2: the re-key never completed (see $LOG_DIR/server.log)"
 # The ciphertext the network holds must be the NEW one: the worker seeds and announces a fresh
-# manifest version. Without this the password would have changed on the game and nowhere else.
-wait_log_after "$LOG_DIR/worker-peer1.log" "Seeding world archive" 300 "$worker_mark" \
-    || fail "R2: the worker never seeded the re-keyed archive (see $LOG_DIR/worker-peer1.log)"
+# ENCRYPTED manifest version. The word matters — a plaintext "Seeding world archive" line would
+# satisfy a looser needle while proving the opposite.
+wait_log_after "$LOG_DIR/worker-peer1.log" "Seeding ENCRYPTED world archive" 300 "$worker_mark" \
+    || fail "R2: the worker never seeded the re-keyed CIPHERTEXT (see $LOG_DIR/worker-peer1.log)"
 tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "password re-key complete" \
     >> "$RESULTS_DIR/rekey.log"
 pass "R2: re-keyed — new salt, new ciphertext, new manifest root, re-signed identity, re-announced"
+
+# --- R2b: the continuous lane must not publish the save in the clear (L-59) --------------------
+# Found live, and the reason this stage exists: the streaming lane kept seeding PLAINTEXT archives
+# on its cadence, each newer than the ciphertext — so a password-protected world was served in the
+# clear to anyone who fetched its newest version.
+log "R2b: watching the streaming lane for a plaintext publish"
+plain_mark=$(wc -l < "$LOG_DIR/worker-peer1.log")
+sleep $(( 45 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))    # several streaming intervals at 200 ticks
+plain=$(tail -n +"$plain_mark" "$LOG_DIR/worker-peer1.log" \
+    | grep -a "Seeding world archive" | grep -av "ENCRYPTED")
+[[ -z "$plain" ]] \
+    || fail "R2b: the streaming lane published this password-protected world in the CLEAR: $plain"
+tail -n +"$plain_mark" "$LOG_DIR/worker-peer1.log" | grep -a "Seeding" \
+    >> "$RESULTS_DIR/rekey.log"
+pass "R2b: every refresh of a password-protected world is ciphertext"
 
 # --- R3: the old password is refused, the new one joins ----------------------------------------
 log "R3: reconnecting with the OLD password"

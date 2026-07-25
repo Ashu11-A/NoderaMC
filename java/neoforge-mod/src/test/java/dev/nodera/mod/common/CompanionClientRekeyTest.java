@@ -67,16 +67,39 @@ final class CompanionClientRekeyTest {
                 new HashService().sha256("manifest".getBytes()));
         Bytes reSignedBytes = encodeIdentity(reSigned);
 
-        int port = serve(CompanionProtocol.OK + " " + b64(reSignedBytes));
+        int port = serve(CompanionProtocol.OK + " " + b64(reSignedBytes) + " 7");
         CompanionClient client = new CompanionClient("127.0.0.1", port);
 
         Bytes currentId = encodeIdentity(WorldIdentity.create(author, genesis, 1L,
                 true, true, false, Bytes.empty()));
-        Bytes got = client.rekey(reSigned.worldId().toHex(), Path.of("/tmp/packed.nar"),
-                b64(Bytes.unsafeWrap("pw".getBytes())), currentId).orElseThrow();
+        CompanionClient.Rekeyed got = client.rekey(reSigned.worldId().toHex(),
+                Path.of("/tmp/packed.nar"), b64(Bytes.unsafeWrap("pw".getBytes())), currentId)
+                .orElseThrow();
 
-        assertEquals(reSignedBytes, got);
-        assertEquals(reSigned, WorldIdentity.decode(new CanonicalReader(got)));
+        assertEquals(reSignedBytes, got.identity());
+        assertEquals(reSigned, WorldIdentity.decode(new CanonicalReader(got.identity())));
+        assertEquals(7L, got.version(),
+                "the seeded version rides the reply — an encrypted refresh has no other source");
+    }
+
+    @Test
+    void aReplyWithoutTheVersionTokenStillDecodesTheIdentity() throws Exception {
+        // The version token is additive: a worker that predates it answers with the identity alone,
+        // and the only consequence must be an unknown version — never a failed re-key.
+        NodeIdentity author = NodeIdentity.generate();
+        Bytes genesis = new HashService().sha256("g2".getBytes());
+        WorldIdentity reSigned = WorldIdentity.create(author, genesis, 1L, true, true, true,
+                new HashService().sha256("manifest2".getBytes()));
+
+        int port = serve(CompanionProtocol.OK + " " + b64(encodeIdentity(reSigned)));
+        CompanionClient client = new CompanionClient("127.0.0.1", port);
+
+        CompanionClient.Rekeyed got = client.rekey(reSigned.worldId().toHex(),
+                Path.of("/tmp/packed.nar"), b64(Bytes.unsafeWrap("pw".getBytes())),
+                encodeIdentity(reSigned)).orElseThrow();
+
+        assertEquals(reSigned, WorldIdentity.decode(new CanonicalReader(got.identity())));
+        assertEquals(-1L, got.version());
     }
 
     @Test

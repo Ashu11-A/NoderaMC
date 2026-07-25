@@ -652,6 +652,8 @@ EOF
 	gamePort = $GAME_PORT
 	onlineAuth = false
 	sharePassword = "${NODERA_SHARE_PASSWORD:-}"
+[archive]
+	streamIntervalTicks = ${NODERA_STREAM_INTERVAL_TICKS:-2400}
 [entity]
 	laneAutoActivate = true
 	mobCaptureDimensions = ["minecraft:overworld"]

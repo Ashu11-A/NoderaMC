@@ -530,7 +530,7 @@ public final class NoderaHost {
             String worldIdHex = currentId.worldId().toHex();
             String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
                     options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            java.util.Optional<dev.nodera.core.Bytes> reKeyed = java.util.Optional.empty();
+            java.util.Optional<CompanionClient.Rekeyed> reKeyed = java.util.Optional.empty();
             if (dev.nodera.mod.common.CompanionLink.isPresent()) {
                 try {
                     // Flush so the packed blob reflects the live world, then hand it to the worker.
@@ -550,7 +550,7 @@ public final class NoderaHost {
                 // which would supersede the re-key's encrypted manifest as newest and let joiners
                 // bypass the password. The host peer is already up; the worker re-announced.
                 WorldIdentity reSigned = WorldIdentity.decode(
-                        new dev.nodera.core.crypto.CanonicalReader(reKeyed.get()));
+                        new dev.nodera.core.crypto.CanonicalReader(reKeyed.get().identity()));
                 try {
                     NoderaWorldStore.write(saveRoot, reSigned);
                 } catch (java.io.IOException e) {
@@ -579,7 +579,7 @@ public final class NoderaHost {
     }
 
     /** Canonical-encode a {@link WorldIdentity} to bytes (for the re-key verb). */
-    private static dev.nodera.core.Bytes encodeIdentity(WorldIdentity identity) {
+    static dev.nodera.core.Bytes encodeIdentity(WorldIdentity identity) {
         dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
         identity.encode(w);
         return w.toBytes();

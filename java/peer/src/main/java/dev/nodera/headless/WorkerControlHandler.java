@@ -584,10 +584,14 @@ public final class WorkerControlHandler implements ControlHandler {
                 current.listedOnTracker(), true, manifest.manifestRoot());
         // 6. re-announce so the new manifestRoot appears in the tracker holdings immediately.
         hosting.refreshNow(worldIdHex);
-        // 7. return the re-signed identity (B64 canonical bytes), mirroring mintWorldIdentity.
+        // 7. return the re-signed identity (B64 canonical bytes), mirroring mintWorldIdentity, plus
+        //    the version now seeded — the caller records it as the save's seeded version, which is
+        //    what keeps the continuity freshness guard honest for an encrypted world (its refreshes
+        //    come through here, not through SEED, so SEED's reply can no longer be the only source).
         CanonicalWriter w = new CanonicalWriter();
         reSigned.encode(w);
-        return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+        return Base64.getEncoder().encodeToString(w.toBytes().toArray())
+                + " " + manifest.version().value();
     }
 
     // --- NODERA-CONFIG: the settings screen's other end ---------------------------------------
