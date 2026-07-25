@@ -6,7 +6,7 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-07-25 · **702 tests · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-07-25 · **703 tests · 0 failing · 0 skipped**
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
