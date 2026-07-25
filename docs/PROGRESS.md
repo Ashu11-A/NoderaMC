@@ -9,6 +9,30 @@ Overall completion and the progress bar live in [`README.md`](../README.md) → 
 Per-module test counts live in [`docs/Testing.md`](Testing.md); ordering/priority analysis in
 [`Roadmap.md`](Roadmap.md); the limitation burn-down in [`LIMITATIONS.md`](LIMITATIONS.md).
 
+> **Limitation burn-down (2026-07-25): L-10, L-11, L-15, L-18 RETIRED (§B 30 → 26 rows).** Four
+> rows sat at RETIRING while their *stated exit tests* were already green — each "remaining" note
+> listed follow-on scope (a chest GUI, a deposit debit, caves and biomes, live rotation cadence) that
+> the exit clause never asked for. Every clause was re-verified against the code rather than the
+> prose before the row moved: `OUTSIDE_GENERATED_TERRAIN` and its `terrainGenerated` input are
+> grep-absent from both languages (L-15); the container palette entries are present and
+> `UNSUPPORTED_PALETTE` is the only palette gate, so container regions genuinely are delegable
+> (L-10); `PlayerInventoryTest.portalHandOffCarriesTheInventoryExactlyOnce` is the dupe-proof
+> cross-region clause (L-11).
+>
+> **L-18's fourth clause was genuinely unmet and is closed here.** "Byzantine ITs green under
+> adversarial peers" was being credited to `ByzantineWorkerTest`, which hands lying ballots directly
+> to `CommitteeSession` — no adversary had ever spoken the wire. New `ByzantineMeshIT` (3) puts a
+> real adversarial peer on the mesh (a raw `MessageHandler` that reads the primary's `RegionProposal`
+> and answers dishonestly, never running the engine) while the honest members run the production
+> path: a lying validator is outvoted and the fabricated root never reaches the certificate; a vote
+> forged in an absent member's name buys no seat, so the round times out rather than commits; an
+> equivocating voter gets one seat, not two.
+>
+> Two rows were examined and deliberately **left** RETIRING, with the reason recorded in the
+> register: **L-25** (its exit names the RuleSet SDK, which is L-21/OPEN, and
+> `MutationGuard.verdictChecked` still has no live mixin call site) and **L-26** (its exit is "full
+> redstone parity" and pressure plates — entity coupling — are still missing from the palette).
+
 > **Mesh population + boundary independence (2026-07-25, issues #45/#46/#47 closed):** the three
 > remaining live-play defects shared one root — a region's committee was whatever players happened to
 > stand in it, and nothing on the live lane ever noticed when its primary stopped keeping up.
