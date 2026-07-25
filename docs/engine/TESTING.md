@@ -11,7 +11,7 @@
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
 | `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags through 108) | 233 | ✅ |
-| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 455 | ✅ |
+| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 456 | ✅ |
 | `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | ✅ |
 
 Run with:
