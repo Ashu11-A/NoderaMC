@@ -9,6 +9,20 @@ writing it.
 Scope note: this describes what the code in this repository actually does today, not the roadmap.
 Where a lane exists but nothing calls it, that is stated as a gap rather than described as behaviour.
 
+Two documents are the normative architecture references, and the code cites them by section
+throughout:
+
+* **`docs/torrent/trackers.md`** — BitTorrent-style trackers: the swarm abstraction, the announce
+  lifecycle, address determination, peer selection, state expiry, UDP transport, tracker tiers, and
+  the attack surface. It is what `nodera-tracker` and `TrackerClient` are built against.
+* **`docs/torrent/rendezvous.md`** — rendezvous and relay: namespaces, candidates, the three logical
+  planes, the connection lifecycle from reservation to direct upgrade, path selection, and the
+  security model. It is what `nodera-rendezvous`, `RendezvousPeerTransport`, and `TransportSelector`
+  are built against.
+
+Citations below are given as `trackers.md §N` / `rendezvous.md §N`. §9 collects the full mapping and
+lists every place NoderaMC deliberately departs from the spec.
+
 ---
 
 ## 1. Component map
@@ -75,7 +89,7 @@ and storage logic never crosses into the Rust services by design.
 Message families on the frozen registry:
 
 * **1–4** legacy master↔worker handshake (`ClientHello`, `ServerHello`, `ChallengeResponse`,
-  `WorkerActivation`) — decoders only, see §10.
+  `WorkerActivation`) — decoders only, see §11.
 * **5–7** region assignment (`RegionAssigned`, `RegionRevoked`, `LeaseRenewal`).
 * **8–14** simulation/consensus (`SnapshotAnnounce`, `StreamChunk`, `ActionBatchMsg`,
   `RegionProposal`, `ValidationVote`, `CommitAnnounce`, `ResyncRequest`).
@@ -98,68 +112,115 @@ Message families on the frozen registry:
 ### 3.1 `nodera-tracker` (Rust) — the world directory
 
 Purpose: answer "which worlds exist, who is in this world, and where can I dial them". It is a
-directory of **claims**, never an authority (`rust/nodera-tracker/src/registry.rs:1`).
+**swarm directory** in the sense of `trackers.md §1`: a set of claims about who is in a torrent, not
+an authority over its contents. The world's `genesisHash` plays the role of `info_hash` and a peer's
+`NodeId` the role of `peer_id` (`trackers.md §4`, "Important fields"). Never authority
+(`rust/nodera-tracker/src/registry.rs:1`, `trackers.md §20` — a tracker
+coordinates, a relay forwards; these roles must not be confused).
 
 * **Surfaces.** TCP (length-prefixed, one task per connection, `wire.rs:71`) and optional UDP (one
   datagram per request, `wire.rs:127`). Both decode into the same `Tracker::handle_frame`
-  (`service.rs:74`), so a world announced over one is queryable over the other. No HTTP — one frozen
-  encoding keeps the cross-language conformance tests meaningful.
+  (`service.rs:74`), so a world announced over one is queryable over the other. This is the
+  HTTP/UDP split of `trackers.md §12`–`§13` with the HTTP surface replaced: no HTTP, no bencode —
+  one frozen canonical encoding for the whole network keeps the cross-language conformance tests
+  meaningful (divergence D1, §9).
+* **Announce lifecycle.** `STARTED` → periodic `HEARTBEAT` → `STOPPED` maps directly onto
+  `trackers.md §3.1`/`§3.2`/`§3.4`; the tracker paces the cadence through
+  `next_announce_after_seconds` in the ack, which is the spec's `interval` field
+  (`trackers.md §6` under "interval"). There is no `completed` event (`§3.3`): a world archive is
+  never "done" the way a torrent download is (divergence D5).
 * **Admission** (`announce.rs:95`): Ed25519 signature over the received signed portion → freshness
   window (±`announce_clock_skew_seconds`, both directions, so a captured announce cannot resurrect a
   departed peer) → trust-on-first-use `NodeId`→public-key binding. Rejections carry stable machine
   codes: `bad-signature`, `stale-announce`, `identity-mismatch`, `quota`, `too-large`, `world-limit`,
-  `world-full`.
+  `world-full`. Signing the record at all is a hardening step over the spec, which has no
+  authentication on an announce and documents the resulting swarm-poisoning and Sybil exposure
+  (`trackers.md §26`); the machine-readable refusal is the spec's `failure reason`
+  (`trackers.md §6`).
 * **Registry** (`registry.rs`): `genesisHash → Swarm{world_name, retention deadline, peers}`, peers
   keyed by identity, never address. A re-announce replaces the previous record for that identity
-  (newest signed claim wins). Expiry is applied lazily on read *and* by a sweep. Under pressure the
-  tracker sheds the least recently active peerless world before refusing a new one.
+  (newest signed claim wins). Expiry is applied lazily on read *and* by a sweep — the `lastSeenAt` +
+  timeout cleanup of `trackers.md §11`, since peers do not reliably send `stopped`. Under pressure
+  the tracker sheds the least recently active peerless world before refusing a new one.
 * **The observed source address** is appended as the *last* dial-route hint and never substituted for
-  a claimed route, and never treated as identity (`registry.rs:36`).
+  a claimed route, and never treated as identity (`registry.rs:36`). `trackers.md §5` describes the
+  tracker taking the peer's address from the connection precisely because a self-reported address
+  cannot be trusted; NoderaMC keeps the claim first and the observation last because a peer's own
+  route list is signed and may name a forwarded port the tracker cannot observe
+  (`trackers.md §19`, NAT).
 * **Answers**: `TrackerResponse` (sampled peers, per-manifest seeders, live player count, distinct
-  stored pieces, mean reliability in bps, health, retention deadline — `query.rs:25`),
-  `TrackerCatalogResponse` (every tracked world, sorted by name then hash, capped at 256 —
-  `query.rs:172`), `TrackerRoutesResponse` (every live peer's full claimed route list, verbatim —
-  `query.rs:213`).
+  stored pieces, mean reliability in bps, health, retention deadline — `query.rs:25`; the spec's
+  response shape is `trackers.md §6`, with `complete`/`incomplete` becoming seeder counts and a live
+  player count), `TrackerCatalogResponse` (every tracked world, sorted by name then hash, capped at
+  256 — `query.rs:172`; this is a *directory* query with no spec analogue, since BitTorrent has no
+  "list every torrent" verb — divergence D3), `TrackerRoutesResponse` (every live peer's full claimed
+  route list, verbatim — `query.rs:213`).
+* **Peer sampling.** `sample_size = 50` with a `seeder_floor` follows `trackers.md §10`: a tracker
+  returns a subset, not the whole swarm, and the selection algorithm is implementation-specific. The
+  live player count deliberately reports the *whole* swarm rather than the page size, so a busy world
+  is not under-reported (`query.rs:57`).
 * **Health** (`health.rs:11`): `HEALTHY` at ≥ `healthy_seeder_floor` seeders; `DEAD` only with zero
   seeders **and** an expired retention deadline; otherwise `DEGRADED`. The tracker only surfaces the
-  countdown; peers' `RetentionPolicy` owns the actual drop.
+  countdown; peers' `RetentionPolicy` owns the actual drop — keeping the tracker a directory rather
+  than a decision-maker, per `trackers.md §20`.
 * **UDP is bounded three ways** because a UDP source address is forgeable: request size cap, reply
   size cap (an oversized reply is *not sent* — a truncated canonical frame is undecodable, so silence
-  is honest and the peer retries over TCP), and an amplification ratio cap.
+  is honest and the peer retries over TCP), and an amplification ratio cap. This replaces the spec's
+  connection-ID handshake (`trackers.md §13.1`/`§13.2`) and directly answers the reflected-UDP attack
+  of `trackers.md §26` (divergence D2).
 * **Defaults** (`config.rs:64`): bind `0.0.0.0:25600`, announce interval 120 s, peer TTL 300 s, skew
   300 s, 10 000 worlds × 5 000 peers, sample 50, seeder floor 10, healthy floor 5, 60 announces/IP per
-  interval, 256 KiB frames, UDP 8 KiB request / 32 KiB reply / 4× amplification.
+  interval, 256 KiB frames, UDP 8 KiB request / 32 KiB reply / 4× amplification. Per-IP quotas are
+  the spec's denial-of-service mitigation (`trackers.md §26`).
 * **State is ephemeral by design.** A restart loses nothing that matters: peers re-announce within one
-  interval.
+  interval — `trackers.md §23` ("does a tracker need a database?"), whose answer for swarm state is
+  no. The production-shape concerns of `trackers.md §22`/`§24` (in-memory sharded state, concurrency)
+  are met by a single `Mutex`-guarded registry with all decision logic pure and clock-injected.
 
 ### 3.2 `nodera-rendezvous` (Rust) — introductions, punching, relaying
 
 Purpose: let two peers behind NATs find and reach each other. It introduces and forwards; peers
-authenticate each other end to end (`rust/nodera-rendezvous/src/service.rs:1`).
+authenticate each other end to end (`rust/nodera-rendezvous/src/service.rs:1`,
+`rendezvous.md §1`/`§2.2`). The service occupies the spec's **discovery plane** and
+**connectivity-control plane** while staying out of the **data plane** except as a metered relay
+(`rendezvous.md §3.1`/`§3.2`/`§3.3`).
 
-* **Namespace** = `(networkId, genesisHash)` (`registry.rs:13`). The mod derives
+* **Namespace** = `(networkId, genesisHash)` (`registry.rs:13`) — exactly the namespaced-discovery
+  case `rendezvous.md §3.1` calls out (`/world/europe-west`). The mod derives
   `networkId = UUID.nameUUIDFromBytes(worldId)`, so a world is its own namespace
   (`NoderaPeerService.java:304`).
 * **Register** (tag 35): a `SignedRecord` — peer, public key, candidate list, capabilities, issued-at,
-  self-declared `expiresAt`, Ed25519 signature. Admission mirrors the tracker's (signature, freshness,
-  quota, TOFU binding — `register.rs`). Effective expiry is the sooner of the service TTL and the
-  record's own `expiresAt` (`registry.rs:48`), so a peer can ask to be forgotten early.
+  self-declared `expiresAt`, Ed25519 signature. This is peer startup / registration of
+  `rendezvous.md §4.1`, carrying the candidate set of `§2.5`. Admission mirrors the tracker's
+  (signature, freshness, quota, TOFU binding — `register.rs`), which implements the
+  registration-abuse controls of `rendezvous.md §8.3`. Effective expiry is the sooner of the service
+  TTL and the record's own `expiresAt` (`registry.rs:48`), so a peer can ask to be forgotten early —
+  the expiring-state rule of `rendezvous.md §9.3`.
 * **Discover** (36) → **Peers** (37): a paged page of *signed* records, so the discovering peer can
-  verify each one itself (`discover.rs`).
+  verify each one itself (`discover.rs`) — peer discovery per `rendezvous.md §4.3`, with the
+  cryptographic-identity requirement of `§8.1` satisfied by keeping the signature on the record
+  rather than having the service vouch for it.
 * **Relay reservation** (38 → 39): the service issues a route, an expiry, byte/duration limits, and an
-  HMAC proof over exactly those limits. It re-validates the proof immediately before bridging, so a
-  mismatched-limits bug cannot silently widen the ceiling (`service.rs:115`, `reservation.rs`).
-* **Circuit** (40 → 41, then a spliced byte pipe): metered per direction against the reservation, torn
-  down with a stable reason — `remote-closed`, `byte-limit`, `duration-limit`, `idle-timeout`, `error`
-  (`circuit.rs:9`).
+  HMAC proof over exactly those limits (`rendezvous.md §4.2`). It re-validates the proof immediately
+  before bridging, so a mismatched-limits bug cannot silently widen the ceiling (`service.rs:115`,
+  `reservation.rs`); the limits themselves are the relay-abuse budget of `rendezvous.md §8.4`.
+* **Circuit** (40 → 41, then a spliced byte pipe): the initial relay connection of
+  `rendezvous.md §4.5`, metered per direction against the reservation and torn down with a stable
+  reason — `remote-closed`, `byte-limit`, `duration-limit`, `idle-timeout`, `error` (`circuit.rs:9`,
+  `rendezvous.md §4.5`/`§8.4`). Relay retention/shutdown follows `§4.8`.
 * **Hole punch** (42/43): the service stamps a synchronized go-signal 500 ms out and forwards it to the
   target's control channel; it also reports each caller's reflexive address (`punch.rs`,
-  `service.rs:22`).
+  `service.rs:22`). This is the direct-connection upgrade of `rendezvous.md §4.6` over the signaling
+  channel of `§2.4`, using the punching mechanics of `§2.6`.
 * **Server-originated tags are refused inbound** — a peer that sends one is dropped
-  (`service.rs:174`).
+  (`service.rs:174`), keeping the state machine of `rendezvous.md §7` one-directional.
 * **Defaults** (`config.rs:50`): bind `0.0.0.0:25601`, registration TTL 300 s, refresh 120 s, skew
   300 s, discover page 50, 5 000 records/namespace, 10 000 namespaces, reservation TTL 300 s / 64 MiB
-  / 600 s, circuit idle 60 s, 120 requests/IP, 256 KiB frames.
+  / 600 s, circuit idle 60 s, 120 requests/IP, 256 KiB frames. The refresh interval is the keepalive
+  cadence of `rendezvous.md §9.4`.
+* **Deployment shape**: NoderaMC runs the "rendezvous with relay fallback" pattern of
+  `rendezvous.md §10.2`, promoted to a direct-first upgrade path (`§10.3`) by `TransportSelector`.
+  Multiple endpoints are swept rather than one being trusted, per `rendezvous.md §9.1`.
 
 ### 3.3 The Java peer worker (`nodera-headless`) — the node that outlives the game
 
@@ -341,12 +402,24 @@ challenge `[0xA7][32]`, and answers the remote's challenge with an authenticated
 unrelated to the key, so without this any TCP client could claim any identity. Legacy unauthenticated
 hellos are refused by design; every malformed input fails closed.
 
+This is the cryptographic-peer-identity requirement of `rendezvous.md §8.1` enforced at the transport
+seam: the spec's point is that a discovered record must be re-verified by the dialing peer, because
+the rendezvous service is an introducer and not a certificate authority. Relayed traffic additionally
+carries the end-to-end transport security of `rendezvous.md §8.2` (`EndToEndCipher`), so a relay
+operator sees ciphertext and framing sizes only — the metadata exposure `§8.5` describes.
+
 ### 6.2 Rendezvous transport: direct-first, relay-fallback
 
 `RendezvousPeerTransport` (`:50`) composes a direct transport with relay circuits through the service
 and picks per peer via `TransportSelector` (`:20`): `DIRECT` > `PUNCHED` > `RELAYED`, with demotion on
 failure, re-promotion on success, and a full reset when every path is demoted (a stuck peer must still
-be reachable). Bulk traffic avoids the relay while any non-relayed path is up. A discovered peer must
+be reachable). This is the path-selection policy of `rendezvous.md §4.7`, collapsed from the spec's
+six-rung ladder (local / public QUIC / public TCP / punched QUIC / punched TCP / relayed) to three
+rungs because there is one direct transport and no QUIC (divergence D6); the spec explicitly leaves
+the exact ordering to the application. The direct attempt itself is `rendezvous.md §4.4`, and
+promotion out of a relay circuit is `§4.6`. Bulk traffic avoids the relay while any non-relayed path
+is up, which is the relay-bandwidth conservation `rendezvous.md §8.4` and `trackers.md §20` both
+argue for. A discovered peer must
 be `learn`ed (key + candidates) before it can be dialed, so identity is known before any circuit
 trusts it; relayed payloads are end-to-end encrypted (`EndToEndCipher`). An unreachable rendezvous
 degrades to direct-only — but only when the direct socket genuinely came up, otherwise the bind
@@ -361,7 +434,8 @@ deterministic `GatewayElection` for the next epoch and converges on the same suc
 state is confined to a single-thread state executor.
 
 `PeerDiscoveryService` (`:60`) closes the gap where a `PeerRuntime` only ever knew the one bootstrap
-route it was handed: every 30 s it asks **every tracker and every rendezvous** who else is in each
+route it was handed — the spec's bootstrap-node role on its own is not a discovery plane
+(`rendezvous.md §2.7` vs `§3.1`). Every 30 s it asks **every tracker and every rendezvous** who else is in each
 world this node hosts, merges the answers (rendezvous last, so a fresh host candidate beats a stale
 tracker route), filters out `mc/` claims (those are game endpoints, not P2P routes), and hands each
 newly-learned address to `PeerRuntime.announceTo`. It never opens a connection itself, and announces
@@ -379,7 +453,12 @@ Trackers and rendezvous services are **hints, not authority**:
   describe, and verified against the received bytes;
 * several partial views beat one authoritative one, so answers are **merged, never arbitrated** — a
   source that omits peers dilutes its own influence instead of censoring the world
-  (`TrackerClient.java:329`, `PeerDiscoveryService.java:43`).
+  (`TrackerClient.java:329`, `PeerDiscoveryService.java:43`). This is `trackers.md §16` (multiple
+  trackers and tracker tiers) plus `§25`'s "accept partial swarm views", and the combined-discovery
+  argument of `trackers.md §17` — where BitTorrent reunites subgroups via DHT and peer exchange,
+  NoderaMC does it by sweeping both the tracker and the rendezvous namespace for the same world and
+  merging (`rendezvous.md §9.1`). Sybil and swarm-poisoning exposure is bounded by signed records plus
+  hash-verified content rather than by trusting a directory (`trackers.md §26`).
 
 ---
 
@@ -391,8 +470,17 @@ Trackers and rendezvous services are **hints, not authority**:
 `WorldArchiveService` splits it into hash-addressed pieces and publishes them through
 `ContentTransferService`, which owns both directions of the swap (`ContentRequest`/`ContentChunk`/
 `ContentAvailability`, plus `WorldManifestQuery`/`Answer` tags 51/52 for peer↔peer manifest discovery).
-Held pieces ride the world's next tracker announce as `ManifestHolding` bitmaps, which is what makes
-`storedChunks` and per-manifest seeder lists real (`query.rs:114`).
+
+**Deliberate divergence from `trackers.md §9`** (divergence D4). The spec is explicit that a
+BitTorrent tracker does *not* know which pieces peers hold — availability is exchanged peer to peer
+(`bitfield`/`have`) and rarity is computed by clients, which keeps trackers simple. NoderaMC puts
+`ManifestHolding` piece bitmaps *inside the signed announce*, so the tracker can answer
+per-manifest seeder lists and a distinct stored-piece count (`query.rs:114`, `:139`). The reasons are
+specific: a world's UI needs a durability figure before any peer connection exists, and the retention
+countdown of `trackers.md §11`-style expiry has to be computed against seeders rather than announcers.
+The cost is the spec's: a larger announce and a tracker that holds more state. Peer-to-peer
+availability still exists (`ContentAvailability`, and the `PieceSelector`'s rarest-first choice is
+computed locally), so the tracker's copy is a hint, never the input to piece selection.
 
 ### 7.2 Serving and pacing
 
@@ -438,7 +526,92 @@ it without a config file.
 
 ---
 
-## 9. Key files
+## 9. Specification provenance and conformance
+
+### 9.1 `docs/torrent/trackers.md` → NoderaMC
+
+| Spec section | Where it lands |
+|---|---|
+| §1 swarm abstraction | `Swarm` keyed by `genesisHash`; `rust/nodera-tracker/src/registry.rs:49` |
+| §2 torrent start | `WorldHostingService.host` → `STARTED` announce; `:160` |
+| §3.1/§3.2/§3.4 announce lifecycle | `AnnounceEvent.STARTED` / `HEARTBEAT` / `STOPPED`; `registry.rs:153` |
+| §3.3 `completed` | **not implemented** (D5) |
+| §4 announce fields (`info_hash`, `peer_id`, `port`, `event`, `numwant`) | `TrackerAnnounce` (tag 33): `genesisHash`, `peer`, `routes`, `event`; `protocol/discovery/TrackerAnnounce.java` |
+| §5 address determination | observed route appended last, never substituted; `registry.rs:36` |
+| §6 response (`interval`, `complete`/`incomplete`, `failure reason`) | `TrackerResponse` + `TrackerAnnounceAck.nextAnnounceAfterSeconds` + `Rejection::code`; `query.rs:25`, `announce.rs:35` |
+| §7 compact peer format | **superseded** by the canonical `MessageCodec` encoding (D1) |
+| §9 tracker knows no piece availability | **deliberately inverted** — holdings ride the signed announce (D4); `query.rs:114` |
+| §10 peer selection / subset | `sample_size = 50`, `seeder_floor`; `query.rs:50` |
+| §11 state expiry | lazy read-side expiry + periodic sweep; `registry.rs:83`, `:230` |
+| §12 HTTP trackers | **not implemented** — no HTTP surface (D1) |
+| §13 UDP trackers | UDP surface, datagram-is-frame; `wire.rs:127` |
+| §13.1/§13.2 connection ID | **replaced** by size + amplification bounds (D2) |
+| §14 UDP retransmission | `TrackerClient.exchangeUdp`, 2 attempts then TCP fallback; `TrackerClient.java:507` |
+| §15 scraping | **not implemented**; the catalog query covers the UI need (D3) |
+| §16 multiple trackers / tiers | every endpoint queried, answers merged; `TrackerClient.java:329` |
+| §17 DHT / PEX / combined discovery | **substituted** — tracker + rendezvous sweep instead; `PeerDiscoveryService.sweep` |
+| §18 public / private trackers | **not modelled**; a world's `listed` flag lives in `WorldIdentity`, not in the tracker |
+| §19 trackers and NAT | claimed routes kept ahead of the observed one; rendezvous handles the rest |
+| §20 tracker versus relay | strictly separated: tracker never forwards bytes; the relay lives in `nodera-rendezvous` |
+| §21 simplified algorithm | `Tracker::handle_frame`; `service.rs:74` |
+| §22 production architecture | single `Mutex` registry, pure decision logic, injected clock; `wire.rs:87` |
+| §23 no database needed | ephemeral state, re-announce recovers; `registry.rs:1` |
+| §24 concurrency | all mutation behind the service lock; sorted iteration for reproducible answers |
+| §25 replication / partial views | not replicated; partial views accepted and merged client-side |
+| §26 attacks (poisoning, Sybil, DoS, reflected UDP, fake stats) | signed announces + TOFU binding + per-IP quota + UDP amplification cap; `announce.rs`, `limits.rs` |
+| §27 privacy | peer lists are per-world and identity-keyed; no cross-world correlation is served |
+
+### 9.2 `docs/torrent/rendezvous.md` → NoderaMC
+
+| Spec section | Where it lands |
+|---|---|
+| §1 overview / §2.2 rendezvous point | `nodera-rendezvous`; `service.rs:1` |
+| §2.1 peer / §2.7 bootstrap node | `PeerRuntime` peers; bootstrap route in `NoderaSessionPayload` |
+| §2.3 relay | `RelayCircuit` + the service's bridge; `circuit.rs` |
+| §2.4 signaling | the reserver's control channel carries `RelayIncoming`/`PunchSync`; `service.rs:31` |
+| §2.5 candidate | `PeerCandidate` + `CandidateKind` (HOST / relay), priority-ordered |
+| §2.6 hole punching | `HolePunchCoordinator` + `PunchSync`; `punch.rs` |
+| §3.1 discovery plane | namespace registry + `RendezvousDiscover`; `registry.rs:13` |
+| §3.2 connectivity-control plane | reservations, punch coordination; `reservation.rs`, `punch.rs` |
+| §3.3 data plane | direct socket, or a metered relay circuit — never the service's own concern |
+| §4.1 peer startup | `RendezvousPeerTransport.start` → reserve, then register; `:162` |
+| §4.2 relay reservation | `RelayReserve`/`RelayReservation` + HMAC proof; `reservation.rs` |
+| §4.3 peer discovery | `RendezvousPeerTransport.discover` → `learn` each record; `:141` |
+| §4.4 direct connection attempt | `CandidateDialer` + `SocketPeerTransport`; `TransportSelector.Path.DIRECT` |
+| §4.5 initial relay connection | `RelayConnect` → bridged circuit; `circuit.rs` |
+| §4.6 direct connection upgrade | `Path.PUNCHED` promotion after a successful punch |
+| §4.7 path selection | `TransportSelector.select`; three rungs rather than six (D6); `:57` |
+| §4.8 relay shutdown / retention | reservation TTL + idle/byte/duration teardown; `circuit.rs:9` |
+| §5 sequence diagram | §5.2–§5.4 of this document is its NoderaMC instantiation |
+| §6 abstract protocol model | tags 35–43 in the frozen registry; `rust/nodera-codec/src/rendezvous.rs` |
+| §7 state machine | server-originated tags refused inbound; `service.rs:174` |
+| §8.1 cryptographic peer identity | signed records + the authenticated transport handshake; `TransportAuth.java` |
+| §8.2 end-to-end transport security | `EndToEndCipher` over relayed payloads |
+| §8.3 registration abuse | signature + freshness + per-IP quota + TOFU binding; `register.rs` |
+| §8.4 relay abuse | byte / duration / idle ceilings, HMAC-bound; `circuit.rs`, `reservation.rs` |
+| §8.5 metadata privacy | a relay sees ciphertext and sizes only; **acknowledged residual exposure** |
+| §9.1 multiple rendezvous points | every endpoint registered with and swept; `WorldHostingService:364` |
+| §9.2 relay pools | **not implemented** — the first endpoint is reserved against (D7) |
+| §9.3 expiring state | effective expiry = min(service TTL, record `expiresAt`); `registry.rs:48` |
+| §9.4 keepalives | refresh at half the registration TTL; `RendezvousPeerTransport:179` |
+| §10.2/§10.3 deployment pattern | rendezvous with relay fallback, direct-first upgrade |
+| §10.5 decentralized rendezvous | **not implemented**; endpoints are configured |
+| §12 design recommendations | followed: identity ≠ address, service never authority, limits on every relay |
+
+### 9.3 Deliberate divergences
+
+| # | Divergence | Why |
+|---|---|---|
+| D1 | No HTTP surface, no bencode, no compact peer format (`trackers.md §7`, `§12`) | One frozen canonical encoding for the whole network is what makes the Java↔Rust conformance tests (`tag_mirror.rs`, golden-frame tests) meaningful. Two encodings would mean two things to keep honest. |
+| D2 | No UDP connection-ID handshake (`trackers.md §13.1`/`§13.2`) | Replaced by request-size, reply-size, and amplification-ratio caps, plus a signed announce. The connection ID exists to prove the source address; a signature proves the *identity*, and the caps remove the reflector value directly. |
+| D3 | Added `TrackerCatalogQuery`/`Response` (tags 44/45); no scrape (`trackers.md §15`) | A player browses worlds; a BitTorrent client already knows its `info_hash`. The world list is the product, so the directory verb is first-class and scrape is unnecessary. |
+| D4 | Piece holdings ride the signed announce, against `trackers.md §9` | A world row must show durability before any peer connection exists, and the retention countdown is computed from seeders, not announcers. Piece *selection* is still local and rarest-first (`PieceSelector`), so the tracker's copy never steers a download. |
+| D5 | No `completed` event (`trackers.md §3.3`) | A live world's archive is continuously re-seeded; there is no "download finished" moment to report. |
+| D6 | Three path rungs instead of six (`rendezvous.md §4.7`) | No QUIC transport exists, and the local/public distinction is not observable at the seam. The spec leaves ordering to the application. |
+| D7 | No relay pools (`rendezvous.md §9.2`) | A peer reserves against `endpoints.get(0)` only (`RendezvousPeerTransport:172`); multiple *rendezvous* endpoints are used for discovery, but relay capacity is not pooled or load-balanced. Tracked as gap #17 in §11. |
+| D8 | Retention countdown on the announce | Has no spec analogue: BitTorrent has no notion of a swarm being deliberately decommissioned. `RetentionPolicy` owns the decision; the tracker only surfaces the earliest deadline so every UI shows the same number. |
+
+## 10. Key files
 
 | Concern | File |
 |---|---|
@@ -459,12 +632,12 @@ it without a config file.
 | Mod peer lanes | `java/neoforge-mod/.../mod/common/{NoderaPeerService,NoderaHost,ModNetworking}.java` |
 | Worlds tab + join | `java/neoforge-mod/.../mod/client/multiplayer/{MultiplayerWorldFeed,NoderaWorldList,NoderaJoinFlow,MultiplayerStatusFeed}.java` |
 | Companion app | `rust/nodera-app/src/{control,daemon,settings,metrics}.rs` |
-| Protocol specs | `docs/torrent/trackers.md`, `docs/torrent/rendezvous.md` |
+| Normative architecture specs | `docs/torrent/trackers.md`, `docs/torrent/rendezvous.md` — full section mapping in §9 |
 | Known limitations | `docs/LIMITATIONS.md` |
 
 ---
 
-## 10. Gaps, inconsistencies, and limitations
+## 11. Gaps, inconsistencies, and limitations
 
 Ordered roughly by how much they affect a real deployment. Items already tracked in
 `docs/LIMITATIONS.md` are marked with their row id.
@@ -539,21 +712,58 @@ Ordered roughly by how much they affect a real deployment. Items already tracked
     the amplification ratio gets no datagram at all; `TrackerClient` retries over TCP for exactly this
     reason. Any third-party client that skips the TCP fallback will report busy worlds as empty.
 
+### Unimplemented parts of the reference architectures
+
+17. **No relay pooling** (`rendezvous.md §9.2`, divergence D7). `RendezvousPeerTransport.start`
+    reserves against `endpoints.get(0)` only (`:172`). Multiple rendezvous endpoints are used for
+    *discovery*, but a peer's inbound relay capacity depends on one service; if that endpoint is the
+    unreachable one, the peer has no relay path even though other endpoints are configured and healthy.
+    The spec's answer — a pool with selection and failover — is absent.
+18. **No decentralized rendezvous and no DHT/PEX substitute** (`rendezvous.md §10.5`,
+    `trackers.md §17`). Both specs treat a centrally configured directory as one mechanism among
+    several, with DHT, peer exchange, and local peer discovery reuniting partial views. In practice
+    NoderaMC sweeps two mechanism *kinds* (tracker, rendezvous), both from static configuration whose
+    defaults are `127.0.0.1`. There is no DHT and no mDNS/local peer discovery — `BootstrapClient`'s
+    own doc puts LAN multicast and DNS seeds explicitly out of scope.
+19. **The three-mechanism bootstrap is built but unwired.** `BootstrapClient` implements exactly the
+    survivability path the specs ask for — configured list → `CachedPeerStore` redial (survives the
+    original host disappearing forever) → signed `InvitationCodec` blob (the social path,
+    `trackers.md §17`-style out-of-band discovery) — but grep finds no caller outside
+    `dev.nodera.peer.discovery`. Neither `HeadlessPeerMain` nor `NoderaPeerService` uses it, so today a
+    peer's only entry points are the configured endpoints and the bootstrap route handed to it in
+    `NoderaSessionPayload`. A deployment whose configured endpoints are all down therefore has no
+    discovery path, even though the code to recover from that exists.
+20. **No tracker replication or state sharing** (`trackers.md §25`). Trackers are independent and
+    ephemeral; there is no shared state, consistent hashing, or replicated swarm state. Accepted
+    partial views are the whole strategy, which is the spec's simplest option and reduces discovery
+    completeness by its own admission.
+21. **Public/private tracker distinction is not modelled** (`trackers.md §18`). A world's `listed`
+    flag lives in its `WorldIdentity`, not in anything the tracker enforces, and the tracker has no
+    concept of an authorized announcer beyond the per-identity binding — any peer may announce to any
+    tracker for any world. Combined with gap #1 this means "unlisted" is not an access control.
+22. **`min interval` is not implemented** (`trackers.md §6`). The ack carries only
+    `next_announce_after_seconds`, so there is no floor a misbehaving client can be held to. The
+    announce cadence is clamped by each *caller* instead (`max(15, …)` in
+    `WorldHostingService.java:146` and `NoderaPeerService.java:379`), which a third-party peer is
+    under no obligation to copy.
+
 ### Verification and documentation gaps
 
-17. **The `MessageCodec` header type-tag table stops at tag 43** while the registry runs to 60. Tags
+23. **The `MessageCodec` header type-tag table stops at tag 43** while the registry runs to 60. Tags
     44–60 are documented only on their individual constants and in the Rust mirror. The mirror test
     keeps the *numbers* honest across languages; it does not keep this table current.
-18. **`docs/torrent/trackers.md` and `rendezvous.md` are the normative specs**, and the code cites
-    them by section throughout, but there is no automated check that a cited section still says what
-    the code claims.
-19. **Live-client acceptance of the network path is scripted but not in CI** (L-45). The
+24. **Spec citations are unverified by any test.** `docs/torrent/trackers.md` and
+    `rendezvous.md` are normative, and the code cites them by section throughout (as does §9 of this
+    document), but the section numbers are plain prose. Nothing fails if a spec is re-headed,
+    re-numbered, or edited to say something else — unlike the tag registries, which have
+    `tag_mirror.rs`. A citation lint (headings exist; cited sections resolve) would close it.
+25. **Live-client acceptance of the network path is scripted but not in CI** (L-45). The
     share → list → join → host-death → recovery series has passed on a live display, but folding it
     into CI under Xvfb is outstanding, so regressions in the join/announce path are caught by
     headless tests plus a manual run rather than by the gate.
-20. **Several enforcement halves ride the live mesh** (L-49): live chunk/region validation and
+26. **Several enforcement halves ride the live mesh** (L-49): live chunk/region validation and
     revalidation over the worker's `PeerRuntime`, re-key propagation across seeders, and the
     single-player per-row player count all wait on a GUI/live environment for their exit tests.
-21. **`gradle check` at full parallelism flakes on `SocketPeerTransportAuthTest`** (CPU contention,
+27. **`gradle check` at full parallelism flakes on `SocketPeerTransportAuthTest`** (CPU contention,
     pre-existing). Transport suites should be run with `--no-parallel --max-workers=2` when the result
     matters.
