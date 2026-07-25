@@ -39,16 +39,23 @@ rcon "gamemode survival JoinerDev" >/dev/null      # a creative-mode pearl does 
 rcon "clear JoinerDev" >/dev/null
 rcon "give JoinerDev minecraft:ender_pearl 4" >/dev/null
 # Flat ground and a known start: the pearl must fly a while, not land on the thrower's head.
-rcon "execute in minecraft:overworld run tp JoinerDev 100 -58 100 0 0" >/dev/null
+tp_player JoinerDev 100 -58 100 >/dev/null
 sleep $(( 8 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
 start=$(rcon "data get entity JoinerDev Pos")
 transcript "=== start position: $start"
 
 mark=$(wc -l < "$LOG_DIR/server.log")
-# `useItem`-style throwing has no command; a summoned pearl with a thrower carries the same lane
-# path — it is captured as a ghost and teleports its owner on impact.
-rcon 'execute at JoinerDev run summon minecraft:ender_pearl ^ ^1 ^1 {Motion:[0.0,0.6,1.4],Owner:"JoinerDev"}' \
-    >/dev/null || fail "E1: could not summon the pearl"
+# There is no "use item" command, so the pearl is summoned with an owner. The owner is a UUID —
+# `Owner:"JoinerDev"` is silently ignored, which is how the first version of this drive summoned a
+# pearl that could never teleport anybody and then waited for the teleport. Read the real UUID and
+# hand it over in the int-array form the tag expects.
+uuid=$(rcon "data get entity JoinerDev UUID" | grep -oE '\[I;[^]]*\]')
+[[ -n "$uuid" ]] || fail "E1: could not read JoinerDev's UUID (needed to own the pearl)"
+transcript "=== thrower UUID: $uuid"
+summoned=$(rcon "execute at JoinerDev run summon minecraft:ender_pearl ^ ^1 ^1 {Motion:[0.0,0.6,1.4],Owner:$uuid}")
+transcript "=== summon: $summoned"
+grep -qa "Summoned" <<<"$summoned" \
+    || fail "E1: the pearl was not summoned: ${summoned:-<no reply>}"
 
 # E1's ghost half rides the same node question as the mob drive: a pearl is captured only where the
 # SERVER's lane owns the region, and under field-of-view ownership it owns none (L-60). The teleport

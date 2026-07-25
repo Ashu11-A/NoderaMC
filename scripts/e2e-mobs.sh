@@ -86,7 +86,7 @@ pass "G1: ghost capture — the lane controls the mobs and keeps its region"
 # so the stage states the condition it needs and says which one it found.
 log "G2: the same summon in the NETHER (capture is OFF there)"
 mark=$(wc -l < "$LOG_DIR/server.log")
-rcon "execute in minecraft:the_nether run tp JoinerDev 0 100 0" >/dev/null
+tp_player JoinerDev 0 100 0 minecraft:the_nether >/dev/null
 sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))   # let the nether chunks + the re-plan settle
 rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
 

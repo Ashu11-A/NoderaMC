@@ -374,7 +374,35 @@ control_verb() {
 }
 
 # Minimal Source-RCON client (auth + one command per call) → stdout.
+# One RCON command, RETRIED. RCON is answered on the server thread, so a long tick (chunk
+# generation far from spawn, a re-plan sweep) can outlast even a generous socket timeout. The
+# first version of this helper printed nothing in that case and the caller could not tell "the
+# server said nothing" from "the server said no" — a teleport that never ran then read as a
+# feature that never fired. Three attempts, and the exception text stays out of the reply.
 rcon() {
+    local reply attempt
+    for attempt in 1 2 3; do
+        reply=$(rcon_once "$1" 2>/dev/null)
+        [[ -n "$reply" ]] && { printf '%s' "$reply"; return 0; }
+        sleep 3
+    done
+    return 1
+}
+
+# tp_player <name> <x> <y> <z> [dimension] — teleport, and PROVE it happened.
+#
+# A teleport whose reply nobody reads is the worst kind of setup step: every assertion after it
+# measures a player who never moved, and the suite reports the feature as broken. Minecraft
+# answers "Teleported <name> to ..." on success and an error otherwise; both are checked.
+tp_player() {
+    local who="$1" x="$2" y="$3" z="$4" dim="${5:-minecraft:overworld}" reply
+    reply=$(rcon "execute in $dim run tp $who $x $y $z")
+    grep -qa "Teleported" <<<"$reply" \
+        || fail "the teleport of $who to ($x, $y, $z) was not accepted: ${reply:-<no reply>}"
+    printf '%s' "$reply"
+}
+
+rcon_once() {
     python3 - "$RCON_PORT" "$RCON_PASS" "$1" <<'PYEOF'
 import socket, struct, sys
 
@@ -721,15 +749,21 @@ nodera_dedicated_two_players() {
     wait_log "$LOG_DIR/server.log" "sharing world" 420 \
         || fail "the dedicated server never shared its world (see $LOG_DIR/server.log)"
     write_client_config run-join  "$PEER1_CONTROL"
-    write_client_config run-join2 "$PEER2_CONTROL"
     start_client runClientJoin    "$LOG_DIR/client-join.log"
     P1_GRADLE_PID=$LAST_CLIENT_PID
     wait_join "$LOG_DIR/server.log" "JoinerDev joined the game" 600 \
         "$LOG_DIR/client-join.log" "JoinerDev never joined" || fail "JoinerDev never joined"
-    start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
-    P2_GRADLE_PID=$LAST_CLIENT_PID
-    wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
-        "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
+    # The SECOND client only when the topology asks for it. It used to launch unconditionally, so
+    # `NODERA_PLAYERS=1` said one slot and started two anyway — and a second real Minecraft client
+    # is the single most expensive thing in the run, which is what makes a memory-tight machine
+    # unable to execute suites that need only one player.
+    if (( NODERA_PLAYERS >= 2 )); then
+        write_client_config run-join2 "$PEER2_CONTROL"
+        start_client runClientJoinTwo "$LOG_DIR/client-join2.log"
+        P2_GRADLE_PID=$LAST_CLIENT_PID
+        wait_join "$LOG_DIR/server.log" "JoinerTwo joined the game" 600 \
+            "$LOG_DIR/client-join2.log" "JoinerTwo never joined" || fail "JoinerTwo never joined"
+    fi
     wait_log "$LOG_DIR/server.log" "entity lane live" 300 || fail "the entity lane never activated"
 }
 
