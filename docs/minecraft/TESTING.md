@@ -61,7 +61,7 @@ reuse.
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
-| `e2e-mobs.sh` | The ghost-mob lane: mobs summoned where capture is enabled are taken over by the lane and the region is kept; the same summon in a dimension that never opted in **revokes** the region, names the reason, and the session plays on | ~7 min |
+| `e2e-mobs.sh` | The ghost-mob lane: regions report holding ghost mobs where capture is enabled and are not revoked. The revocation half asserts only on a node that owns regions — on a dedicated server under field-of-view ownership it reports SKIPPED and names **L-60**, which is the gap it found | ~9 min |
 | `e2e-pearl.sh` | The pearl drive: a thrown pearl is captured as a lane ghost and its teleport lands the thrower where the lane says it did | ~6 min |
 | `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
 | `e2e-rekey.sh` | The author changes the world password: the worker seeds and announces the re-keyed manifest, **no refresh of a password-protected world is ever plaintext**, the **old** password is refused at the game server, and the new one joins | ~9 min |
