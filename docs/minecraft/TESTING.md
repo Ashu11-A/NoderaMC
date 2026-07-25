@@ -7,7 +7,7 @@
      lifecycle paths, and most defects in this category were only catchable live. -->
 
 **Category:** minecraft · **Last run:** 2026-07-25 · **97 unit tests · 0 failing** (module
-`neoforge-mod`), plus **12 scripted live suites**
+`neoforge-mod`), plus **13 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -42,6 +42,7 @@ scripts/e2e-churn.sh     --no-build [--cycles 5]
 scripts/e2e-pickup.sh    --no-build
 scripts/e2e-mobs.sh      --no-build
 scripts/e2e-pearl.sh     --no-build
+scripts/e2e-mesh-soak.sh --no-build
 scripts/e2e-password.sh  --no-build
 scripts/e2e-rekey.sh     --no-build
 scripts/e2e-commands.sh  --no-build
@@ -67,6 +68,7 @@ run first — or alone on its own machine, which is what CI does.
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
 | `e2e-mobs.sh` | The ghost-mob lane: regions report holding ghost mobs where capture is enabled and are not revoked. The revocation half asserts only on a node that owns regions — on a dedicated server under field-of-view ownership it reports SKIPPED and names **L-60**, which is the gap it found | ~9 min |
 | `e2e-pearl.sh` | The pearl drive: the teleport lands the thrower where the lane says it did (a hard assertion — the event is not ownership-dependent); the ghost-capture half reports SKIPPED naming **L-60** on a node that owns no regions | ~7 min |
+| `e2e-mesh-soak.sh` | The live mesh under sustained load: votes are cast **and received** across the transport while clients play, and every region root reported by more than one peer is identical (L-30) | ~9 min |
 | `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
 | `e2e-rekey.sh` | The author changes the world password: the worker seeds and announces the re-keyed manifest, **no refresh of a password-protected world is ever plaintext**, the **old** password is refused at the game server, and the new one joins | ~9 min |
 | `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |
