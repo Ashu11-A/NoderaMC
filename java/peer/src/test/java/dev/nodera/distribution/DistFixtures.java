@@ -108,6 +108,11 @@ final class DistFixtures {
         }
 
         @Override
+        public boolean remove(ContentId id) {
+            return blobs.remove(id) != null;
+        }
+
+        @Override
         public int size() {
             return blobs.size();
         }

@@ -158,7 +158,7 @@ public final class MutationGuard {
                     + "mod bypassing the tick phases). Direct writes must run on the server "
                     + "thread inside a vanilla phase; asynchronous mutations must be submitted "
                     + "as validated actions via AsyncActionGate.submit(...) — see "
-                    + "docs/LIMITATIONS.md L-25.");
+                    + "docs/SDK.md (\"Mutating the world from your own thread\").");
         }
     }
 

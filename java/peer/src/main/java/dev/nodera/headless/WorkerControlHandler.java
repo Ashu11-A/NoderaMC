@@ -43,6 +43,7 @@ public final class WorkerControlHandler implements ControlHandler {
     private final PeerTrafficMeter peerMeter; // nullable — per-peer rows fall back to zeros
     private final dev.nodera.peer.discovery.PeerDiscoveryService discovery; // nullable
     private final ConfigSeams config; // nullable — no config plane wired
+    private final WorldGrantGossipService grants; // nullable — no permission lane wired
     private final long startedAtMillis;
 
     /** Compatibility constructor without a validation lane (tests, minimal embeddings). */
@@ -98,6 +99,24 @@ public final class WorkerControlHandler implements ControlHandler {
                                 WorldArchiveService archive, PeerTrafficMeter peerMeter,
                                 dev.nodera.peer.discovery.PeerDiscoveryService discovery,
                                 ConfigSeams config) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, archive,
+                peerMeter, discovery, config, null);
+    }
+
+    /**
+     * Full constructor, including the permission-gossip lane (issue #36 / L-54).
+     *
+     * @param grants the lane that relays world-permission grants to co-hosting peers, or
+     *               {@code null} when this embedding has none — a grant is then minted and returned
+     *               to the caller exactly as before, but reaches no other peer.
+     */
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive, PeerTrafficMeter peerMeter,
+                                dev.nodera.peer.discovery.PeerDiscoveryService discovery,
+                                ConfigSeams config, WorldGrantGossipService grants) {
+        this.grants = grants;
         this.config = config;
         this.version = version;
         this.identity = identity;
@@ -491,6 +510,13 @@ public final class WorkerControlHandler implements ControlHandler {
         dev.nodera.storage.WorldPermissionGrant grant =
                 dev.nodera.storage.WorldPermissionGrant.create(identity, worldId, subject,
                         subjectPublicKey, role, grantVersion);
+        // L-54: a grant that only ever reaches the author's own disk is not a decision the mesh
+        // has taken. Publishing applies it here and relays it to every co-hosting peer, each of
+        // which re-verifies it against the world's author key before accepting.
+        if (grants != null) {
+            grants.track(worldIdHex, identity.nodeId(), identity.publicKeyBytes());
+            grants.publish(worldIdHex, grant);
+        }
         CanonicalWriter w = new CanonicalWriter();
         grant.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
@@ -550,6 +576,9 @@ public final class WorkerControlHandler implements ControlHandler {
         } finally {
             java.util.Arrays.fill(pwd, '\0');
         }
+        // 4b. evict the superseded ciphertext (L-55). The old blob decrypts under the OLD password,
+        // so keeping it seeded would mean a password change revoked nothing on this node.
+        archive.supersedeOlderVersions(worldIdHex);
         // 5. re-sign the identity with the new manifestRef (encrypted=true; password is non-blank).
         WorldIdentity reSigned = current.resign(identity, current.shared(),
                 current.listedOnTracker(), true, manifest.manifestRoot());

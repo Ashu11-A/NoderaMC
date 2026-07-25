@@ -182,6 +182,74 @@ final class RekeyVerbIT {
     }
 
     @Test
+    void aSecondRekeySupersedesTheOldCiphertextSoTheOldPasswordStopsWorking(@TempDir Path tmp)
+            throws Exception {
+        // L-55: a re-key used to APPEND a manifest version and leave the previous one seeded. The
+        // superseded blob is still decryptable with the OLD password, so changing the password
+        // revoked nothing on this node — a holder of the old password kept reading the pre-re-key
+        // world from it. Superseding evicts the old version: manifest table, tracker holdings, and
+        // the content store itself.
+        NodeIdentity authorIdentity = author();
+
+        byte[] blob = new byte[120_000];
+        new java.util.Random(7L).nextBytes(blob);
+        Path archiveFile = tmp.resolve("packed.nar");
+        Files.write(archiveFile, blob);
+
+        Bytes genesisRoot = hashes.sha256("genesis-l55".getBytes());
+        WorldIdentity current = WorldIdentity.create(authorIdentity, genesisRoot, 1L,
+                true, true, false, Bytes.empty());
+        String worldIdHex = current.worldId().toHex();
+
+        String firstPassword = "first-password";
+        String firstReply = request(ControlProtocol.REKEY + " 2 " + worldIdHex
+                + " " + b64(archiveFile.toString())
+                + " " + b64(firstPassword)
+                + " " + b64(encodeIdentity(current)));
+        assertTrue(firstReply.startsWith(ControlProtocol.OK + " "), firstReply);
+        WorldIdentity afterFirst = WorldIdentity.decode(new CanonicalReader(
+                b64ToBytes(firstReply.substring(ControlProtocol.OK.length() + 1))));
+        PieceManifest firstManifest = archive.newestManifest(worldIdHex).orElseThrow();
+        byte[] firstCipher = store.get(firstManifest.blob()).orElseThrow();
+        assertArrayEquals(blob, WorldArchive.decryptArchive(firstManifest, firstCipher,
+                firstPassword.toCharArray()).orElseThrow());
+
+        // The author changes the password again.
+        String secondPassword = "second-password";
+        String secondReply = request(ControlProtocol.REKEY + " 2 " + worldIdHex
+                + " " + b64(archiveFile.toString())
+                + " " + b64(secondPassword)
+                + " " + b64(encodeIdentity(afterFirst)));
+        assertTrue(secondReply.startsWith(ControlProtocol.OK + " "), secondReply);
+
+        PieceManifest newest = archive.newestManifest(worldIdHex).orElseThrow();
+        assertEquals(2, newest.version().value());
+        assertFalse(newest.manifestRoot().equals(firstManifest.manifestRoot()),
+                "a re-key must mint a new manifest root");
+
+        // The superseded version is gone: not in the manifest table, not advertised, not stored.
+        assertEquals(1, archive.heldVersions(worldIdHex).size(),
+                "only the newest version survives a re-key");
+        assertEquals(newest.manifestRoot(),
+                archive.heldVersions(worldIdHex).get(0).manifestRoot());
+        assertTrue(archive.holdingsFor(worldIdHex).stream()
+                        .noneMatch(h -> h.manifestRoot().equals(firstManifest.manifestRoot())),
+                "the next announce must not advertise the superseded manifest");
+        assertTrue(archive.content().heldPieces(firstManifest.manifestRoot()).isEmpty(),
+                "no piece of the superseded manifest is held any more");
+        assertFalse(store.has(firstManifest.blob()),
+                "the old ciphertext is evicted from the content store, "
+                        + "so the OLD password no longer reads anything from this node");
+
+        // And the surviving ciphertext answers to the new password only.
+        byte[] secondCipher = store.get(newest.blob()).orElseThrow();
+        assertArrayEquals(blob, WorldArchive.decryptArchive(newest, secondCipher,
+                secondPassword.toCharArray()).orElseThrow());
+        assertTrue(WorldArchive.decryptArchive(newest, secondCipher,
+                firstPassword.toCharArray()).isEmpty());
+    }
+
+    @Test
     void rekeyRejectsAWrongAuthorIdentity(@TempDir Path tmp) throws Exception {
         NodeIdentity authorIdentity = author(); // the worker's identity
         String worldIdHex = hashes.sha256("rekey-world-2".getBytes()).toHex();

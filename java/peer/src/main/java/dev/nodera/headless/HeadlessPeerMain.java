@@ -140,11 +140,20 @@ public final class HeadlessPeerMain {
         sessionListener.bind(validation);
         sessionListener.onSessionChanged(runtime.sessionView());
 
-        // One application lane, two consumers: the validation flow and the archive/content flow.
+        // The permission lane (L-54): grants used to exist only in the author's own
+        // nodera-permissions.dat, so a co-hosting peer's permission set was author-local — an
+        // operator promotion or a ban did not exist for the rest of the mesh. Every grant this node
+        // issues or receives is relayed onward and re-verified locally against the world's author
+        // key, so the transport carries the decision without ever being trusted with it.
+        WorldGrantGossipService grants = new WorldGrantGossipService(
+                identity.nodeId(), metered, () -> runtime.sessionView().members());
+
+        // One application lane, three consumers: validation, archive/content, and permissions.
         // Each ignores message types it does not own.
         runtime.onApplicationMessage((from, msg) -> {
             validation.onMessage(from, msg);
             archive.onMessage(from, msg);
+            grants.onMessage(from, msg);
         });
 
         // Peer discovery (the plane that was built but never asked): on a cadence, ask every
@@ -185,7 +194,8 @@ public final class HeadlessPeerMain {
                 WORKER_VERSION, identity, caps, runtime, meter, hosting, validation, archive,
                 peerMeter, discovery,
                 new WorkerControlHandler.ConfigSeams(
-                        archive.content(), replication, transport, tracker));
+                        archive.content(), replication, transport, tracker),
+                grants);
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 

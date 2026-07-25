@@ -24,6 +24,19 @@ public interface ContentStore {
     /** @return {@code true} if {@code id} is present. */
     boolean has(ContentId id);
 
+    /**
+     * Drop {@code id} from this store.
+     *
+     * <p>Content-addressed storage is normally append-only, but some blobs must be able to *stop*
+     * existing: a password re-key mints a new ciphertext for the same world, and the superseded one
+     * is still decryptable with the OLD password, so continuing to seed it would keep a revoked
+     * password usable forever (L-55). Removal is idempotent — removing an absent id is not an error.
+     *
+     * @param id the content id to drop.
+     * @return {@code true} if the blob was present and is now gone.
+     */
+    boolean remove(ContentId id);
+
     /** @return the number of distinct blobs held. */
     int size();
 }
