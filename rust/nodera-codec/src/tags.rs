@@ -138,9 +138,12 @@ pub mod message_tags {
     pub const GENESIS_APPROVAL_GRANT: u16 = 59;
     /// `WorldGrantGossip` — one world-permission grant relayed to co-hosting peers (L-54).
     pub const WORLD_GRANT_GOSSIP: u16 = 60;
+    /// `RegionRefusal` — a region no node can validate, announced by a node that owns none of
+    /// it (L-60). Java-side only: refusals are consensus traffic, never discovery.
+    pub const REGION_REFUSAL: u16 = 61;
 
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 60;
+    pub const NEXT_TAG: u16 = 61;
 }
 
 /// The message tags this crate can decode today.
