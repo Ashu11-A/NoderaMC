@@ -83,8 +83,4 @@ public final class InterferenceStats {
         return perSource == null ? 0 : perSource.getOrDefault(source, 0L);
     }
 
-    /** The configured window length in ticks. */
-    public int windowTicks() {
-        return windowTicks;
-    }
 }

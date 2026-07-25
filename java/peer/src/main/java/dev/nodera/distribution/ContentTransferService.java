@@ -428,15 +428,6 @@ public final class ContentTransferService implements MessageHandler {
         });
     }
 
-    /**
-     * @param manifestRoot the manifest root.
-     * @return the in-progress downloader for that root, or {@code null}.
-     * @Thread-context any thread.
-     */
-    public PieceDownloader downloadOf(Bytes manifestRoot) {
-        return downloads.get(manifestRoot);
-    }
-
     private void sendRequest(NodeId holder, ContentRequest request) {
         // Both gates drop the request WITHOUT calling onRequestFailed: that callback re-pumps the
         // downloader immediately, which under a standing pause or an exhausted budget would spin a
@@ -652,24 +643,4 @@ public final class ContentTransferService implements MessageHandler {
         return throttledRequests;
     }
 
-    /** @return how many distinct manifests this peer holds any piece of. */
-    public int heldManifests() {
-        return local.size();
-    }
-
-    /**
-     * @param region the region.
-     * @return the manifest roots held for that region.
-     * @Thread-context any thread.
-     */
-    public List<Bytes> rootsForRegion(RegionId region) {
-        Map<Bytes, LocalContent> snapshot = new LinkedHashMap<>(local);
-        List<Bytes> out = new ArrayList<>();
-        for (Map.Entry<Bytes, LocalContent> e : snapshot.entrySet()) {
-            if (e.getValue().manifest.region().equals(region)) {
-                out.add(e.getKey());
-            }
-        }
-        return List.copyOf(out);
-    }
 }

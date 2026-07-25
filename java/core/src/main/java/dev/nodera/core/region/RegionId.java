@@ -52,10 +52,6 @@ public record RegionId(DimensionKey dimension, int regionX, int regionZ) impleme
         return originChunkX() * 16;
     }
 
-    public int originBlockZ() {
-        return originChunkZ() * 16;
-    }
-
     @Override
     public String toString() {
         return "Region[" + dimension + " @ " + regionX + "," + regionZ + "]";

@@ -162,8 +162,4 @@ public final class RetentionPolicy {
         deadlines.remove(world);
     }
 
-    /** @return the configured countdown duration. */
-    public long countdownMillis() {
-        return countdownMillis;
-    }
 }

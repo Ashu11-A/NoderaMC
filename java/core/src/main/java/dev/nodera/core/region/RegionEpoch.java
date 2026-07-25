@@ -31,11 +31,6 @@ public record RegionEpoch(long value) implements Encodable, Comparable<RegionEpo
         return Long.compare(value, o.value);
     }
 
-    /** True when {@code other} is strictly older than this. */
-    public boolean isAfter(RegionEpoch other) {
-        return value > other.value;
-    }
-
     @Override
     public void encode(CanonicalWriter w) {
         w.writeU16(TypeTags.REGION_EPOCH).writeU16(ENCODING_VERSION);

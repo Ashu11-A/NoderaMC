@@ -229,14 +229,6 @@ public final class InMemoryWorldView implements MutableWorldView {
         return copy;
     }
 
-    private static int unpackX(long key) {
-        return (int) (key >> 32);
-    }
-
-    private static int unpackZ(long key) {
-        return (int) (key & 0xFFFFFFFFL);
-    }
-
     private static final class Column {
         final int minY;
         final int sectionCount;

@@ -43,8 +43,8 @@ transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/interrogation.log"; }
 log "F1: teleporting the players ~566 km apart"
 rcon "gamemode creative JoinerDev" >/dev/null
 rcon "gamemode creative JoinerTwo" >/dev/null
-rcon "execute in minecraft:overworld run tp JoinerDev $X1 200 $Z1" >/dev/null
-rcon "execute in minecraft:overworld run tp JoinerTwo $X2 200 $Z2" >/dev/null
+tp_player JoinerDev "$X1" 200 "$Z1" >/dev/null
+tp_player JoinerTwo "$X2" 200 "$Z2" >/dev/null
 log "F1: waiting for far chunks + the ownership replan to settle"
 sleep 20
 

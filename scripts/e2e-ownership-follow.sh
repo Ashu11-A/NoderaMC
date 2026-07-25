@@ -52,7 +52,7 @@ pass "W0: both players in-world, lane live, $NODERA_WORKERS peers up"
 
 log "W0: parking JoinerTwo at ($PARK_X, $PARK_Z) so the FOV discs cannot overlap"
 rcon "gamemode creative JoinerTwo" >/dev/null
-rcon "execute in minecraft:overworld run tp JoinerTwo $PARK_X 200 $PARK_Z" >/dev/null
+tp_player JoinerTwo "$PARK_X" 200 "$PARK_Z" >/dev/null
 sleep 12  # the park is itself a move: let its re-plan land before the baseline is read
 
 # --- W1: baseline ownership (the PLAYER's own lane) -------------------------------------------
@@ -73,7 +73,7 @@ pass "W1: baseline — the player owns $BASE_OWNED region(s)"
 log "W2: teleporting JoinerDev to ($FAR_X, $FAR_Z) — ownership must follow"
 smark=$(wc -l < "$LOG_DIR/server.log")
 cmark=$(wc -l < "$LOG_DIR/client-join.log")
-rcon "execute in minecraft:overworld run tp JoinerDev $FAR_X 200 $FAR_Z" >/dev/null
+tp_player JoinerDev "$FAR_X" 200 "$FAR_Z" >/dev/null
 # The movement check runs once a second behind a 5 s cooldown, then the lane reopens and the
 # fresh plan is broadcast asynchronously; allow generous room on a loaded machine.
 # THE assertion: a re-plan fires for the new position AND the player's client re-derives its

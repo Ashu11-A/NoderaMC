@@ -94,14 +94,6 @@ public final class PlayerRules {
         return new PlayerState(owner, health, maxHealth, slots);
     }
 
-    /** @return {@code actor}'s PLAYER entity in this view, or {@code null} when not registered. */
-    public static PersistedEntityState playerOf(RegionWorldView view, NodeId actor) {
-        if (view instanceof MutableRegionState state) {
-            return findPlayer(state.entities(), actor);
-        }
-        return null;
-    }
-
     /** @return {@code actor}'s PLAYER entity among {@code entities}, or {@code null}. */
     public static PersistedEntityState findPlayer(
             List<PersistedEntityState> entities, NodeId actor) {
@@ -111,11 +103,6 @@ public final class PlayerRules {
             }
         }
         return null;
-    }
-
-    /** @return whether {@code count} of {@code itemStackId} fits into the player's inventory. */
-    public static boolean canAccept(PersistedEntityState player, int itemStackId, int count) {
-        return slotFor(decode(player.payload()).inventory(), itemStackId, count) >= 0;
     }
 
     /**

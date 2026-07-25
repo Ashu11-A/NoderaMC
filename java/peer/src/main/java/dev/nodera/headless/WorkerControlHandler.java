@@ -46,47 +46,22 @@ public final class WorkerControlHandler implements ControlHandler {
     private final WorldGrantGossipService grants; // nullable — no permission lane wired
     private final long startedAtMillis;
 
-    /** Compatibility constructor without a validation lane (tests, minimal embeddings). */
-    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
-                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting) {
-        this(version, identity, capabilities, runtime, meter, hosting, null, null);
-    }
-
-    /** Compatibility constructor without an archive lane. */
-    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
-                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
-                                dev.nodera.peer.validation.WorkerValidationService validation) {
-        this(version, identity, capabilities, runtime, meter, hosting, validation, null);
-    }
-
-    /** Compatibility constructor without per-peer metering (peer rows report zero throughput). */
+    /**
+     * A worker with an archive lane but no per-peer metering, discovery, configuration plane, or
+     * permission gossip — the shape the control-verb integration tests embed. Peer rows report
+     * zero throughput and the optional verbs decline honestly rather than pretending.
+     */
     public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
                                 PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
                                 dev.nodera.peer.validation.WorkerValidationService validation,
                                 WorldArchiveService archive) {
-        this(version, identity, capabilities, runtime, meter, hosting, validation, archive, null);
-    }
-
-    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
-                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
-                                dev.nodera.peer.validation.WorkerValidationService validation,
-                                WorldArchiveService archive, PeerTrafficMeter peerMeter) {
         this(version, identity, capabilities, runtime, meter, hosting, validation, archive,
-                peerMeter, null);
-    }
-
-    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
-                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
-                                dev.nodera.peer.validation.WorkerValidationService validation,
-                                WorldArchiveService archive, PeerTrafficMeter peerMeter,
-                                dev.nodera.peer.discovery.PeerDiscoveryService discovery) {
-        this(version, identity, capabilities, runtime, meter, hosting, validation, archive,
-                peerMeter, discovery, null);
+                null, null, null, null);
     }
 
     /**
-     * Full constructor, including the runtime-configuration seams behind
-     * {@link dev.nodera.peer.control.ControlProtocol#CONFIG}.
+     * A worker with the runtime-configuration seams behind
+     * {@link dev.nodera.peer.control.ControlProtocol#CONFIG} but no permission gossip.
      *
      * @param config the live objects a configuration push may re-bound, or {@code null} when this
      *               embedding has no configuration plane — the verb then declines with
@@ -474,27 +449,6 @@ public final class WorkerControlHandler implements ControlHandler {
         CanonicalWriter w = new CanonicalWriter();
         id.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
-    }
-
-    @Override
-    public String password(String worldId, String newPasswordB64) {
-        // F6: the verb now carries plaintext (loopback trust boundary) and the worker is the sole
-        // password authority — verify authorship BEFORE attempting anything. The full re-key pipeline
-        // (re-derive WorldKeyMaterial → re-encrypt + re-split archive → new manifest version →
-        // WorldIdentity.resign → refresh announce) is not yet wired, so this declines with an honest,
-        // actionable error rather than reporting success (the old contract's failure mode).
-        if (worldId == null || worldId.isBlank()) {
-            return "missing worldId";
-        }
-        if (newPasswordB64 == null || newPasswordB64.isBlank()) {
-            return "missing new password";
-        }
-        boolean author = hosting.hostedWorlds().stream()
-                .anyMatch(w -> worldId.equalsIgnoreCase(w.worldIdHex()));
-        if (!author) {
-            return "not the author of this world";
-        }
-        return "password re-key pipeline not yet implemented (issue #36 follow-up)";
     }
 
     @Override

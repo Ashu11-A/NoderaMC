@@ -37,15 +37,4 @@ public final class QuorumPolicyEvaluator {
         return acceptSoFar + remaining >= required;
     }
 
-    /**
-     * Convenience: the {@link SignedVote} carries the voter's claimed {@link StateRoot}; this is
-     * a null-safe equality check used by policies that need to compare two claimed roots.
-     *
-     * @param a first root; not null.
-     * @param b second root; not null.
-     * @return true iff {@code a.equals(b)}.
-     */
-    public static boolean rootsAgree(StateRoot a, StateRoot b) {
-        return a != null && a.equals(b);
-    }
 }

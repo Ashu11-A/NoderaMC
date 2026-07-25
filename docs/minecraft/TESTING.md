@@ -7,7 +7,7 @@
      lifecycle paths, and most defects in this category were only catchable live. -->
 
 **Category:** minecraft · **Last run:** 2026-07-25 · **97 unit tests · 0 failing** (module
-`neoforge-mod`), plus **10 scripted live suites**
+`neoforge-mod`), plus **12 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -23,9 +23,13 @@ run on the ordinary gate.
 
 ## 1.1 Running
 
-`scripts/run-tests.sh` is the entry point. It builds once, then runs the requested suites **strictly
-one at a time** — they share a port block and the run directories, so concurrency is made structurally
-impossible by an exclusive lock that standalone runs honour too.
+`scripts/run-tests.sh` is the entry point for a local batch. It builds once, then runs the requested
+suites **strictly one at a time** — on one machine they share a port block and the run directories, so
+concurrency is made structurally impossible by an exclusive lock that standalone runs honour too.
+
+In CI the suites do not share a machine at all: `e2e-live` runs **one suite per runner** as a matrix,
+so the wall clock is the slowest suite rather than the sum, and one suite's leftovers can never reach
+another.
 
 ```bash
 scripts/run-tests.sh                    # every suite, canonical order (~45 min)
@@ -36,6 +40,8 @@ scripts/e2e-continuity.sh               # also BAKES the shared world the others
 scripts/e2e-ownership.sh --no-build
 scripts/e2e-churn.sh     --no-build [--cycles 5]
 scripts/e2e-pickup.sh    --no-build
+scripts/e2e-mobs.sh      --no-build
+scripts/e2e-pearl.sh     --no-build
 scripts/e2e-password.sh  --no-build
 scripts/e2e-rekey.sh     --no-build
 scripts/e2e-commands.sh  --no-build
@@ -47,9 +53,9 @@ scripts/dev.sh --play --no-build        # not a test: two interactive clients
 scripts/dev.sh --play --with-app        # …plus a companion window per player
 ```
 
-**Canonical order matters once:** the continuity suite bakes the shared world (a genuinely shared save
-with a signed world identity and a certified genesis) that the ownership, churn, and crash suites
-reuse.
+**The shared world bakes itself.** The ownership, churn, and crash suites reuse a genuinely shared
+save (signed world identity, certified genesis); the launcher bakes it on first use, so any suite can
+run first — or alone on its own machine, which is what CI does.
 
 ## 1.2 The suites
 
@@ -59,6 +65,8 @@ reuse.
 | `e2e-ownership.sh` | Per-player field-of-view region ownership, the cross-owner drive, and host leave with network re-join | ~10 min |
 | `e2e-churn.sh` | Join/leave churn ×5 with random dwell; a log audit proves no error accumulation | ~12 min |
 | `e2e-pickup.sh` | A clean-slate validated pickup delivers **exactly once** — no vanish, no dupe | ~6 min |
+| `e2e-mobs.sh` | The ghost-mob lane: regions report holding ghost mobs where capture is enabled and are not revoked. The revocation half asserts only on a node that owns regions — on a dedicated server under field-of-view ownership it reports SKIPPED and names **L-60**, which is the gap it found | ~9 min |
+| `e2e-pearl.sh` | The pearl drive: the teleport lands the thrower where the lane says it did (a hard assertion — the event is not ownership-dependent); the ghost-capture half reports SKIPPED naming **L-60** on a node that owns no regions | ~7 min |
 | `e2e-password.sh` | The live-join password gate: a joiner **with no password is refused at the game server** (no player, no world), and the same client carrying the password joins normally | ~7 min |
 | `e2e-rekey.sh` | The author changes the world password: the worker seeds and announces the re-keyed manifest, **no refresh of a password-protected world is ever plaintext**, the **old** password is refused at the game server, and the new one joins | ~9 min |
 | `e2e-commands.sh` | Two players × every `/nodera` command with response validation, plus the in-game self-test tree walk and benchmark | ~8 min |

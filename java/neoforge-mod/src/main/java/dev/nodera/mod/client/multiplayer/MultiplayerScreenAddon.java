@@ -1,12 +1,9 @@
 package dev.nodera.mod.client.multiplayer;
 
-import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 
-import java.util.List;
-import java.util.function.Supplier;
 
 /**
  * Task 31c screen hooks (redesign of the Task 26 addon). Instead of adding widgets <em>beside</em>
@@ -17,21 +14,14 @@ import java.util.function.Supplier;
  * Task 26 torrent-hosting toggle + password is still added.
  *
  * <p>Uses a {@link ScreenEvent.Init.Post} listener (no mixin; {@code nodera.mixins.json} stays
- * empty). The world feed flows through {@link #setWorldSupplier} → {@link NoderaMultiplayerScreen}.
+ * empty). The world feed is installed straight on {@link NoderaMultiplayerScreen} by
+ * {@code ClientBootstrap}.
  *
  * <p>Thread-context: events fire on the client thread.
  */
 public final class MultiplayerScreenAddon {
 
     private MultiplayerScreenAddon() {
-    }
-
-    /**
-     * Install the live tracker feed (player-hosted + friends' + recently-joined worlds). Forwarded to
-     * {@link NoderaMultiplayerScreen}; kept for backward compatibility with existing callers.
-     */
-    public static void setWorldSupplier(Supplier<List<TorrentWorldEntry>> supplier) {
-        NoderaMultiplayerScreen.setWorldSupplier(supplier);
     }
 
     /** Registered on the NeoForge event bus by {@code ClientBootstrap}. */
