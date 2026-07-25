@@ -54,14 +54,14 @@ rcon 'execute at JoinerDev run summon minecraft:ender_pearl ^ ^1 ^1 {Motion:[0.0
 # SERVER's lane owns the region, and under field-of-view ownership it owns none (L-60). The teleport
 # half below does NOT — it is a vanilla event the host always sees — so the drive still asserts the
 # part it can and says which part it could not.
-if wait_log_after "$LOG_DIR/server.log" "PEARL: ghost" 120 "$mark"; then
-    ghost=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "PEARL: ghost" | tail -1)
-    transcript "=== ghost: $ghost"
-    pass "E1: the pearl is a lane ghost — captured in its region"
-elif grep -qa "no regions fall to this node" "$LOG_DIR/server.log"; then
+if grep -qa "no regions fall to this node" "$LOG_DIR/server.log"; then
     transcript "=== E1 skipped: the server's lane owns no regions (L-60)"
     log "E1: SKIPPED — this server's lane owns no regions, so nothing on it captures the pearl \
 as a ghost (L-60). The teleport half below still asserts."
+elif wait_log_after "$LOG_DIR/server.log" "PEARL: ghost" 120 "$mark"; then
+    ghost=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "PEARL: ghost" | tail -1)
+    transcript "=== ghost: $ghost"
+    pass "E1: the pearl is a lane ghost — captured in its region"
 else
     fail "E1: the lane never captured the pearl as a ghost on a node that DOES own regions \
 (see $LOG_DIR/server.log)"

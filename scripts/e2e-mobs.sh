@@ -90,7 +90,14 @@ rcon "execute in minecraft:the_nether run tp JoinerDev 0 100 0" >/dev/null
 sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))   # let the nether chunks + the re-plan settle
 rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
 
-if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
+# Ask the precondition BEFORE spending the timeout on it: when the server's lane owns no regions
+# there is nothing here that can revoke, and waiting nine minutes to be told so is the single
+# slowest thing this suite does.
+if grep -qa "no regions fall to this node" "$LOG_DIR/server.log"; then
+    transcript "=== G2 skipped: the server's lane owns no regions (L-60)"
+    log "G2: SKIPPED — this server's lane owns no regions, so nothing on it can refuse a \
+non-delegable entity (L-60). The assertion needs the owning node, which is a player's."
+elif wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
     revoked=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "entity lane revoked" | tail -1)
     transcript "=== revocation: $revoked"
     grep -qa "non-delegable entity" <<<"$revoked" \
@@ -105,11 +112,6 @@ if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
     errors=$(nodera_audit_errors "$LOG_DIR/server.log" "$mark")
     [[ -z "$errors" ]] || fail "G2: the revocation left errors in the log: $errors"
     pass "G2: revocation — the region is released, the reason is named, the session plays on"
-elif grep -qa "no regions fall to this node" "$LOG_DIR/server.log"; then
-    # The documented reason, read from the server's own words rather than assumed.
-    transcript "=== G2 skipped: the server's lane owns no regions (L-60)"
-    log "G2: SKIPPED — this server's lane owns no regions, so nothing on it can refuse a \
-non-delegable entity (L-60). The assertion needs the owning node, which is a player's."
 else
     fail "G2: a non-delegable entity did NOT revoke its region on a node that DOES own regions \
 (see $LOG_DIR/server.log)"
