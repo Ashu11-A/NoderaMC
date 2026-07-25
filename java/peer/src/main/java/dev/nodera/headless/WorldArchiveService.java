@@ -71,6 +71,17 @@ public final class WorldArchiveService implements AutoCloseable {
     /** How often the serve-bandwidth window re-opens. */
     private static final Duration SERVE_WINDOW = Duration.ofSeconds(1);
 
+    /**
+     * How many archive versions of a hosted world this node keeps by default (L-61).
+     *
+     * <p>Three, not one: {@link #supersedeOlderVersions} keeps exactly the newest, and the reason
+     * it is not called from the streaming path is that dropping the version a joiner is mid-fetch
+     * of trades a growth bug for an availability one. A window keeps the streaming path bounded
+     * <i>and</i> keeps the last couple of snapshots fetchable — at 2400 ticks per version, three
+     * versions is minutes of overlap, far longer than a fetch.
+     */
+    public static final int DEFAULT_RETAINED_VERSIONS = 3;
+
     private final NodeId self;
     private final PeerTransport transport;
     private final ContentTransferService content;
@@ -94,6 +105,9 @@ public final class WorldArchiveService implements AutoCloseable {
             new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler;
+
+    /** How many versions per world survive a seed; see {@link #DEFAULT_RETAINED_VERSIONS}. */
+    private volatile int retainedVersions = DEFAULT_RETAINED_VERSIONS;
 
     /**
      * @param identity         this worker's identity (tracker queries are made with it).
@@ -180,6 +194,7 @@ public final class WorldArchiveService implements AutoCloseable {
         LOG.info("Seeding world archive {} v{} — {} piece(s), {} byte(s), root {}",
                 shortId(worldIdHex), version, manifest.pieceCount(), manifest.totalLength(),
                 manifest.manifestRoot().toShortHex(6));
+        trimToRetention(worldIdHex, versions);
         return manifest;
     }
 
@@ -214,7 +229,69 @@ public final class WorldArchiveService implements AutoCloseable {
                 shortId(worldIdHex), version, encrypted.manifest().pieceCount(),
                 encrypted.manifest().totalLength(), encrypted.manifest().keyMaterial().kdf(),
                 encrypted.manifest().manifestRoot().toShortHex(6));
+        trimToRetention(worldIdHex, versions);
         return encrypted.manifest();
+    }
+
+    /**
+     * Bound how many archive versions of one world this node keeps (L-61).
+     *
+     * @param keep the window; clamped to at least 1 (a node that hosts a world always keeps its
+     *             newest archive — that IS the world).
+     * @Thread-context any thread.
+     */
+    public void setRetainedVersions(int keep) {
+        this.retainedVersions = Math.max(1, keep);
+    }
+
+    /** @return how many versions per world survive a seed. */
+    public int retainedVersions() {
+        return retainedVersions;
+    }
+
+    /**
+     * Enforce the retention window after a seed (L-61).
+     *
+     * <p>Continuous archive streaming appends a full world archive every
+     * {@code archive.streamIntervalTicks}. Without a window, a long session's content store grows
+     * without bound — every snapshot the host ever streamed stays on disk and stays announced.
+     * Trimming keeps the newest {@link #retainedVersions}, which is the same eviction
+     * {@link #supersedeOlderVersions} performs, with a window instead of a cliff.
+     *
+     * @return how many versions were evicted.
+     */
+    private int trimToRetention(String worldIdHex, NavigableMap<Long, PieceManifest> versions) {
+        int keep = retainedVersions;
+        if (versions.size() <= keep) {
+            return 0;
+        }
+        // Everything strictly below the keep-th newest version.
+        List<Long> ordered = new ArrayList<>(versions.descendingKeySet());
+        long oldestKept = ordered.get(keep - 1);
+        return evictVersionsBelow(worldIdHex, versions, oldestKept, "beyond the retention window of "
+                + keep);
+    }
+
+    /**
+     * Evict every version of {@code worldIdHex} below {@code floor} — from the manifest table, from
+     * {@link #holdingsFor} (so the next announce stops advertising it), and from the content store.
+     *
+     * @return how many versions were evicted.
+     */
+    private int evictVersionsBelow(String worldIdHex, NavigableMap<Long, PieceManifest> versions,
+                                   long floor, String why) {
+        int evicted = 0;
+        for (Long version : new ArrayList<>(versions.headMap(floor, false).keySet())) {
+            PieceManifest gone = versions.remove(version);
+            if (gone == null) {
+                continue;
+            }
+            content.unpublish(gone.manifestRoot());
+            evicted++;
+            LOG.info("Evicted world archive {} v{} (root {}) — {}",
+                    shortId(worldIdHex), version, gone.manifestRoot().toShortHex(6), why);
+        }
+        return evicted;
     }
 
     /**
@@ -231,7 +308,8 @@ public final class WorldArchiveService implements AutoCloseable {
      * for issue #43 appends a version every interval, and evicting the previous one under a joiner
      * that is mid-fetch would trade a security fix for a data-availability regression. The two call
      * sites are the ones where the old bytes are actually harmful or dead — a re-key, and learning
-     * from the network that a newer version exists.
+     * from the network that a newer version exists. The streaming path is bounded instead by
+     * {@link #trimToRetention}, which keeps a window rather than exactly one (L-61).
      *
      * @param worldIdHex the world.
      * @return how many superseded versions were evicted.
@@ -243,19 +321,8 @@ public final class WorldArchiveService implements AutoCloseable {
         if (versions == null || versions.size() < 2) {
             return 0;
         }
-        long newest = versions.lastKey();
-        int evicted = 0;
-        for (Long version : new ArrayList<>(versions.headMap(newest, false).keySet())) {
-            PieceManifest superseded = versions.remove(version);
-            if (superseded == null) {
-                continue;
-            }
-            content.unpublish(superseded.manifestRoot());
-            evicted++;
-            LOG.info("Superseded world archive {} v{} (root {}) — evicted, no longer seeded",
-                    shortId(worldIdHex), version, superseded.manifestRoot().toShortHex(6));
-        }
-        return evicted;
+        return evictVersionsBelow(worldIdHex, versions, versions.lastKey(),
+                "superseded, no longer seeded");
     }
 
     /** @return every manifest version this node still holds for a world, oldest first. */

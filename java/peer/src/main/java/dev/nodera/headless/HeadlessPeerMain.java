@@ -115,6 +115,12 @@ public final class HeadlessPeerMain {
                         archiveDir, new dev.nodera.core.crypto.HashService());
         WorldArchiveService archive = new WorldArchiveService(identity, metered, contentStore,
                 tracker);
+        // Continuous archive streaming appends a version every `archive.streamIntervalTicks`, so
+        // without a window a long session's content store grows for as long as the session lasts
+        // (L-61). NODERA_ARCHIVE_RETAINED_VERSIONS bounds it; the floor is 1, because the newest
+        // archive of a hosted world IS the world.
+        archive.setRetainedVersions((int) envLong("NODERA_ARCHIVE_RETAINED_VERSIONS",
+                WorldArchiveService.DEFAULT_RETAINED_VERSIONS));
 
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
                 tracker, rendezvousEndpoints, archive::holdingsFor);
