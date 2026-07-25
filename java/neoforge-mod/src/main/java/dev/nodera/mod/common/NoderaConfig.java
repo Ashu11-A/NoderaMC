@@ -57,10 +57,28 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue ENTITY_LANE_AUTO =
             SERVER_BUILDER.define("entity.laneAutoActivate", false);
 
-    // Task 12b ghost lane. Empty by default: dimensions opt in explicitly until soak-proven.
+    // Task 12b ghost lane. Empty by default: a dimension opts in to capturing EVERY species in it.
     public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>>
             MOB_CAPTURE_DIMENSIONS = SERVER_BUILDER.defineListAllowEmpty(
-            "entity.mobCaptureDimensions", java.util.List.of(), NoderaConfig::isDimensionId);
+            "entity.mobCaptureDimensions", java.util.List.of(), NoderaConfig::isResourceId);
+
+    /**
+     * Species captured wherever they are found, no dimension opt-in required (L-24).
+     *
+     * <p>The ghost lane shipped default-off because nothing had been proven. That is no longer
+     * true species-by-species: the zombie's behaviour originates in the validated engine —
+     * {@code MobAiRules}' seeded wander over the replicated root and {@code MobCombatRules}'
+     * validated vitals — so its capture is proven, not hoped for. This list is where that proof is
+     * cashed in, and it grows as each further species' behaviour moves into the engine.
+     *
+     * <p>Deliberately separate from the dimension list rather than replacing it: the dimension
+     * switch means "capture everything here", which is what a soak wants, while this one means
+     * "this species is understood anywhere", which is what a default install wants.
+     */
+    public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>>
+            MOB_CAPTURE_SPECIES = SERVER_BUILDER.defineListAllowEmpty(
+            "entity.mobCaptureSpecies", java.util.List.of("minecraft:zombie"),
+            NoderaConfig::isResourceId);
 
     // P2P direct-transport endpoint (Phase 6 continuity). A host peer (dedicated server or a player's
     // integrated server that pressed "Share") listens here; joiners dial the advertised route and
@@ -150,7 +168,8 @@ public final class NoderaConfig {
         }
     }
 
-    private static boolean isDimensionId(Object raw) {
+    /** Both the dimension list and the species list are ResourceLocation ids; one validator. */
+    private static boolean isResourceId(Object raw) {
         return raw instanceof String id
                 && net.minecraft.resources.ResourceLocation.tryParse(id) != null;
     }
@@ -159,6 +178,24 @@ public final class NoderaConfig {
     public static boolean mobCapture(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
         String id = dimension.location().toString();
         return MOB_CAPTURE_DIMENSIONS.get().stream().anyMatch(id::equals);
+    }
+
+    /**
+     * Whether this entity may be ghost-captured (L-24).
+     *
+     * <p>Either its dimension opted in to capturing everything, or its species is one the engine
+     * owns. An entity that is neither cannot live in a validated region — the lane would be
+     * mirroring behaviour it does not model — which is what makes its region refusable.
+     *
+     * @param dimension the entity's dimension.
+     * @param speciesId the entity type id, e.g. {@code minecraft:zombie}.
+     */
+    public static boolean mobCapture(
+            net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension,
+            String speciesId) {
+        return mobCapture(dimension)
+                || (speciesId != null
+                    && MOB_CAPTURE_SPECIES.get().stream().anyMatch(speciesId::equals));
     }
 
     /**

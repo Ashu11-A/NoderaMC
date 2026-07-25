@@ -10,10 +10,13 @@
 #       region. The exit: a region reports that it now holds ghost mobs
 #       ("GHOST: Region[...] now holds ghost mobs") and is NOT revoked — a
 #       captured ghost is the lane holding a mob, not giving up on one
-#   G2  REVOCATION: the same summon in the NETHER, which never opted in. The
-#       node that SEES the entity refuses the region — naming the reason
-#       ("non-delegable entity minecraft:zombie") — and announces the refusal to
-#       the mesh, whether or not it owns a seat itself. The world keeps playing
+#   G2  Into the NETHER, which opted nothing in, for the two halves that only
+#       separate there:
+#         G2a  the ZOMBIE is captured anyway, because the engine owns that
+#              species' behaviour — the per-species default (L-24)
+#         G2b  a CREEPER is not, so the node that SEES it refuses the region,
+#              names the reason, and announces the refusal to the mesh whether
+#              or not it holds a seat (L-60). The world keeps playing
 #   G3  transcripts + worker STATE snapshots collected
 #
 # Why the nether rather than a config flip and a restart: capture is decided
@@ -29,6 +32,10 @@ nodera_suite mobs mobs
 nodera_parse_args "$@"
 
 MOB="${MOB:-minecraft:zombie}"
+# A species the engine does NOT own. The zombie's behaviour originates in `MobAiRules` /
+# `MobCombatRules`, so it is captured anywhere (L-24's default) — using it for the revocation
+# stage would prove nothing, because there would be nothing non-delegable about it.
+MOB_UNKNOWN="${MOB_UNKNOWN:-minecraft:creeper}"
 MOB_COUNT="${MOB_COUNT:-3}"
 
 # --- G0: stack + two players ------------------------------------------------------------------
@@ -82,21 +89,38 @@ pass "G1: ghost capture — the lane controls the mobs and keeps its region"
 # L-60's fix evaluates the dimension's opt-in BEFORE the ownership gate and announces a
 # `RegionRefusal` (tag 61), so the observer refuses and the owners drop the region. The assertion
 # is therefore the same on every topology, which is what makes it worth running.
-log "G2: the same summon in the NETHER (capture is OFF there)"
-mark=$(wc -l < "$LOG_DIR/server.log")
+log "G2: into the NETHER, which never opted a dimension in"
 tp_player JoinerDev 0 100 0 minecraft:the_nether >/dev/null
 sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))   # let the nether chunks + the re-plan settle
-rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
 
-# Ask the precondition BEFORE spending the timeout on it: when the server's lane owns no regions
-# there is nothing here that can revoke, and waiting nine minutes to be told so is the single
-# slowest thing this suite does.
+# G2a FIRST, and the order is load-bearing: a refusal is permanent for the region, so proving the
+# species default after refusing the region would prove nothing.
+#
+# L-24: the ghost lane shipped default-off because nothing was proven. The zombie's behaviour now
+# originates in the validated engine, so it is captured HERE — a dimension that opted nothing in —
+# purely because the species is understood.
+mark=$(wc -l < "$LOG_DIR/server.log")
+rcon "execute at JoinerDev run summon $MOB ~ ~ ~" >/dev/null
+sleep $(( 10 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
+if grep -qa "entity lane revoked" <(tail -n +"$mark" "$LOG_DIR/server.log"); then
+    fail "G2a: a $MOB was treated as non-delegable in a dimension that opted nothing in — the \
+per-species default (L-24) is not being honoured"
+fi
+transcript "=== G2a: $MOB captured in the nether on the species default alone"
+pass "G2a: the engine-owned species is captured with no dimension opt-in (L-24)"
+
+# G2b: the other half. A species the engine does not own IS non-delegable, and the node that sees
+# it refuses the region and announces that refusal — whether or not it holds a seat (L-60).
+log "G2b: summoning $MOB_UNKNOWN — a species the engine does not own"
+mark=$(wc -l < "$LOG_DIR/server.log")
+rcon "execute at JoinerDev run summon $MOB_UNKNOWN ~ ~ ~" >/dev/null
+
 if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
     revoked=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "entity lane revoked" | tail -1)
     transcript "=== revocation: $revoked"
     grep -qa "non-delegable entity" <<<"$revoked" \
         || fail "G2: the region revoked without stating the reason: $revoked"
-    grep -qa "$MOB" <<<"$revoked" \
+    grep -qa "$MOB_UNKNOWN" <<<"$revoked" \
         || fail "G2: the revocation names the wrong entity: $revoked"
     # Revoking is a controlled retreat, not a failure: the server keeps running and the player keeps
     # playing. A revoke that takes the session down would be worse than never delegating at all.
