@@ -40,7 +40,12 @@ nodera_suite follow ownership-follow
 nodera_parse_args "$@"
 
 FAR_X="${FAR_X:-6000}"; FAR_Z="${FAR_Z:-6000}"   # thousands of blocks = dozens of 128-block regions
-PARK_X="${PARK_X:--500000}"; PARK_Z="${PARK_Z:--500000}"  # player 2's parking spot, discs cannot overlap
+# 20 000 blocks is ~39 regions away — far past any FOV-disc overlap (a region is 512 blocks, a
+# render-distance disc a few hundred). The park used to be 500 000, which is a MINUTES-long chunk
+# generation: the server thread stalls, the connected clients time out and are disconnected, and
+# the next command fails with "No entity was found" — the suite blaming a feature for its own
+# setup. Distance was never the point here; non-overlap was.
+PARK_X="${PARK_X:--20000}"; PARK_Z="${PARK_Z:--20000}"  # player 2's parking spot, discs cannot overlap
 
 transcript() { printf '%s\n' "$*" >> "$RESULTS_DIR/ownership.log"; }
 
