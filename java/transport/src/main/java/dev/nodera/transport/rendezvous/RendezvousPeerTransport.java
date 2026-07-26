@@ -229,7 +229,7 @@ public final class RendezvousPeerTransport implements PeerTransport {
 
     private void dispatch(PeerAddress to, byte[] frame, TransportSelector.MessageClass messageClass) {
         NodeId peer = Objects.requireNonNull(to.nodeId(), "rendezvous transport requires a nodeId");
-        TransportSelector.Path path = selector.select(peer, messageClass, availablePaths(peer));
+        TransportSelector.Path path = selector.select(peer, messageClass, availablePaths(peer, to));
 
         if (path == TransportSelector.Path.DIRECT && directTransport != null) {
             // The caller usually addresses by node id alone; the dialable host:port comes from the
@@ -259,9 +259,22 @@ public final class RendezvousPeerTransport implements PeerTransport {
         }
     }
 
-    private Set<TransportSelector.Path> availablePaths(NodeId peer) {
+    private Set<TransportSelector.Path> availablePaths(NodeId peer, PeerAddress to) {
         Set<TransportSelector.Path> available = EnumSet.of(TransportSelector.Path.RELAYED);
-        if (directTransport != null && hasDirectCandidate(peer)) {
+        // A route the CALLER supplied is a direct path, and for a long time it was not treated as
+        // one: this asked only whether the peer had advertised a candidate through rendezvous, so a
+        // send addressed to a perfectly dialable `host:port` was judged relay-only and went to a
+        // circuit that then failed. {@link #directAddressFor} has always honoured
+        // {@code to.route()}; it simply never got the chance, because the selector was never
+        // offered DIRECT.
+        //
+        // That is what kept the always-on peers out of every committee: `NoderaHost` seats a
+        // resident by sending `RegionAssigned` to the route in its membership entry, and a live mesh
+        // soak reported "12 resident seat(s) were planned but every dispatch failed — first failure
+        // was 127.0.0.1:25620 → relay send failed". Loopback, on the same machine, unreachable
+        // because nobody would dial it (network L-30).
+        boolean callerGaveARoute = to != null && to.route() != null && !to.route().isBlank();
+        if (directTransport != null && (callerGaveARoute || hasDirectCandidate(peer))) {
             available.add(TransportSelector.Path.DIRECT);
         }
         return available;
