@@ -112,6 +112,8 @@ public final class VanillaPalette {
             case "redstone_block" -> FlatWorldRules.REDSTONE_BLOCK;
             case "nether_portal" -> FlatWorldRules.NETHER_PORTAL;
             case "obsidian" -> FlatWorldRules.OBSIDIAN;
+            case "farmland" -> FlatWorldRules.FARMLAND;
+            case "wheat" -> wheat(props);
             case "lever" -> flag(props, "powered")
                     ? FlatWorldRules.LEVER_ON : FlatWorldRules.LEVER_OFF;
             case "redstone_torch", "redstone_wall_torch" -> flag(props, "lit", true)
@@ -201,6 +203,15 @@ public final class VanillaPalette {
             }
         }
         return UNSUPPORTED;
+    }
+
+    /** Wheat carries its growth stage in {@code age} (0..7); anything else is not consensus state. */
+    private static int wheat(Map<String, String> properties) {
+        int age = number(properties, "age", 0);
+        if (age < 0 || age > 7) {
+            return UNSUPPORTED;
+        }
+        return FlatWorldRules.WHEAT_0 + age;
     }
 
     private static int wire(Map<String, String> properties) {
@@ -318,6 +329,11 @@ public final class VanillaPalette {
         map.put(FlatWorldRules.NOTE_BLOCK, VanillaBlock.of("note_block"));
         map.put(FlatWorldRules.NETHER_PORTAL, VanillaBlock.of("nether_portal"));
         map.put(FlatWorldRules.OBSIDIAN, VanillaBlock.of("obsidian"));
+        map.put(FlatWorldRules.FARMLAND, VanillaBlock.of("farmland"));
+        for (int age = 0; age <= 7; age++) {
+            map.put(FlatWorldRules.WHEAT_0 + age,
+                    VanillaBlock.of("wheat", "age", Integer.toString(age)));
+        }
         return Map.copyOf(map);
     }
 
