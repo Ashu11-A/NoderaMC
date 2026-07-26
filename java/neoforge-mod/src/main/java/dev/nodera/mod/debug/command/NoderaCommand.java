@@ -108,7 +108,8 @@ public final class NoderaCommand {
                                 .then(literal("on").executes(ctx -> verbose(ctx, true)))
                                 .then(literal("off").executes(ctx -> verbose(ctx, false))))
                         .then(literal("relay").executes(NoderaCommand::relay))
-                        .then(literal("capture").executes(NoderaCommand::capture))));
+                        .then(literal("capture").executes(NoderaCommand::capture))
+                        .then(literal("extract").executes(NoderaCommand::extract))));
 
         // Issue #46: /tps (OP) — this server's live TPS + per-player round-trip latency (the
         // network view of every connected player; each Nodera player runs their own server, so
@@ -474,6 +475,54 @@ public final class NoderaCommand {
             text.append("\n  (no block edits observed yet)");
         }
         String rendered = text.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(rendered), false);
+        return 1;
+    }
+
+    /**
+     * Extract the caller's own region from the live world and say what came out: how much of it the
+     * palette can express, how much was not resident, and — when this node's lane holds the region —
+     * how far the world has drifted from the committed state (the live interference measurement the
+     * Phase-1 acceptance asks for, in blocks rather than in sections).
+     */
+    private static int extract(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player;
+        try {
+            player = ctx.getSource().getPlayerOrException();
+        } catch (CommandSyntaxException notAPlayer) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "/nodera debug extract reads the caller's own region — run it as a player."));
+            return 0;
+        }
+        var level = player.serverLevel();
+        var region = dev.nodera.core.region.RegionId.fromChunk(
+                dev.nodera.mod.server.entity.MinecraftEntityAdapters.dimension(level),
+                player.chunkPosition().x, player.chunkPosition().z);
+        long started = System.nanoTime();
+        var extraction = dev.nodera.mod.server.shadow.LiveSnapshotExtractor.extract(
+                level, region, dev.nodera.core.state.SnapshotVersion.INITIAL,
+                level.getGameTime());
+        long millis = (System.nanoTime() - started) / 1_000_000L;
+
+        StringBuilder out = new StringBuilder("Extracted ").append(region)
+                .append(" in ").append(millis).append(" ms")
+                .append("\n  chunks: ").append(extraction.snapshot().chunks().size())
+                .append(" (").append(extraction.missingChunks()).append(" not resident)")
+                .append("\n  dense sections: ").append(extraction.denseSections())
+                .append("\n  blocks outside the palette: ").append(extraction.excludedBlocks());
+
+        var lane = dev.nodera.mod.common.NoderaHost.entityLaneRuntime();
+        if (lane != null) {
+            lane.validation().currentSnapshot(region).ifPresentOrElse(committed -> {
+                var report = new dev.nodera.shadow.InterferenceProbe()
+                        .probe(committed, extraction.snapshot());
+                out.append("\n  drift from committed state: ").append(report.changedBlocks())
+                        .append(" block(s) across ").append(report.changedSections())
+                        .append(" section(s)");
+            }, () -> out.append("\n  (this node's lane does not hold the region — nothing to "
+                    + "compare against)"));
+        }
+        String rendered = out.toString();
         ctx.getSource().sendSuccess(() -> Component.literal(rendered), false);
         return 1;
     }

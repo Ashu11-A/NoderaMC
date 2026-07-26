@@ -30,6 +30,38 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-25 — The world reads back, and a commit becomes a block a player can see
+
+Capture without apply is half a lane, and a probe with nothing to read is half a measurement. Both
+halves landed.
+
+`LiveSnapshotExtractor` turns real chunk sections into a real `RegionSnapshot`. A section whose 4096
+states all map to one palette id — most of a world — stays a single id; anything else arrives as a
+dense array, and `ChunkColumnState` canonicalises both so two nodes reading the same world encode
+the same bytes. Blocks the palette cannot express are extracted as air **and counted**: the
+validated lane holds the palette's world, so a region full of modded machinery must report a high
+excluded count rather than a confident wrong root. Chunks that are not resident are counted too and
+never force-generated — loading a region synchronously on the server thread is the stall the lane
+exists to avoid.
+
+The apply half is one line in `ServerEntityWorldView.setBlock` and a projection beside it:
+a committed block mutation is staged exactly like an item projection and runs after the canonical
+scope commits, so the world is never written from a mutation that then aborts. An id the running
+game cannot express is skipped with a log line — a wrong block is a divergence, a missing one is
+visible interference.
+
+`InterferenceProbe` gained the count it always wanted. Its section comparison could not tell one
+mined block from four thousand burned ones, because a dense section's palette entry is pinned to
+zero; it now descends into dense sections and reports **exact block differences** alongside the
+coarse number, which every historical measurement is expressed in. `/nodera debug extract` prints
+the whole thing for the caller's own region: extraction time, chunks resident, dense sections,
+blocks outside the palette, and — when this node's lane holds the region — how far the world has
+drifted from committed state, in blocks.
+
+Evidence: `InterferenceProbeTest` grew the two cases that matter — one block mined inside a section
+is exactly 1, and a dense section whose contents equal its uniform counterpart is **not**
+interference, so the extractor's shape can never decide what counts as drift.
+
 ### 2026-07-25 — A real block edit becomes a consensus action (issue #5's capture half)
 
 The determinism gate has always been the project's hard exit, and it has always been proven over

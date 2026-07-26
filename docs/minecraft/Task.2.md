@@ -52,8 +52,8 @@ and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than han
 | # | Deliverable | State |
 |---|---|---|
 | 1 | Capture: block events at documented priorities, capture-and-cancel contract | 🚧 (place/break capture landed; owning-node only, L-80) |
-| 2 | `SnapshotExtractor` / `PaletteMapper` — real chunks to region snapshots | 🚧 (`PaletteMapper` landed both ways; the chunk-to-snapshot extract remains) |
-| 3 | The real `WorldMutationApplier` adapter on the server main thread | 🚧 |
+| 2 | `SnapshotExtractor` / `PaletteMapper` — real chunks to region snapshots | ✅ `PaletteMapper` both ways + `LiveSnapshotExtractor` (exact dense sections, excluded/missing counts) |
+| 3 | The real `WorldMutationApplier` adapter on the server main thread | 🚧 (committed block mutations project into the live world; chunk tickets and the write choke point remain) |
 | 4 | `LevelChunkMixin` — the single write choke point | ⏳ |
 | 5 | Random-tick and scheduled-tick suppression mixins | 🚧 (scheduled-tick suppression landed) |
 | 6 | `ChunkTicketService` + `FakePlayerDetector` | ⏳ |
