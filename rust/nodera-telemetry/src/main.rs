@@ -27,7 +27,7 @@
 
 // The modules live in the library half of this crate (`lib.rs`) so the reporting services can
 // share the event model with the receiver that validates it.
-use nodera_telemetry::{config, event, geo, schema, service, sink, wire};
+use nodera_telemetry::{config, geo, schema, service, sink, wire};
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -110,7 +110,7 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
         Command::PrintSchema => {
-            println!("{}", schema_json());
+            println!("{}", schema::schema_json("service"));
             ExitCode::SUCCESS
         }
         Command::Healthcheck(addr) => match healthcheck(&addr).await {
@@ -237,38 +237,6 @@ async fn healthcheck(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-/// The registry, as JSON — the machine-readable half of the privacy notice.
-fn schema_json() -> String {
-    use serde_json::{Map, Value};
-    let mut events = Vec::new();
-    for spec in schema::REGISTRY {
-        let mut attrs = Map::new();
-        for attr in spec.attrs {
-            attrs.insert(attr.key.to_owned(), Value::from(kind_name(attr.kind)));
-        }
-        let mut event = Map::new();
-        event.insert("name".into(), Value::from(spec.name));
-        event.insert("source".into(), Value::from(spec.source.as_str()));
-        event.insert("attrs".into(), Value::Object(attrs));
-        events.push(Value::Object(event));
-    }
-    let mut root = Map::new();
-    root.insert("row_schema".into(), Value::from(service::ROW_SCHEMA));
-    root.insert("batch_version".into(), Value::from(event::BATCH_VERSION));
-    root.insert("events".into(), Value::Array(events));
-    Value::Object(root).to_string()
-}
-
-fn kind_name(kind: schema::ValueKind) -> String {
-    match kind {
-        schema::ValueKind::Int { min, max } => format!("int[{min}..{max}]"),
-        schema::ValueKind::Bool => "bool".to_owned(),
-        schema::ValueKind::Enum(values) => format!("enum({})", values.join("|")),
-        schema::ValueKind::Hex { len } => format!("hex[{len}]"),
-        schema::ValueKind::Version => "version".to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,7 +294,8 @@ mod tests {
     /// validator uses — so the notice cannot drift from the enforcement.
     #[test]
     fn the_printed_schema_is_json_and_lists_every_declared_event() {
-        let value: serde_json::Value = serde_json::from_str(&schema_json()).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&schema::schema_json("service")).unwrap();
         let events = value["events"].as_array().unwrap();
         assert_eq!(events.len(), schema::REGISTRY.len());
         assert!(events.iter().any(|event| event["name"] == "world.join"));
@@ -339,10 +308,16 @@ mod tests {
     #[test]
     fn every_declared_kind_renders_a_readable_name() {
         assert_eq!(
-            kind_name(schema::ValueKind::Int { min: 0, max: 20 }),
+            schema::kind_name_for_test(schema::ValueKind::Int { min: 0, max: 20 }),
             "int[0..20]"
         );
-        assert_eq!(kind_name(schema::ValueKind::Enum(&["a", "b"])), "enum(a|b)");
-        assert_eq!(kind_name(schema::ValueKind::Hex { len: 16 }), "hex[16]");
+        assert_eq!(
+            schema::kind_name_for_test(schema::ValueKind::Enum(&["a", "b"])),
+            "enum(a|b)"
+        );
+        assert_eq!(
+            schema::kind_name_for_test(schema::ValueKind::Hex { len: 16 }),
+            "hex[16]"
+        );
     }
 }

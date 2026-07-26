@@ -237,7 +237,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | — (live numbers tracked with rendezvous 3) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-60 |
 | Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | L-41 |
-| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, L-78 |
+| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56 |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-72, L-73, L-74, L-75 |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players
