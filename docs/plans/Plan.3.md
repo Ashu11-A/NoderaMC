@@ -494,10 +494,13 @@ that predates the addition throws inside that peer's decode path. The safe order
 design question it looked like: representing an unknown reason as an explicit `UNKNOWN` that is
 never encoded and never acted on is *stricter* than the throw it replaces, not laxer — the invariant
 was "an unknown refusal is never silently treated as a known one", and an explicit non-reason
-satisfies it while a decode exception merely fails louder in the wrong place. Step 4 — evaluating
-the policy where the observer already refuses, wrapped in `DelegabilityMonitor` so a flapping
-condition cannot thrash a region between lanes — is the remaining work, and it is ordinary wiring
-now that the wire and the mapping exist.
+satisfies it while a decode exception merely fails louder in the wrong place. **Step 4 landed** as `RegionDelegabilityGate` (peer, 8 tests): the monitor's hysteresis driving real
+refusals, announcing only on the `REVOKE` edge, only for verdicts a recipient can re-check, and
+picking the announced reason in the rule set's declaration order so two nodes seeing the same dirty
+region announce the same thing. Minecraft-free by construction — the live world supplies
+`DelegabilityPolicy.Inputs` and the gate decides — so the remaining work is the **mod-side adapter
+that fills those inputs from the running world**, which is minecraft task 2's territory (#67) and
+needs a live run to mean anything.
 
 **And a second rule, learned by nearly getting it wrong here:** "unreferenced plus a javadoc calling
 something legacy" is not evidence of legacy. `DelegabilityPolicy` was classified as superseded and
