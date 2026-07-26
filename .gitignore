@@ -69,3 +69,7 @@ telemetry-spool/
 
 # Kotlin build-daemon crash logs from build-logic (per-machine, never useful in git).
 java/build-logic/.kotlin/
+
+# Python bytecode (the Spark jobs are sources, never build output).
+__pycache__/
+*.pyc
