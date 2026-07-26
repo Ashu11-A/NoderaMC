@@ -163,6 +163,7 @@ public final class LiveEntityLaneSession implements AutoCloseable {
         LiveEntityControlProvider.deactivate(live);
         LiveRegionOwnershipProvider.deactivate(live.validation());
         live.validation().persistState();
+        ObserverOwnership.clear();
         host.runtime().onApplicationMessage(null);
         live.close();
         store.close();

@@ -30,6 +30,29 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — A node that owns nothing can still route what it sees (L-80 → RETIRING)
+
+Every dedicated-server log has the line "no regions fall to this node", and it is correct: the
+field-of-view planner gives regions to the players' nodes. The consequence was that the one process
+which actually sees block edits could capture them and had nowhere to send them — `forwardToPrimary`
+starts from a local replica's lease, and an observer has no replica.
+
+The missing lookup was never missing. The observer is the node that **computes** the plan and
+broadcasts it; it simply threw it away afterwards. `ObserverOwnership` keeps it, and a capture in an
+unheld region is signed and forwarded through the new `forwardTo(primary, envelope)`, which starts
+from the plan rather than from a replica.
+
+The observer is a **courier, not an authority**: the receiving primary re-verifies the actor
+signature, the admission rule and the batch before proposing anything, so a stale index entry costs
+a dropped forward, never a wrong world. `ObserverOwnershipTest` (5) pins the index — including the
+one that would fail silently: re-publishing **replaces** the plan rather than merging into it,
+because a player walking away has to take their regions out of it.
+
+What remains is the live run, and the question it will surface: the primary must admit the
+observer's signature for that actor, which is issue #45's membership work. The row moves OPEN →
+RETIRING rather than retiring outright, because its exit test is a live assertion and this is the
+mechanism, not the evidence.
+
 ### 2026-07-26 — The third mixin, and the last one the charter plans
 
 There is no event for "the game is about to random-tick this chunk". NeoForge fires per-block events

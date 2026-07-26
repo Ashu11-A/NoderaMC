@@ -211,7 +211,56 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     @Override
     public boolean submitBlockAction(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
-        return submit(player, region, action);
+        if (delegated(region)) {
+            return submit(player, region, action);
+        }
+        return submitAsObserver(player, region, action);
+    }
+
+    /**
+     * L-80: capture on a node that holds no seat. Under field-of-view ownership a dedicated server
+     * owns nothing and still sees everything, so the action is signed here and forwarded to the
+     * region's planned primary. There is no local snapshot to anchor a tick against, so the
+     * server's own tick is used — the receiving primary re-verifies the actor signature, the
+     * admission rule and the batch before proposing anything, which is what makes the observer a
+     * courier rather than an authority.
+     */
+    private boolean submitAsObserver(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
+        NodeId primary = ObserverOwnership.primaryOf(region);
+        if (primary == null || primary.equals(authority.nodeId())) {
+            return false;
+        }
+        NodeId actor = new NodeId(player.getUUID());
+        validation.registerActor(actor, authority.publicKeyBytes());
+        long playerSequence = actions.nextPlayerSequence(actor);
+        long serverSequence = actions.nextServerSequence();
+        long tick = Math.max(0L, currentTick) + 1;
+        ActionEnvelope unsigned = new ActionEnvelope(
+                actor, playerSequence, serverSequence, tick, region, action, Bytes.empty());
+        ActionEnvelope signed = new ActionEnvelope(
+                actor, playerSequence, serverSequence, tick, region, action,
+                authority.sign(unsigned.signedPortion()));
+        try {
+            boolean sent = validation.forwardTo(primary, signed);
+            if (sent) {
+                LOG.debug("observer forwarded a block action for {} to its primary {}",
+                        region, primary);
+            }
+            return sent;
+        } catch (RuntimeException unreachable) {
+            return false;
+        }
+    }
+
+    /**
+     * The observer half of the capture gate: this node cannot validate {@code region}, but it knows
+     * who can and can reach them.
+     */
+    @Override
+    public boolean observes(RegionId region) {
+        NodeId primary = ObserverOwnership.primaryOf(region);
+        return primary != null && !primary.equals(authority.nodeId()) && !delegated(region);
     }
 
     private boolean submit(
