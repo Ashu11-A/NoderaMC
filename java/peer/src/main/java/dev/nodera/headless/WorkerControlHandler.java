@@ -44,6 +44,12 @@ public final class WorkerControlHandler implements ControlHandler {
     private final dev.nodera.peer.discovery.PeerDiscoveryService discovery; // nullable
     private final ConfigSeams config; // nullable — no config plane wired
     private final WorldGrantGossipService grants; // nullable — no permission lane wired
+    /**
+     * The node's single telemetry emitter, or {@code null} when this embedding has none — the
+     * telemetry verb then declines with {@code NODERA-ERR unsupported}, so an app talking to a
+     * worker without an emitter cannot show a consent toggle with nothing behind it.
+     */
+    private volatile WorkerTelemetryService telemetry;
     private final long startedAtMillis;
 
     /**
@@ -104,6 +110,17 @@ public final class WorkerControlHandler implements ControlHandler {
         this.peerMeter = peerMeter;
         this.discovery = discovery;
         this.startedAtMillis = System.currentTimeMillis();
+    }
+
+    /**
+     * Attach the telemetry emitter.
+     *
+     * <p>Set after construction rather than injected: the emitter's snapshot supplier reads the same
+     * runtime this handler serves, and threading it through every constructor overload would add a
+     * twelfth parameter to four of them for an optional lane.
+     */
+    public void attachTelemetry(WorkerTelemetryService service) {
+        this.telemetry = service;
     }
 
     @Override
@@ -218,8 +235,75 @@ public final class WorkerControlHandler implements ControlHandler {
                 // Inbound sockets turned away by the connection cap. A climbing value is the only
                 // signal that distinguishes "my cap is too low" from "nobody is connecting".
                 + "\"refused_connections\":" + refusedConnections() + ","
-                + "\"daemon_up\":true"
+                + "\"daemon_up\":true,"
+                // The consent state travels with the metrics so the app and the mod both read one
+                // source of truth for it. A worker with no emitter reports "unanswered" rather than
+                // omitting the block — an absent field would be indistinguishable from a denial.
+                + "\"telemetry\":" + telemetryJson()
                 + "}";
+    }
+
+    /** The {@code telemetry} block of the state JSON. */
+    private String telemetryJson() {
+        WorkerTelemetryService service = telemetry;
+        return service == null
+                ? "{\"consent\":\"unanswered\",\"endpoint\":\"\",\"queued\":0,\"dropped\":0,"
+                        + "\"sent\":0,\"last_attempt\":0,\"last_error\":\"\"}"
+                : service.stateJson();
+    }
+
+    @Override
+    public String telemetryStatus() {
+        WorkerTelemetryService service = telemetry;
+        return service == null ? null : service.statusJson();
+    }
+
+    @Override
+    public String setTelemetryConsent(String decision) {
+        WorkerTelemetryService service = telemetry;
+        if (service == null) {
+            return "unsupported";
+        }
+        dev.nodera.telemetry.TelemetryConsent value =
+                dev.nodera.telemetry.TelemetryConsent.parse(decision);
+        // UNANSWERED is not settable: it is the absence of a decision, and accepting it as one
+        // would let a caller un-ask a question the user already answered.
+        if (value == dev.nodera.telemetry.TelemetryConsent.UNANSWERED) {
+            return "decision must be granted or denied";
+        }
+        try {
+            service.setConsent(value);
+            return null;
+        } catch (java.io.IOException e) {
+            return "could not record the decision: " + e.getMessage();
+        }
+    }
+
+    @Override
+    public String recordTelemetryEvent(String eventJsonB64) {
+        WorkerTelemetryService service = telemetry;
+        if (service == null) {
+            return "unsupported";
+        }
+        if (eventJsonB64 == null || eventJsonB64.isBlank()) {
+            return "empty event";
+        }
+        String json;
+        try {
+            json = new String(Base64.getDecoder().decode(eventJsonB64),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return "event payload is not base64";
+        }
+        dev.nodera.telemetry.TelemetryEvent event = dev.nodera.telemetry.TelemetrySpool.parse(json);
+        // An event whose name is not in the registry is refused HERE as well as at the receiver:
+        // the caller is a local process we can give a real error to, and a silent accept would let
+        // a mod build up a spool of events the service will only ever reject.
+        if (event == null) {
+            return "event is not a declared telemetry event";
+        }
+        service.record(event);
+        return null;
     }
 
     /** @return whether content transfers are suspended; {@code false} when there is no content plane. */

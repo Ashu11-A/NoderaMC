@@ -6,7 +6,7 @@
      the root README bar. Live observations count as evidence here ONLY when they name the log line
      or artifact that showed them. Never rewrite an old note. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-25 · Tasks completed: **2 / 7**
+**Category:** minecraft · **Last audit:** 2026-07-25 · Tasks completed: **2 / 8**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) ·
 retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -24,10 +24,43 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 | [5](Task.5.md) | Decentralized host lane | 🚧 IN PROGRESS | Genesis, continuity, and re-key landed; live re-key and join gate remain (L-51, L-52) |
 | [6](Task.6.md) | World identity + permissions | 🚧 IN PROGRESS | Identity, grants, and ban enforcement landed; world-list mixin remains (L-49) |
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED | Defaults on; verified both ways in CI |
+| [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) | `ModTelemetryTest` (8) against a loopback worker; live pass pending |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-25 — The game's events reach the worker, and nothing else does
+
+`ModTelemetry` + `/nodera telemetry` landed, tested against a **stand-in worker on loopback**
+rather than a mock — the property under test is a wire property, and a mock would have proved the
+mock.
+
+The two tests to read first are the ones about what does *not* survive:
+`aShareEventCarriesNoWorldIdentity` and `anErrorReportCarriesAFingerprintRatherThanAMessage`. The
+second builds an event out of an exception whose message contains a home directory, a world name,
+and the word "corrupt", and asserts that none of the three appears in what the worker receives — the
+event carries a 16-hex fingerprint of the stack instead.
+
+A design note for later: the mod's join flow now labels its outcome (`direct` / `relayed` /
+`world_gone`) as a **declared enum**, never a message. A free-text reason is the field that
+eventually contains an address, and the registry makes that unrepresentable rather than merely
+discouraged.
+
+### 2026-07-25 — An eighth task: the events only the game can see
+
+A share, a join and the path it took, a rehost, a divergence, a feature someone actually used —
+these are observable only inside the game, and [Task 8](Task.8.md) routes them to the worker.
+
+Two constraints are written into the task file as refusable rules. **The mod opens no telemetry
+connection of its own**: it hands events to the worker over the control protocol it already speaks,
+so there is exactly one consent check and no events are lost when the game closes. And **nothing on a
+tick path does I/O** — recording is a bounded enqueue, and the socket write happens on the mod's own
+executor.
+
+One detail that will matter when it is implemented: a join's failure reason is an *enum*, never a
+message. A free-text reason eventually contains a world name or an address, which is precisely what
+the ingest registry makes unrepresentable ([`../plans/Plan.6.md`](../plans/Plan.6.md) D5).
 
 ### 2026-07-25 — Mesh population and boundary independence (three live-play defects)
 

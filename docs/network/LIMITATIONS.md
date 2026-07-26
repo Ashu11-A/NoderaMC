@@ -7,7 +7,7 @@
      move it to LIMITATIONS.fixed.md with its evidence. Update in the SAME commit that stages or
      retires a row. -->
 
-**Category:** network · **Last audit:** 2026-07-25 · Open or retiring rows: **2**
+**Category:** network · **Last audit:** 2026-07-25 · Open or retiring rows: **3**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -30,6 +30,7 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 |---|---|---|---|---|
 | L-30 | The P2P lane carries membership and certified state, and committee validation runs over it out of game — but the **live** mesh has still not been observed carrying validated state. `e2e-mesh-soak.sh` now drives the attempt (32 rounds of edits, mobs and movement over 180 s with two real clients) and reports what is actually there: the players' **client lanes** re-execute and vote (`active on 11 region(s)`), while all three headless workers report `votes_cast=0, votes_received=0, committee_commits=0`. The seats live on the clients, whose roots the control socket cannot see, so there are no two inspectable peers to compare — the same node question as **L-60**. The mechanism stays proven headlessly (`WorkerQuorumValidationIT`, `EventSyncOverTransportIT`); what is missing is a live topology where a worker holds a seat | [2](Task.2.md) | A sustained live session shows committee validation and certified event sync flowing over the same `PeerTransport`, with roots equal across peers at the end | OPEN |
 | L-33 | No asynchronous client chunk pipeline: a region renders only after its whole snapshot arrives. The **edit** half of the guard is done — `WorldMutationApplier` consults the `ChunkEditability` seam in its verify pass, so a delta touching a piece-locked chunk aborts atomically before any write, with halo positions failing closed. Remaining: the **render**-on-arrival half in a GUI environment | [4](Task.4.md) | Pieces render on arrival; an un-arrived section is locked against edit; the manifest hash validates before render; reassembly from seeders each holding < 40% | RETIRING |
+| L-76 | Nothing measured NoderaMC in the wild. **The emitter now exists** — `dev.nodera.telemetry` (consent gate, bucketing, bounded spool, sender), proven by `TelemetryEmitterTest` (21), the cross-language `TelemetryRegistryMirrorTest`, and `scripts/e2e-telemetry.sh` end to end against the real binaries. What is still missing is the thing the row is actually about: **evidence from the wild**, which needs a deployment with a population that has opted in | [12](Task.12.md) | The first dashboard answering a `plans/Plan.6.md` §1.1 question from real reports, cited in `PROGRESS.md` | RETIRING |
 
 ---
 

@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** tracker · **Last audit:** 2026-07-25 · Tasks completed: **2 / 3**
+**Category:** tracker · **Last audit:** 2026-07-25 · Tasks completed: **3 / 4**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -18,10 +18,41 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [1](Task.1.md) | The service binary | ✅ COMPLETED | 60 Rust tests; driven by `TrackerServiceIT` against the real binary |
 | [2](Task.2.md) | The Java client | ✅ COMPLETED | Announce loop moves into the worker; GUI rows ride the live pass |
 | [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS | `STATS`, listing policy, deployment docs remain |
+| [4](Task.4.md) | Service telemetry | ✅ COMPLETED | Off unless configured; counters only, proven on the rendered JSON |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-25 — Service telemetry, and the type that makes the privacy claim structural
+
+`src/telemetry.rs` reports this service's own counters on a window, and the shared
+`nodera_telemetry::reporter` is where the interesting decision lives: `ServiceEvent` holds numbers
+and `&'static str` labels, and nothing else.
+
+That type signature is the privacy argument. A tracker sees source addresses, node ids, and genesis
+hashes on every request; with a `String` value it would be one careless line away from attaching one
+to an event. With `'static`, a value derived from a request cannot be a label at all — it has to be
+a constant in the crate. `a_window_event_renders_counters_and_labels_only` then asserts the rendered
+bytes, so the claim is checked at both ends.
+
+Also landed: `Tracker::world_health_counts`, deliberately an aggregate. A per-world health list
+would be a directory, and this service already has a wire message for that — answered to peers who
+ask, rather than pushed to a collector.
+
+### 2026-07-25 — A fourth task, and the reason it is off by default
+
+[Task 4](Task.4.md) lets a tracker operator send their own throughput, rejection, health, and latency
+numbers to a telemetry endpoint — and ships with that endpoint **unset**.
+
+The reasoning is the same one that makes this category's trust model work. Someone who downloads and
+runs a tracker binary has agreed to run a tracker; they have not agreed to report to the project. The
+absence of a configured endpoint is the absence of consent, and it is the default.
+
+The second rule is about what a tracker *sees*: source addresses, node ids, genesis hashes. None of
+it may enter an event. `tracker.window` is one row per interval containing totals, which answers "is
+this service healthy and how much does it carry" without describing anybody — and the ingest registry
+would refuse the identifying fields even if a build tried to send them.
 
 ### 2026-07-24 — Scheme-aware endpoints and a real UDP surface
 

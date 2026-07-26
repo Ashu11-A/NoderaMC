@@ -6,8 +6,8 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-25 · **673 Java tests + 35 Rust (`nodera-codec`) ·
-0 failing · 0 skipped**
+**Category:** network · **Last run:** 2026-07-25 · **718 Java tests + 35 Rust (`nodera-codec`) ·
+0 failing · 0 skipped** — the Java figure includes the telemetry emitter core (task 12)
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|

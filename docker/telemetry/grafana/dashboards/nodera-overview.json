@@ -1,0 +1,87 @@
+{
+  "uid": "nodera-overview",
+  "title": "Nodera — network overview",
+  "tags": ["nodera", "telemetry"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Reporting installations (7d)",
+      "description": "Distinct pseudonymous subjects. Subjects rotate daily, so this counts installations that reported in the window, never people.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "nodera-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT uniqMerge(subjects) AS installations FROM nodera.events_hourly WHERE source = 'peer' AND hour >= $__fromTime AND hour < $__toTime",
+          "format": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Join success rate by path",
+      "description": "The reachability number. A drop on 'punched' with a rise on 'relayed' means hole punching is failing somewhere.",
+      "gridPos": { "h": 9, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "nodera-clickhouse" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT hour AS time, path, round(100 * sum(successes) / nullIf(sum(attempts), 0), 1) AS success FROM nodera.v_join_success WHERE hour >= $__fromTime AND hour < $__toTime GROUP BY time, path ORDER BY time",
+          "format": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Divergence fingerprints (daily)",
+      "description": "The determinism bet, measured. A fingerprint on many distinct subjects is a real engine bug in the wild; one on a single subject is usually a broken install.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "nodera-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT day, phase, fingerprint, agent, countMerge(reports) AS reports, uniqMerge(subjects) AS installs FROM nodera.divergence_daily WHERE day >= toDate($__fromTime) GROUP BY day, phase, fingerprint, agent ORDER BY installs DESC LIMIT 50",
+          "format": 1
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Where the network is",
+      "description": "Coarse geography only: country and ASN, derived at ingest from an address that is never stored.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "nodera-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT country, uniqMerge(subjects) AS installations FROM nodera.events_hourly WHERE source = 'peer' AND hour >= $__fromTime GROUP BY country ORDER BY installations DESC LIMIT 30",
+          "format": 1
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Service throughput (tracker + rendezvous)",
+      "description": "Reported by the services themselves, one window event per minute each.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "nodera-clickhouse" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT hour AS time, source, sum(events) AS reports FROM nodera.v_events_hourly WHERE source IN ('tracker','rendezvous') AND hour >= $__fromTime GROUP BY time, source ORDER BY time",
+          "format": 1
+        }
+      ]
+    }
+  ]
+}

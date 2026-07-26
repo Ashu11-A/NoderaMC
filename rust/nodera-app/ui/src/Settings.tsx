@@ -1,4 +1,4 @@
-// The settings screen: Appearance · Behavior · Network · Storage.
+// The settings screen: Appearance · Behavior · Network · Storage · Privacy.
 //
 // Settings save on change rather than behind an Apply button — every control here is independent,
 // so there is no half-valid intermediate state an explicit commit would be protecting. A rejected
@@ -14,7 +14,9 @@ import {
   FiEye,
   FiAlertCircle,
   FiRefreshCw,
+  FiShield,
 } from "react-icons/fi";
+import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
   Card,
   Toggle,
@@ -42,13 +44,14 @@ import {
   type Theme,
 } from "./ipc";
 
-type Section = "appearance" | "behavior" | "network" | "storage";
+type Section = "appearance" | "behavior" | "network" | "storage" | "privacy";
 
 const SECTIONS: { id: Section; label: string; icon: JSX.Element }[] = [
   { id: "appearance", label: "Appearance", icon: <FiEye /> },
   { id: "behavior", label: "Behavior", icon: <FiPower /> },
   { id: "network", label: "Network", icon: <FiWifi /> },
   { id: "storage", label: "Storage", icon: <FiHardDrive /> },
+  { id: "privacy", label: "Privacy", icon: <FiShield /> },
 ];
 
 /** Bytes/sec presets for the speed sliders; index 0 is "unlimited". */
@@ -97,6 +100,9 @@ export function SettingsScreen(props: {
   const [ownership, setOwnership] = useState<WorkerOwnership | null>(null);
   const [error, setError] = useState<string>("");
   const [restarting, setRestarting] = useState(false);
+  // Read from the worker, never from this app's own idea of it: the consent record lives on the
+  // node, and the in-game `/nodera telemetry` command can change it while this screen is open.
+  const [telemetry, setTelemetry] = useTelemetryStatus();
 
   // Statuses are re-read after every save, because a push can change them: a key moves to `live`
   // only once the worker has confirmed it, so the badges settle a beat after the toggle does.
@@ -398,6 +404,10 @@ export function SettingsScreen(props: {
               </p>
             </Disclosure>
           </Card>
+        )}
+
+        {section === "privacy" && (
+          <PrivacyCard status={telemetry} onChanged={setTelemetry} />
         )}
       </div>
     </div>

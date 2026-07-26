@@ -67,6 +67,30 @@ impl Tracker {
         )
     }
 
+    /// How many tracked worlds are healthy, degraded, and dead right now.
+    ///
+    /// Aggregate counts only — the world-level answer the telemetry window carries. Deliberately
+    /// not a per-world breakdown: a list of worlds and their health is a directory, and this
+    /// service already has one wire message for that, answered to peers who ask rather than pushed
+    /// to a collector.
+    pub fn world_health_counts(&self, now_millis: u64) -> (u64, u64, u64) {
+        let (mut healthy, mut degraded, mut dead) = (0u64, 0u64, 0u64);
+        for (_, swarm) in self.registry.swarms() {
+            let seeders = swarm.peers.values().filter(|peer| peer.is_seeder()).count();
+            match crate::health::classify(
+                seeders,
+                self.config.healthy_seeder_floor,
+                swarm.retention_deadline_epoch_millis,
+                now_millis,
+            ) {
+                nodera_codec::types::WorldHealth::Healthy => healthy += 1,
+                nodera_codec::types::WorldHealth::Degraded => degraded += 1,
+                nodera_codec::types::WorldHealth::Dead => dead += 1,
+            }
+        }
+        (healthy, degraded, dead)
+    }
+
     /// Handle one decoded-from-the-wire frame.
     ///
     /// `source` is the observed peer address; it is only ever used for quota accounting and as a

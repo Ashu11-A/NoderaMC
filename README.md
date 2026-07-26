@@ -23,8 +23,14 @@
      per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
      TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `93.1%`**
+**Overall system completion: `91.3%`**
 `██████████████████░░`
+
+The figure moved 93.1 → 85.7 → **91.3 %** in one day, and both moves were real: the telemetry
+programme ([`docs/plans/Plan.6.md`](docs/plans/Plan.6.md)) first added ten tasks across seven
+categories, then delivered seven of them — the ingest service, the emitter core, the worker's consent
+record, the game-side façade, both service reporters, and the companion's first-run question. A
+percentage that only ever rises is a percentage measured against a scope that quietly moves.
 
 Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test counts:
 `docs/<category>/TESTING.md` · order, priority, and difficulty:
@@ -40,17 +46,18 @@ Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test cou
 
 | Module | Responsibility | Tests | Status |
 |---|---|---|---|
-| `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 108, incl. `CommandAction`) | 233 | ✅ |
-| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics; Task 16 adds the **rule-pack SDK** (L-21) — `PackRules` execution hooks dispatched by declared palette ownership through `PackDelegatingRuleSet`, canonical namespace tick order, and a registry-derived engine fingerprint (`docs/engine/SDK.md` is the public contract), the **deterministic command subset** (L-14 — `CommandAction` tag 108 + `CommandRules`: engine-side authority against a committee-agreed operator set on `RegionExecutionContext`, no minting of unplaceable states, volume-bounded fills, `/time set` refused as a context input), the combat-vitals `@Invariant(10)` extension (L-13), and **palette v2 completed** (L-26 — pressure plates couple the entity lane to the redstone lane; sticky pistons pull on retraction; `RULES_VERSION` 4 / `palette.v4`) | 455 | ✅ |
+| `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, and Task 12 entity snapshots/deltas/mutations/credits/transfer records (tags through 108, incl. `CommandAction`) | 236 | ✅ |
+| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics; Task 16 adds the **rule-pack SDK** (L-21) — `PackRules` execution hooks dispatched by declared palette ownership through `PackDelegatingRuleSet`, canonical namespace tick order, and a registry-derived engine fingerprint (`docs/engine/SDK.md` is the public contract), the **deterministic command subset** (L-14 — `CommandAction` tag 108 + `CommandRules`: engine-side authority against a committee-agreed operator set on `RegionExecutionContext`, no minting of unplaceable states, volume-bounded fills, `/time set` refused as a context input), the combat-vitals `@Invariant(10)` extension (L-13), and **palette v2 completed** (L-26 — pressure plates couple the entity lane to the redstone lane; sticky pistons pull on retraction; `RULES_VERSION` 4 / `palette.v4`) | 456 | ✅ |
 | `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 60 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`, genesis approval, `WorldGrantGossip`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) adds the authenticated challenge-response handshake — key-proven NodeId attribution at accept | 93 | ✅ |
-| `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores | 97 | ✅ |
+| `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores | 112 | ✅ |
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
-| `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip, `RelayMetricsTest` per-peer event-relay accounting), plus the mesh-population + boundary-independence lane (issues #45/#46/#47): `ResidentQuorumIT` proves a committee holds full strength through a player's disconnect via standing workers, `LiveLagHandoffIT` drives the Task 25 lag policy into a live primary handoff, and `RegionCertificationTest`/`TrafficDirectionSplitTest` pin honest region-certification + direction-split telemetry, `ByzantineMeshIT` closes L-18's last exit clause by putting a genuinely adversarial peer on the mesh (lying, forging and equivocating over the wire), and the permission/archive-hygiene lanes retire L-54 (`WorldGrantGossipService` + `WorldGrantGossip` tag 60 — grants reach every co-hosting peer and are re-verified there, `GrantGossipIT`) and L-55 (`supersedeOlderVersions` + `ContentStore.remove` — a re-key evicts the ciphertext the old password still opened) | 445 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), the #44 vanilla-cancel contract (`VanillaCancelGate` — vanilla is only cancelled on the synchronous local-primary path), `ClientStallReporter` (names the screen a stuck client is sitting on — the fact every opaque L-45 CI failure was missing), and the `/nodera selftest` in-game command test+benchmark drive; Task 5b evidence remains | 85 | 🚧 |
+| `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip, `RelayMetricsTest` per-peer event-relay accounting), plus the mesh-population + boundary-independence lane (issues #45/#46/#47): `ResidentQuorumIT` proves a committee holds full strength through a player's disconnect via standing workers, `LiveLagHandoffIT` drives the Task 25 lag policy into a live primary handoff, and `RegionCertificationTest`/`TrafficDirectionSplitTest` pin honest region-certification + direction-split telemetry, `ByzantineMeshIT` closes L-18's last exit clause by putting a genuinely adversarial peer on the mesh (lying, forging and equivocating over the wire), and the permission/archive-hygiene lanes retire L-54 (`WorldGrantGossipService` + `WorldGrantGossip` tag 60 — grants reach every co-hosting peer and are re-verified there, `GrantGossipIT`) and L-55 (`supersedeOlderVersions` + `ContentStore.remove` — a re-key evicts the ciphertext the old password still opened) | 502 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), the #44 vanilla-cancel contract (`VanillaCancelGate` — vanilla is only cancelled on the synchronous local-primary path), `ClientStallReporter` (names the screen a stuck client is sitting on — the fact every opaque L-45 CI failure was missing), and the `/nodera selftest` in-game command test+benchmark drive; Task 5b evidence remains | 105 | 🚧 |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag mirror through Java type tag 102/message tag 48 + socket framing | 35 | ✅ |
-| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED) | 60 | ✅ |
-| `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED) | 55 | ✅ |
-| `rust/nodera-app` | (Task 32) Tauri companion app — always-on headless-peer supervisor (Option B: bundled Java peer) + loopback control endpoint (mod presence gate) + system tray + autostart + React dashboard (chunks/GB/peers/world). Workspace-EXCLUDED (Tauri native deps); built separately | scaffold | 🚧 |
+| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED); tracker 4 adds the windowed self-report, **off unless an operator configures an endpoint** | 62 | ✅ |
+| `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED); rendezvous 4 adds **NAT-pair punch statistics** (four coarse classes, success inferred from whether the pair falls back to a relay) | 62 | ✅ |
+| `rust/nodera-telemetry` | (telemetry 1–2) telemetry ingest service — the consent gate, the event registry that no free-text value can enter, rotating HMAC pseudonymisation, coarse country/ASN geolocation with the address discarded, per-source quotas, and a rotating NDJSON spool for the Big Data plane in `docker/telemetry/`. Carries **no authority**: nothing in the network reads it | 80 | ✅ |
+| `rust/nodera-app` | (Task 32 · app 5) Tauri companion app — always-on headless-peer supervisor (Option B: bundled Java peer) + loopback control endpoint (mod presence gate) + system tray + autostart + React dashboard (chunks/GB/peers/world). Workspace-EXCLUDED (Tauri native deps); built separately | 61 | 🚧 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ---
@@ -69,6 +76,8 @@ Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test cou
 
 cd rust && cargo test           # Rust unit + cross-language conformance tests (equally required)
 cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+
+scripts/version.sh --check      # every version mirror agrees with the root VERSION file
 ```
 
 > **After every push, verify the build actually passed.** A green local `./gradlew check` does
@@ -94,6 +103,10 @@ scripts/dev.sh --no-worker       # infra services only (mod will refuse to launc
 scripts/dev.sh --build-only      # compile everything, collect artifacts into build/, then exit
 scripts/dev.sh --test            # run the full gate (gradlew build + cargo test) as part of the build
 scripts/dev.sh --help            # options + env overrides (ports, dirs)
+
+scripts/e2e-telemetry.sh         # the consent lane end to end (headless — no GUI, no Minecraft)
+scripts/telemetry-stack.sh up    # the Big Data plane: Vector → Redpanda → ClickHouse → Grafana
+scripts/telemetry-stack.sh smoke # …and prove a submitted batch becomes a queryable row
 
 # Hands-on two-player session on one machine (absorbed the former scripts/play-two.sh):
 scripts/dev.sh --play            # 2 Minecraft clients + 1 tracker + 1 rendezvous + 3 peer workers
@@ -143,7 +156,11 @@ nodera/
 │   ├── nodera-codec/        (Task 27) byte-exact canonical-encoding port + Ed25519 verify + tag mirror + framing
 │   ├── nodera-tracker/      (Task 28) standalone tracker service — announce/query, real binary driven by TrackerServiceIT
 │   └── nodera-rendezvous/   (Task 29) rendezvous + relay service — registration/discovery/reservations/circuit bridging
+│   ├── nodera-telemetry/    (telemetry 1) consented, schema-bounded, de-identified telemetry ingest
 │   └── nodera-app/          (workspace-excluded) Tauri companion app — supervises the peer worker
+├── docker/telemetry/    the Big Data plane (Vector → Redpanda → ClickHouse → Grafana/Spark).
+│                        NEVER a dependency: everything here can be down and nothing changes
+├── VERSION              the ONE product version; every toolchain reads it (scripts/version.sh)
 ├── fixtures/wire/       golden canonical frames, emitted by Java, re-encoded byte-exactly by Rust
 ├── scripts/             dev (build Rust + mod, run tracker + rendezvous; --install-mod for a real client)
 └── docs/                README.md (entry point + documentation format), ROADMAP.md (the central
@@ -227,12 +244,14 @@ registers. The entry point is [`docs/README.md`](docs/README.md); the single cen
 | Category | Scope | Docs | Tasks | Status |
 |---|---|---|---|---|
 | **Engine** | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | [`docs/engine/`](docs/engine/Task.0.md) | 12 | 🚧 7 done |
-| **Network** | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | [`docs/network/`](docs/network/Task.0.md) | 11 | 🚧 10 done |
-| **Tracker** | Always-on world/peer discovery service + its Java client | [`docs/tracker/`](docs/tracker/Task.0.md) | 3 | 🚧 2 done |
-| **Rendezvous** | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | [`docs/rendezvous/`](docs/rendezvous/Task.0.md) | 3 | 🚧 2 done |
-| **Minecraft** | The NeoForge mod: capture, live lanes, GUI, host lane, world identity, companion gate | [`docs/minecraft/`](docs/minecraft/Task.0.md) | 7 | 🚧 2 done |
-| **Worker** | The required always-on headless peer + its loopback control protocol | [`docs/worker/`](docs/worker/Task.0.md) | 4 | 🚧 3 done |
-| **App** | The Tauri desktop companion that supervises the worker | [`docs/app/`](docs/app/Task.0.md) | 4 | 🚧 2 done |
+| **Network** | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | [`docs/network/`](docs/network/Task.0.md) | 12 | 🚧 11 done |
+| **Tracker** | Always-on world/peer discovery service + its Java client | [`docs/tracker/`](docs/tracker/Task.0.md) | 4 | 🚧 3 done |
+| **Rendezvous** | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | [`docs/rendezvous/`](docs/rendezvous/Task.0.md) | 4 | 🚧 3 done |
+| **Minecraft** | The NeoForge mod: capture, live lanes, GUI, host lane, world identity, companion gate | [`docs/minecraft/`](docs/minecraft/Task.0.md) | 8 | 🚧 3 done |
+| **Worker** | The required always-on headless peer + its loopback control protocol | [`docs/worker/`](docs/worker/Task.0.md) | 5 | 🚧 4 done |
+| **App** | The Tauri desktop companion that supervises the worker | [`docs/app/`](docs/app/Task.0.md) | 5 | 🚧 2 done |
+| **Telemetry** | Consented, de-identified measurement: the Rust ingest service + the Big Data plane | [`docs/telemetry/`](docs/telemetry/Task.0.md) | 3 | 🚧 1 done |
+| **Server** | The Paper/Folia endpoint plugin ([`Plan.5`](docs/plans/Plan.5.md)) — excluded from the completion figure until it starts | [`docs/server/`](docs/server/Task.0.md) | 10 | ⬜ 0 done |
 
 The **"torrent hosting" feature** (a world becomes a shared, content-addressed, multi-seeder
 resource) is network tasks 4–10 plus the minecraft GUI and host tasks. It is additive to committee

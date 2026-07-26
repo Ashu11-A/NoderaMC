@@ -6,7 +6,7 @@
      let the tracker's answer affect world state, it is wrong. Keep the task index in agreement with
      ../ROADMAP.md §2. -->
 
-**Category:** `tracker` · **Status:** 🚧 IN PROGRESS (2 of 3 tasks completed) ·
+**Category:** `tracker` · **Status:** 🚧 IN PROGRESS (3 of 4 tasks completed) ·
 **Last audit:** 2026-07-25
 
 ---
@@ -63,6 +63,7 @@ Minecraft closed), [`app/Task.2.md`](../app/Task.2.md) (the dashboard's trackers
 | [1](Task.1.md) | The `nodera-tracker` service binary | ✅ COMPLETED |
 | [2](Task.2.md) | The Java client: announce family + `TrackerClient` | ✅ COMPLETED |
 | [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS |
+| [4](Task.4.md) | Service telemetry | ✅ COMPLETED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

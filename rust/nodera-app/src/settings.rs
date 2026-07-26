@@ -465,6 +465,21 @@ fn resolve(
 }
 
 /// `~/.config/nodera/settings.json` (or the platform equivalent).
+/// The directory this app keeps its own state in — the settings document and the "we have already
+/// asked about telemetry" marker. Public so [`crate::telemetry`] can put its marker beside them
+/// rather than inventing a second location.
+pub fn config_dir() -> PathBuf {
+    if let Ok(explicit) = std::env::var("NODERA_SETTINGS_FILE") {
+        return PathBuf::from(explicit)
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+    }
+    dirs_config()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("nodera")
+}
+
 fn settings_path() -> PathBuf {
     if let Ok(explicit) = std::env::var("NODERA_SETTINGS_FILE") {
         return PathBuf::from(explicit);
