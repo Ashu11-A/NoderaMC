@@ -861,11 +861,19 @@ public final class NoderaHost {
                                     new dev.nodera.peer.validation.ObserverRefusals(
                                             host.transport(),
                                             () -> host.runtime().sessionView().members())));
+                    // `seats` is reported here as well as on the owning branch, and the omission
+                    // was costing real diagnosis: this is the branch a dedicated or host server
+                    // takes under field-of-view ownership, so it is the only place a live run can
+                    // show whether the always-on peers were actually given committee seats. A
+                    // mesh soak read `worker-held region replicas: 0` and a determinism soak read
+                    // `votes_cast=0` with no way to tell whether the seats were never sent or
+                    // never acted on — which is network L-30's whole question.
                     LOG.info("Nodera: no regions fall to this node in the new plan "
-                                    + "({} member node(s), {} resident peer(s)) — broadcasting it "
-                                    + "for the owners, and observing: this node can still refuse "
-                                    + "what nobody here can validate (L-60)",
-                            views.size(), residents.size());
+                                    + "({} member node(s), {} resident peer(s) holding {} "
+                                    + "committee seat(s)) — broadcasting it for the owners, and "
+                                    + "observing: this node can still refuse what nobody here can "
+                                    + "validate (L-60)",
+                            views.size(), residents.size(), seats);
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.
