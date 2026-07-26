@@ -440,7 +440,7 @@ larger than it was. That class is now empty, which is the useful finding.
 | network L-30 | **live** | Committee validation and certified event sync over one `PeerTransport` in a sustained session. |
 | network L-33 | **needs the client piece pipeline** | The edit half is done; the render half is a client subsystem. |
 | network L-76 | **needs a population** | The emitter, the plane and the dashboards exist; the exit is a dashboard answering a real question from real reports, and no deployment has opted in yet. Nothing to build. |
-| server L-61 | **the gate for its whole category** | `java/paper-plugin` is unwritten. L-64…L-71 all sit behind it, and L-62 needs a custody model that only exists in prose. |
+| server L-61 | **RETIRED 2026-07-26** | The jar builds and all three suites pass — Paper enable, the Folia ALIGN-1 pass **and** its refusal at exponent 2, and corpus co-existence. The eight rows behind it now sit behind **task 2** (the endpoint hosting a peer) rather than behind the plugin existing. |
 | server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody. Note the audit it describes is the first real use for `SpotCheckAuditor`, which has been unwired since Task 7 because every validator already re-executes every batch it votes on. |
 | worker L-41 | **one live clause** | The crash-survival half is proven with a real SIGKILL; what remains is the worker keeping a world announced **and** seeded on its own timer after the game client disconnects. |
 

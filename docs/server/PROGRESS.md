@@ -19,7 +19,7 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | 🚧 IN PROGRESS | `nodera-endpoint.jar` builds and enables on real Paper 1.21.1 (`e2e-endpoint.sh` green); ALIGN-1 lives in `core` and is exhaustively tested. Owns L-61 (RETIRING), L-66. Folia staging and the other two suites remain |
+| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains |
 | [2](Task.2.md) | Embedded peer + control plane | ⬜ NOT STARTED | Owns L-71. `external` peer mode is the elimination path for the crash coupling |
 | [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | Owns L-62; **L-63 retired 2026-07-26** (multi-view planning). **The design risk**, deliberately before any behaviour change |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
@@ -33,6 +33,31 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — The preflight refuses, on a real Folia — L-61 RETIRED
+
+A preflight that only ever passes has never been shown to be a check. `e2e-folia.sh` boots the same
+jar twice on a real Folia: at the platform default it logs
+
+> ALIGN-1 preflight passed: grid-exponent 4, 4 Nodera regions per Folia section, none split
+
+and at grid-exponent 2 — where an 8-chunk Nodera region straddles two 4-chunk sections — it refuses:
+
+> Nodera refuses to enable: threaded-regions.grid-exponent is 2 … Set threaded-regions.grid-exponent
+> to at least 3 (Folia's default is 4) in config/paper-global.yml and restart.
+
+`e2e-plugins.sh` completes the set with co-existence: the corpus is whatever an operator staged,
+nothing is downloaded (a compatibility suite that fetches its own subjects tests whatever the
+internet served that morning), and what is **absent** is named rather than silently untested.
+
+One honest constraint, recorded rather than papered over: **Folia has no 1.21.1 build** — it went
+from 1.21.x to 1.21.4+ — so the Folia suite runs the newest available. That is sound for what it
+asserts, because plugin enable and ALIGN-1 are platform properties rather than gameplay; it is also
+exactly why the mixed-**client** suites stay blocked on L-66, which is about a client being able to
+join at all.
+
+L-61 is RETIRED and task 1 is complete. Eight rows were behind it; they are behind task 2 now, which
+is the endpoint hosting a peer.
 
 ### 2026-07-26 — There is a plugin, and it enables on a real Paper
 
