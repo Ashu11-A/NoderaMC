@@ -42,7 +42,7 @@ pass "F0: plugin and Folia jars present"
 # F1 — ALIGN-1 holds at the platform default
 # ---------------------------------------------------------------------------
 log "F1: Folia at grid-exponent $NODERA_FOLIA_GRID_EXPONENT (the platform default)"
-stage_bukkit_server
+stage_bukkit_server "0000000000000f01"
 start_bukkit_server "$LOG_DIR/folia-ok.log"
 wait_log "$LOG_DIR/folia-ok.log" "Done (" 480 \
     || fail "F1: Folia never finished booting (see $LOG_DIR/folia-ok.log)"
@@ -64,7 +64,7 @@ sleep 5
 # F2 — THE REFUSAL at an exponent that splits a region
 # ---------------------------------------------------------------------------
 log "F2: the same jar at grid-exponent 2, where a region straddles two sections"
-NODERA_FOLIA_GRID_EXPONENT=2 stage_bukkit_server
+NODERA_FOLIA_GRID_EXPONENT=2 stage_bukkit_server "0000000000000f01"
 start_bukkit_server "$LOG_DIR/folia-refuse.log"
 # The server still boots; it is the PLUGIN that must refuse.
 wait_log "$LOG_DIR/folia-refuse.log" "Done (" 480 \
