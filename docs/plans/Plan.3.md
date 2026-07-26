@@ -451,6 +451,51 @@ scripted stage should be driven that way rather than described as blocked.
 | server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody, and re-checked on 2026-07-26 this is still literally true: `EndpointConfig.Custody` is read from the yaml and **only logged** (`NoderaEndpointPlugin` line 67) — no announce, no capability, nothing on the wire for an auditor to catch out. It unblocks with server task 2 (the endpoint hosting a peer). Two notes for whoever takes it: the mechanism is now available, because a tracker announce already carries `ManifestHolding(manifestRoot, pieceBitmap)` per manifest — including, since worker L-41, per-region manifests — so an audit is "ask for a piece this node claims in its own bitmap and hash-check the answer", which the content plane already serves. And `SpotCheckAuditor` is **not** that audit: it re-executes a sampled batch (a compute check), while custody is a holding check; conflating them would leave the row unproven. |
 | worker L-41 | **RETIRED 2026-07-26** | The remaining clause was two things: an announce heartbeat that describes what this node holds *now*, and validated-lane region pieces seeded beside the whole-save archive. Both landed — `NODERA-SEED-REGION`, a per-lane manifest ladder, both lanes on one announce, and the mod-side `RegionSeedSpool` — with `SeedRegionVerbIT` proving the clause itself: nothing connected, both lanes still held and still advertised. The evidence deliberately stops short of a real Minecraft client; the pushing side is proven by its control-channel behaviour. |
 
+### Full register census + live-evidence audit (2026-07-26, end of session)
+
+Every register read, every open row checked against the day's live runs rather than against memory.
+**25 open across five categories; 56 retired; three categories now completely clear** (worker,
+tracker, rendezvous — worker emptied today).
+
+| Category | Open | Retired |
+|---|---|---|
+| engine | 7 (L-1, L-2, L-7, L-12, L-16, L-17, L-50) | 19 |
+| minecraft | 5 (L-43, L-46, L-49, L-50, L-80) | 6 |
+| network | 3 (L-30, L-33, L-76) | 19 |
+| server | 8 (L-62, L-64…L-70) | 4 |
+| app | 2 (L-47, L-56) | 2 |
+
+**Did today's runs retire anything? No — and the checks are worth recording, because three rows
+looked close enough to be worth testing rather than assuming.**
+
+- **minecraft L-80** — exit: "a player's place and break reach the owning node's committee and
+  commit; `/nodera debug capture` reports captured edits rather than `REGION_NOT_DELEGATED`". The
+  driven soak produced literally `"block_capture": {"REGION_NOT_DELEGATED": 1}`. The clause names the
+  exact string the run emitted, and it is the failing one. Not met, now with live evidence instead of
+  inference.
+- **network L-30** — the transport half is fixed (`0 → 64` worker-held replicas) and the row is
+  rewritten around what replaced it: one resident, because a joiner's companion never joins the
+  session. Still open, but for a stated reason rather than an inherited one.
+- **engine L-17** — stays RETIRING. `GatewayHandover` and its bind landed and the live `ownership`
+  suite passes, but B still crosses a `DisconnectedScreen`, which is the clause.
+
+**What every remaining row is actually waiting on, in four buckets:**
+
+1. **A design decision** — L-30 (what authorises a joiner's worker to join its world's session),
+   L-66 (the Folia pin), server L-62 (custody must be advertised before it can be audited).
+2. **A GUI pass** — minecraft L-43/L-46/L-49, engine L-16's renderer bind, network L-33's render
+   half. No headless run can produce this evidence.
+3. **A population or a platform** — network L-76 needs opted-in users; server L-64/L-65/L-67/L-69
+   need real Folia and real plugins.
+4. **A longer or differently-shaped live run** — engine L-1 (farm soak), L-7 (per-species retirement),
+   L-2/L-12/L-50 (live evidence for lanes that are headlessly complete).
+
+Nothing in buckets 2-4 is reachable by writing more code, which is why the honest count of rows this
+session could have retired is zero — and why the session's value sits in the four defects fixed and
+the five suites found asserting less than they claimed.
+
+---
+
 ### Dead-code sweep, round 5 (2026-07-26)
 
 Every `.java` file under a `src/main` tree whose simple name appears in **no other main file** was
