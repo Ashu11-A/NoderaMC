@@ -28,9 +28,15 @@ region ownership works with actions forwarded to the owning node and quorum comm
 validated pickup delivers exactly once; session reopen resumes from the store head; the world
 continuity flow recovers and re-hosts a world in seconds after its host is killed.
 
-What is **not** yet wired is the general capture-and-apply lane for block actions: the three
-interference mixins, chunk tickets, fake-player detection, the shadow and coordinator live adapters,
-the renderer's lock-map consumption, and the live commit/content/lifecycle adapters.
+The block half of the capture lane now exists: `BlockCaptureBridge` turns a real place or break into
+a signed action on the same submit path the entity lane uses, and the palette binding decides what is
+consensus state at all. It is gated on the region being held by this node's lane, which is right for
+a player-hosted world and inert on a dedicated server — that gap is **L-80**, and it is L-60's fault
+line read across to blocks.
+
+What is still **not** wired is the apply half and everything around it: the three interference
+mixins, chunk tickets, the real `WorldMutationApplier` on the main thread, the coordinator live
+adapter, the renderer's lock-map consumption, and the live commit/content/lifecycle adapters.
 
 The lane is blocked less by design than by **evidence**: its acceptance is a set of live scenarios,
 and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than hand-run.
@@ -45,8 +51,8 @@ and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than han
 
 | # | Deliverable | State |
 |---|---|---|
-| 1 | Capture: block events at documented priorities, capture-and-cancel contract | 🚧 |
-| 2 | `SnapshotExtractor` / `PaletteMapper` — real chunks to region snapshots | 🚧 |
+| 1 | Capture: block events at documented priorities, capture-and-cancel contract | 🚧 (place/break capture landed; owning-node only, L-80) |
+| 2 | `SnapshotExtractor` / `PaletteMapper` — real chunks to region snapshots | 🚧 (`PaletteMapper` landed both ways; the chunk-to-snapshot extract remains) |
 | 3 | The real `WorldMutationApplier` adapter on the server main thread | 🚧 |
 | 4 | `LevelChunkMixin` — the single write choke point | ⏳ |
 | 5 | Random-tick and scheduled-tick suppression mixins | 🚧 (scheduled-tick suppression landed) |

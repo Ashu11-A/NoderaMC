@@ -30,6 +30,43 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-25 — A real block edit becomes a consensus action (issue #5's capture half)
+
+The determinism gate has always been the project's hard exit, and it has always been proven over
+inputs the engine invented for itself. What was missing was the sentence in the middle: *this
+`BlockState` is that palette id*. Three pieces landed together.
+
+`VanillaPalette` (engine, Minecraft-free) is the binding table — every one of the palette's ~100 ids
+against the vanilla block key and the properties that carry consensus meaning, in both directions.
+It lives in the engine on purpose: the table is exactly as load-bearing as the palette itself (a
+wrong row does not crash, it diverges), so it belongs where the ordinary gate can read it. The test
+that matters is `VanillaPaletteTest.everyPaletteEntryRoundTripsThroughItsVanillaState` — a palette
+that grows a new id without a binding fails it the same day, instead of the live lane quietly
+excluding the new block for a month. `PaletteMapper` (mod) is what is left over once the table is
+elsewhere: read the registry key, read the properties, ask the engine — and back again for the
+applier, answering empty rather than guessing when the running game does not know a bound state.
+
+`BlockCaptureBridge` subscribes to `EntityPlaceEvent` and `BreakEvent` at LOWEST priority — we
+capture what the world agreed to, not what someone proposed — and hands the action to the same
+signed submit path the entity lane uses. **Vanilla is never cancelled**: this is the
+`VanillaCancelGate` contract (issues #33/#44) read across to blocks, and it is why capture needs no
+gate in front of the player's own edit. Every judgement about *whether* to capture is in
+`BlockCaptureRules`, Minecraft-free and pinned by 8 tests: a modded block, a state the palette cannot
+express, a network-computed state offered as a *placement* (placing powered wire would mint 15 power
+out of a client packet), an edit outside the height envelope, and a fake player's edit are each
+refused with their own reason. `/nodera debug capture` prints the resulting ledger, because
+"nothing was captured" and "everything was captured" look identical from inside the game.
+
+Evidence: `VanillaCaptureSoakIT` re-runs the three-worker shadow soak with every action built from a
+vanilla `(key, properties)` pair — 250 batches, more than fifteen distinct palette ids exercised,
+modded and vertical-piston states mixed into the same stream — and asserts zero divergence with all
+three replicas byte-identical to the reference chain. That closes the audit gap named on issue #5:
+the soak now exercises the real vanilla palette rather than `STONE` on flat rules.
+
+What this does **not** do is captured as **L-80**: the capture gate is `delegated(region)`, so on a
+dedicated server — where the field-of-view planner gives every region to the players' nodes — the
+one process that sees block events holds no seat. Same fault line as L-60, same fix shape.
+
 ### 2026-07-25 — The game's events reach the worker, and nothing else does
 
 `ModTelemetry` + `/nodera telemetry` landed, tested against a **stand-in worker on loopback**

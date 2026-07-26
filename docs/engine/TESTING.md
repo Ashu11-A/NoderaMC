@@ -6,12 +6,12 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-07-25 · **706 tests · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-07-25 · **716 tests · 0 failing · 0 skipped**
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags through 108) | 233 | ✅ |
-| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 456 | ✅ |
+| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags through 108) | 236 | ✅ |
+| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 466 | ✅ |
 | `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | ✅ |
 
 Run with:
@@ -48,6 +48,8 @@ bytecode via `--release 21`, so ArchUnit's bundled ASM parses the classes and th
 | Test | What it proves |
 |---|---|
 | `ShadowValidationIT` | 3 workers × 250 random place/break batches with **zero divergence**; a lying worker is caught and re-snapshotted |
+| `VanillaCaptureSoakIT` | The same soak driven from **vanilla block states**: every action is built from a `(block key, properties)` pair through `VanillaPalette`, so the run proves the *binding* as well as the engine — modded blocks and vertical piston states ride the same stream and never reach the lane |
+| `VanillaPaletteTest` | Every palette id round-trips through the vanilla state it projects to — the test that fails the day the palette grows past the live capture lane |
 | `CoordinatorIT` | Commit-on-match; forced mismatch rejected with the world uncorrupted; stale-epoch drop; primary-death reassignment under a bumped epoch |
 | `CommitteeMvpIT` | 2-of-3 quorum commit, then primary failover under epoch+1 with continuation |
 | `ByzantineMeshIT` (3) | A real adversarial peer on the mesh: a fabricated root never reaches a certificate; a vote forged in an absent member's name buys no seat (the round times out); an equivocator gets one seat, not two |

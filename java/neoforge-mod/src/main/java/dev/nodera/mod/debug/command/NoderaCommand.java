@@ -107,7 +107,8 @@ public final class NoderaCommand {
                         .then(literal("verbose")
                                 .then(literal("on").executes(ctx -> verbose(ctx, true)))
                                 .then(literal("off").executes(ctx -> verbose(ctx, false))))
-                        .then(literal("relay").executes(NoderaCommand::relay))));
+                        .then(literal("relay").executes(NoderaCommand::relay))
+                        .then(literal("capture").executes(NoderaCommand::capture))));
 
         // Issue #46: /tps (OP) — this server's live TPS + per-player round-trip latency (the
         // network view of every connected player; each Nodera player runs their own server, so
@@ -453,6 +454,30 @@ public final class NoderaCommand {
      * captured from its own game vs processed for each other player, with average processing
      * times (the live-TPS investigation surface).
      */
+    /**
+     * The block-capture ledger: how many real edits became consensus actions, and for each edit
+     * that did not, the reason. This is the live counterpart of the headless shadow soak's
+     * bandwidth/interference numbers — "nothing was captured" and "everything was captured" look
+     * identical from inside the game without it.
+     */
+    private static int capture(CommandContext<CommandSourceStack> ctx) {
+        var outcomes = dev.nodera.mod.server.shadow.BlockCaptureBridge.get().outcomes();
+        long total = outcomes.values().stream().mapToLong(Long::longValue).sum();
+        StringBuilder text = new StringBuilder("Block capture — ")
+                .append(total).append(" edit(s) seen");
+        outcomes.forEach((reason, count) -> {
+            if (count > 0) {
+                text.append("\n  ").append(reason).append(": ").append(count);
+            }
+        });
+        if (total == 0) {
+            text.append("\n  (no block edits observed yet)");
+        }
+        String rendered = text.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(rendered), false);
+        return 1;
+    }
+
     private static int relay(CommandContext<CommandSourceStack> ctx) {
         var lane = dev.nodera.mod.common.NoderaHost.entityLaneRelayMetrics();
         if (lane == null) {
