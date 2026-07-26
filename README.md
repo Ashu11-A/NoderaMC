@@ -23,7 +23,7 @@
      per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
      TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `99.0%`**
+**Overall system completion: `99.2%`**
 `███████████████████░`
 
 91.3 → **95.3 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
@@ -39,6 +39,16 @@ invariant that keeps one Nodera region on one Folia thread — living in `core` 
 exhaustively rather than by eye, and **refusing** on a real Folia configured to split a region. The figure moved 93.1 → 85.7 → 91.3 in one earlier day and both of those moves were real too:
 the telemetry programme added ten tasks before it delivered seven. A percentage that only ever rises
 is a percentage measured against a scope that quietly moves.
+
+99.0 → **99.2 %**: the worker category emptied. L-41's last clause asked for a world that stays
+announced **and** seeded — whole-save archive *and* validated-lane region pieces — on the worker's
+own timer after the driving game disconnects. The archive half was old; the region half had never
+been built, and `RegionSnapshotSplitter` (which does exactly that split) had no caller outside
+tests. It needed no new wire message: `PieceManifest` already carries the region and the snapshot
+version, so which lane a manifest belongs to is written on the manifest. `NODERA-SEED-REGION` takes
+a committed snapshot from whichever process holds the seat — usually a game client, the one process
+guaranteed to go away — and the mod's `RegionSeedSpool` pushes without the commit path ever touching
+disk or a socket.
 
 Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test counts:
 `docs/<category>/TESTING.md` · order, priority, and difficulty:

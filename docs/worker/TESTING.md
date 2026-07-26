@@ -42,6 +42,11 @@ printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610     # manual live check against a
 | `ResidentQuorumIT` | A committee holds full strength through a player's logout thanks to standing workers, with the no-resident counterfactual asserted |
 | `GrantGossipIT` (6) | Grants converge across co-hosts; a non-author's correctly-signed grant is refused by every receiver and is not even relayed by the attacker's own node |
 | `SupersededManifestEvictionTest` (3) | A replica drops a superseded manifest version and does not re-adopt a late-arriving older one |
+| `SeedRegionVerbIT` (4) | `NODERA-SEED-REGION` seeds a committed region from a transient control connection; with nothing connected the save **and** the region are both still held and both ride one announce; a file that is not a snapshot is refused rather than advertised |
+| `WorkerHeartbeatHoldingsTest` (4) | The announce heartbeat re-reads holdings every time, so content seeded after a world was hosted is advertised; an unreachable tracker never stops it; the cadence keeps its floor |
+| `RegionPieceSeedingTest` (7) | The two lanes keep separate ladders — a region version cannot supersede the world's save — with an idempotent re-seed, a bounded per-region window, and a deterministic capped announce |
+| `CommittedRegionSeederTest` (6) | A commit is filed under the one world this node hosts, and hosting several seeds nothing rather than advertising a region to peers fetching a different world |
+| `RegionSeedSpoolTest` (7) | The mod hands snapshots over without the commit path touching disk or a socket: throttled per region, bounded backlog that drops rather than grows, every failure contained |
 
 ## 3. Conventions
 
@@ -60,6 +65,6 @@ printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610     # manual live check against a
 
 Live worker behaviour is exercised by the mod's scripted suites — see
 [`../minecraft/TESTING.md`](../minecraft/TESTING.md). In a suite run, `worker-*.log` shows
-`Now hosting world`, `Seeding world archive vN — P piece(s)`, and `Fetched world archive`; the control
+`Now hosting world`, `Seeding world archive vN — P piece(s)`, `Seeding region Region[...] of world`, and `Fetched world archive`; the control
 verbs on ports 25610/25611/25612 return live JSON with `maintained_pieces`, `connected_worlds`, and
 `validation` counters.

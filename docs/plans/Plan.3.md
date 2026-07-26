@@ -449,7 +449,7 @@ scripted stage should be driven that way rather than described as blocked.
 | network L-76 | **needs a population** | The emitter, the plane and the dashboards exist; the exit is a dashboard answering a real question from real reports, and no deployment has opted in yet. Nothing to build. |
 | server L-61 | **RETIRED 2026-07-26** | The jar builds and all three suites pass — Paper enable, the Folia ALIGN-1 pass **and** its refusal at exponent 2, and corpus co-existence. The eight rows behind it now sit behind **task 2** (the endpoint hosting a peer) rather than behind the plugin existing. |
 | server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody. Note the audit it describes is the first real use for `SpotCheckAuditor`, which has been unwired since Task 7 because every validator already re-executes every batch it votes on. |
-| worker L-41 | **one live clause** | The crash-survival half is proven with a real SIGKILL; what remains is the worker keeping a world announced **and** seeded on its own timer after the game client disconnects. |
+| worker L-41 | **RETIRED 2026-07-26** | The remaining clause was two things: an announce heartbeat that describes what this node holds *now*, and validated-lane region pieces seeded beside the whole-save archive. Both landed — `NODERA-SEED-REGION`, a per-lane manifest ladder, both lanes on one announce, and the mod-side `RegionSeedSpool` — with `SeedRegionVerbIT` proving the clause itself: nothing connected, both lanes still held and still advertised. The evidence deliberately stops short of a real Minecraft client; the pushing side is proven by its control-channel behaviour. |
 
 ### Issue-by-issue read (2026-07-26)
 
