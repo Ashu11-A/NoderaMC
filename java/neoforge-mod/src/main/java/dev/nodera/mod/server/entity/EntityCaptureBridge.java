@@ -211,9 +211,14 @@ public final class EntityCaptureBridge {
         // could mean the join never arrived or the decision went the other way, and the two want
         // opposite fixes. Once per region, so a busy world stays quiet.
         if (observedRegions.add(region)) {
-            GHOST_LOG.info("LANE: {} observed (first entity: {}, capture={})", region,
+            // `runtime` is printed because it is the one thing the log could never show: every
+            // other line here comes from the bridge itself, so a DISABLED runtime — which answers
+            // every method by doing nothing — looks exactly like a quiet world. Five live runs
+            // could not tell those apart.
+            GHOST_LOG.info("LANE: {} observed (first entity: {}, capture={}, runtime={})", region,
                     speciesOf(entity),
-                    NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity)));
+                    NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity)),
+                    runtime == Runtime.DISABLED ? "DISABLED" : runtime.getClass().getSimpleName());
         }
         // L-60: "this dimension never opted into mob capture" is a CONFIG fact, true on every node,
         // and it disqualifies the region from the validated lane no matter who owns it. Under
