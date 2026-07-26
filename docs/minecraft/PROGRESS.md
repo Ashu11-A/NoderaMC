@@ -30,6 +30,33 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — `e2e-mobs` is green — L-60 and L-24 RETIRED
+
+Nine dispatched live runs. The row said "remaining: the live run", and the live run had never been
+read; when it was, it was red for reasons that had nothing to do with what the row described.
+
+What it actually took, in the order the evidence forced:
+
+1. **The close/lock cascade.** A re-plan threw on the way down, so `close()` never reached
+   `store.close()`, RocksDB kept its file lock, the next bootstrap failed, and the lane never came
+   back. Each close step is contained now and the store closes in a `finally`.
+2. **A non-volatile field.** `EntityCaptureBridge.runtime` is written on the boot thread and read on
+   the server thread.
+3. **A diagnostic that could see the invisible case.** Every line in the bridge was conditional, so a
+   DISABLED runtime and a quiet world produced identical logs. `LANE: … observed (… runtime=…)` is
+   unconditional, and it is what finally named the fault.
+4. **The root cause**: a node with no seats never opened a lane at all — so the one process that can
+   see the world had nothing running. `ObserverLaneRuntime` + `ObserverRefusals` give it the single
+   power a seatless node is entitled to: refusing what nobody there can validate, and saying so.
+   Opening a full session instead was tried and stalled the server for **720 s** per boundary
+   crossing; the observer holds no store, no journals and no replicas.
+5. **Both assertions were wrong.** The nether is full of species the engine does not own, so the
+   region is legitimately refused before any summon lands. G2b was asserting that a creeper won a
+   race against the nether's own mobs; G2a was asserting silence where the correct behaviour is
+   noisy. They assert the rule now.
+
+L-24 retires on the same clause: G2a proves the species default, G2b proves the refusal.
+
 ### 2026-07-26 — The live suites were dispatched, and one of them says the register was wrong
 
 `e2e-live` is a `workflow_dispatch` workflow: any subset of the real-client suites can be run against

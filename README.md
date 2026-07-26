@@ -23,7 +23,7 @@
      per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
      TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `98.6%`**
+**Overall system completion: `99.0%`**
 `███████████████████░`
 
 91.3 → **95.3 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
