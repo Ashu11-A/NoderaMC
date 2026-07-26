@@ -451,6 +451,29 @@ scripted stage should be driven that way rather than described as blocked.
 | server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody, and re-checked on 2026-07-26 this is still literally true: `EndpointConfig.Custody` is read from the yaml and **only logged** (`NoderaEndpointPlugin` line 67) — no announce, no capability, nothing on the wire for an auditor to catch out. It unblocks with server task 2 (the endpoint hosting a peer). Two notes for whoever takes it: the mechanism is now available, because a tracker announce already carries `ManifestHolding(manifestRoot, pieceBitmap)` per manifest — including, since worker L-41, per-region manifests — so an audit is "ask for a piece this node claims in its own bitmap and hash-check the answer", which the content plane already serves. And `SpotCheckAuditor` is **not** that audit: it re-executes a sampled batch (a compute check), while custody is a holding check; conflating them would leave the row unproven. |
 | worker L-41 | **RETIRED 2026-07-26** | The remaining clause was two things: an announce heartbeat that describes what this node holds *now*, and validated-lane region pieces seeded beside the whole-save archive. Both landed — `NODERA-SEED-REGION`, a per-lane manifest ladder, both lanes on one announce, and the mod-side `RegionSeedSpool` — with `SeedRegionVerbIT` proving the clause itself: nothing connected, both lanes still held and still advertised. The evidence deliberately stops short of a real Minecraft client; the pushing side is proven by its control-channel behaviour. |
 
+### Dead-code sweep, round 5 (2026-07-26)
+
+Every `.java` file under a `src/main` tree whose simple name appears in **no other main file** was
+listed, then classified by reading it. The count of test-only references is the interesting column:
+a class with six of them is a core somebody drives, while a class with one is usually a unit test
+keeping its own subject alive.
+
+| Class | Verdict |
+|---|---|
+| `HeadlessPeerMain`, `NoderaEndpointPlugin`, `LevelChunkMixin`, `ServerLevelRandomTickMixin` | **Not dead** — entry points reached by a manifest, a `plugin.yml` or `nodera.mixins.json`, never by an import. A name-based sweep will always list these; they are the reason it needs a human read. |
+| `CommitteeSession`, `EventSourcedWorldStore` | **Reference cores, driven by ITs.** Legitimate but worth knowing: the live path is `WorkerValidationService`, so these are exercised only by the tests that pin the design. |
+| `ProposalManager` | **Legacy.** Superseded by per-replica state — `WorkerValidationService` holds `pendingProposal` on the replica itself, so the coordinator-side map has no caller and should not gain one. |
+| `DelegabilityPolicy` + `DelegabilityMonitor` | **Legacy chain.** Neither has a live caller, and `EntityDelegabilityRules` already calls the `ENTITY_PRESENT` gate "legacy" in its own javadoc. Revocation is decided by the honest region-certification / `RegionRefusal` path that #45/#46 landed. Note for the register: engine task 7's deliverable rows are ✅ against names that are now superseded — the capability exists, the named classes are not how. |
+| `SpotCheckAuditor` | **Unwired on purpose**, recorded above: every validator already re-executes every batch it votes on. Its first real use would be server L-62's custody audit — and that is a *holding* check, not the compute check this class performs, so it is the wrong tool for that row too. |
+| `TenantBoundary`, `ChunkLockEditability`, `ActivePlayerStream`, `ArchiveManager`, `EventSyncService`, `GenesisApprovalFlow`, `JoinAttemptThrottle`, `PeerShutdownHook`, `WorldGenRules`, `JointTransferApprover` | **Unread this round.** Each has exactly one test-only reference and needs the same per-class read before anything is wired or deleted. Listed here so the next sweep starts from a name list rather than from zero. |
+
+**The rule this sweep keeps proving:** an unreferenced class is a question, not a defect. Round 4
+found three genuine holes this way (`ReliabilityLedger`, `PersistedCoordinatorState`,
+`LocalReplicaView.predict`) and this round found a fourth in `RegionHalo` — but it also found two
+legacy chains that would have been *wrong* to wire. Read before wiring.
+
+---
+
 ### Issue closure sweep (2026-07-26)
 
 Six issues closed, and the reason they were open was **bookkeeping, not scope**. The 2026-07-25
