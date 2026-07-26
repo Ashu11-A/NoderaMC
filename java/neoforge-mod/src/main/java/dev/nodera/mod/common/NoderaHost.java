@@ -819,29 +819,44 @@ public final class NoderaHost {
                 // what makes an always-on peer re-execute the world, and a validator that has not
                 // activated the region drops the primary's very first proposal on the floor.
                 int seats = assignResidentSeats(host, plan, residents);
+                List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
+                for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
+                    peers.add(new LiveEntityLaneSession.CommitteePeer(
+                            dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
+                            node.publicKey()));
+                }
+                // Residents are committee peers too — without their address+key here the local
+                // lane could not send them proposals or verify the votes they send back.
+                for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
+                    peers.add(new LiveEntityLaneSession.CommitteePeer(
+                            dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
+                            entry.publicKey()));
+                }
+                // L-60: OPEN THE LANE EVEN WITH NO REGIONS. This branch used to skip activation
+                // entirely when the plan gave this node nothing, which is the common case for a
+                // dedicated server under field-of-view ownership — and it is also the case in which
+                // this node is the ONLY one that can see what happens in the world. Skipping left
+                // `EntityCaptureBridge.runtime` at DISABLED, which answers every method by doing
+                // nothing: no ghost capture, no item capture, and no revocation, with no exception
+                // anywhere to say so. Five dispatched `e2e-mobs.sh` runs read that as "the lane
+                // said nothing"; the log line that finally named it was
+                // `LANE: Region[minecraft:the_nether @ 0,0] observed (… runtime=DISABLED)`.
+                //
+                // An observer session holds no replicas — `delegated()` stays false, so nothing is
+                // captured as validated state — but it can refuse a region it cannot validate and
+                // announce that refusal, and it can forward what it captures to the owners. That is
+                // exactly the role this row describes.
+                activateEntityLane(server, manifest, bindings, peers);
                 if (!bindings.isEmpty()) {
-                    List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
-                    for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
-                        peers.add(new LiveEntityLaneSession.CommitteePeer(
-                                dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
-                                node.publicKey()));
-                    }
-                    // Residents are committee peers too — without their address+key here the local
-                    // lane could not send them proposals or verify the votes they send back.
-                    for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
-                        peers.add(new LiveEntityLaneSession.CommitteePeer(
-                                dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
-                                entry.publicKey()));
-                    }
-                    activateEntityLane(server, manifest, bindings, peers);
                     LOG.info("Nodera: entity lane live on {} region(s) across {} member node(s) "
                                     + "+ {} resident peer(s) holding {} committee seat(s) (genesis {})",
                             bindings.size(), views.size(), residents.size(), seats,
                             manifest.genesisRoot().toShortHex(4));
                 } else {
-                    LOG.info("Nodera: no regions fall to this node in the new plan "
-                                    + "({} member node(s), {} resident peer(s)) — broadcasting it "
-                                    + "for the owners", views.size(), residents.size());
+                    LOG.info("Nodera: entity lane live as an OBSERVER — no regions fall to this "
+                                    + "node in the new plan ({} member node(s), {} resident "
+                                    + "peer(s)); it can still refuse what it cannot validate and "
+                                    + "forward what it captures", views.size(), residents.size());
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.
