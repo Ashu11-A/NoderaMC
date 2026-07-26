@@ -26,6 +26,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/e2e-server.sh"
 nodera_suite endp endpoint
 nodera_parse_args "$@"
 nodera_server_load
+ENDPOINT_WORLD_ID="${ENDPOINT_WORLD_ID:-0000000000000e2e}"
 
 # ---------------------------------------------------------------------------
 # E0 — preflight BEFORE building a stack we might not use
@@ -51,7 +52,7 @@ nodera_endpoint_worker
 # full custody of a world nobody can name is an announce no tracker can use, and the plugin
 # refuses it. Passing an id here is what a real operator does; the task-2 suites will pass the
 # id their host flow minted.
-stage_bukkit_server "0000000000000e2e"
+stage_bukkit_server "$ENDPOINT_WORLD_ID"
 start_bukkit_server "$LOG_DIR/server.log"
 wait_log "$LOG_DIR/server.log" "Done (" 420 \
     || fail "E1: the Paper server never finished booting (see $LOG_DIR/server.log)"
@@ -82,27 +83,54 @@ grep -q "ALIGN-1 preflight not applicable" "$LOG_DIR/server.log" \
 pass "E2: ALIGN-1 correctly reported as not applicable on a single-threaded platform"
 
 # ---------------------------------------------------------------------------
-# E3 — a clean shutdown
+# E4 — the world is hosted BY THE WORKER, and survives the server being killed
+#
+# This is L-71's exit: a node inside the server JVM dies with it, taking the
+# world off the network exactly when it most needs to still be there. The kill is
+# a real SIGKILL — a graceful stop would prove the opposite of what is claimed.
 # ---------------------------------------------------------------------------
-log "E3: stopping the server"
-rcon "stop" >/dev/null 2>&1 || true
-wait_log "$LOG_DIR/server.log" "Nodera endpoint stopped" 180 \
-    || fail "E3: the plugin never logged a clean disable"
-if grep -q "\[NoderaEndpoint\].*Exception\|Could not pass event.*NoderaEndpoint" \
-        "$LOG_DIR/server.log"; then
-    fail "E3: the server log carries an exception from the endpoint"
-fi
-pass "E3: clean disable, no exceptions from the endpoint"
-
-# ---------------------------------------------------------------------------
-# E4 — the link itself
-# ---------------------------------------------------------------------------
-log "E4: the endpoint linked to its worker"
+log "E4: the endpoint linked and asked its worker to host"
 grep -q "linked to the Nodera worker at 127.0.0.1:$ENDPOINT_CONTROL" "$LOG_DIR/server.log" \
     || fail "E4: the endpoint never linked to its worker on $ENDPOINT_CONTROL"
 grep -q "no Nodera worker answering" "$LOG_DIR/server.log" \
     && fail "E4: the endpoint reported no worker — it linked late or not at all"
-pass "E4: the endpoint linked to its always-on worker at boot"
+grep -q "the worker is hosting world" "$LOG_DIR/server.log" \
+    || fail "E4: the endpoint never asked its worker to host the configured world"
+pass "E4: linked, and the world was handed to the worker"
+
+# Assert on the STATE field rather than grepping the id anywhere in the reply: an error
+# message that happens to quote the id would otherwise read as a hosted world.
+hosted_before=$(control_verb "$ENDPOINT_CONTROL" "NODERA-STATE 2" \
+    | grep -o "\"world_id\":\"$ENDPOINT_WORLD_ID\"" | head -1)
+[[ -n "$hosted_before" ]] \
+    || fail "E4: the worker does not report hosting $ENDPOINT_WORLD_ID in connected_worlds"
+
+log "E4: SIGKILLing the server JVM — the world must stay on the network"
+kill -9 "$SERVER_PID" 2>/dev/null || true
+sleep 10
+control_verb "$ENDPOINT_CONTROL" "NODERA-PROBE 2" | grep -q NODERA-OK \
+    || fail "E4: the worker died with the server — that is exactly L-71"
+hosted_after=$(control_verb "$ENDPOINT_CONTROL" "NODERA-STATE 2" \
+    | grep -o "\"world_id\":\"$ENDPOINT_WORLD_ID\"" | head -1)
+[[ -n "$hosted_after" ]] \
+    || fail "E4: the world stopped being hosted when the server JVM was killed (L-71)"
+pass "E4: the server JVM was killed and the world is still hosted by its worker"
+
+# ---------------------------------------------------------------------------
+# E3 — a clean shutdown (on a FRESH server: E4 killed the first one)
+# ---------------------------------------------------------------------------
+log "E3: a fresh server, stopped cleanly"
+start_bukkit_server "$LOG_DIR/server-restart.log"
+wait_log "$LOG_DIR/server-restart.log" "Done (" 420 \
+    || fail "E3: the server did not boot again after the kill"
+rcon "stop" >/dev/null 2>&1 || true
+wait_log "$LOG_DIR/server-restart.log" "Nodera endpoint stopped" 180 \
+    || fail "E3: the plugin never logged a clean disable"
+if grep -q "\[NoderaEndpoint\].*Exception\|Could not pass event.*NoderaEndpoint" \
+        "$LOG_DIR/server-restart.log" "$LOG_DIR/server.log"; then
+    fail "E3: the server log carries an exception from the endpoint"
+fi
+pass "E3: clean disable, no exceptions from the endpoint"
 
 collect_results
 pass "ENDPOINT TEST PASSED — artifacts in $RESULTS_DIR"
