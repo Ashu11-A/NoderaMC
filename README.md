@@ -23,7 +23,7 @@
      per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
      TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `95.3%`**
+**Overall system completion: `97.0%`**
 `███████████████████░`
 
 91.3 → **95.3 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
@@ -33,7 +33,10 @@ back into the world, exact interference measurement, session chunk tickets, and 
 for. A dead-code sweep then found two of the coordinator's own components unwired — committee
 outcomes never reached the reliability ledger, and epochs and reputations did not survive a restart —
 and the environment lane gained lava/water interactions, crops, and the random-tick suppression
-mixin that makes a delegated region's farm the engine's business alone. The figure moved 93.1 → 85.7 → 91.3 in one earlier day and both of those moves were real too:
+mixin that makes a delegated region's farm the engine's business alone. Then the server category's
+gate opened: `nodera-endpoint.jar` builds and enables on a real Paper 1.21.1, with ALIGN-1 — the
+invariant that keeps one Nodera region on one Folia thread — living in `core` and tested
+exhaustively rather than by eye. The figure moved 93.1 → 85.7 → 91.3 in one earlier day and both of those moves were real too:
 the telemetry programme added ten tasks before it delivered seven. A percentage that only ever rises
 is a percentage measured against a scope that quietly moves.
 
@@ -58,6 +61,7 @@ Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test cou
 | `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 14 | ✅ |
 | `peer` | **unified peer API (issue #30)** — distribution/runtime/diagnostics/headless worker plus authenticated validation, disjoint-committee transfer routing, process-kill recovery, durable journals, and the world-continuity lane (`WorldArchive` + worker seeding/manifest-serving/swarm-fetch, `SEED`/`ARCHIVE`/`GRANT`/`REKEY` verbs, `WorldContinuityIT` host-death survival, `RekeyVerbIT` password re-key round trip, `RelayMetricsTest` per-peer event-relay accounting), plus the mesh-population + boundary-independence lane (issues #45/#46/#47): `ResidentQuorumIT` proves a committee holds full strength through a player's disconnect via standing workers, `LiveLagHandoffIT` drives the Task 25 lag policy into a live primary handoff, and `RegionCertificationTest`/`TrafficDirectionSplitTest` pin honest region-certification + direction-split telemetry, `ByzantineMeshIT` closes L-18's last exit clause by putting a genuinely adversarial peer on the mesh (lying, forging and equivocating over the wire), and the permission/archive-hygiene lanes retire L-54 (`WorldGrantGossipService` + `WorldGrantGossip` tag 60 — grants reach every co-hosting peer and are re-verified there, `GrantGossipIT`) and L-55 (`supersedeOlderVersions` + `ContentStore.remove` — a re-key evicts the ciphertext the old password still opened) | 502 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), the #44 vanilla-cancel contract (`VanillaCancelGate` — vanilla is only cancelled on the synchronous local-primary path), `ClientStallReporter` (names the screen a stuck client is sitting on — the fact every opaque L-45 CI failure was missing), and the `/nodera selftest` in-game command test+benchmark drive, and the **live block lane** (issue #5): `PaletteMapper`, `BlockCaptureBridge` (place/break at `EventPriority.LOW` onto the signed submit path, vanilla never cancelled), `LiveSnapshotExtractor`, committed-block projection, `ChunkTicketService`, and `LevelChunkMixin` + `BlockWriteGuard` — the single write choke point, inert until a lane installs, which retired engine L-25; Task 5b soak evidence remains | 113 | 🚧 |
+| `paper-plugin` | (server task 1) `nodera-endpoint.jar` — the Paper/Folia endpoint plugin: platform detection by the presence of the regionised scheduler (a fork renames itself; the scheduler is the load-bearing difference), and the **ALIGN-1 preflight** that refuses to enable where a Nodera region would straddle two Folia sections. Enables on real Paper 1.21.1 (`scripts/e2e-endpoint.sh`); hosts no peer yet (server task 2) | 5 | 🚧 |
 | `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag mirror through Java type tag 102/message tag 48 + socket framing | 35 | ✅ |
 | `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED); tracker 4 adds the windowed self-report, **off unless an operator configures an endpoint** | 62 | ✅ |
 | `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED); rendezvous 4 adds **NAT-pair punch statistics** (four coarse classes, success inferred from whether the pair falls back to a relay) | 62 | ✅ |
