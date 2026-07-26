@@ -34,6 +34,33 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The prediction overlay finally gets told something (L-16)
+
+`LocalReplicaView` has had prediction, reconciliation and rollback since Task 16a, with seven tests
+covering all of it. Reading the tree for L-16 turned up the thing none of those tests could see:
+**nothing ever called `predict`**. The only thing that advanced the view was a commit arriving back
+from the committee — which is precisely the one-to-two-tick lag the row describes from a player's
+chair. The machinery was complete and unplugged.
+
+`PredictionFeed` is the one line of policy in between, kept as its own class on purpose: the capture
+path lives next to Minecraft and the view lives in the peer, so a direct call would put a rendering
+concern inside the submit path and a Minecraft concern next to the engine.
+
+What it decides is small, and all four of its answers are ordinary rather than errors: **predict only
+what this node captured** (another node's proposal rendered before the committee agrees would show a
+state no certificate backs), **no view is fine** (a dedicated server has no renderer, and the capture
+path must not have to know whether anyone is looking), **a refused prediction is fine** (an untracked
+region or an action the engine will not execute — refusing keeps the render at certified truth), and
+**a view that throws is contained** (prediction is latency-hiding, so a fault costs a late-looking
+block, never the submit path).
+
+The supplier is read per call rather than captured once, because a client validation lane starts and
+stops under a long-lived capture path; capturing it would leave the feed permanently blind. That is
+its own test.
+
+What remains for L-16 is the half that needs a screen: **the renderer never reads `render()`**. That
+is the GUI bind, and it rides L-46.
+
 ### 2026-07-26 — Farms work in a delegated region
 
 The everyday thing a player notices first when random ticks are suppressed is that their wheat

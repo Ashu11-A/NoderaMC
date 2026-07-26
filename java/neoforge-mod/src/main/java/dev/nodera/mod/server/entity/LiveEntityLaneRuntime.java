@@ -71,6 +71,14 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     private final java.util.Map<RegionId, ServerLevel> boundLevels =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
+    /**
+     * Feeds locally-captured actions to this node's render overlay (L-16). Resolved per call, so a
+     * client validation lane that starts after this runtime does is still picked up.
+     */
+    private final dev.nodera.peer.view.PredictionFeed predictions =
+            new dev.nodera.peer.view.PredictionFeed(
+                    dev.nodera.mod.client.entity.ClientValidationLane::replicaView);
+
     /** Keeps every delegated region's chunks resident — an unloaded region cannot be validated. */
     private final dev.nodera.mod.server.shadow.ChunkTicketService tickets =
             new dev.nodera.mod.server.shadow.ChunkTicketService();
@@ -279,6 +287,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         ActionEnvelope signed = new ActionEnvelope(
                 actor, playerSequence, serverSequence, tick, region, action,
                 authority.sign(unsigned.signedPortion()));
+        // L-16: the render overlay takes the action the moment it is captured, so this player's
+        // own edit is on screen now rather than when the committee's commit comes back. The
+        // overlay is cosmetic — the committed base stays the authority and reconciles it — and a
+        // node with no renderer (every dedicated server) predicts nothing.
+        predictions.onLocalAction(signed);
         try {
             // No-host routing: if another player's node is this region's primary, the captured
             // action is forwarded to it over the mesh — that player proposes, the committee votes,
