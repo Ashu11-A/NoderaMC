@@ -420,6 +420,13 @@ larger than it was. That class is now empty, which is the useful finding.
 | Blocker | Rows waiting on it |
 |---|---|
 | **A live run with a node that actually holds regions** — the scripted suites run a dedicated server that the field-of-view planner leaves owning nothing | engine L-1, L-2, L-7, L-24, L-50 · minecraft L-50, L-60, L-80 · network L-30 |
+
+**Correction (2026-07-26):** this table first read as though live evidence were unobtainable without
+a person at a keyboard. It is not. `e2e-live` is a `workflow_dispatch` workflow that boots real
+NeoForge clients under Xvfb, one suite per runner, and **any of its suites can be dispatched against
+a branch** (`gh workflow run e2e-live.yml --ref <branch> -f suites=mobs,pearl`). The constraint on
+these rows is therefore CI minutes and reading the result, not access. Rows whose exits name a
+scripted stage should be driven that way rather than described as blocked.
 | **A GUI environment where a person looks at the screen** | minecraft L-43, L-46, L-49 · app L-47 |
 | **A subsystem nobody has written yet** (the client prediction overlay; the endpoint's validated lane) | engine L-12, L-16, L-17 · network L-33 · server L-62, L-64…L-70 |
 
