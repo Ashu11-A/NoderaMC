@@ -93,7 +93,14 @@ print(f"worker-held region replicas: {seats}")
 raise SystemExit(0 if seats else 1)
 PYEOF
 then
-    python3 - "$RESULTS_DIR" <<'PYEOF' || fail "S3: peers disagree about a region root — the mesh diverged"
+    # Two DIFFERENT outcomes used to share one failure message, and the difference matters more
+    # than the assertion did. `assert shared` fires when no region is held by more than one peer —
+    # "nothing to agree about" — while a mismatch in the loop is a genuine divergence. Reporting
+    # both as "the mesh diverged" cost real diagnosis: the first run where workers finally held
+    # replicas (64, up from 0) reported a divergence that had not happened, and the actual news —
+    # every region still has exactly ONE holder — was hidden behind the wrong sentence. Exit 3 now
+    # means "nothing shared", any other non-zero means a true disagreement.
+    python3 - "$RESULTS_DIR" <<'PYEOF'
 import collections, glob, json, os, sys
 
 roots = collections.defaultdict(dict)
@@ -109,9 +116,18 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "state-*.json"))):
 shared = {r: w for r, w in roots.items() if len(w) > 1}
 print(f"regions reported: {len(roots)}; reported by more than one peer: {len(shared)}")
 for region, per_worker in sorted(shared.items()):
-    assert len(set(per_worker.values())) == 1, f"{region} diverged across peers: {per_worker}"
-assert shared, "no region was validated by more than one peer — nothing to agree about"
+    if len(set(per_worker.values())) != 1:
+        print(f"{region} diverged across peers: {per_worker}")
+        raise SystemExit(1)
+if not shared:
+    raise SystemExit(3)
 PYEOF
+    s3_rc=$?
+    if [[ $s3_rc -eq 3 ]]; then
+        fail "S3: workers hold replicas, but no region is held by MORE THAN ONE peer — so there is still nothing to compare. NOT a divergence: the committees are seating one holder per region, so no two independently-computed roots exist for the same region (L-30)"
+    elif [[ $s3_rc -ne 0 ]]; then
+        fail "S3: peers disagree about a region root — the mesh diverged"
+    fi
     pass "S3: every shared region root is identical across the peers that report it"
 else
     # The honest state of the world, not a green tick over an assertion nobody can make here.
