@@ -6,7 +6,7 @@
      later task stands on, and it must refuse to enable — loudly, with the fix in the message —
      rather than degrade silently. Keep this header's status accurate. -->
 
-**Status:** ⬜ NOT STARTED
+**Status:** 🚧 IN PROGRESS (jar builds; enables on real Paper 1.21.1; Folia staging remains)
 **Category:** server · **Owns:** L-61, L-66 · **Last audit:** 2026-07-25
 **Depends on:** —
 **Consumed by:** every other server task
