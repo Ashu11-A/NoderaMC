@@ -59,6 +59,13 @@ The lane installs the guard on `install()` and removes it on `close()`, and the 
 writes run inside `MutationGuard.applierScope` — without that, every commit this node applied would
 have been re-certified back to itself as foreign.
 
+**Live evidence that the mixin applies**: `./gradlew :neoforge-mod:runServer` reaches
+`[minecraft/DedicatedServer]: Done (0.748s)!` with `required: true` and `defaultRequire: 1` in
+`nodera.mixins.json` and no mixin diagnostic in the log — a mismatched injection point aborts class
+load long before the world finishes loading, so reaching Done *is* the proof. (The run then exits on
+`CompanionUnavailableException`, which is the companion gate doing its job with no worker running —
+unrelated to the mixin.)
+
 ### 2026-07-25 — The world reads back, and a commit becomes a block a player can see
 
 Capture without apply is half a lane, and a probe with nothing to read is half a measurement. Both
