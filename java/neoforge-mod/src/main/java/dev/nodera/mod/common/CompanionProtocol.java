@@ -58,6 +58,14 @@ public final class CompanionProtocol {
     /** Per-world piece picture request — the data behind the client's piece map. */
     public static final String PIECES = ControlProtocol.PIECES;
 
+    /**
+     * Telemetry consent + event intake (minecraft task 8 / worker task 5).
+     *
+     * <p>The mod hands events to the worker over this verb and <b>never</b> opens a telemetry
+     * connection of its own: one consent check for the node, and events survive the game closing.
+     */
+    public static final String TELEMETRY = ControlProtocol.TELEMETRY;
+
     private CompanionProtocol() {
     }
 

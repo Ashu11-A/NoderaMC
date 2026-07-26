@@ -48,13 +48,20 @@ public final class HeadlessPeerMain {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
-    /** This worker's build version, reported on the control probe (mirrors the mod's expectation). */
-    public static final String WORKER_VERSION = "0.1.0-SNAPSHOT";
+    /**
+     * This worker's build version, reported on the control probe (mirrors the mod's expectation).
+     *
+     * <p>The product version, not a worker-specific one: the app compares what the worker reports
+     * with what it was shipped alongside, and two independently maintained numbers made that
+     * comparison meaningless. Source of truth is the root {@code VERSION} file.
+     */
+    public static final String WORKER_VERSION = dev.nodera.core.NoderaConstants.PRODUCT_VERSION;
 
     private HeadlessPeerMain() {
     }
 
     public static void main(String[] args) throws Exception {
+        long startedAtMillis = System.currentTimeMillis();
         String controlHost = env("NODERA_CONTROL_HOST", "127.0.0.1");
         int controlPort = envInt("NODERA_CONTROL_PORT", 25610);
         String bindHost = env("NODERA_P2P_BIND", "0.0.0.0");
@@ -215,6 +222,35 @@ public final class HeadlessPeerMain {
                 new WorkerControlHandler.ConfigSeams(
                         archive.content(), replication, transport, tracker, contentStore),
                 grants);
+        // Telemetry: OFF unless an endpoint is configured, and silent until somebody consents.
+        // Two independent gates, deliberately: an operator who sets an endpoint has decided WHERE
+        // reports would go, not that any may be collected — only the person answering the app's
+        // first-run question decides that.
+        Path telemetryDir = Path.of(env("NODERA_TELEMETRY_DIR",
+                System.getProperty("user.home") + "/.nodera"));
+        WorkerTelemetryService telemetry = new WorkerTelemetryService(
+                env("NODERA_TELEMETRY_ENDPOINT", ""),
+                dev.nodera.core.NoderaConstants.CLIENT_AGENT,
+                envLong("NODERA_TELEMETRY_INTERVAL_SECONDS", 300L),
+                telemetryDir,
+                () -> telemetrySnapshot(identity, runtime, meter),
+                // The worker holds no regions of its own until the validation lane gives it seats,
+                // so it reports "not ticking" rather than inventing a rate. An honest zero.
+                dev.nodera.telemetry.SnapshotProjector.TickHealth::unknown);
+        handler.attachTelemetry(telemetry);
+        telemetry.start();
+        telemetry.record(dev.nodera.telemetry.TelemetryEvent
+                .named(dev.nodera.telemetry.TelemetryRegistry.SERVICE_START,
+                        System.currentTimeMillis())
+                .enumeration("version", WORKER_VERSION)
+                .enumeration("os", dev.nodera.telemetry.Buckets.osFamily())
+                .enumeration("arch", dev.nodera.telemetry.Buckets.arch())
+                .number("cpu_cores_bucket", dev.nodera.telemetry.Buckets.magnitude(
+                        Runtime.getRuntime().availableProcessors()))
+                .number("ram_gb_bucket", dev.nodera.telemetry.Buckets.magnitude(
+                        Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)))
+                .build());
+
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
@@ -226,6 +262,14 @@ public final class HeadlessPeerMain {
         CountDownLatch stop = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             LOG.info("Nodera peer worker shutting down");
+            telemetry.record(dev.nodera.telemetry.TelemetryEvent
+                    .named(dev.nodera.telemetry.TelemetryRegistry.SERVICE_STOP,
+                            System.currentTimeMillis())
+                    .number("uptime_hours_bucket", dev.nodera.telemetry.Buckets.hours(
+                            System.currentTimeMillis() - startedAtMillis))
+                    .flag("clean", true)
+                    .build());
+            telemetry.close();
             discovery.close();
             replication.close();
             hosting.close();
@@ -237,6 +281,36 @@ public final class HeadlessPeerMain {
         }, "nodera-worker-shutdown"));
 
         stop.await(); // run until signalled
+    }
+
+    /**
+     * The diagnostics snapshot the telemetry projector reads.
+     *
+     * <p>Built here rather than shared with the HUD's collector because the worker has no tick loop
+     * to sample on: it has cumulative meters and a membership view, which is exactly what the
+     * windowed peer events need. Region ownership is reported empty until the worker holds seats —
+     * an honest empty rather than a guess.
+     */
+    private static dev.nodera.diagnostics.model.TelemetrySnapshot telemetrySnapshot(
+            NodeIdentity identity, dev.nodera.peer.PeerRuntime runtime,
+            dev.nodera.diagnostics.metric.TrafficMeter meter) {
+        java.util.List<dev.nodera.diagnostics.model.PeerLink> peers = new ArrayList<>();
+        for (dev.nodera.protocol.membership.PeerEntry member : runtime.sessionView().members()) {
+            if (member.nodeId().equals(runtime.nodeId())) {
+                continue;
+            }
+            peers.add(new dev.nodera.diagnostics.model.PeerLink(member.nodeId(),
+                    member.route() == null ? "" : member.route(), false, "peer", 0L, 0L, true));
+        }
+        return new dev.nodera.diagnostics.model.TelemetrySnapshot(
+                0L, identity.nodeId(), false,
+                new dev.nodera.diagnostics.model.SessionInfo(0L, null, runtime.isGateway(),
+                        peers.size() + 1, "peer", peers),
+                new dev.nodera.diagnostics.model.NetStats(meter.bytesTx(), meter.bytesRx(),
+                        0, 0, 0, 0, 0, 0, java.util.Map.of()),
+                dev.nodera.diagnostics.model.RegionOwnership.empty(),
+                dev.nodera.diagnostics.model.EntityControl.empty(),
+                dev.nodera.diagnostics.model.HealthStat.healthy());
     }
 
     private static String env(String key, String fallback) {

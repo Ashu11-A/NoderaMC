@@ -1,0 +1,2 @@
+# Put the TLS certificate + key here as a single PEM named telemetry.pem (HAProxy wants them
+# concatenated). Nothing in this directory is committed — see the repository .gitignore.

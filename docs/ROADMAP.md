@@ -8,8 +8,13 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-25** · Overall system completion **93.1%** · 1,473 Java tests · 150 Rust
-workspace tests · 56 `nodera-app` tests · 0 failing.
+**Snapshot: 2026-07-25** · Overall system completion **91.3%** · 1,518 Java tests · 248 Rust
+workspace tests · 61 `nodera-app` tests · 0 failing.
+
+The figure moved 93.1 → 85.7 → **91.3 %** in one day, and both moves were real: the **telemetry
+programme** ([`plans/Plan.6.md`](plans/Plan.6.md)) first added ten tasks across seven categories,
+then delivered seven of them. A percentage that only ever rises is a percentage measured against a
+scope that quietly moves.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
 
@@ -35,13 +40,19 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | Category | Tasks | Done | In progress | Blocked | Charter |
 |---|---:|---:|---:|---:|---|
 | [Engine](engine/Task.0.md) | 12 | 7 | 5 | 0 | Deterministic simulation + committee validation |
-| [Network](network/Task.0.md) | 11 | 10 | 1 | 0 | Wire, transports, runtime, storage, torrent plane |
-| [Tracker](tracker/Task.0.md) | 3 | 2 | 1 | 0 | Always-on discovery service |
-| [Rendezvous](rendezvous/Task.0.md) | 3 | 2 | 0 | 1 | NAT reach: punching + relay fallback |
-| [Minecraft](minecraft/Task.0.md) | 7 | 2 | 4 | 1 | The NeoForge mod — the playable product |
-| [Worker](worker/Task.0.md) | 4 | 3 | 1 | 0 | The always-on headless peer |
-| [App](app/Task.0.md) | 4 | 2 | 1 | 1 | The Tauri companion that supervises the worker |
-| **Total** | **44** | **28** | **13** | **3** | |
+| [Network](network/Task.0.md) | 12 | 11 | 1 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry |
+| [Tracker](tracker/Task.0.md) | 4 | 3 | 1 | 0 | Always-on discovery service |
+| [Rendezvous](rendezvous/Task.0.md) | 4 | 3 | 0 | 1 | NAT reach: punching + relay fallback |
+| [Minecraft](minecraft/Task.0.md) | 8 | 3 | 4 | 1 | The NeoForge mod — the playable product |
+| [Worker](worker/Task.0.md) | 5 | 4 | 1 | 0 | The always-on headless peer |
+| [App](app/Task.0.md) | 5 | 2 | 2 | 1 | The Tauri companion that supervises the worker |
+| [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
+| **Total** | **53** | **34** | **15** | **3** | |
+
+The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
+[`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
+figure** until its first task starts — counting an unstarted programme would move the denominator
+without moving the work.
 
 ---
 
@@ -82,6 +93,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [9](network/Task.9.md) | Crash safety + active-player stream | ✅ | network 4, network 6, network 7 |
 | [10](network/Task.10.md) | Tick-lag / TPS metric + low-TPS region handoff | ✅ | engine 5, network 7 |
 | [11](network/Task.11.md) | Telemetry core | ✅ | network 1 |
+| [12](network/Task.12.md) | Telemetry emitter core | ✅ | network 11, telemetry 1 |
 
 ### Tracker — [`docs/tracker/`](tracker/Task.0.md)
 
@@ -90,6 +102,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [1](tracker/Task.1.md) | The `nodera-tracker` service binary | ✅ | network 1 |
 | [2](tracker/Task.2.md) | The Java client: announce family + `TrackerClient` | ✅ | tracker 1, network 5 |
 | [3](tracker/Task.3.md) | Operations hardening | 🚧 | tracker 1 |
+| [4](tracker/Task.4.md) | Service telemetry | ✅ | tracker 1, telemetry 1 |
 
 ### Rendezvous — [`docs/rendezvous/`](rendezvous/Task.0.md)
 
@@ -98,6 +111,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [1](rendezvous/Task.1.md) | The `nodera-rendezvous` service binary | ✅ | network 1 |
 | [2](rendezvous/Task.2.md) | The Java rendezvous transport | ✅ | rendezvous 1, network 2 |
 | [3](rendezvous/Task.3.md) | Live cross-internet proof | ⏳ | network 2, minecraft 1 |
+| [4](rendezvous/Task.4.md) | Service telemetry + NAT-pair statistics | ✅ | rendezvous 1, telemetry 1 |
 
 ### Minecraft — [`docs/minecraft/`](minecraft/Task.0.md)
 
@@ -110,6 +124,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [5](minecraft/Task.5.md) | Decentralized host lane | 🚧 | network 3, network 8, rendezvous 2, worker 3 |
 | [6](minecraft/Task.6.md) | World identity + permissions (mod half) | 🚧 | worker 2, worker 3, minecraft 1 |
 | [7](minecraft/Task.7.md) | Companion presence gate | ✅ | worker 1 |
+| [8](minecraft/Task.8.md) | In-game telemetry + consent mirror | ✅ headless | worker 5, network 12, minecraft 7 |
 
 ### Worker — [`docs/worker/`](worker/Task.0.md)
 
@@ -119,6 +134,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [2](worker/Task.2.md) | Control protocol v2 + live telemetry | ✅ | worker 1, network 11, network 3 |
 | [3](worker/Task.3.md) | Host/join delegation + world seeding | 🚧 | minecraft 5, network 4, tracker 2, rendezvous 2 |
 | [4](worker/Task.4.md) | Out-of-game committee validation | ✅ headless | engine 5, network 2 |
+| [5](worker/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
 
 ### App — [`docs/app/`](app/Task.0.md)
 
@@ -128,6 +144,17 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [2](app/Task.2.md) | Live metrics dashboard | ✅ | worker 2 |
 | [3](app/Task.3.md) | Per-OS packaging + CI | 🚧 | app 1 |
 | [4](app/Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ | worker 3, minecraft 1 |
+| [5](app/Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 | worker 5, app 2 |
+
+### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
+
+Programme plan: [`plans/Plan.6.md`](plans/Plan.6.md).
+
+| Task | Title | Status | Depends on |
+|---|---|---|---|
+| [1](telemetry/Task.1.md) | The `nodera-telemetry` ingest service | ✅ | network 1 |
+| [2](telemetry/Task.2.md) | The Big Data plane: bus, warehouse, retention | 🚧 | telemetry 1 |
+| [3](telemetry/Task.3.md) | Analysis, dashboards, alerting, transparency report | ⬜ | telemetry 2, worker 5 |
 
 ---
 
@@ -149,6 +176,7 @@ engine ──► network ──►┬─► tracker ──┐
 | **1 — the live gate** | [minecraft 2](minecraft/Task.2.md) live validation lane | The single biggest remaining lane; capture mixins, `ServerLevel` applier, chunk tickets, live shadow → coordinator → committee → fallback wiring. Almost every ⏳ elsewhere waits on it |
 | **2 — GUI-deferred pool** | [minecraft 3](minecraft/Task.3.md) surface pass · [minecraft 4](minecraft/Task.4.md) live feeds + join flow · [minecraft 5](minecraft/Task.5.md) re-manifest + live encryption · [minecraft 6](minecraft/Task.6.md) world-list mixin + grant enforcement | One GUI environment unlocks all four at once — do them as one batch, not four visits |
 | **3 — network completion** | [network 2](network/Task.2.md) gateway migration end-to-end · [rendezvous 3](rendezvous/Task.3.md) cross-internet soak · [worker 3](worker/Task.3.md) seeding/announce delegation · [app 4](app/Task.4.md) cross-machine continuity | All four need a live/NAT environment; they share the same harness wave 1 produces |
+| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](worker/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [app 5](app/Task.5.md) all but a component test | Done in one pass, proven end to end by `scripts/e2e-telemetry.sh`. What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
 | **4 — parity program** | [engine 8](engine/Task.8.md) → [engine 9](engine/Task.9.md) → [engine 10](engine/Task.10.md) → [engine 11](engine/Task.11.md) → [engine 12](engine/Task.12.md) | Burns every category's `LIMITATIONS.md` to empty; engine 12 closes the ledger |
 
 **Biggest schedule lever:** wave 1. Nine tasks across five categories carry a "live evidence
@@ -204,12 +232,13 @@ Every category owns its limitations. A task is only done when its register rows 
 | Category | Register | Open/retiring rows |
 |---|---|---|
 | Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-24, L-25, L-50 |
-| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33 |
+| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33, L-76 |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | — (announce scheduling tracked in minecraft) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | — (live numbers tracked with rendezvous 3) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-60 |
 | Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | L-41 |
-| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56 |
+| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, L-78 |
+| Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-72, L-73, L-74, L-75 |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players
 cannot observe them) are listed once, in each owning category's register §A. They never burn down;
@@ -233,5 +262,6 @@ they are satisfied when their hiding mechanism ships.
   [`minecraft/upstream/`](minecraft/upstream/). Neither project validates anything — committee
   re-execution plus quorum certificates is Nodera's novel layer.
 - **Programme plans.** Multi-task programmes (the architecture plan, the API unification, the
-  limitation burn-down, the operator-permission programme) live in [`plans/`](plans/) and are
+  limitation burn-down, the operator-permission programme, the Paper/Folia endpoint, the telemetry
+  programme) live in [`plans/`](plans/) and are
   referenced from the task files they produced.

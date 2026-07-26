@@ -8,8 +8,8 @@
      discipline. When a task file contradicts this file, fix the task file. Keep every
      `<!-- AI-AGENT-INSTRUCTION: ... -->` comment intact when editing a document. -->
 
-Last documentation reorganization: **2026-07-25** · Overall system completion: **93.1%** ·
-Tests: **1,473 Java · 150 Rust workspace · 56 `nodera-app`** (1,630 total).
+Last documentation reorganization: **2026-07-25** · Overall system completion: **91.3%** ·
+Tests: **1,518 Java · 248 Rust workspace · 61 `nodera-app`** (1,827 total).
 
 ---
 
@@ -47,14 +47,16 @@ The tree follows a **component-per-folder** layout with a **fixed file contract*
 docs/
 ├── README.md              ← you are here: entry point, format, conventions
 ├── ROADMAP.md             ← the single central roadmap across every category
-├── plans/                 ← historical/active programme plans (Plan.0 … Plan.4)
+├── plans/                 ← historical/active programme plans (Plan.0 … Plan.6)
 ├── engine/                ← category: deterministic engine & committee validation
 ├── network/               ← category: P2P network (wire, transports, runtime, storage, torrent)
 ├── tracker/               ← category: standalone tracker service + its client
 ├── rendezvous/            ← category: rendezvous + relay service + its transport
 ├── minecraft/             ← category: the NeoForge mod (+ prior-art studies & upstream sources)
 ├── worker/                ← category: the always-on headless peer worker
-└── app/                   ← category: the Tauri companion application
+├── app/                   ← category: the Tauri companion application
+├── server/                ← category: the Paper/Folia endpoint plugin (plans/Plan.5.md)
+└── telemetry/             ← category: consented measurement + the Big Data plane (plans/Plan.6.md)
 ```
 
 **Only `README.md` and `ROADMAP.md` may live at the root of `docs/`.** Everything else belongs to a
@@ -114,12 +116,14 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 | Category | Component | Code | Tasks |
 |---|---|---|---|
 | [`engine/`](engine/Task.0.md) | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | `java/core`, `java/engine`, `java/testing` | 12 |
-| [`network/`](network/Task.0.md) | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | `java/transport`, `java/storage`, `java/peer`, `rust/nodera-codec` | 11 |
-| [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `rust/nodera-tracker`, `dev.nodera.peer.discovery` | 3 |
-| [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rust/nodera-rendezvous`, `dev.nodera.transport.rendezvous` | 3 |
-| [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 7 |
-| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `dev.nodera.headless`, `dev.nodera.peer.control` | 4 |
-| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 4 |
+| [`network/`](network/Task.0.md) | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | `java/transport`, `java/storage`, `java/peer`, `rust/nodera-codec` | 12 |
+| [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `rust/nodera-tracker`, `dev.nodera.peer.discovery` | 4 |
+| [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rust/nodera-rendezvous`, `dev.nodera.transport.rendezvous` | 4 |
+| [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 8 |
+| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `dev.nodera.headless`, `dev.nodera.peer.control` | 5 |
+| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 5 |
+| [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | (unwritten) | 10 |
+| [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `rust/nodera-telemetry`, `docker/telemetry` | 3 |
 
 Category boundaries are **documentation** boundaries; they do not always equal Gradle/Cargo module
 boundaries. The mapping from category to module is stated in each category's `Task.0.md` §Files,
@@ -135,7 +139,9 @@ and every package carries its own `README.md` describing its architecture
 - `java/<module>/` — exactly seven Gradle modules plus build logic: `core` · `engine` ·
   `transport` · `storage` · `peer` · `testing` · `neoforge-mod` (+ `build-logic`).
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding conformance), `nodera-tracker`,
-  `nodera-rendezvous`, and `nodera-app` (workspace-**excluded**: Tauri native deps).
+  `nodera-rendezvous`, `nodera-telemetry`, and `nodera-app` (workspace-**excluded**: Tauri native
+  deps).
+- `docker/` — deployments that are never dependencies of the game (`docker/telemetry/`).
 - `fixtures/wire/` — golden canonical frames, emitted by Java and re-encoded byte-exactly by Rust.
   **Never edit a fixture by hand.**
 
@@ -217,7 +223,36 @@ INTERFERENCE_REVOKE_RATE    = 60/min
 
 These are *defaults* surfaced through config: code reads config, tests read constants.
 
-### 4.8 Work tracking
+### 4.8 Versioning — the root `VERSION` file (binding)
+
+<!-- AI-AGENT-INSTRUCTION: NEVER hard-code a product version anywhere. If you need the version in new
+     code, read it from the mechanism for that toolchain (below) or add a mirror to
+     scripts/version.sh so the drift check covers it. A release is `scripts/version.sh --set X.Y.Z`
+     plus ONE commit; a hand-edited version in a second file is a bug the gate will catch. -->
+
+**The repository root `VERSION` file is the single source of truth for the product version.** It
+contains one line (`0.1.0`); comments and blank lines are allowed and ignored.
+
+| Toolchain | How it gets the version |
+|---|---|
+| Gradle | `settings.gradle.kts` reads `VERSION` and injects `noderaVersion`/`modVersion` into every project; the root build sets `version` from it |
+| Java runtime | `java/core` expands it into `nodera-version.properties`; `NoderaConstants.PRODUCT_VERSION` loads that resource (falling back to `0.0.0-unbuilt`, which means the build did not run) |
+| NeoForge mod | The convention plugin stamps `modVersion` into `neoforge.mods.toml` |
+| Rust services | Each service crate's `build.rs` reads `VERSION` and sets `NODERA_VERSION`; binaries print that, not `CARGO_PKG_VERSION` |
+| Cargo / Tauri / npm manifests | **Mirrors** — formats that cannot read a file at build time. `scripts/version.sh` writes them and `--check` fails the gate when one drifts |
+
+```bash
+scripts/version.sh                # print the current version
+scripts/version.sh --check        # verify every mirror agrees (runs in the gate)
+scripts/version.sh --set 0.2.0    # bump VERSION and rewrite every mirror
+```
+
+**Release procedure.** `--set` the new version, run the gate (`scripts/dev.sh --test`), commit
+`VERSION` *together with* the rewritten mirrors in **one** commit, tag it, then let CI publish. Never
+bump a mirror by hand: `NoderaVersionTest` (Java) and `scripts/version.sh --check` (everything else)
+exist precisely to catch that.
+
+### 4.9 Work tracking
 
 GitHub-issue-driven: every task is an issue; every detected problem becomes a `bug` issue before a
 regression reaches `main`. One task = one branch = one PR. **A task number is not an issue number** —

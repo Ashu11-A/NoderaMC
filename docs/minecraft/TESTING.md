@@ -6,7 +6,7 @@
      the host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-07-25 · **97 unit tests · 0 failing** (module
+**Category:** minecraft · **Last run:** 2026-07-25 · **105 unit tests · 0 failing** (module
 `neoforge-mod`), plus **14 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete

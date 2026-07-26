@@ -166,11 +166,16 @@ fi
 build_rust() {
     command -v cargo >/dev/null 2>&1 || die "cargo not found. Install the Rust toolchain (rustup)."
     if [[ "$RUN_TESTS" -eq 1 ]]; then
+        # Version drift is checked with the tests, not at release time: a mirror that disagrees with
+        # the root VERSION file is a mislabelled artifact, and the cheapest moment to notice is now.
+        log "Version: scripts/version.sh --check"
+        "$NODERA_ROOT/scripts/version.sh" --check
         log "Rust: cargo test (workspace)"
         ( cd "$RUST_DIR" && cargo test )
     fi
-    log "Rust: cargo build --release (codec + tracker + rendezvous)"
-    ( cd "$RUST_DIR" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous )
+    log "Rust: cargo build --release (codec + tracker + rendezvous + telemetry)"
+    ( cd "$RUST_DIR" && cargo build --release \
+        --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry )
 }
 
 build_mod() {

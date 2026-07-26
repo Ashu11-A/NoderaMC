@@ -59,3 +59,13 @@ java/neoforge-mod/run/
 java/neoforge-mod/run-join/
 java/neoforge-mod/run-join2/
 java/neoforge-mod/run-host/
+
+# Telemetry deployment (docker/telemetry/) — secrets, TLS material, and collected data never land
+# in git. The .example files and the configuration ARE committed; what they point at is not.
+docker/telemetry/.env
+docker/telemetry/edge/certs/*
+!docker/telemetry/edge/certs/.gitkeep
+telemetry-spool/
+
+# Kotlin build-daemon crash logs from build-logic (per-machine, never useful in git).
+java/build-logic/.kotlin/

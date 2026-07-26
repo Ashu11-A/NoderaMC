@@ -5,7 +5,7 @@
      note naming the EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old
      note. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-25 · Tasks completed: **2 / 3**
+**Category:** rendezvous · **Last audit:** 2026-07-25 · Tasks completed: **3 / 4**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -19,10 +19,42 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [1](Task.1.md) | The service binary | ✅ COMPLETED | 55 Rust tests; `RendezvousRelayIT` drives the real binary |
 | [2](Task.2.md) | The Java transport | ✅ COMPLETED | Direct-first repaired 2026-07-24; renewal at half TTL |
 | [3](Task.3.md) | Live cross-internet proof | ⏳ BLOCKED | Needs the live/NAT environment and the migration lane |
+| [4](Task.4.md) | Service telemetry + NAT-pair statistics | ✅ COMPLETED | `PairClass` + `PunchOutcomes`; awaiting a population to measure |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-25 — Punch success becomes measurable, and the inference is stated out loud
+
+`PairClass` + `PunchOutcomes` landed in `punch.rs`, with the reporter in `telemetry.rs`.
+
+The honest part is worth recording. **This service never learns whether a dial connected** — it only
+stamps a go-signal. What it does see is whether the same pair comes back for a *relay circuit*,
+which is what peers do when a punch fails. So a punch followed by a relay is counted as a failure,
+one that is not is counted as a success, and the bias that leaves (a pair that failed and gave up
+counts as a success it did not earn) is written where the counter is defined rather than discovered
+later by someone reading a graph.
+
+NAT hardness comes from a comparison this service was already making: does the address a peer
+advertises match the address its packets arrive from? One boolean per peer, four classes per pair,
+and neither address survives the comparison.
+
+The mechanism is in place; the *numbers* [task 3](Task.3.md) needs are still waiting for a
+deployment with a population on it.
+
+### 2026-07-25 — The measurement that unblocks the live proof
+
+[Task 3](Task.3.md) has been blocked partly on something no code change fixes: "does hole punching
+work across the real internet" cannot be answered from one developer's connection. [Task 4](Task.4.md)
+makes it answerable — punch attempts and successes grouped by **NAT-pair class**, over a population.
+
+This is simultaneously the most valuable telemetry in the project and the most dangerous, and the task
+file says so. A rendezvous service watches both ends of every connection attempt; it is the single
+most identifying vantage point in the system. So its events carry counters and four coarse class
+labels and nothing else: no address, no node id, no namespace, no pair identity, no timing that could
+correlate two peers. What leaves is "of 4,812 attempts between two hard NATs this hour, 38 %
+succeeded" — a number that improves the product and describes nobody.
 
 ### 2026-07-24 — Direct-first was structurally unreachable, and is now repaired
 

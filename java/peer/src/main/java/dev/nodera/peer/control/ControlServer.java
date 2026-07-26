@@ -205,6 +205,22 @@ public final class ControlServer implements AutoCloseable {
                 // worker never even saw.
                 return json == null ? err("unsupported") : json;
             }
+            if (ControlProtocol.TELEMETRY.equals(verb)) {
+                // NODERA-TELEMETRY <ver> GET | SET <granted|denied> | EVENT <eventJsonB64>
+                String action = arg(parts, 2).toUpperCase(java.util.Locale.ROOT);
+                switch (action) {
+                    case "GET": {
+                        String status = handler.telemetryStatus();
+                        return status == null ? err("unsupported") : status;
+                    }
+                    case "SET":
+                        return ackOrErr(handler.setTelemetryConsent(arg(parts, 3)));
+                    case "EVENT":
+                        return ackOrErr(handler.recordTelemetryEvent(arg(parts, 3)));
+                    default:
+                        return err("unknown telemetry action");
+                }
+            }
             return err("unknown verb");
         } catch (RuntimeException e) {
             return err(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());

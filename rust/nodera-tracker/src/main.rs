@@ -23,6 +23,7 @@ mod limits;
 mod query;
 mod registry;
 mod service;
+mod telemetry;
 #[cfg(test)]
 mod test_support;
 mod wire;
@@ -92,7 +93,7 @@ async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(&args) {
         Command::Version => {
-            println!("nodera-tracker {}", env!("CARGO_PKG_VERSION"));
+            println!("nodera-tracker {}", env!("NODERA_VERSION"));
             ExitCode::SUCCESS
         }
         Command::Usage => {
@@ -161,6 +162,9 @@ async fn serve(
     };
 
     let tracker = Arc::new(Mutex::new(Tracker::new(config)));
+    // Operator-configured, off by default, and on its own task: a telemetry outage must never
+    // reach an announce or a query (`docs/tracker/Task.4.md`).
+    let telemetry_task = tokio::spawn(telemetry::run(Arc::clone(&tracker)));
     let udp_task = udp.map(|socket| {
         let tracker = Arc::clone(&tracker);
         tokio::spawn(async move { wire::serve_udp(tracker, socket).await })
@@ -169,6 +173,7 @@ async fn serve(
     if let Some(task) = udp_task {
         task.abort();
     }
+    telemetry_task.abort();
     println!("nodera-tracker: stopped");
     Ok(())
 }
