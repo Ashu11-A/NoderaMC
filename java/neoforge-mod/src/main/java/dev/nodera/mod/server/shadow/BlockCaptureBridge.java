@@ -134,6 +134,53 @@ public final class BlockCaptureBridge {
         return out;
     }
 
+    /**
+     * Drive one edit through the capture path as {@code player}, for the scripted suites
+     * (minecraft L-80 / issue #67 clause 1).
+     *
+     * <p>The event listeners below submit only when the placer is a {@link ServerPlayer}, because
+     * the player's key signs the action — correct, and it leaves the path undrivable from a script,
+     * since an RCON {@code /setblock} fires neither event. This is the same code the listeners run
+     * after their event unwrapping: the same {@link BlockCaptureRules} decision, the same ledger,
+     * the same signed {@link #submit}. It cannot capture anything the rules would refuse, and it is
+     * reached only from an OP-gated command.
+     *
+     * @return whether the edit was submitted to the lane.
+     */
+    public boolean driveAsPlayer(ServerPlayer player, BlockPos pos, BlockState state,
+                                 boolean place) {
+        if (player == null || pos == null || state == null) {
+            return false;
+        }
+        try {
+            ServerLevel level = player.serverLevel();
+            RegionId region = region(level, pos);
+            int paletteId = PaletteMapper.idOf(state);
+            BlockCaptureRules.Decision decision = place
+                    ? BlockCaptureRules.place(
+                            sink.delegated(region) || sink.observes(region),
+                            paletteId, pos.getY(), isFakePlayer(player))
+                    : BlockCaptureRules.breakBlock(
+                            sink.delegated(region) || sink.observes(region),
+                            paletteId, pos.getY(), isFakePlayer(player));
+            record(decision);
+            if (!decision.capture()) {
+                return false;
+            }
+            if (place) {
+                submit(player, region,
+                        new PlaceBlockAction(blockPos(pos), paletteId, faceOf(player)), pos);
+            } else {
+                submit(player, region, new BreakBlockAction(blockPos(pos)), pos);
+            }
+            return true;
+        } catch (RuntimeException | LinkageError degraded) {
+            LOG.warn("Nodera: driven block capture failed (world unaffected): {}",
+                    degraded.toString());
+            return false;
+        }
+    }
+
     private void onPlace(BlockEvent.EntityPlaceEvent event) {
         try {
             if (event.isCanceled() || !(event.getLevel() instanceof ServerLevel level)) {
