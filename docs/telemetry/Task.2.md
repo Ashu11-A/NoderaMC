@@ -26,13 +26,25 @@ Landed: `docker/telemetry/docker-compose.yml` (ingest, Vector, Redpanda, ClickHo
 materialised rollups and their TTLs, the ingest Dockerfile, HAProxy TLS termination, and the
 example environment.
 
-The smoke test is now **written and wired**: `scripts/telemetry-stack.sh smoke` submits a framed
-batch to the running collector, polls ClickHouse until the row appears, and then asserts that the
-warehouse schema has no column that could hold an address. The `stack-smoke` job in
-`.github/workflows/telemetry.yml` runs it against a freshly composed stack.
+The smoke test is **green in CI**: `scripts/telemetry-stack.sh smoke` submits a framed batch to the
+running collector, polls ClickHouse until the row appears, and asserts the warehouse schema has no
+column that could hold an address. Run output:
 
-Remaining: its first green run (this machine has no Docker, so the job has never executed), the
-Parquet export that feeds the Spark jobs, and operator notes for real volume rather than a laptop.
+```
+PASS the collector accepted the batch
+PASS the row is queryable in ClickHouse (1 matching row(s))
+PASS the warehouse schema has no column that could hold an address
+```
+
+Getting there took four fixes, and every one of them was a real defect this job existed to find: the
+image pinned the workspace's `rust-version` floor instead of the toolchain (a transitive dependency
+needed edition 2024); `v_join_success` aliased a merged column after the aggregate state it merges,
+so ClickHouse refused the whole schema file; the healthcheck probed with `wget`, which that image
+does not ship; and the alpine ClickHouse variant would not start at all. The stack had *looked*
+fine until something ran it.
+
+Remaining: the Parquet export that feeds the Spark jobs, a TTL-expiry assertion, and operator notes
+for real volume rather than a laptop.
 
 ## Dependencies
 
@@ -49,7 +61,7 @@ Parquet export that feeds the Spark jobs, and operator notes for real volume rat
 | 5 | Retention as TTLs — 30 days raw, 400 days aggregated | ✅ |
 | 6 | Ingest container image built from the repository root (with `VERSION`) | ✅ |
 | 7 | TLS termination profile (HAProxy, TCP mode) | ✅ |
-| 8 | CI smoke test: batch in → row queryable (`.github/workflows/telemetry.yml`, `scripts/telemetry-stack.sh smoke`) | 🚧 |
+| 8 | CI smoke test: batch in → row queryable (`.github/workflows/telemetry.yml`, `scripts/telemetry-stack.sh smoke`) | ✅ |
 | 9 | Parquet export feeding the Spark jobs | ⬜ |
 | 10 | Operator notes: sizing, backup, secret rotation | ⬜ |
 
@@ -107,8 +119,8 @@ with `TelemetryOutageIT`.
 1. ✅ One command stands up ingest → bus → warehouse → dashboards.
 2. ✅ Retention is expressed as table TTLs, not as an external job.
 3. ✅ No table that outlives 30 days carries a subject outside an aggregate state.
-4. 🚧 CI proves a submitted batch becomes a queryable row — the job exists and is unrun; the
-   expiry half still needs a TTL-merge assertion.
+4. 🚧 CI proves a submitted batch becomes a queryable row (green); the **expiry** half still needs
+   a TTL-merge assertion.
 5. ⬜ Spark jobs read an export rather than the serving warehouse.
 
 ## Limitations
