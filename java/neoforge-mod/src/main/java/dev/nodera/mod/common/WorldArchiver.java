@@ -112,8 +112,20 @@ public final class WorldArchiver {
         if (identity.isEmpty()) {
             return;
         }
-        // Flush chunks/level data so the packed files reflect the live world, not the last autosave.
-        server.saveEverything(true, true, true);
+        // Save so the packed files reflect the live world rather than the last autosave — but do
+        // NOT wait for the full chunk flush. `flush = true` blocks the caller until every dirty
+        // chunk is written, and this runs on the SERVER TICK THREAD, so its cost scales with how
+        // much of the world is resident. Once the validated lane began pinning its regions with
+        // `nodera_delegated` tickets, a far teleport left a large area resident while a new one
+        // generated, and one streaming save took **60 seconds** inside a single tick — long enough
+        // for vanilla's watchdog to declare the server crashed and force a shutdown (issue #70,
+        // seen in the `farlands` suite).
+        //
+        // Not waiting is sound because this lane is explicitly best-effort: the exact copy is
+        // `seedNow`'s final flush, whose own timeout message already states the contract — "the
+        // streaming lane already seeded a copy at most one interval old". A periodic snapshot that
+        // trails by an autosave is the documented behaviour; a server the watchdog kills is not.
+        server.saveEverything(true, false, true);
         String worldIdHex = identity.get().worldId().toHex();
         if (!SEEDING.compareAndSet(false, true)) {
             return;

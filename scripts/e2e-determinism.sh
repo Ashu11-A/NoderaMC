@@ -256,7 +256,14 @@ worst=$(grep -ao "A single server tick took [0-9.]*" "$LOG_DIR/server.log" 2>/de
 transcript "=== tick stalls: ${stalls:-0} (worst ${worst:-0}s) over ${SOAK_SECONDS}s, $round round(s)"
 log "D4: $stalls watchdog tick stall(s), worst ${worst:-0}s — recorded, not fatal (see D3 for the gate)"
 
+# Vanilla's own dungeon-spawner failure, on vanilla's `worldgen` thread, from
+# `MonsterRoomFeature` — it fires when the feature cannot pick a mob for a spawner it is placing.
+# This soak walks three clients into fresh chunks for fifteen minutes, so it generates terrain the
+# shorter suites never touch, which is why only this suite sees it. Failing on it would mean the
+# soak can never pass on a world that happens to generate a dungeon, and it says nothing about
+# whether the validated lane diverged — which is what D3 above actually measures.
 NODERA_BENIGN_ERRORS="$NODERA_BENIGN_ERRORS|A single server tick took"
+NODERA_BENIGN_ERRORS="$NODERA_BENIGN_ERRORS|Failed to fetch mob spawner entity"
 errors=$(nodera_audit_errors "$LOG_DIR/server.log" "$mark")
 [[ -z "$errors" ]] || fail "D4: the soak left errors in the server log: $errors"
 collect_results
