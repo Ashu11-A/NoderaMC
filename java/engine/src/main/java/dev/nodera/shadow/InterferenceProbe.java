@@ -16,9 +16,15 @@ import java.util.Map;
  * {@code INTERFERENCE_REVOKE_RATE} default.
  *
  * <p><b>Not a divergence.</b> Interference is engine-vs-world disagreement, never engine-vs-engine;
- * it is counted separately and the region is re-snapshotted rather than poisoned. The count of
- * changed sections is the interference magnitude proxy (a fuller source classification is the mod
- * side's job once it can see the concrete block diff).
+ * it is counted separately and the region is re-snapshotted rather than poisoned.
+ *
+ * <p><b>Two magnitudes, one probe.</b> {@link Report#changedSections()} is the coarse count that
+ * predates the live extractor: it compares the per-section palette entries, so a whole section
+ * reads as one unit of interference. {@link Report#changedBlocks()} is the exact one — it descends
+ * into the dense sections a real chunk extraction produces and counts individual blocks. The coarse
+ * number is kept because every historical measurement is expressed in it; the exact number is what
+ * a live rate should be sized from, because "one section changed" is the same reading whether a mob
+ * broke one block or a fire consumed four thousand.
  *
  * @Thread-context confined to the probe's owning thread.
  */
@@ -27,6 +33,7 @@ public final class InterferenceProbe {
     private long checks;
     private long interferedChecks;
     private long changedSectionsTotal;
+    private long changedBlocksTotal;
 
     /**
      * Compare the expected shadow-chain snapshot against a re-extracted one.
@@ -45,12 +52,14 @@ public final class InterferenceProbe {
         }
         checks++;
         int changed = changedSections(expected, reExtracted);
+        int changedBlocks = changedBlocks(expected, reExtracted);
         changedSectionsTotal += changed;
-        boolean interfered = changed > 0;
+        changedBlocksTotal += changedBlocks;
+        boolean interfered = changed > 0 || changedBlocks > 0;
         if (interfered) {
             interferedChecks++;
         }
-        return new Report(expected.region(), changed, interfered);
+        return new Report(expected.region(), changed, changedBlocks, interfered);
     }
 
     private static int changedSections(RegionSnapshot a, RegionSnapshot b) {
@@ -80,6 +89,93 @@ public final class InterferenceProbe {
         return changed;
     }
 
+    /**
+     * The exact count: how many individual blocks differ. A section stored as a single palette id
+     * is expanded lazily — comparing a uniform section against a dense one costs one pass over the
+     * dense side, and comparing two uniform sections costs one integer comparison, so the whole
+     * region is walked without ever materialising an all-air world.
+     */
+    private static int changedBlocks(RegionSnapshot a, RegionSnapshot b) {
+        Map<Long, ChunkColumnState> byChunk = new HashMap<>(a.chunks().size());
+        for (ChunkColumnState col : a.chunks()) {
+            byChunk.put(pack(col.chunkX(), col.chunkZ()), col);
+        }
+        int changed = 0;
+        for (ChunkColumnState after : b.chunks()) {
+            ChunkColumnState before = byChunk.remove(pack(after.chunkX(), after.chunkZ()));
+            if (before == null) {
+                changed += nonAirBlocks(after); // a chunk that appeared is wholly foreign
+                continue;
+            }
+            changed += columnDifference(before, after);
+        }
+        for (ChunkColumnState before : byChunk.values()) {
+            changed += nonAirBlocks(before); // a chunk that vanished is wholly foreign
+        }
+        return changed;
+    }
+
+    private static int columnDifference(ChunkColumnState before, ChunkColumnState after) {
+        Map<Integer, int[]> denseBefore = dense(before);
+        Map<Integer, int[]> denseAfter = dense(after);
+        int[] uniformBefore = before.paletteStateIdsPerSection();
+        int[] uniformAfter = after.paletteStateIdsPerSection();
+        int sections = Math.max(uniformBefore.length, uniformAfter.length);
+        int changed = 0;
+        for (int index = 0; index < sections; index++) {
+            int[] denseA = denseBefore.get(index);
+            int[] denseB = denseAfter.get(index);
+            int flatA = index < uniformBefore.length ? uniformBefore[index] : 0;
+            int flatB = index < uniformAfter.length ? uniformAfter[index] : 0;
+            if (denseA == null && denseB == null) {
+                if (flatA != flatB) {
+                    changed += ChunkColumnState.SECTION_VOLUME;
+                }
+                continue;
+            }
+            for (int cell = 0; cell < ChunkColumnState.SECTION_VOLUME; cell++) {
+                int idA = denseA == null ? flatA : denseA[cell];
+                int idB = denseB == null ? flatB : denseB[cell];
+                if (idA != idB) {
+                    changed++;
+                }
+            }
+        }
+        return changed;
+    }
+
+    private static Map<Integer, int[]> dense(ChunkColumnState column) {
+        if (column.denseSections().isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, int[]> out = new HashMap<>(column.denseSections().size());
+        for (ChunkColumnState.DenseSection section : column.denseSections()) {
+            out.put(section.sectionIndex(), section.blocks());
+        }
+        return out;
+    }
+
+    private static int nonAirBlocks(ChunkColumnState column) {
+        Map<Integer, int[]> dense = dense(column);
+        int[] uniform = column.paletteStateIdsPerSection();
+        int count = 0;
+        for (int index = 0; index < uniform.length; index++) {
+            int[] blocks = dense.get(index);
+            if (blocks == null) {
+                if (uniform[index] != 0) {
+                    count += ChunkColumnState.SECTION_VOLUME;
+                }
+                continue;
+            }
+            for (int id : blocks) {
+                if (id != 0) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
     private static long pack(int chunkX, int chunkZ) {
         return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
@@ -94,9 +190,14 @@ public final class InterferenceProbe {
         return interferedChecks;
     }
 
-    /** @return the cumulative changed-section count across every probe. */
+    /** @return the cumulative changed-section count across every probe (the coarse magnitude). */
     public long changedSectionsTotal() {
         return changedSectionsTotal;
+    }
+
+    /** @return the cumulative exact block-difference count across every probe. */
+    public long changedBlocksTotal() {
+        return changedBlocksTotal;
     }
 
     /**
@@ -104,9 +205,11 @@ public final class InterferenceProbe {
      *
      * @param region          the probed region.
      * @param changedSections how many sections differ from the shadow chain's prediction.
-     * @param interfered      {@code true} if {@code changedSections > 0}.
+     * @param changedBlocks   how many individual blocks differ (exact; descends into dense sections).
+     * @param interfered      {@code true} if either count is positive.
      */
-    public record Report(RegionId region, int changedSections, boolean interfered) {
+    public record Report(
+            RegionId region, int changedSections, int changedBlocks, boolean interfered) {
         public Report {
             if (region == null) {
                 throw new IllegalArgumentException("region must not be null");

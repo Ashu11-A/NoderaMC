@@ -40,6 +40,12 @@ public final class ServerEntityWorldView implements MutableWorldView {
     private final Map<String, InventoryCredit> pendingCredits = new LinkedHashMap<>();
     private final InventoryCreditPersistence creditPersistence;
     private List<Runnable> stagedEffects;
+    /**
+     * How a projection announces itself as the applier's own write. Without it the choke point
+     * would classify every committed block this view writes as foreign and certify the lane's own
+     * commits back to itself.
+     */
+    private java.util.function.Consumer<Runnable> applierScope = Runnable::run;
 
     public ServerEntityWorldView(InventoryCreditPersistence creditPersistence) {
         if (creditPersistence == null) {
@@ -49,6 +55,14 @@ public final class ServerEntityWorldView implements MutableWorldView {
         for (InventoryCredit credit : creditPersistence.retained()) {
             pendingCredits.put(creditKey(credit), credit);
         }
+    }
+
+    /**
+     * Install the write-guard scope every block projection runs inside; {@code null} restores the
+     * plain "just run it" behaviour used when nothing guards writes.
+     */
+    public void applierScope(java.util.function.Consumer<Runnable> scope) {
+        this.applierScope = scope == null ? Runnable::run : scope;
     }
 
     /** Bind a live level to its canonical base snapshot before activating validation. */
@@ -124,7 +138,41 @@ public final class ServerEntityWorldView implements MutableWorldView {
 
     @Override
     public void setBlock(RegionId region, NBlockPos pos, int stateId) {
+        int previous = canonical.getBlock(region, pos);
         canonical.setBlock(region, pos, stateId);
+        if (previous == stateId) {
+            return;
+        }
+        // The apply half of the block lane (minecraft Task 2 deliverable 3): a committed block
+        // mutation has to become a block a player can see. Projections are staged exactly like item
+        // projections and run after the canonical scope commits — the world is never written from a
+        // mutation that then aborts. Outside a scope (snapshot load, recovery) canonical is the only
+        // thing being rebuilt, so there is nothing to project.
+        if (stagedEffects != null) {
+            stagedEffects.add(() -> projectBlock(region, pos, stateId));
+        }
+    }
+
+    /**
+     * Write one committed palette state into the live world. An id the running game cannot express
+     * — a resource pack or version skew the binding did not anticipate — is skipped with a log line
+     * rather than guessed at: a wrong block is a divergence, a missing one is visible interference.
+     */
+    private void projectBlock(RegionId region, NBlockPos pos, int stateId) {
+        ServerLevel level = levels.get(region);
+        if (level == null) {
+            return;
+        }
+        var state = dev.nodera.mod.server.shadow.PaletteMapper.stateOf(stateId);
+        if (state.isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger("NoderaBlockApply").warn(
+                    "committed state id {} has no vanilla projection in this game — block at "
+                            + "{},{},{} left as it was", stateId, pos.x(), pos.y(), pos.z());
+            return;
+        }
+        applierScope.accept(() -> level.setBlock(
+                new net.minecraft.core.BlockPos(pos.x(), pos.y(), pos.z()), state.get(),
+                net.minecraft.world.level.block.Block.UPDATE_ALL));
     }
 
     @Override

@@ -77,6 +77,12 @@ module("testing")
 // --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
 module("neoforge-mod")
 
+// --- Paper/Folia endpoint plugin (server task 1) ---
+// Produces `nodera-endpoint.jar`, which scripts/lib/e2e-server.sh stages. The Paper API is
+// compileOnly and resolved from PaperMC's maven, declared inside the module so an outage there
+// cannot break the Minecraft-free build.
+module("paper-plugin")
+
 // --- Later-phase modules (Tasks 12-16) ---
 // include("integration-tests")
 

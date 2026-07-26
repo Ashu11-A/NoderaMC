@@ -103,7 +103,23 @@ Status values are exact: **✅ COMPLETED** (all acceptance criteria met and gree
 PROGRESS** (started, no external blocker), **⏳ BLOCKED** (waiting on another task's phase), **⬜
 NOT STARTED**.
 
-### 2.3 Cross-references
+### 2.3 A push is not the end of a commit
+
+A commit is finished when CI says so, not when `git push` returns. After pushing, **come back and
+read the checks** — and read them against the commit you pushed, not the branch in general, because
+a green branch with a red job on your head commit is the shape a broken build hides in.
+
+Two rules earned the hard way:
+
+- **A failing job is a claim about the code until proven otherwise.** "Known flake" is a hypothesis
+  nobody retested; two rows in this repository's history were labelled that way and both turned out
+  to be real defects — a missing latch release, and a handshake that wrote its two frames in the
+  wrong order under scheduler pressure. Read the exception before re-running.
+- **A test that passes locally has not tested the thing CI failed on.** Scheduling races lose on a
+  2-core runner and win on an idle workstation. When a local reproduction does not fail, say so in
+  the test's comment rather than implying the fix was proven empirically.
+
+### 2.3.1 Cross-references
 
 Documents reference each other by relative path. A task that cannot start until another task is
 delivered **must** name it under `Depends on:` — the dependency graph in

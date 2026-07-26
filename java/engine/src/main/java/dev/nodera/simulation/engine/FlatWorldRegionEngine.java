@@ -146,10 +146,16 @@ public final class FlatWorldRegionEngine implements RegionEngine {
         validateAnchors(request);
 
         RegionBounds bounds = RegionBounds.of(ctx.region());
-        MutableRegionState state = new MutableRegionState(request.snapshot(), bounds, ctx.committedWorldTime());
+        MutableRegionState state = new MutableRegionState(
+                request.snapshot(), bounds, ctx.committedWorldTime(), request.halo());
         // L-14: who may run a command is a committee-agreed input, exactly like the world time —
         // so it travels on the context and every member evaluates the same predicate.
         state.bindOperators(ctx.operators());
+        // Engine L-2's cross-region half: a neighbour's fluid sitting in this batch's halo
+        // schedules the owned cells it borders to re-evaluate. Derived from the request alone —
+        // every replica given the same bundle seeds the same ticks — and a no-op branch when the
+        // halo is empty, which is every single-region path.
+        dev.nodera.simulation.rules.FluidRules.seedBorderInflow(state, ctx.tickFrom());
 
         List<ActionRejection> rejections = new ArrayList<>();
         int applied = 0;

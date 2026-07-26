@@ -7,9 +7,27 @@
      SKIPPED naming the LIMITATIONS.md row that blocks it, and the suite exits 0 — a nightly run must
      read as "not built yet", never as "broken". Update this file whenever a script gains a stage. -->
 
-**Category:** server · **Last run:** — · **0 unit tests** (module `paper-plugin` does not exist yet),
-plus **3 scripted live suites, all currently SKIPPING** at their jar preflight
-([L-61](LIMITATIONS.md))
+**Category:** server · **Last run:** 2026-07-26 · **20 unit tests · 0 failing** (module
+`paper-plugin`), plus **3 scripted live suites, all green**: `e2e-endpoint.sh` against a real Paper 1.21.1 (including **E4**: the server JVM is SIGKILLed and the world stays hosted by its worker — L-71's exit),
+`e2e-folia.sh` against a real Folia (ALIGN-1 passes at the platform default and **refuses** at
+grid-exponent 2), and `e2e-plugins.sh` for co-existence with a staged corpus. The register previously
+said all three were committed when only the harness library was; they exist now ([L-61](LIMITATIONS.md)
+retired 2026-07-26).
+
+ALIGN-1's own arithmetic is tested in `core`, not here: `RegionAlignmentTest` walks every region in a
+±64 grid across grid exponents 3–6, because whether two threads can write one authority unit is not a
+thing to check by eye.
+
+```bash
+# Each suite needs its platform jar staged; without one it SKIPS (exit 0), never fails.
+NODERA_PAPER_JAR=/path/to/paper-1.21.1.jar scripts/e2e-endpoint.sh --no-build
+NODERA_FOLIA_JAR=/path/to/folia.jar        scripts/e2e-folia.sh    --no-build
+NODERA_PLUGIN_CORPUS_DIR=/path/to/jars     scripts/e2e-plugins.sh  --no-build
+```
+
+Folia has no 1.21.1 build (it went 1.21.x → 1.21.4+), so `e2e-folia.sh` runs the newest available.
+That is sound for plugin enable and ALIGN-1, which are platform properties; it is why the
+mixed-client suites stay blocked on [L-66](LIMITATIONS.md).
 
 ---
 

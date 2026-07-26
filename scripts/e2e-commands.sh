@@ -80,9 +80,48 @@ for player in JoinerDev JoinerTwo; do
     run_cmd "$player" "nodera debug verbose off";    expect "debug console OFF"
     run_cmd "$player" "nodera debug relay"
     [[ -n "$RESPONSE" ]] || fail "K2: nodera debug relay returned nothing"
+    run_cmd "$player" "nodera debug capture";  expect "edit(s) seen"
+    run_cmd "$player" "nodera debug extract";  expect "blocks outside the palette"
     run_cmd "$player" "tps";                   expect "TPS:"
     pass "K2: full command sweep OK as $player (transcript: commands-$player.log)"
 done
+
+
+# --- K2b: the extractor reads the REAL world ------------------------------------------------
+# The palette-exclusion counter is the one number in an extraction a script can move by an exact
+# amount: a diamond block has no consensus id, so each one placed adds exactly one excluded block.
+# Anything vaguer (dense sections, chunk counts) depends on terrain and would assert noise.
+log "K2b: live extraction counts blocks the palette cannot express"
+# Spectator so the player neither falls nor dies while parked; y=200 is above any terrain, so the
+# target section is uniform air before the drive and everything counted in it is the drive's.
+# Absolute coordinates on purpose — `~` offsets from a moving player are not a fixed target.
+rcon "gamemode spectator JoinerDev" >/dev/null
+tp_player JoinerDev 64 200 64 >/dev/null
+sleep 6
+
+extract_excluded() {
+    local out
+    out=$(rcon "execute as JoinerDev at JoinerDev run nodera debug extract")
+    printf '=== extract\n%s\n\n' "$out" >> "$RESULTS_DIR/commands-console.log"
+    grep -o 'blocks outside the palette: [0-9]*' <<<"$out" | grep -o '[0-9]*$'
+}
+
+before=$(extract_excluded)
+[[ -n "$before" ]] || fail "K2b: /nodera debug extract reported no palette-exclusion count"
+
+for x in 64 65 66 67; do
+    rcon "setblock $x 202 64 minecraft:diamond_block replace" >/dev/null \
+        || fail "K2b: setblock at $x failed"
+done
+sleep 4
+
+after=$(extract_excluded)
+[[ -n "$after" ]] || fail "K2b: the second extraction reported no palette-exclusion count"
+delta=$(( after - before ))
+[[ "$delta" -eq 4 ]] \
+    || fail "K2b: expected exactly 4 newly excluded blocks, extraction moved by $delta ($before -> $after)"
+pass "K2b: the extractor saw all four unsupported blocks and nothing else ($before -> $after)"
+rcon "gamemode survival JoinerDev" >/dev/null
 
 # --- K3: the in-game selftest + benchmark suite ---------------------------------------------
 log "K3: /nodera selftest (tree walk + benchmark as each player)"

@@ -373,8 +373,15 @@ public final class SocketPeerTransport implements PeerTransport {
         // Outbound connection: the remote's advertised route is exactly the dial target.
         Connection c = new Connection(socket, route);
         connections.put(route, c);
-        c.startReader();
+        // Our challenge goes out BEFORE the reader can run. The authenticated handshake is
+        // ordered — challenge, then the hello answering the remote's challenge — and the reader
+        // writes that hello the moment the remote's challenge arrives. Starting the reader first
+        // therefore races it against this write: if the remote's challenge is already buffered,
+        // the reader can emit our hello as the FIRST frame and the remote refuses the connection
+        // with "peer did not open with an auth challenge". Writing here, on this thread, makes
+        // the order a property of the code rather than of scheduling.
         c.sendHello();
+        c.startReader();
         return c;
     }
 
@@ -411,8 +418,10 @@ public final class SocketPeerTransport implements PeerTransport {
             // silently stops forming.
             try {
                 Connection c = new Connection(socket, null);
-                c.startReader();
+                // Same ordering rule as dial(): our challenge is the first frame this side ever
+                // writes, so it is written here rather than raced against the read loop.
                 c.sendHello();
+                c.startReader();
             } catch (RuntimeException e) {
                 closeQuietly(socket);
             }
