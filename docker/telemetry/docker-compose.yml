@@ -115,7 +115,11 @@ services:
   # 3. Warehouse — ClickHouse consumes the topic and owns retention.
   # ---------------------------------------------------------------------------------------------
   clickhouse:
-    image: clickhouse/clickhouse-server:24.8-alpine
+    # The glibc image, not `-alpine`. The alpine variant failed to start on two different hosts
+    # (a rootless dev machine: `librt.so.1: cannot open shared object file`; a CI runner: a restart
+    # loop that compose waited on forever). The standard image is larger and is the one ClickHouse
+    # actually tests.
+    image: clickhouse/clickhouse-server:24.8
     restart: unless-stopped
     depends_on:
       redpanda:
@@ -129,8 +133,10 @@ services:
       # rather than a cron job somebody has to remember.
       - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
       - clickhouse-data:/var/lib/clickhouse
-    ulimits:
-      nofile: { soft: 262144, hard: 262144 }
+    # No `ulimits: nofile` override. ClickHouse's documentation suggests raising it, but a hard
+    # limit above what the host's daemon allows makes the container fail to start outright — and a
+    # container that will not start is a worse outcome than a warning in its log. An operator
+    # running this at real volume should raise it deliberately, on a host they know accepts it.
     ports:
       - "127.0.0.1:8123:8123"
     healthcheck:

@@ -114,9 +114,12 @@ jobs:
           sed -i 's/^GRAFANA_PASSWORD=.*/GRAFANA_PASSWORD=ci-grafana/' .env
           docker compose config > /dev/null
 
+      # --wait --wait-timeout: without them, `depends_on: service_healthy` makes compose wait for a
+      # crash-looping container forever, and the job dies at its own timeout with no logs collected.
+      # Failing in five minutes leaves the Logs step below something to show.
       - name: Bring the plane up
         working-directory: docker/telemetry
-        run: docker compose up -d --build
+        run: docker compose up -d --build --wait --wait-timeout 300
 
       - name: A submitted batch becomes a queryable row
         run: scripts/telemetry-stack.sh smoke
