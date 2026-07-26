@@ -4,7 +4,13 @@
 #
 # Two stages: the version file is copied in deliberately, because build.rs stamps the product
 # version from it and a build without it silently falls back to the Cargo metadata.
-FROM rust:1.82-alpine AS build
+#
+# The builder tracks rust/rust-toolchain.toml, NOT the workspace's `rust-version` floor. The floor
+# says what this crate's own source needs (1.82); the toolchain pin is what the dependency graph
+# actually resolves against, and a transitive dependency requiring edition 2024 broke the image
+# while every other build was green — the workspace builds with the pinned 1.93.1 everywhere else.
+# Bump this with rust-toolchain.toml, in the same commit.
+FROM rust:1.93.1-alpine AS build
 RUN apk add --no-cache musl-dev
 WORKDIR /src
 COPY VERSION ./VERSION
