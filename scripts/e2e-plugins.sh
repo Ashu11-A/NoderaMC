@@ -43,7 +43,11 @@ pass "C0: plugin and Paper jars present"
 # C1 — stage the corpus, naming what is and is not there
 # ---------------------------------------------------------------------------
 log "C1: staging Paper with nodera-endpoint + the corpus from $CORPUS_DIR"
-stage_bukkit_server
+# The staged config is `listed: true` + `custody: FULL`, so it must name a world: advertising
+# full custody of a world nobody can name is an announce no tracker can use, and the plugin
+# refuses it. Passing an id here is what a real operator does; the task-2 suites will pass the
+# id their host flow minted.
+stage_bukkit_server "0000000000000e2e"
 
 # The corpus is whatever an operator staged. Nothing is downloaded: a
 # compatibility suite that fetches its own subjects tests whatever the internet

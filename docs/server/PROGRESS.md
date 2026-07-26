@@ -20,7 +20,7 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains |
-| [2](Task.2.md) | Embedded peer + control plane | ⬜ NOT STARTED | Owns L-71. `external` peer mode is the elimination path for the crash coupling |
+| [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` is parsed, validated and enforced at enable (`EndpointConfig`, 9 tests); the node itself remains. Owns L-71 |
 | [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | Owns L-62; **L-63 retired 2026-07-26** (multi-view planning). **The design risk**, deliberately before any behaviour change |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
@@ -33,6 +33,34 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — The endpoint reads its own configuration, and refuses what it cannot honour
+
+Server task 2 is the node; this is the part of it that everything else needs first. `nodera-endpoint.yml`
+— the file the harness already stages — is parsed by `EndpointConfig`, **without Bukkit's YAML
+reader**. Using the platform's reader would tie the meaning of the file to a running server, which is
+exactly where a misread is expensive to catch; the file's real shape is nested scalars and two inline
+lists, so it is read with no Minecraft on the classpath and the whole contract is unit-testable.
+
+Validation **refuses contradictions, not omissions**. A missing key takes a documented default,
+because an operator who leaves a section out is asking for the default. A key that cannot be honoured
+is refused with *every* reason at once and the message names what to change — reporting only the
+first would send someone round the loop once per mistake.
+
+Running it against a real Paper server immediately paid for itself. The first rule said "custody:
+FULL with no world id is a contradiction", and the plugin refused the harness's own staged config.
+The rule was wrong: an endpoint is routinely configured before its world has an id, which the host
+flow mints from the certified genesis. It is only a contradiction when the world is also to be
+**announced** — advertising full custody of a world nobody can name is an announce no tracker can
+use. The rule now says that, and the suites stage a world id like a real operator would.
+
+The suite gained the assertion that would have caught this without a human reading the log: E1 now
+fails if the plugin **refused** or disabled itself during boot. Every later stage reads lines the
+refusal path also writes, so without it a refusing plugin passed the suite.
+
+The plugin still says, in as many words, that it does not host a node yet — an endpoint that quietly
+did nothing would look identical to one that was working, and the operator would find out when their
+world failed to appear on a tracker.
 
 ### 2026-07-26 — The preflight refuses, on a real Folia — L-61 RETIRED
 

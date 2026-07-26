@@ -45,7 +45,11 @@ pass "E0: plugin and Paper jars present"
 # "not built yet".
 # ---------------------------------------------------------------------------
 log "E1: a clean-slate Paper server with nodera-endpoint installed"
-stage_bukkit_server
+# The staged config is `listed: true` + `custody: FULL`, so it must name a world: advertising
+# full custody of a world nobody can name is an announce no tracker can use, and the plugin
+# refuses it. Passing an id here is what a real operator does; the task-2 suites will pass the
+# id their host flow minted.
+stage_bukkit_server "0000000000000e2e"
 start_bukkit_server "$LOG_DIR/server.log"
 wait_log "$LOG_DIR/server.log" "Done (" 420 \
     || fail "E1: the Paper server never finished booting (see $LOG_DIR/server.log)"
@@ -55,7 +59,14 @@ grep -q "\[NoderaEndpoint\] Enabling" "$LOG_DIR/server.log" \
     || fail "E1: the plugin never enabled (see $LOG_DIR/server.log)"
 grep -q "Nodera endpoint on Paper" "$LOG_DIR/server.log" \
     || fail "E1: the plugin did not identify its platform as Paper"
-pass "E1: the plugin enabled and named its platform"
+# The plugin refuses to enable on a configuration it cannot honour, which is correct behaviour and
+# would otherwise pass this suite silently: every later stage reads log lines the refusal path also
+# writes. Assert it STAYED enabled against the config the harness itself stages.
+grep -q "Nodera refuses to enable" "$LOG_DIR/server.log" \
+    && fail "E1: the plugin refused the configuration the harness stages (see $LOG_DIR/server.log)"
+grep -q "\[NoderaEndpoint\] Disabling" "$LOG_DIR/server.log" \
+    && fail "E1: the plugin disabled itself during boot"
+pass "E1: the plugin enabled, stayed enabled, and named its platform"
 
 # ---------------------------------------------------------------------------
 # E2 — ALIGN-1 is claimed only where it was checked

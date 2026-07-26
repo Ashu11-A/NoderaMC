@@ -23,6 +23,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 public final class NoderaEndpointPlugin extends JavaPlugin {
 
     private EndpointPlatform platform = EndpointPlatform.UNKNOWN;
+    private EndpointConfig config;
 
     @Override
     public void onEnable() {
@@ -46,11 +47,56 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
             getLogger().info("ALIGN-1 preflight not applicable: "
                     + platform.label() + " has one tick thread");
         }
+
+        config = readConfig();
+        var problems = config.problems();
+        if (!problems.isEmpty()) {
+            // A configuration that cannot be honoured as written is refused with every reason at
+            // once. Reporting only the first would send an operator round the loop once per
+            // mistake, and the file is short enough that all of it can be checked in one pass.
+            getLogger().severe("Nodera refuses to enable: nodera-endpoint.yml cannot be honoured"
+                    + " as written.");
+            for (EndpointConfig.Problem problem : problems) {
+                getLogger().severe("  " + problem.key() + ": " + problem.message());
+            }
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        getLogger().info("config: peer " + config.peerMode() + " · control port "
+                + config.controlPort() + " · custody " + config.custody()
+                + (config.listed() ? " · listed" : " · unlisted")
+                + " · " + config.trackers().size() + " tracker(s)");
+
+        // Server task 2 is the node itself. Saying so is the point: an endpoint that quietly did
+        // nothing would look identical to one that was working, and the operator would find out
+        // when a world failed to appear on a tracker.
+        getLogger().info("this build does not host a Nodera node yet (server task 2): the world is"
+                + " not announced, validated, or archived. The plugin is a platform preflight.");
     }
 
     @Override
     public void onDisable() {
         getLogger().info("Nodera endpoint stopped (" + platform.label() + ")");
+    }
+
+    /**
+     * @return the endpoint's configuration. A missing file is every default rather than a refusal:
+     *         an operator who installed the plugin to see what it does should get a working,
+     *         honest node, not an error about a file they were never told to write.
+     */
+    private EndpointConfig readConfig() {
+        java.nio.file.Path file = getDataFolder().toPath().resolve("nodera-endpoint.yml");
+        if (!java.nio.file.Files.exists(file)) {
+            getLogger().info("no " + file.getFileName() + " — using defaults");
+            return EndpointConfig.parse("");
+        }
+        try {
+            return EndpointConfig.parse(java.nio.file.Files.readString(file));
+        } catch (java.io.IOException unreadable) {
+            getLogger().warning("could not read " + file + " (" + unreadable
+                    + "); using defaults");
+            return EndpointConfig.parse("");
+        }
     }
 
     /** @return the platform's configured grid exponent, or Folia's default when unreadable. */
