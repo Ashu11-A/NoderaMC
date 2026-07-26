@@ -57,6 +57,15 @@ public final class BlockCaptureBridge {
         boolean delegated(RegionId region);
 
         /**
+         * @return whether this node can route an action for {@code region} to its owner without
+         *         holding it — the observer path (L-80). A dedicated server owns no regions under
+         *         field-of-view ownership and is still the only process that sees the edits.
+         */
+        default boolean observes(RegionId region) {
+            return false;
+        }
+
+        /**
          * Submit one captured block action. Implementations sign it, forward it to the region's
          * primary when that is another node, and otherwise propose it locally.
          *
@@ -67,6 +76,10 @@ public final class BlockCaptureBridge {
         /** The no-lane default: nothing is delegated, nothing is captured. */
         Sink DISABLED = new Sink() {
             @Override public boolean delegated(RegionId region) {
+                return false;
+            }
+
+            @Override public boolean observes(RegionId region) {
                 return false;
             }
 
@@ -130,7 +143,8 @@ public final class BlockCaptureBridge {
             RegionId region = region(level, pos);
             int paletteId = PaletteMapper.idOf(event.getPlacedBlock());
             BlockCaptureRules.Decision decision = BlockCaptureRules.place(
-                    sink.delegated(region), paletteId, pos.getY(), isFakePlayer(event.getEntity()));
+                    sink.delegated(region) || sink.observes(region),
+                    paletteId, pos.getY(), isFakePlayer(event.getEntity()));
             record(decision);
             if (!decision.capture() || !(event.getEntity() instanceof ServerPlayer player)) {
                 return;
@@ -154,7 +168,8 @@ public final class BlockCaptureBridge {
             BlockState broken = event.getState();
             int paletteId = PaletteMapper.idOf(broken);
             BlockCaptureRules.Decision decision = BlockCaptureRules.breakBlock(
-                    sink.delegated(region), paletteId, pos.getY(), isFakePlayer(event.getPlayer()));
+                    sink.delegated(region) || sink.observes(region),
+                    paletteId, pos.getY(), isFakePlayer(event.getPlayer()));
             record(decision);
             if (!decision.capture() || !(event.getPlayer() instanceof ServerPlayer player)) {
                 return;

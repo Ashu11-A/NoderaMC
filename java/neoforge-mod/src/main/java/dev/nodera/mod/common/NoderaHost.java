@@ -769,6 +769,15 @@ public final class NoderaHost {
             try {
                 List<EntityLaneBootstrap.PlannedRegion> plan = EntityLaneBootstrap.plan(
                         views, local, gameTime, NoderaConstants.QUORUM_MVP_SIZE, residents.keySet());
+                // L-80: this node computed the plan, so it knows who owns every region — including
+                // the ones it holds no replica for. Keeping that answer is what lets a captured
+                // action reach its owner from a node that owns nothing.
+                Map<dev.nodera.core.region.RegionId, NodeId> planPrimaries =
+                        new java.util.LinkedHashMap<>();
+                for (EntityLaneBootstrap.PlannedRegion planned : plan) {
+                    planPrimaries.put(planned.region(), planned.lease().primary());
+                }
+                dev.nodera.mod.server.entity.ObserverOwnership.publish(planPrimaries);
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive

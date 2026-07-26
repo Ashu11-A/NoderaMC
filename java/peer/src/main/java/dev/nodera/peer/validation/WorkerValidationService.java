@@ -865,7 +865,29 @@ public final class WorkerValidationService {
         if (replica == null) {
             return false;
         }
-        NodeId primary = replica.lease.primary();
+        return forwardTo(replica.lease.primary(), envelope);
+    }
+
+    /**
+     * Forward a signed action to a named primary this node holds <b>no replica for</b> — the
+     * observer path (minecraft L-80).
+     *
+     * <p>Under field-of-view ownership the node that SEES an event is routinely not a node that
+     * holds the region: a dedicated server watches forty players edit regions that all belong to
+     * their own peers. {@link #forwardToPrimary} cannot help there, because it starts from a local
+     * replica's lease. This entry point starts from the ownership plan instead, which every node
+     * that computes the plan already knows.
+     *
+     * @param primary  the region's primary, from the caller's ownership plan.
+     * @param envelope the signed action.
+     * @return {@code true} if the action was sent; {@code false} when the target is this node or
+     *         has no registered address (an unaddressable peer is not a failure, just a no-op).
+     * @Thread-context any thread.
+     */
+    public boolean forwardTo(NodeId primary, ActionEnvelope envelope) {
+        if (primary == null || envelope == null) {
+            return false;
+        }
         if (identity.nodeId().equals(primary)) {
             return false;
         }
