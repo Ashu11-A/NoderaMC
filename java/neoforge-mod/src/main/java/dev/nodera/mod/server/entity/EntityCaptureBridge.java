@@ -92,6 +92,8 @@ public final class EntityCaptureBridge {
     private static final EntityCaptureBridge INSTANCE = new EntityCaptureBridge();
 
     private final Map<UUID, Captured> captured = new HashMap<>();
+    /** Regions this bridge has seen ANY entity in — the evidence that joins reach it at all. */
+    private final java.util.Set<RegionId> observedRegions = new java.util.HashSet<>();
     private final Queue<Entity> deferredJoins = new ArrayDeque<>();
     private final ThreadLocal<Integer> materializationDepth = ThreadLocal.withInitial(() -> 0);
     private Runtime runtime = Runtime.DISABLED;
@@ -189,6 +191,17 @@ public final class EntityCaptureBridge {
 
     private void captureJoin(Entity entity) {
         RegionId region = MinecraftEntityAdapters.region(entity);
+        // The first entity this lane sees in a region, whatever happens to it next. Every other
+        // line here is conditional — a ghost line needs a capture, a revoke line needs a refusal —
+        // so a region that is never OBSERVED and a region observed-and-ignored looked identical in
+        // a log. That ambiguity is what made `e2e-mobs.sh` G2b unreadable: "the lane said nothing"
+        // could mean the join never arrived or the decision went the other way, and the two want
+        // opposite fixes. Once per region, so a busy world stays quiet.
+        if (observedRegions.add(region)) {
+            GHOST_LOG.info("LANE: {} observed (first entity: {}, capture={})", region,
+                    speciesOf(entity),
+                    NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity)));
+        }
         // L-60: "this dimension never opted into mob capture" is a CONFIG fact, true on every node,
         // and it disqualifies the region from the validated lane no matter who owns it. Under
         // field-of-view ownership the seats sit on the players' nodes while entities spawn and tick
