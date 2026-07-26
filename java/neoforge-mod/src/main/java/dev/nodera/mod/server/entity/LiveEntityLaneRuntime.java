@@ -59,6 +59,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     private final java.util.Map<RegionId, ServerLevel> boundLevels =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
+    /** Keeps every delegated region's chunks resident — an unloaded region cannot be validated. */
+    private final dev.nodera.mod.server.shadow.ChunkTicketService tickets =
+            new dev.nodera.mod.server.shadow.ChunkTicketService();
     private long currentTick;
 
     public LiveEntityLaneRuntime(
@@ -112,6 +115,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         committer.onCommittedVersion(snapshot.region(), snapshot.version());
         regions.add(snapshot.region());
         boundLevels.put(snapshot.region(), level);
+        tickets.hold(level, snapshot.region());
         // Task 13: the engine is THE scheduler for this region now — vanilla scheduled
         // ticks for its chunks are cancelled at the source (LevelTicksMixin).
         dev.nodera.mod.server.redstone.RedstoneSuppression.activate(
@@ -327,6 +331,10 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                     region, entity.getType().builtInRegistryHolder().key().location());
         }
         regions.remove(region);
+        ServerLevel level = boundLevels.remove(region);
+        if (level != null) {
+            tickets.release(level, region);
+        }
         EntityCaptureBridge.get().releaseRegion(region);
     }
 
@@ -410,6 +418,12 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             dev.nodera.mod.server.redstone.RedstoneSuppression.deactivate(
                     region.regionX(), region.regionZ());
         }
+        // Release per region, not per level: a session may hold regions in more than one
+        // dimension, and a ticket is only removable through the level that issued it.
+        for (java.util.Map.Entry<RegionId, ServerLevel> bound : boundLevels.entrySet()) {
+            tickets.release(bound.getValue(), bound.getKey());
+        }
+        boundLevels.clear();
         regions.clear();
         ghosts.clear();
     }
