@@ -51,7 +51,7 @@ import java.util.Optional;
 public final class FlatWorldRules implements RuleSet {
 
     /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 4;
+    public static final int RULES_VERSION = 5;
 
     /** Palette id for air. */
     public static final int AIR = 0;
@@ -161,6 +161,13 @@ public final class FlatWorldRules implements RuleSet {
     /** Nether portal — an entity standing here transfers to the other dimension (L-14). */
     public static final int NETHER_PORTAL = 84;
 
+    /**
+     * Obsidian (L-2 fluid interactions): what a lava SOURCE becomes when water reaches it. Placeable
+     * — a player can carry and place it — and unbreakable-by-flow, so it is an ordinary solid
+     * everywhere else in the rule set.
+     */
+    public static final int OBSIDIAN = 99;
+
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
     /** Inclusive maximum buildable Y (vanilla overworld ceiling; 24 sections × 16 ⇒ top block 319). */
@@ -251,6 +258,7 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(STICKY_PISTON_HEAD_BASE + 2, "sticky_piston_head_west"),
             new PaletteEntry(STICKY_PISTON_HEAD_BASE + 3, "sticky_piston_head_east"),
             new PaletteEntry(NETHER_PORTAL, "nether_portal"),
+            new PaletteEntry(OBSIDIAN, "obsidian"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -347,7 +355,7 @@ public final class FlatWorldRules implements RuleSet {
     public static long registryFingerprint() {
         long[] parts = new long[2 + PALETTE.length * 2];
         int i = 0;
-        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v4");
+        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v5");
         for (PaletteEntry e : PALETTE) {
             parts[i++] = e.id();
             parts[i++] = StableHash.of(e.name());
