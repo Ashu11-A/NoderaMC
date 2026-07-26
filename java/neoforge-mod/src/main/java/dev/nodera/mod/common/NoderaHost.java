@@ -850,11 +850,22 @@ public final class NoderaHost {
                             bindings.size(), views.size(), residents.size(), seats,
                             manifest.genesisRoot().toShortHex(4));
                 } else {
+                    // L-60: no seats here, but this node still SEES the world — and until now that
+                    // meant the capture bridge kept a disabled runtime and nothing was captured,
+                    // forwarded or refused, silently. An observer runtime costs nothing to install
+                    // (no store, no journals, no replicas — the full session was tried and stalled
+                    // the server for 720 s on every crossing) and can do the one thing a seatless
+                    // node is entitled to do: say that a region cannot be validated.
+                    dev.nodera.mod.server.entity.EntityCaptureBridge.get().runtime(
+                            new dev.nodera.mod.server.entity.ObserverLaneRuntime(
+                                    new dev.nodera.peer.validation.ObserverRefusals(
+                                            host.transport(),
+                                            () -> host.runtime().sessionView().members())));
                     LOG.info("Nodera: no regions fall to this node in the new plan "
                                     + "({} member node(s), {} resident peer(s)) — broadcasting it "
-                                    + "for the owners. NOTE: the capture bridge has no runtime "
-                                    + "while this is true, so nothing on this node captures or "
-                                    + "refuses (L-60)", views.size(), residents.size());
+                                    + "for the owners, and observing: this node can still refuse "
+                                    + "what nobody here can validate (L-60)",
+                            views.size(), residents.size());
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.
