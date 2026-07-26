@@ -51,9 +51,21 @@ jobs:
           else
             IFS=',' read -ra picked <<< "${REQUESTED// /}"
             for s in "${picked[@]}"; do
-              [[ -x "scripts/e2e-$s.sh" ]] || { echo "::error::unknown suite '$s'"; exit 1; }
+              [[ -e "scripts/e2e-$s.sh" ]] || { echo "::error::unknown suite '$s'"; exit 1; }
             done
           fi
+          # Validate EVERY picked suite, defaults included. This check used to run only on a
+          # user-supplied list, so a script that lost its executable bit sailed through the plan and
+          # died twelve minutes later inside a runner with a bare `exit 126` — which reads as a
+          # suite failure rather than as a file mode. `e2e-determinism.sh` did exactly that twice:
+          # a full-file rewrite drops the +x bit, and `git` records the mode, so the loss is
+          # invisible in a diff that shows no content change.
+          for s in "${picked[@]}"; do
+            [[ -x "scripts/e2e-$s.sh" ]] || {
+              echo "::error::scripts/e2e-$s.sh is not executable (mode $(stat -c '%a' "scripts/e2e-$s.sh" 2>/dev/null || echo '?')) — run: git update-index --chmod=+x scripts/e2e-$s.sh"
+              exit 1
+            }
+          done
           json=$(printf '%s\n' "${picked[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
           # A malformed list would reach fromJSON as an expression error 20 lines away from here.
           [[ $json == \[*\] ]] || { echo "::error::could not build the matrix: '$json'"; exit 1; }
