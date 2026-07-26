@@ -7,7 +7,7 @@
      model is ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-79 · **Last audit:** 2026-07-25
+**Category:** server · **Owns:** — (L-79 RETIRED 2026-07-26) · **Last audit:** 2026-07-26
 **Depends on:** [server 2](Task.2.md), [network 12](../network/Task.12.md), [telemetry 1](../telemetry/Task.1.md)
 **Consumed by:** [telemetry 3](../telemetry/Task.3.md), server operators
 
@@ -78,14 +78,19 @@ implementation would be a second place for the tenant boundary to leak.
 
 ## Acceptance criteria
 
-1. ⬜ No per-tenant value can be emitted, proven by test rather than by review.
+1. ✅ No per-tenant value can be emitted, proven by test rather than by review: `TenantBoundary` accepts a population count and totals and nothing else, and `TenantBoundaryTest` (7) shows two crowds of the same size emitting identical attributes.
 2. ⬜ Telemetry is off until the operator turns it on.
 3. ⬜ Operators have a document and an in-server notice stating what is sent.
 4. ⬜ An outage of the telemetry plane is invisible to tenants and to the node.
 
 ## Limitations
 
-Owns **L-79** — an endpoint's aggregate numbers (tenant counts, traffic) are influenced by its
-tenants' behaviour, so a *very* small server's aggregate is closer to describing an individual than a
-large one's. Mitigation is bucketing and a floor below which counts are not reported; registered in
-[`LIMITATIONS.md`](LIMITATIONS.md).
+**L-79 is RETIRED** (2026-07-26): the mitigation — bucketing plus a floor below which
+tenant-derived counts are not reported at all — lives in `dev.nodera.telemetry.TenantBoundary`, and
+its evidence is in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+
+**This task's obligation:** the endpoint reporter MUST build its attributes through
+`TenantBoundary.endpointAttributes(...)`. A reporter that assembles its own map would not be a
+regression of L-79 — it would be a new limitation, because the property L-79 retired on is
+"there is no parameter that could carry an identity", and that only holds for callers that go
+through the boundary.

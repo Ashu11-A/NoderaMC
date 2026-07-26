@@ -28,13 +28,26 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED | Owns L-70. Admission is `registryFingerprint` equality |
 | [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED | Owns L-65. PC-1…PC-4 make "100 %" falsifiable |
 | [9](Task.9.md) | Live acceptance: mixed-client suites + CI | ⬜ NOT STARTED | The three suites are **committed and skipping** |
-| [10](Task.10.md) | Endpoint telemetry + the tenant boundary | ⬜ NOT STARTED | Owns L-79. Specified now so the boundary is designed in, not retrofitted |
+| [10](Task.10.md) | Endpoint telemetry + the tenant boundary | 🚧 IN PROGRESS | **L-79 retired 2026-07-26**: `TenantBoundary` + floor landed and tested; the reporter itself remains, and must emit through it |
 
 ---
 
 ## 2. Milestone notes (newest first)
 
 ### 2026-07-26 — The first server row retires without a server
+
+A second row followed the same logic. **L-79** — an endpoint's aggregate telemetry being shaped by
+tenants who were never asked — is retired by `TenantBoundary`, which makes both halves of the
+mitigation one thing: the builder accepts a population *count* and totals, so "no attribute varies
+with which tenants are connected" holds **by construction** rather than by review, and below the
+floor tenant-derived attributes are **omitted** rather than zeroed, because a zero says "measured,
+and it was nothing" — a statement about two identifiable people on a two-player server. Tick health
+describes the machine and survives the floor.
+
+The obligation this leaves is written into [`Task.10.md`](Task.10.md): the endpoint reporter must
+emit through the boundary. A reporter that assembles its own attribute map would be a new
+limitation, not a regression of this one.
+
 
 L-63 was the category's one row whose exit test needed no Paper build at all: it is pure planning
 geometry, and the planner it names lives in `core`. So it could be finished and proven while the
