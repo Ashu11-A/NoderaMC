@@ -8,7 +8,7 @@
      trust model working correctly — a proposal that "fixes" one is a design regression and must be
      refused, not implemented. -->
 
-**Category:** server · **Last audit:** 2026-07-25 · Open or retiring rows: **11**
+**Category:** server · **Last audit:** 2026-07-25 · Open or retiring rows: **12**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -39,6 +39,7 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 | L-69 | **Validated items keep a vanilla-ticking projection.** The mod cancels a validated item's vanilla tick so only the canonical item moves; Bukkit cannot cancel a tick, so the endpoint pins the projection instead (unlimited lifetime, zeroed velocity, held pickup delay) and reconciles rather than suppresses | [5](Task.5.md) | `e2e-endpoint.sh` P6: a validated item on an endpoint neither despawns nor drifts over the hold window, and picking it up credits **exactly once** | OPEN |
 | L-70 | **Mod-set gating is an assumption, not a confirmed requirement.** "NeoForge players may join except where the host requires specific mods" is read as: the endpoint declares required/allowed mods and `registryFingerprint` equality enforces it. The alternative reading — accept whatever the client brings — would need a palette-superset check with real determinism consequences. The current rule also admits or refuses whole clients, with no partial-compatibility path | [7](Task.7.md) | The reading is re-confirmed (or replaced) with the requester, **and** `e2e-endpoint.sh` P8 proves a fingerprint-mismatched client is refused with a message naming the offending mod | OPEN |
 | L-71 | **The embedded peer dies with the server JVM.** In the default `peer.mode = embedded`, the node lives inside the Minecraft process — so a server crash, a restart, or a `/reload` takes the node off the network with it. That is precisely the coupling the [`worker`](../worker/Task.0.md) category exists to remove, reintroduced for operational simplicity | [2](Task.2.md) | An endpoint configured `peer.mode = external` drives a standalone `nodera-headless` worker over the loopback control socket, and the server JVM is **SIGKILLed** while the world stays announced, seeded, and fetchable by another peer | OPEN |
+| L-79 | **An endpoint's aggregate telemetry is shaped by tenants who were never asked.** No per-tenant value is ever emitted, but a very small server's aggregate numbers — tenant count, traffic, tick health — are closer to describing one person's session than a large server's are. The mitigation is bucketing plus a floor below which counts are not reported at all; the residue is that "aggregate" is a weaker word on a two-player server than on a two-hundred-player one | [10](Task.10.md) | `TenantBoundaryTest` proves no emitted attribute varies with *which* tenants are connected, **and** a reporting floor suppresses tenant-derived counts below the configured threshold | OPEN |
 
 ---
 

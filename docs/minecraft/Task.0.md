@@ -7,7 +7,7 @@
      and every mixin carries a "why an event was not enough" header plus a COMPATIBILITY.md note.
      Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `minecraft` · **Status:** 🚧 IN PROGRESS (2 of 7 tasks completed) ·
+**Category:** `minecraft` · **Status:** 🚧 IN PROGRESS (3 of 8 tasks completed) ·
 **Last audit:** 2026-07-25
 
 ---
@@ -78,6 +78,7 @@ here.
 | [5](Task.5.md) | Decentralized host lane | 🚧 IN PROGRESS |
 | [6](Task.6.md) | World identity + permissions (mod half) | 🚧 IN PROGRESS |
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED |
+| [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and the live suites:
 [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:

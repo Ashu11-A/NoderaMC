@@ -6,7 +6,7 @@
      control.rs a strict mirror of the worker's ControlProtocol. Keep the task index in agreement with
      ../ROADMAP.md §2. -->
 
-**Category:** `app` · **Status:** 🚧 IN PROGRESS (2 of 4 tasks completed) ·
+**Category:** `app` · **Status:** 🚧 IN PROGRESS (2 of 5 tasks completed) ·
 **Last audit:** 2026-07-25
 
 ---
@@ -68,6 +68,7 @@ externally started worker untouched: the app must never kill a process it did no
 | [2](Task.2.md) | Live metrics dashboard | ✅ COMPLETED |
 | [3](Task.3.md) | Per-OS packaging + CI | 🚧 IN PROGRESS |
 | [4](Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ BLOCKED |
+| [5](Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

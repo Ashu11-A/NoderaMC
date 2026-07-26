@@ -9,7 +9,7 @@
      ../plans/Plan.5.md — read it before editing any task file here. Keep the task index in agreement
      with ../ROADMAP.md §2. -->
 
-**Category:** `server` · **Status:** ⬜ NOT STARTED (0 of 9 tasks completed) ·
+**Category:** `server` · **Status:** ⬜ NOT STARTED (0 of 10 tasks completed) ·
 **Last audit:** 2026-07-25
 
 ---
@@ -122,6 +122,7 @@ lists like any other).
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED |
 | [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED |
 | [9](Task.9.md) | Live acceptance: mixed-client suites + CI | ⬜ NOT STARTED |
+| [10](Task.10.md) | Endpoint telemetry + the tenant boundary | ⬜ NOT STARTED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and live suites: [`TESTING.md`](TESTING.md) ·
 architecture reference: [`REFERENCE.md`](REFERENCE.md) · open gaps:

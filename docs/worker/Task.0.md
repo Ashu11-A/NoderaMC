@@ -6,7 +6,7 @@
      versioned, and NON-AUTHORITATIVE: requiring the worker is a persistence and reachability
      convenience, never a new trust anchor. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `worker` · **Status:** 🚧 IN PROGRESS (3 of 4 tasks completed) ·
+**Category:** `worker` · **Status:** 🚧 IN PROGRESS (4 of 5 tasks completed) ·
 **Last audit:** 2026-07-25
 
 ---
@@ -71,6 +71,7 @@ dials), [`engine/Task.5.md`](../engine/Task.5.md) (the validation stack for task
 | [2](Task.2.md) | Control protocol v2 + live telemetry | ✅ COMPLETED |
 | [3](Task.3.md) | Host/join delegation + world seeding | 🚧 IN PROGRESS |
 | [4](Task.4.md) | Out-of-game committee validation | ✅ COMPLETED (headless) |
+| [5](Task.5.md) | Telemetry emitter + consent record | ✅ COMPLETED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

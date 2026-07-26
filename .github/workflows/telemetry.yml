@@ -1,0 +1,135 @@
+# The telemetry lane's gate.
+#
+# Three jobs, and the middle one is the one that matters:
+#
+#   consent-lane  runs scripts/e2e-telemetry.sh against the REAL binaries — a worker nobody asked
+#                 collects nothing, a consented worker's rows carry a rotating subject and no
+#                 address, an undeclared event is refused, revocation forgets the identifier, and
+#                 the node is unaffected when the collector dies (Plan.6 D10).
+#   registry-mirror  proves the Java emitter and rust/nodera-telemetry/src/schema.rs still agree.
+#                 Two implementations of one contract drift unless something mechanical fails.
+#   stack-smoke   brings the Big Data plane up and proves a submitted batch becomes a queryable
+#                 row — telemetry 2 deliverable 8.
+#
+# None of these gate gameplay: telemetry has no authority, so a red job here means the measurement
+# plane is broken, never that the network is.
+name: telemetry
+on:
+  push:
+    paths:
+      - 'rust/nodera-telemetry/**'
+      - 'rust/nodera-tracker/src/telemetry.rs'
+      - 'rust/nodera-rendezvous/src/telemetry.rs'
+      - 'java/peer/src/**/telemetry/**'
+      - 'java/peer/src/**/headless/WorkerTelemetryService.java'
+      - 'java/neoforge-mod/src/**/ModTelemetry.java'
+      - 'docker/telemetry/**'
+      - 'scripts/e2e-telemetry.sh'
+      - 'scripts/telemetry-stack.sh'
+      - '.github/workflows/telemetry.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  consent-lane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Rust unit tests (the gate at the receiver)
+        working-directory: rust
+        run: cargo test -p nodera-telemetry -p nodera-tracker -p nodera-rendezvous
+
+      - name: Clippy
+        working-directory: rust
+        run: cargo clippy -p nodera-telemetry --all-targets -- -D warnings
+
+      - name: Java emitter tests
+        run: ./gradlew :peer:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
+
+      - name: End-to-end consent lane
+        run: scripts/e2e-telemetry.sh
+
+      - name: Collect evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-e2e
+          path: |
+            run/logs/e2e-telemetry/**
+            run/results/e2e-telemetry/**
+          if-no-files-found: warn
+
+  registry-mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # The mirror test SKIPS when the binary is absent, so building it first is what makes this
+      # job meaningful rather than green-by-default.
+      - name: Build the collector
+        working-directory: rust
+        run: cargo build --release -p nodera-telemetry
+
+      - name: The registries agree
+        run: ./gradlew :peer:test --tests '*TelemetryRegistryMirrorTest*'
+
+      - name: The published registry is readable
+        run: rust/target/release/nodera-telemetry --print-schema | python3 -m json.tool > /dev/null
+
+  stack-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compose files are valid
+        working-directory: docker/telemetry
+        run: |
+          cp .env.example .env
+          # The placeholder secret is refused by the service on purpose; the smoke run supplies a
+          # real one so a config validity check does not need a running service.
+          sed -i 's/^NODERA_TELEMETRY_SUBJECT_SECRET=.*/NODERA_TELEMETRY_SUBJECT_SECRET=ci-secret-0123456789abcdef/' .env
+          sed -i 's/^CLICKHOUSE_PASSWORD=.*/CLICKHOUSE_PASSWORD=ci-clickhouse/' .env
+          sed -i 's/^GRAFANA_PASSWORD=.*/GRAFANA_PASSWORD=ci-grafana/' .env
+          docker compose config > /dev/null
+
+      # --wait --wait-timeout: without them, `depends_on: service_healthy` makes compose wait for a
+      # crash-looping container forever, and the job dies at its own timeout with no logs collected.
+      # Failing in five minutes leaves the Logs step below something to show.
+      - name: Bring the plane up
+        working-directory: docker/telemetry
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: A submitted batch becomes a queryable row
+        run: scripts/telemetry-stack.sh smoke
+
+      - name: Logs
+        if: always()
+        working-directory: docker/telemetry
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        working-directory: docker/telemetry
+        run: docker compose down -v

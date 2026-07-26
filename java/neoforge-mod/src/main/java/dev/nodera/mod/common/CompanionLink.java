@@ -25,6 +25,10 @@ public final class CompanionLink {
     public static void set(CompanionClient connectedClient, CompanionInfo workerInfo) {
         client = connectedClient;
         info = workerInfo;
+        // Bind the telemetry façade to the same connection and read the node's consent state from
+        // it. The mod never decides this for itself: the decision lives on the node, and the game
+        // is one of several things that may ask about it.
+        ModTelemetry.attach(connectedClient);
     }
 
     /** @return whether a verified worker is linked. */
@@ -46,5 +50,8 @@ public final class CompanionLink {
     public static void clear() {
         client = null;
         info = null;
+        // A lost worker is not consent: the façade falls back to "unanswered", which collects
+        // nothing, rather than keeping a cached grant alive against a node that is gone.
+        ModTelemetry.detach();
     }
 }

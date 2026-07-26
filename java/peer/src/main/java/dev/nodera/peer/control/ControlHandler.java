@@ -193,4 +193,49 @@ public interface ControlHandler {
     default String readConfig() {
         return null;
     }
+
+    /**
+     * Answer {@link ControlProtocol#TELEMETRY} {@code GET}: the consent state and the emitter's
+     * queue/send status, as one JSON line.
+     *
+     * @return the status JSON, or {@code null} when this worker has no telemetry emitter at all —
+     *         the server then replies {@code NODERA-ERR unsupported}, so an older worker declines
+     *         loudly rather than letting the app show a consent toggle nothing is behind.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String telemetryStatus() {
+        return null;
+    }
+
+    /**
+     * Answer {@link ControlProtocol#TELEMETRY} {@code SET}: record a consent decision.
+     *
+     * <p>An implementation must treat {@code denied} as revocation, not merely as "stop sending":
+     * the queue is cleared and the installation identifier is forgotten
+     * ({@code docs/plans/Plan.6.md} D9).
+     *
+     * @param decision {@code granted} or {@code denied}; anything else must be refused rather than
+     *                 guessed — a consent value nobody can defend is worse than no value.
+     * @return {@code null} on success, or a short error message.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String setTelemetryConsent(String decision) {
+        return "unsupported";
+    }
+
+    /**
+     * Answer {@link ControlProtocol#TELEMETRY} {@code EVENT}: take one event the mod or the app
+     * observed.
+     *
+     * <p>Dropped silently when consent is not granted. That is not a failure to report: the caller
+     * is expected to have checked, and a worker that answered an error here would leak the consent
+     * state to any local process that asked.
+     *
+     * @param eventJsonB64 base64 of one event object {@code {"name":…,"t":…,"attrs":{…}}}.
+     * @return {@code null} on success, or a short error message.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String recordTelemetryEvent(String eventJsonB64) {
+        return "unsupported";
+    }
 }

@@ -21,6 +21,7 @@ mod metrics;
 mod power;
 mod settings;
 mod system;
+mod telemetry;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -102,6 +103,33 @@ fn get_setting_status(
 #[tauri::command]
 fn get_config_status(status: tauri::State<Arc<ConfigStatusHandle>>) -> config::ConfigStatus {
     status.snapshot()
+}
+
+/// Tauri command: the node's telemetry consent and emitter status.
+///
+/// Always read from the worker rather than cached here: the record lives on the node, and the app
+/// is one of several things that may have changed it (the mod's `/nodera telemetry` is another).
+#[tauri::command]
+async fn get_telemetry_status() -> telemetry::TelemetryStatus {
+    telemetry::status(&control_addr()).await
+}
+
+/// Tauri command: record the person's answer on the node.
+///
+/// Returns the status **as the worker reports it afterwards**, so the UI badges what was confirmed
+/// rather than what was requested.
+#[tauri::command]
+async fn set_telemetry_consent(granted: bool) -> Result<telemetry::TelemetryStatus, String> {
+    telemetry::set(&control_addr(), granted).await
+}
+
+/// Tauri command: what the configured collector says it accepts.
+///
+/// The disclosure is read from the service the user actually reports to. A failure here is not an
+/// error state for the screen — it falls back to the bundled registry, labelled as a fallback.
+#[tauri::command]
+async fn get_collected_schema(endpoint: String) -> Result<String, String> {
+    telemetry::collected_schema(&endpoint).await
 }
 
 /// Tauri command: kept as a thin shim over [`get_setting_status`] so an older frontend bundle keeps
@@ -233,7 +261,10 @@ fn main() {
             get_worker_ownership,
             restart_worker,
             toggle_pause,
-            save_settings
+            save_settings,
+            get_telemetry_status,
+            set_telemetry_consent,
+            get_collected_schema
         ])
         .setup(move |app| {
             build_tray(app, Arc::clone(&pause), Arc::clone(&push_signal))?;

@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-25 · Tasks completed: **3 / 4**
+**Category:** worker · **Last audit:** 2026-07-25 · Tasks completed: **4 / 5**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -19,10 +19,44 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [2](Task.2.md) | Control protocol v2 + telemetry | ✅ COMPLETED | Real bytes/peers/worlds; verbs grew additively to 10+ |
 | [3](Task.3.md) | Host/join delegation + seeding | 🚧 IN PROGRESS | Archive seeding + grant gossip landed; announce timer + region pieces remain (L-41) |
 | [4](Task.4.md) | Out-of-game validation | ✅ COMPLETED (headless) | L-48 retired; live region feed rides the mod |
+| [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-25 — The worker becomes the node's emitter, and the outage lane is green
+
+`WorkerTelemetryService` + `NODERA-TELEMETRY GET|SET|EVENT` landed, with `TelemetryVerbIT` driving
+the real control socket and `scripts/e2e-telemetry.sh` driving the real worker distribution against
+the real collector binary.
+
+The evidence that matters is **T6**, the outage lane. With the collector killed mid-run, the suite
+compares the worker's whole `NODERA-STATE` answer field by field against the one taken before, and
+requires everything except the telemetry block and the clock to be identical — `PROBE` and
+`IDENTITY` keep answering, and the send failure surfaces in the telemetry block rather than being
+swallowed. That is `Plan.6` D10 turned into a test instead of a promise, and it retires **L-77**.
+
+One decision recorded because it will look conservative later: **absent consent is denied consent.**
+A worker started by hand, by a container, or by `scripts/dev.sh` has been told nothing, so it sends
+nothing — and T1 proves it by letting two collection windows pass and asserting the collector's
+spool is still empty.
+
+### 2026-07-25 — The worker becomes the node's only telemetry emitter
+
+[Task 5](Task.5.md) is scoped, and the decision behind it is the one worth recording: **the consent
+record lives with the worker, not with the app or the mod.**
+
+The alternative — each surface emitting its own telemetry — fails three ways at once. Three consent
+checks can disagree; the mod's and the app's lifetimes are both shorter than the node's, so a
+session's closing events would be lost exactly when they are most interesting; and the process most
+likely to be modified by third parties would be the one holding a network path to the telemetry
+service. The worker outlives the game, already owns the loopback control endpoint, and is where every
+measurement already lives.
+
+Consequence, recorded so it is not rediscovered later: **absent consent is denied consent.** A worker
+started by hand, by a container, or by `scripts/dev.sh` has been told nothing and therefore sends
+nothing. Registered **L-77**.
 
 ### 2026-07-25 — Workers become first-class mesh members
 

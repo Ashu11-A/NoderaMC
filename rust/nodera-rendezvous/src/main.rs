@@ -27,6 +27,7 @@ mod register;
 mod registry;
 mod reservation;
 mod service;
+mod telemetry;
 #[cfg(test)]
 mod test_support;
 mod wire;
@@ -97,7 +98,7 @@ async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(&args) {
         Command::Version => {
-            println!("nodera-rendezvous {}", env!("CARGO_PKG_VERSION"));
+            println!("nodera-rendezvous {}", env!("NODERA_VERSION"));
             ExitCode::SUCCESS
         }
         Command::Usage => {
@@ -154,7 +155,11 @@ async fn serve(
     let keeper = ReservationKeeper::new(key, bound.to_string());
 
     let rendezvous = Arc::new(Mutex::new(Rendezvous::new(config, keeper)));
+    // Operator-configured, off by default, on its own task: a telemetry outage must never reach a
+    // registration, a discovery, a punch, or a relay (`docs/rendezvous/Task.4.md`).
+    let telemetry_task = tokio::spawn(telemetry::run(Arc::clone(&rendezvous)));
     wire::run(rendezvous, listener, shutdown_signal()).await?;
+    telemetry_task.abort();
     println!("nodera-rendezvous: stopped");
     Ok(())
 }

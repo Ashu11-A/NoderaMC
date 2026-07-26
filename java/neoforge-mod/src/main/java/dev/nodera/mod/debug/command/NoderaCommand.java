@@ -88,6 +88,15 @@ public final class NoderaCommand {
                 .then(literal("deop").requires(s -> s.hasPermission(OP_LEVEL))
                         .then(argument("player", EntityArgument.player())
                                 .executes(ctx -> setRole(ctx, false))))
+                // Consent, in the place a player actually is. The companion app is required to
+                // play, but a player may never open its window — and a setting they cannot find is
+                // a setting they cannot change.
+                .then(literal("telemetry")
+                        .executes(NoderaCommand::telemetryStatus)
+                        .then(literal("on").requires(s -> s.hasPermission(OP_LEVEL))
+                                .executes(ctx -> telemetryConsent(ctx, true)))
+                        .then(literal("off").requires(s -> s.hasPermission(OP_LEVEL))
+                                .executes(ctx -> telemetryConsent(ctx, false))))
                 .then(literal("selftest").requires(s -> s.hasPermission(OP_LEVEL))
                         .executes(ctx -> SelfTest.run(ctx, false))
                         .then(literal("full").executes(ctx -> SelfTest.run(ctx, true))))
@@ -203,6 +212,50 @@ public final class NoderaCommand {
                 "Game endpoint: " + (game == null ? "not open" : game),
                 "Worker: " + (worker ? "linked (world survives game close)" : "not running"))),
                 false);
+        return 1;
+    }
+
+    /**
+     * {@code /nodera telemetry} — what this node shares, and whether it shares at all.
+     *
+     * <p>Readable by everyone, changeable by an operator: on a player's own node those are the same
+     * person, and on a shared one the decision belongs to whoever runs it.
+     */
+    private static int telemetryStatus(CommandContext<CommandSourceStack> ctx) {
+        dev.nodera.mod.common.ModTelemetry.refresh();
+        dev.nodera.telemetry.TelemetryConsent consent =
+                dev.nodera.mod.common.ModTelemetry.consent();
+        String state = switch (consent) {
+            case GRANTED -> "sharing anonymous telemetry (thank you)";
+            case DENIED -> "not sharing telemetry";
+            case UNANSWERED -> "not sharing telemetry — nobody has answered the question yet";
+        };
+        ctx.getSource().sendSuccess(() -> Component.literal(String.join("\n",
+                "Telemetry: " + state,
+                "What would be shared: counts and buckets only — never world names, player names,",
+                "  chat, coordinates, file paths, or IP addresses.",
+                "Change it here with /nodera telemetry on|off, or in the Nodera companion app.")),
+                false);
+        return 1;
+    }
+
+    /** {@code /nodera telemetry on|off} — record the decision on the node. */
+    private static int telemetryConsent(CommandContext<CommandSourceStack> ctx, boolean granted) {
+        java.util.Optional<String> error =
+                dev.nodera.mod.common.ModTelemetry.setConsent(granted);
+        if (error.isPresent()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "Could not record that: " + error.get()));
+            return 0;
+        }
+        // Report what the NODE confirmed, not what the command intended — the same discipline the
+        // companion app's settings badges follow.
+        boolean live = dev.nodera.mod.common.ModTelemetry.collects();
+        ctx.getSource().sendSuccess(() -> Component.literal(live
+                ? "Telemetry is on. Thank you — it is how this project finds out what actually "
+                        + "works on real machines."
+                : "Telemetry is off. Nothing is collected, and anything queued has been discarded."),
+                true);
         return 1;
     }
 

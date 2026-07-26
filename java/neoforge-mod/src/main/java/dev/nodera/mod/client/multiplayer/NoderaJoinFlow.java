@@ -47,12 +47,19 @@ public final class NoderaJoinFlow {
         if (entry == null) {
             return;
         }
+        dev.nodera.mod.common.ModTelemetry.featureUsed("multiplayer_gui");
+        long startedAt = System.currentTimeMillis();
         if (!entry.mcRoute().isBlank()) {
             NoderaContinuity.onJoining(entry.worldIdHex(), entry.name());
+            // A live route from the tracker means the host is directly dialable. The path label is
+            // the coarse reachability fact; nothing about WHICH host is recorded.
+            dev.nodera.mod.common.ModTelemetry.worldJoined(true, "direct", "none",
+                    System.currentTimeMillis() - startedAt);
             connect(parent, entry.name(), entry.mcRoute(), entry.worldIdHex());
             return;
         }
         if (entry.worldIdHex().isBlank()) {
+            dev.nodera.mod.common.ModTelemetry.worldJoined(false, "unknown", "other", 0);
             fail(parent, entry.name(), Component.translatable("nodera.join.error.no_id"));
             return;
         }
@@ -64,11 +71,20 @@ public final class NoderaJoinFlow {
                 if (!(mc.screen instanceof JoinResolvingScreen)) {
                     return; // the player navigated away while we resolved
                 }
+                long took = System.currentTimeMillis() - startedAt;
                 if (route.isPresent()) {
                     NoderaContinuity.onJoining(entry.worldIdHex(), entry.name());
+                    dev.nodera.mod.common.ModTelemetry.worldJoined(true, "direct", "none", took);
                     connect(parent, entry.name(), route.get(), entry.worldIdHex());
-                } else if (!NoderaContinuity.openFromNetwork(entry.worldIdHex(), entry.name())) {
+                } else if (NoderaContinuity.openFromNetwork(entry.worldIdHex(), entry.name())) {
+                    // The host is gone but the world is not: this node re-hosted it from the swarm.
+                    // The single most product-relevant thing the continuity lane does.
+                    dev.nodera.mod.common.ModTelemetry.worldRehosted(true, took);
+                } else {
                     // No live game endpoint AND no worker to materialize from the network.
+                    dev.nodera.mod.common.ModTelemetry.worldJoined(false, "unknown", "world_gone",
+                            took);
+                    dev.nodera.mod.common.ModTelemetry.worldRehosted(false, took);
                     fail(parent, entry.name(),
                             Component.translatable("nodera.join.error.host_offline"));
                 }

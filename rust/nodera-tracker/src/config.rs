@@ -58,12 +58,22 @@ pub struct Config {
     /// an attacker can buy per spoofed byte; peers needing a bigger answer use TCP, where the
     /// handshake already proves the source address.
     pub udp_max_amplification: usize,
+    /// Where to report this service's own counters (`tcp://host:port`).
+    ///
+    /// **Empty by default, and that means off.** Running this binary is agreement to run a tracker,
+    /// not agreement to report to anyone; an operator opts in by setting an endpoint. What is sent
+    /// is windowed counters — never a peer, a world, or an address (`docs/tracker/Task.4.md`).
+    pub telemetry_endpoint: String,
+    /// How often a window event is emitted.
+    pub telemetry_interval_seconds: u64,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             bind_addr: "0.0.0.0:25600".parse().expect("valid default bind addr"),
+            telemetry_endpoint: String::new(),
+            telemetry_interval_seconds: 300,
             announce_interval_seconds: 120,
             peer_ttl_seconds: 300,
             announce_clock_skew_seconds: 300,

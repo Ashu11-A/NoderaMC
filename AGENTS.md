@@ -7,8 +7,12 @@
   `./gradlew :engine:test` runs what used to be `:simulation` + `:consensus` + `:coordinator` +
   `:committee` + `:shadow-validation` + `:fallback`.
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
-  `nodera-tracker` (Task 28), `nodera-rendezvous` (Task 29). Channel pinned in
-  `rust/rust-toolchain.toml`; crate versions pinned in the workspace `Cargo.toml`.
+  `nodera-tracker` (Task 28), `nodera-rendezvous` (Task 29), `nodera-telemetry` (telemetry 1).
+  Channel pinned in `rust/rust-toolchain.toml`; crate versions pinned in the workspace `Cargo.toml`
+  and kept in step with the root `VERSION` file (see "Versioning" below).
+- `docker/telemetry/` — the Big Data plane (Vector → Redpanda → ClickHouse → Grafana/Spark).
+  **Never a dependency**: every container here can be down and no peer, tracker, or rendezvous
+  service behaves differently.
 - `fixtures/wire/` — committed golden canonical frames. Java emits them
   (`transport`'s `WireFixtureTest`), Rust decodes + re-encodes them byte-exactly. **Never edit a
   fixture by hand**: a byte change there is a wire-contract change.
@@ -120,6 +124,60 @@ same frozen wire contract, so a codec regression is a consensus regression.
   discovery/forwarding infrastructure: peers verify every claim (Ed25519 signatures, content
   hashes) and never treat a service as authority. A service outage degrades discovery or
   reachability — never correctness.
+
+## Versioning — one file, never a literal
+
+**The root `VERSION` file is the single source of truth for the product version.** One line, e.g.
+`0.1.0`. Never hard-code a version anywhere; never bump one file's copy by hand.
+
+| Toolchain | How it reads `VERSION` |
+|---|---|
+| Gradle | `settings.gradle.kts` reads it and injects `noderaVersion` + `modVersion` into every project |
+| Java runtime | `java/core` expands it into `nodera-version.properties`; `NoderaConstants.PRODUCT_VERSION` loads it (`0.0.0-unbuilt` ⇒ the build did not run) |
+| NeoForge mod | The convention plugin stamps `modVersion` into `neoforge.mods.toml` |
+| Rust services | Each service crate's `build.rs` sets `NODERA_VERSION`; binaries print that, **not** `CARGO_PKG_VERSION` |
+| Cargo/Tauri/npm manifests | Mirrors — they cannot read a file. `scripts/version.sh` writes them; `--check` fails the gate on drift |
+
+```bash
+scripts/version.sh                # print
+scripts/version.sh --check        # run this before committing anything version-adjacent
+scripts/version.sh --set 0.2.0    # release: bump VERSION + rewrite every mirror
+```
+
+**Releasing:** `--set X.Y.Z` → run the gate (`scripts/dev.sh --test`) → commit `VERSION` *and* the
+rewritten mirrors in **one** commit → tag → let CI publish. `NoderaVersionTest` and
+`scripts/version.sh --check` exist to catch the hand-edit.
+
+⚠️ **Do not edit `java/build-logic/src/main/kotlin/*.gradle.kts` to plumb a version through.** On
+this toolchain any edit there re-triggers the kotlin-dsl accessor breakage documented in
+`gradle.properties`; inject the property from `settings.gradle.kts` instead — a `by project`
+delegate reads extra properties too.
+
+---
+
+## Telemetry (opt-in, no authority) — `docs/plans/Plan.6.md`
+
+Three rules, refusable if violated:
+1. **Nothing is collected without an explicit yes.** Off by default; the question is asked once, in
+   the companion app; absent consent = denied consent.
+2. **Only `rust/nodera-telemetry/src/schema.rs` may be stored,** and no value in it may be free
+   text. Adding an event or attribute is a *policy* change: it lands with `Plan.6.md` §4 in the same
+   commit. The gate is at the receiver, so it holds for forked clients too.
+3. **Nothing in the network may read telemetry.** Stricter than the tracker/rendezvous rule — those
+   at least influence discovery. A peer with an unreachable telemetry endpoint must be
+   byte-identical to one with telemetry off.
+
+One emitter per node, and it is the **worker**: the mod and the app hand it events, they never send.
+
+```bash
+scripts/e2e-telemetry.sh          # the consent lane end to end (headless; first in run-tests.sh)
+scripts/telemetry-stack.sh up     # the Big Data plane; `smoke` proves a batch becomes a row
+```
+
+The decisive test is that suite's **T6**: kill the collector, and the node's whole `NODERA-STATE`
+answer must be unchanged apart from the telemetry block and the clock.
+
+---
 
 ## Frozen contracts (do not change without a version bump)
 - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` + `TypeTags`.

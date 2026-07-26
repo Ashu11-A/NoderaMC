@@ -1,0 +1,9 @@
+# Coarse geolocation table: <cidr>,<ISO-3166-1 alpha-2>,<asn>
+#
+# EMPTY ON PURPOSE. Nodera ships no geolocation database; supply your own (MaxMind GeoLite2,
+# db-ip, an RIR extract) converted to this format. Unmatched addresses are recorded as ZZ/0 —
+# a missing table degrades one column, it never fails a report.
+#
+# Example rows:
+# 198.51.100.0/24,BR,264644
+# 2001:db8::/32,JP,2497

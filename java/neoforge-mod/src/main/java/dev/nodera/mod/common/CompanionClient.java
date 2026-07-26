@@ -110,6 +110,52 @@ public final class CompanionClient implements CompanionProbe {
     }
 
     /**
+     * Read the node's telemetry consent and emitter status.
+     *
+     * @return the status JSON, or empty when the worker is unreachable or predates the verb — both
+     *         of which the caller must treat as "do not collect", never as consent.
+     */
+    public Optional<String> telemetryStatus() {
+        String reply = exchange(CompanionProtocol.TELEMETRY + " "
+                + CompanionProtocol.PROTOCOL_VERSION + " GET");
+        if (reply == null || reply.startsWith(CompanionProtocol.ERR)) {
+            return Optional.empty();
+        }
+        return Optional.of(reply);
+    }
+
+    /**
+     * Record a consent decision on the node.
+     *
+     * @param granted the player's answer.
+     * @return empty on success, or the worker's error message.
+     */
+    public Optional<String> setTelemetryConsent(boolean granted) {
+        String reply = exchange(CompanionProtocol.TELEMETRY + " "
+                + CompanionProtocol.PROTOCOL_VERSION + " SET " + (granted ? "granted" : "denied"));
+        if (reply == null) {
+            return Optional.of("the companion worker is not answering");
+        }
+        return errorOf(reply);
+    }
+
+    /**
+     * Hand one already-built event to the worker.
+     *
+     * <p>Fire-and-forget by design: a telemetry event must never be able to fail, slow, or throw
+     * into a game path, so the reply is read only to keep the connection well-behaved.
+     *
+     * @param eventJson one event object; base64-encoded here because the control dispatch splits
+     *                  request lines on whitespace.
+     */
+    public void recordTelemetryEvent(String eventJson) {
+        String payload = java.util.Base64.getEncoder().encodeToString(
+                eventJson.getBytes(StandardCharsets.UTF_8));
+        exchange(CompanionProtocol.TELEMETRY + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " EVENT " + payload);
+    }
+
+    /**
      * Ask the worker for a world's piece picture (the piece-map feed).
      *
      * @param worldIdHex hex world id.

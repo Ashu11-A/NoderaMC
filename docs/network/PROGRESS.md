@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-25 · Tasks completed: **10 / 11**
+**Category:** network · **Last audit:** 2026-07-25 · Tasks completed: **11 / 12**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -27,10 +27,77 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [9](Task.9.md) | Crash safety + active-player stream | ✅ COMPLETED | Continuous streaming + bounded final flush + freshness guard |
 | [10](Task.10.md) | Tick-lag + low-TPS handoff | ✅ COMPLETED | Gained a live call site 2026-07-25 |
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
+| [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — The "known flake" was a missing latch release
+
+`SocketPeerTransportAuthTest` had a documented workaround — run the transport suites with
+`--no-parallel --max-workers=2` before assuming a regression — and a CI failure on a telemetry
+branch made it worth looking at rather than re-running.
+
+The exception was `auth handshake timed out`, thrown from `SocketPeerTransport.writeFrame`. A sender
+in authenticated mode waits for its own read loop to see the remote's challenge and write the signed
+hello; the read loop's `finally` closed the socket but **never released that latch**. So a
+connection that died mid-handshake left every sender blocked for the full 10 s and then reported a
+*timeout* — which sends whoever reads the log looking for a slow peer when the peer is gone. CPU
+starvation was not the cause; it was the trigger.
+
+Three changes, and the middle one is the fix:
+
+- teardown releases `authHelloWritten`, so a dead peer costs a sender **4 ms** instead of 10 s;
+- a sender distinguishes "connection closed during the auth handshake" from "timed out", because
+  the two send a reader to different places;
+- the timeout became a named constant at 30 s, which now only has to cover a starved scheduler.
+
+`aPeerThatDiesMidHandshakeFailsTheSenderImmediately` asserts on the clock as well as the exception —
+a fail-fast that takes 30 s is the bug wearing a passing test's clothes. The full gate at maximum
+parallelism, which is what used to flake, is green.
+
+### 2026-07-25 — The emitter core lands, and consent gates collection
+
+`dev.nodera.telemetry` is in (`TelemetryEmitterTest`, 21). The decision worth recording is the one
+the acceptance criterion is written around: **consent gates collection, not transmission.**
+
+`consentDeniedProducesNoEventsAtAll` asserts that a denied node builds no event object at all —
+not that it builds them and drops them. The difference is not cosmetic. A design that collects into
+a buffer and discards it later is one flag away from shipping data nobody agreed to, and it spends
+the CPU cost of measurement on the people who declined.
+
+Two supporting decisions came out of writing it:
+
+- **Bucketing lives in one class.** If each call site coarsened its own values they would drift, and
+  two events would disagree about what "large" means. `Buckets` is the only place a measurement
+  becomes a statistic, and its boundaries are what the receiver's declared ranges are written against.
+- **The install id is regenerated on every grant.** Turning telemetry off and on again produces a
+  *new* installation as far as the pipeline is concerned, so a revocation cannot be undone by
+  re-granting — nothing the client sends links the two eras.
+
+`TelemetryRegistryMirrorTest` runs `nodera-telemetry --print-schema` and compares it with the Java
+registry, the same mechanism the wire-tag mirror uses. It skips when the binary is absent, so the
+pure-Java gate stays honest, and `scripts/e2e-telemetry.sh` + the `telemetry` CI job build it first.
+
+### 2026-07-25 — A twelfth task: the meters get a second consumer
+
+[Task 11](Task.11.md) built one snapshot per tick for *this node's own screens*. [Task 12](Task.12.md)
+adds the second consumer — a consented, bucketed projection of the same measurements, shipped to the
+telemetry plane ([`../plans/Plan.6.md`](../plans/Plan.6.md)).
+
+Worth recording as a boundary rather than a feature: the two consumers are deliberately not the same
+code path. The HUD reads exact numbers about the machine it runs on, because that is the machine's
+own business; telemetry reads **buckets**, behind a consent gate, because a byte-exact world size is
+a fingerprint and a bucket index is a statistic. Sharing the projection between them would have made
+the privacy properties depend on which caller happened to be asking.
+
+Registered **L-76**: nothing measures NoderaMC in the wild, so every claim about behaviour on real
+machines is currently the authors' own machines plus CI.
+
+### 2026-07-25 — 
+
+
 
 ### 2026-07-25 — Settings that lied stop lying: L-57 and L-58 RETIRED
 

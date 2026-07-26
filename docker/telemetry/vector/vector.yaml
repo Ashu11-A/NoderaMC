@@ -1,0 +1,59 @@
+# Vector: tail the ingest spool, deliver to Redpanda.
+#
+# Vector owns the part that is genuinely hard — checkpointed file positions, retries, backpressure,
+# and at-least-once delivery across a broker restart — so the ingest service does not have to.
+#
+# It does NOT transform the data. Everything privacy-relevant already happened in
+# `nodera-telemetry` (consent, the schema allow-list, pseudonymisation, geolocation), and a
+# transform here would be a second place where "what is stored" is decided. The only thing added is
+# `collected_at`, which is Vector's own clock, clearly named as such.
+
+data_dir: /var/lib/vector
+
+sources:
+  spool:
+    type: file
+    include:
+      - /var/lib/nodera/spool/*.ndjson
+    # The ingest service rotates by size and age; Vector must keep reading a file it has already
+    # started even after the writer moves on, and must not re-read one it finished.
+    read_from: beginning
+    fingerprint:
+      strategy: checksum
+      lines: 1
+    # Files older than this are already fully delivered; forgetting them keeps the checkpoint
+    # database from growing without bound.
+    remove_after_secs: 86400
+
+transforms:
+  parsed:
+    type: remap
+    inputs: [spool]
+    source: |
+      . = parse_json!(string!(.message))
+      .collected_at = to_unix_timestamp(now(), unit: "milliseconds")
+    # A line that fails to parse is dropped to the side rather than killing the pipeline: one
+    # corrupt line at the tail of a file being rotated must not stop delivery of the other million.
+    drop_on_error: true
+    reroute_dropped: true
+
+sinks:
+  bus:
+    type: kafka
+    inputs: [parsed]
+    bootstrap_servers: redpanda:9092
+    topic: nodera.telemetry.raw.v1
+    encoding:
+      codec: json
+    compression: zstd
+    librdkafka_options:
+      # A broker outage must never mean data loss: the spool file is still on disk and Vector's
+      # checkpoint has not advanced, so it resumes where it stopped.
+      message.timeout.ms: "300000"
+
+  dropped:
+    type: file
+    inputs: [parsed.dropped]
+    path: /var/lib/vector/unparsable-%Y-%m-%d.log
+    encoding:
+      codec: json

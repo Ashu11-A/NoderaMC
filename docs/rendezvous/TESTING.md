@@ -5,7 +5,7 @@
      a direct path does not prove relay correctness and must not be recorded as doing so. Keep counts
      and Last run current. -->
 
-**Category:** rendezvous · **Last run:** 2026-07-25 · **55 Rust tests · 0 failing** (plus the Java
+**Category:** rendezvous · **Last run:** 2026-07-25 · **62 Rust tests · 0 failing** (plus the Java
 transport tests, including `RendezvousRelayIT`, on the Java gate)
 
 ```bash

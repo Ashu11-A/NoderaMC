@@ -33,7 +33,9 @@
 # ===========================================================================
 set -uo pipefail
 
-ALL_SUITES=(continuity ownership ownership-follow churn pickup mobs pearl password rekey mesh-soak commands farlands crash)
+# telemetry is FIRST and headless: it needs no GUI and no client, so a batch on a machine without
+# a display still proves the measurement plane before spending twenty minutes on the live suites.
+ALL_SUITES=(telemetry continuity ownership ownership-follow churn pickup mobs pearl password rekey mesh-soak commands farlands crash)
 
 # The batch's own flags, on top of the shared --no-build. Suite names are not
 # options, so they are collected here too.

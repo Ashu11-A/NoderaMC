@@ -6,7 +6,7 @@
      elsewhere in the project are rendezvous *hashing* and have nothing to do with this service — do
      not "unify" them. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (2 of 3 tasks completed) ·
+**Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (3 of 4 tasks completed) ·
 **Last audit:** 2026-07-25
 
 ---
@@ -60,6 +60,7 @@ same seam — call sites cannot tell which path carried a message.
 | [1](Task.1.md) | The `nodera-rendezvous` service binary | ✅ COMPLETED |
 | [2](Task.2.md) | The Java rendezvous transport | ✅ COMPLETED |
 | [3](Task.3.md) | Live cross-internet proof | ⏳ BLOCKED |
+| [4](Task.4.md) | Service telemetry + NAT-pair statistics | ✅ COMPLETED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
