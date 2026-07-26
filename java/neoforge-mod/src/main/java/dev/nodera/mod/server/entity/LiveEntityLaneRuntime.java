@@ -72,6 +72,13 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
     /**
+     * Regions this node has SEEN a non-delegable entity in. Separate from the validation lane's
+     * refused set because the two answer different questions: "has the mesh been told" versus "has
+     * this node ever said so out loud", and only the second one keeps a live drive honest.
+     */
+    private final Set<RegionId> observedNonDelegable =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
      * Feeds locally-captured actions to this node's render overlay (L-16). Resolved per call, so a
      * client validation lane that starts after this runtime does is still picked up.
      */
@@ -401,12 +408,19 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         // and the seats sit on the players' nodes. `refuseRegion` therefore both drops whatever
         // this node holds and tells the mesh, and answers false for every repeat so a dimension
         // full of mobs logs once per region rather than once per spawn.
-        boolean first = validation.refuseRegion(
+        boolean announced = validation.refuseRegion(
                 region, dev.nodera.protocol.simulationmsg.RegionRefusal.Reason.NON_DELEGABLE_ENTITY);
-        if (first) {
+        // Log on the first OBSERVATION per region, not on the first refusal. The two differ
+        // whenever the region was already in the refused set — because a peer announced it first,
+        // or because this node refused it earlier — and in that case the old code said nothing at
+        // all. A live mob drive then reads the lane as silent when it is in fact working, which is
+        // exactly what `e2e-mobs.sh` G2b reported. One line per region either way: a nether full
+        // of piglins must not be a nether full of log lines.
+        if (observedNonDelegable.add(region)) {
             LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep "
-                            + "it); refusal announced to the mesh",
-                    region, entity.getType().builtInRegistryHolder().key().location());
+                            + "it); refusal announced to the mesh{}",
+                    region, entity.getType().builtInRegistryHolder().key().location(),
+                    announced ? "" : " earlier");
         }
         regions.remove(region);
         ServerLevel level = boundLevels.remove(region);
