@@ -43,7 +43,17 @@ public final class ClientValidationLane {
 
     private static WorkerValidationService service;
     private static dev.nodera.peer.view.LocalReplicaView replicaView;
+    private static dev.nodera.mod.common.RegionSeedSpool regionSeedSpool;
     private static int activeRegions;
+
+    /**
+     * Where committed snapshots are staged before the handoff to the worker (L-41). Beside the
+     * worker's own content store rather than inside a save: a joiner has no save directory for the
+     * world it is validating, and the file is a handoff that is deleted immediately after.
+     */
+    private static java.nio.file.Path spoolDir() {
+        return java.nio.file.Path.of(System.getProperty("user.home"), ".nodera", "spool");
+    }
 
     private ClientValidationLane() {
     }
@@ -118,7 +128,17 @@ public final class ClientValidationLane {
         dev.nodera.peer.view.LocalReplicaView view = new dev.nodera.peer.view.LocalReplicaView(
                 new FlatWorldRegionEngine(plan.rulesVersion(), plan.registryFingerprint(), hashes),
                 hashes, plan.worldSeed(), plan.rulesVersion(), plan.registryFingerprint());
-        lane.onCommit(view::committed);
+        // Two things happen on every commit: the overlay reconciles (L-16), and the snapshot is
+        // offered to the always-on worker so the region outlives this process (worker L-41). The
+        // spool decides whether to actually push — it throttles per region and never touches the
+        // lane's thread — so this stays one call each.
+        dev.nodera.mod.common.RegionSeedSpool spool =
+                dev.nodera.mod.common.RegionSeedSpool.companion(ClientValidationLane::spoolDir);
+        regionSeedSpool = spool;
+        lane.onCommit((snapshot, root) -> {
+            view.committed(snapshot, root);
+            spool.offer(snapshot);
+        });
         runtime.onApplicationMessage(lane::onMessage);
         service = lane;
         replicaView = view;
@@ -151,6 +171,10 @@ public final class ClientValidationLane {
             }
             service = null;
             replicaView = null;
+            if (regionSeedSpool != null) {
+                regionSeedSpool.close();
+                regionSeedSpool = null;
+            }
             activeRegions = 0;
         }
     }

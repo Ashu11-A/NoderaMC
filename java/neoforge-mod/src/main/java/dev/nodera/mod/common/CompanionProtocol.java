@@ -46,6 +46,9 @@ public final class CompanionProtocol {
     /** Fetch-world-archive request (continuity lane, joiner half). */
     public static final String ARCHIVE = ControlProtocol.ARCHIVE;
 
+    /** Seed-committed-region request (validated lane, worker L-41). */
+    public static final String SEED_REGION = ControlProtocol.SEED_REGION;
+
     /** Mint-signed-world-identity request. */
     public static final String WORLDID = ControlProtocol.WORLDID;
 
