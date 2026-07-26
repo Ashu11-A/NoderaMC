@@ -18,7 +18,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Domain types, crypto, canonical encoding | ✅ COMPLETED | Frozen contract; extended additively through type tag 108 |
-| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 5, palette literal `palette.v5` (obsidian, L-2) |
+| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 6, palette literal `palette.v6` (obsidian L-2, farmland + wheat L-1) |
 | [3](Task.3.md) | Shadow validation | ✅ COMPLETED (headless) | Live capture soak → [minecraft 2](../minecraft/Task.2.md) |
 | [4](Task.4.md) | Coordinator | ✅ COMPLETED (headless) | Live `ServerLevel` applier → [minecraft 2](../minecraft/Task.2.md) |
 | [5](Task.5.md) | Committee validation — MVP gate | ✅ COMPLETED (headless) | Also running out of game via [worker 4](../worker/Task.4.md) |
@@ -33,6 +33,28 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — Farms work in a delegated region
+
+The everyday thing a player notices first when random ticks are suppressed is that their wheat
+stopped growing. L-1's farm half is now engine state: **farmland** plus **wheat ages 0–7**, with
+growth gated on farmland directly below and light 9 at the crop's own cell.
+
+The rule's shape matters more than its content. The growth draw is taken **before** any condition is
+examined, so the number of random values a selection consumes never depends on the surroundings —
+the same discipline the fire tick follows, and the reason a farm replays identically on a replica
+whose nearby terrain differs. Only **seeds** are placeable: every grown stage is an engine output,
+so nobody can mint a harvest by placing age 7.
+
+`RULES_VERSION` 5→6, palette literal `palette.v6`. `CropGrowthTest` (6) covers the farmer's view —
+a field that advances, a crop on stone that never does, a roofed crop that stays put — and the one
+that is not about farming at all: a 20 000-tick soak asserting every cell is still a wheat stage,
+because the failure worth guarding is a crop walking past age 7 into whatever id follows it, which
+would poison the root rather than merely look wrong.
+
+Two version pins elsewhere asserted `RULES_VERSION` as a literal. They now assert `>=`: what those
+tests are about is "adding a component moved the fingerprint", and a literal has to be edited by
+every unrelated palette bump until it stops meaning anything.
 
 ### 2026-07-26 — Lava meets water, and the answer is the same on every replica
 

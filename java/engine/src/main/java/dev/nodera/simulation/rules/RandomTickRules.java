@@ -38,7 +38,12 @@ public final class RandomTickRules {
 
     /** @return whether {@code id} reacts to random ticks (drives section eligibility). */
     public static boolean isRandomTickable(int id) {
-        return id == FlatWorldRules.GRASS_BLOCK || id == FlatWorldRules.FIRE;
+        return id == FlatWorldRules.GRASS_BLOCK || id == FlatWorldRules.FIRE || isWheat(id);
+    }
+
+    /** @return whether {@code id} is any wheat growth stage. */
+    public static boolean isWheat(int id) {
+        return id >= FlatWorldRules.WHEAT_0 && id <= FlatWorldRules.WHEAT_7;
     }
 
     /** @return whether {@code id} burns (fire consumes it when spreading). */
@@ -87,6 +92,10 @@ public final class RandomTickRules {
             applyFireTick(state, pos, rng);
             return;
         }
+        if (isWheat(id)) {
+            applyCropTick(state, pos, id, rng);
+            return;
+        }
         if (id != FlatWorldRules.GRASS_BLOCK) {
             return;
         }
@@ -118,6 +127,37 @@ public final class RandomTickRules {
                 && dev.nodera.simulation.lighting.LightField.lightAt(state, aboveTarget) >= 9) {
             state.setBlock(target, FlatWorldRules.GRASS_BLOCK, null, rng);
         }
+    }
+
+
+    /**
+     * Crop growth (L-1's farm half). One selection advances wheat by exactly one stage with
+     * probability 1/3, and the draw happens <b>before</b> every condition is examined so the number
+     * of values consumed never depends on the surroundings — the same rule the fire tick follows,
+     * and the reason a farm can be replayed on a replica that has different terrain nearby.
+     *
+     * <p>Three conditions, all read from committed state: wheat grows only on
+     * {@link FlatWorldRules#FARMLAND}, only in light 9 or better (vanilla's threshold, measured at
+     * the crop's own cell), and never past age 7. A crop whose farmland is mined stops growing
+     * where it stands rather than vanishing — breaking it is a player action, not a random tick.
+     */
+    private static void applyCropTick(
+            MutableRegionState state, NBlockPos pos, int id, DeterministicRandom rng) {
+        boolean grows = rng.nextInt(3) == 0;
+        if (!grows || id == FlatWorldRules.WHEAT_7) {
+            return;
+        }
+        if (pos.y() <= FlatWorldRules.MIN_Y) {
+            return;
+        }
+        NBlockPos below = new NBlockPos(pos.x(), pos.y() - 1, pos.z());
+        if (state.getBlock(below) != FlatWorldRules.FARMLAND) {
+            return;
+        }
+        if (dev.nodera.simulation.lighting.LightField.lightAt(state, pos) < 9) {
+            return;
+        }
+        state.setBlock(pos, id + 1, null, rng);
     }
 
     /**

@@ -6,12 +6,12 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-07-25 · **735 tests · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-07-25 · **741 tests · 0 failing · 0 skipped**
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
 | `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags through 108) | 236 | ✅ |
-| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 485 | ✅ |
+| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 491 | ✅ |
 | `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | ✅ |
 
 Run with:

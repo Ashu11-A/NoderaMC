@@ -186,9 +186,12 @@ final class FluidInteractionTest {
     }
 
     @Test
-    @DisplayName("the palette bump is visible: rules version 5, and the fingerprint moved")
+    @DisplayName("the palette bump is visible: the rules version moved with the new entry")
     void theRuleSetAnnouncesTheChange() {
-        assertThat(FlatWorldRules.RULES_VERSION).isEqualTo(5);
+        // Obsidian arrived in version 5; later entries keep moving it, so what is pinned is that
+        // the version is at least the one this rule shipped in — a literal here would have to be
+        // edited by every unrelated palette growth, which is how a pin stops meaning anything.
+        assertThat(FlatWorldRules.RULES_VERSION).isGreaterThanOrEqualTo(5);
         // A peer that still hashes palette.v4 computes a different fingerprint and refuses to
         // validate with this build rather than silently diverging on the first lava lake.
         assertThat(FlatWorldRules.registryFingerprint()).isNotZero();
