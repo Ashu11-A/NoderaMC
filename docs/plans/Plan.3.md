@@ -444,6 +444,20 @@ larger than it was. That class is now empty, which is the useful finding.
 | server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody. Note the audit it describes is the first real use for `SpotCheckAuditor`, which has been unwired since Task 7 because every validator already re-executes every batch it votes on. |
 | worker L-41 | **one live clause** | The crash-survival half is proven with a real SIGKILL; what remains is the worker keeping a world announced **and** seeded on its own timer after the game client disconnects. |
 
+### Issue-by-issue read (2026-07-26)
+
+Every open issue was read in full — title, body and comments — and commented with its own status.
+The result is worth stating plainly, because it is not what a burn-down usually looks like:
+
+**No open issue is closeable today, and each for a stated reason.** #5, #6, #7, #8, #9, #10, #11,
+#12, #13, #14, #15 and #35 all carry at least one acceptance clause that is inherently live — a
+multi-client soak, a screen a person looks at, a species retired — or that waits on a subsystem
+nobody has written. #17 is labelled a **standing task** and is not meant to close at all; it takes
+scenario intake from every other lane, and this session added three suites to it.
+
+Closing any of them on headless evidence alone would be the failure mode this register exists to
+prevent: a green tick standing in for a claim nobody has checked against a running game.
+
 ### What this means for sequencing
 
 The rows that can be worked today, with nobody waiting on anybody: **engine L-2's cross-region
