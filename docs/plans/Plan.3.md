@@ -406,6 +406,51 @@ The same whole-repo scan, re-run after the live block lane landed. Two things ch
 `HeadlessPeerMain` and `LevelChunkMixin` are scanner false positives: the first is the worker's
 `mainClass`, the second is referenced from `nodera.mixins.json`.
 
+## Round 4 — every remaining row, audited (2026-07-26)
+
+Thirty rows remain across six categories. This section is the verdict on **each one**: not what it
+says, but what would actually have to happen for its exit test to go green, and therefore whether it
+can be worked on now or is waiting for something else. Four rows retired the day this audit was
+written (**L-25**, **L-63**, **L-79**, **L-78**), and all four were in the same class: an exit test
+that needed no live run and no unbuilt subsystem, sitting behind a row whose prose made it sound
+larger than it was. That class is now empty, which is the useful finding.
+
+**The three blockers, in order of how much they hold:**
+
+| Blocker | Rows waiting on it |
+|---|---|
+| **A live run with a node that actually holds regions** — the scripted suites run a dedicated server that the field-of-view planner leaves owning nothing | engine L-1, L-2, L-7, L-24, L-50 · minecraft L-50, L-60, L-80 · network L-30 |
+| **A GUI environment where a person looks at the screen** | minecraft L-43, L-46, L-49 · app L-47 |
+| **A subsystem nobody has written yet** (`java/paper-plugin`; the client prediction overlay) | server L-61…L-71 · engine L-12, L-16, L-17 · network L-33 |
+
+### Per-row verdicts
+
+| Row | Verdict | What it is actually waiting for |
+|---|---|---|
+| app L-47 | **infra, not code** | A CI job with two machines (or two network namespaces) that installs the app, hosts a world, closes the game, and joins from the other side. Everything it drives exists. |
+| app L-56 | **decidable now, but it is a product decision** | The exit offers two doors: give the transport per-world attribution and a peer-advertised cap, or delete both controls **and migrate their saved values**. The second is an afternoon; the first is a protocol change. Neither should be picked by an implementer alone, which is why this row stays open rather than being quietly resolved the cheap way. |
+| engine L-1 | **one live clause left** | Crops and the suppression mixin landed 2026-07-26. The farm soak needs a node that owns the farm's region — the same seat problem as minecraft L-80. |
+| engine L-2 | **one engine clause + live** | Fluid interactions landed 2026-07-26. Cross-region spread consumption needs the halo/migration lane to carry a `FLUID` border signal end to end; that is engine work and can start today. |
+| engine L-7 | **species work** | Ghost AI is deterministic; retiring the row per species means targeting, pathfinding and combat for each shipped species. Large, but not blocked. |
+| engine L-12 | **rides L-16** | The engine half (`MovePlayerAction`, per-axis legality, border transfer) is done. What remains is mod-side capture plus the prediction/rollback overlay — capture alone would make a rejected move a visible rubber-band, so shipping it before L-16 would be worse than not shipping it. |
+| engine L-16, L-17 | **the biggest remaining engine lane** | Client prediction with rollback, and a local-replica view so migration does not reconnect. Both are new subsystems, both are unblocked, and both are where the "feels like vanilla" claim is finally paid for. |
+| engine L-24, L-50 · minecraft L-50, L-60 | **live suites only** | Every headless half is green; each exit names a stage in `e2e-mobs.sh` / the gameplay drives. |
+| minecraft L-43, L-46, L-49 | **someone must look at a screen** | All feeds are wired; the exits are about what a player sees. `e2e-live` runs under Xvfb, so these retire by adding assertions to a suite plus one human pass. |
+| minecraft L-80 | **RETIRING** | The observer mechanism landed 2026-07-26; the live run remains, and it will surface the actor-key question that is issue #45's work. |
+| network L-30 | **live** | Committee validation and certified event sync over one `PeerTransport` in a sustained session. |
+| network L-33 | **needs the client piece pipeline** | The edit half is done; the render half is a client subsystem. |
+| network L-76 | **needs a population** | The emitter, the plane and the dashboards exist; the exit is a dashboard answering a real question from real reports, and no deployment has opted in yet. Nothing to build. |
+| server L-61 | **the gate for its whole category** | `java/paper-plugin` is unwritten. L-64…L-71 all sit behind it, and L-62 needs a custody model that only exists in prose. |
+| server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody. Note the audit it describes is the first real use for `SpotCheckAuditor`, which has been unwired since Task 7 because every validator already re-executes every batch it votes on. |
+| worker L-41 | **one live clause** | The crash-survival half is proven with a real SIGKILL; what remains is the worker keeping a world announced **and** seeded on its own timer after the game client disconnects. |
+
+### What this means for sequencing
+
+The rows that can be worked today, with nobody waiting on anybody: **engine L-2's cross-region
+clause**, **engine L-16/L-17** (the largest and most valuable), **engine L-7's species work**, and
+**server L-61** (which unlocks eight rows behind it). Everything else needs either a live run whose
+seat problem minecraft L-80 has just addressed, a person at a screen, or a product decision.
+
 ## Execution order
 
 <!-- EXECUTION-ORDER -->
