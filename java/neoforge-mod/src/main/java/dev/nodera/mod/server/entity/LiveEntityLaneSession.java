@@ -94,6 +94,10 @@ public final class LiveEntityLaneSession implements AutoCloseable {
                         }
                     }));
             validation.setExternalCommitListener(externalHeads::externalCommitted);
+            // Reputations and region epochs outlive the session: a restart that forgot them made
+            // the node reputation-blind and reset the stale-proposal defence every time.
+            validation.attachDurableState(new dev.nodera.peer.validation.DurableCoordinatorState(
+                    stateDirectory.resolve("coordinator-state.bin")));
             for (CommitteePeer peer : peers) {
                 validation.registerPeer(
                         peer.address().nodeId(), peer.address(), peer.publicKey());
@@ -158,6 +162,7 @@ public final class LiveEntityLaneSession implements AutoCloseable {
         }
         LiveEntityControlProvider.deactivate(live);
         LiveRegionOwnershipProvider.deactivate(live.validation());
+        live.validation().persistState();
         host.runtime().onApplicationMessage(null);
         live.close();
         store.close();

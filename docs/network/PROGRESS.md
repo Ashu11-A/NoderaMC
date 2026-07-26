@@ -33,6 +33,24 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The node remembers who behaved
+
+`PersistedCoordinatorState` has existed since Task 6 with nowhere to live. The consequence was
+quiet enough to survive a year of audits: every restart reset the epoch counter that defends against
+stale proposals, and every restart made the node reputation-blind, so a peer that had spent an
+evening disagreeing with committed roots came back with a spotless score.
+
+`DurableCoordinatorState` gives it a file beside the action, credit and vote journals. The live
+session attaches it on open, checkpoints every 30 s — a crash is the case durability exists for, and
+a crash never reaches `close()` — and flushes on close.
+
+Two decisions worth keeping: the file is **local, never consensus** (a node's opinion of its peers
+is a view, and two honest nodes may hold different ones — which is why it sits beside the journals
+and not in the certified chain), and **damage is recovered from rather than thrown**. Losing this
+state costs the node its memory of who behaved, which observing the network rebuilds; refusing to
+start would cost it the world. `DurableCoordinatorStateTest` (6) covers both, including the heal:
+after a corrupt file is read, the next flush replaces it with a readable one.
+
 ### 2026-07-26 — The "known flake" was a missing latch release
 
 `SocketPeerTransportAuthTest` had a documented workaround — run the transport suites with
