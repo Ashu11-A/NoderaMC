@@ -75,6 +75,40 @@ public final class ViewOwnershipPlanner {
      */
     public static Map<RegionId, RegionClaim> plan(Map<NodeId, PlayerView> views, int maxCommitteeSize,
                                                   Collection<NodeId> residentValidators) {
+        Map<NodeId, List<PlayerView>> single = new LinkedHashMap<>();
+        if (views != null) {
+            views.forEach((node, view) -> single.put(node, List.of(view)));
+        }
+        return planMultiView(single, maxCommitteeSize, residentValidators);
+    }
+
+    /**
+     * The general plan: a node may hold <b>many</b> views (L-63).
+     *
+     * <p>One view per node was a fair model of a player's own client and a wrong model of an
+     * endpoint: a Paper server with forty tenants sees forty discs, and under the single-view rule
+     * thirty-nine of them were invisible to the plan — their regions went unowned, or fell to
+     * whichever distant player happened to be nearest.
+     *
+     * <p><b>The min-distance rule.</b> A node's distance to a region is the distance of its
+     * <i>closest</i> view. That is the only choice that keeps the plan's meaning intact: primacy
+     * belongs to whoever is nearest to the region, and a node standing next to it through one of
+     * its tenants is next to it. Averaging or summing would let a crowd elsewhere on the same
+     * endpoint outrank a player standing on the block.
+     *
+     * <p><b>{@code coverCount} still counts players, not nodes.</b> {@code isSoloOwned()} means "only
+     * one player is here", and that question is about people, not processes — an endpoint with two
+     * tenants in a region is not a solo region even though it is one node.
+     *
+     * @param views            each peer's current field-of-view discs; an empty or null list means
+     *                         the node holds no view at all (it may still be a resident validator).
+     * @param maxCommitteeSize the committee cap (primary + up to {@code size-1} validators).
+     * @param residentValidators playerless members eligible for leftover validator seats.
+     * @return region → {@link RegionClaim}, keyed in deterministic {@link RegionId} order.
+     */
+    public static Map<RegionId, RegionClaim> planMultiView(
+            Map<NodeId, ? extends Collection<PlayerView>> views, int maxCommitteeSize,
+            Collection<NodeId> residentValidators) {
         if (maxCommitteeSize < 1) {
             throw new IllegalArgumentException("maxCommitteeSize must be >= 1, got " + maxCommitteeSize);
         }
@@ -88,20 +122,43 @@ public final class ViewOwnershipPlanner {
             }
         }
 
-        // region → list of (nodeId, distanceSq) coverers. TreeMap keeps regions in a stable order.
-        Map<RegionId, List<Coverer>> coverers = new TreeMap<>(REGION_ORDER);
-        // Iterate players in NodeId order so tie-breaking is stable regardless of input map order.
-        List<Map.Entry<NodeId, PlayerView>> ordered = new ArrayList<>(views.entrySet());
-        ordered.sort(Map.Entry.comparingByKey(NODE_ORDER));
+        // region → node → nearest distance among that node's views, plus how many of its views
+        // cover the region at all. TreeMap keeps regions in a stable order.
+        Map<RegionId, Map<NodeId, Coverage>> coverage = new TreeMap<>(REGION_ORDER);
+        // Iterate nodes in NodeId order so tie-breaking is stable regardless of input map order.
+        List<NodeId> orderedNodes = new ArrayList<>(views.keySet());
+        orderedNodes.sort(NODE_ORDER);
 
-        for (Map.Entry<NodeId, PlayerView> entry : ordered) {
-            NodeId node = entry.getKey();
-            PlayerView view = entry.getValue();
-            for (RegionId region : PlayerViewRegionResolver.activeRegions(view)) {
-                long distSq = PlayerViewRegionResolver.centerDistanceSq(view, region);
-                coverers.computeIfAbsent(region, r -> new ArrayList<>()).add(new Coverer(node, distSq));
+        for (NodeId node : orderedNodes) {
+            Collection<PlayerView> nodeViews = views.get(node);
+            if (nodeViews == null) {
+                continue;
+            }
+            for (PlayerView view : nodeViews) {
+                if (view == null) {
+                    continue;
+                }
+                for (RegionId region : PlayerViewRegionResolver.activeRegions(view)) {
+                    long distSq = PlayerViewRegionResolver.centerDistanceSq(view, region);
+                    coverage.computeIfAbsent(region, r -> new java.util.LinkedHashMap<>())
+                            .merge(node, new Coverage(distSq, 1),
+                                    (a, b) -> new Coverage(Math.min(a.distSq(), b.distSq()),
+                                            a.views() + b.views()));
+                }
             }
         }
+        Map<RegionId, List<Coverer>> coverers = new TreeMap<>(REGION_ORDER);
+        Map<RegionId, Integer> playersPerRegion = new TreeMap<>(REGION_ORDER);
+        coverage.forEach((region, perNode) -> {
+            List<Coverer> list = new ArrayList<>(perNode.size());
+            int players = 0;
+            for (Map.Entry<NodeId, Coverage> entry : perNode.entrySet()) {
+                list.add(new Coverer(entry.getKey(), entry.getValue().distSq()));
+                players += entry.getValue().views();
+            }
+            coverers.put(region, list);
+            playersPerRegion.put(region, players);
+        });
 
         Map<RegionId, RegionClaim> plan = new LinkedHashMap<>();
         for (Map.Entry<RegionId, List<Coverer>> e : coverers.entrySet()) {
@@ -128,12 +185,17 @@ public final class ViewOwnershipPlanner {
             }
             // coverCount stays the number of PLAYERS that see the region — residents witness it,
             // they do not see it, and isSoloOwned() must keep meaning "only one player is here".
-            plan.put(region, new RegionClaim(region, primary, validators, cs.size()));
+            plan.put(region, new RegionClaim(
+                    region, primary, validators, playersPerRegion.get(region)));
         }
         return plan;
     }
 
     private record Coverer(NodeId node, long distSq) {
+    }
+
+    /** One node's coverage of one region: its nearest view, and how many of its views see it. */
+    private record Coverage(long distSq, int views) {
     }
 
     /** Deterministic NodeId ordering (by UUID) used for every tie-break. */

@@ -21,7 +21,7 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 |---|---|---|---|
 | [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ⬜ NOT STARTED | Owns L-61, L-66. Blocks everything; the ALIGN-1 preflight lands here |
 | [2](Task.2.md) | Embedded peer + control plane | ⬜ NOT STARTED | Owns L-71. `external` peer mode is the elimination path for the crash coupling |
-| [3](Task.3.md) | Region custody and the ownership bridge | ⬜ NOT STARTED | Owns L-62, L-63. **The design risk**, deliberately before any behaviour change |
+| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | Owns L-62; **L-63 retired 2026-07-26** (multi-view planning). **The design risk**, deliberately before any behaviour change |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
@@ -33,6 +33,28 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — The first server row retires without a server
+
+L-63 was the category's one row whose exit test needed no Paper build at all: it is pure planning
+geometry, and the planner it names lives in `core`. So it could be finished and proven while the
+endpoint jar is still unwritten.
+
+`ViewOwnershipPlanner` took **one** `PlayerView` per node, which is a fair model of a player's own
+client and a wrong model of an endpoint: a server with forty tenants contributed one disc, and the
+regions its other thirty-nine stood in went unowned or fell to whichever distant player happened to
+be nearest. `planMultiView` takes a node's whole view set, and a node's distance to a region is the
+distance of its **nearest** view — the only rule that keeps the plan's meaning, since averaging or
+summing would let a crowd elsewhere on the same endpoint outrank a player standing on the block.
+
+Two invariants were preserved on purpose and both are tested: a node takes exactly **one seat**
+however many of its tenants are looking (otherwise "three independent validators" could be one
+process three times), and `coverCount` still counts **players**, because `isSoloOwned()` asks whether
+one person is here, not one process.
+
+The exit clause is the last test: two peers holding the same facts in different orders — reversed
+map ordering, reversed tenant list — compute identical plans for a 20-tenant endpoint. That is the
+property the whole no-coordinator design rests on.
 
 ### 2026-07-25 — A tenth task, specified before the first line of the plugin
 
