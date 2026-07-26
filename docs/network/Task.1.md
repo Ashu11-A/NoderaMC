@@ -80,7 +80,7 @@ roots is not a participant, and letting it in produces divergence with no clear 
 
 - Golden-fixture round-trip for every message; the Rust mirror re-encodes byte-exactly.
 - `MessageCodecTypeTagTest` snapshots the registry.
-- `SocketPeerTransportAuthTest` (4, real TCP): key-proven interop, legacy-hello refusal,
+- `SocketPeerTransportAuthTest` (5, real TCP): key-proven interop, legacy-hello refusal,
   forged-signature refusal, replay/malformed refusal.
 - `SocketPeerTransportBindTest`: a bind on a busy port throws `TransportException` and leaves **no**
   listener, while a port-0 bind still succeeds — the invariants the host's elastic retry relies on.

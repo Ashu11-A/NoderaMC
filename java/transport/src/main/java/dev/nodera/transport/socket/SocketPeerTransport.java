@@ -67,6 +67,19 @@ public final class SocketPeerTransport implements PeerTransport {
     /** Absolute cap on a single socket frame (guards against a hostile length prefix). */
     private static final int MAX_FRAME_BYTES = dev.nodera.transport.Frames.MAX_FRAME_BYTES;
 
+    /**
+     * How long a send waits for this connection's auth handshake to reach the point where an
+     * application frame may follow.
+     *
+     * <p>This bounds a wait on OUR OWN read loop being scheduled — it sees the remote's challenge
+     * and writes our signed hello — not a wait on the network. A dead or refusing peer no longer
+     * spends it at all: the reader's teardown releases the latch immediately. So the value only has
+     * to be generous enough for a badly starved machine, and 10 s was not — the full {@code check}
+     * gate at maximum parallelism starved this handshake and reported a transport timeout that was
+     * really a measurement of the scheduler.
+     */
+    static final int AUTH_HANDSHAKE_TIMEOUT_SECONDS = 30;
+
     private final NodeId self;
     private final String bindHost;
     /** Inclusive bind range; a single-port transport is simply a 1-wide range. */
@@ -447,6 +460,12 @@ public final class SocketPeerTransport implements PeerTransport {
          */
         private final java.util.concurrent.CountDownLatch authHelloWritten =
                 new java.util.concurrent.CountDownLatch(1);
+        /**
+         * Whether the latch above was released because the hello went out, rather than because the
+         * connection was torn down. Both paths release it — a waiter must never be left blocked on
+         * a handshake that can no longer happen — so this flag is what tells the two apart.
+         */
+        private volatile boolean authHelloSent;
 
         Connection(Socket socket, String remoteRoute) {
             this.socket = socket;
@@ -497,9 +516,17 @@ public final class SocketPeerTransport implements PeerTransport {
                 // hello as our second frame, so nothing may interleave before it. (The read half
                 // — verifying the REMOTE — gates delivery in readLoop, not sending.)
                 try {
-                    if (!authHelloWritten.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    if (!authHelloWritten.await(
+                            AUTH_HANDSHAKE_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)) {
                         closeQuietly();
                         throw new TransportException("auth handshake timed out to " + remoteRoute);
+                    }
+                    if (!authHelloSent) {
+                        // Released by the reader's teardown, not by the hello going out. Naming that
+                        // distinctly matters: a caller reading "timed out" goes looking for a slow
+                        // peer, and the peer is not slow — it is gone.
+                        throw new TransportException(
+                                "connection closed during the auth handshake to " + remoteRoute);
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -537,6 +564,7 @@ public final class SocketPeerTransport implements PeerTransport {
                     // block tears the connection down before the handler sees a single frame.
                     byte[] remoteChallenge = TransportAuth.parseChallenge(readFrame());
                     writeRaw(TransportAuth.encodeHello(identity, listenRouteOrEmpty(), remoteChallenge));
+                    authHelloSent = true;
                     authHelloWritten.countDown();
                     TransportAuth.VerifiedHello verified =
                             TransportAuth.verifyHello(readFrame(), localChallenge);
@@ -563,6 +591,10 @@ public final class SocketPeerTransport implements PeerTransport {
                 // the kernel buffer forever — ANY failure must tear the connection down.
             } finally {
                 closeQuietly();
+                // Release anyone blocked in writeFrame. The handshake cannot complete on a torn-down
+                // connection, and leaving them to wait the timeout out turns "the peer refused us"
+                // into "this caller stalls for half a minute".
+                authHelloWritten.countDown();
             }
         }
 
