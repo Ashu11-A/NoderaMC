@@ -509,6 +509,47 @@ reasons out of many. Compare the enums, not the prose.
 
 ---
 
+### The determinism soak does not yet exercise the validated lane (2026-07-26)
+
+Found by reading the suite's own numbers rather than its exit code, after restoring its executable
+bit (`e1a893e`) let it run for the first time. It reported **`PASS D3: zero divergences over 900s of
+three-client play`**, and that result is close to vacuous:
+
+```
+state-peer1.json: divergences=0 commits=0 votes_cast=0 regions=0    (all four peers)
+"rounds_driven": 197,
+"block_capture": {},
+"blocks_outside_palette": 1248240
+```
+
+Three facts together:
+
+1. **The peers hold no regions and cast no votes.** Zero divergence among nodes that validated
+   nothing is not evidence of determinism; it is evidence of idleness. Same root as `mesh-soak`'s
+   S3 skip and network L-30 — the seats live on the client lanes.
+2. **The edits never reach the capture path.** The soak drives play with
+   `execute at <player> run setblock ~dx ~ ~dz minecraft:stone`, and `BlockCaptureBridge` listens to
+   `BlockEvent.EntityPlaceEvent` / `BlockEvent.BreakEvent` — *entity*-driven events. An RCON
+   `setblock` is a direct world write and fires neither, which is why `block_capture` is `{}` after
+   197 rounds. The empty ledger is correct behaviour, not a defect.
+3. **The world is overwhelmingly outside the validated palette** (1.2 M blocks), so most of what the
+   extractor sees could not be consensus state anyway.
+
+**Consequence, and the reason this is worth writing down before spending the budget:** issue #67's
+clause 1 — a zero-unexplained-divergence soak — **cannot be satisfied by this suite as written**, at
+any duration. Dispatching the documented `SOAK_SECONDS=7200` acceptance run would cost two hours of
+CI and prove exactly what the 900 s run proved: that an idle lane does not diverge.
+
+What the suite needs before that spend is worthwhile:
+
+- **Player-driven edits**, so the capture path actually runs — the drive must place and break as a
+  player, not via `setblock`. The `pickup`/`mobs` drives already do player-driven actions; the
+  mechanism exists.
+- **Peers that hold regions**, so there are two inspectable replicas whose roots can disagree. That
+  is the same prerequisite L-30 has been waiting on, which makes it one fix serving two rows.
+
+---
+
 ### Issue closure sweep (2026-07-26)
 
 Six issues closed, and the reason they were open was **bookkeeping, not scope**. The 2026-07-25
