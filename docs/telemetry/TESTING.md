@@ -88,8 +88,9 @@ built binary and a compose smoke test.
 
 ## 5. What is not tested yet
 
-- The compose smoke job has **never run** — this machine has no Docker, so `stack-smoke` is written
-  and unexercised ([telemetry 2](Task.2.md) deliverable 8).
+- The compose smoke job is **green** (`stack-smoke`: a batch becomes a queryable ClickHouse row and
+  the warehouse schema carries no address column). What it does **not** yet assert is expiry — the
+  TTL is read from the schema rather than observed after a merge.
 - Retention TTL behaviour is asserted by reading the schema, not by running a merge.
 - The app's consent modal has no component test: "neither button is favoured" is held by the markup
   and by review ([app 5](../app/Task.5.md)).

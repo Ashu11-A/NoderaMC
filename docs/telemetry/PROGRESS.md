@@ -18,12 +18,32 @@ programme: [`../plans/Plan.6.md`](../plans/Plan.6.md).
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 83 Rust tests; clippy clean; the gate is at the receiver, and the shared reporter lives here too |
-| [2](Task.2.md) | The Big Data plane | 🚧 IN PROGRESS | Compose + warehouse + rollups landed; the smoke job is written but has never run (no Docker here) |
+| [2](Task.2.md) | The Big Data plane | 🚧 IN PROGRESS | Compose + warehouse + rollups landed; `stack-smoke` green in CI. Parquet export + TTL assertion remain |
 | [3](Task.3.md) | Analysis, dashboards, alerting, report | ⬜ NOT STARTED | The emitters exist now; what is missing is a **population** that has opted in |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — Four defects the smoke job found on its first four runs
+
+`stack-smoke` went green, and the way it got there is the note worth keeping: the compose stack was
+committed looking correct and was wrong in four independent ways, each of which only appeared when
+something actually ran it.
+
+1. The image pinned `rust:1.82`, the workspace's `rust-version` **floor**, not the 1.93.1 in
+   `rust-toolchain.toml` — a transitive dependency needed edition 2024 and the build died.
+2. `CREATE VIEW v_join_success` aliased `sumMerge(successes) AS successes`; inside one SELECT the
+   alias wins, so the percentage expression re-merged an already-merged `UInt64` and ClickHouse
+   rejected the entire schema file. The container then crash-looped.
+3. The healthcheck probed `/ping` with `wget`, which that image does not ship, so 150 s of retries
+   were spent on a command that could never succeed.
+4. The alpine ClickHouse variant does not start at all — `librt.so.1` missing on one host, a
+   restart loop on another.
+
+None of these would have been caught by review, and the third and fourth were invisible until
+`docker compose up` learned to fail fast (`--wait --wait-timeout`) instead of waiting on a
+crash-looping dependency until the job timed out and killed the log-collection step with it.
 
 ### 2026-07-25 — The senders arrive, and the outage lane is the proof
 
