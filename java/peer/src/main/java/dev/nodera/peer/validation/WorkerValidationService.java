@@ -608,6 +608,14 @@ public final class WorkerValidationService {
         if (from == null || !refused.add(refusal.region())) {
             return;
         }
+        // Say it out loud. A refusal that arrives from a peer used to be absorbed in silence: the
+        // region was revoked here and NOTHING recorded that it had been, so on a node that learned
+        // second the only trace was a region quietly no longer being validated. Worse, the local
+        // path logs only on the FIRST refusal, so once a peer's announcement had landed, the
+        // node's own later revocation of the same region printed nothing either — which is exactly
+        // what a live mob drive sees as "the lane said nothing".
+        LOG.info("entity lane revoked {} — {} (refusal received from {})",
+                refusal.region(), refusal.reason(), from);
         revokeRegion(refusal.region());
         replicas.remove(refusal.region());
     }
