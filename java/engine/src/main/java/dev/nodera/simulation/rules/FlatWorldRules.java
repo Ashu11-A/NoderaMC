@@ -275,6 +275,9 @@ public final class FlatWorldRules implements RuleSet {
      */
     private static final BitSet PLACEABLE = buildPlaceable();
 
+    /** Every id the palette knows — placeable or network-computed. */
+    private static final BitSet WHITELIST = buildWhitelist();
+
     private static BitSet buildPlaceable() {
         BitSet s = buildWhitelist();
         s.clear(LEVER_ON);
@@ -315,6 +318,25 @@ public final class FlatWorldRules implements RuleSet {
             s.set(e.id());
         }
         return s;
+    }
+
+    /**
+     * @return whether {@code id} is a palette entry at all. The live capture lane asks this to
+     *         decide whether a real block state is consensus state or a foreign write.
+     * @Thread-context pure function; safe from any thread.
+     */
+    public static boolean isKnown(int id) {
+        return id >= 0 && WHITELIST.get(id);
+    }
+
+    /**
+     * @return whether a player may PLACE {@code id}. Network-computed states (powered wire, an
+     *         extended piston, a pressed plate) are engine outputs: capturing a place of one would
+     *         let a client mint power.
+     * @Thread-context pure function; safe from any thread.
+     */
+    public static boolean isPlaceable(int id) {
+        return id >= 0 && PLACEABLE.get(id);
     }
 
     /**

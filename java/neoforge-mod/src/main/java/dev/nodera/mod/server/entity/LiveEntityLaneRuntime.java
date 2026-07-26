@@ -32,8 +32,13 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
-/** Live coordinator implementation behind {@link EntityCaptureBridge}. */
-public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime, AutoCloseable {
+/**
+ * Live coordinator implementation behind {@link EntityCaptureBridge} and
+ * {@link dev.nodera.mod.server.shadow.BlockCaptureBridge}. One runtime, one signed-submit path:
+ * an entity action and a block action differ in payload, never in how they reach the lane.
+ */
+public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.Sink, AutoCloseable {
 
     private static final org.slf4j.Logger LOG =
             org.slf4j.LoggerFactory.getLogger("NoderaEntityLane");
@@ -89,6 +94,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     /** Expose event capture only after region state and durable recovery are ready. */
     public void install() {
         EntityCaptureBridge.get().runtime(this);
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.get().sink(this);
         // Entities whose chunks predate activation (spawn chunks, restored worlds) joined against
         // the disabled runtime — adopt them now that capture is live. install() may run on the
         // async bootstrap thread; entity iteration belongs on the server thread.
@@ -174,6 +180,18 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                     id, player.getGameProfile().getName(), region);
         }
         return committed;
+    }
+
+    /**
+     * The block-capture lane's entry point (minecraft Task 2 deliverable 1). Block actions take the
+     * identical signed path as entity actions — nothing about a place or a break is special once it
+     * is an {@link ActionEnvelope} — and vanilla is never cancelled for them, so there is no
+     * {@code VanillaCancelGate} check here: the player's own edit already happened.
+     */
+    @Override
+    public boolean submitBlockAction(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
+        return submit(player, region, action);
     }
 
     private boolean submit(
@@ -387,6 +405,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     @Override
     public void close() {
         EntityCaptureBridge.get().uninstall(this);
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.get().uninstall(this);
         for (RegionId region : regions) {
             dev.nodera.mod.server.redstone.RedstoneSuppression.deactivate(
                     region.regionX(), region.regionZ());
