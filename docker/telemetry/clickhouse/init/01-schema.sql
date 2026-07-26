@@ -171,15 +171,20 @@ GROUP BY day, phase, rules_version, fingerprint, agent;
 -- ---------------------------------------------------------------------------------------------
 CREATE VIEW IF NOT EXISTS nodera.v_events_hourly AS
 SELECT hour, source, event, country, agent,
-       countMerge(events)   AS events,
-       uniqMerge(subjects)  AS subjects
+       countMerge(events)  AS event_count,
+       uniqMerge(subjects) AS subject_count
 FROM nodera.events_hourly
 GROUP BY hour, source, event, country, agent;
 
+-- The output columns are deliberately NOT named after the aggregate-state columns they merge.
+-- `sumMerge(successes) AS successes` shadows the column inside the same SELECT, so the percentage
+-- expression below would re-merge the already-merged UInt64 and the view would fail to create with
+-- "Illegal type UInt64 of argument for aggregate function with Merge suffix". That is exactly how
+-- this schema failed the first time CI ran it.
 CREATE VIEW IF NOT EXISTS nodera.v_join_success AS
 SELECT hour, country, path,
-       countMerge(attempts)                                   AS attempts,
-       sumMerge(successes)                                    AS successes,
-       round(100 * sumMerge(successes) / countMerge(attempts), 1) AS success_percent
+       countMerge(attempts) AS attempt_count,
+       sumMerge(successes)  AS success_count,
+       round(100 * success_count / nullIf(attempt_count, 0), 1) AS success_percent
 FROM nodera.join_outcomes_hourly
 GROUP BY hour, country, path;
