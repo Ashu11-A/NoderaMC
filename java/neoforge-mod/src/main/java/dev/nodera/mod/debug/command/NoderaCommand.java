@@ -109,6 +109,9 @@ public final class NoderaCommand {
                                 .then(literal("off").executes(ctx -> verbose(ctx, false))))
                         .then(literal("relay").executes(NoderaCommand::relay))
                         .then(literal("capture").executes(NoderaCommand::capture))
+                        .then(literal("drive")
+                                .then(argument("edits", IntegerArgumentType.integer(1, 512))
+                                        .executes(NoderaCommand::driveEdits)))
                         .then(literal("extract").executes(NoderaCommand::extract))));
 
         // Issue #46: /tps (OP) — this server's live TPS + per-player round-trip latency (the
@@ -461,6 +464,65 @@ public final class NoderaCommand {
      * bandwidth/interference numbers — "nothing was captured" and "everything was captured" look
      * identical from inside the game without it.
      */
+    /**
+     * Drive N validated block edits as the calling player (minecraft L-80 / issue #67 clause 1).
+     *
+     * <p><b>Why this exists.</b> The block-capture path is entity-driven on purpose:
+     * {@code BlockCaptureBridge} listens to {@code EntityPlaceEvent}/{@code BreakEvent} and submits
+     * only when the placer is a {@link ServerPlayer}, because the player's key is what signs the
+     * action. That is correct, and it makes the path <b>undrivable from a script</b>: an RCON
+     * {@code /setblock} is a direct world write and fires neither event. The determinism soak drove
+     * 197 rounds of {@code setblock} and recorded an empty capture ledger for exactly that reason,
+     * so its "zero divergences" measured an idle lane — no duration of soak would have fixed it.
+     *
+     * <p><b>What it does and does not stand in for.</b> It calls the same
+     * {@code submitBlockAction} entry point the bridge calls, with the same actor, so everything
+     * downstream is real: the signature, the admission rule, the forward-to-primary routing, the
+     * proposal and the commit. What it skips is the NeoForge event plumbing upstream of that call —
+     * which is covered by ordinary play and by {@code e2e-commands}. It is OP-gated and places into
+     * the caller's own region, so it can assert nothing a player could not do themselves.
+     */
+    private static int driveEdits(CommandContext<CommandSourceStack> ctx) {
+        ServerPlayer player;
+        try {
+            player = ctx.getSource().getPlayerOrException();
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException notAPlayer) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "/nodera debug drive must be run BY a player: the action is signed with that "
+                            + "player's key, and there is no such key for the console"));
+            return 0;
+        }
+        var lane = dev.nodera.mod.common.NoderaHost.entityLaneRuntime();
+        if (lane == null) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "no entity lane on this node — nothing would capture the edits"));
+            return 0;
+        }
+        int edits = IntegerArgumentType.getInteger(ctx, "edits");
+        var level = player.serverLevel();
+        int accepted = 0;
+        for (int i = 0; i < edits; i++) {
+            // Alternate stone and air at a position beside the player: a place and a break, which
+            // is what the capture ledger distinguishes.
+            net.minecraft.core.BlockPos pos = player.blockPosition()
+                    .offset(1 + (i % 3), 0, 1 + ((i / 3) % 3));
+            boolean place = (i % 2) == 0;
+            net.minecraft.world.level.block.state.BlockState state = place
+                    ? net.minecraft.world.level.block.Blocks.STONE.defaultBlockState()
+                    : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+            level.setBlockAndUpdate(pos, state);
+            if (dev.nodera.mod.server.shadow.BlockCaptureBridge.get()
+                    .driveAsPlayer(player, pos, state, place)) {
+                accepted++;
+            }
+        }
+        int captured = accepted;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "drove " + edits + " edit(s) through the capture path — " + captured
+                        + " submitted to the lane"), false);
+        return 1;
+    }
+
     private static int capture(CommandContext<CommandSourceStack> ctx) {
         var outcomes = dev.nodera.mod.server.shadow.BlockCaptureBridge.get().outcomes();
         long total = outcomes.values().stream().mapToLong(Long::longValue).sum();
