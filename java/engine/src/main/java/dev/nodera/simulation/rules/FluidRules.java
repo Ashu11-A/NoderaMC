@@ -190,6 +190,67 @@ public final class FluidRules {
         }
     }
 
+    /**
+     * Schedule the owned cells a neighbour's fluid is about to flow into (engine L-2, the
+     * cross-region half).
+     *
+     * <p>A fluid reaching a region edge emits a {@code BorderSignal} and stops, because the engine
+     * never mutates halo. The receiving side is what was missing: its own automaton would flow
+     * correctly, but nothing ever scheduled a tick at the cell to make it look. Nothing did, because
+     * with an empty halo that cell reads air next to air and there is genuinely nothing to do.
+     *
+     * <p>With a backed halo the answer is derivable from the request alone — no message, no
+     * delivery, nothing for two replicas to disagree about: walk the halo columns this batch was
+     * given, and wherever one holds fluid, schedule the adjacent owned cell to re-evaluate. The
+     * cell then decides for itself through {@link #desiredAt}, exactly as an interior cell does, so
+     * a neighbour can cause a look but never dictate a result.
+     *
+     * <p>Walking the halo rather than the boundary is deliberate: the halo is a few dozen columns
+     * and the owned boundary is ~200k cells, and an empty halo — every single-region path, every
+     * fixture — costs one branch.
+     *
+     * @param state the working state, whose halo carries the neighbour slices.
+     * @param tick  the tick the inflow is scheduled from.
+     * @return how many owned cells were scheduled.
+     */
+    public static int seedBorderInflow(MutableRegionState state, long tick) {
+        dev.nodera.simulation.border.RegionHalo halo = state.halo();
+        if (halo == null || halo.isEmpty()) {
+            return 0;
+        }
+        int scheduled = 0;
+        for (dev.nodera.core.state.ChunkColumnState column : halo.backing()) {
+            for (int section = 0; section < column.sectionCount(); section++) {
+                // The snapshot model is section-uniform, so one read per section answers the whole
+                // column: a fluid anywhere in the section means the section IS that fluid.
+                int id = column.blockAt(section, 0, 0, 0);
+                if (!isFluid(id)) {
+                    continue;
+                }
+                int y = column.minY() + section * 16;
+                for (int[] step : new int[][]{{16, 0}, {-16, 0}, {0, 16}, {0, -16}}) {
+                    NBlockPos target = new NBlockPos(
+                            column.chunkX() * 16 + step[0], y, column.chunkZ() * 16 + step[1]);
+                    if (!state.inOwnedRegion(target)) {
+                        continue;
+                    }
+                    int current = state.getBlock(target);
+                    if (current != FlatWorldRules.AIR
+                            || desiredAt(state, target, FlatWorldRules.AIR) == FlatWorldRules.AIR) {
+                        continue;
+                    }
+                    NBlockPos pos = target;
+                    if (state.scheduledTicks().stream().anyMatch(e -> e.pos().equals(pos))) {
+                        continue;
+                    }
+                    state.scheduleTick(target, current, tick + delayOf(isWater(id)), 0);
+                    scheduled++;
+                }
+            }
+        }
+        return scheduled;
+    }
+
     /** The cell's settled fluid state as a pure function of its neighborhood. */
     static int desiredAt(MutableRegionState state, NBlockPos pos, int current) {
         if (current == FlatWorldRules.WATER_SOURCE || current == FlatWorldRules.LAVA_SOURCE) {
