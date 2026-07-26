@@ -166,6 +166,14 @@ fi
 
 # --- D4: the numbers issue #5 asks to record -----------------------------------------------------
 log "D4: recording the bandwidth + interference numbers"
+# The in-game half of the numbers. The worker STATE knows what the mesh did; only the game knows how
+# much of the world the palette could express and how much of it moved without an action behind it.
+# Both are read AFTER the soak so they describe the run rather than its first tick.
+rcon "nodera debug capture" > "$RESULTS_DIR/capture-ledger.txt" 2>&1 || true
+rcon "execute as ${PLAYERS[0]} at ${PLAYERS[0]} run nodera debug extract" \
+    > "$RESULTS_DIR/extraction.txt" 2>&1 || true
+transcript "=== block capture ledger$(printf '\n')$(cat "$RESULTS_DIR/capture-ledger.txt")"
+
 python3 - "$RESULTS_DIR" "$SOAK_SECONDS" "$round" "${stalls:-0}" "${worst:-0}" <<'PYEOF' | tee -a "$RESULTS_DIR/determinism.log"
 import glob, json, os, sys
 results, seconds = sys.argv[1], int(sys.argv[2])
@@ -189,9 +197,41 @@ for path in sorted(glob.glob(os.path.join(results, "state-*.json"))):
         "bytes_up": t.get("bytes_sent") or t.get("uploaded_bytes"),
         "bytes_down": t.get("bytes_received") or t.get("downloaded_bytes"),
     })
+def read(name):
+    try:
+        with open(os.path.join(results, name)) as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+# `/nodera debug capture` prints "REASON: n" per outcome; the reasons are the ledger's own words
+# (CAPTURED, REGION_NOT_DELEGATED, BLOCK_UNSUPPORTED, ...), so parsing them keeps the JSON honest
+# even when a new reason is added.
+capture = {}
+for line in read("capture-ledger.txt").splitlines():
+    parts = line.strip().split(":")
+    if len(parts) == 2 and parts[0].strip().isupper() and parts[1].strip().isdigit():
+        capture[parts[0].strip()] = int(parts[1].strip())
+
+extraction = {}
+for line in read("extraction.txt").splitlines():
+    line = line.strip()
+    for label, key in (("blocks outside the palette", "blocks_outside_palette"),
+                       ("dense sections", "dense_sections"),
+                       ("drift from committed state", "drift_blocks")):
+        if line.startswith(label):
+            digits = "".join(c if c.isdigit() else " " for c in line[len(label):]).split()
+            if digits:
+                extraction[key] = int(digits[0])
+
 summary = {
     "soak_seconds": seconds,
     "rounds_driven": rounds,
+    # Issue #5 acceptance 2 and 6: what the capture lane saw, and how far the world drifted from
+    # committed state. An empty capture ledger is itself a reading — see L-80.
+    "block_capture": capture,
+    "extraction": extraction,
     # The load the box could actually carry, recorded because a soak that drove 12 rounds in 900 s
     # is a different experiment from one that drove 180, and the divergence number means less
     # without it.
