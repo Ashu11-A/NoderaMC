@@ -1042,6 +1042,16 @@ public final class NoderaHost {
         return entityLane == null ? null : entityLane.runtime().validation().relayMetrics();
     }
 
+    /**
+     * The live lane runtime, or null without an active lane. Read by the diagnostics commands that
+     * need the committed state itself rather than a metric derived from it
+     * ({@code /nodera debug extract} compares a live extraction against it).
+     */
+    public static synchronized dev.nodera.mod.server.entity.LiveEntityLaneRuntime
+            entityLaneRuntime() {
+        return entityLane == null ? null : entityLane.runtime();
+    }
+
     /** Stop local validation resources without changing the world's shared flag. */
     public static synchronized void onServerStopping(MinecraftServer server) {
         // The game endpoint dies with the game. Tell the worker so the world stays LISTED on the

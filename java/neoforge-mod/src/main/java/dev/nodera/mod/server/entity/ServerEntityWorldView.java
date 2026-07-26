@@ -124,7 +124,40 @@ public final class ServerEntityWorldView implements MutableWorldView {
 
     @Override
     public void setBlock(RegionId region, NBlockPos pos, int stateId) {
+        int previous = canonical.getBlock(region, pos);
         canonical.setBlock(region, pos, stateId);
+        if (previous == stateId) {
+            return;
+        }
+        // The apply half of the block lane (minecraft Task 2 deliverable 3): a committed block
+        // mutation has to become a block a player can see. Projections are staged exactly like item
+        // projections and run after the canonical scope commits — the world is never written from a
+        // mutation that then aborts. Outside a scope (snapshot load, recovery) canonical is the only
+        // thing being rebuilt, so there is nothing to project.
+        if (stagedEffects != null) {
+            stagedEffects.add(() -> projectBlock(region, pos, stateId));
+        }
+    }
+
+    /**
+     * Write one committed palette state into the live world. An id the running game cannot express
+     * — a resource pack or version skew the binding did not anticipate — is skipped with a log line
+     * rather than guessed at: a wrong block is a divergence, a missing one is visible interference.
+     */
+    private void projectBlock(RegionId region, NBlockPos pos, int stateId) {
+        ServerLevel level = levels.get(region);
+        if (level == null) {
+            return;
+        }
+        var state = dev.nodera.mod.server.shadow.PaletteMapper.stateOf(stateId);
+        if (state.isEmpty()) {
+            org.slf4j.LoggerFactory.getLogger("NoderaBlockApply").warn(
+                    "committed state id {} has no vanilla projection in this game — block at "
+                            + "{},{},{} left as it was", stateId, pos.x(), pos.y(), pos.z());
+            return;
+        }
+        level.setBlock(new net.minecraft.core.BlockPos(pos.x(), pos.y(), pos.z()), state.get(),
+                net.minecraft.world.level.block.Block.UPDATE_ALL);
     }
 
     @Override
