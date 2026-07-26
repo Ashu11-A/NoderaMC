@@ -29,7 +29,14 @@ class EndpointPeerLinkTest {
         private final AtomicBoolean running = new AtomicBoolean(true);
         private final List<String> received = Collections.synchronizedList(new ArrayList<>());
 
-        StandInWorker(String reply) throws IOException {
+        private volatile java.util.function.Supplier<String> reply;
+
+        StandInWorker(String fixedReply) throws IOException {
+            this(() -> fixedReply);
+        }
+
+        StandInWorker(java.util.function.Supplier<String> reply) throws IOException {
+            this.reply = reply;
             server = new ServerSocket(0);
             thread = new Thread(() -> {
                 while (running.get()) {
@@ -44,7 +51,7 @@ class EndpointPeerLinkTest {
                             received.add(request);
                         }
                         OutputStream os = socket.getOutputStream();
-                        os.write((reply + "\n").getBytes(StandardCharsets.UTF_8));
+                        os.write((this.reply.get() + "\n").getBytes(StandardCharsets.UTF_8));
                         os.flush();
                     } catch (IOException stopping) {
                         return;
@@ -57,6 +64,11 @@ class EndpointPeerLinkTest {
 
         int port() {
             return server.getLocalPort();
+        }
+
+        /** Stop answering like a worker, without closing the port. */
+        void goAway() {
+            reply = () -> "NODERA-ERR gone";
         }
 
         List<String> received() {
@@ -131,19 +143,22 @@ class EndpointPeerLinkTest {
     @DisplayName("losing a linked worker says so once, and says the world stays playable")
     void losingTheWorkerIsReportedOnce() throws Exception {
         List<String> logs = new ArrayList<>();
-        EndpointPeerLink link;
-        int port;
+        // The worker stops ANSWERING rather than being closed. Closing it frees an ephemeral port,
+        // and a later test binding the same number made this assertion see somebody else's
+        // NODERA-OK — green locally, red on a busy CI runner. What is under test is the state
+        // change, not the socket's lifetime.
         try (StandInWorker worker = new StandInWorker("NODERA-OK 2")) {
-            port = worker.port();
-            link = new EndpointPeerLink(ControlClient.loopback(port), logs::add, 1_000);
+            EndpointPeerLink link = new EndpointPeerLink(
+                    ControlClient.loopback(worker.port()), logs::add, 1_000);
             assertThat(link.probeOnce()).isTrue();
-        }
-        // The worker is gone now.
-        assertThat(link.probeOnce()).isFalse();
-        assertThat(link.probeOnce()).isFalse();
 
-        assertThat(logs).hasSize(2);
-        assertThat(logs.get(1)).contains("lost the Nodera worker").contains("stays playable");
+            worker.goAway();
+            assertThat(link.probeOnce()).isFalse();
+            assertThat(link.probeOnce()).isFalse();
+
+            assertThat(logs).hasSize(2);
+            assertThat(logs.get(1)).contains("lost the Nodera worker").contains("stays playable");
+        }
     }
 
     @Test
