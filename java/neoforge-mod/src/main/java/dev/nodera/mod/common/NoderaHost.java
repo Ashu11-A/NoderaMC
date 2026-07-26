@@ -679,12 +679,15 @@ public final class NoderaHost {
             return 0;
         }
         int sent = 0;
+        int candidates = 0;
+        int failed = 0;
         for (EntityLaneBootstrap.PlannedRegion planned : plan) {
             for (NodeId validator : planned.lease().validators()) {
                 dev.nodera.protocol.membership.PeerEntry entry = residents.get(validator);
                 if (entry == null) {
                     continue; // a player's node, not a resident — it gets the client payload
                 }
+                candidates++;
                 // Committee order is primary-first: the worker rebuilds the lease from it.
                 List<NodeId> committee = new ArrayList<>();
                 committee.add(planned.lease().primary());
@@ -700,9 +703,27 @@ public final class NoderaHost {
                                             planned.lease().expiresAtTick(), committee)));
                     sent++;
                 } catch (RuntimeException unreachable) {
+                    failed++;
                     LOG.debug("Nodera: could not seat resident {} on {}: {}",
                             entry.nodeId(), planned.region(), unreachable.toString());
                 }
+            }
+        }
+        // Say which of the two things happened, because "0 seats" has meant both and they are
+        // different bugs. A resident present in the session but in NO committee means the plan
+        // never chose it; a resident chosen but unreachable means the send failed. Network L-30 has
+        // been read as "the live mesh never carries validated state" while the log could not
+        // distinguish those, and the per-peer failure was only ever logged at DEBUG — invisible in
+        // every run anyone actually reads.
+        if (sent == 0 && !residents.isEmpty()) {
+            if (candidates == 0) {
+                LOG.info("Nodera: {} resident peer(s) in the session but none was chosen for any "
+                                + "committee across {} planned region(s) — the plan seated players "
+                                + "only, so no always-on peer will validate this world",
+                        residents.size(), plan.size());
+            } else {
+                LOG.warn("Nodera: {} resident seat(s) were planned but every dispatch failed — the "
+                                + "world runs with smaller committees than planned", failed);
             }
         }
         return sent;
