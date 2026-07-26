@@ -96,7 +96,20 @@ public final class EntityCaptureBridge {
     private final java.util.Set<RegionId> observedRegions = new java.util.HashSet<>();
     private final Queue<Entity> deferredJoins = new ArrayDeque<>();
     private final ThreadLocal<Integer> materializationDepth = ThreadLocal.withInitial(() -> 0);
-    private Runtime runtime = Runtime.DISABLED;
+    /**
+     * The installed coordinator, or {@link Runtime#DISABLED}.
+     *
+     * <p><b>volatile, and that is the whole bug.</b> It is written by
+     * {@link LiveEntityLaneRuntime#install()} on the {@code nodera-entity-lane-boot} thread and read
+     * on the server thread by every capture. Without the write barrier the server thread is free to
+     * go on reading its cached {@code DISABLED} for as long as it likes — and {@code DISABLED}
+     * answers every method by doing nothing, so capture and revocation both vanish with no
+     * exception and no log line anywhere. Three dispatched runs of `e2e-mobs.sh` chased that as
+     * "the lane said nothing" (L-60): the diagnostic finally showed the lane observing nether
+     * regions and deciding {@code capture=false} correctly, then calling into a runtime that was
+     * not there.
+     */
+    private volatile Runtime runtime = Runtime.DISABLED;
 
     private EntityCaptureBridge() {
     }
