@@ -53,6 +53,18 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     private final NodeIdentity authority;
     private final DurableActionJournal actions;
     private final InterferenceBuffer interference = new InterferenceBuffer();
+    private final dev.nodera.coordinator.interference.InterferenceStats interferenceStats =
+            new dev.nodera.coordinator.interference.InterferenceStats();
+    /**
+     * The live write choke point's guard. CONVERT is the only defensible default in a real game:
+     * blocking a foreign write means another mod's block silently fails to appear, while converting
+     * it means the region certifies what actually happened (Task 11).
+     */
+    private final dev.nodera.coordinator.interference.MutationGuard writeGuard =
+            new dev.nodera.coordinator.interference.MutationGuard(
+                    this::delegated,
+                    dev.nodera.coordinator.interference.MutationGuard.Mode.CONVERT,
+                    interference, interferenceStats);
     private final InterferenceCommitter committer;
     private final EntityLaneSoakMetrics metrics = new EntityLaneSoakMetrics();
     private final Set<RegionId> regions = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -98,6 +110,10 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     public void install() {
         EntityCaptureBridge.get().runtime(this);
         dev.nodera.mod.server.shadow.BlockCaptureBridge.get().sink(this);
+        // The choke point is inert until this line: a server validating nothing pays one null
+        // check per block write.
+        dev.nodera.mod.server.shadow.BlockWriteGuard.install(writeGuard);
+        world.applierScope(writeGuard::applierScope);
         // Entities whose chunks predate activation (spawn chunks, restored worlds) joined against
         // the disabled runtime — adopt them now that capture is live. install() may run on the
         // async bootstrap thread; entity iteration belongs on the server thread.
@@ -350,6 +366,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         currentTick = server.getTickCount();
         world.retryPendingCredits(server);
         metrics.recordGhostMobTicks(ghosts.size());
+        interferenceStats.advanceTick();
         for (RegionId region : regions) {
             validation.currentSnapshot(region).ifPresent(snapshot ->
                     committer.onCommittedVersion(region, snapshot.version()));
@@ -414,6 +431,10 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     public void close() {
         EntityCaptureBridge.get().uninstall(this);
         dev.nodera.mod.server.shadow.BlockCaptureBridge.get().uninstall(this);
+        if (dev.nodera.mod.server.shadow.BlockWriteGuard.guard() == writeGuard) {
+            dev.nodera.mod.server.shadow.BlockWriteGuard.install(null);
+        }
+        world.applierScope(null);
         for (RegionId region : regions) {
             dev.nodera.mod.server.redstone.RedstoneSuppression.deactivate(
                     region.regionX(), region.regionZ());

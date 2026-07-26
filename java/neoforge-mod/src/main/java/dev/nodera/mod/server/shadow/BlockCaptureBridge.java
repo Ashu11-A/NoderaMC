@@ -29,8 +29,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p><b>Events, not mixins.</b> {@code BlockEvent.EntityPlaceEvent} and {@code BlockEvent.BreakEvent}
  * carry everything the lane needs — who, where, from what, to what — so this bridge adds no surface
- * to A-7 (version churn). Listeners run at the <b>lowest</b> priority so every other mod has already
- * had its say: we capture what the world actually agreed to, not what someone proposed.
+ * to A-7 (version churn). Listeners run at {@code EventPriority.LOW} and never receive cancelled
+ * events, which is the priority {@code COMPATIBILITY.md} §1 makes normative: a protection or claims
+ * mod at any earlier priority always wins, and Nodera captures what the world actually agreed to
+ * rather than what someone proposed.
  *
  * <p><b>Capture, never cancel.</b> Vanilla keeps its outcome and the player sees their own edit
  * immediately; the network validates afterwards. This is the {@code VanillaCancelGate} contract read
@@ -93,8 +95,8 @@ public final class BlockCaptureBridge {
 
     /** Subscribe the listeners once, at mod construction — capture stays inert until a lane installs. */
     public void register() {
-        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOWEST, this::onPlace);
-        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOWEST, this::onBreak);
+        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOW, this::onPlace);
+        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOW, this::onBreak);
     }
 
     /** Install the active lane; {@code null} restores the disabled sink. */

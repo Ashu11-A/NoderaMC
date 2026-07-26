@@ -3,7 +3,9 @@
 This file is **normative**: it fixes what other mods (and modpacks) can rely on when running
 alongside NoderaMC, and what they must not do. Referenced from `docs/Plan.md`; owned by Task 11.
 The enforcement mechanism is the interference guard (`MutationGuard` — the single
-`setBlockState` choke point on delegated chunks) plus the delegability policy.
+`setBlockState` choke point on delegated chunks) plus the delegability policy. The choke point is
+live: `LevelChunkMixin` routes every block write in the game through `BlockWriteGuard`, which is
+inert (one field read) on any server that is not validating a region.
 
 ## 1. Event ordering
 
@@ -15,12 +17,18 @@ it existed.
 ## 2. Fake players
 
 Fake players (machine-operated block breakers/placers) never become Nodera actors and never join
-committees. Their effects on delegated regions are foreign writes: converted into certified
+committees — block capture refuses them by name (`BlockCaptureRules.Reason.FAKE_PLAYER`), so a
+machine's edit is never signed as somebody's player action. Their effects on delegated regions are foreign writes: converted into certified
 external deltas (`ServerAuthorityCertificate` reason `EXTERNAL_MUTATION`) in CONVERT mode. A
 region with recurring fake-player activity is demoted (`FAKE_PLAYER_ACTIVE`) and runs pure
 vanilla — the machines keep working; the region simply is not validated.
 
 ## 3. Unknown blocks
+
+The binding between the vanilla registry and the palette is `VanillaPalette`; `PaletteMapper` reads
+a live `BlockState` through it, and a block with no binding reads as **unsupported** everywhere the
+lane looks (capture refuses it, extraction counts it and records air, the write guard compares it as
+air).
 
 Any block outside the Nodera palette makes its region **and its neighbor ring**
 (`DELEGABLE_NEIGHBOR_RING`) non-delegable (`UNSUPPORTED_PALETTE` / `NEIGHBOR_UNSUPPORTED`).

@@ -31,9 +31,12 @@ import java.util.Comparator;
  */
 public final class ChunkTicketService {
 
-    /** Session-scoped ticket type; never persisted, so a crash cannot leave a world pinned. */
-    private static final TicketType<ChunkPos> NODERA_REGION =
-            TicketType.create("nodera_region", Comparator.comparingLong(ChunkPos::toLong));
+    /**
+     * The ticket type {@code COMPATIBILITY.md} §5 names: Nodera adds and removes only its own type
+     * and never cancels a foreign ticket. Session-scoped, so a crash cannot leave a world pinned.
+     */
+    private static final TicketType<ChunkPos> NODERA_DELEGATED =
+            TicketType.create("nodera_delegated", Comparator.comparingLong(ChunkPos::toLong));
 
     /** Fully loaded and block-ticking — a region cannot be validated while the game skips it. */
     private static final int TICKET_RADIUS = 1;
@@ -66,11 +69,11 @@ public final class ChunkTicketService {
         }
         for (RegionChunkHolds.ChunkRef chunk : delta.newlyHeld()) {
             ChunkPos pos = new ChunkPos(chunk.chunkX(), chunk.chunkZ());
-            level.getChunkSource().addRegionTicket(NODERA_REGION, pos, TICKET_RADIUS, pos);
+            level.getChunkSource().addRegionTicket(NODERA_DELEGATED, pos, TICKET_RADIUS, pos);
         }
         for (RegionChunkHolds.ChunkRef chunk : delta.released()) {
             ChunkPos pos = new ChunkPos(chunk.chunkX(), chunk.chunkZ());
-            level.getChunkSource().removeRegionTicket(NODERA_REGION, pos, TICKET_RADIUS, pos);
+            level.getChunkSource().removeRegionTicket(NODERA_DELEGATED, pos, TICKET_RADIUS, pos);
         }
     }
 }
