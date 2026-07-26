@@ -832,31 +832,29 @@ public final class NoderaHost {
                             dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
                             entry.publicKey()));
                 }
-                // L-60: OPEN THE LANE EVEN WITH NO REGIONS. This branch used to skip activation
-                // entirely when the plan gave this node nothing, which is the common case for a
-                // dedicated server under field-of-view ownership — and it is also the case in which
-                // this node is the ONLY one that can see what happens in the world. Skipping left
-                // `EntityCaptureBridge.runtime` at DISABLED, which answers every method by doing
-                // nothing: no ghost capture, no item capture, and no revocation, with no exception
-                // anywhere to say so. Five dispatched `e2e-mobs.sh` runs read that as "the lane
-                // said nothing"; the log line that finally named it was
-                // `LANE: Region[minecraft:the_nether @ 0,0] observed (… runtime=DISABLED)`.
+                // L-60, and the reason this is NOT "open the lane anyway": a node that owns no
+                // regions must still be able to refuse what it cannot validate, but opening a full
+                // `LiveEntityLaneSession` on every re-plan is not the way to give it that. Tried
+                // and measured — a dispatched `e2e-mobs.sh` run stalled the server for over 720 s
+                // after a nether crossing, because every boundary crossing re-plans and each
+                // re-plan then opened and closed a RocksDB store for a session holding nothing.
                 //
-                // An observer session holds no replicas — `delegated()` stays false, so nothing is
-                // captured as validated state — but it can refuse a region it cannot validate and
-                // announce that refusal, and it can forward what it captures to the owners. That is
-                // exactly the role this row describes.
-                activateEntityLane(server, manifest, bindings, peers);
+                // What the observer needs is a LIGHTWEIGHT runtime on the capture bridge — one that
+                // can refuse a region and forward what it captures, with no store, no journals and
+                // no replicas — rather than the full session. That is the shape of the fix; the
+                // measurement above is why it has to be that shape.
                 if (!bindings.isEmpty()) {
+                    activateEntityLane(server, manifest, bindings, peers);
                     LOG.info("Nodera: entity lane live on {} region(s) across {} member node(s) "
                                     + "+ {} resident peer(s) holding {} committee seat(s) (genesis {})",
                             bindings.size(), views.size(), residents.size(), seats,
                             manifest.genesisRoot().toShortHex(4));
                 } else {
-                    LOG.info("Nodera: entity lane live as an OBSERVER — no regions fall to this "
-                                    + "node in the new plan ({} member node(s), {} resident "
-                                    + "peer(s)); it can still refuse what it cannot validate and "
-                                    + "forward what it captures", views.size(), residents.size());
+                    LOG.info("Nodera: no regions fall to this node in the new plan "
+                                    + "({} member node(s), {} resident peer(s)) — broadcasting it "
+                                    + "for the owners. NOTE: the capture bridge has no runtime "
+                                    + "while this is true, so nothing on this node captures or "
+                                    + "refuses (L-60)", views.size(), residents.size());
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.
