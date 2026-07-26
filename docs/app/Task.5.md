@@ -7,7 +7,7 @@
      ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** L-78 · **Last audit:** 2026-07-25
+**Category:** app · **Owns:** — (L-78 RETIRED 2026-07-26) · **Last audit:** 2026-07-26
 **Depends on:** [worker 5](../worker/Task.5.md), [app 2](Task.2.md)
 **Consumed by:** every player; [telemetry 3](../telemetry/Task.3.md)
 
@@ -121,5 +121,10 @@ omission.
 
 ## Limitations
 
-Owns **L-78** — the disclosure's fallback copy of the registry can be stale relative to the ingest
-service a user actually reports to. Registered in [`LIMITATIONS.md`](LIMITATIONS.md).
+**L-78 is RETIRED** (2026-07-26). Reading the code while retiring it turned up something worse than
+the row claimed: there was no fallback at all — an unreachable collector returned an error, blanking
+the disclosure mid-decision. The registry now lives in the `nodera-telemetry` **library** (one source
+for the service's live answer and the app's bundled copy, because a privacy notice maintained twice
+drifts and the stale copy is the one people read), and every copy carries `registry_version` +
+`disclosure_source`, so a fallback is labelled and a stale one is visibly stale. Evidence in
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

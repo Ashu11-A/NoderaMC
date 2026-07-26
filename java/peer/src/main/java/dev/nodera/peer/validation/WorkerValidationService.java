@@ -150,7 +150,13 @@ public final class WorkerValidationService {
     private record Round(VoteCollector collector, RegionLease lease, StateRoot batchRoot,
                          StateRoot ownRoot,
                          CountDownLatch done,
-                          AtomicReference<Decision> decision) {
+                          AtomicReference<Decision> decision,
+                         java.util.Map<NodeId, StateRoot> votes) {
+        Round(VoteCollector collector, RegionLease lease, StateRoot batchRoot, StateRoot ownRoot,
+              CountDownLatch done, AtomicReference<Decision> decision) {
+            this(collector, lease, batchRoot, ownRoot, done, decision,
+                    new java.util.concurrent.ConcurrentHashMap<>());
+        }
     }
 
     /** One in-flight dual-committee transfer-accept round. */
@@ -599,9 +605,30 @@ public final class WorkerValidationService {
     }
 
     private void onRegionRefusal(PeerAddress from, RegionRefusal refusal) {
-        if (from == null || !refused.add(refusal.region())) {
+        if (from == null) {
             return;
         }
+        if (refusal.reason() == RegionRefusal.Reason.UNKNOWN) {
+            // A peer newer than this build refused the region for a cause this build cannot name.
+            // A refusal is advisory — the rule is that the recipient re-checks the condition
+            // against its own config before revoking — and a condition it cannot name is one it
+            // cannot re-check, so declining is the only correct response. Logged, not silent: a
+            // node revoking nothing because it is out of date should say so.
+            LOG.info("ignoring a refusal of {} from {}: the reason is newer than this build",
+                    refusal.region(), from);
+            return;
+        }
+        if (!refused.add(refusal.region())) {
+            return;
+        }
+        // Say it out loud. A refusal that arrives from a peer used to be absorbed in silence: the
+        // region was revoked here and NOTHING recorded that it had been, so on a node that learned
+        // second the only trace was a region quietly no longer being validated. Worse, the local
+        // path logs only on the FIRST refusal, so once a peer's announcement had landed, the
+        // node's own later revocation of the same region printed nothing either — which is exactly
+        // what a live mob drive sees as "the lane said nothing".
+        LOG.info("entity lane revoked {} — {} (refusal received from {})",
+                refusal.region(), refusal.reason(), from);
         revokeRegion(refusal.region());
         replicas.remove(refusal.region());
     }
@@ -732,6 +759,21 @@ public final class WorkerValidationService {
             abortUncommitted(replica, batch);
             return Optional.empty();
         }
+        // Reputation is written HERE, where the committed root is finally known — the ledger has
+        // existed since Task 6 with nothing ever writing to it. Our own vote counts too: a primary
+        // whose root lost is the node that was wrong.
+        java.util.Map<NodeId, StateRoot> roundVotes =
+                new java.util.LinkedHashMap<>(round.votes());
+        roundVotes.put(identity.nodeId(), round.ownRoot());
+        for (dev.nodera.coordinator.CommitteeScoring.Outcome outcome
+                : dev.nodera.coordinator.CommitteeScoring.apply(
+                        reliability, cert.resultingRoot(), roundVotes)) {
+            if (!outcome.agreed()) {
+                LOG.info("reliability: {} disagreed with the committed root in {} (score now {})",
+                        outcome.node(), region, String.format(java.util.Locale.ROOT, "%.4f",
+                                reliability.score(outcome.node())));
+            }
+        }
         if (!replica.pendingBallot.delta().transferIntents().isEmpty()) {
             return commitTransfer(replica, cert, tickTo);
         }
@@ -844,7 +886,29 @@ public final class WorkerValidationService {
         if (replica == null) {
             return false;
         }
-        NodeId primary = replica.lease.primary();
+        return forwardTo(replica.lease.primary(), envelope);
+    }
+
+    /**
+     * Forward a signed action to a named primary this node holds <b>no replica for</b> — the
+     * observer path (minecraft L-80).
+     *
+     * <p>Under field-of-view ownership the node that SEES an event is routinely not a node that
+     * holds the region: a dedicated server watches forty players edit regions that all belong to
+     * their own peers. {@link #forwardToPrimary} cannot help there, because it starts from a local
+     * replica's lease. This entry point starts from the ownership plan instead, which every node
+     * that computes the plan already knows.
+     *
+     * @param primary  the region's primary, from the caller's ownership plan.
+     * @param envelope the signed action.
+     * @return {@code true} if the action was sent; {@code false} when the target is this node or
+     *         has no registered address (an unaddressable peer is not a failure, just a no-op).
+     * @Thread-context any thread.
+     */
+    public boolean forwardTo(NodeId primary, ActionEnvelope envelope) {
+        if (primary == null || envelope == null) {
+            return false;
+        }
         if (identity.nodeId().equals(primary)) {
             return false;
         }
@@ -982,6 +1046,10 @@ public final class WorkerValidationService {
         }
         votesReceived.incrementAndGet();
         relayMetrics.recordVote(vote.vote().voter());
+        // Kept for reliability scoring at commit: what each member computed, against what the
+        // committee finally certified. Recorded here because this is the only place a vote is both
+        // authenticated and attributed.
+        round.votes().put(vote.vote().voter(), vote.vote().resultingRoot());
         round.collector().submit(vote.vote());
         Decision decision = round.collector().decide();
         if (!(decision instanceof Decision.Unresolved)) {
@@ -1768,9 +1836,52 @@ public final class WorkerValidationService {
     private final LeaseManager handoffLeases =
             new LeaseManager(dev.nodera.core.NoderaConstants.LEASE_LENGTH_TICKS);
 
-    /** Handoff penalties; local to this node's view, exactly like the Task 22 scorer's inputs. */
-    private final dev.nodera.coordinator.ReliabilityLedger handoffReliability =
+    /**
+     * This node's view of who can be trusted with a region. One ledger, two kinds of evidence: a
+     * committed round writes agreement/disagreement through {@link CommitteeScoring}, and a lag
+     * handoff writes its one-shot penalty. They were separate before — the handoff wrote to a
+     * private ledger and committee outcomes were written nowhere at all — which meant a node that
+     * consistently computed the wrong world kept a spotless reputation as long as it answered
+     * quickly. Local by construction: reputation is a view, never consensus state (nothing derived
+     * from it may enter a root).
+     */
+    private volatile dev.nodera.coordinator.ReliabilityLedger reliability =
             new dev.nodera.coordinator.ReliabilityLedger();
+
+    /** Set when a caller gives this lane somewhere durable to keep its view; may stay null. */
+    private volatile DurableCoordinatorState durableState;
+
+    /**
+     * @return this node's reliability view, for diagnostics and for an assignment planner that
+     *         wants to skip a member below the floor. Never consensus state.
+     */
+    public dev.nodera.coordinator.ReliabilityLedger reliability() {
+        return reliability;
+    }
+
+    /**
+     * Give this lane a durable home for its epochs and reputations, and adopt whatever it already
+     * remembers. Without this the view is a session counter: every restart forgets who behaved.
+     *
+     * @param durable the state file wrapper; {@code null} detaches (the view stays in memory).
+     */
+    public void attachDurableState(DurableCoordinatorState durable) {
+        this.durableState = durable;
+        if (durable != null) {
+            this.reliability = durable.reliability();
+        }
+    }
+
+    /**
+     * Write the reliability view and epochs to disk when a durable state is attached; a no-op
+     * otherwise. Cheap: a few hundred bytes for a normal committee.
+     */
+    public void persistState() {
+        DurableCoordinatorState durable = durableState;
+        if (durable != null) {
+            durable.flush();
+        }
+    }
 
     /** Ticks between lag windows — three of these must be unhealthy before a region hands off. */
     private static final long LAG_WINDOW_TICKS = 100L;
@@ -1797,7 +1908,7 @@ public final class WorkerValidationService {
         List<RegionId> handedOff = new java.util.ArrayList<>();
         for (RegionId region : replicas.keySet()) {
             RegionLease promoted = observeSkew(region, forwardLagTickBps(region, nowNanos),
-                    handoffLeases, handoffReliability, Math.max(0L, nowTick));
+                    handoffLeases, reliability, Math.max(0L, nowTick));
             if (promoted != null) {
                 handedOff.add(region);
             }

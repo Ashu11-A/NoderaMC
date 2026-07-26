@@ -50,7 +50,7 @@ demo. Cross-NAT runs ride [`rendezvous/Task.3.md`](../rendezvous/Task.3.md); liv
 | 4 | `CommitteeManager` — certified committee changes, rotation, resize | ✅ |
 | 5 | `JoinAdmission` — gates join and gossip ingest | ✅ |
 | 6 | `PeerDiscoveryService` — tracker + rendezvous sweeps feeding `announceTo` | ✅ |
-| 7 | Session-gateway migration: freeze → reconnect → exactly-once resubmit | 🚧 |
+| 7 | Session-gateway migration: freeze → reconnect → exactly-once resubmit | 🚧 (`GatewayHandover` + `GatewayHandoverListener`, 21 tests — the core and its bind to `onGatewayChanged`; what remains is the live evidence, deliverable 8) |
 | 8 | Recorded full-peer-down demo (3 peers, 15 min, roots equal) | ⏳ |
 
 ## Design

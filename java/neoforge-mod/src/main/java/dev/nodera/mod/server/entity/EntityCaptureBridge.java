@@ -92,9 +92,24 @@ public final class EntityCaptureBridge {
     private static final EntityCaptureBridge INSTANCE = new EntityCaptureBridge();
 
     private final Map<UUID, Captured> captured = new HashMap<>();
+    /** Regions this bridge has seen ANY entity in — the evidence that joins reach it at all. */
+    private final java.util.Set<RegionId> observedRegions = new java.util.HashSet<>();
     private final Queue<Entity> deferredJoins = new ArrayDeque<>();
     private final ThreadLocal<Integer> materializationDepth = ThreadLocal.withInitial(() -> 0);
-    private Runtime runtime = Runtime.DISABLED;
+    /**
+     * The installed coordinator, or {@link Runtime#DISABLED}.
+     *
+     * <p><b>volatile, and that is the whole bug.</b> It is written by
+     * {@link LiveEntityLaneRuntime#install()} on the {@code nodera-entity-lane-boot} thread and read
+     * on the server thread by every capture. Without the write barrier the server thread is free to
+     * go on reading its cached {@code DISABLED} for as long as it likes — and {@code DISABLED}
+     * answers every method by doing nothing, so capture and revocation both vanish with no
+     * exception and no log line anywhere. Three dispatched runs of `e2e-mobs.sh` chased that as
+     * "the lane said nothing" (L-60): the diagnostic finally showed the lane observing nether
+     * regions and deciding {@code capture=false} correctly, then calling into a runtime that was
+     * not there.
+     */
+    private volatile Runtime runtime = Runtime.DISABLED;
 
     private EntityCaptureBridge() {
     }
@@ -189,6 +204,22 @@ public final class EntityCaptureBridge {
 
     private void captureJoin(Entity entity) {
         RegionId region = MinecraftEntityAdapters.region(entity);
+        // The first entity this lane sees in a region, whatever happens to it next. Every other
+        // line here is conditional — a ghost line needs a capture, a revoke line needs a refusal —
+        // so a region that is never OBSERVED and a region observed-and-ignored looked identical in
+        // a log. That ambiguity is what made `e2e-mobs.sh` G2b unreadable: "the lane said nothing"
+        // could mean the join never arrived or the decision went the other way, and the two want
+        // opposite fixes. Once per region, so a busy world stays quiet.
+        if (observedRegions.add(region)) {
+            // `runtime` is printed because it is the one thing the log could never show: every
+            // other line here comes from the bridge itself, so a DISABLED runtime — which answers
+            // every method by doing nothing — looks exactly like a quiet world. Five live runs
+            // could not tell those apart.
+            GHOST_LOG.info("LANE: {} observed (first entity: {}, capture={}, runtime={})", region,
+                    speciesOf(entity),
+                    NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity)),
+                    runtime == Runtime.DISABLED ? "DISABLED" : runtime.getClass().getSimpleName());
+        }
         // L-60: "this dimension never opted into mob capture" is a CONFIG fact, true on every node,
         // and it disqualifies the region from the validated lane no matter who owns it. Under
         // field-of-view ownership the seats sit on the players' nodes while entities spawn and tick

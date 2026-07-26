@@ -73,6 +73,11 @@ public final class NoderaPeerService {
     // save name) until the live genesis lane (Task 9/30c) produces the real GenesisManifest hash.
     private Bytes hostWorldId;
     private String hostWorldName;
+    /**
+     * The world id of the session this client joined, learned from the server's session payload
+     * (worker L-41). Blank while single-player, or on a socket-only join that carried no id.
+     */
+    private volatile String sessionWorldIdHex = "";
     private NodeCapabilities hostCaps;
     private ScheduledExecutorService announceScheduler;
     /** The Minecraft game endpoint ({@code host:port}) announced while the game server is open. */
@@ -450,6 +455,25 @@ public final class NoderaPeerService {
         return serverRuntime != null;
     }
 
+    /**
+     * The world this process is currently part of, whichever side of it this process is on
+     * (worker L-41).
+     *
+     * <p>Hosting is the stronger claim and wins: a host knows its own world id outright, while a
+     * joiner only knows what the session payload told it. Blank means there is no world identity to
+     * file content under — single-player without sharing, or a socket-only join — and a caller that
+     * needs one must do nothing rather than invent one.
+     *
+     * @return the hex world id, or {@code ""}.
+     */
+    public String currentWorldIdHex() {
+        Bytes hosted = hostWorldId;
+        if (hosted != null) {
+            return hosted.toHex();
+        }
+        return sessionWorldIdHex;
+    }
+
     /** @return the active share options while hosting, or {@code null} if not hosting. */
     public synchronized ShareOptions hostOptions() {
         return serverRuntime == null ? null : hostOptions;
@@ -640,6 +664,10 @@ public final class NoderaPeerService {
         if (clientRuntime != null) {
             return;
         }
+        // Remember which world this session belongs to. A committed region snapshot carries a
+        // region id, which is a coordinate; seeding one to the worker needs the world's identity,
+        // and this payload is where a joiner learns it (worker L-41).
+        this.sessionWorldIdHex = worldIdHex == null ? "" : worldIdHex.trim();
         clientIdentity = NodeIdentity.generate();
         String advertise = resolveHost(advertiseHost);
         // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.

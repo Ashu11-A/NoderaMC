@@ -106,6 +106,25 @@ public record RegionBounds(
     }
 
     /**
+     * @return {@code true} if the CHUNK is in the halo ring (in footprint but not owned).
+     *         The chunk-level companion to {@link #isHaloBlock}: neighbour edge slices arrive as
+     *         whole chunk columns, so the question they need answered is about chunks.
+     * @Thread-context any thread.
+     */
+    public boolean isHaloChunk(int chunkX, int chunkZ) {
+        return containsChunk(chunkX, chunkZ) && !ownsChunk(chunkX, chunkZ);
+    }
+
+    /**
+     * @return {@code true} if the CHUNK is inside the OWNED square (excludes the halo ring).
+     * @Thread-context any thread.
+     */
+    public boolean ownsChunk(int chunkX, int chunkZ) {
+        return chunkX >= minChunkX && chunkX <= maxChunkX
+                && chunkZ >= minChunkZ && chunkZ <= maxChunkZ;
+    }
+
+    /**
      * @return number of OWNED chunks in the region (always REGION_SIZE_CHUNKS²).
      * @Thread-context any thread.
      */

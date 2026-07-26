@@ -49,6 +49,9 @@ public final class ServerBootstrap {
     /** Called from {@link dev.nodera.mod.NoderaMod} on every dist (Task 30). */
     public static void register() {
         EntityCaptureBridge.get().register();
+        // Block actions ride the same lane as entity actions; the bridge stays inert until a
+        // region lane installs itself as the sink, so subscribing here costs a no-op per edit.
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.get().register();
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStarted);
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStopping);
         NeoForge.EVENT_BUS.addListener(ServerBootstrap::onServerStopped);

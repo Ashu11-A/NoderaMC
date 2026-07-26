@@ -22,6 +22,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 nodera-codec = { path = "../nodera-codec" }
+# The bundled telemetry registry the disclosure falls back to when the collector is
+# unreachable (L-78). A path dependency rather than a copied JSON file: two
+# hand-maintained copies of a privacy notice drift, and the stale one is the one
+# people read.
+nodera-telemetry = { path = "../nodera-telemetry" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"

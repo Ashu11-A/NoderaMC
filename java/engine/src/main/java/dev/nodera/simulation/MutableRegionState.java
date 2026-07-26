@@ -115,6 +115,17 @@ public final class MutableRegionState implements RegionWorldView {
      * @Thread-context thread-confined per call.
      */
     public MutableRegionState(RegionSnapshot snapshot, RegionBounds bounds, long worldTime) {
+        this(snapshot, bounds, worldTime, null);
+    }
+
+    /**
+     * As above, with neighbour-backed border reads (Task 13 halo). A {@code null} halo means the
+     * empty one — every read outside the covered chunks is AIR, exactly as before.
+     *
+     * @Thread-context thread-confined per call.
+     */
+    public MutableRegionState(RegionSnapshot snapshot, RegionBounds bounds, long worldTime,
+                              RegionHalo halo) {
         if (snapshot == null) {
             throw new IllegalArgumentException("snapshot must not be null");
         }
@@ -123,7 +134,7 @@ public final class MutableRegionState implements RegionWorldView {
         }
         this.region = snapshot.region();
         this.baseVersion = snapshot.version();
-        this.halo = new RegionHalo(this.region);
+        this.halo = halo == null ? new RegionHalo(this.region) : halo;
         this.bounds = bounds;
         this.worldTime = worldTime;
         this.scheduledTicks.addAll(snapshot.scheduledTicks());
@@ -226,6 +237,14 @@ public final class MutableRegionState implements RegionWorldView {
     /** Record one replay-safe vanilla-inventory credit. */
     public void creditInventory(InventoryCredit credit) {
         entityStore.credit(credit);
+    }
+
+    /**
+     * @return the neighbour-backed halo this execution was given; empty unless a caller supplied
+     *         slices, in which case every border read is AIR as it has always been.
+     */
+    public dev.nodera.simulation.border.RegionHalo halo() {
+        return halo;
     }
 
     @Override

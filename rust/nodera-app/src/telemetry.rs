@@ -122,8 +122,25 @@ pub async fn collected_schema(endpoint: &str) -> Result<String, String> {
     }
     let address = endpoint.trim().strip_prefix("tcp://").unwrap_or(endpoint);
     let probe = br#"{"v":1,"probe":true}"#;
-    let reply = framed_request(address, probe).await?;
-    Ok(reply)
+    match framed_request(address, probe).await {
+        Ok(reply) => Ok(reply),
+        // L-78: a person asking "what is collected?" while offline deserves an answer, and the
+        // honest one is the registry this build was compiled against — labelled as such. Returning
+        // an error here would leave the screen blank at exactly the moment someone is deciding
+        // whether to consent.
+        Err(_) => Ok(bundled_schema()),
+    }
+}
+
+/// The registry compiled into this build, marked as the fallback and carrying the version it was
+/// built from.
+///
+/// The version is what makes the fallback safe to show: a copy that cannot say how old it is looks
+/// exactly like a current one, and a privacy disclosure that is quietly out of date is worse than
+/// no disclosure at all. The screen can compare `registry_version` against the app's own and say
+/// "this is what this build knows about" rather than implying it is what the collector accepts.
+pub fn bundled_schema() -> String {
+    nodera_telemetry::schema::schema_json("bundled")
 }
 
 /// One framed request/response against the ingest service.
@@ -286,13 +303,56 @@ mod tests {
         assert_eq!(status.queued, 3);
     }
 
+    /// A node with no collector configured is a different case from a collector that will not
+    /// answer: there is nothing to disclose, so the screen says so rather than showing a registry
+    /// for a service this node never talks to.
     #[test]
-    fn an_unreachable_collector_is_an_error_rather_than_an_empty_schema() {
+    fn an_unconfigured_collector_is_an_error_rather_than_an_empty_schema() {
         let outcome = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap()
             .block_on(collected_schema(""));
         assert!(outcome.is_err());
+    }
+
+    /// L-78's exit clause. A person asking "what is collected?" while the collector is unreachable
+    /// gets the registry this build was compiled against — labelled as the fallback and carrying
+    /// the version it came from. Not a blank screen at the moment they are deciding whether to
+    /// consent, and not a possibly-stale list pretending to be current.
+    #[test]
+    fn the_disclosure_falls_back_to_the_bundled_registry_when_the_service_is_unreachable() {
+        // Port 1 on loopback refuses immediately: unreachable, without spending a timeout on it.
+        let answer = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(collected_schema("127.0.0.1:1"))
+            .expect("an unreachable collector must not blank the disclosure");
+
+        let value: serde_json::Value = serde_json::from_str(&answer).unwrap();
+        assert_eq!(value["disclosure_source"], "bundled");
+        assert!(
+            value["events"].as_array().map(|e| e.len()).unwrap_or(0) > 0,
+            "the bundled registry must actually list what is collected"
+        );
+        let version = value["registry_version"].as_str().unwrap_or_default();
+        assert!(
+            !version.is_empty(),
+            "a fallback that cannot say how old it is looks exactly like a current one"
+        );
+    }
+
+    /// The two answers must be distinguishable, or the screen cannot label one as a fallback.
+    #[test]
+    fn the_bundled_copy_says_it_is_bundled() {
+        let bundled: serde_json::Value = serde_json::from_str(&bundled_schema()).unwrap();
+        let live: serde_json::Value =
+            serde_json::from_str(&nodera_telemetry::schema::schema_json("service")).unwrap();
+
+        assert_eq!(bundled["disclosure_source"], "bundled");
+        assert_eq!(live["disclosure_source"], "service");
+        assert_eq!(bundled["events"], live["events"]);
+        assert_eq!(bundled["registry_version"], live["registry_version"]);
     }
 }

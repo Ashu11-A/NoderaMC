@@ -5,7 +5,7 @@
      row — move it to LIMITATIONS.fixed.md with its evidence. §C lists properties that are the design
      working correctly; do not convert them into §B rows. -->
 
-**Category:** worker · **Last audit:** 2026-07-25 · Open or retiring rows: **1**
+**Category:** worker · **Last audit:** 2026-07-26 · Open or retiring rows: **0**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -21,9 +21,12 @@ node lives only while its player has Minecraft open" — rather than to hide one
 
 ## §B — Staged capabilities
 
+None open. The category's last staged row, L-41, retired on 2026-07-26 — see
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). A new row belongs here the moment the worker is
+found doing less than it claims; an empty table is a statement about today, not a promise.
+
 | ID | Limitation today | Owner | Exit test | Status |
 |---|---|---|---|---|
-| L-41 | The always-on out-of-game process exists and its core scenario is proven: `CompanionCrashSurvivalIT` boots the actual worker distribution as a separate daemon, seeds a world archive through the control socket, **SIGKILLs** a co-located stand-in game process (no shutdown hooks — exactly a crashed game), and the daemon keeps answering control verbs with every seeded piece still maintained. What remains is scope rather than principle: the periodic tracker announce and rendezvous registration loops must run on the **worker's** timer independent of any game process, and validated-lane **region-piece** seeding must join the whole-save archive seeding it already does | [3](Task.3.md) | The worker keeps a world announced **and** seeded — whole-save archive and validated-lane region pieces — on its own timer, after the driving game client has disconnected | RETIRING |
 
 ---
 
