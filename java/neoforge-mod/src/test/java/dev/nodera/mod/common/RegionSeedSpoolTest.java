@@ -61,7 +61,11 @@ final class RegionSeedSpoolTest {
             CountDownLatch gate = hold;
             if (gate != null) {
                 try {
-                    gate.await(10, TimeUnit.SECONDS);
+                    // Long enough that it never elapses on a loaded gate — a hold that releases
+                    // itself mid-test silently changes the scenario the assertions describe, which
+                    // is exactly how this flaked at full parallelism — but bounded, so a failed
+                    // assertion before the countDown cannot wedge the test worker forever.
+                    gate.await(2, TimeUnit.MINUTES);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
