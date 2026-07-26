@@ -681,6 +681,9 @@ public final class NoderaHost {
         int sent = 0;
         int candidates = 0;
         int failed = 0;
+        // The first failure's route and exception, carried into the summary below. Eleven identical
+        // DEBUG lines nobody reads are worth less than one WARN that names the cause.
+        String[] firstFailure = new String[1];
         for (EntityLaneBootstrap.PlannedRegion planned : plan) {
             for (NodeId validator : planned.lease().validators()) {
                 dev.nodera.protocol.membership.PeerEntry entry = residents.get(validator);
@@ -704,6 +707,9 @@ public final class NoderaHost {
                     sent++;
                 } catch (RuntimeException unreachable) {
                     failed++;
+                    if (firstFailure[0] == null) {
+                        firstFailure[0] = entry.route() + " → " + unreachable;
+                    }
                     LOG.debug("Nodera: could not seat resident {} on {}: {}",
                             entry.nodeId(), planned.region(), unreachable.toString());
                 }
@@ -723,7 +729,8 @@ public final class NoderaHost {
                         residents.size(), plan.size());
             } else {
                 LOG.warn("Nodera: {} resident seat(s) were planned but every dispatch failed — the "
-                                + "world runs with smaller committees than planned", failed);
+                                + "world runs with smaller committees than planned; first failure "
+                                + "was {}", failed, firstFailure[0]);
             }
         }
         return sent;
