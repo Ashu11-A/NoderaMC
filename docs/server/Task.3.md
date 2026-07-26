@@ -8,7 +8,7 @@
      headless tests before the plugin consumes it. Keep this header accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-62, L-63 · **Last audit:** 2026-07-25
+**Category:** server · **Owns:** L-62 (L-63 RETIRED 2026-07-26) · **Last audit:** 2026-07-26
 **Depends on:** [server 2](Task.2.md), [engine 5](../engine/Task.5.md), [network 6](../network/Task.6.md)
 **Consumed by:** [server 4](Task.4.md), [server 5](Task.5.md), [server 6](Task.6.md)
 
@@ -25,7 +25,7 @@ model; it still changes nothing about how Minecraft behaves.
 ## Status detail
 
 Not started. `ViewOwnershipPlanner` takes one `PlayerView` per node
-([L-63](LIMITATIONS.md)), and no custody claim is checkable by anyone
+(**L-63**, retired 2026-07-26 — `planMultiView` takes a node's whole set of views and ranks it by its nearest one), and no custody claim is checkable by anyone
 ([L-62](LIMITATIONS.md)).
 
 ## Dependencies
@@ -157,4 +157,4 @@ region split across two threads is corruption with a delay fuse.
 ## Limitations
 
 - **L-62** — full custody is declared but not spot-checked.
-- **L-63** — one view per node in `ViewOwnershipPlanner`.
+- **L-63** — RETIRED 2026-07-26: `ViewOwnershipPlanner.planMultiView` plans from a node's whole view set with the min-distance rule; two peers holding the same facts in different orders derive identical plans for a 20-tenant endpoint (`ViewOwnershipPlannerTest`). Evidence in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

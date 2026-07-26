@@ -769,6 +769,15 @@ public final class NoderaHost {
             try {
                 List<EntityLaneBootstrap.PlannedRegion> plan = EntityLaneBootstrap.plan(
                         views, local, gameTime, NoderaConstants.QUORUM_MVP_SIZE, residents.keySet());
+                // L-80: this node computed the plan, so it knows who owns every region — including
+                // the ones it holds no replica for. Keeping that answer is what lets a captured
+                // action reach its owner from a node that owns nothing.
+                Map<dev.nodera.core.region.RegionId, NodeId> planPrimaries =
+                        new java.util.LinkedHashMap<>();
+                for (EntityLaneBootstrap.PlannedRegion planned : plan) {
+                    planPrimaries.put(planned.region(), planned.lease().primary());
+                }
+                dev.nodera.mod.server.entity.ObserverOwnership.publish(planPrimaries);
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive
@@ -810,29 +819,53 @@ public final class NoderaHost {
                 // what makes an always-on peer re-execute the world, and a validator that has not
                 // activated the region drops the primary's very first proposal on the floor.
                 int seats = assignResidentSeats(host, plan, residents);
+                List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
+                for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
+                    peers.add(new LiveEntityLaneSession.CommitteePeer(
+                            dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
+                            node.publicKey()));
+                }
+                // Residents are committee peers too — without their address+key here the local
+                // lane could not send them proposals or verify the votes they send back.
+                for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
+                    peers.add(new LiveEntityLaneSession.CommitteePeer(
+                            dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
+                            entry.publicKey()));
+                }
+                // L-60, and the reason this is NOT "open the lane anyway": a node that owns no
+                // regions must still be able to refuse what it cannot validate, but opening a full
+                // `LiveEntityLaneSession` on every re-plan is not the way to give it that. Tried
+                // and measured — a dispatched `e2e-mobs.sh` run stalled the server for over 720 s
+                // after a nether crossing, because every boundary crossing re-plans and each
+                // re-plan then opened and closed a RocksDB store for a session holding nothing.
+                //
+                // What the observer needs is a LIGHTWEIGHT runtime on the capture bridge — one that
+                // can refuse a region and forward what it captures, with no store, no journals and
+                // no replicas — rather than the full session. That is the shape of the fix; the
+                // measurement above is why it has to be that shape.
                 if (!bindings.isEmpty()) {
-                    List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
-                    for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
-                        peers.add(new LiveEntityLaneSession.CommitteePeer(
-                                dev.nodera.transport.PeerAddress.of(node.nodeId(), node.route()),
-                                node.publicKey()));
-                    }
-                    // Residents are committee peers too — without their address+key here the local
-                    // lane could not send them proposals or verify the votes they send back.
-                    for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
-                        peers.add(new LiveEntityLaneSession.CommitteePeer(
-                                dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
-                                entry.publicKey()));
-                    }
                     activateEntityLane(server, manifest, bindings, peers);
                     LOG.info("Nodera: entity lane live on {} region(s) across {} member node(s) "
                                     + "+ {} resident peer(s) holding {} committee seat(s) (genesis {})",
                             bindings.size(), views.size(), residents.size(), seats,
                             manifest.genesisRoot().toShortHex(4));
                 } else {
+                    // L-60: no seats here, but this node still SEES the world — and until now that
+                    // meant the capture bridge kept a disabled runtime and nothing was captured,
+                    // forwarded or refused, silently. An observer runtime costs nothing to install
+                    // (no store, no journals, no replicas — the full session was tried and stalled
+                    // the server for 720 s on every crossing) and can do the one thing a seatless
+                    // node is entitled to do: say that a region cannot be validated.
+                    dev.nodera.mod.server.entity.EntityCaptureBridge.get().runtime(
+                            new dev.nodera.mod.server.entity.ObserverLaneRuntime(
+                                    new dev.nodera.peer.validation.ObserverRefusals(
+                                            host.transport(),
+                                            () -> host.runtime().sessionView().members())));
                     LOG.info("Nodera: no regions fall to this node in the new plan "
                                     + "({} member node(s), {} resident peer(s)) — broadcasting it "
-                                    + "for the owners", views.size(), residents.size());
+                                    + "for the owners, and observing: this node can still refuse "
+                                    + "what nobody here can validate (L-60)",
+                            views.size(), residents.size());
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.
@@ -1040,6 +1073,16 @@ public final class NoderaHost {
      */
     public static synchronized dev.nodera.diagnostics.metric.RelayMetrics entityLaneRelayMetrics() {
         return entityLane == null ? null : entityLane.runtime().validation().relayMetrics();
+    }
+
+    /**
+     * The live lane runtime, or null without an active lane. Read by the diagnostics commands that
+     * need the committed state itself rather than a metric derived from it
+     * ({@code /nodera debug extract} compares a live extraction against it).
+     */
+    public static synchronized dev.nodera.mod.server.entity.LiveEntityLaneRuntime
+            entityLaneRuntime() {
+        return entityLane == null ? null : entityLane.runtime();
     }
 
     /** Stop local validation resources without changing the world's shared flag. */

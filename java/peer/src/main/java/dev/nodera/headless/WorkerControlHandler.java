@@ -523,6 +523,39 @@ public final class WorkerControlHandler implements ControlHandler {
     }
 
     @Override
+    public String seedRegion(String worldId, String snapshotPathB64) {
+        if (archive == null) {
+            return null;
+        }
+        String path = decodeB64(snapshotPathB64);
+        if (worldId == null || worldId.isBlank() || path.isBlank()) {
+            throw new IllegalArgumentException("missing worldId/snapshot path");
+        }
+        byte[] encoded;
+        try {
+            encoded = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(path));
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot read region snapshot file: " + e.getMessage());
+        }
+        dev.nodera.core.state.RegionSnapshot snapshot;
+        try {
+            // Decoding here rather than storing the bytes blind is the point: a snapshot that does
+            // not decode is not a region, and seeding it would advertise content no fetcher could
+            // use. The failure belongs to the caller that wrote the file.
+            snapshot = dev.nodera.core.state.RegionSnapshot.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(encoded));
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("not a region snapshot: " + e.getMessage());
+        }
+        var manifest = archive.seedRegion(worldId, snapshot);
+        // Same reason as the archive seed: a host that quits right after committing must not leave
+        // the region unadvertised until the next heartbeat.
+        hosting.refreshNow(worldId);
+        return manifest.manifestRoot().toHex() + " " + manifest.version().value()
+                + " " + manifest.pieceCount();
+    }
+
+    @Override
     public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
         if (archive == null) {
             return null;

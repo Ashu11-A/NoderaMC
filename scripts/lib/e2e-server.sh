@@ -193,7 +193,7 @@ EOF
     cp "$PLUGIN_JAR" "$SERVER_STAGE/plugins/nodera-endpoint.jar"
     cat > "$SERVER_STAGE/plugins/NoderaEndpoint/nodera-endpoint.yml" <<EOF
 peer:
-  mode: embedded
+  mode: ${NODERA_ENDPOINT_PEER_MODE:-external}
   control-port: $ENDPOINT_CONTROL
   identity-file: identity.bin
   p2p:
@@ -241,6 +241,22 @@ start_bukkit_server() { # [log-file]
         </dev/null >"$logfile" 2>&1 ) 9>&- &
     SERVER_PID=$!
     PIDS+=("$SERVER_PID")
+}
+
+# nodera_endpoint_worker — the always-on node the endpoint links to.
+#
+# `peer.mode: external` is not a test convenience: it is the mode L-71 names as
+# the fix for a node that dies with the server JVM. The endpoint therefore gets a
+# worker of its OWN — not one of the players' — on the port its config points at,
+# started the same way every other worker in the stack is.
+nodera_endpoint_worker() {
+    start_worker endpoint "$ENDPOINT_CONTROL" "$ENDPOINT_P2P"
+    local waited=0
+    until control_verb "$ENDPOINT_CONTROL" "NODERA-PROBE 2" | grep -q NODERA-OK; do
+        (( waited >= 90 )) && fail "the endpoint's worker never answered on $ENDPOINT_CONTROL"
+        sleep 3; waited=$((waited + 3))
+    done
+    log "endpoint worker up on control $ENDPOINT_CONTROL · p2p $ENDPOINT_P2P"
 }
 
 # nodera_bukkit_up <platform> [world-id] — stage, start, and wait for the

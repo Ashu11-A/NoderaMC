@@ -26,9 +26,11 @@ the trust model, not facts of the platform.
 
 Two adjacent gaps are tracked in the categories that own them, not here:
 
-- The mod's periodic announce loop is constructed but not scheduled on a timer — moved into the
-  always-on worker by [`../worker/Task.3.md`](../worker/Task.3.md) (its L-41 row), where the timer
-  belongs: an announce that stops when the game closes is the gap that task exists to remove.
+- The mod's periodic announce loop was constructed but never scheduled on a timer. It moved into the
+  always-on worker ([`../worker/Task.3.md`](../worker/Task.3.md)), where the timer belongs — an
+  announce that stops when the game closes is exactly the gap that task exists to remove — and the
+  worker's L-41 row retired on 2026-07-26 with the heartbeat proven to re-read what this node holds
+  on every announce.
 - Operator hardening (`STATS`, listing policy, deployment docs) is ordinary remaining scope in
   [`Task.3.md`](Task.3.md), not a limitation: nothing about the network is degraded by its absence.
 

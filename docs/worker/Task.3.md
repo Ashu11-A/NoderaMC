@@ -6,7 +6,7 @@
      a fallback flag for worker-less environments. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** worker · **Owns:** L-41 · **Last audit:** 2026-07-25
+**Category:** worker · **Owns:** — (L-41 retired 2026-07-26) · **Last audit:** 2026-07-26
 **Depends on:** [minecraft 5](../minecraft/Task.5.md), [network 4](../network/Task.4.md), [tracker 2](../tracker/Task.2.md), [rendezvous 2](../rendezvous/Task.2.md)
 **Consumed by:** [minecraft 5](../minecraft/Task.5.md), [app 4](../app/Task.4.md)
 
@@ -52,8 +52,8 @@ worker so it runs on its ack-paced timer independent of any game process.
 | 4 | Real maintained pieces and bytes in `STATE` | ✅ |
 | 5 | `WorldGrantGossipService` wired as a live consumer | ✅ |
 | 6 | Superseded-version eviction on re-key | ✅ |
-| 7 | Periodic announce loop owned by the worker's timer | 🚧 |
-| 8 | Validated-lane region-piece seeding | 🚧 |
+| 7 | Periodic announce loop owned by the worker's timer | ✅ |
+| 8 | Validated-lane region-piece seeding | ✅ |
 | 9 | Rendezvous registration persisting across game sessions | 🚧 |
 
 ## Design
@@ -100,11 +100,16 @@ for a data-availability regression. Superseding happens on re-key, where it is t
 1. ✅ A hosted world stays listed, seeded, and reproducible after the driving client disconnects.
 2. ✅ The worker survives a game-process kill with its seeding intact.
 3. ✅ Grants gossip and are re-verified by every receiver.
-4. 🚧 The announce and rendezvous-registration loops run on the worker's own timer, independent of any
-   game process.
-5. 🚧 Validated-lane region pieces are seeded, not just whole-save archives.
+4. ✅ The announce and rendezvous-registration loops run on the worker's own timer, independent of any
+   game process — and every heartbeat re-reads what this node holds, so content seeded after the
+   world was hosted is advertised rather than described as it was at HOST time.
+5. ✅ Validated-lane region pieces are seeded, not just whole-save archives: `NODERA-SEED-REGION`
+   takes a committed `RegionSnapshot` from whichever process holds the seat, and both lanes ride one
+   announce.
 
 ## Limitations
 
-- **L-41** — the always-on out-of-game process. See [`LIMITATIONS.md`](LIMITATIONS.md); its core
-  scenario is proven and the row now tracks the remaining seeding scope.
+None open. **L-41** — the always-on out-of-game process — retired on 2026-07-26 with its evidence in
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). The one thing that evidence deliberately does not
+claim is a run with a real Minecraft client: the pushing side is proven by its control-channel
+behaviour, and the in-game path rides the live suites.

@@ -88,6 +88,20 @@ public interface ControlHandler {
     }
 
     /**
+     * Seed one committed region snapshot of the validated lane from a local file (worker L-41).
+     *
+     * @param worldId         hex world id.
+     * @param snapshotPathB64 base64 of the file holding the canonically encoded
+     *                        {@code RegionSnapshot} (same-machine handoff, as with
+     *                        {@link #seedArchive}).
+     * @return {@code "<manifestRootHex> <version> <pieceCount>"} on success, or {@code null} if
+     *         unsupported; a thrown {@link RuntimeException}'s message becomes the ERR line.
+     */
+    default String seedRegion(String worldId, String snapshotPathB64) {
+        return null;
+    }
+
+    /**
      * Fetch a world's newest archive from the network into a local file (the joiner half).
      *
      * @param worldId        hex world id.

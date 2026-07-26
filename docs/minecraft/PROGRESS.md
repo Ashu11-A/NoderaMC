@@ -30,6 +30,213 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — `e2e-mobs` is green — L-60 and L-24 RETIRED
+
+Nine dispatched live runs. The row said "remaining: the live run", and the live run had never been
+read; when it was, it was red for reasons that had nothing to do with what the row described.
+
+What it actually took, in the order the evidence forced:
+
+1. **The close/lock cascade.** A re-plan threw on the way down, so `close()` never reached
+   `store.close()`, RocksDB kept its file lock, the next bootstrap failed, and the lane never came
+   back. Each close step is contained now and the store closes in a `finally`.
+2. **A non-volatile field.** `EntityCaptureBridge.runtime` is written on the boot thread and read on
+   the server thread.
+3. **A diagnostic that could see the invisible case.** Every line in the bridge was conditional, so a
+   DISABLED runtime and a quiet world produced identical logs. `LANE: … observed (… runtime=…)` is
+   unconditional, and it is what finally named the fault.
+4. **The root cause**: a node with no seats never opened a lane at all — so the one process that can
+   see the world had nothing running. `ObserverLaneRuntime` + `ObserverRefusals` give it the single
+   power a seatless node is entitled to: refusing what nobody there can validate, and saying so.
+   Opening a full session instead was tried and stalled the server for **720 s** per boundary
+   crossing; the observer holds no store, no journals and no replicas.
+5. **Both assertions were wrong.** The nether is full of species the engine does not own, so the
+   region is legitimately refused before any summon lands. G2b was asserting that a creeper won a
+   race against the nether's own mobs; G2a was asserting silence where the correct behaviour is
+   noisy. They assert the rule now.
+
+L-24 retires on the same clause: G2a proves the species default, G2b proves the refusal.
+
+### 2026-07-26 — The live suites were dispatched, and one of them says the register was wrong
+
+`e2e-live` is a `workflow_dispatch` workflow: any subset of the real-client suites can be run against
+a branch. I had been describing these rows as needing evidence I could not produce. They needed a
+dispatch. Six suites were run against this branch.
+
+**Green:** `pickup`, `pearl`, `commands`, `ownership-follow`, `continuity`. `commands` includes the
+new **K2b** extraction stage in CI for the first time, with real numbers — four unsupported blocks
+placed, and the extractor's palette-exclusion count moved `1240376 → 1240380`, exactly four. The live
+`LiveSnapshotExtractor` reads a real world correctly.
+
+**Red, and informative:** `mobs` fails at **G2b**. A creeper is summoned and no region is refused.
+The artifact says more than the assertion could: ghost capture demonstrably works — five
+`GHOST: … now holds ghost mobs (first: minecraft:chicken/pig/cow/squid/salmon)` lines — and in the
+nether **not one `entity lane revoked` line appears in the entire run**, not for the creeper and not
+for the ambient piglins and ghasts that are equally non-delegable. The revocation path does not fire
+in the nether at all, which is upstream of the announce half L-60 describes.
+
+**It fails on `main` too** (runs 30177362113 and 30176735874), so it is not a regression from the
+observer work. It is a row whose exit was assumed rather than read: L-60 said "remaining: the live
+run", and the live run had not been looked at.
+
+**`pearl` still SKIPS its ghost half naming L-60** — "this server's lane owns no regions, so nothing
+on it captures the pearl as a ghost". That is precise and worth acting on: the observer path built
+this session (`ObserverOwnership` + `forwardTo`) covers **block** capture only. `EntityCaptureBridge`
+still gates ghost capture on `runtime.delegated(region)`, so the entity lane has the same fault line
+the block lane just had. That is the next piece of work, and it is now named by a run rather than by
+a guess.
+
+### 2026-07-26 — A node that owns nothing can still route what it sees (L-80 → RETIRING)
+
+Every dedicated-server log has the line "no regions fall to this node", and it is correct: the
+field-of-view planner gives regions to the players' nodes. The consequence was that the one process
+which actually sees block edits could capture them and had nowhere to send them — `forwardToPrimary`
+starts from a local replica's lease, and an observer has no replica.
+
+The missing lookup was never missing. The observer is the node that **computes** the plan and
+broadcasts it; it simply threw it away afterwards. `ObserverOwnership` keeps it, and a capture in an
+unheld region is signed and forwarded through the new `forwardTo(primary, envelope)`, which starts
+from the plan rather than from a replica.
+
+The observer is a **courier, not an authority**: the receiving primary re-verifies the actor
+signature, the admission rule and the batch before proposing anything, so a stale index entry costs
+a dropped forward, never a wrong world. `ObserverOwnershipTest` (5) pins the index — including the
+one that would fail silently: re-publishing **replaces** the plan rather than merging into it,
+because a player walking away has to take their regions out of it.
+
+What remains is the live run, and the question it will surface: the primary must admit the
+observer's signature for that actor, which is issue #45's membership work. The row moves OPEN →
+RETIRING rather than retiring outright, because its exit test is a live assertion and this is the
+mechanism, not the evidence.
+
+### 2026-07-26 — The third mixin, and the last one the charter plans
+
+There is no event for "the game is about to random-tick this chunk". NeoForge fires per-block events
+*after* vanilla has chosen the cells and consumed randomness from the level RNG, which is exactly
+what must not happen: the engine owns grass, fire and crops in a delegated region, and letting
+vanilla roll for them too produces a world neither side predicted — the committed root says one
+thing and the player's screen shows another.
+
+`ServerLevelRandomTickMixin` cancels `ServerLevel.tickChunk` at HEAD for chunks in a delegated
+region. The **whole chunk** is skipped rather than filtered per block, because a per-block filter
+would still have drawn from the level RNG for the blocks it rejected — and the draws are the thing
+being suppressed.
+
+It reuses the existing suppression registry (a delegated region suppresses both kinds of vanilla
+tick) but counts into its own counter: scheduled ticks are the redstone lane's assert-zero, random
+ticks are the farm lane's, and a soak that read one number would be reading the wrong one.
+
+Evidence that it applies: `runServer` reaches `Done (0.735s)!` with `required: true` and no mixin
+diagnostic — a mismatched injection point aborts class load long before the world finishes loading.
+
+That is three mixins: the write choke point, scheduled ticks, and random ticks. `COMPATIBILITY.md`
+now states the whole set, and that Nodera ships no others.
+
+### 2026-07-25 — The choke point is live, and the guard it feeds finally has a caller
+
+There is no event for "a block changed". NeoForge fires events for the *causes* it knows — a player
+placing, a piston moving, a fluid spreading — and a foreign write is by definition the write whose
+cause nobody enumerated: a mod calling `setBlockState`, a fake player, a late worldgen feature, an
+async executor. All of them funnel through `LevelChunk.setBlockState` and nothing else does, so the
+second mixin in the repository guards that funnel. Guarding the causes instead would mean guarding
+an open set, which is the same as not guarding.
+
+The mixin holds no judgement: `BlockWriteGuard` translates chunk and `BlockState` into region and
+palette ids, and `MutationGuard` — unit-tested in the engine, with the applier scope, the CONVERT
+default, and the STRICT mode already built — decides. On a server validating nothing the whole
+choke point is one field read per block write.
+
+The entry point is chosen **by thread**, and that is the design decision worth reading twice. A
+main-thread write with no phase marker is ordinary vanilla plumbing; rejecting those would have made
+the guard a crash generator. A write arriving from another thread is exactly the case L-25's
+documented rejection exists for, so it gets `verdictChecked` and the `AsyncWriteException` naming
+`AsyncActionGate.submit` — rethrown, never degraded into a warning, because a mod that cannot see
+the error cannot fix it.
+
+That gives **L-25** the one thing it lacked: a call site. Both halves had existed for a while, and
+the row's own note said so — "a guard nothing calls rejects nothing in practice". RETIRED, with the
+evidence in [`../engine/LIMITATIONS.fixed.md`](../engine/LIMITATIONS.fixed.md).
+
+The lane installs the guard on `install()` and removes it on `close()`, and the block applier's own
+writes run inside `MutationGuard.applierScope` — without that, every commit this node applied would
+have been re-certified back to itself as foreign.
+
+**Live evidence that the mixin applies**: `./gradlew :neoforge-mod:runServer` reaches
+`[minecraft/DedicatedServer]: Done (0.748s)!` with `required: true` and `defaultRequire: 1` in
+`nodera.mixins.json` and no mixin diagnostic in the log — a mismatched injection point aborts class
+load long before the world finishes loading, so reaching Done *is* the proof. (The run then exits on
+`CompanionUnavailableException`, which is the companion gate doing its job with no worker running —
+unrelated to the mixin.)
+
+### 2026-07-25 — The world reads back, and a commit becomes a block a player can see
+
+Capture without apply is half a lane, and a probe with nothing to read is half a measurement. Both
+halves landed.
+
+`LiveSnapshotExtractor` turns real chunk sections into a real `RegionSnapshot`. A section whose 4096
+states all map to one palette id — most of a world — stays a single id; anything else arrives as a
+dense array, and `ChunkColumnState` canonicalises both so two nodes reading the same world encode
+the same bytes. Blocks the palette cannot express are extracted as air **and counted**: the
+validated lane holds the palette's world, so a region full of modded machinery must report a high
+excluded count rather than a confident wrong root. Chunks that are not resident are counted too and
+never force-generated — loading a region synchronously on the server thread is the stall the lane
+exists to avoid.
+
+The apply half is one line in `ServerEntityWorldView.setBlock` and a projection beside it:
+a committed block mutation is staged exactly like an item projection and runs after the canonical
+scope commits, so the world is never written from a mutation that then aborts. An id the running
+game cannot express is skipped with a log line — a wrong block is a divergence, a missing one is
+visible interference.
+
+`InterferenceProbe` gained the count it always wanted. Its section comparison could not tell one
+mined block from four thousand burned ones, because a dense section's palette entry is pinned to
+zero; it now descends into dense sections and reports **exact block differences** alongside the
+coarse number, which every historical measurement is expressed in. `/nodera debug extract` prints
+the whole thing for the caller's own region: extraction time, chunks resident, dense sections,
+blocks outside the palette, and — when this node's lane holds the region — how far the world has
+drifted from committed state, in blocks.
+
+Evidence: `InterferenceProbeTest` grew the two cases that matter — one block mined inside a section
+is exactly 1, and a dense section whose contents equal its uniform counterpart is **not**
+interference, so the extractor's shape can never decide what counts as drift.
+
+### 2026-07-25 — A real block edit becomes a consensus action (issue #5's capture half)
+
+The determinism gate has always been the project's hard exit, and it has always been proven over
+inputs the engine invented for itself. What was missing was the sentence in the middle: *this
+`BlockState` is that palette id*. Three pieces landed together.
+
+`VanillaPalette` (engine, Minecraft-free) is the binding table — every one of the palette's ~100 ids
+against the vanilla block key and the properties that carry consensus meaning, in both directions.
+It lives in the engine on purpose: the table is exactly as load-bearing as the palette itself (a
+wrong row does not crash, it diverges), so it belongs where the ordinary gate can read it. The test
+that matters is `VanillaPaletteTest.everyPaletteEntryRoundTripsThroughItsVanillaState` — a palette
+that grows a new id without a binding fails it the same day, instead of the live lane quietly
+excluding the new block for a month. `PaletteMapper` (mod) is what is left over once the table is
+elsewhere: read the registry key, read the properties, ask the engine — and back again for the
+applier, answering empty rather than guessing when the running game does not know a bound state.
+
+`BlockCaptureBridge` subscribes to `EntityPlaceEvent` and `BreakEvent` at LOWEST priority — we
+capture what the world agreed to, not what someone proposed — and hands the action to the same
+signed submit path the entity lane uses. **Vanilla is never cancelled**: this is the
+`VanillaCancelGate` contract (issues #33/#44) read across to blocks, and it is why capture needs no
+gate in front of the player's own edit. Every judgement about *whether* to capture is in
+`BlockCaptureRules`, Minecraft-free and pinned by 8 tests: a modded block, a state the palette cannot
+express, a network-computed state offered as a *placement* (placing powered wire would mint 15 power
+out of a client packet), an edit outside the height envelope, and a fake player's edit are each
+refused with their own reason. `/nodera debug capture` prints the resulting ledger, because
+"nothing was captured" and "everything was captured" look identical from inside the game.
+
+Evidence: `VanillaCaptureSoakIT` re-runs the three-worker shadow soak with every action built from a
+vanilla `(key, properties)` pair — 250 batches, more than fifteen distinct palette ids exercised,
+modded and vertical-piston states mixed into the same stream — and asserts zero divergence with all
+three replicas byte-identical to the reference chain. That closes the audit gap named on issue #5:
+the soak now exercises the real vanilla palette rather than `STONE` on flat rules.
+
+What this does **not** do is captured as **L-80**: the capture gate is `delegated(region)`, so on a
+dedicated server — where the field-of-view planner gives every region to the players' nodes — the
+one process that sees block events holds no seat. Same fault line as L-60, same fix shape.
+
 ### 2026-07-25 — The game's events reach the worker, and nothing else does
 
 `ModTelemetry` + `/nodera telemetry` landed, tested against a **stand-in worker on loopback**

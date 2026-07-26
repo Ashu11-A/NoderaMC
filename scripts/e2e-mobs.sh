@@ -105,6 +105,7 @@ pass "G1: ghost capture — the lane controls the mobs and keeps its region"
 # `RegionRefusal` (tag 61), so the observer refuses and the owners drop the region. The assertion
 # is therefore the same on every topology, which is what makes it worth running.
 log "G2: into the NETHER, which never opted a dimension in"
+nether_mark=$(wc -l < "$LOG_DIR/server.log")
 tp_player JoinerDev 0 100 0 minecraft:the_nether >/dev/null
 sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))   # let the nether chunks + the re-plan settle
 
@@ -117,7 +118,11 @@ sleep $(( 15 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))   # let the nether chunks + the 
 mark=$(wc -l < "$LOG_DIR/server.log")
 summon_at JoinerDev "$MOB" >/dev/null
 sleep $(( 10 * ${NODERA_E2E_TIMEOUT_MULT:-1} ))
-if grep -qa "entity lane revoked" <(tail -n +"$mark" "$LOG_DIR/server.log"); then
+# The claim is about the ZOMBIE, not about silence. The nether is full of striders, magma cubes and
+# piglins — every one a species the engine does not own — so revocations here are expected and
+# correct; what must never happen is one that names the engine-owned species. Asserting "no
+# revocation at all" would make this stage fail for the lane working properly on somebody else.
+if grep -a "entity lane revoked" <(tail -n +"$mark" "$LOG_DIR/server.log") | grep -qa "$MOB"; then
     fail "G2a: a $MOB was treated as non-delegable in a dimension that opted nothing in — the \
 per-species default (L-24) is not being honoured"
 fi
@@ -127,16 +132,26 @@ pass "G2a: the engine-owned species is captured with no dimension opt-in (L-24)"
 # G2b: the other half. A species the engine does not own IS non-delegable, and the node that sees
 # it refuses the region and announces that refusal — whether or not it holds a seat (L-60).
 log "G2b: summoning $MOB_UNKNOWN — a species the engine does not own"
-mark=$(wc -l < "$LOG_DIR/server.log")
 summon_at JoinerDev "$MOB_UNKNOWN" >/dev/null
 
-if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$mark"; then
-    revoked=$(tail -n +"$mark" "$LOG_DIR/server.log" | grep -a "entity lane revoked" | tail -1)
+# The mark is the NETHER ENTRY, not the summon, and the creeper is not required to be the entity
+# named in the refusal. Both were wrong before, and a live run showed why: the nether is full of
+# striders, magma cubes and piglins, every one of them a species the engine does not own, so the
+# region is refused seconds after the player arrives — correctly, and by the same rule this stage
+# is about. A refusal is permanent per region, so by the time the creeper lands there is nothing
+# left to announce. Asserting on the creeper specifically was asserting that it won a race against
+# the nether's own mobs.
+#
+# What the stage is really about: a species the engine does not own means its region is refused,
+# the reason is stated, the refusal leaves this node, and the session plays on.
+if wait_log_after "$LOG_DIR/server.log" "entity lane revoked" 180 "$nether_mark"; then
+    revoked=$(tail -n +"$nether_mark" "$LOG_DIR/server.log" | grep -a "entity lane revoked" | tail -1)
+    mark="$nether_mark"
     transcript "=== revocation: $revoked"
     grep -qa "non-delegable entity" <<<"$revoked" \
         || fail "G2: the region revoked without stating the reason: $revoked"
-    grep -qa "$MOB_UNKNOWN" <<<"$revoked" \
-        || fail "G2: the revocation names the wrong entity: $revoked"
+    grep -qa "minecraft:" <<<"$revoked" \
+        || fail "G2: the revocation names no species at all: $revoked"
     # Revoking is a controlled retreat, not a failure: the server keeps running and the player keeps
     # playing. A revoke that takes the session down would be worse than never delegating at all.
     alive=$(rcon "list")

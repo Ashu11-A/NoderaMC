@@ -126,6 +126,20 @@ public final class FluidRules {
         if (current != FlatWorldRules.AIR && !isFluid(current)) {
             return; // a solid block arrived since scheduling: stale entry no-ops
         }
+        // L-2 fluid interactions come FIRST: a lava cell that water has reached stops being a
+        // fluid entirely, so computing its desired fluid state would be answering the wrong
+        // question. The outcome is a pure function of the neighbourhood, like everything else here.
+        int solidified = solidification(state, pos, current);
+        if (solidified != FlatWorldRules.AIR) {
+            state.setBlock(pos, solidified, null, rng);
+            RedstoneRules.observersOnChange(state, pos, tick);
+            for (NBlockPos n : dev.nodera.simulation.NeighborUpdateOrder.neighborsOf(pos)) {
+                if (state.inOwnedRegion(n) && isFluid(state.getBlock(n))) {
+                    schedule(state, n, tick, isWater(state.getBlock(n)));
+                }
+            }
+            return;
+        }
         int desired = desiredAt(state, pos, current);
         if (desired != current) {
             state.setBlock(pos, desired, null, rng);
@@ -176,6 +190,67 @@ public final class FluidRules {
         }
     }
 
+    /**
+     * Schedule the owned cells a neighbour's fluid is about to flow into (engine L-2, the
+     * cross-region half).
+     *
+     * <p>A fluid reaching a region edge emits a {@code BorderSignal} and stops, because the engine
+     * never mutates halo. The receiving side is what was missing: its own automaton would flow
+     * correctly, but nothing ever scheduled a tick at the cell to make it look. Nothing did, because
+     * with an empty halo that cell reads air next to air and there is genuinely nothing to do.
+     *
+     * <p>With a backed halo the answer is derivable from the request alone — no message, no
+     * delivery, nothing for two replicas to disagree about: walk the halo columns this batch was
+     * given, and wherever one holds fluid, schedule the adjacent owned cell to re-evaluate. The
+     * cell then decides for itself through {@link #desiredAt}, exactly as an interior cell does, so
+     * a neighbour can cause a look but never dictate a result.
+     *
+     * <p>Walking the halo rather than the boundary is deliberate: the halo is a few dozen columns
+     * and the owned boundary is ~200k cells, and an empty halo — every single-region path, every
+     * fixture — costs one branch.
+     *
+     * @param state the working state, whose halo carries the neighbour slices.
+     * @param tick  the tick the inflow is scheduled from.
+     * @return how many owned cells were scheduled.
+     */
+    public static int seedBorderInflow(MutableRegionState state, long tick) {
+        dev.nodera.simulation.border.RegionHalo halo = state.halo();
+        if (halo == null || halo.isEmpty()) {
+            return 0;
+        }
+        int scheduled = 0;
+        for (dev.nodera.core.state.ChunkColumnState column : halo.backing()) {
+            for (int section = 0; section < column.sectionCount(); section++) {
+                // The snapshot model is section-uniform, so one read per section answers the whole
+                // column: a fluid anywhere in the section means the section IS that fluid.
+                int id = column.blockAt(section, 0, 0, 0);
+                if (!isFluid(id)) {
+                    continue;
+                }
+                int y = column.minY() + section * 16;
+                for (int[] step : new int[][]{{16, 0}, {-16, 0}, {0, 16}, {0, -16}}) {
+                    NBlockPos target = new NBlockPos(
+                            column.chunkX() * 16 + step[0], y, column.chunkZ() * 16 + step[1]);
+                    if (!state.inOwnedRegion(target)) {
+                        continue;
+                    }
+                    int current = state.getBlock(target);
+                    if (current != FlatWorldRules.AIR
+                            || desiredAt(state, target, FlatWorldRules.AIR) == FlatWorldRules.AIR) {
+                        continue;
+                    }
+                    NBlockPos pos = target;
+                    if (state.scheduledTicks().stream().anyMatch(e -> e.pos().equals(pos))) {
+                        continue;
+                    }
+                    state.scheduleTick(target, current, tick + delayOf(isWater(id)), 0);
+                    scheduled++;
+                }
+            }
+        }
+        return scheduled;
+    }
+
     /** The cell's settled fluid state as a pure function of its neighborhood. */
     static int desiredAt(MutableRegionState state, NBlockPos pos, int current) {
         if (current == FlatWorldRules.WATER_SOURCE || current == FlatWorldRules.LAVA_SOURCE) {
@@ -212,6 +287,57 @@ public final class FluidRules {
             return flowId(false, bestLava);
         }
         return FlatWorldRules.AIR; // no support: flows decay, air stays air
+    }
+
+
+    /**
+     * The lava-meets-water rule (L-2), vanilla-shaped and deterministic:
+     *
+     * <ul>
+     *   <li>a lava <b>source</b> touched by water anywhere in its six-neighbourhood becomes
+     *       {@link FlatWorldRules#OBSIDIAN} — the block that makes a nether portal buildable and a
+     *       lava lake survivable;</li>
+     *   <li>a lava <b>flow</b> with water directly <b>below</b> it becomes
+     *       {@link FlatWorldRules#STONE} — vanilla's "lava flows onto water" case, which is why the
+     *       cell underneath is checked separately from the other five;</li>
+     *   <li>a lava <b>flow</b> touched by water anywhere else becomes
+     *       {@link FlatWorldRules#COBBLESTONE}.</li>
+     * </ul>
+     *
+     * <p>Water is never consumed. That is vanilla's rule and it is also the one that keeps the
+     * outcome a pure function of the neighbourhood: a rule that removed the water would make the
+     * result depend on which of the two cells the engine happened to visit first, which is exactly
+     * the class of order dependence the hashed queue exists to eliminate.
+     *
+     * @return the solid the cell becomes, or {@link FlatWorldRules#AIR} when nothing solidifies.
+     */
+    static int solidification(MutableRegionState state, NBlockPos pos, int current) {
+        if (!isLava(current)) {
+            return FlatWorldRules.AIR;
+        }
+        boolean waterBelow = false;
+        if (pos.y() > FlatWorldRules.MIN_Y) {
+            waterBelow = isWater(state.getBlock(new NBlockPos(pos.x(), pos.y() - 1, pos.z())));
+        }
+        boolean waterAdjacent = waterBelow;
+        if (!waterAdjacent && pos.y() < FlatWorldRules.MAX_Y) {
+            waterAdjacent = isWater(state.getBlock(new NBlockPos(pos.x(), pos.y() + 1, pos.z())));
+        }
+        if (!waterAdjacent) {
+            for (NBlockPos n : horizontalNeighbors(pos)) {
+                if (isWater(state.getBlock(n))) {
+                    waterAdjacent = true;
+                    break;
+                }
+            }
+        }
+        if (!waterAdjacent) {
+            return FlatWorldRules.AIR;
+        }
+        if (current == FlatWorldRules.LAVA_SOURCE) {
+            return FlatWorldRules.OBSIDIAN;
+        }
+        return waterBelow ? FlatWorldRules.STONE : FlatWorldRules.COBBLESTONE;
     }
 
     /** A fluid spreads horizontally only when it rests on something solid (no pyramids). */

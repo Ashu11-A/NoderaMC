@@ -27,6 +27,7 @@ public final class RedstoneSuppression {
 
     private static final Set<Long> SUPPRESSED_REGIONS = ConcurrentHashMap.newKeySet();
     private static final LongAdder SUPPRESSED_TICKS = new LongAdder();
+    private static final LongAdder SUPPRESSED_RANDOM_TICKS = new LongAdder();
 
     private RedstoneSuppression() {
     }
@@ -65,6 +66,21 @@ public final class RedstoneSuppression {
         return SUPPRESSED_TICKS.sum();
     }
 
+    /**
+     * Count one whole chunk's worth of vanilla RANDOM ticks skipped (L-1). Separate from the
+     * scheduled-tick counter because the two answer different questions: scheduled ticks are the
+     * redstone lane's assert-zero, random ticks are the farm lane's, and a farm soak reading one
+     * number would be reading the wrong one.
+     */
+    public static void recordSuppressedRandomTick() {
+        SUPPRESSED_RANDOM_TICKS.increment();
+    }
+
+    /** Total vanilla chunk random-tick passes skipped because the engine owns them. */
+    public static long suppressedRandomTicks() {
+        return SUPPRESSED_RANDOM_TICKS.sum();
+    }
+
     /** The number of regions currently suppressed. */
     public static int activeRegions() {
         return SUPPRESSED_REGIONS.size();
@@ -72,6 +88,7 @@ public final class RedstoneSuppression {
 
     /** Test seam: reset all registry state. */
     public static void reset() {
+        SUPPRESSED_RANDOM_TICKS.reset();
         SUPPRESSED_REGIONS.clear();
         SUPPRESSED_TICKS.reset();
     }
