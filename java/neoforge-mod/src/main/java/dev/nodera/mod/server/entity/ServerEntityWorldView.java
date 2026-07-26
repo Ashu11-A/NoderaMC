@@ -40,6 +40,12 @@ public final class ServerEntityWorldView implements MutableWorldView {
     private final Map<String, InventoryCredit> pendingCredits = new LinkedHashMap<>();
     private final InventoryCreditPersistence creditPersistence;
     private List<Runnable> stagedEffects;
+    /**
+     * How a projection announces itself as the applier's own write. Without it the choke point
+     * would classify every committed block this view writes as foreign and certify the lane's own
+     * commits back to itself.
+     */
+    private java.util.function.Consumer<Runnable> applierScope = Runnable::run;
 
     public ServerEntityWorldView(InventoryCreditPersistence creditPersistence) {
         if (creditPersistence == null) {
@@ -49,6 +55,14 @@ public final class ServerEntityWorldView implements MutableWorldView {
         for (InventoryCredit credit : creditPersistence.retained()) {
             pendingCredits.put(creditKey(credit), credit);
         }
+    }
+
+    /**
+     * Install the write-guard scope every block projection runs inside; {@code null} restores the
+     * plain "just run it" behaviour used when nothing guards writes.
+     */
+    public void applierScope(java.util.function.Consumer<Runnable> scope) {
+        this.applierScope = scope == null ? Runnable::run : scope;
     }
 
     /** Bind a live level to its canonical base snapshot before activating validation. */
@@ -156,8 +170,9 @@ public final class ServerEntityWorldView implements MutableWorldView {
                             + "{},{},{} left as it was", stateId, pos.x(), pos.y(), pos.z());
             return;
         }
-        level.setBlock(new net.minecraft.core.BlockPos(pos.x(), pos.y(), pos.z()), state.get(),
-                net.minecraft.world.level.block.Block.UPDATE_ALL);
+        applierScope.accept(() -> level.setBlock(
+                new net.minecraft.core.BlockPos(pos.x(), pos.y(), pos.z()), state.get(),
+                net.minecraft.world.level.block.Block.UPDATE_ALL));
     }
 
     @Override

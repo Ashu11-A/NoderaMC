@@ -30,6 +30,35 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-25 — The choke point is live, and the guard it feeds finally has a caller
+
+There is no event for "a block changed". NeoForge fires events for the *causes* it knows — a player
+placing, a piston moving, a fluid spreading — and a foreign write is by definition the write whose
+cause nobody enumerated: a mod calling `setBlockState`, a fake player, a late worldgen feature, an
+async executor. All of them funnel through `LevelChunk.setBlockState` and nothing else does, so the
+second mixin in the repository guards that funnel. Guarding the causes instead would mean guarding
+an open set, which is the same as not guarding.
+
+The mixin holds no judgement: `BlockWriteGuard` translates chunk and `BlockState` into region and
+palette ids, and `MutationGuard` — unit-tested in the engine, with the applier scope, the CONVERT
+default, and the STRICT mode already built — decides. On a server validating nothing the whole
+choke point is one field read per block write.
+
+The entry point is chosen **by thread**, and that is the design decision worth reading twice. A
+main-thread write with no phase marker is ordinary vanilla plumbing; rejecting those would have made
+the guard a crash generator. A write arriving from another thread is exactly the case L-25's
+documented rejection exists for, so it gets `verdictChecked` and the `AsyncWriteException` naming
+`AsyncActionGate.submit` — rethrown, never degraded into a warning, because a mod that cannot see
+the error cannot fix it.
+
+That gives **L-25** the one thing it lacked: a call site. Both halves had existed for a while, and
+the row's own note said so — "a guard nothing calls rejects nothing in practice". RETIRED, with the
+evidence in [`../engine/LIMITATIONS.fixed.md`](../engine/LIMITATIONS.fixed.md).
+
+The lane installs the guard on `install()` and removes it on `close()`, and the block applier's own
+writes run inside `MutationGuard.applierScope` — without that, every commit this node applied would
+have been re-certified back to itself as foreign.
+
 ### 2026-07-25 — The world reads back, and a commit becomes a block a player can see
 
 Capture without apply is half a lane, and a probe with nothing to read is half a measurement. Both

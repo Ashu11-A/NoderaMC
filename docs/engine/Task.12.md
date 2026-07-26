@@ -7,7 +7,7 @@
      complete on partial sub-lanes. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS (programme-level; several sub-lanes landed)
-**Category:** engine · **Owns:** L-12, L-16, L-17, L-25 · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** L-12, L-16, L-17 · **Last audit:** 2026-07-25
 **Depends on:** [engine 11](Task.11.md), [network 2](../network/Task.2.md), [minecraft 2](../minecraft/Task.2.md)
 **Consumed by:** the project's exit condition
 
@@ -59,7 +59,7 @@ Landed sub-lanes:
   the wire against honest members running the production path.
 
 Remaining: the client prediction and rollback overlay (**L-16**), zero-reconnect local-replica view
-during migration (**L-17**), the guard's live mixin call site (**L-25**), deterministic worldgen, and
+during migration (**L-17**), deterministic worldgen, and
 the closure audit.
 
 ## Dependencies
@@ -135,7 +135,7 @@ applied commit) — what remains is the renderer bind and the capture-point pred
    (**L-16** exit).
 3. ⬜ Local-replica world view: play continues with **zero reconnect** during migration
    (**L-17** exit).
-4. 🚧 The guard's documented async rejection has a live mixin call site (**L-25** exit).
+4. ✅ The guard's documented async rejection has a live mixin call site: `LevelChunkMixin` → `BlockWriteGuard`, which reaches `verdictChecked` by thread (**L-25** RETIRED 2026-07-25).
 5. ⬜ Deterministic worldgen.
 6. ⬜ **Closure audit:** every category's `LIMITATIONS.md` §B empty; a closure soak green with
    adversarial peers and the server absent for extended windows; `@Invariant(1..12)` each with a
@@ -144,6 +144,6 @@ applied commit) — what remains is the renderer bind and the capture-point pred
 ## Limitations
 
 - **L-12** movement (RETIRING) · **L-16** commit latency / prediction (OPEN) · **L-17** migration
-  reconnect (OPEN) · **L-25** async writes under the guard (RETIRING).
+  reconnect (OPEN). **L-25** (async writes under the guard) retired 2026-07-25.
 - Retired here: L-10, L-11, L-13, L-14, L-18, L-20, L-21 — see
   [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
