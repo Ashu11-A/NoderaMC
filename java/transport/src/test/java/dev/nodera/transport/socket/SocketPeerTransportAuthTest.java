@@ -171,7 +171,16 @@ final class SocketPeerTransportAuthTest {
         OutputStream out = raw.getOutputStream();
         byte[] hello = legacyHello(NodeId.random(), "127.0.0.1:1");
         writeFrame(out, hello);
-        writeFrame(out, "smuggled".getBytes(StandardCharsets.UTF_8));
+        // The refusal can also land ON THIS WRITE. If the server reads the legacy hello and closes
+        // before the smuggled frame is flushed, the kernel answers RST and the write fails with
+        // "Broken pipe" — which is the refusal happening FASTER than the test could observe it, not
+        // a failure. (CI failed here once, on the write, while the same commit passed elsewhere.)
+        boolean hungUpMidWrite = false;
+        try {
+            writeFrame(out, "smuggled".getBytes(StandardCharsets.UTF_8));
+        } catch (java.io.IOException refusedBeforeWeFinished) {
+            hungUpMidWrite = true;
+        }
 
         // The server must tear the connection down and the handler must never fire.
         //
@@ -182,9 +191,13 @@ final class SocketPeerTransportAuthTest {
         // challenge sometimes arrives in full and sometimes is thrown away in flight. Both are the
         // same refusal. Asserting the challenge always survives made this test fail roughly one run
         // in three for reasons that had nothing to do with authentication.
-        InputStream in = raw.getInputStream();
-        raw.setSoTimeout(5_000);
-        assertThat(drainUntilClosed(in)).isTrue();
+        if (!hungUpMidWrite) {
+            InputStream in = raw.getInputStream();
+            raw.setSoTimeout(5_000);
+            assertThat(drainUntilClosed(in)).isTrue();
+        }
+        // The one clause that is never conditional: whichever way the connection died, no frame
+        // from an unauthenticated peer ever reached the handler.
         assertThat(anyFrame.await(500, TimeUnit.MILLISECONDS)).isFalse();
     }
 
