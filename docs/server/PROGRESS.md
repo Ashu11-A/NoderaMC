@@ -19,7 +19,7 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ⬜ NOT STARTED | Owns L-61, L-66. Blocks everything; the ALIGN-1 preflight lands here |
+| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | 🚧 IN PROGRESS | `nodera-endpoint.jar` builds and enables on real Paper 1.21.1 (`e2e-endpoint.sh` green); ALIGN-1 lives in `core` and is exhaustively tested. Owns L-61 (RETIRING), L-66. Folia staging and the other two suites remain |
 | [2](Task.2.md) | Embedded peer + control plane | ⬜ NOT STARTED | Owns L-71. `external` peer mode is the elimination path for the crash coupling |
 | [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | Owns L-62; **L-63 retired 2026-07-26** (multi-view planning). **The design risk**, deliberately before any behaviour change |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
@@ -33,6 +33,33 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — There is a plugin, and it enables on a real Paper
+
+The category's gate row said "the plugin does not exist", and eight rows sat behind it. It exists
+now, for exactly what task 1 covers: `java/paper-plugin` builds `nodera-endpoint.jar`, and
+`scripts/e2e-endpoint.sh` runs it against a downloaded **Paper 1.21.1** — the plugin enables, names
+its platform, reports ALIGN-1, and disables cleanly with no exception in the log.
+
+Three decisions worth keeping:
+
+**The platform is detected from the regionised scheduler, not a name.** Folia forks Paper, forks
+rename themselves, and a plugin that keys off a version string is broken by the next rebrand. The
+probe is for the class that only exists where regions do.
+
+**ALIGN-1 lives in `core`, not in the plugin.** It is arithmetic that decides whether two threads can
+end up writing one authority unit, so it is tested exhaustively — every region in a ±64 grid across
+exponents 3 to 6 — without a server anywhere near it. The plugin reads a number out of
+`paper-global.yml` and asks. Below exponent 3 it refuses to enable and the message names the setting,
+the value found and the fix, because a plugin that disables itself silently is indistinguishable from
+one that failed to load.
+
+**The suite asserts what task 1 built and nothing else.** `nodera_bukkit_up` waits for the endpoint's
+peer control socket — correct for the task-2 suites, wrong here, because this plugin hosts no peer
+yet. Waiting for something unbuilt would report "broken" where the honest reading is "not built yet".
+
+Writing this also corrected the register: L-61 claimed all three endpoint suites were committed. Only
+the harness library was. `e2e-endpoint.sh` is now real; `e2e-folia.sh` and `e2e-plugins.sh` are not.
 
 ### 2026-07-26 — The first server row retires without a server
 

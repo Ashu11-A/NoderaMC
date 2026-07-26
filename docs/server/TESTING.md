@@ -7,9 +7,19 @@
      SKIPPED naming the LIMITATIONS.md row that blocks it, and the suite exits 0 — a nightly run must
      read as "not built yet", never as "broken". Update this file whenever a script gains a stage. -->
 
-**Category:** server · **Last run:** — · **0 unit tests** (module `paper-plugin` does not exist yet),
-plus **3 scripted live suites, all currently SKIPPING** at their jar preflight
-([L-61](LIMITATIONS.md))
+**Category:** server · **Last run:** 2026-07-26 · **5 unit tests · 0 failing** (module
+`paper-plugin`), plus `scripts/e2e-endpoint.sh` **green against a real Paper 1.21.1**.
+`e2e-folia.sh` and `e2e-plugins.sh` are **not written yet** — the register previously said all three
+were committed; only the harness library (`scripts/lib/e2e-server.sh`) was ([L-61](LIMITATIONS.md)).
+
+ALIGN-1's own arithmetic is tested in `core`, not here: `RegionAlignmentTest` walks every region in a
+±64 grid across grid exponents 3–6, because whether two threads can write one authority unit is not a
+thing to check by eye.
+
+```bash
+# The endpoint suite needs a Paper jar staged; it SKIPS (exit 0) without one.
+NODERA_PAPER_JAR=/path/to/paper-1.21.1.jar scripts/e2e-endpoint.sh --no-build
+```
 
 ---
 
