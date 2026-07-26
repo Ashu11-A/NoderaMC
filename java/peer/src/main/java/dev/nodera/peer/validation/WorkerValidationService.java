@@ -1802,8 +1802,11 @@ public final class WorkerValidationService {
      * quickly. Local by construction: reputation is a view, never consensus state (nothing derived
      * from it may enter a root).
      */
-    private final dev.nodera.coordinator.ReliabilityLedger reliability =
+    private volatile dev.nodera.coordinator.ReliabilityLedger reliability =
             new dev.nodera.coordinator.ReliabilityLedger();
+
+    /** Set when a caller gives this lane somewhere durable to keep its view; may stay null. */
+    private volatile DurableCoordinatorState durableState;
 
     /**
      * @return this node's reliability view, for diagnostics and for an assignment planner that
@@ -1811,6 +1814,30 @@ public final class WorkerValidationService {
      */
     public dev.nodera.coordinator.ReliabilityLedger reliability() {
         return reliability;
+    }
+
+    /**
+     * Give this lane a durable home for its epochs and reputations, and adopt whatever it already
+     * remembers. Without this the view is a session counter: every restart forgets who behaved.
+     *
+     * @param durable the state file wrapper; {@code null} detaches (the view stays in memory).
+     */
+    public void attachDurableState(DurableCoordinatorState durable) {
+        this.durableState = durable;
+        if (durable != null) {
+            this.reliability = durable.reliability();
+        }
+    }
+
+    /**
+     * Write the reliability view and epochs to disk when a durable state is attached; a no-op
+     * otherwise. Cheap: a few hundred bytes for a normal committee.
+     */
+    public void persistState() {
+        DurableCoordinatorState durable = durableState;
+        if (durable != null) {
+            durable.flush();
+        }
     }
 
     /** Ticks between lag windows — three of these must be unhealthy before a region hands off. */

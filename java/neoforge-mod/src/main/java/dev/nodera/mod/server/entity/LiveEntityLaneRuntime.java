@@ -366,6 +366,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         currentTick = server.getTickCount();
         world.retryPendingCredits(server);
         metrics.recordGhostMobTicks(ghosts.size());
+        // A crash is the case durability exists for, and a crash never reaches close(): checkpoint
+        // the reputation view every 30 s so at most half a minute of observation is ever lost.
+        if (currentTick % 600 == 0) {
+            validation.persistState();
+        }
         interferenceStats.advanceTick();
         for (RegionId region : regions) {
             validation.currentSnapshot(region).ifPresent(snapshot ->
