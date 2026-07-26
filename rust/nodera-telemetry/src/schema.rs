@@ -440,6 +440,61 @@ impl EventSpec {
     }
 }
 
+/// The version this registry was built from — the repository `VERSION` stamped by `build.rs`.
+///
+/// It rides every copy of the schema, including the one an offline client falls back to, so a
+/// stale disclosure is **visibly** stale rather than merely old (app L-78).
+pub const REGISTRY_VERSION: &str = env!("NODERA_VERSION");
+
+/// The registry, as JSON — the machine-readable half of the privacy notice.
+///
+/// Lives in the library rather than in the binary because two places consume it and they must not
+/// drift: the ingest service answers a probe with it, and the companion app embeds it as the
+/// fallback for the case where the service cannot be reached at all.
+///
+/// `source` distinguishes the two: `service` for a live answer, `bundled` for the embedded copy.
+/// A screen that cannot tell them apart would present a possibly-stale list as current.
+pub fn schema_json(source: &str) -> String {
+    use serde_json::{Map, Value};
+    let mut events = Vec::new();
+    for spec in REGISTRY {
+        let mut attrs = Map::new();
+        for attr in spec.attrs {
+            attrs.insert(attr.key.to_owned(), Value::from(kind_name(attr.kind)));
+        }
+        let mut event = Map::new();
+        event.insert("name".into(), Value::from(spec.name));
+        event.insert("source".into(), Value::from(spec.source.as_str()));
+        event.insert("attrs".into(), Value::Object(attrs));
+        events.push(Value::Object(event));
+    }
+    let mut root = Map::new();
+    root.insert("row_schema".into(), Value::from(crate::service::ROW_SCHEMA));
+    root.insert(
+        "batch_version".into(),
+        Value::from(crate::event::BATCH_VERSION),
+    );
+    root.insert("registry_version".into(), Value::from(REGISTRY_VERSION));
+    root.insert("disclosure_source".into(), Value::from(source));
+    root.insert("events".into(), Value::Array(events));
+    Value::Object(root).to_string()
+}
+
+/// Test seam: the binary's schema tests assert the rendering of each kind.
+pub fn kind_name_for_test(kind: ValueKind) -> String {
+    kind_name(kind)
+}
+
+fn kind_name(kind: ValueKind) -> String {
+    match kind {
+        ValueKind::Int { min, max } => format!("int[{min}..{max}]"),
+        ValueKind::Bool => "bool".to_owned(),
+        ValueKind::Enum(values) => format!("enum({})", values.join("|")),
+        ValueKind::Hex { len } => format!("hex[{len}]"),
+        ValueKind::Version => "version".to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,57 +608,5 @@ mod tests {
             assert_eq!(Source::parse(source.as_str()), Some(source));
         }
         assert_eq!(Source::parse("admin"), None);
-    }
-}
-
-/// The version this registry was built from — the repository `VERSION` stamped by `build.rs`.
-///
-/// It rides every copy of the schema, including the one an offline client falls back to, so a
-/// stale disclosure is **visibly** stale rather than merely old (app L-78).
-pub const REGISTRY_VERSION: &str = env!("NODERA_VERSION");
-
-/// The registry, as JSON — the machine-readable half of the privacy notice.
-///
-/// Lives in the library rather than in the binary because two places consume it and they must not
-/// drift: the ingest service answers a probe with it, and the companion app embeds it as the
-/// fallback for the case where the service cannot be reached at all.
-///
-/// `source` distinguishes the two: `service` for a live answer, `bundled` for the embedded copy.
-/// A screen that cannot tell them apart would present a possibly-stale list as current.
-pub fn schema_json(source: &str) -> String {
-    use serde_json::{Map, Value};
-    let mut events = Vec::new();
-    for spec in REGISTRY {
-        let mut attrs = Map::new();
-        for attr in spec.attrs {
-            attrs.insert(attr.key.to_owned(), Value::from(kind_name(attr.kind)));
-        }
-        let mut event = Map::new();
-        event.insert("name".into(), Value::from(spec.name));
-        event.insert("source".into(), Value::from(spec.source.as_str()));
-        event.insert("attrs".into(), Value::Object(attrs));
-        events.push(Value::Object(event));
-    }
-    let mut root = Map::new();
-    root.insert("row_schema".into(), Value::from(crate::service::ROW_SCHEMA));
-    root.insert("batch_version".into(), Value::from(crate::event::BATCH_VERSION));
-    root.insert("registry_version".into(), Value::from(REGISTRY_VERSION));
-    root.insert("disclosure_source".into(), Value::from(source));
-    root.insert("events".into(), Value::Array(events));
-    Value::Object(root).to_string()
-}
-
-/// Test seam: the binary's schema tests assert the rendering of each kind.
-pub fn kind_name_for_test(kind: ValueKind) -> String {
-    kind_name(kind)
-}
-
-fn kind_name(kind: ValueKind) -> String {
-    match kind {
-        ValueKind::Int { min, max } => format!("int[{min}..{max}]"),
-        ValueKind::Bool => "bool".to_owned(),
-        ValueKind::Enum(values) => format!("enum({})", values.join("|")),
-        ValueKind::Hex { len } => format!("hex[{len}]"),
-        ValueKind::Version => "version".to_owned(),
     }
 }
