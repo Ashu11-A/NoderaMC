@@ -5,6 +5,7 @@ import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
+import dev.nodera.core.region.RegionId;
 import dev.nodera.distribution.ContentTransferService;
 import dev.nodera.distribution.PieceDownloader;
 import dev.nodera.distribution.PieceManifest;
@@ -93,8 +94,44 @@ public final class WorldArchiveService implements AutoCloseable {
      */
     private final boolean ownsTracker;
 
+    /**
+     * How many versions of one <b>region</b> snapshot this node keeps (L-41).
+     *
+     * <p>Two, not three: a region snapshot is the validated lane's own state, re-seeded every time
+     * the region commits, so the ladder grows far faster than the archive's. Two keeps the version
+     * a joiner may be mid-fetch of while the next one lands.
+     */
+    public static final int DEFAULT_RETAINED_REGION_VERSIONS = 2;
+
+    /**
+     * How many region holdings ride one tracker announce.
+     *
+     * <p>An announce is a datagram-shaped record, and a world can have hundreds of live regions —
+     * advertising every one would make the announce grow with the size of the world. The cap keeps
+     * it bounded; the selection is deterministic (newest manifest per region, regions in canonical
+     * order) so two announces from the same node describe the same thing. <b>Honest bound:</b> a
+     * world with more than this many seeded regions advertises a prefix, and a joiner wanting a
+     * region outside it must ask this node directly rather than learn it from the tracker. Paging
+     * that properly is a protocol addition, not a constant.
+     */
+    static final int MAX_ADVERTISED_REGION_HOLDINGS = 64;
+
     /** worldIdHex → version → manifest, newest last; all manifests this node can serve. */
     private final Map<String, NavigableMap<Long, PieceManifest>> manifests =
+            new ConcurrentHashMap<>();
+
+    /**
+     * worldIdHex → region → snapshot version → manifest: the <b>validated-lane region pieces</b>
+     * this node seeds (L-41).
+     *
+     * <p>Deliberately a separate table from {@link #manifests} rather than more entries in the same
+     * ladder. The archive ladder is keyed by archive version and its retention, supersede and
+     * "newest wins" rules all mean "this world's save, later" — a region snapshot version means
+     * something else entirely, and mixing them would let a region at version 9 supersede an archive
+     * at version 8, evicting the world's actual bytes. The two lanes carry different content and
+     * they get different books.
+     */
+    private final Map<String, Map<RegionId, NavigableMap<Long, PieceManifest>>> regionManifests =
             new ConcurrentHashMap<>();
 
     /** Routes learned from tracker answers and inbound traffic — the content router's table. */
@@ -108,6 +145,9 @@ public final class WorldArchiveService implements AutoCloseable {
 
     /** How many versions per world survive a seed; see {@link #DEFAULT_RETAINED_VERSIONS}. */
     private volatile int retainedVersions = DEFAULT_RETAINED_VERSIONS;
+
+    /** How many versions per region survive a seed; see {@link #DEFAULT_RETAINED_REGION_VERSIONS}. */
+    private volatile int retainedRegionVersions = DEFAULT_RETAINED_REGION_VERSIONS;
 
     /**
      * The content store's pin seam, when it has one (L-62). What this node SEEDS is content it is
@@ -246,6 +286,123 @@ public final class WorldArchiveService implements AutoCloseable {
     }
 
     /**
+     * Seed one committed <b>region snapshot</b> of a world's validated lane (L-41).
+     *
+     * <p>The archive lane carries the save's bytes; this carries the engine's canonical state for
+     * one region, split at chunk-column boundaries by {@link RegionSnapshotSplitter} so a joiner
+     * can fetch the region it is standing in without pulling a whole world. Both lanes ride the
+     * same piece plane and the same announce, which is the point of the row: what keeps a world
+     * <i>available</i> should not depend on whose game is open.
+     *
+     * <p><b>What is seeded is what was committed.</b> The snapshot's own {@code version} is the
+     * ladder key — not a counter this class invents — so re-seeding a version already held is
+     * idempotent and cannot fork the ladder. The manifest carries the region and the region root,
+     * so a fetcher can check the bytes against a certificate it verified independently; nothing
+     * here asks anyone to trust this node.
+     *
+     * @param worldIdHex the world, hex-encoded (as the control verbs carry it).
+     * @param snapshot   the committed region snapshot.
+     * @return the manifest now seeded — the one already held if this version was seeded before.
+     * @Thread-context any thread.
+     */
+    public PieceManifest seedRegion(String worldIdHex,
+                                    dev.nodera.core.state.RegionSnapshot snapshot) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        Objects.requireNonNull(snapshot, "snapshot");
+        NavigableMap<Long, PieceManifest> versions = regionManifests
+                .computeIfAbsent(worldIdHex, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(snapshot.region(), r -> new ConcurrentSkipListMap<>());
+        long version = snapshot.version().value();
+        PieceManifest held = versions.get(version);
+        if (held != null) {
+            return held;
+        }
+        dev.nodera.distribution.RegionSnapshotSplitter.Layout layout =
+                dev.nodera.distribution.RegionSnapshotSplitter.split(snapshot);
+        PieceManifest manifest = layout.manifest();
+        content.publish(manifest, layout.blob());
+        pin(manifest);
+        versions.put(version, manifest);
+        LOG.info("Seeding region {} of world {} v{} — {} piece(s), {} byte(s), root {}",
+                snapshot.region(), shortId(worldIdHex), version, manifest.pieceCount(),
+                manifest.totalLength(), manifest.manifestRoot().toShortHex(6));
+        trimRegionToRetention(worldIdHex, snapshot.region(), versions);
+        return manifest;
+    }
+
+    /**
+     * Bound how many versions of one region this node keeps (L-41).
+     *
+     * @param keep the window; clamped to at least 1 — a node seeding a region always keeps its
+     *             newest snapshot, which IS the region.
+     * @Thread-context any thread.
+     */
+    public void setRetainedRegionVersions(int keep) {
+        this.retainedRegionVersions = Math.max(1, keep);
+    }
+
+    /** @return how many versions per region survive a seed. */
+    public int retainedRegionVersions() {
+        return retainedRegionVersions;
+    }
+
+    /** Drop everything below the newest {@link #retainedRegionVersions} versions of one region. */
+    private void trimRegionToRetention(String worldIdHex, RegionId region,
+                                       NavigableMap<Long, PieceManifest> versions) {
+        int keep = retainedRegionVersions;
+        if (versions.size() <= keep) {
+            return;
+        }
+        List<Long> ordered = new ArrayList<>(versions.descendingKeySet());
+        long oldestKept = ordered.get(keep - 1);
+        for (Long version : new ArrayList<>(versions.headMap(oldestKept, false).keySet())) {
+            PieceManifest gone = versions.remove(version);
+            if (gone == null) {
+                continue;
+            }
+            if (pins != null) {
+                pins.unpin(gone.blob());
+            }
+            content.unpublish(gone.manifestRoot());
+            LOG.info("Evicted region {} of world {} v{} — beyond the region window of {}",
+                    region, shortId(worldIdHex), version, keep);
+        }
+    }
+
+    /** @return the regions of a world this node currently seeds, in canonical order. */
+    public List<RegionId> heldRegions(String worldIdHex) {
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.get(worldIdHex);
+        if (byRegion == null) {
+            return List.of();
+        }
+        List<RegionId> regions = new ArrayList<>(byRegion.keySet());
+        regions.sort(REGION_ORDER);
+        return regions;
+    }
+
+    /** @return the newest seeded snapshot manifest for one region of a world, if any. */
+    public Optional<PieceManifest> newestRegionManifest(String worldIdHex, RegionId region) {
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.get(worldIdHex);
+        if (byRegion == null) {
+            return Optional.empty();
+        }
+        NavigableMap<Long, PieceManifest> versions = byRegion.get(region);
+        return versions == null || versions.isEmpty()
+                ? Optional.empty()
+                : Optional.of(versions.lastEntry().getValue());
+    }
+
+    /**
+     * A total order on regions so an announce and a manifest answer describe the same prefix twice
+     * running. {@link RegionId} has no natural order, and an arbitrary one would make the
+     * {@link #MAX_ADVERTISED_REGION_HOLDINGS} cut non-deterministic.
+     */
+    private static final java.util.Comparator<RegionId> REGION_ORDER =
+            java.util.Comparator.comparing((RegionId r) -> r.dimension().toString())
+                    .thenComparingInt(RegionId::regionX)
+                    .thenComparingInt(RegionId::regionZ);
+
+    /**
      * Bound how many archive versions of one world this node keeps (L-61).
      *
      * @param keep the window; clamped to at least 1 (a node that hosts a world always keeps its
@@ -374,27 +531,64 @@ public final class WorldArchiveService implements AutoCloseable {
     public List<ManifestHolding> holdingsFor(String worldIdHex) {
         List<ManifestHolding> out = new ArrayList<>();
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
-        if (versions == null) {
-            return out;
-        }
-        for (PieceManifest m : versions.values()) {
-            BitSet held = content.heldPieces(m.manifestRoot());
-            if (!held.isEmpty()) {
-                out.add(new ManifestHolding(m.manifestRoot(), PieceBitmap.pack(held)));
+        if (versions != null) {
+            for (PieceManifest m : versions.values()) {
+                addHolding(out, m);
             }
         }
+        // The validated-lane region pieces ride the same announce (L-41): one advertisement says
+        // both "I have this world's save" and "I have these regions of it", so a joiner learns
+        // both from the answer it already asked for. Newest-per-region, capped and in canonical
+        // order — see MAX_ADVERTISED_REGION_HOLDINGS for what that cap does and does not promise.
+        for (RegionId region : cappedRegions(worldIdHex)) {
+            newestRegionManifest(worldIdHex, region).ifPresent(m -> addHolding(out, m));
+        }
         return out;
+    }
+
+    /** Advertise a manifest only if some of it is actually here; an empty bitmap claims nothing. */
+    private void addHolding(List<ManifestHolding> out, PieceManifest manifest) {
+        BitSet held = content.heldPieces(manifest.manifestRoot());
+        if (!held.isEmpty()) {
+            out.add(new ManifestHolding(manifest.manifestRoot(), PieceBitmap.pack(held)));
+        }
+    }
+
+    /** @return the seeded regions of a world, in canonical order, capped for the wire. */
+    private List<RegionId> cappedRegions(String worldIdHex) {
+        List<RegionId> regions = heldRegions(worldIdHex);
+        return regions.size() <= MAX_ADVERTISED_REGION_HOLDINGS
+                ? regions
+                : regions.subList(0, MAX_ADVERTISED_REGION_HOLDINGS);
     }
 
     /** @return total pieces held across every manifest (the STATE {@code maintained_pieces}). */
     public long maintainedPieces() {
         long pieces = 0;
-        for (NavigableMap<Long, PieceManifest> versions : manifests.values()) {
-            for (PieceManifest m : versions.values()) {
-                pieces += content.heldPieces(m.manifestRoot()).cardinality();
-            }
+        for (PieceManifest m : everyHeldManifest()) {
+            pieces += content.heldPieces(m.manifestRoot()).cardinality();
         }
         return pieces;
+    }
+
+    /**
+     * Every manifest this node is seeding, archive and region alike.
+     *
+     * <p>The two lanes keep separate books, but what the node <i>maintains</i> is one number: an
+     * operator reading {@code maintained_pieces} wants the disk this worker is holding down, not
+     * the archive half of it.
+     */
+    private List<PieceManifest> everyHeldManifest() {
+        List<PieceManifest> all = new ArrayList<>();
+        for (NavigableMap<Long, PieceManifest> versions : manifests.values()) {
+            all.addAll(versions.values());
+        }
+        for (Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion : regionManifests.values()) {
+            for (NavigableMap<Long, PieceManifest> versions : byRegion.values()) {
+                all.addAll(versions.values());
+            }
+        }
+        return all;
     }
 
     /**
@@ -473,12 +667,10 @@ public final class WorldArchiveService implements AutoCloseable {
     /** @return total bytes of held pieces (the STATE {@code maintained_bytes}). */
     public long maintainedBytes() {
         long bytes = 0;
-        for (NavigableMap<Long, PieceManifest> versions : manifests.values()) {
-            for (PieceManifest m : versions.values()) {
-                BitSet held = content.heldPieces(m.manifestRoot());
-                for (int i = held.nextSetBit(0); i >= 0; i = held.nextSetBit(i + 1)) {
-                    bytes += m.piece(i).length();
-                }
+        for (PieceManifest m : everyHeldManifest()) {
+            BitSet held = content.heldPieces(m.manifestRoot());
+            for (int i = held.nextSetBit(0); i >= 0; i = held.nextSetBit(i + 1)) {
+                bytes += m.piece(i).length();
             }
         }
         return bytes;
@@ -521,10 +713,16 @@ public final class WorldArchiveService implements AutoCloseable {
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
         if (versions != null) {
             for (PieceManifest m : versions.descendingMap().values()) {
-                CanonicalWriter w = new CanonicalWriter();
-                m.encode(w);
-                encoded.add(w.toBytes());
+                encoded.add(encodeManifest(m));
             }
+        }
+        // Region manifests answer the same query (L-41). A holding advertised on the tracker is a
+        // root and a bitmap — enough to know this node has something, not enough to fetch it,
+        // because a fetch verifies every piece against the manifest's hash list. Answering with
+        // both lanes is what makes an advertised region actually fetchable, and it needs no new
+        // message: the region is already a field of PieceManifest, so the receiver files it.
+        for (RegionId region : cappedRegions(worldIdHex)) {
+            newestRegionManifest(worldIdHex, region).ifPresent(m -> encoded.add(encodeManifest(m)));
         }
         try {
             transport.send(from, MessageCodec.encode(
@@ -534,17 +732,40 @@ public final class WorldArchiveService implements AutoCloseable {
         }
     }
 
+    /** @return the canonical encoding of a manifest, for a {@link WorldManifestAnswer} entry. */
+    private static Bytes encodeManifest(PieceManifest manifest) {
+        CanonicalWriter w = new CanonicalWriter();
+        manifest.encode(w);
+        return w.toBytes();
+    }
+
     private void onManifestAnswer(PeerAddress from, WorldManifestAnswer answer) {
         List<PieceManifest> decoded = new ArrayList<>(answer.manifests().size());
+        String worldIdHex = answer.worldId().toHex();
         for (Bytes encoded : answer.manifests()) {
+            PieceManifest manifest;
             try {
                 // decode re-verifies the manifest root; a tampered manifest throws here.
-                decoded.add(PieceManifest.decode(new CanonicalReader(encoded.toArray())));
+                manifest = PieceManifest.decode(new CanonicalReader(encoded.toArray()));
             } catch (RuntimeException e) {
                 LOG.warn("discarding bad manifest from {}: {}", from, e.getMessage());
+                continue;
+            }
+            // Which lane a manifest belongs to is a property of the manifest, not of who sent it:
+            // the archive lane files everything under the synthetic ARCHIVE_REGION, so anything
+            // else is a validated-lane region snapshot (L-41). Filing them apart is what keeps a
+            // region at version 9 from superseding an archive at version 8 — the two "version"
+            // numbers count different things and the supersede rule below only means anything for
+            // the archive's.
+            if (WorldArchive.ARCHIVE_REGION.equals(manifest.region())) {
+                decoded.add(manifest);
+            } else {
+                regionManifests
+                        .computeIfAbsent(worldIdHex, k -> new ConcurrentHashMap<>())
+                        .computeIfAbsent(manifest.region(), r -> new ConcurrentSkipListMap<>())
+                        .putIfAbsent(manifest.version().value(), manifest);
             }
         }
-        String worldIdHex = answer.worldId().toHex();
         // Remember every learned manifest so this node can later serve the metadata onward.
         NavigableMap<Long, PieceManifest> versions =
                 manifests.computeIfAbsent(worldIdHex, k -> new ConcurrentSkipListMap<>());

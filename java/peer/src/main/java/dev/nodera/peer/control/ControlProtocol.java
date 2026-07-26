@@ -67,6 +67,28 @@ public final class ControlProtocol {
     public static final String ARCHIVE = "NODERA-ARCHIVE";
 
     /**
+     * Seed one committed <b>region snapshot</b> of the validated lane (worker L-41):
+     * {@code NODERA-SEED-REGION <ver> <worldId> <snapshotPathB64>} — the file holds a canonically
+     * encoded {@code RegionSnapshot}, written by whichever process actually committed it, and the
+     * worker splits, publishes and pins it exactly as it does an archive.
+     *
+     * <p><b>Why a file path and not the bytes.</b> The same reason {@link #SEED} uses one: the
+     * control channel is a line protocol on loopback, and a region snapshot is far too big to
+     * belong on a line. The handoff is same-machine by construction, which is the trust boundary
+     * this channel already has.
+     *
+     * <p><b>Why the worker seeds what somebody else committed.</b> Under field-of-view ownership
+     * the seats live on the players' nodes, so the process holding a region's committed state is
+     * usually a game client — and that is precisely the process that goes away. Pushing the
+     * snapshot to the always-on worker is what lets the region stay fetchable after it does.
+     *
+     * <p>Reply: {@code NODERA-OK <manifestRootHex> <version> <pieceCount>}. Additive verb — an
+     * older worker answers {@code NODERA-ERR unknown verb}, which callers treat as "lane
+     * unavailable" and carry on without.
+     */
+    public static final String SEED_REGION = "NODERA-SEED-REGION";
+
+    /**
      * Mint a signed world identity (the worker is the author):
      * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted> <manifestRefB64>};
      * reply is {@code NODERA-OK <worldIdentityBytesB64>}.
