@@ -6,7 +6,7 @@
      whenever component behaviour changes, so an old peer refuses rather than diverges. Keep this
      header's status accurate. -->
 
-**Status:** 🚧 IN PROGRESS (palette v4 complete; contraption migration remains)
+**Status:** 🚧 IN PROGRESS (palette v4 complete; `RULES_VERSION` is 5 since obsidian joined for L-2; contraption migration remains)
 **Category:** engine · **Owns:** — (L-26 RETIRED) · **Last audit:** 2026-07-25
 **Depends on:** [engine 6](Task.6.md), [engine 7](Task.7.md), [network 3](../network/Task.3.md)
 **Consumed by:** [engine 10](Task.10.md), [engine 12](Task.12.md), [minecraft 2](../minecraft/Task.2.md)

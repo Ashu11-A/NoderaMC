@@ -18,7 +18,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Domain types, crypto, canonical encoding | ✅ COMPLETED | Frozen contract; extended additively through type tag 108 |
-| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 4, palette literal `palette.v4` |
+| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 5, palette literal `palette.v5` (obsidian, L-2) |
 | [3](Task.3.md) | Shadow validation | ✅ COMPLETED (headless) | Live capture soak → [minecraft 2](../minecraft/Task.2.md) |
 | [4](Task.4.md) | Coordinator | ✅ COMPLETED (headless) | Live `ServerLevel` applier → [minecraft 2](../minecraft/Task.2.md) |
 | [5](Task.5.md) | Committee validation — MVP gate | ✅ COMPLETED (headless) | Also running out of game via [worker 4](../worker/Task.4.md) |
@@ -33,6 +33,33 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — Lava meets water, and the answer is the same on every replica
+
+L-2's remaining engine clause was the interaction: until now a lava flow and a water flow could sit
+next to each other forever, because the rule set had no way to say what that means. Three outcomes,
+all vanilla-shaped and all pure functions of the neighbourhood:
+
+- a lava **source** water reaches → **obsidian** (a new palette entry, id 99, placeable and bound to
+  `minecraft:obsidian` in both directions);
+- a lava **flow** water reaches → **cobblestone**;
+- a lava flow arriving **above** water → **stone**, vanilla's "lava flows onto water" case, which is
+  why the cell underneath is checked separately from the other five.
+
+**Water is never consumed.** That is vanilla's rule, and it is also the one that keeps the result
+order-independent: consuming the water would make the outcome depend on which of the two cells the
+engine visited first — precisely the class of order dependence the hashed queue exists to remove.
+The interaction is evaluated *before* the desired fluid state, because a lava cell that water has
+reached is no longer a fluid, so asking what fluid it should settle to is the wrong question.
+
+`RULES_VERSION` 4→5 with the palette literal `palette.v5`: a peer on the old palette computes a
+different registry fingerprint and refuses to validate with this build rather than diverging the
+first time someone builds a lava cast. `FluidInteractionTest` (6) runs every case through the full
+engine path twice, so each assertion is a root assertion and each outcome is proven replica-stable.
+
+One test elsewhere had pinned `RULES_VERSION == 4` as a literal; it now pins `>= 4`, because what
+that assertion is actually about is "adding a component moved the fingerprint", not the specific
+integer this palette happens to be on.
 
 ### 2026-07-26 — Reputation stops being a design and starts being an observation
 

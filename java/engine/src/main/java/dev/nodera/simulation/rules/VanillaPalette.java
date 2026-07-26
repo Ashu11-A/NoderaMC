@@ -111,6 +111,7 @@ public final class VanillaPalette {
             case "note_block" -> FlatWorldRules.NOTE_BLOCK;
             case "redstone_block" -> FlatWorldRules.REDSTONE_BLOCK;
             case "nether_portal" -> FlatWorldRules.NETHER_PORTAL;
+            case "obsidian" -> FlatWorldRules.OBSIDIAN;
             case "lever" -> flag(props, "powered")
                     ? FlatWorldRules.LEVER_ON : FlatWorldRules.LEVER_OFF;
             case "redstone_torch", "redstone_wall_torch" -> flag(props, "lit", true)
@@ -316,6 +317,7 @@ public final class VanillaPalette {
         map.put(FlatWorldRules.HOPPER, VanillaBlock.of("hopper"));
         map.put(FlatWorldRules.NOTE_BLOCK, VanillaBlock.of("note_block"));
         map.put(FlatWorldRules.NETHER_PORTAL, VanillaBlock.of("nether_portal"));
+        map.put(FlatWorldRules.OBSIDIAN, VanillaBlock.of("obsidian"));
         return Map.copyOf(map);
     }
 
