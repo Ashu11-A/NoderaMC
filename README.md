@@ -23,14 +23,17 @@
      per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
      TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `93.8%`**
+**Overall system completion: `95.3%`**
 `███████████████████░`
 
-91.3 → **93.8 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
+91.3 → **95.3 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
 binding, capture at the documented event priority, real chunk extraction, committed blocks projected
 back into the world, exact interference measurement, session chunk tickets, and the single
 `setBlockState` choke point, which finally gave engine **L-25** the call site it had been waiting
-for. The figure moved 93.1 → 85.7 → 91.3 in one earlier day and both of those moves were real too:
+for. A dead-code sweep then found two of the coordinator's own components unwired — committee
+outcomes never reached the reliability ledger, and epochs and reputations did not survive a restart —
+and the environment lane gained lava/water interactions, crops, and the random-tick suppression
+mixin that makes a delegated region's farm the engine's business alone. The figure moved 93.1 → 85.7 → 91.3 in one earlier day and both of those moves were real too:
 the telemetry programme added ten tasks before it delivered seven. A percentage that only ever rises
 is a percentage measured against a scope that quietly moves.
 
