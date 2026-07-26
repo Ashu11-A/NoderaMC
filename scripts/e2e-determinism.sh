@@ -106,8 +106,13 @@ while (( SECONDS < deadline )); do
         # server tick stalled for a full minute, every RCON call then waited on that tick, and 900
         # seconds bought only 12 rounds. The soak is supposed to measure agreement under load, not
         # chunk generation.
-        rcon "execute at $who run setblock ~$dx ~ ~$dz minecraft:stone" >/dev/null
-        rcon "execute at $who run setblock ~$dx ~ ~$dz minecraft:air" >/dev/null
+        # `setblock` is a DIRECT WORLD WRITE: it fires neither `EntityPlaceEvent` nor
+        # `BreakEvent`, so `BlockCaptureBridge` never sees it and nothing reaches the validated
+        # lane. The first real run of this suite proved that — 197 rounds of setblock and an empty
+        # `block_capture` ledger, so its "zero divergences" measured an idle lane and no soak
+        # duration would have changed it. `/nodera debug drive` runs the same submit the bridge
+        # runs, as the player, so the edits are actually captured, signed, routed and committed.
+        rcon "execute as $who run nodera debug drive 2" >/dev/null
     done
     if (( round % 5 == 0 )); then
         rcon "execute at ${PLAYERS[$((round % 3))]} run summon minecraft:zombie ~ ~ ~" >/dev/null
