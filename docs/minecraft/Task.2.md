@@ -56,7 +56,7 @@ and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than han
 | 3 | The real `WorldMutationApplier` adapter on the server main thread | 🚧 (committed block mutations project into the live world; chunk tickets and the write choke point remain) |
 | 4 | `LevelChunkMixin` — the single write choke point | ⏳ |
 | 5 | Random-tick and scheduled-tick suppression mixins | 🚧 (scheduled-tick suppression landed) |
-| 6 | `ChunkTicketService` + `FakePlayerDetector` | ⏳ |
+| 6 | `ChunkTicketService` + `FakePlayerDetector` | 🚧 (session-scoped region tickets, ref-counted; fake players refused at capture) |
 | 7 | Live committee runs: the 3-client quorum scenario and the soak with lane metrics | ⏳ |
 | 8 | Renderer and applier consulting the piece lock map | 🚧 (edit half landed) |
 | 9 | Live commit, content, and lifecycle adapters | ⏳ |
