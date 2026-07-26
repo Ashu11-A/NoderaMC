@@ -82,6 +82,13 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
      * Feeds locally-captured actions to this node's render overlay (L-16). Resolved per call, so a
      * client validation lane that starts after this runtime does is still picked up.
      */
+    /**
+     * Holds this player's in-flight actions across a gateway migration (engine L-17 / #35). Never
+     * frozen unless the runtime reports a gateway change, so the ordinary path is one map put and
+     * one remove.
+     */
+    private final dev.nodera.peer.GatewayHandover handover = new dev.nodera.peer.GatewayHandover();
+
     private final dev.nodera.peer.view.PredictionFeed predictions =
             new dev.nodera.peer.view.PredictionFeed(
                     dev.nodera.mod.client.entity.ClientValidationLane::replicaView);
@@ -278,6 +285,38 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         return primary != null && !primary.equals(authority.nodeId()) && !delegated(region);
     }
 
+    /**
+     * The gateway lifecycle listener for this runtime (engine L-17 / #35).
+     *
+     * <p>Registered on the client peer runtime so a gateway migration freezes this player's submit
+     * path instead of dropping what was in flight. The replay re-attempts each held action down the
+     * same forward-or-propose path it would have taken originally, and each one that leaves the
+     * node is acknowledged, so a second migration replays only what is still outstanding.
+     *
+     * @return the listener, for the runtime to fan events to.
+     */
+    public dev.nodera.peer.GatewayHandoverListener gatewayListener(NodeId self) {
+        return new dev.nodera.peer.GatewayHandoverListener(handover, self, this::replay);
+    }
+
+    /** Re-send held actions after a migration; each success is acknowledged so it replays once. */
+    private void replay(java.util.List<ActionEnvelope> held) {
+        for (ActionEnvelope a : held) {
+            try {
+                boolean sent = validation.forwardToPrimary(a)
+                        || validation.proposeBatch(a.region(), a.targetTick(), a.targetTick(),
+                                java.util.List.of(a)).isPresent();
+                if (sent) {
+                    handover.acknowledge(a.actor(), a.playerSeq());
+                }
+            } catch (RuntimeException unavailable) {
+                // Still no route. The action stays held — an unacknowledged action is exactly what
+                // the next resume replays, so a gateway that comes up later still gets it.
+                LOG.debug("replay of {} deferred: {}", a.region(), unavailable.toString());
+            }
+        }
+    }
+
     private boolean submit(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
         Optional<RegionSnapshot> current = validation.currentSnapshot(region);
@@ -299,6 +338,14 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         // overlay is cosmetic — the committed base stays the authority and reconciles it — and a
         // node with no renderer (every dedicated server) predicts nothing.
         predictions.onLocalAction(signed);
+        // L-17 / #35: hold the action instead of losing it while this session has no gateway.
+        // `submit` returns false only while frozen, and a frozen submit is held for replay — so
+        // the optimistic `true` here is the same contract the forward path already has: the
+        // committee's decision arrives later either way, and what changes is only that a gateway
+        // migration no longer silently drops the swing a player just took.
+        if (!handover.submit(signed)) {
+            return true;
+        }
         try {
             // No-host routing: if another player's node is this region's primary, the captured
             // action is forwarded to it over the mesh — that player proposes, the committee votes,
@@ -306,9 +353,17 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
             // the committee's decision, reconciled by the committed-state application (A-1).
             if (validation.forwardToPrimary(signed)) {
                 LOG.debug("action for {} forwarded to its primary", region);
+                handover.acknowledge(actor, playerSequence);
                 return true;
             }
-            return validation.proposeBatch(region, tick, tick, java.util.List.of(signed)).isPresent();
+            boolean proposed = validation.proposeBatch(
+                    region, tick, tick, java.util.List.of(signed)).isPresent();
+            if (proposed) {
+                // It left this node, so a later handover must not replay it. Delivery, not commit:
+                // the committee's verdict is reconciled by the committed-state application.
+                handover.acknowledge(actor, playerSequence);
+            }
+            return proposed;
         } catch (RuntimeException unavailable) {
             return false;
         }

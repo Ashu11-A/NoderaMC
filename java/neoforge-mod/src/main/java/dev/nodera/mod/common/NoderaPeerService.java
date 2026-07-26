@@ -681,7 +681,13 @@ public final class NoderaPeerService {
         PeerAddress bootstrapAddress = PeerAddress.of(null, bootstrapRoute); // socket routes by host:port
         clientRuntime = PeerRuntime.peer(clientIdentity, NodeCapabilities.initial(),
                 clientMetered, clientTransport::listenRoute, bootstrapAddress,
-                PeerRuntimeConfig.defaults(), new LoggingListener("client"), clientCounts);
+                PeerRuntimeConfig.defaults(),
+                // L-17 / #35: the handover has to hear onGatewayChanged to freeze this player's
+                // submit path, and the log line still has to hear it too. The runtime takes one
+                // listener, so both ride a composite; a fault in either is contained there.
+                new dev.nodera.peer.CompositePeerEventListener(
+                        new LoggingListener("client"), clientGatewayListener()),
+                clientCounts);
         clientTrackerClient = trackerClient(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get(), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
                 .register(clientRuntime)
@@ -735,6 +741,25 @@ public final class NoderaPeerService {
     }
 
     /** Logs the session lifecycle so operators can watch the mesh and gateway migration. */
+    /**
+     * The gateway-handover listener for the live entity lane, when one is installed (L-17 / #35).
+     *
+     * <p>Resolved lazily and defensively: the lane is installed by the session bootstrap, which may
+     * not have run when the client peer starts, and a session with no lane simply has no submits to
+     * freeze. Returning {@code null} is a supported answer — {@code CompositePeerEventListener}
+     * drops nulls rather than rejecting them, so this needs no branch at the call site.
+     */
+    private static PeerEventListener clientGatewayListener() {
+        try {
+            var runtime = NoderaHost.entityLaneRuntime();
+            var identity = get().clientIdentity();
+            return runtime == null || identity == null
+                    ? null : runtime.gatewayListener(identity.nodeId());
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
+    }
+
     private static final class LoggingListener implements PeerEventListener {
         private final String tag;
 
