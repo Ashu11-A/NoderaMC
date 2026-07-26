@@ -30,6 +30,29 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The third mixin, and the last one the charter plans
+
+There is no event for "the game is about to random-tick this chunk". NeoForge fires per-block events
+*after* vanilla has chosen the cells and consumed randomness from the level RNG, which is exactly
+what must not happen: the engine owns grass, fire and crops in a delegated region, and letting
+vanilla roll for them too produces a world neither side predicted — the committed root says one
+thing and the player's screen shows another.
+
+`ServerLevelRandomTickMixin` cancels `ServerLevel.tickChunk` at HEAD for chunks in a delegated
+region. The **whole chunk** is skipped rather than filtered per block, because a per-block filter
+would still have drawn from the level RNG for the blocks it rejected — and the draws are the thing
+being suppressed.
+
+It reuses the existing suppression registry (a delegated region suppresses both kinds of vanilla
+tick) but counts into its own counter: scheduled ticks are the redstone lane's assert-zero, random
+ticks are the farm lane's, and a soak that read one number would be reading the wrong one.
+
+Evidence that it applies: `runServer` reaches `Done (0.735s)!` with `required: true` and no mixin
+diagnostic — a mismatched injection point aborts class load long before the world finishes loading.
+
+That is three mixins: the write choke point, scheduled ticks, and random ticks. `COMPATIBILITY.md`
+now states the whole set, and that Nodera ships no others.
+
 ### 2026-07-25 — The choke point is live, and the guard it feeds finally has a caller
 
 There is no event for "a block changed". NeoForge fires events for the *causes* it knows — a player

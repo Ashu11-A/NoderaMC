@@ -5,7 +5,10 @@ alongside NoderaMC, and what they must not do. Referenced from `docs/Plan.md`; o
 The enforcement mechanism is the interference guard (`MutationGuard` — the single
 `setBlockState` choke point on delegated chunks) plus the delegability policy. The choke point is
 live: `LevelChunkMixin` routes every block write in the game through `BlockWriteGuard`, which is
-inert (one field read) on any server that is not validating a region.
+inert (one field read) on any server that is not validating a region. Two further mixins suppress
+vanilla work the engine owns inside a delegated region — `LevelTicksMixin` (scheduled ticks) and
+`ServerLevelRandomTickMixin` (the whole chunk random-tick pass, skipped **before** vanilla consumes
+the level RNG). Outside delegated regions all three are no-ops, and Nodera ships no other mixins.
 
 ## 1. Event ordering
 
