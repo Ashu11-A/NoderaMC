@@ -490,8 +490,14 @@ that predates the addition throws inside that peer's decode path. The safe order
 4. Evaluate the policy where the observer already refuses, and wrap it in `DelegabilityMonitor` so a
    flapping condition does not thrash a region between lanes.
 
-Recorded rather than half-built: appending wire values before step 1 would make a newer peer's
-refusal an exception on an older peer, which is a worse failure than the silence it replaces.
+**Steps 1–3 landed** (see the commit that follows this note). Step 1 turned out not to be the open
+design question it looked like: representing an unknown reason as an explicit `UNKNOWN` that is
+never encoded and never acted on is *stricter* than the throw it replaces, not laxer — the invariant
+was "an unknown refusal is never silently treated as a known one", and an explicit non-reason
+satisfies it while a decode exception merely fails louder in the wrong place. Step 4 — evaluating
+the policy where the observer already refuses, wrapped in `DelegabilityMonitor` so a flapping
+condition cannot thrash a region between lanes — is the remaining work, and it is ordinary wiring
+now that the wire and the mapping exist.
 
 **And a second rule, learned by nearly getting it wrong here:** "unreferenced plus a javadoc calling
 something legacy" is not evidence of legacy. `DelegabilityPolicy` was classified as superseded and

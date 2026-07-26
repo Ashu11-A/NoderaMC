@@ -605,7 +605,20 @@ public final class WorkerValidationService {
     }
 
     private void onRegionRefusal(PeerAddress from, RegionRefusal refusal) {
-        if (from == null || !refused.add(refusal.region())) {
+        if (from == null) {
+            return;
+        }
+        if (refusal.reason() == RegionRefusal.Reason.UNKNOWN) {
+            // A peer newer than this build refused the region for a cause this build cannot name.
+            // A refusal is advisory — the rule is that the recipient re-checks the condition
+            // against its own config before revoking — and a condition it cannot name is one it
+            // cannot re-check, so declining is the only correct response. Logged, not silent: a
+            // node revoking nothing because it is out of date should say so.
+            LOG.info("ignoring a refusal of {} from {}: the reason is newer than this build",
+                    refusal.region(), from);
+            return;
+        }
+        if (!refused.add(refusal.region())) {
             return;
         }
         // Say it out loud. A refusal that arrives from a peer used to be absorbed in silence: the
