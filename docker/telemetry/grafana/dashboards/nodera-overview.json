@@ -33,7 +33,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT hour AS time, path, round(100 * sum(successes) / nullIf(sum(attempts), 0), 1) AS success FROM nodera.v_join_success WHERE hour >= $__fromTime AND hour < $__toTime GROUP BY time, path ORDER BY time",
+          "rawSql": "SELECT hour AS time, path, round(100 * sum(success_count) / nullIf(sum(attempt_count), 0), 1) AS success FROM nodera.v_join_success WHERE hour >= $__fromTime AND hour < $__toTime GROUP BY time, path ORDER BY time",
           "format": 1
         }
       ]
@@ -78,7 +78,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT hour AS time, source, sum(events) AS reports FROM nodera.v_events_hourly WHERE source IN ('tracker','rendezvous') AND hour >= $__fromTime GROUP BY time, source ORDER BY time",
+          "rawSql": "SELECT hour AS time, source, sum(event_count) AS reports FROM nodera.v_events_hourly WHERE source IN ('tracker','rendezvous') AND hour >= $__fromTime GROUP BY time, source ORDER BY time",
           "format": 1
         }
       ]
