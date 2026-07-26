@@ -150,7 +150,13 @@ public final class WorkerValidationService {
     private record Round(VoteCollector collector, RegionLease lease, StateRoot batchRoot,
                          StateRoot ownRoot,
                          CountDownLatch done,
-                          AtomicReference<Decision> decision) {
+                          AtomicReference<Decision> decision,
+                         java.util.Map<NodeId, StateRoot> votes) {
+        Round(VoteCollector collector, RegionLease lease, StateRoot batchRoot, StateRoot ownRoot,
+              CountDownLatch done, AtomicReference<Decision> decision) {
+            this(collector, lease, batchRoot, ownRoot, done, decision,
+                    new java.util.concurrent.ConcurrentHashMap<>());
+        }
     }
 
     /** One in-flight dual-committee transfer-accept round. */
@@ -732,6 +738,21 @@ public final class WorkerValidationService {
             abortUncommitted(replica, batch);
             return Optional.empty();
         }
+        // Reputation is written HERE, where the committed root is finally known — the ledger has
+        // existed since Task 6 with nothing ever writing to it. Our own vote counts too: a primary
+        // whose root lost is the node that was wrong.
+        java.util.Map<NodeId, StateRoot> roundVotes =
+                new java.util.LinkedHashMap<>(round.votes());
+        roundVotes.put(identity.nodeId(), round.ownRoot());
+        for (dev.nodera.coordinator.CommitteeScoring.Outcome outcome
+                : dev.nodera.coordinator.CommitteeScoring.apply(
+                        reliability, cert.resultingRoot(), roundVotes)) {
+            if (!outcome.agreed()) {
+                LOG.info("reliability: {} disagreed with the committed root in {} (score now {})",
+                        outcome.node(), region, String.format(java.util.Locale.ROOT, "%.4f",
+                                reliability.score(outcome.node())));
+            }
+        }
         if (!replica.pendingBallot.delta().transferIntents().isEmpty()) {
             return commitTransfer(replica, cert, tickTo);
         }
@@ -982,6 +1003,10 @@ public final class WorkerValidationService {
         }
         votesReceived.incrementAndGet();
         relayMetrics.recordVote(vote.vote().voter());
+        // Kept for reliability scoring at commit: what each member computed, against what the
+        // committee finally certified. Recorded here because this is the only place a vote is both
+        // authenticated and attributed.
+        round.votes().put(vote.vote().voter(), vote.vote().resultingRoot());
         round.collector().submit(vote.vote());
         Decision decision = round.collector().decide();
         if (!(decision instanceof Decision.Unresolved)) {
@@ -1768,9 +1793,25 @@ public final class WorkerValidationService {
     private final LeaseManager handoffLeases =
             new LeaseManager(dev.nodera.core.NoderaConstants.LEASE_LENGTH_TICKS);
 
-    /** Handoff penalties; local to this node's view, exactly like the Task 22 scorer's inputs. */
-    private final dev.nodera.coordinator.ReliabilityLedger handoffReliability =
+    /**
+     * This node's view of who can be trusted with a region. One ledger, two kinds of evidence: a
+     * committed round writes agreement/disagreement through {@link CommitteeScoring}, and a lag
+     * handoff writes its one-shot penalty. They were separate before — the handoff wrote to a
+     * private ledger and committee outcomes were written nowhere at all — which meant a node that
+     * consistently computed the wrong world kept a spotless reputation as long as it answered
+     * quickly. Local by construction: reputation is a view, never consensus state (nothing derived
+     * from it may enter a root).
+     */
+    private final dev.nodera.coordinator.ReliabilityLedger reliability =
             new dev.nodera.coordinator.ReliabilityLedger();
+
+    /**
+     * @return this node's reliability view, for diagnostics and for an assignment planner that
+     *         wants to skip a member below the floor. Never consensus state.
+     */
+    public dev.nodera.coordinator.ReliabilityLedger reliability() {
+        return reliability;
+    }
 
     /** Ticks between lag windows — three of these must be unhealthy before a region hands off. */
     private static final long LAG_WINDOW_TICKS = 100L;
@@ -1797,7 +1838,7 @@ public final class WorkerValidationService {
         List<RegionId> handedOff = new java.util.ArrayList<>();
         for (RegionId region : replicas.keySet()) {
             RegionLease promoted = observeSkew(region, forwardLagTickBps(region, nowNanos),
-                    handoffLeases, handoffReliability, Math.max(0L, nowTick));
+                    handoffLeases, reliability, Math.max(0L, nowTick));
             if (promoted != null) {
                 handedOff.add(region);
             }
