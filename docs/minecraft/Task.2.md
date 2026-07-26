@@ -56,7 +56,7 @@ and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than han
 | 3 | The real `WorldMutationApplier` adapter on the server main thread | 🚧 (committed block mutations project into the live world; chunk tickets and the write choke point remain) |
 | 4 | `LevelChunkMixin` — the single write choke point | ✅ live and inert until a lane installs; retires engine L-25 |
 | 5 | Random-tick and scheduled-tick suppression mixins | ✅ both landed (`LevelTicksMixin`, `ServerLevelRandomTickMixin`), each with its own counter |
-| 6 | `ChunkTicketService` + `FakePlayerDetector` | 🚧 (session-scoped region tickets, ref-counted; fake players refused at capture) |
+| 6 | `ChunkTicketService` + `FakePlayerDetector` | 🚧 (session-scoped region tickets, ref-counted; fake players refused at capture. **A ticket is mutated only on the server thread** — see the Design note; releasing from the re-plan thread crashed a live host) |
 | 7 | Live committee runs: the 3-client quorum scenario and the soak with lane metrics | ⏳ |
 | 8 | Renderer and applier consulting the piece lock map | 🚧 (edit half landed) |
 | 9 | Live commit, content, and lifecycle adapters | ⏳ |
@@ -64,6 +64,34 @@ and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than han
 | 11 | Entity-lane live activation and gameplay drives | 🚧 (proven live; CI drives remain) |
 
 ## Design
+
+### A chunk ticket may only be added or removed on the server thread
+
+`DistanceManager` and the `TickingTracker` behind it are thread-confined by contract and
+unsynchronised in fact. Mutating a ticket from any other thread corrupts vanilla's lighting/ticking
+priority queue — and **the corruption is not observed where it is caused**. A live `ownership` run
+on 2026-07-26 crashed the host's integrated server with
+
+```
+ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 33
+  at fastutil LongLinkedOpenHashSet.removeFirstLong
+  at lighting.LeveledPriorityQueue.removeFirstLong
+  at TickingTracker.runAllUpdates → DistanceManager.runAllUpdates
+```
+
+— every frame vanilla's, on the server thread, with nothing of ours in the stack, because
+`closeEntityLane()` runs on `nodera-entity-lane-replan` and released this lane's tickets from
+there. The re-plan's *activation* had always hopped through `server.execute`; its *close* never did.
+
+`ChunkTicketService` now enforces this itself rather than trusting callers: the ref-counting stays
+synchronous and synchronised, and only the vanilla call hops to the server thread when it is not
+already on it. The executor is FIFO, so a hold and a release scheduled in that order still arrive in
+that order.
+
+**The general rule this is an instance of:** a crash whose stack is entirely vanilla is not evidence
+that the cause is vanilla's. Ask which of our threads touched a structure that frame owns.
+
+
 
 **Events first, mixins second — and only three mixins.** Minecraft version churn breaks mixins, so the
 load-bearing set is kept minimal and each one justifies itself in its own header. `LevelChunkMixin` is
