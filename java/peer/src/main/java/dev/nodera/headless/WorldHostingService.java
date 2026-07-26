@@ -58,6 +58,9 @@ public final class WorldHostingService implements AutoCloseable {
 
     /** Endpoint-health probe cadence + how stale a reachability reading may be. */
     private static final int HEALTH_PROBE_SECONDS = 15;
+
+    /** Floor on the announce cadence: a tracker cannot ask this node to announce in a tight loop. */
+    static final int MINIMUM_REFRESH_SECONDS = 15;
     private static final int PROBE_TIMEOUT_MILLIS = 400;
 
     private final NodeIdentity identity;
@@ -143,7 +146,7 @@ public final class WorldHostingService implements AutoCloseable {
             return t;
         });
         // Refresh announces/registrations + endpoint health on a fixed cadence.
-        int refresh = Math.max(15, tracker.announceIntervalSeconds());
+        int refresh = refreshIntervalSeconds();
         scheduler.scheduleWithFixedDelay(this::refreshAll, refresh, refresh, TimeUnit.SECONDS);
         scheduler.scheduleWithFixedDelay(this::probeHealth, 0, HEALTH_PROBE_SECONDS, TimeUnit.SECONDS);
     }
@@ -253,6 +256,20 @@ public final class WorldHostingService implements AutoCloseable {
         registerRendezvous(world, RegistrationEvent.UNREGISTER);
         LOG.info("Stopped hosting world '{}' ({})", world.name, shortId(worldIdHex));
         return null;
+    }
+
+    /**
+     * The cadence of this worker's own announce/registration heartbeat (worker L-41).
+     *
+     * <p>The tracker names the interval in its ack and this follows it, with a floor so a tracker
+     * that asks for a punishing cadence cannot make this node announce in a tight loop. It is the
+     * <b>worker's</b> timer in the sense that matters: it belongs to a process that outlives the
+     * game, so a world stays listed and reachable while nobody is playing it.
+     *
+     * @return the refresh interval, in seconds.
+     */
+    public int refreshIntervalSeconds() {
+        return Math.max(MINIMUM_REFRESH_SECONDS, tracker.announceIntervalSeconds());
     }
 
     /** @return an immutable snapshot of the worlds this worker currently hosts. */

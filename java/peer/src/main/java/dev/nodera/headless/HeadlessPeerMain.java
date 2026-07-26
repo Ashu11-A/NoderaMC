@@ -166,6 +166,16 @@ public final class HeadlessPeerMain {
         sessionListener.bind(validation);
         sessionListener.onSessionChanged(runtime.sessionView());
 
+        // Every region this worker commits is seeded into the content plane (L-41). The archive
+        // lane keeps the hosted world's save alive after the driving game closes; this keeps the
+        // validated lane's region state alive on the same terms, from the same always-on process.
+        // The observer slot is free here by construction: it exists for the client's predict/
+        // rollback view, and a headless worker renders nothing.
+        validation.onCommit(new CommittedRegionSeeder(
+                () -> hosting.hostedWorlds().stream()
+                        .map(WorldHostingService.HostedWorld::worldIdHex).toList(),
+                archive::seedRegion));
+
         // The permission lane (L-54): grants used to exist only in the author's own
         // nodera-permissions.dat, so a co-hosting peer's permission set was author-local — an
         // operator promotion or a ban did not exist for the rest of the mesh. Every grant this node
