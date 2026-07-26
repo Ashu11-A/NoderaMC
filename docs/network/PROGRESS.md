@@ -33,6 +33,30 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The "known flake" was a missing latch release
+
+`SocketPeerTransportAuthTest` had a documented workaround — run the transport suites with
+`--no-parallel --max-workers=2` before assuming a regression — and a CI failure on a telemetry
+branch made it worth looking at rather than re-running.
+
+The exception was `auth handshake timed out`, thrown from `SocketPeerTransport.writeFrame`. A sender
+in authenticated mode waits for its own read loop to see the remote's challenge and write the signed
+hello; the read loop's `finally` closed the socket but **never released that latch**. So a
+connection that died mid-handshake left every sender blocked for the full 10 s and then reported a
+*timeout* — which sends whoever reads the log looking for a slow peer when the peer is gone. CPU
+starvation was not the cause; it was the trigger.
+
+Three changes, and the middle one is the fix:
+
+- teardown releases `authHelloWritten`, so a dead peer costs a sender **4 ms** instead of 10 s;
+- a sender distinguishes "connection closed during the auth handshake" from "timed out", because
+  the two send a reader to different places;
+- the timeout became a named constant at 30 s, which now only has to cover a starved scheduler.
+
+`aPeerThatDiesMidHandshakeFailsTheSenderImmediately` asserts on the clock as well as the exception —
+a fail-fast that takes 30 s is the bug wearing a passing test's clothes. The full gate at maximum
+parallelism, which is what used to flake, is green.
+
 ### 2026-07-25 — The emitter core lands, and consent gates collection
 
 `dev.nodera.telemetry` is in (`TelemetryEmitterTest`, 21). The decision worth recording is the one

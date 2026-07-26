@@ -9,8 +9,11 @@ import dev.nodera.transport.TransportException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -87,9 +90,6 @@ final class SocketPeerTransportAuthTest {
         // verifications on top of a TCP connect, and this assertion runs inside the full `check`
         // gate where every module's tests are competing for the same cores. Five seconds passed in
         // isolation and failed under that load — which measured the machine, not the transport.
-        // Generous on purpose. The delivery path here is two Ed25519 signatures and two
-        // verifications on top of a TCP connect, and this assertion runs inside the full `check`
-        // gate where every module's tests are competing for the same cores.
         PeerAddress from = bobSaw.poll(30, TimeUnit.SECONDS);
         assertThat(from).isNotNull();
         // The attribution is the KEY-PROVEN NodeId — alice proved possession of aliceId's key.
@@ -99,6 +99,51 @@ final class SocketPeerTransportAuthTest {
         // load that window is wide enough to hit, and it reported a null frame — a scheduling
         // artifact of the test, not a dropped payload.
         assertThat(bobFrames.poll(30, TimeUnit.SECONDS)).isEqualTo(payload);
+    }
+
+    /**
+     * A peer that dies mid-handshake must fail the sender **immediately**, not after the handshake
+     * timeout.
+     *
+     * <p>This is the bug behind the "known flake": the reader's teardown closed the socket but left
+     * `authHelloWritten` un-released, so every sender blocked in `writeFrame` sat out the full
+     * timeout and then reported `auth handshake timed out` — a message that sends the reader
+     * looking for a slow peer when the peer is gone. Under a starved CI runner the same wait was
+     * long enough to trip on a peer that was merely slow to be scheduled.
+     *
+     * <p>The assertion is on the CLOCK as much as the exception: a fail-fast that takes 30 s is the
+     * bug wearing a passing test's clothes.
+     */
+    @Test
+    void aPeerThatDiesMidHandshakeFailsTheSenderImmediately() throws Exception {
+        NodeIdentity aliceId = NodeIdentity.generate();
+        SocketPeerTransport alice = startAuthenticated(aliceId);
+
+        // A socket that accepts and then hangs up without ever answering the challenge.
+        try (ServerSocket rude = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+            Thread hangup = new Thread(() -> {
+                try (Socket accepted = rude.accept()) {
+                    // Read nothing, answer nothing, close.
+                } catch (IOException ignored) {
+                    // the assertion is on the client side
+                }
+            }, "rude-peer");
+            hangup.setDaemon(true);
+            hangup.start();
+
+            String route = "127.0.0.1:" + rude.getLocalPort();
+            long startedAt = System.nanoTime();
+            assertThatThrownBy(() ->
+                    alice.send(PeerAddress.of(NodeIdentity.generate().nodeId(), route),
+                            "payload".getBytes(StandardCharsets.UTF_8)))
+                    .isInstanceOf(TransportException.class);
+            long elapsedSeconds =
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedAt);
+            assertThat(elapsedSeconds)
+                    .as("a dead peer must not cost a sender the whole handshake timeout (%ds)",
+                            SocketPeerTransport.AUTH_HANDSHAKE_TIMEOUT_SECONDS)
+                    .isLessThan(SocketPeerTransport.AUTH_HANDSHAKE_TIMEOUT_SECONDS);
+        }
     }
 
     @Test
