@@ -134,10 +134,16 @@ services:
     ports:
       - "127.0.0.1:8123:8123"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8123/ping"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
+      # `clickhouse-client --query 'SELECT 1'` rather than an HTTP /ping probe: the client is the one
+      # tool this image is guaranteed to ship, and answering a query is a stronger signal than
+      # answering /ping — a server that has not finished applying the init schema is not ready for
+      # the smoke test even though it will happily pong. `start_period` covers that init, so the
+      # retries below are not spent waiting for a first boot.
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
+      start_period: 90s
+      interval: 10s
+      timeout: 10s
+      retries: 12
 
   # ---------------------------------------------------------------------------------------------
   # 4. Analysis + reporting.
