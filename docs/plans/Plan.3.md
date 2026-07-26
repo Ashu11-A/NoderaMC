@@ -421,7 +421,7 @@ larger than it was. That class is now empty, which is the useful finding.
 |---|---|
 | **A live run with a node that actually holds regions** — the scripted suites run a dedicated server that the field-of-view planner leaves owning nothing | engine L-1, L-2, L-7, L-24, L-50 · minecraft L-50, L-60, L-80 · network L-30 |
 | **A GUI environment where a person looks at the screen** | minecraft L-43, L-46, L-49 · app L-47 |
-| **A subsystem nobody has written yet** (`java/paper-plugin`; the client prediction overlay) | server L-61…L-71 · engine L-12, L-16, L-17 · network L-33 |
+| **A subsystem nobody has written yet** (the client prediction overlay; the endpoint's validated lane) | engine L-12, L-16, L-17 · network L-33 · server L-62, L-64…L-70 |
 
 ### Per-row verdicts
 

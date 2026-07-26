@@ -34,6 +34,25 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The server JVM was killed and the world stayed on the network — L-71 RETIRED
+
+L-71's exit test is a sentence about a crash, so the suite performs one: `e2e-endpoint.sh` E4 links
+the endpoint to its worker, hands the world over with the same `NODERA-HOST` verb the mod sends,
+confirms the worker reports it in `connected_worlds`, then **`kill -9`s the server JVM** and asks
+again. The worker answers, and the world is still hosted.
+
+The kill is deliberately ungraceful. A clean stop would demonstrate the opposite of the claim — the
+row is about what happens when a server dies without warning, and that is the only shape of evidence
+that settles it.
+
+The assertion reads the `world_id` **field** out of `NODERA-STATE` rather than grepping the id
+anywhere in the reply. An error message quoting the id would otherwise have read as a hosted world,
+which is the failure mode that makes a green suite worse than no suite.
+
+What remains is follow-on scope rather than this row: `embedded` is still a config value that does
+nothing. It should either host a node or be deleted, and given what this row concluded, deleting it
+is the honest end state.
+
 ### 2026-07-26 — The endpoint has a node, and it is not inside the server
 
 `peer.mode: external` works, and it is now what the harness stages. The plugin links to an always-on

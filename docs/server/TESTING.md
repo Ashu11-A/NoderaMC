@@ -8,7 +8,7 @@
      read as "not built yet", never as "broken". Update this file whenever a script gains a stage. -->
 
 **Category:** server · **Last run:** 2026-07-26 · **20 unit tests · 0 failing** (module
-`paper-plugin`), plus **3 scripted live suites, all green**: `e2e-endpoint.sh` against a real Paper 1.21.1,
+`paper-plugin`), plus **3 scripted live suites, all green**: `e2e-endpoint.sh` against a real Paper 1.21.1 (including **E4**: the server JVM is SIGKILLed and the world stays hosted by its worker — L-71's exit),
 `e2e-folia.sh` against a real Folia (ALIGN-1 passes at the platform default and **refuses** at
 grid-exponent 2), and `e2e-plugins.sh` for co-existence with a staged corpus. The register previously
 said all three were committed when only the harness library was; they exist now ([L-61](LIMITATIONS.md)

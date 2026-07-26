@@ -94,6 +94,26 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
         peerLink = new EndpointPeerLink(
                 ControlClient.loopback(config.controlPort()), getLogger()::info, 30_000L);
         peerLink.start();
+
+        // Hosting runs through the WORKER, not in this process: that is what makes the world
+        // outlive the server JVM, which is the entire reason external mode exists (L-71). An
+        // endpoint with no world id has nothing to host yet and says so rather than announcing an
+        // empty claim.
+        if (config.worldId().isBlank()) {
+            getLogger().info("no world.id configured — nothing is announced. Set world.id to put"
+                    + " this world on the network.");
+            return;
+        }
+        if (!peerLink.linked()) {
+            getLogger().info("the worker is not up yet, so world " + config.worldId()
+                    + " is not announced. It will be once the link is made.");
+            return;
+        }
+        peerLink.host(config.worldId(), getServer().getWorldContainer().getName(), config.listed())
+                .ifPresent(error -> getLogger().warning(
+                        "the worker refused to host " + config.worldId() + ": " + error
+                                + " — the server keeps running; the world is simply not on the"
+                                + " network"));
     }
 
     @Override

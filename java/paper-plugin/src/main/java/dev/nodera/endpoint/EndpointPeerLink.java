@@ -62,6 +62,40 @@ public final class EndpointPeerLink implements AutoCloseable {
         return answered;
     }
 
+    /**
+     * Ask the worker to host a world (server task 2 · the {@code NODERA-HOST} verb).
+     *
+     * <p>The verb is the worker's existing one, in the shape the mod already sends: the endpoint is
+     * another client of the same node, not a special case. Hosting through the worker rather than
+     * in the server process is what makes the world outlive the server JVM — the whole reason
+     * `external` mode exists (L-71).
+     *
+     * @param worldId   hex world id.
+     * @param worldName the display name, base64'd on the wire like every other client sends it.
+     * @param listed    whether to announce it to the configured trackers.
+     * @return empty on success, or the worker's error message.
+     */
+    public java.util.Optional<String> host(String worldId, String worldName, boolean listed) {
+        if (worldId == null || worldId.isBlank()) {
+            return java.util.Optional.of("no world id: nothing to host");
+        }
+        String nameB64 = java.util.Base64.getEncoder().encodeToString(
+                (worldName == null ? "" : worldName)
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String options = "{\"listed\":" + listed + ",\"encrypted\":false,\"replication\":1}";
+        try {
+            String reply = control.send("NODERA-HOST 2 " + worldId + " " + nameB64 + " " + options);
+            if (reply.startsWith("NODERA-OK")) {
+                log.accept("the worker is hosting world " + worldId
+                        + (listed ? " (announced to the configured trackers)" : " (unlisted)"));
+                return java.util.Optional.empty();
+            }
+            return java.util.Optional.of(reply);
+        } catch (java.io.IOException unreachable) {
+            return java.util.Optional.of(unreachable.getMessage());
+        }
+    }
+
     /** Start the background retry loop. Idempotent. */
     public synchronized void start() {
         if (thread != null) {
