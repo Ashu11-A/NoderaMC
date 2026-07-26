@@ -451,6 +451,32 @@ scripted stage should be driven that way rather than described as blocked.
 | server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody, and re-checked on 2026-07-26 this is still literally true: `EndpointConfig.Custody` is read from the yaml and **only logged** (`NoderaEndpointPlugin` line 67) — no announce, no capability, nothing on the wire for an auditor to catch out. It unblocks with server task 2 (the endpoint hosting a peer). Two notes for whoever takes it: the mechanism is now available, because a tracker announce already carries `ManifestHolding(manifestRoot, pieceBitmap)` per manifest — including, since worker L-41, per-region manifests — so an audit is "ask for a piece this node claims in its own bitmap and hash-check the answer", which the content plane already serves. And `SpotCheckAuditor` is **not** that audit: it re-executes a sampled batch (a compute check), while custody is a holding check; conflating them would leave the row unproven. |
 | worker L-41 | **RETIRED 2026-07-26** | The remaining clause was two things: an announce heartbeat that describes what this node holds *now*, and validated-lane region pieces seeded beside the whole-save archive. Both landed — `NODERA-SEED-REGION`, a per-lane manifest ladder, both lanes on one announce, and the mod-side `RegionSeedSpool` — with `SeedRegionVerbIT` proving the clause itself: nothing connected, both lanes still held and still advertised. The evidence deliberately stops short of a real Minecraft client; the pushing side is proven by its control-channel behaviour. |
 
+### Issue closure sweep (2026-07-26)
+
+Six issues closed, and the reason they were open was **bookkeeping, not scope**. The 2026-07-25
+documentation reorganization moved the *live* acceptance of six already-complete headless tasks into
+one place — minecraft task 2 — because they were all waiting on the same thing: real Minecraft
+clients under CI, not more code. The issues kept their pre-reorg acceptance lists, so each still
+carried a live clause that had formally moved elsewhere.
+
+| Issue | Spec | Spec status | Live clause now in |
+|---|---|---|---|
+| #5 | engine 3 | ✅ COMPLETED (headless) | #67 |
+| #6 | engine 4 | ✅ COMPLETED (headless) | #67 |
+| #7 | engine 5 | ✅ COMPLETED (headless) | #67 |
+| #8 | engine 6 | ✅ COMPLETED (headless) | #67 |
+| #9 | network 3 | ✅ COMPLETED | #67 |
+| #11 | engine 7 | ✅ COMPLETED (headless) | #67 |
+
+**#67 was created first, deliberately.** minecraft task 2 owned all six live halves and had no issue
+of its own, so closing the six without it would have taken that acceptance off GitHub entirely.
+
+Each closure was checked rather than assumed: every deliverable row ✅ with no 🚧/⏳/❌, no open
+limitation row owned by that task, and — for #7 — the named tests re-run rather than trusted from
+the 2026-07-23 evidence map.
+
+---
+
 ### Issue-by-issue read (2026-07-26)
 
 Every open issue was read in full — title, body and comments — and commented with its own status.
