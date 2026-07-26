@@ -463,14 +463,40 @@ keeping its own subject alive.
 | `HeadlessPeerMain`, `NoderaEndpointPlugin`, `LevelChunkMixin`, `ServerLevelRandomTickMixin` | **Not dead** — entry points reached by a manifest, a `plugin.yml` or `nodera.mixins.json`, never by an import. A name-based sweep will always list these; they are the reason it needs a human read. |
 | `CommitteeSession`, `EventSourcedWorldStore` | **Reference cores, driven by ITs.** Legitimate but worth knowing: the live path is `WorkerValidationService`, so these are exercised only by the tests that pin the design. |
 | `ProposalManager` | **Legacy.** Superseded by per-replica state — `WorkerValidationService` holds `pendingProposal` on the replica itself, so the coordinator-side map has no caller and should not gain one. |
-| `DelegabilityPolicy` + `DelegabilityMonitor` | **Legacy chain.** Neither has a live caller, and `EntityDelegabilityRules` already calls the `ENTITY_PRESENT` gate "legacy" in its own javadoc. Revocation is decided by the honest region-certification / `RegionRefusal` path that #45/#46 landed. Note for the register: engine task 7's deliverable rows are ✅ against names that are now superseded — the capability exists, the named classes are not how. |
+| `DelegabilityPolicy` + `DelegabilityMonitor` | **UNIMPLEMENTED, not legacy — corrected on the same day it was written.** The first read called this a legacy chain superseded by the `RegionRefusal` path, on the strength of `EntityDelegabilityRules` calling the `ENTITY_PRESENT` gate "legacy". Comparing the two enums says otherwise: `RegionRefusal.Reason` has exactly **one** value, `NON_DELEGABLE_ENTITY`, while `DelegabilityPolicy.Reason` enumerates the full rule set — `UNSUPPORTED_PALETTE`, `CHUNKS_NOT_LOADED` and the rest, each unit-tested in `DelegabilityPolicyTest`. So the live lane refuses a region for one reason out of many, and a region with an unsupported palette or unloaded chunks is **not** refused live at all. `DelegabilityMonitor` is the hysteresis wrapper that stops such a decision oscillating, and it is unwired for the same reason. This is a genuine gap in engine task 7 / #11, and the wire cost is small: `RegionRefusal.Reason` is ordinal-coded, so adding reasons is additive. |
 | `SpotCheckAuditor` | **Unwired on purpose**, recorded above: every validator already re-executes every batch it votes on. Its first real use would be server L-62's custody audit — and that is a *holding* check, not the compute check this class performs, so it is the wrong tool for that row too. |
 | `TenantBoundary`, `ChunkLockEditability`, `ActivePlayerStream`, `ArchiveManager`, `EventSyncService`, `GenesisApprovalFlow`, `JoinAttemptThrottle`, `PeerShutdownHook`, `WorldGenRules`, `JointTransferApprover` | **Unread this round.** Each has exactly one test-only reference and needs the same per-class read before anything is wired or deleted. Listed here so the next sweep starts from a name list rather than from zero. |
 
 **The rule this sweep keeps proving:** an unreferenced class is a question, not a defect. Round 4
 found three genuine holes this way (`ReliabilityLedger`, `PersistedCoordinatorState`,
-`LocalReplicaView.predict`) and this round found a fourth in `RegionHalo` — but it also found two
-legacy chains that would have been *wrong* to wire. Read before wiring.
+`LocalReplicaView.predict`) and this round found a fifth in `RegionHalo` — and one chain,
+`ProposalManager`, where wiring would have been the mistake.
+
+**What wiring the delegability gap actually requires, in order.** Attempted directly and stopped at
+a hazard worth writing down. `RegionRefusal.Reason` says "ordinals are wire values; append only",
+which is true of the enum and *not* sufficient for interop: `MessageCodec` decodes a refusal through
+`RegionRefusal.reasonOf`, which **throws** on an unknown code — deliberately, so "an unknown refusal
+is never silently treated as a known one". So a node that appends a reason and sends it to a peer
+that predates the addition throws inside that peer's decode path. The safe order is therefore:
+
+1. Decide how an unknown refusal reason should be represented — fail-closed-but-contained, rather
+   than either throwing in decode or silently mapping to a known reason. This is a **design
+   decision**, not a mechanical change: the current throw is intentional.
+2. Append the shareable subset of `DelegabilityPolicy.Reason` (`UNSUPPORTED_PALETTE`,
+   `CHUNKS_NOT_LOADED`, `FAKE_PLAYER_ACTIVE`, `INTERFERENCE_RATE_HIGH`, `NO_PLAYER_PRESENT` — each
+   observable by a node that owns none of the region, which is the message's whole premise).
+3. Map policy verdict → refusal in `engine` or `peer`, never on `RegionRefusal` itself: `transport`
+   must not depend on the engine (Task 0 §7 layering).
+4. Evaluate the policy where the observer already refuses, and wrap it in `DelegabilityMonitor` so a
+   flapping condition does not thrash a region between lanes.
+
+Recorded rather than half-built: appending wire values before step 1 would make a newer peer's
+refusal an exception on an older peer, which is a worse failure than the silence it replaces.
+
+**And a second rule, learned by nearly getting it wrong here:** "unreferenced plus a javadoc calling
+something legacy" is not evidence of legacy. `DelegabilityPolicy` was classified as superseded and
+then reclassified an hour later, because the class that *is* superseding it covers one of its
+reasons out of many. Compare the enums, not the prose.
 
 ---
 
