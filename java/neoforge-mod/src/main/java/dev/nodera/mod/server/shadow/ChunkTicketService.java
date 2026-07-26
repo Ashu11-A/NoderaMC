@@ -2,6 +2,7 @@ package dev.nodera.mod.server.shadow;
 
 import dev.nodera.core.region.RegionId;
 import dev.nodera.coordinator.RegionChunkHolds;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
@@ -27,7 +28,8 @@ import java.util.Comparator;
  * which is what a region whose blocks and entities are being validated needs. Anything looser and
  * the lane would validate a region the game is not running.
  *
- * @Thread-context server main thread only.
+ * @Thread-context safe from any thread: the ref-counting is synchronised and the vanilla
+ *                 ticket mutation hops to the server thread when it is not already on it.
  */
 public final class ChunkTicketService {
 
@@ -67,6 +69,26 @@ public final class ChunkTicketService {
         if (level == null || delta.isEmpty()) {
             return;
         }
+        // A ticket may only be added or removed on the server thread. `DistanceManager` and the
+        // `TickingTracker` behind it are thread-confined by contract and unsynchronised in fact, so
+        // touching them from anywhere else corrupts the lighting/ticking priority queue — and the
+        // corruption is not seen where it is caused. A live ownership run crashed the integrated
+        // server with `ArrayIndexOutOfBoundsException: Index -1 out of bounds for length 33` inside
+        // vanilla's own `TickingTracker.runAllUpdates`, several frames deep in the SERVER thread,
+        // because a re-plan released this lane's tickets from `nodera-entity-lane-replan`.
+        //
+        // The ref-counting above is already decided and synchronised, so only the vanilla call
+        // hops. The executor is FIFO, so a hold and a release scheduled in that order still arrive
+        // in that order, and a hop cannot invert them.
+        MinecraftServer server = level.getServer();
+        if (server != null && !server.isSameThread()) {
+            server.execute(() -> mutate(level, delta));
+            return;
+        }
+        mutate(level, delta);
+    }
+
+    private void mutate(ServerLevel level, RegionChunkHolds.Delta delta) {
         for (RegionChunkHolds.ChunkRef chunk : delta.newlyHeld()) {
             ChunkPos pos = new ChunkPos(chunk.chunkX(), chunk.chunkZ());
             level.getChunkSource().addRegionTicket(NODERA_DELEGATED, pos, TICKET_RADIUS, pos);
