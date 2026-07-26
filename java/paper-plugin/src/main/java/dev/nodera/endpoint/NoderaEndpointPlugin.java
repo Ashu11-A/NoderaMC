@@ -24,6 +24,7 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
 
     private EndpointPlatform platform = EndpointPlatform.UNKNOWN;
     private EndpointConfig config;
+    private EndpointPeerLink peerLink;
 
     @Override
     public void onEnable() {
@@ -67,16 +68,46 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
                 + (config.listed() ? " · listed" : " · unlisted")
                 + " · " + config.trackers().size() + " tracker(s)");
 
-        // Server task 2 is the node itself. Saying so is the point: an endpoint that quietly did
-        // nothing would look identical to one that was working, and the operator would find out
-        // when a world failed to appear on a tracker.
-        getLogger().info("this build does not host a Nodera node yet (server task 2): the world is"
-                + " not announced, validated, or archived. The plugin is a platform preflight.");
+        linkPeer();
+    }
+
+    /**
+     * Attach this endpoint to its Nodera node.
+     *
+     * <p><b>External is the mode that works.</b> L-71 records why: a node inside the server JVM dies
+     * with it, taking the world off the network exactly when it most needs to still be there. An
+     * always-on worker beside the server has neither problem, and it is the same worker the
+     * companion app and the mod already supervise — so the endpoint gets crash independence by not
+     * owning the process rather than by engineering around owning it.
+     *
+     * <p>Linking is never a startup gate: a worker that is slow to boot must not stop a Minecraft
+     * server from accepting players.
+     */
+    private void linkPeer() {
+        if (config.peerMode() != EndpointConfig.PeerMode.EXTERNAL) {
+            getLogger().info("peer.mode is " + config.peerMode()
+                    + ", and an in-JVM node is not built (server task 2; see L-71 for why external"
+                    + " is the destination). This world is not announced, validated, or archived —"
+                    + " set peer.mode: external and point peer.control-port at a running worker.");
+            return;
+        }
+        peerLink = new EndpointPeerLink(
+                ControlClient.loopback(config.controlPort()), getLogger()::info, 30_000L);
+        peerLink.start();
     }
 
     @Override
     public void onDisable() {
+        if (peerLink != null) {
+            peerLink.close();
+            peerLink = null;
+        }
         getLogger().info("Nodera endpoint stopped (" + platform.label() + ")");
+    }
+
+    /** @return whether this endpoint currently has a worker answering. */
+    public boolean linked() {
+        return peerLink != null && peerLink.linked();
     }
 
     /**

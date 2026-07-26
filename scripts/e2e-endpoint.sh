@@ -44,7 +44,9 @@ pass "E0: plugin and Paper jars present"
 # Waiting for something unbuilt would report "broken" where the honest reading is
 # "not built yet".
 # ---------------------------------------------------------------------------
-log "E1: a clean-slate Paper server with nodera-endpoint installed"
+log "E1: the endpoint's own always-on worker, then a clean-slate Paper server"
+nodera_stack_up
+nodera_endpoint_worker
 # The staged config is `listed: true` + `custody: FULL`, so it must name a world: advertising
 # full custody of a world nobody can name is an announce no tracker can use, and the plugin
 # refuses it. Passing an id here is what a real operator does; the task-2 suites will pass the
@@ -91,6 +93,16 @@ if grep -q "\[NoderaEndpoint\].*Exception\|Could not pass event.*NoderaEndpoint"
     fail "E3: the server log carries an exception from the endpoint"
 fi
 pass "E3: clean disable, no exceptions from the endpoint"
+
+# ---------------------------------------------------------------------------
+# E4 — the link itself
+# ---------------------------------------------------------------------------
+log "E4: the endpoint linked to its worker"
+grep -q "linked to the Nodera worker at 127.0.0.1:$ENDPOINT_CONTROL" "$LOG_DIR/server.log" \
+    || fail "E4: the endpoint never linked to its worker on $ENDPOINT_CONTROL"
+grep -q "no Nodera worker answering" "$LOG_DIR/server.log" \
+    && fail "E4: the endpoint reported no worker — it linked late or not at all"
+pass "E4: the endpoint linked to its always-on worker at boot"
 
 collect_results
 pass "ENDPOINT TEST PASSED — artifacts in $RESULTS_DIR"

@@ -34,6 +34,34 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The endpoint has a node, and it is not inside the server
+
+`peer.mode: external` works, and it is now what the harness stages. The plugin links to an always-on
+worker over the worker's own control socket, and `e2e-endpoint.sh` E4 asserts it against a real
+worker on a real Paper server: *"linked to the Nodera worker at 127.0.0.1:25613"*.
+
+External first is not a shortcut around the embedded node — it is L-71's own conclusion. A node
+inside the server JVM dies with it, taking the world off the network exactly when it most needs to
+still be there. An always-on worker beside the server has neither problem, and it is the same worker
+the companion app and the mod already supervise, so the endpoint gets crash independence by **not**
+owning the process rather than by engineering around owning it.
+
+Two rules the link follows, both tested against a real socket rather than a mock (the property is a
+wire property; a mock would prove the mock):
+
+- **Linking is never a startup gate.** A worker that is slow to boot must not stop a Minecraft server
+  from accepting players. The endpoint retries in the background and the world stays playable.
+- **Only changes are logged.** A worker down for an hour must not write an hour of identical lines
+  into an operator's log.
+
+The first version of the client used a 4-byte length prefix — the framing the companion app uses
+elsewhere. The worker answered nothing, and the live run said so in one line. The protocol belongs to
+the server, not to the client's preference, and the class now says that where the next person will
+read it.
+
+L-71 moves OPEN → RETIRING. Its exit is a SIGKILL of the server JVM with the world staying announced
+and seeded, which needs the worker to be hosting the world — the rest of task 2.
+
 ### 2026-07-26 — The endpoint reads its own configuration, and refuses what it cannot honour
 
 Server task 2 is the node; this is the part of it that everything else needs first. `nodera-endpoint.yml`
