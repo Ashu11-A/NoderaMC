@@ -30,6 +30,35 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The live suites were dispatched, and one of them says the register was wrong
+
+`e2e-live` is a `workflow_dispatch` workflow: any subset of the real-client suites can be run against
+a branch. I had been describing these rows as needing evidence I could not produce. They needed a
+dispatch. Six suites were run against this branch.
+
+**Green:** `pickup`, `pearl`, `commands`, `ownership-follow`, `continuity`. `commands` includes the
+new **K2b** extraction stage in CI for the first time, with real numbers — four unsupported blocks
+placed, and the extractor's palette-exclusion count moved `1240376 → 1240380`, exactly four. The live
+`LiveSnapshotExtractor` reads a real world correctly.
+
+**Red, and informative:** `mobs` fails at **G2b**. A creeper is summoned and no region is refused.
+The artifact says more than the assertion could: ghost capture demonstrably works — five
+`GHOST: … now holds ghost mobs (first: minecraft:chicken/pig/cow/squid/salmon)` lines — and in the
+nether **not one `entity lane revoked` line appears in the entire run**, not for the creeper and not
+for the ambient piglins and ghasts that are equally non-delegable. The revocation path does not fire
+in the nether at all, which is upstream of the announce half L-60 describes.
+
+**It fails on `main` too** (runs 30177362113 and 30176735874), so it is not a regression from the
+observer work. It is a row whose exit was assumed rather than read: L-60 said "remaining: the live
+run", and the live run had not been looked at.
+
+**`pearl` still SKIPS its ghost half naming L-60** — "this server's lane owns no regions, so nothing
+on it captures the pearl as a ghost". That is precise and worth acting on: the observer path built
+this session (`ObserverOwnership` + `forwardTo`) covers **block** capture only. `EntityCaptureBridge`
+still gates ghost capture on `runtime.delegated(region)`, so the entity lane has the same fault line
+the block lane just had. That is the next piece of work, and it is now named by a run rather than by
+a guess.
+
 ### 2026-07-26 — A node that owns nothing can still route what it sees (L-80 → RETIRING)
 
 Every dedicated-server log has the line "no regions fall to this node", and it is correct: the
