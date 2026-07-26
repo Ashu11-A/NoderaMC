@@ -34,6 +34,29 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — Reputation stops being a design and starts being an observation
+
+The reliability ledger has existed since Task 6. A dead-code re-audit found what nothing had
+noticed: in the live lane it was written in exactly **one** place — a private instance used only for
+the lag-handoff penalty. Committee outcomes went nowhere. A node that re-executed batches and
+reached the *wrong world* every single round kept a spotless score, as long as it answered quickly.
+
+`CommitteeScoring` folds a committed round into the ledger, and `WorkerValidationService` now keeps
+one ledger instead of two, so agreement, disagreement and the handoff penalty all land on the same
+score. Three rules, each pinned by a test:
+
+- the reference is the **committed** root, never the local one — a primary whose root lost is the
+  node that was wrong, and scoring against its own answer would have it punish the honest majority;
+- our own vote is scored like everyone else's, for the same reason;
+- **absence records nothing.** Silence is indistinguishable from an unreachable peer or a closed
+  laptop, and punishing it would make reputation a proxy for network luck. Chronic absence already
+  costs a seat through the lag-handoff path, which is an observed fact rather than an inference.
+
+`CommitteeScoringTest` (6) includes the one that matters for safety: sustained disagreement
+eventually drops a node below the assignment floor, so `eligibleForAssignment` finally means
+something. Reputation stays **local by construction** — it is a view, never consensus state, and
+nothing derived from it may enter a root.
+
 ### 2026-07-25 — Palette v2 completed, L-26 RETIRED
 
 The row's exit is a three-stage list, and stages 2 and 3 had long been green. The gap was **stage 1**:

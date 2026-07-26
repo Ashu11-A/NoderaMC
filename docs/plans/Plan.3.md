@@ -370,6 +370,42 @@ found **no genuinely dead production code**:
   no-silent-downgrade assertion. The remaining seams are consumed by their owning
   round-1/2/3 items above — implementing them out of order would duplicate this plan.
 
+## Dead-code sweep — re-audit (2026-07-26)
+
+The same whole-repo scan, re-run after the live block lane landed. Two things changed since
+2026-07-23, and one of them was a real hole rather than a pending consumer.
+
+**Now consumed (were test-only):**
+
+- `InterferenceProbe` — the T5 mixin lane landed, so the probe is reachable live through
+  `/nodera debug extract`, and it gained an exact block-level count because the section-level one
+  could not distinguish one mined block from four thousand burned ones.
+- `ReliabilityLedger` — **this was the hole.** The ledger has existed since Task 6 and the live lane
+  wrote to it in exactly one place: a private `handoffReliability` instance used only for the lag
+  penalty. Committee outcomes — who re-executed a batch and reached the committed world, and who did
+  not — were recorded **nowhere**, so a node that consistently computed the wrong world kept a
+  spotless reputation as long as it answered quickly. `CommitteeScoring` (engine, 6 tests) now folds
+  every committed round into the ledger, and the two ledgers are one: agreement, disagreement and
+  the handoff penalty all land on the same score. Absence is deliberately *not* evidence — silence
+  is indistinguishable from an unreachable peer, and punishing it would make reputation a proxy for
+  network luck.
+
+**Still test-only, with the reason each one waits (14):**
+
+| Class | Verdict | Why it is not wired |
+|---|---|---|
+| `CommitteeSession`, `ProposalManager`, `ClientProposal` | **legacy by supersession** — keep | The in-JVM Phase 2/3 committee harness. The decentralized lane reassembles the same pieces (`VoteCollector`, `MajorityQuorumPolicy`, per-region epochs) inside `WorkerValidationService`, where the members are separate processes. The originals stay as the readable reference the distributed version is checked against. |
+| `SpotCheckAuditor` | **unimplemented, premise not yet true** | Its purpose is to let a trusted party *stop* re-executing every batch and audit a sample instead. In the live lane every validator already re-executes every batch it votes on, so the sampler has nothing to save. It becomes reachable when a member holds a region it does not vote on — the resident-seat and external-delta paths — and that is where it should be wired, not before. |
+| `DelegabilityMonitor` | **unimplemented, real gap** | Hysteresis around revoke/restore. Live revocation today is one-way (`refuseRegion`), so a region that becomes delegable again is never restored automatically. Owner: minecraft task 2 deliverable 6. |
+| `PersistedCoordinatorState` | **unimplemented, real gap** | Epochs and reputations do not survive a restart, so the stale-proposal defence resets and every node starts reputation-blind. Needs a store hook next to the world store's other durable journals. |
+| `JointTransferApprover` | waiting on host wiring | Dual-committee transfer approval; the transfer path drives approvals inline today. |
+| `WorldGenRules` | waiting on its consumer | Deterministic terrain (L-15's retirement evidence); the live lane still starts regions from the all-AIR genesis, so nothing calls it yet. |
+| `ActivePlayerStream`, `PeerShutdownHook`, `ChunkLockEditability`, `JoinAttemptThrottle`, `ArchiveManager`, `EventSyncService`, `GenesisApprovalFlow` | unchanged from the 2026-07-23 sweep | Each maps to its owning round-1/2/3 item there. |
+| `EventSourcedWorldStore` | **intentional double** — keep | The in-memory `WorldStore` behind six suites; production uses `RocksWorldStore`. |
+
+`HeadlessPeerMain` and `LevelChunkMixin` are scanner false positives: the first is the worker's
+`mainClass`, the second is referenced from `nodera.mixins.json`.
+
 ## Execution order
 
 <!-- EXECUTION-ORDER -->
