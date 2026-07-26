@@ -51,7 +51,7 @@ import java.util.Optional;
 public final class FlatWorldRules implements RuleSet {
 
     /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 4;
+    public static final int RULES_VERSION = 6;
 
     /** Palette id for air. */
     public static final int AIR = 0;
@@ -161,6 +161,21 @@ public final class FlatWorldRules implements RuleSet {
     /** Nether portal — an entity standing here transfers to the other dimension (L-14). */
     public static final int NETHER_PORTAL = 84;
 
+    /**
+     * Obsidian (L-2 fluid interactions): what a lava SOURCE becomes when water reaches it. Placeable
+     * — a player can carry and place it — and unbreakable-by-flow, so it is an ordinary solid
+     * everywhere else in the rule set.
+     */
+    public static final int OBSIDIAN = 99;
+
+    // --- L-1 crops: the farm half of the random-tick lane ------------------------------------
+    /** Farmland — the only block wheat grows on. Placeable; hydration is not modelled. */
+    public static final int FARMLAND = 100;
+    /** Wheat age 0 (seeds) — the only wheat state a player may place. */
+    public static final int WHEAT_0 = 101;
+    /** Wheat age 7 (harvestable) — every stage above 0 is engine-computed. */
+    public static final int WHEAT_7 = 108;
+
     /** Inclusive minimum buildable Y (mirrors the vanilla overworld floor for the MVP). */
     public static final int MIN_Y = -64;
     /** Inclusive maximum buildable Y (vanilla overworld ceiling; 24 sections × 16 ⇒ top block 319). */
@@ -251,6 +266,16 @@ public final class FlatWorldRules implements RuleSet {
             new PaletteEntry(STICKY_PISTON_HEAD_BASE + 2, "sticky_piston_head_west"),
             new PaletteEntry(STICKY_PISTON_HEAD_BASE + 3, "sticky_piston_head_east"),
             new PaletteEntry(NETHER_PORTAL, "nether_portal"),
+            new PaletteEntry(OBSIDIAN, "obsidian"),
+            new PaletteEntry(FARMLAND, "farmland"),
+            new PaletteEntry(WHEAT_0 + 0, "wheat_0"),
+            new PaletteEntry(WHEAT_0 + 1, "wheat_1"),
+            new PaletteEntry(WHEAT_0 + 2, "wheat_2"),
+            new PaletteEntry(WHEAT_0 + 3, "wheat_3"),
+            new PaletteEntry(WHEAT_0 + 4, "wheat_4"),
+            new PaletteEntry(WHEAT_0 + 5, "wheat_5"),
+            new PaletteEntry(WHEAT_0 + 6, "wheat_6"),
+            new PaletteEntry(WHEAT_0 + 7, "wheat_7"),
             new PaletteEntry(WIRE_0 + 0, "redstone_wire_0"),
             new PaletteEntry(WIRE_0 + 1, "redstone_wire_1"),
             new PaletteEntry(WIRE_0 + 2, "redstone_wire_2"),
@@ -275,6 +300,9 @@ public final class FlatWorldRules implements RuleSet {
      */
     private static final BitSet PLACEABLE = buildPlaceable();
 
+    /** Every id the palette knows — placeable or network-computed. */
+    private static final BitSet WHITELIST = buildWhitelist();
+
     private static BitSet buildPlaceable() {
         BitSet s = buildWhitelist();
         s.clear(LEVER_ON);
@@ -293,6 +321,11 @@ public final class FlatWorldRules implements RuleSet {
         // A pressed plate is an ENTITY-computed state: placing one directly would be a way to
         // mint 15 power with no entity standing anywhere near it.
         s.clear(PRESSURE_PLATE_ON);
+        // Only seeds are placeable: a grown crop is the engine's output, and placing age 7
+        // directly would be a way to mint a harvest without waiting for one.
+        for (int age = 1; age <= 7; age++) {
+            s.clear(WHEAT_0 + age);
+        }
         for (int level = 0; level < 7; level++) {
             s.clear(WATER_FLOW_BASE + level);
         }
@@ -318,6 +351,25 @@ public final class FlatWorldRules implements RuleSet {
     }
 
     /**
+     * @return whether {@code id} is a palette entry at all. The live capture lane asks this to
+     *         decide whether a real block state is consensus state or a foreign write.
+     * @Thread-context pure function; safe from any thread.
+     */
+    public static boolean isKnown(int id) {
+        return id >= 0 && WHITELIST.get(id);
+    }
+
+    /**
+     * @return whether a player may PLACE {@code id}. Network-computed states (powered wire, an
+     *         extended piston, a pressed plate) are engine outputs: capturing a place of one would
+     *         let a client mint power.
+     * @Thread-context pure function; safe from any thread.
+     */
+    public static boolean isPlaceable(int id) {
+        return id >= 0 && PLACEABLE.get(id);
+    }
+
+    /**
      * @return the registry fingerprint: {@link StableHash} over a version tag followed by the
      *         ordered {@code (id, StableHash.of(name))} pairs. Stable across replicas and ports.
      * @Thread-context pure function; safe from any thread.
@@ -325,7 +377,7 @@ public final class FlatWorldRules implements RuleSet {
     public static long registryFingerprint() {
         long[] parts = new long[2 + PALETTE.length * 2];
         int i = 0;
-        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v4");
+        parts[i++] = StableHash.of("nodera.simulation.FlatWorldRules.palette.v6");
         for (PaletteEntry e : PALETTE) {
             parts[i++] = e.id();
             parts[i++] = StableHash.of(e.name());

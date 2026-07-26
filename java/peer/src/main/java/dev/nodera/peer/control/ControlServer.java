@@ -166,6 +166,12 @@ public final class ControlServer implements AutoCloseable {
                 return seeded == null ? err("archive lane unavailable")
                         : ControlProtocol.OK + " " + seeded;
             }
+            if (ControlProtocol.SEED_REGION.equals(verb)) {
+                // NODERA-SEED-REGION <ver> <worldId> <snapshotPathB64>
+                String seeded = handler.seedRegion(arg(parts, 2), arg(parts, 3));
+                return seeded == null ? err("validated-lane seeding unavailable")
+                        : ControlProtocol.OK + " " + seeded;
+            }
             if (ControlProtocol.ARCHIVE.equals(verb)) {
                 // NODERA-ARCHIVE <ver> <worldId> <destPathB64> <timeoutSeconds>
                 String fetched = handler.fetchArchive(arg(parts, 2), arg(parts, 3),

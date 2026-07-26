@@ -32,8 +32,13 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
-/** Live coordinator implementation behind {@link EntityCaptureBridge}. */
-public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime, AutoCloseable {
+/**
+ * Live coordinator implementation behind {@link EntityCaptureBridge} and
+ * {@link dev.nodera.mod.server.shadow.BlockCaptureBridge}. One runtime, one signed-submit path:
+ * an entity action and a block action differ in payload, never in how they reach the lane.
+ */
+public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.Sink, AutoCloseable {
 
     private static final org.slf4j.Logger LOG =
             org.slf4j.LoggerFactory.getLogger("NoderaEntityLane");
@@ -48,12 +53,42 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     private final NodeIdentity authority;
     private final DurableActionJournal actions;
     private final InterferenceBuffer interference = new InterferenceBuffer();
+    private final dev.nodera.coordinator.interference.InterferenceStats interferenceStats =
+            new dev.nodera.coordinator.interference.InterferenceStats();
+    /**
+     * The live write choke point's guard. CONVERT is the only defensible default in a real game:
+     * blocking a foreign write means another mod's block silently fails to appear, while converting
+     * it means the region certifies what actually happened (Task 11).
+     */
+    private final dev.nodera.coordinator.interference.MutationGuard writeGuard =
+            new dev.nodera.coordinator.interference.MutationGuard(
+                    this::delegated,
+                    dev.nodera.coordinator.interference.MutationGuard.Mode.CONVERT,
+                    interference, interferenceStats);
     private final InterferenceCommitter committer;
     private final EntityLaneSoakMetrics metrics = new EntityLaneSoakMetrics();
     private final Set<RegionId> regions = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final java.util.Map<RegionId, ServerLevel> boundLevels =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<NetworkEntityId> ghosts = new HashSet<>();
+    /**
+     * Regions this node has SEEN a non-delegable entity in. Separate from the validation lane's
+     * refused set because the two answer different questions: "has the mesh been told" versus "has
+     * this node ever said so out loud", and only the second one keeps a live drive honest.
+     */
+    private final Set<RegionId> observedNonDelegable =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
+     * Feeds locally-captured actions to this node's render overlay (L-16). Resolved per call, so a
+     * client validation lane that starts after this runtime does is still picked up.
+     */
+    private final dev.nodera.peer.view.PredictionFeed predictions =
+            new dev.nodera.peer.view.PredictionFeed(
+                    dev.nodera.mod.client.entity.ClientValidationLane::replicaView);
+
+    /** Keeps every delegated region's chunks resident — an unloaded region cannot be validated. */
+    private final dev.nodera.mod.server.shadow.ChunkTicketService tickets =
+            new dev.nodera.mod.server.shadow.ChunkTicketService();
     private long currentTick;
 
     public LiveEntityLaneRuntime(
@@ -89,6 +124,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     /** Expose event capture only after region state and durable recovery are ready. */
     public void install() {
         EntityCaptureBridge.get().runtime(this);
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.get().sink(this);
+        // The choke point is inert until this line: a server validating nothing pays one null
+        // check per block write.
+        dev.nodera.mod.server.shadow.BlockWriteGuard.install(writeGuard);
+        world.applierScope(writeGuard::applierScope);
         // Entities whose chunks predate activation (spawn chunks, restored worlds) joined against
         // the disabled runtime — adopt them now that capture is live. install() may run on the
         // async bootstrap thread; entity iteration belongs on the server thread.
@@ -106,6 +146,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         committer.onCommittedVersion(snapshot.region(), snapshot.version());
         regions.add(snapshot.region());
         boundLevels.put(snapshot.region(), level);
+        tickets.hold(level, snapshot.region());
         // Task 13: the engine is THE scheduler for this region now — vanilla scheduled
         // ticks for its chunks are cancelled at the source (LevelTicksMixin).
         dev.nodera.mod.server.redstone.RedstoneSuppression.activate(
@@ -176,6 +217,67 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         return committed;
     }
 
+    /**
+     * The block-capture lane's entry point (minecraft Task 2 deliverable 1). Block actions take the
+     * identical signed path as entity actions — nothing about a place or a break is special once it
+     * is an {@link ActionEnvelope} — and vanilla is never cancelled for them, so there is no
+     * {@code VanillaCancelGate} check here: the player's own edit already happened.
+     */
+    @Override
+    public boolean submitBlockAction(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
+        if (delegated(region)) {
+            return submit(player, region, action);
+        }
+        return submitAsObserver(player, region, action);
+    }
+
+    /**
+     * L-80: capture on a node that holds no seat. Under field-of-view ownership a dedicated server
+     * owns nothing and still sees everything, so the action is signed here and forwarded to the
+     * region's planned primary. There is no local snapshot to anchor a tick against, so the
+     * server's own tick is used — the receiving primary re-verifies the actor signature, the
+     * admission rule and the batch before proposing anything, which is what makes the observer a
+     * courier rather than an authority.
+     */
+    private boolean submitAsObserver(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
+        NodeId primary = ObserverOwnership.primaryOf(region);
+        if (primary == null || primary.equals(authority.nodeId())) {
+            return false;
+        }
+        NodeId actor = new NodeId(player.getUUID());
+        validation.registerActor(actor, authority.publicKeyBytes());
+        long playerSequence = actions.nextPlayerSequence(actor);
+        long serverSequence = actions.nextServerSequence();
+        long tick = Math.max(0L, currentTick) + 1;
+        ActionEnvelope unsigned = new ActionEnvelope(
+                actor, playerSequence, serverSequence, tick, region, action, Bytes.empty());
+        ActionEnvelope signed = new ActionEnvelope(
+                actor, playerSequence, serverSequence, tick, region, action,
+                authority.sign(unsigned.signedPortion()));
+        try {
+            boolean sent = validation.forwardTo(primary, signed);
+            if (sent) {
+                LOG.debug("observer forwarded a block action for {} to its primary {}",
+                        region, primary);
+            }
+            return sent;
+        } catch (RuntimeException unreachable) {
+            return false;
+        }
+    }
+
+    /**
+     * The observer half of the capture gate: this node cannot validate {@code region}, but it knows
+     * who can and can reach them.
+     */
+    @Override
+    public boolean observes(RegionId region) {
+        NodeId primary = ObserverOwnership.primaryOf(region);
+        return primary != null && !primary.equals(authority.nodeId()) && !delegated(region);
+    }
+
     private boolean submit(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
         Optional<RegionSnapshot> current = validation.currentSnapshot(region);
@@ -192,6 +294,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         ActionEnvelope signed = new ActionEnvelope(
                 actor, playerSequence, serverSequence, tick, region, action,
                 authority.sign(unsigned.signedPortion()));
+        // L-16: the render overlay takes the action the moment it is captured, so this player's
+        // own edit is on screen now rather than when the committee's commit comes back. The
+        // overlay is cosmetic — the committed base stays the authority and reconciles it — and a
+        // node with no renderer (every dedicated server) predicts nothing.
+        predictions.onLocalAction(signed);
         try {
             // No-host routing: if another player's node is this region's primary, the captured
             // action is forwarded to it over the mesh — that player proposes, the committee votes,
@@ -301,14 +408,25 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         // and the seats sit on the players' nodes. `refuseRegion` therefore both drops whatever
         // this node holds and tells the mesh, and answers false for every repeat so a dimension
         // full of mobs logs once per region rather than once per spawn.
-        boolean first = validation.refuseRegion(
+        boolean announced = validation.refuseRegion(
                 region, dev.nodera.protocol.simulationmsg.RegionRefusal.Reason.NON_DELEGABLE_ENTITY);
-        if (first) {
+        // Log on the first OBSERVATION per region, not on the first refusal. The two differ
+        // whenever the region was already in the refused set — because a peer announced it first,
+        // or because this node refused it earlier — and in that case the old code said nothing at
+        // all. A live mob drive then reads the lane as silent when it is in fact working, which is
+        // exactly what `e2e-mobs.sh` G2b reported. One line per region either way: a nether full
+        // of piglins must not be a nether full of log lines.
+        if (observedNonDelegable.add(region)) {
             LOG.info("entity lane revoked {} — non-delegable entity {} (enable mobCapture to keep "
-                            + "it); refusal announced to the mesh",
-                    region, entity.getType().builtInRegistryHolder().key().location());
+                            + "it); refusal announced to the mesh{}",
+                    region, entity.getType().builtInRegistryHolder().key().location(),
+                    announced ? "" : " earlier");
         }
         regions.remove(region);
+        ServerLevel level = boundLevels.remove(region);
+        if (level != null) {
+            tickets.release(level, region);
+        }
         EntityCaptureBridge.get().releaseRegion(region);
     }
 
@@ -324,6 +442,12 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         currentTick = server.getTickCount();
         world.retryPendingCredits(server);
         metrics.recordGhostMobTicks(ghosts.size());
+        // A crash is the case durability exists for, and a crash never reaches close(): checkpoint
+        // the reputation view every 30 s so at most half a minute of observation is ever lost.
+        if (currentTick % 600 == 0) {
+            validation.persistState();
+        }
+        interferenceStats.advanceTick();
         for (RegionId region : regions) {
             validation.currentSnapshot(region).ifPresent(snapshot ->
                     committer.onCommittedVersion(region, snapshot.version()));
@@ -387,10 +511,21 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     @Override
     public void close() {
         EntityCaptureBridge.get().uninstall(this);
+        dev.nodera.mod.server.shadow.BlockCaptureBridge.get().uninstall(this);
+        if (dev.nodera.mod.server.shadow.BlockWriteGuard.guard() == writeGuard) {
+            dev.nodera.mod.server.shadow.BlockWriteGuard.install(null);
+        }
+        world.applierScope(null);
         for (RegionId region : regions) {
             dev.nodera.mod.server.redstone.RedstoneSuppression.deactivate(
                     region.regionX(), region.regionZ());
         }
+        // Release per region, not per level: a session may hold regions in more than one
+        // dimension, and a ticket is only removable through the level that issued it.
+        for (java.util.Map.Entry<RegionId, ServerLevel> bound : boundLevels.entrySet()) {
+            tickets.release(bound.getValue(), bound.getKey());
+        }
+        boundLevels.clear();
         regions.clear();
         ghosts.clear();
     }

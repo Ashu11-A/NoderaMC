@@ -17,7 +17,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 |---|---|---|---|
 | [1](Task.1.md) | Boot + presence endpoint | ✅ COMPLETED | Verified live: boots, becomes gateway, answers the probe |
 | [2](Task.2.md) | Control protocol v2 + telemetry | ✅ COMPLETED | Real bytes/peers/worlds; verbs grew additively to 10+ |
-| [3](Task.3.md) | Host/join delegation + seeding | 🚧 IN PROGRESS | Archive seeding + grant gossip landed; announce timer + region pieces remain (L-41) |
+| [3](Task.3.md) | Host/join delegation + seeding | 🚧 IN PROGRESS | Archive seeding + grant gossip + the announce heartbeat's live holdings + validated-lane region-piece seeding (`NODERA-SEED-REGION`, `RegionSeedSpool`) landed; L-41 retired 2026-07-26. Deliverable 9 — rendezvous registration persisting across game sessions — has no evidence yet |
 | [4](Task.4.md) | Out-of-game validation | ✅ COMPLETED (headless) | L-48 retired; live region feed rides the mod |
 | [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
 

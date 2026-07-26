@@ -4,7 +4,9 @@
   "package": "dev.nodera.mod.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "LevelTicksMixin"
+    "LevelChunkMixin",
+    "LevelTicksMixin",
+    "ServerLevelRandomTickMixin"
   ],
   "client": [],
   "server": [],

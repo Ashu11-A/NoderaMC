@@ -6,7 +6,7 @@
      (ControlProtocol v2) — served in-process for the embedded mode and over the loopback socket for
      the external mode. Do not invent a fourth mirror of the protocol. Keep this header accurate. -->
 
-**Status:** ⬜ NOT STARTED
+**Status:** 🚧 IN PROGRESS (config parsed, validated and enforced at enable; the node itself remains)
 **Category:** server · **Owns:** L-71 · **Last audit:** 2026-07-25
 **Depends on:** [server 1](Task.1.md), [network 2](../network/Task.2.md), [network 5](../network/Task.5.md), [worker 2](../worker/Task.2.md)
 **Consumed by:** [server 3](Task.3.md) … [server 9](Task.9.md)

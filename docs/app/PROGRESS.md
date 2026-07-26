@@ -25,6 +25,27 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The disclosure answers even when nothing answers it (L-78 RETIRED)
+
+The row said the offline fallback "can lie by being stale". Reading the code, it was worse: there
+was no fallback. `collected_schema` returned an **error** when the collector could not be reached,
+so a person asking "what is collected?" with no route to the ingest service got a blank screen at
+exactly the moment they were deciding whether to consent.
+
+The registry moved out of the ingest **binary** and into the `nodera-telemetry` **library**, which
+the app now depends on by path. That is the part worth keeping: a privacy notice maintained in two
+places drifts, and the stale copy is always the one people read. One source now renders both the
+service's live answer and the app's bundled fallback.
+
+Every copy carries `registry_version` — the repository `VERSION`, stamped by `build.rs` — and
+`disclosure_source` (`service` or `bundled`). A fallback that cannot say how old it is looks exactly
+like a current one, which is the specific way this row said it could lie.
+
+`the_disclosure_falls_back_to_the_bundled_registry_when_the_service_is_unreachable` and
+`the_bundled_copy_says_it_is_bundled` are the exit clause. `TelemetryRegistryMirrorTest` still passes
+against the real binary, so the Java emitter and the Rust registry did not drift while this moved. An
+**unconfigured** collector stays an error: nothing to disclose is not the same as cannot reach.
+
 ### 2026-07-25 — The question gets asked, once, with neither answer favoured
 
 The first-run modal and the Privacy card landed (`src/telemetry.rs`, `ui/src/Consent.tsx`; 61 crate

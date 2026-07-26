@@ -222,6 +222,29 @@ public final class CompanionClient implements CompanionProbe {
     }
 
     /**
+     * Ask the worker to seed one committed region snapshot (validated lane, worker L-41).
+     *
+     * <p>The seat that committed the region lives in this process, and this process is the one that
+     * ends when a player closes the game. Handing the snapshot to the worker is what keeps the
+     * region fetchable afterwards — the same bargain the world archive already makes for the save.
+     *
+     * @param worldId      hex world id.
+     * @param snapshotPath absolute path of the canonically-encoded snapshot file (same machine).
+     * @return {@code "<manifestRootHex> <version> <pieceCount>"} on success, or empty (unreachable
+     *         worker, or a worker predating the validated-lane seeding verb).
+     */
+    public Optional<String> seedRegion(String worldId, java.nio.file.Path snapshotPath) {
+        String reply = exchange(CompanionProtocol.SEED_REGION + " "
+                        + CompanionProtocol.PROTOCOL_VERSION
+                        + " " + worldId + " " + b64Path(snapshotPath),
+                10_000); // a region is far smaller than a save, but still a split + hash
+        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+    }
+
+    /**
      * Ask the worker to fetch a world's newest archive from the network into a local file.
      *
      * @param worldId        hex world id.

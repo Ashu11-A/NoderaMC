@@ -240,8 +240,11 @@ final class PressurePlateStickyPistonTest {
     @Test
     void bothNewComponentsAreWiredIntoTheGraphAndTheRulesVersionMovedWithThem() {
         // The registry fingerprint is the number every committee member pins: adding components
-        // MUST move it, so a peer on the old palette refuses rather than silently diverging.
-        assertThat(FlatWorldRules.RULES_VERSION).isEqualTo(4);
+        // MUST move it, so a peer on the old palette refuses rather than silently diverging. The
+        // version itself keeps moving (5 since obsidian joined the palette for L-2's lava/water
+        // interactions), so what is pinned here is that it is at least the version these two
+        // components arrived in — not a literal that has to be edited by every later palette bump.
+        assertThat(FlatWorldRules.RULES_VERSION).isGreaterThanOrEqualTo(4);
         assertThat(RedstoneRules.isSticky(FlatWorldRules.STICKY_PISTON_HEAD_BASE)).isTrue();
         assertThat(RedstoneRules.isSticky(FlatWorldRules.PISTON_HEAD_BASE)).isFalse();
         assertThat(RedstoneRules.isPistonBase(FlatWorldRules.STICKY_PISTON_RETRACTED_BASE)).isTrue();

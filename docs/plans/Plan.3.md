@@ -370,6 +370,192 @@ found **no genuinely dead production code**:
   no-silent-downgrade assertion. The remaining seams are consumed by their owning
   round-1/2/3 items above — implementing them out of order would duplicate this plan.
 
+## Dead-code sweep — re-audit (2026-07-26)
+
+The same whole-repo scan, re-run after the live block lane landed. Two things changed since
+2026-07-23, and one of them was a real hole rather than a pending consumer.
+
+**Now consumed (were test-only):**
+
+- `InterferenceProbe` — the T5 mixin lane landed, so the probe is reachable live through
+  `/nodera debug extract`, and it gained an exact block-level count because the section-level one
+  could not distinguish one mined block from four thousand burned ones.
+- `ReliabilityLedger` — **this was the hole.** The ledger has existed since Task 6 and the live lane
+  wrote to it in exactly one place: a private `handoffReliability` instance used only for the lag
+  penalty. Committee outcomes — who re-executed a batch and reached the committed world, and who did
+  not — were recorded **nowhere**, so a node that consistently computed the wrong world kept a
+  spotless reputation as long as it answered quickly. `CommitteeScoring` (engine, 6 tests) now folds
+  every committed round into the ledger, and the two ledgers are one: agreement, disagreement and
+  the handoff penalty all land on the same score. Absence is deliberately *not* evidence — silence
+  is indistinguishable from an unreachable peer, and punishing it would make reputation a proxy for
+  network luck.
+
+**Still test-only, with the reason each one waits (14):**
+
+| Class | Verdict | Why it is not wired |
+|---|---|---|
+| `CommitteeSession`, `ProposalManager`, `ClientProposal` | **legacy by supersession** — keep | The in-JVM Phase 2/3 committee harness. The decentralized lane reassembles the same pieces (`VoteCollector`, `MajorityQuorumPolicy`, per-region epochs) inside `WorkerValidationService`, where the members are separate processes. The originals stay as the readable reference the distributed version is checked against. |
+| `SpotCheckAuditor` | **unimplemented, premise not yet true** | Its purpose is to let a trusted party *stop* re-executing every batch and audit a sample instead. In the live lane every validator already re-executes every batch it votes on, so the sampler has nothing to save. It becomes reachable when a member holds a region it does not vote on — the resident-seat and external-delta paths — and that is where it should be wired, not before. |
+| `DelegabilityMonitor` | **unimplemented, real gap** | Hysteresis around revoke/restore. Live revocation today is one-way (`refuseRegion`), so a region that becomes delegable again is never restored automatically. Owner: minecraft task 2 deliverable 6. |
+| `PersistedCoordinatorState` | **WIRED 2026-07-26** | `DurableCoordinatorState` gives it a file beside the action/credit/vote journals; the live session attaches on open, checkpoints every 30 s (a crash never reaches `close()`), and flushes on close. A corrupt file costs the node its memory of who behaved — recoverable by observing again — never its world, so damage is reported and replaced rather than thrown. |
+| `JointTransferApprover` | waiting on host wiring | Dual-committee transfer approval; the transfer path drives approvals inline today. |
+| `WorldGenRules` | waiting on its consumer | Deterministic terrain (L-15's retirement evidence); the live lane still starts regions from the all-AIR genesis, so nothing calls it yet. |
+| `ActivePlayerStream`, `PeerShutdownHook`, `ChunkLockEditability`, `JoinAttemptThrottle`, `ArchiveManager`, `EventSyncService`, `GenesisApprovalFlow` | unchanged from the 2026-07-23 sweep | Each maps to its owning round-1/2/3 item there. |
+| `EventSourcedWorldStore` | **intentional double** — keep | The in-memory `WorldStore` behind six suites; production uses `RocksWorldStore`. |
+
+`HeadlessPeerMain` and `LevelChunkMixin` are scanner false positives: the first is the worker's
+`mainClass`, the second is referenced from `nodera.mixins.json`.
+
+## Round 4 — every remaining row, audited (2026-07-26)
+
+Thirty rows remain across six categories. This section is the verdict on **each one**: not what it
+says, but what would actually have to happen for its exit test to go green, and therefore whether it
+can be worked on now or is waiting for something else. Four rows retired the day this audit was
+written (**L-25**, **L-63**, **L-79**, **L-78**), and all four were in the same class: an exit test
+that needed no live run and no unbuilt subsystem, sitting behind a row whose prose made it sound
+larger than it was. That class is now empty, which is the useful finding.
+
+**The three blockers, in order of how much they hold:**
+
+| Blocker | Rows waiting on it |
+|---|---|
+| **A live run with a node that actually holds regions** — the scripted suites run a dedicated server that the field-of-view planner leaves owning nothing | engine L-1, L-2, L-7, L-24, L-50 · minecraft L-50, L-60, L-80 · network L-30 |
+
+**Correction (2026-07-26):** this table first read as though live evidence were unobtainable without
+a person at a keyboard. It is not. `e2e-live` is a `workflow_dispatch` workflow that boots real
+NeoForge clients under Xvfb, one suite per runner, and **any of its suites can be dispatched against
+a branch** (`gh workflow run e2e-live.yml --ref <branch> -f suites=mobs,pearl`). The constraint on
+these rows is therefore CI minutes and reading the result, not access. Rows whose exits name a
+scripted stage should be driven that way rather than described as blocked.
+| **A GUI environment where a person looks at the screen** | minecraft L-43, L-46, L-49 · app L-47 |
+| **A subsystem nobody has written yet** (the client prediction overlay; the endpoint's validated lane) | engine L-12, L-16, L-17 · network L-33 · server L-62, L-64…L-70 |
+
+### Per-row verdicts
+
+| Row | Verdict | What it is actually waiting for |
+|---|---|---|
+| app L-47 | **infra, not code** | A CI job with two machines (or two network namespaces) that installs the app, hosts a world, closes the game, and joins from the other side. Everything it drives exists. |
+| app L-56 | **decidable now, but it is a product decision** | The exit offers two doors: give the transport per-world attribution and a peer-advertised cap, or delete both controls **and migrate their saved values**. The second is an afternoon; the first is a protocol change. Neither should be picked by an implementer alone, which is why this row stays open rather than being quietly resolved the cheap way. |
+| engine L-1 | **one live clause left** | Crops and the suppression mixin landed 2026-07-26. The farm soak needs a node that owns the farm's region — the same seat problem as minecraft L-80. |
+| engine L-2 | **needs a producer, a consumer, and a trust decision + live** | Fluid interactions landed 2026-07-26. Two corrections in one day, both worth keeping. This row first said cross-region spread "can start today" as engine work; then, after reading `BorderSignal` (which carries no state and rides the execution result rather than the root), that it needed a protocol addition. **Both were wrong.** `HaloUpdate` (tag 56) already IS the edge-state message — "after `region` commits `version`, its coordinator sends the region's EDGE COLUMNS to the committees of every neighbor whose halo overlaps them" — fully codec'd in both directions, with **no producer and no consumer outside the codec**, and the read side (`RegionWorldView.getBlock` beyond the covered chunks) still the documented MVP stub. So it is a producer, a consumer, and the halo-version staleness assertion the javadoc already specifies. The genuinely open question is trust, and it is now narrowed to one decision. Verifying a slice against the sender's committed root is **not on the table**: `StateRoot` is `SHA-256` over the whole canonical `RegionSnapshot`, a flat hash with no per-column commitment, so partial verification needs the entire snapshot — the thing edge-only delivery exists to avoid. Options: (a) add a Merkle commitment over columns — correct, but a state-format change and a versioned migration; (b) hold a full replica of the neighbour — defeats the purpose; (c) **recommended**, have the neighbour's committee sign the slice, so the receiver verifies a quorum attestation against membership it already knows. (c) proves the region's own committee vouches for the columns, which is the authority that owns them, and it is cheap precisely because `HaloUpdate` has no producer or consumer yet — its shape can change at no compatibility cost. Simulation messages are Java-only, so no Rust codec mirror is involved. |
+| engine L-7 | **species work** | Ghost AI is deterministic; retiring the row per species means targeting, pathfinding and combat for each shipped species. Large, but not blocked. |
+| engine L-12 | **rides L-16** | The engine half (`MovePlayerAction`, per-axis legality, border transfer) is done. What remains is mod-side capture plus the prediction/rollback overlay — capture alone would make a rejected move a visible rubber-band, so shipping it before L-16 would be worse than not shipping it. |
+| engine L-16, L-17 | **the biggest remaining engine lane** | Client prediction with rollback, and a local-replica view so migration does not reconnect. Both are new subsystems, both are unblocked, and both are where the "feels like vanilla" claim is finally paid for. |
+| engine L-24, L-50 · minecraft L-50, L-60 | **live suites only** | Every headless half is green; each exit names a stage in `e2e-mobs.sh` / the gameplay drives. |
+| minecraft L-43, L-46, L-49 | **someone must look at a screen** | All feeds are wired; the exits are about what a player sees. `e2e-live` runs under Xvfb, so these retire by adding assertions to a suite plus one human pass. |
+| minecraft L-80 | **RETIRING** | The observer mechanism landed 2026-07-26; the live run remains, and it will surface the actor-key question that is issue #45's work. |
+| network L-30 | **live** | Committee validation and certified event sync over one `PeerTransport` in a sustained session. |
+| network L-33 | **needs the client piece pipeline** | The edit half is done; the render half is a client subsystem. |
+| network L-76 | **needs a population** | The emitter, the plane and the dashboards exist; the exit is a dashboard answering a real question from real reports, and no deployment has opted in yet. Nothing to build. |
+| server L-61 | **RETIRED 2026-07-26** | The jar builds and all three suites pass — Paper enable, the Folia ALIGN-1 pass **and** its refusal at exponent 2, and corpus co-existence. The eight rows behind it now sit behind **task 2** (the endpoint hosting a peer) rather than behind the plugin existing. |
+| server L-62 | **needs the custody model first** | `CustodyAuditIT` cannot be written before something advertises custody, and re-checked on 2026-07-26 this is still literally true: `EndpointConfig.Custody` is read from the yaml and **only logged** (`NoderaEndpointPlugin` line 67) — no announce, no capability, nothing on the wire for an auditor to catch out. It unblocks with server task 2 (the endpoint hosting a peer). Two notes for whoever takes it: the mechanism is now available, because a tracker announce already carries `ManifestHolding(manifestRoot, pieceBitmap)` per manifest — including, since worker L-41, per-region manifests — so an audit is "ask for a piece this node claims in its own bitmap and hash-check the answer", which the content plane already serves. And `SpotCheckAuditor` is **not** that audit: it re-executes a sampled batch (a compute check), while custody is a holding check; conflating them would leave the row unproven. |
+| worker L-41 | **RETIRED 2026-07-26** | The remaining clause was two things: an announce heartbeat that describes what this node holds *now*, and validated-lane region pieces seeded beside the whole-save archive. Both landed — `NODERA-SEED-REGION`, a per-lane manifest ladder, both lanes on one announce, and the mod-side `RegionSeedSpool` — with `SeedRegionVerbIT` proving the clause itself: nothing connected, both lanes still held and still advertised. The evidence deliberately stops short of a real Minecraft client; the pushing side is proven by its control-channel behaviour. |
+
+### Dead-code sweep, round 5 (2026-07-26)
+
+Every `.java` file under a `src/main` tree whose simple name appears in **no other main file** was
+listed, then classified by reading it. The count of test-only references is the interesting column:
+a class with six of them is a core somebody drives, while a class with one is usually a unit test
+keeping its own subject alive.
+
+| Class | Verdict |
+|---|---|
+| `HeadlessPeerMain`, `NoderaEndpointPlugin`, `LevelChunkMixin`, `ServerLevelRandomTickMixin` | **Not dead** — entry points reached by a manifest, a `plugin.yml` or `nodera.mixins.json`, never by an import. A name-based sweep will always list these; they are the reason it needs a human read. |
+| `CommitteeSession`, `EventSourcedWorldStore` | **Reference cores, driven by ITs.** Legitimate but worth knowing: the live path is `WorkerValidationService`, so these are exercised only by the tests that pin the design. |
+| `ProposalManager` | **Legacy.** Superseded by per-replica state — `WorkerValidationService` holds `pendingProposal` on the replica itself, so the coordinator-side map has no caller and should not gain one. |
+| `DelegabilityPolicy` + `DelegabilityMonitor` | **UNIMPLEMENTED, not legacy — corrected on the same day it was written.** The first read called this a legacy chain superseded by the `RegionRefusal` path, on the strength of `EntityDelegabilityRules` calling the `ENTITY_PRESENT` gate "legacy". Comparing the two enums says otherwise: `RegionRefusal.Reason` has exactly **one** value, `NON_DELEGABLE_ENTITY`, while `DelegabilityPolicy.Reason` enumerates the full rule set — `UNSUPPORTED_PALETTE`, `CHUNKS_NOT_LOADED` and the rest, each unit-tested in `DelegabilityPolicyTest`. So the live lane refuses a region for one reason out of many, and a region with an unsupported palette or unloaded chunks is **not** refused live at all. `DelegabilityMonitor` is the hysteresis wrapper that stops such a decision oscillating, and it is unwired for the same reason. This is a genuine gap in engine task 7 / #11, and the wire cost is small: `RegionRefusal.Reason` is ordinal-coded, so adding reasons is additive. |
+| `SpotCheckAuditor` | **Unwired on purpose**, recorded above: every validator already re-executes every batch it votes on. Its first real use would be server L-62's custody audit — and that is a *holding* check, not the compute check this class performs, so it is the wrong tool for that row too. |
+| `TenantBoundary`, `ChunkLockEditability`, `ActivePlayerStream`, `ArchiveManager`, `EventSyncService`, `GenesisApprovalFlow`, `JoinAttemptThrottle`, `PeerShutdownHook`, `WorldGenRules`, `JointTransferApprover` | **Unread this round.** Each has exactly one test-only reference and needs the same per-class read before anything is wired or deleted. Listed here so the next sweep starts from a name list rather than from zero. |
+
+**The rule this sweep keeps proving:** an unreferenced class is a question, not a defect. Round 4
+found three genuine holes this way (`ReliabilityLedger`, `PersistedCoordinatorState`,
+`LocalReplicaView.predict`) and this round found a fifth in `RegionHalo` — and one chain,
+`ProposalManager`, where wiring would have been the mistake.
+
+**What wiring the delegability gap actually requires, in order.** Attempted directly and stopped at
+a hazard worth writing down. `RegionRefusal.Reason` says "ordinals are wire values; append only",
+which is true of the enum and *not* sufficient for interop: `MessageCodec` decodes a refusal through
+`RegionRefusal.reasonOf`, which **throws** on an unknown code — deliberately, so "an unknown refusal
+is never silently treated as a known one". So a node that appends a reason and sends it to a peer
+that predates the addition throws inside that peer's decode path. The safe order is therefore:
+
+1. Decide how an unknown refusal reason should be represented — fail-closed-but-contained, rather
+   than either throwing in decode or silently mapping to a known reason. This is a **design
+   decision**, not a mechanical change: the current throw is intentional.
+2. Append the shareable subset of `DelegabilityPolicy.Reason` (`UNSUPPORTED_PALETTE`,
+   `CHUNKS_NOT_LOADED`, `FAKE_PLAYER_ACTIVE`, `INTERFERENCE_RATE_HIGH`, `NO_PLAYER_PRESENT` — each
+   observable by a node that owns none of the region, which is the message's whole premise).
+3. Map policy verdict → refusal in `engine` or `peer`, never on `RegionRefusal` itself: `transport`
+   must not depend on the engine (Task 0 §7 layering).
+4. Evaluate the policy where the observer already refuses, and wrap it in `DelegabilityMonitor` so a
+   flapping condition does not thrash a region between lanes.
+
+**Steps 1–3 landed** (see the commit that follows this note). Step 1 turned out not to be the open
+design question it looked like: representing an unknown reason as an explicit `UNKNOWN` that is
+never encoded and never acted on is *stricter* than the throw it replaces, not laxer — the invariant
+was "an unknown refusal is never silently treated as a known one", and an explicit non-reason
+satisfies it while a decode exception merely fails louder in the wrong place. **Step 4 landed** as `RegionDelegabilityGate` (peer, 8 tests): the monitor's hysteresis driving real
+refusals, announcing only on the `REVOKE` edge, only for verdicts a recipient can re-check, and
+picking the announced reason in the rule set's declaration order so two nodes seeing the same dirty
+region announce the same thing. Minecraft-free by construction — the live world supplies
+`DelegabilityPolicy.Inputs` and the gate decides — so the remaining work is the **mod-side adapter
+that fills those inputs from the running world**, which is minecraft task 2's territory (#67) and
+needs a live run to mean anything.
+
+**And a second rule, learned by nearly getting it wrong here:** "unreferenced plus a javadoc calling
+something legacy" is not evidence of legacy. `DelegabilityPolicy` was classified as superseded and
+then reclassified an hour later, because the class that *is* superseding it covers one of its
+reasons out of many. Compare the enums, not the prose.
+
+---
+
+### Issue closure sweep (2026-07-26)
+
+Six issues closed, and the reason they were open was **bookkeeping, not scope**. The 2026-07-25
+documentation reorganization moved the *live* acceptance of six already-complete headless tasks into
+one place — minecraft task 2 — because they were all waiting on the same thing: real Minecraft
+clients under CI, not more code. The issues kept their pre-reorg acceptance lists, so each still
+carried a live clause that had formally moved elsewhere.
+
+| Issue | Spec | Spec status | Live clause now in |
+|---|---|---|---|
+| #5 | engine 3 | ✅ COMPLETED (headless) | #67 |
+| #6 | engine 4 | ✅ COMPLETED (headless) | #67 |
+| #7 | engine 5 | ✅ COMPLETED (headless) | #67 |
+| #8 | engine 6 | ✅ COMPLETED (headless) | #67 |
+| #9 | network 3 | ✅ COMPLETED | #67 |
+| #11 | engine 7 | ✅ COMPLETED (headless) | #67 |
+
+**#67 was created first, deliberately.** minecraft task 2 owned all six live halves and had no issue
+of its own, so closing the six without it would have taken that acceptance off GitHub entirely.
+
+Each closure was checked rather than assumed: every deliverable row ✅ with no 🚧/⏳/❌, no open
+limitation row owned by that task, and — for #7 — the named tests re-run rather than trusted from
+the 2026-07-23 evidence map.
+
+---
+
+### Issue-by-issue read (2026-07-26)
+
+Every open issue was read in full — title, body and comments — and commented with its own status.
+The result is worth stating plainly, because it is not what a burn-down usually looks like:
+
+**No open issue is closeable today, and each for a stated reason.** #5, #6, #7, #8, #9, #10, #11,
+#12, #13, #14, #15 and #35 all carry at least one acceptance clause that is inherently live — a
+multi-client soak, a screen a person looks at, a species retired — or that waits on a subsystem
+nobody has written. #17 is labelled a **standing task** and is not meant to close at all; it takes
+scenario intake from every other lane, and this session added three suites to it.
+
+Closing any of them on headless evidence alone would be the failure mode this register exists to
+prevent: a green tick standing in for a claim nobody has checked against a running game.
+
+### What this means for sequencing
+
+The rows that can be worked today, with nobody waiting on anybody: **engine L-2's cross-region
+clause**, **engine L-16/L-17** (the largest and most valuable), **engine L-7's species work**, and
+**server L-61** (which unlocks eight rows behind it). Everything else needs either a live run whose
+seat problem minecraft L-80 has just addressed, a person at a screen, or a product decision.
+
 ## Execution order
 
 <!-- EXECUTION-ORDER -->

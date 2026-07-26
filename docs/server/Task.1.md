@@ -6,7 +6,7 @@
      later task stands on, and it must refuse to enable — loudly, with the fix in the message —
      rather than degrade silently. Keep this header's status accurate. -->
 
-**Status:** ⬜ NOT STARTED
+**Status:** ✅ COMPLETED (2026-07-26 — enables on real Paper 1.21.1 and Folia; ALIGN-1 passes at the default and refuses at exponent 2; L-61 retired)
 **Category:** server · **Owns:** L-61, L-66 · **Last audit:** 2026-07-25
 **Depends on:** —
 **Consumed by:** every other server task

@@ -94,6 +94,10 @@ public final class LiveEntityLaneSession implements AutoCloseable {
                         }
                     }));
             validation.setExternalCommitListener(externalHeads::externalCommitted);
+            // Reputations and region epochs outlive the session: a restart that forgot them made
+            // the node reputation-blind and reset the stale-proposal defence every time.
+            validation.attachDurableState(new dev.nodera.peer.validation.DurableCoordinatorState(
+                    stateDirectory.resolve("coordinator-state.bin")));
             for (CommitteePeer peer : peers) {
                 validation.registerPeer(
                         peer.address().nodeId(), peer.address(), peer.publicKey());
@@ -152,15 +156,48 @@ public final class LiveEntityLaneSession implements AutoCloseable {
     }
 
     @Override
+    /**
+     * Close the session — and reach {@code store.close()} whatever else goes wrong.
+     *
+     * <p>Every step above the store is optional cleanup: a diagnostics provider, a durability
+     * checkpoint, an index. The store is not. RocksDB holds a file lock, so a close that throws on
+     * the way down leaves the lock held, and the NEXT bootstrap fails with
+     * {@code cannot open RocksDB at …/world-store/db} — the lane never comes back, capture goes
+     * quiet with no exception on the capture path, and a live drive reads it as "the lane did
+     * nothing". That cascade is exactly what a dispatched `e2e-mobs.sh` artifact showed: a re-plan
+     * threw, the next bootstrap could not open the store, and every later observation went into a
+     * disabled runtime.
+     *
+     * <p>So each step is contained individually and the store closes in a {@code finally}. A
+     * failure to persist a reputation view must never cost the world its lock.
+     */
     public void close() {
         if (!active.compareAndSet(true, false)) {
             return;
         }
-        LiveEntityControlProvider.deactivate(live);
-        LiveRegionOwnershipProvider.deactivate(live.validation());
-        host.runtime().onApplicationMessage(null);
-        live.close();
-        store.close();
+        try {
+            step("deactivate the entity-control provider",
+                    () -> LiveEntityControlProvider.deactivate(live));
+            step("deactivate the ownership provider",
+                    () -> LiveRegionOwnershipProvider.deactivate(live.validation()));
+            step("persist the coordinator state", () -> live.validation().persistState());
+            step("clear the observer ownership index", ObserverOwnership::clear);
+            step("detach the application-message handler",
+                    () -> host.runtime().onApplicationMessage(null));
+            step("close the lane runtime", live::close);
+        } finally {
+            store.close();
+        }
+    }
+
+    /** Run one close step, reporting a failure rather than letting it abort the close. */
+    private static void step(String what, Runnable body) {
+        try {
+            body.run();
+        } catch (RuntimeException | LinkageError failed) {
+            LOG.warn("Nodera: entity lane close — could not {}: {} (continuing; the world store "
+                    + "still closes)", what, failed.toString());
+        }
     }
 
     public record RegionBinding(
