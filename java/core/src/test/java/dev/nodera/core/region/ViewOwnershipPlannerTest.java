@@ -210,4 +210,143 @@ final class ViewOwnershipPlannerTest {
         assertThat(ViewOwnershipPlanner.plan(views, NoderaConstants.QUORUM_MVP_SIZE, List.of()))
                 .isEqualTo(ViewOwnershipPlanner.plan(views, NoderaConstants.QUORUM_MVP_SIZE));
     }
+    // --- L-63: a node may hold many views (an endpoint with tenants) --------------------------
+
+    @Test
+    void anEndpointsSecondTenantIsVisibleToThePlan() {
+        // The bug L-63 names: one view per node meant an endpoint with forty players contributed
+        // one disc, and the regions its other thirty-nine stood in went unowned.
+        NodeId endpoint = node(10);
+        PlayerView near = viewAtChunk(0, 0, 4);
+        PlayerView far = viewAtChunk(100, 100, 4);
+
+        Map<RegionId, RegionClaim> plan = ViewOwnershipPlanner.planMultiView(
+                Map.of(endpoint, List.of(near, far)), NoderaConstants.QUORUM_MVP_SIZE, List.of());
+
+        assertThat(plan).containsKeys(near.centerRegion(), far.centerRegion());
+        assertThat(plan.get(far.centerRegion()).primary())
+                .as("the second tenant's region belongs to the node that can see it")
+                .isEqualTo(endpoint);
+    }
+
+    @Test
+    void aNodeRanksByItsNearestView() {
+        // The min-distance rule: a crowd elsewhere on the same endpoint must not outrank a player
+        // standing on the block, and one tenant standing on the block must win for its whole node.
+        NodeId endpoint = node(11);
+        NodeId lonePlayer = node(12);
+        // A region is 8×8 chunks, so its centre is around chunk (3.5, 3.5): the endpoint's near
+        // tenant stands on the centre, the lone player only clips the corner from outside.
+        PlayerView onTheRegion = viewAtChunk(4, 4, 4);
+        PlayerView elsewhere = viewAtChunk(60, 60, 4);
+        PlayerView twoRegionsOver = viewAtChunk(-1, -1, 8);
+
+        Map<NodeId, List<PlayerView>> views = new LinkedHashMap<>();
+        views.put(endpoint, List.of(elsewhere, onTheRegion));
+        views.put(lonePlayer, List.of(twoRegionsOver));
+
+        Map<RegionId, RegionClaim> plan = ViewOwnershipPlanner.planMultiView(
+                views, NoderaConstants.QUORUM_MVP_SIZE, List.of());
+
+        RegionClaim claim = plan.get(onTheRegion.centerRegion());
+        assertThat(claim).isNotNull();
+        assertThat(claim.primary())
+                .as("the endpoint's nearest view decides its rank, not its farthest")
+                .isEqualTo(endpoint);
+    }
+
+    @Test
+    void aNodeTakesOneSeatHoweverManyOfItsTenantsAreLooking() {
+        // Twenty tenants on one endpoint are still one re-execution: a node must not fill a
+        // committee with itself, or "three independent validators" would mean one process.
+        NodeId endpoint = node(13);
+        NodeId neighbour = node(14);
+        List<PlayerView> tenants = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            tenants.add(viewAtChunk(i % 3, i % 2, 6));
+        }
+        Map<NodeId, List<PlayerView>> views = new LinkedHashMap<>();
+        views.put(endpoint, tenants);
+        views.put(neighbour, List.of(viewAtChunk(1, 1, 6)));
+
+        Map<RegionId, RegionClaim> plan = ViewOwnershipPlanner.planMultiView(
+                views, NoderaConstants.QUORUM_MVP_SIZE, List.of());
+
+        for (RegionClaim claim : plan.values()) {
+            assertThat(claim.validators())
+                    .as("no node appears twice in a committee")
+                    .doesNotHaveDuplicates()
+                    .doesNotContain(claim.primary());
+        }
+    }
+
+    @Test
+    void coverCountStillCountsPlayersRatherThanNodes() {
+        // isSoloOwned() answers "is only one player here", which is a question about people. Two
+        // tenants of one endpoint standing in a region make it not solo.
+        NodeId endpoint = node(15);
+        PlayerView first = viewAtChunk(0, 0, 4);
+        PlayerView second = viewAtChunk(0, 0, 4);
+
+        Map<RegionId, RegionClaim> twoTenants = ViewOwnershipPlanner.planMultiView(
+                Map.of(endpoint, List.of(first, second)), NoderaConstants.QUORUM_MVP_SIZE, List.of());
+        Map<RegionId, RegionClaim> oneTenant = ViewOwnershipPlanner.planMultiView(
+                Map.of(endpoint, List.of(first)), NoderaConstants.QUORUM_MVP_SIZE, List.of());
+
+        assertThat(twoTenants.get(first.centerRegion()).coverCount()).isEqualTo(2);
+        assertThat(oneTenant.get(first.centerRegion()).coverCount()).isEqualTo(1);
+    }
+
+    @Test
+    void twoPeersDeriveTheIdenticalPlanForATwentyTenantEndpoint() {
+        // The property the whole design rests on: no coordination. Two peers holding the same
+        // facts in different orders must compute byte-identical plans, or they disagree about who
+        // owns what and every commit after that is a fight.
+        NodeId endpoint = node(20);
+        NodeId playerA = node(21);
+        NodeId playerB = node(22);
+        List<PlayerView> tenants = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            tenants.add(viewAtChunk((i * 7) % 11, (i * 5) % 9, 5));
+        }
+
+        Map<NodeId, List<PlayerView>> asSeenByOne = new LinkedHashMap<>();
+        asSeenByOne.put(endpoint, tenants);
+        asSeenByOne.put(playerA, List.of(viewAtChunk(2, 2, 7)));
+        asSeenByOne.put(playerB, List.of(viewAtChunk(8, 4, 7)));
+
+        // The same facts, arrived in a different order — a different gossip path, a different map.
+        Map<NodeId, List<PlayerView>> asSeenByTheOther = new java.util.TreeMap<>(
+                java.util.Comparator.comparing((NodeId n) -> n.value()).reversed());
+        asSeenByTheOther.put(playerB, List.of(viewAtChunk(8, 4, 7)));
+        asSeenByTheOther.put(playerA, List.of(viewAtChunk(2, 2, 7)));
+        List<PlayerView> shuffled = new java.util.ArrayList<>(tenants);
+        java.util.Collections.reverse(shuffled);
+        asSeenByTheOther.put(endpoint, shuffled);
+
+        Map<RegionId, RegionClaim> first = ViewOwnershipPlanner.planMultiView(
+                asSeenByOne, NoderaConstants.QUORUM_MVP_SIZE, List.of());
+        Map<RegionId, RegionClaim> second = ViewOwnershipPlanner.planMultiView(
+                asSeenByTheOther, NoderaConstants.QUORUM_MVP_SIZE, List.of());
+
+        assertThat(second).isEqualTo(first);
+        assertThat(second.keySet()).containsExactlyElementsOf(first.keySet());
+        assertThat(first).isNotEmpty();
+    }
+
+    @Test
+    void theSingleViewApiStillMeansWhatItMeant() {
+        NodeId alice = node(30);
+        NodeId bob = node(31);
+        Map<NodeId, PlayerView> single = new LinkedHashMap<>();
+        single.put(alice, viewAtChunk(0, 0, 6));
+        single.put(bob, viewAtChunk(1, 0, 6));
+
+        Map<NodeId, List<PlayerView>> asLists = new LinkedHashMap<>();
+        single.forEach((n, v) -> asLists.put(n, List.of(v)));
+
+        assertThat(ViewOwnershipPlanner.plan(single, NoderaConstants.QUORUM_MVP_SIZE))
+                .isEqualTo(ViewOwnershipPlanner.planMultiView(
+                        asLists, NoderaConstants.QUORUM_MVP_SIZE, List.of()));
+    }
 }
