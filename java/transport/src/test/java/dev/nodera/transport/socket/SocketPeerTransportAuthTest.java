@@ -220,6 +220,56 @@ final class SocketPeerTransportAuthTest {
     }
 
     @Test
+    void theChallengeIsAlwaysTheFirstFrameOutEvenWhenThePeersIsAlreadyWaiting() throws Exception {
+        // The handshake is ordered: challenge first, then the hello answering the remote's
+        // challenge. The read loop writes that hello as soon as the remote's challenge arrives,
+        // so starting the reader BEFORE writing the challenge left the order up to the scheduler
+        // — and on a starved CI runner the reader won, putting the hello out first and earning a
+        // refusal from a peer that reported, correctly, "peer did not open with an auth
+        // challenge". The repair is structural: sendHello() writes on the accept/dial thread and
+        // startReader() only runs after it, so Thread.start's happens-before edge leaves no race
+        // to lose.
+        //
+        // Honest about what this test is: an ordering assertion, not a race reproducer. An
+        // inversion that depends on thread scheduling will not fail reliably on an idle
+        // developer machine — this burst (connect and write without reading, so the challenges
+        // sit buffered behind a single-threaded accept loop) is the widest form of the window and
+        // still passed against the broken order locally. It fails the moment the order is made
+        // unconditional in the wrong direction, and it documents the invariant either way.
+        SocketPeerTransport server = startAuthenticated(NodeIdentity.generate());
+        String route = server.listenRoute();
+        int port = Integer.parseInt(route.substring(route.lastIndexOf(':') + 1));
+
+        int clients = 32;
+        List<Socket> raws = new ArrayList<>();
+        List<byte[]> ourChallenges = new ArrayList<>();
+        // Connect and write WITHOUT reading. The accept loop is one thread, so most of these sit
+        // in the backlog with their challenge already buffered: by the time accept() returns, the
+        // read loop can complete its read the instant it is scheduled. That is the widest form of
+        // the window, and it is the shape the CI failure had.
+        for (int i = 0; i < clients; i++) {
+            Socket raw = new Socket("127.0.0.1", port);
+            rawSockets.add(raw);
+            raws.add(raw);
+            raw.setTcpNoDelay(true);
+            raw.setSoTimeout(20_000);
+            byte[] challengeFrame = TransportAuth.newChallengeFrame();
+            ourChallenges.add(TransportAuth.parseChallenge(challengeFrame));
+            writeFrame(raw.getOutputStream(), challengeFrame);
+        }
+        for (int i = 0; i < clients; i++) {
+            InputStream in = raws.get(i).getInputStream();
+            // Frame 1 must be the challenge and frame 2 the hello answering ours: parseChallenge
+            // refuses a hello and verifyHello refuses a challenge, so parsing both in order IS
+            // the assertion.
+            assertThat(TransportAuth.parseChallenge(readFrame(in)))
+                    .hasSize(TransportAuth.CHALLENGE_BYTES);
+            assertThat(TransportAuth.verifyHello(readFrame(in), ourChallenges.get(i)).nodeId())
+                    .isNotNull();
+        }
+    }
+
+    @Test
     void aForgedSignatureIsRefused() throws Exception {
         NodeIdentity serverId = NodeIdentity.generate();
         SocketPeerTransport server = startAuthenticated(serverId);
