@@ -1,5 +1,32 @@
 rootProject.name = "nodera"
 
+// --- The single source of truth for the product version: the root `VERSION` file ---
+//
+// Every toolchain reads that one file, so a release is one edit (`scripts/version.sh --set X.Y.Z`)
+// instead of a hunt through Gradle, Cargo, Tauri, and a Java constant that always ends up one
+// bump behind. Read HERE rather than in the root build script because the value has to be
+// available to EVERY project (including the NeoForge convention plugin, which stamps it into
+// `neoforge.mods.toml`) before any build script is evaluated.
+//
+// Parsing is deliberately tolerant of comments and blank lines and deliberately intolerant of an
+// empty file: a version silently defaulting to something plausible is exactly how a build ships
+// mislabelled artifacts.
+val noderaVersion: String = file("VERSION").readLines()
+    .map { it.substringBefore('#').trim() }
+    .firstOrNull { it.isNotEmpty() }
+    ?: error("VERSION is empty — it must contain one line like 0.1.0 (see AGENTS.md § Versioning)")
+
+gradle.beforeProject {
+    project.extra["noderaVersion"] = noderaVersion
+    // `modVersion` is what the NeoForge convention plugin expands into neoforge.mods.toml via
+    // `val modVersion: String by project`. Injecting it here rather than editing that precompiled
+    // script plugin is deliberate: any edit to build-logic's .gradle.kts files on this toolchain
+    // re-triggers the kotlin-dsl accessor breakage documented in gradle.properties, and a property
+    // delegate reads extra properties and gradle.properties alike — so the plugin keeps working,
+    // untouched, and the number it stamps now comes from VERSION.
+    project.extra["modVersion"] = noderaVersion
+}
+
 pluginManagement {
     repositories {
         gradlePluginPortal()

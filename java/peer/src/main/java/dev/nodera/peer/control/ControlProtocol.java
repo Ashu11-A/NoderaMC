@@ -186,6 +186,24 @@ public final class ControlProtocol {
      */
     public static final String CONFIG = "NODERA-CONFIG";
 
+    /**
+     * Telemetry consent and event intake (worker task 5).
+     *
+     * <pre>
+     *   NODERA-TELEMETRY &lt;ver&gt; GET                     → one JSON line: consent + queue + last error
+     *   NODERA-TELEMETRY &lt;ver&gt; SET &lt;granted|denied&gt;    → NODERA-OK, or NODERA-ERR with a reason
+     *   NODERA-TELEMETRY &lt;ver&gt; EVENT &lt;eventJsonB64&gt;    → NODERA-OK (accepted into the spool)
+     * </pre>
+     *
+     * <p>{@code EVENT} exists so the mod and the companion app never open a telemetry connection of
+     * their own: they observe, the worker decides and sends. That is what keeps <b>one</b> consent
+     * check in the system and stops a closing game from losing the events that describe it.
+     *
+     * <p>The event payload is base64 for the same reason {@link #CONFIG}'s is — the dispatch splits
+     * request lines on whitespace, and base64's alphabet contains none.
+     */
+    public static final String TELEMETRY = "NODERA-TELEMETRY";
+
     private ControlProtocol() {
     }
 

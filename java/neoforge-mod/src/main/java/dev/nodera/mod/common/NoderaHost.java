@@ -57,6 +57,27 @@ public final class NoderaHost {
     /** The hosted world's save root — where grants are persisted (issue #36 F5). */
     private static volatile Path hostedSaveRoot;
 
+    /**
+     * Rough on-disk size of a save, for the telemetry size bucket.
+     *
+     * <p>Best-effort and bounded: it walks the save tree, gives up on any I/O error, and the result
+     * is bucketed to whole megabytes before it leaves the machine. A precise byte count is a
+     * fingerprint; an order of magnitude is the fact worth having.
+     */
+    private static long saveSizeBytes(Path saveRoot) {
+        try (java.util.stream.Stream<Path> tree = java.nio.file.Files.walk(saveRoot, 4)) {
+            return tree.filter(java.nio.file.Files::isRegularFile).mapToLong(path -> {
+                try {
+                    return java.nio.file.Files.size(path);
+                } catch (java.io.IOException e) {
+                    return 0L;
+                }
+            }).sum();
+        } catch (java.io.IOException | RuntimeException e) {
+            return 0L;
+        }
+    }
+
     /** @return the hosted world's permission set, or null when not hosting. */
     public static dev.nodera.storage.WorldPermissions hostedPermissions() {
         return hostedPermissions;
@@ -191,6 +212,11 @@ public final class NoderaHost {
         // Continuity lane: the world becomes durable the moment it is shared — pack the save and
         // seed the archive to the always-on worker (final flush happens again on server stop).
         WorldArchiver.seedAsync(server);
+
+        // Telemetry: a share happened, whether it was password-protected, and roughly how big the
+        // world is. No name, no id, no seed — the event type cannot carry them.
+        ModTelemetry.worldShared(opts.password() != null && !opts.password().isBlank(),
+                saveSizeBytes(saveRoot), already ? "rehost" : "existing_world");
 
         if (route == null) {
             // Issue #39: the P2P mesh did not come up, but openGameServer + notifyWorker above still

@@ -54,6 +54,14 @@ pub struct Rendezvous {
     quota: RequestQuota,
     keeper: ReservationKeeper,
     punch: PunchCoordinator,
+    /// Punch outcomes per NAT-pair class — the reachability measurement (`docs/rendezvous/Task.4.md`).
+    outcomes: crate::punch::PunchOutcomes,
+    /// Per-peer NAT hardness, observed at registration: does the address a peer advertises match
+    /// the address its packets arrive from? A mismatch means something is rewriting it.
+    ///
+    /// Bounded by the registration TTL sweep below, and it holds a boolean per peer — never an
+    /// address, and never anything that leaves this process except as a four-way class label.
+    nat_hardness: std::collections::HashMap<NodeId, bool>,
     registrations: u64,
     discoveries: u64,
     reservations: u64,
@@ -75,6 +83,8 @@ impl Rendezvous {
             quota,
             keeper,
             punch: PunchCoordinator::new(),
+            outcomes: crate::punch::PunchOutcomes::default(),
+            nat_hardness: std::collections::HashMap::new(),
             registrations: 0,
             discoveries: 0,
             reservations: 0,
@@ -129,8 +139,29 @@ impl Rendezvous {
     }
 
     /// Forget a circuit's punch coordination once it is torn down, so the map stays bounded.
+    ///
+    /// Also the point at which a punch is judged: peers open a relay circuit when a direct path did
+    /// not work, so a relay between a pair that just punched is that punch's failure.
     pub fn forget_punch(&mut self, a: NodeId, b: NodeId) {
+        self.outcomes.note_relay(a, b);
         self.punch.forget(a, b);
+    }
+
+    /// Take this window's punch outcomes per NAT-pair class.
+    pub fn drain_punch_outcomes(&mut self) -> Vec<(crate::punch::PairClass, u64, u64)> {
+        self.outcomes.drain()
+    }
+
+    /// Record what the service observed about one peer's address translation.
+    ///
+    /// `advertised` is what the peer says it is reachable at; `observed` is where its packets came
+    /// from. A mismatch means a NAT is rewriting the address, which is the coarse "hard" signal.
+    pub fn note_nat(&mut self, peer: NodeId, advertised: Option<&str>, observed: Option<&str>) {
+        let (Some(advertised), Some(observed)) = (advertised, observed) else {
+            return;
+        };
+        let hard = host_of(advertised) != host_of(observed);
+        self.nat_hardness.insert(peer, hard);
     }
 
     /// Handle one decoded-from-the-wire control frame.
@@ -167,6 +198,11 @@ impl Rendezvous {
             }
             RendezvousMessage::Connect(m) => Decision::Connect(m),
             RendezvousMessage::PunchSync(mut m) => {
+                let class = crate::punch::PairClass::of(
+                    self.nat_hardness.get(&m.source).copied(),
+                    self.nat_hardness.get(&m.target).copied(),
+                );
+                self.outcomes.note_punch(m.source, m.target, class);
                 self.punch.stamp(&mut m, now_millis, PUNCH_LEAD_MILLIS);
                 Decision::Forward(m)
             }
@@ -229,9 +265,22 @@ impl Rendezvous {
                 self.registrations += 1;
                 // Confirm the registration by reporting the peer's reflexive address (STUN-ish):
                 // the peer learns the public route its NAT presents and can add it as a candidate.
+                let observed_route = source_route.unwrap_or_default();
+                // The same comparison, kept as one boolean: does what this peer advertises match
+                // where its packets come from? That is the whole NAT classification, and neither
+                // address survives the call.
+                self.note_nat(
+                    peer,
+                    signed
+                        .record
+                        .candidates
+                        .first()
+                        .map(|candidate| candidate.address.as_str()),
+                    Some(observed_route.as_str()),
+                );
                 let observed = ObservedAddress {
                     peer,
-                    observed_route: source_route.unwrap_or_default(),
+                    observed_route,
                 };
                 Decision::Reply(RendezvousMessage::ObservedAddress(observed).encode())
             }
@@ -269,6 +318,18 @@ impl Rendezvous {
         self.quota.sweep(now_millis);
         self.registry
             .sweep(now_millis, self.config.registration_ttl_millis())
+    }
+}
+
+/// The host part of a `host:port` route, for the NAT comparison.
+///
+/// Compared, never stored: `nat_hardness` keeps one boolean per peer, so the address itself lives
+/// only for the length of this function.
+fn host_of(route: &str) -> &str {
+    let route = route.strip_prefix("tcp://").unwrap_or(route);
+    match route.rfind(':') {
+        Some(at) => &route[..at],
+        None => route,
     }
 }
 

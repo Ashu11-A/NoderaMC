@@ -1,0 +1,208 @@
+# The Nodera telemetry Big Data plane.
+#
+#   nodera-telemetry ──NDJSON files──► Vector ──Kafka API──► Redpanda ──► ClickHouse ──► Grafana
+#                                                                            ▲
+#                                                                          Spark (batch jobs)
+#
+# Why this shape:
+#
+# * **The ingest service writes files, not Kafka.** A broker outage must never block or drop a
+#   consented report, and the crate stays small enough to audit (`rust/nodera-telemetry/src/`).
+#   The file IS the buffer; Vector owns retries and backpressure.
+# * **Redpanda, not Kafka.** One binary, no ZooKeeper/KRaft ceremony, the same protocol. A
+#   self-hosting community operator can run this whole file on one machine.
+# * **ClickHouse is the warehouse.** Telemetry queries are `GROUP BY event, country, day` over
+#   billions of narrow rows — the exact shape a column store answers in milliseconds and a row
+#   store answers in minutes.
+# * **Spark is for the jobs ClickHouse should not do**: divergence-fingerprint clustering, cohort
+#   retention, funnel reconstruction. It reads Parquet exports rather than hammering the warehouse
+#   the dashboards are served from.
+#
+# Bring it up:  docker compose --env-file .env up -d      (copy .env.example first)
+# Tear it down: docker compose down -v                    (-v also deletes the collected data)
+#
+# NOTHING HERE IS REQUIRED TO PLAY NODERA. This stack is the project's own analytics deployment;
+# a peer that cannot reach it simply keeps its reports in its spool and eventually drops them.
+
+name: nodera-telemetry
+
+services:
+  # ---------------------------------------------------------------------------------------------
+  # 1. Ingest — the only component that touches client data before it is de-identified.
+  # ---------------------------------------------------------------------------------------------
+  ingest:
+    build:
+      context: ../..
+      dockerfile: docker/telemetry/Dockerfile
+    restart: unless-stopped
+    environment:
+      # The pseudonymisation secret. NOT in the warehouse, NOT in the image, NOT in git.
+      NODERA_TELEMETRY_SUBJECT_SECRET: ${NODERA_TELEMETRY_SUBJECT_SECRET:?set it in .env}
+    volumes:
+      - ./ingest/nodera-telemetry.toml:/etc/nodera/nodera-telemetry.toml:ro
+      # Optional operator-supplied `cidr,country,asn` table. Absent ⇒ every row is ZZ/0.
+      - ./ingest/geo.csv:/etc/nodera/geo.csv:ro
+      - spool:/var/lib/nodera/spool
+    ports:
+      # Plaintext. Publish this only on a private network — terminate TLS at `edge` for anything
+      # reachable from the internet (docs/telemetry/LIMITATIONS.md L-T2).
+      - "127.0.0.1:25620:25620"
+    healthcheck:
+      test: ["CMD", "nodera-telemetry", "--healthcheck", "127.0.0.1:25620"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # TLS termination for the public listener. TCP mode, not HTTP: the telemetry wire is
+  # length-prefixed frames, the same framing every other Nodera service speaks.
+  edge:
+    image: haproxy:2.9-alpine
+    restart: unless-stopped
+    depends_on: [ingest]
+    volumes:
+      - ./edge/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./edge/certs:/etc/haproxy/certs:ro
+    ports:
+      - "${NODERA_TELEMETRY_TLS_PORT:-25621}:25621"
+    profiles: ["public"]
+
+  # ---------------------------------------------------------------------------------------------
+  # 2. Collection — Vector tails the spool and delivers to the log bus.
+  # ---------------------------------------------------------------------------------------------
+  vector:
+    image: timberio/vector:0.44.0-alpine
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    volumes:
+      - ./vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - spool:/var/lib/nodera/spool:ro
+      - vector-data:/var/lib/vector
+
+  redpanda:
+    image: redpandadata/redpanda:v24.2.9
+    restart: unless-stopped
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    ports:
+      - "127.0.0.1:19092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  console:
+    image: redpandadata/console:v2.7.2
+    restart: unless-stopped
+    depends_on: [redpanda]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "127.0.0.1:8080:8080"
+    profiles: ["ops"]
+
+  # ---------------------------------------------------------------------------------------------
+  # 3. Warehouse — ClickHouse consumes the topic and owns retention.
+  # ---------------------------------------------------------------------------------------------
+  clickhouse:
+    # The glibc image, not `-alpine`. The alpine variant failed to start on two different hosts
+    # (a rootless dev machine: `librt.so.1: cannot open shared object file`; a CI runner: a restart
+    # loop that compose waited on forever). The standard image is larger and is the one ClickHouse
+    # actually tests.
+    image: clickhouse/clickhouse-server:24.8
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_DB: nodera
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-nodera}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?set it in .env}
+    volumes:
+      # Schema, materialised rollups, and the TTLs that make retention a property of the table
+      # rather than a cron job somebody has to remember.
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - clickhouse-data:/var/lib/clickhouse
+    # No `ulimits: nofile` override. ClickHouse's documentation suggests raising it, but a hard
+    # limit above what the host's daemon allows makes the container fail to start outright — and a
+    # container that will not start is a worse outcome than a warning in its log. An operator
+    # running this at real volume should raise it deliberately, on a host they know accepts it.
+    ports:
+      - "127.0.0.1:8123:8123"
+    healthcheck:
+      # `clickhouse-client --query 'SELECT 1'` rather than an HTTP /ping probe: the client is the one
+      # tool this image is guaranteed to ship, and answering a query is a stronger signal than
+      # answering /ping — a server that has not finished applying the init schema is not ready for
+      # the smoke test even though it will happily pong. `start_period` covers that init, so the
+      # retries below are not spent waiting for a first boot.
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
+      start_period: 90s
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  # ---------------------------------------------------------------------------------------------
+  # 4. Analysis + reporting.
+  # ---------------------------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set it in .env}
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-nodera}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  # Batch analytics. Idle until a job is submitted — the heavy questions (divergence clustering,
+  # cohort retention) run on a schedule, not on every dashboard refresh.
+  spark:
+    image: bitnami/spark:3.5
+    restart: unless-stopped
+    environment:
+      SPARK_MODE: master
+    volumes:
+      - ./spark/jobs:/opt/nodera/jobs:ro
+      - spark-warehouse:/opt/nodera/warehouse
+    ports:
+      - "127.0.0.1:8081:8080"
+    profiles: ["analytics"]
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    restart: unless-stopped
+    depends_on: [spark]
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark:7077
+      SPARK_WORKER_MEMORY: 2G
+    volumes:
+      - ./spark/jobs:/opt/nodera/jobs:ro
+      - spark-warehouse:/opt/nodera/warehouse
+    profiles: ["analytics"]
+
+volumes:
+  spool:
+  vector-data:
+  redpanda-data:
+  clickhouse-data:
+  grafana-data:
+  spark-warehouse:

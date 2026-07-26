@@ -44,12 +44,22 @@ pub struct Config {
     /// The HMAC key seed for reservation proofs, as a hex string. Empty means "derive an ephemeral
     /// key at boot" — fine for a single process; set it to keep proofs valid across a restart.
     pub reservation_hmac_key_hex: String,
+    /// Where to report this service's own counters (`tcp://host:port`).
+    ///
+    /// **Empty by default, and that means off.** What is sent is windowed counters and coarse
+    /// NAT-pair classes — never an address, a node id, a namespace, or a pair identity
+    /// (`docs/rendezvous/Task.4.md`).
+    pub telemetry_endpoint: String,
+    /// How often a window event is emitted.
+    pub telemetry_interval_seconds: u64,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             bind_addr: "0.0.0.0:25601".parse().expect("valid default bind addr"),
+            telemetry_endpoint: String::new(),
+            telemetry_interval_seconds: 300,
             registration_ttl_seconds: 300,
             refresh_interval_seconds: 120,
             clock_skew_seconds: 300,

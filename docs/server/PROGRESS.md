@@ -6,7 +6,7 @@
      root README bar. Live observations count as evidence ONLY when they name the log line or
      artifact that showed them. Never rewrite an old note. -->
 
-**Category:** server · **Last audit:** 2026-07-25 · Tasks completed: **0 / 9**
+**Category:** server · **Last audit:** 2026-07-25 · Tasks completed: **0 / 10**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 [`REFERENCE.md`](REFERENCE.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
@@ -28,10 +28,26 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED | Owns L-70. Admission is `registryFingerprint` equality |
 | [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED | Owns L-65. PC-1…PC-4 make "100 %" falsifiable |
 | [9](Task.9.md) | Live acceptance: mixed-client suites + CI | ⬜ NOT STARTED | The three suites are **committed and skipping** |
+| [10](Task.10.md) | Endpoint telemetry + the tenant boundary | ⬜ NOT STARTED | Owns L-79. Specified now so the boundary is designed in, not retrofitted |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-25 — A tenth task, specified before the first line of the plugin
+
+[Task 10](Task.10.md) is written now, ahead of every task it depends on, for one reason: the tenant
+boundary has to be designed in rather than retrofitted.
+
+A tenant joins with an unmodified client. They have installed nothing, agreed to nothing, and have no
+surface on which to be asked — so **no value derived from an individual tenant may ever become
+telemetry**. Not a name, not a session length, not a play time, not a count of one. `endpoint.window`
+carries a bucketed tenant count, which is a property of the server.
+
+The consent that does exist here is the *operator's*, and it is off by default; deliberately, the task
+also owes operators an in-server notice, because a server owner will be asked "does this send my data
+anywhere?" and needs an answer they can point at. Registered **L-79** for the residual: a two-player
+server's aggregate is closer to describing a person than a two-hundred-player server's is.
 
 ### 2026-07-25 — The category opens: A0 becomes A0′, and the suites land before the code
 

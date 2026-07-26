@@ -764,6 +764,9 @@ Ordered roughly by how much they affect a real deployment. Items already tracked
 26. **Several enforcement halves ride the live mesh** (L-49): live chunk/region validation and
     revalidation over the worker's `PeerRuntime`, re-key propagation across seeders, and the
     single-player per-row player count all wait on a GUI/live environment for their exit tests.
-27. **`gradle check` at full parallelism flakes on `SocketPeerTransportAuthTest`** (CPU contention,
-    pre-existing). Transport suites should be run with `--no-parallel --max-workers=2` when the result
-    matters.
+27. ~~**`gradle check` at full parallelism flakes on `SocketPeerTransportAuthTest`**~~ — **fixed
+    2026-07-26.** It was not CPU contention, it was a missing latch release: the read loop's
+    teardown closed the socket without releasing `authHelloWritten`, so a sender blocked in
+    `writeFrame` waited out the whole handshake timeout and reported it as a timeout. Teardown now
+    releases the latch and the two failures are named differently. The full gate at maximum
+    parallelism is green; `docs/network/TESTING.md` §4 carries the detail.

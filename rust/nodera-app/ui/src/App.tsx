@@ -18,6 +18,7 @@ import {
 } from "react-icons/fi";
 import { Card, Stat, Empty, Pill, cx, MONO, AVATAR, STAT_GRID } from "./components";
 import { SettingsScreen } from "./Settings";
+import { ConsentModal, useTelemetryStatus } from "./Consent";
 import { WorldScreen } from "./World";
 import { useResolvedTheme } from "./theme";
 import {
@@ -47,6 +48,9 @@ export function App() {
   const [settings, setSettings] = useState<SettingsDoc | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const [logsOpen, setLogsOpen] = useState(false);
+  // The first-run question. Asked once, on the node, and never again — whichever way it is
+  // answered (app task 5 / Plan.6 D1).
+  const [telemetry, setTelemetry] = useTelemetryStatus();
   const rate = useNodeRate(m);
 
   useResolvedTheme(settings?.appearance.theme ?? "system");
@@ -79,6 +83,8 @@ export function App() {
 
   return (
     <div className="grid h-full grid-cols-[60px_1fr]">
+      {/* Rendered above everything, and only when this installation has never answered. */}
+      <ConsentModal status={telemetry} onAnswered={setTelemetry} />
       <aside className="flex flex-col items-center gap-1.5 border-r border-line bg-rail py-3">
         <div className="mb-2.5 grid h-[34px] w-[34px] place-items-center" title="NoderaMC">
           <span

@@ -6,8 +6,8 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-25 · **673 Java tests + 35 Rust (`nodera-codec`) ·
-0 failing · 0 skipped**
+**Category:** network · **Last run:** 2026-07-26 · **719 Java tests + 35 Rust (`nodera-codec`) ·
+0 failing · 0 skipped** — the Java figure includes the telemetry emitter core (task 12)
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
@@ -54,7 +54,7 @@ cd rust && cargo test -p nodera-codec
 | `WorldContinuityIT` | Share → listed → P2P fetch byte-exact → host game closed → host worker killed → a second peer still reproduces the world, over the **real** tracker and rendezvous binaries |
 | `ResidentQuorumIT` | A committee holds full strength through a player's logout thanks to standing workers, with the no-resident counterfactual asserted |
 | `ByzantineMeshIT` | A genuinely adversarial peer on the mesh is outvoted, cannot forge a seat, and gains one seat rather than two when equivocating |
-| `SocketPeerTransportAuthTest` (4) | Key-proven NodeId attribution at accept; legacy, forged, and replayed hellos refused |
+| `SocketPeerTransportAuthTest` (5) | Key-proven NodeId attribution at accept; legacy, forged, and replayed hellos refused; a peer dying mid-handshake fails the sender in milliseconds rather than at the timeout |
 | `FsContentStoreRelocationTest` (5) | Blobs survive relocation and a **reopened** store finds them; an identical blob at the destination is merged, not refused |
 | `ConfigVerbIT` | A pushed setting actually changes worker behaviour, over the real control socket |
 | `GrantGossipIT` (6) | Grants converge across co-hosts; a non-author's signed grant is refused everywhere and not even relayed |
@@ -73,8 +73,22 @@ cd rust && cargo test -p nodera-codec
 - **No wall clocks** in anything feeding consensus; meters take injected time so their tests are
   deterministic.
 
-## 4. Known flake
+## 4. The former known flake — fixed 2026-07-26
 
-Running the full Java gate at maximum parallelism can starve `SocketPeerTransportAuthTest` (real TCP
-handshakes under CPU contention). Use `--no-parallel --max-workers=2` when reproducing a failure
-there before assuming a regression.
+`SocketPeerTransportAuthTest` used to fail under the full gate at maximum parallelism, and the
+advice here was to re-run it with `--no-parallel --max-workers=2` before assuming a regression.
+That advice was hiding a real defect.
+
+The failure was `auth handshake timed out`, thrown from `SocketPeerTransport.writeFrame`: a sender
+waits for its own read loop to see the remote's challenge and write the signed hello. The reader's
+teardown closed the socket **without releasing that latch**, so a connection that died mid-handshake
+left every sender waiting out the full timeout and then reporting a *timeout* — which reads as "slow
+peer" when the peer is gone. Under CPU starvation the same wait tripped on a peer that was merely
+slow to be scheduled.
+
+Teardown now releases the latch, a sender distinguishes "closed during the handshake" from "timed
+out", and the timeout is a named constant (`AUTH_HANDSHAKE_TIMEOUT_SECONDS`) that only has to cover
+a starved scheduler because a dead peer no longer spends it.
+`aPeerThatDiesMidHandshakeFailsTheSenderImmediately` asserts on the **clock** as well as the
+exception — a fail-fast that takes 30 s is the bug wearing a passing test's clothes. It returns in
+about 4 ms.

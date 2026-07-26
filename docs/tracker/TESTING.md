@@ -6,7 +6,7 @@
      include a degradation test when touching the service: tracker down must degrade discovery only.
      Keep counts and Last run current. -->
 
-**Category:** tracker · **Last run:** 2026-07-25 · **60 Rust tests · 0 failing** (plus
+**Category:** tracker · **Last run:** 2026-07-25 · **62 Rust tests · 0 failing** (plus
 `TrackerServiceIT` and the client tests on the Java gate)
 
 ```bash

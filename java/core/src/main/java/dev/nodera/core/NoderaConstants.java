@@ -14,8 +14,24 @@ public final class NoderaConstants {
     // --- Product identity (published on the wire; shown in torrent-style peer lists) ---
     /** The product name a peer publishes to the mesh. */
     public static final String PRODUCT_NAME = "NoderaMC";
-    /** This build's version; keep in step with the root Gradle {@code version}. */
-    public static final String PRODUCT_VERSION = "0.1.0";
+    /**
+     * Version shown when the generated resource is missing — a source-tree run, not a build.
+     *
+     * <p>Deliberately not a plausible version: if this string ever reaches a peer list or a log, the
+     * answer is "this build did not run {@code processResources}", and a value like {@code 0.1.0}
+     * would hide that behind a number that looks right.
+     */
+    static final String UNBUILT_VERSION = "0.0.0-unbuilt";
+    /**
+     * This build's version, read from the root {@code VERSION} file at build time.
+     *
+     * <p>Not a literal: the same number has to appear in the Gradle build, the Cargo workspace, the
+     * mod descriptor, the companion app, and here, and every hand-maintained copy of it is a copy
+     * that eventually disagrees. {@code java/core/build.gradle.kts} expands it into
+     * {@code nodera-version.properties}; {@code scripts/version.sh --check} fails the gate if any
+     * mirror drifts from {@code VERSION}.
+     */
+    public static final String PRODUCT_VERSION = readProductVersion();
     /**
      * The client agent a peer publishes in its membership entry, e.g. {@code "NoderaMC 0.1.0"}.
      * Carried by {@code PeerJoin}/{@code PeerEntry} so every member can report what software each
@@ -120,4 +136,27 @@ public final class NoderaConstants {
      * effectively unbounded for repetitive input (an 8 MiB constant blob compresses to ~1 KiB).
      */
     public static final int MAX_STREAM_PAYLOAD = 64 * 1024 * 1024;
+
+    /**
+     * Read the build-stamped version, falling back to {@link #UNBUILT_VERSION}.
+     *
+     * <p>Never throws. This runs in a static initializer of a class every other module touches, so
+     * a missing or corrupt resource must degrade the version string rather than fail class loading
+     * and take the whole node down over a label.
+     */
+    private static String readProductVersion() {
+        try (java.io.InputStream in =
+                NoderaConstants.class.getResourceAsStream("nodera-version.properties")) {
+            if (in == null) {
+                return UNBUILT_VERSION;
+            }
+            java.util.Properties properties = new java.util.Properties();
+            properties.load(in);
+            String version = properties.getProperty("version", "").trim();
+            // An unexpanded placeholder means the resource came from the source tree.
+            return version.isEmpty() || version.startsWith("${") ? UNBUILT_VERSION : version;
+        } catch (Exception e) {
+            return UNBUILT_VERSION;
+        }
+    }
 }

@@ -266,6 +266,53 @@ export async function saveSettings(next: Settings): Promise<void> {
   return invoke<void>("save_settings", { next });
 }
 
+// ---- telemetry consent (app task 5) ------------------------------------------------------------
+
+/** Mirrors `rust/nodera-app/src/telemetry.rs::Consent`. */
+export type Consent = "unanswered" | "denied" | "granted";
+
+/** Mirrors `TelemetryStatus`. Everything except `asked` comes from the worker. */
+export interface TelemetryStatus {
+  consent: Consent;
+  /** false ⇒ the worker did not answer, or predates the verb: say so, do not show a live toggle. */
+  supported: boolean;
+  endpoint: string;
+  queued: number;
+  sent: number;
+  last_error: string;
+  /** Whether this installation has ever answered the question — the modal's gate. */
+  asked: boolean;
+}
+
+export const EMPTY_TELEMETRY: TelemetryStatus = {
+  consent: "unanswered",
+  supported: false,
+  endpoint: "",
+  queued: 0,
+  sent: 0,
+  last_error: "",
+  asked: false,
+};
+
+export async function fetchTelemetryStatus(): Promise<TelemetryStatus> {
+  return invoke<TelemetryStatus>("get_telemetry_status");
+}
+
+/**
+ * Record the person's answer on the NODE.
+ *
+ * Returns the status the worker reports afterwards — the UI badges what was confirmed, never what
+ * was requested.
+ */
+export async function setTelemetryConsent(granted: boolean): Promise<TelemetryStatus> {
+  return invoke<TelemetryStatus>("set_telemetry_consent", { granted });
+}
+
+/** Ask the configured collector what it accepts. Rejects when it cannot be reached. */
+export async function fetchCollectedSchema(endpoint: string): Promise<string> {
+  return invoke<string>("get_collected_schema", { endpoint });
+}
+
 /**
  * Which settings are persisted but not yet acted on by the worker.
  *

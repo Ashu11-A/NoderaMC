@@ -5,7 +5,7 @@
      dashboard's data path is asserted on the JAVA gate (the worker's STATE verb) — keep it that way:
      no logic in the UI worth testing beyond parsing. Keep counts and Last run current. -->
 
-**Category:** app · **Last run:** 2026-07-25 · **56 tests · 0 failing**
+**Category:** app · **Last run:** 2026-07-25 · **61 tests · 0 failing**
 
 ```bash
 cd rust/nodera-app && cargo test        # REQUIRED — the workspace gate does not cover this crate

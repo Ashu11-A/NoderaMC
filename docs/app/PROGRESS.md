@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE, then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** app · **Last audit:** 2026-07-25 · Tasks completed: **2 / 4**
+**Category:** app · **Last audit:** 2026-07-25 · Tasks completed: **2 / 5**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -19,10 +19,45 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [2](Task.2.md) | Live metrics dashboard | ✅ COMPLETED | Real worker data; 56 crate tests |
 | [3](Task.3.md) | Packaging + CI | 🚧 IN PROGRESS | Build job green; installers and per-OS autostart remain |
 | [4](Task.4.md) | End-to-end acceptance | ⏳ BLOCKED | Gate-both-ways green; cross-machine half needs worker 3 + minecraft 1 |
+| [5](Task.5.md) | Telemetry consent | 🚧 IN PROGRESS | Modal + Privacy screen + 5 tests; a component test for button parity remains |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-25 — The question gets asked, once, with neither answer favoured
+
+The first-run modal and the Privacy card landed (`src/telemetry.rs`, `ui/src/Consent.tsx`; 61 crate
+tests, 5 of them telemetry).
+
+Two things were deliberately made harder than the easy version:
+
+- **Neither button is primary.** Same size, same border, same hover, no pre-selection. A dialog
+  engineered to make "yes" easier produces consent worth nothing, and this project's pitch is
+  precisely that players are not a central operator's product.
+- **"Already asked" is a file, not a settings field.** It survives a settings reset, because *we
+  have already asked this person* is a fact about them rather than a preference of theirs. It is
+  written by both answers — and by a failed push too, so a busy node cannot cause a re-ask.
+
+The category's existing badge discipline carried straight over: the toggle shows what the **worker**
+confirmed, and a worker that predates the verb gets a distinct "worker cannot" badge rather than
+being rendered as "off". One is a choice; the other is a worker to restart.
+
+### 2026-07-25 — The app gains the only place a person is asked
+
+[Task 5](Task.5.md) puts the telemetry question in the companion app, and it inherits the discipline
+this category established with the config lane in the same week: **the badge shows what the worker
+confirmed, never what the app intended.** A consent toggle reading "on" while the worker never
+received the decision would be the worst possible version of that bug.
+
+Three rules are written into the task file as refusable constraints rather than as guidance: neither
+answer is pre-selected or styled as preferred; declining is final and the modal never returns; and
+the app never sends telemetry itself — it tells the worker, which owns the record.
+
+The "what is collected" disclosure reads the registry from the ingest service the user actually
+reports to, rather than from prose maintained beside it. A privacy notice kept separately from the
+enforcement drifts, and it always drifts in the uncomfortable direction. Registered **L-78** for the
+offline fallback, which can be stale and is labelled as such.
 
 ### 2026-07-25 — The configuration lane and honest badges
 
