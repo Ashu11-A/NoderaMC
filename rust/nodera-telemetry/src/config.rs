@@ -6,16 +6,22 @@
 //! what the stored data *is*, and one of them (`subject_secret`) has no safe default at all, so
 //! the service refuses to start until an operator sets it.
 
-use serde::Deserialize;
+use nodera_service::env::{EnvOverlay, EnvSource};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
+/// Prefix for the environment form of every key below.
+pub const ENV_PREFIX: &str = "NODERA_TELEMETRY_";
 
 /// The placeholder shipped in the example configuration. Refused explicitly so that copying the
 /// example and forgetting to edit it fails loudly at boot rather than quietly producing subjects
 /// every other deployment can also compute.
 pub const PLACEHOLDER_SECRET: &str = "change-me";
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+/// `Serialize` exists so a test can enumerate the keys of a serialized default and fail if any of
+/// them has no environment override.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     /// Address to listen on.
@@ -86,24 +92,69 @@ pub enum ConfigError {
     WeakSecret,
     #[error("{0} must be greater than zero")]
     MustBePositive(&'static str),
+    /// An environment variable was unusable, or named nothing this service has.
+    #[error("invalid environment configuration: {0}")]
+    Env(#[from] nodera_service::env::EnvError),
 }
 
 /// Environment variable that overrides [`Config::subject_secret`].
 ///
 /// A secret in a config file is a secret in a bind mount, in a backup, and eventually in a
 /// screenshot. The container deployment passes it this way so the file on disk stays publishable.
+///
+/// This is now one key of the general scheme rather than a special case, and the name is unchanged
+/// because it was already `ENV_PREFIX` + the TOML key.
 pub const SECRET_ENV: &str = "NODERA_TELEMETRY_SUBJECT_SECRET";
 
 impl Config {
-    /// Apply environment overrides. Only the secret is overridable: everything else is an operator
-    /// policy decision that belongs in a file someone can review, not in a process environment
-    /// nobody can reconstruct after the fact.
-    pub fn apply_env(&mut self) {
-        if let Ok(secret) = std::env::var(SECRET_ENV) {
-            if !secret.trim().is_empty() {
-                self.subject_secret = secret;
-            }
-        }
+    /// Apply `NODERA_TELEMETRY_*` overrides.
+    ///
+    /// **This widens a deliberately narrow rule, so the reasoning is worth restating.** The earlier
+    /// version overrode only [`SECRET_ENV`], on the grounds that everything else is an operator
+    /// policy decision belonging in a file someone can review rather than in a process environment
+    /// nobody can reconstruct afterwards. That argument holds for a host an operator administers
+    /// and fails for a container: an image whose only configuration path is a file is an image that
+    /// cannot be run without one, and "review the file" is not available to someone composing a
+    /// deployment out of published images.
+    ///
+    /// What actually preserved the reviewability was never the *file*; it was that the values are
+    /// recorded somewhere durable. A compose file or a unit file is exactly as reviewable as a TOML
+    /// file, and is the artefact those operators already keep in version control. So the rule
+    /// becomes: every key is overridable, unknown variables are refused rather than ignored
+    /// (`nodera_service::env`), and the startup log names which variables took effect — never their
+    /// values, because one of them is this service's pseudonymisation secret.
+    pub fn apply_env(
+        &mut self,
+        env: &impl EnvSource,
+    ) -> Result<nodera_service::env::Applied, ConfigError> {
+        let mut overlay = EnvOverlay::new(ENV_PREFIX, env);
+        overlay.set("bind_addr", &mut self.bind_addr);
+        overlay.set("spool_dir", &mut self.spool_dir);
+        overlay.set("spool_max_bytes", &mut self.spool_max_bytes);
+        overlay.set("spool_max_seconds", &mut self.spool_max_seconds);
+        // `set_non_empty`, not `set`: an empty value here has no meaning, and a compose file
+        // referencing an unset variable passes exactly that. Blanking the secret refuses the start.
+        overlay.set_non_empty("subject_secret", &mut self.subject_secret);
+        overlay.set("subject_rotation_days", &mut self.subject_rotation_days);
+        overlay.set_optional_path("geo_table_path", &mut self.geo_table_path);
+        overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
+        overlay.set("max_events_per_batch", &mut self.max_events_per_batch);
+        overlay.set("max_attrs_per_event", &mut self.max_attrs_per_event);
+        overlay.set("max_event_age_seconds", &mut self.max_event_age_seconds);
+        overlay.set("max_clock_skew_seconds", &mut self.max_clock_skew_seconds);
+        overlay.set("quota_window_seconds", &mut self.quota_window_seconds);
+        overlay.set("per_ip_batch_quota", &mut self.per_ip_batch_quota);
+        overlay.set("per_ip_event_quota", &mut self.per_ip_event_quota);
+        overlay.set("report_interval_seconds", &mut self.report_interval_seconds);
+        overlay.finish().map_err(ConfigError::Env)
+    }
+
+    /// Every environment variable this service understands, sorted. For the operator reference.
+    pub fn env_reference() -> Vec<String> {
+        Config::default()
+            .apply_env(&nodera_service::env::MapEnv::empty())
+            .expect("an empty environment applies cleanly")
+            .declared
     }
 
     pub fn load(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -220,20 +271,60 @@ mod tests {
 
     #[test]
     fn the_secret_can_come_from_the_environment_so_it_need_not_sit_in_a_file() {
-        // Scoped to this test only; `apply_env` is a pure function of the environment it reads.
-        std::env::set_var(SECRET_ENV, "an-environment-provided-secret");
+        use nodera_service::env::MapEnv;
+
         let mut config = Config::default();
-        config.apply_env();
+        config
+            .apply_env(&MapEnv::empty().with(SECRET_ENV, "an-environment-provided-secret"))
+            .unwrap();
         assert_eq!(config.subject_secret, "an-environment-provided-secret");
         assert!(config.validate().is_ok());
 
-        // An empty value must not silently blank a secret the file did provide.
-        std::env::set_var(SECRET_ENV, "   ");
+        // An empty value must not silently blank a secret the file did provide: a compose file
+        // referencing an unset variable passes the empty string, and that must not be an outage.
         let mut kept = valid();
         let before = kept.subject_secret.clone();
-        kept.apply_env();
+        kept.apply_env(&MapEnv::empty().with(SECRET_ENV, "   "))
+            .unwrap();
         assert_eq!(kept.subject_secret, before);
-        std::env::remove_var(SECRET_ENV);
+    }
+
+    #[test]
+    fn every_config_key_has_an_environment_override() {
+        let config = Config {
+            geo_table_path: Some(PathBuf::from("/etc/nodera/geo.csv")), // `None` serializes away.
+            ..Config::default()
+        };
+        let serialized = toml::Value::try_from(&config).expect("config serializes");
+        let file_keys: Vec<String> = serialized
+            .as_table()
+            .expect("a table")
+            .keys()
+            .cloned()
+            .collect();
+
+        let declared = Config::env_reference();
+        let missing: Vec<&String> = file_keys
+            .iter()
+            .filter(|key| !declared.contains(&format!("{ENV_PREFIX}{}", key.to_uppercase())))
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "config keys with no env override: {missing:?}"
+        );
+        assert_eq!(declared.len(), file_keys.len(), "declared: {declared:?}");
+    }
+
+    #[test]
+    fn a_misspelled_telemetry_variable_refuses_the_start() {
+        use nodera_service::env::MapEnv;
+
+        // `SPOOL_MAX_BYTE` looks as authoritative in a compose file as the real name.
+        let mut config = valid();
+        assert!(config
+            .apply_env(&MapEnv::empty().with("NODERA_TELEMETRY_SPOOL_MAX_BYTE", "1"))
+            .is_err());
     }
 
     #[test]

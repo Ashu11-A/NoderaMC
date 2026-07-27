@@ -5,12 +5,22 @@
 //! cheap metadata (RENDEZVOUS.md §3.1); relay circuits carry real bandwidth and get the hard limits
 //! (§4.2/§8.4). Defaults are conservative — an operator raises them knowingly.
 
-use serde::Deserialize;
+use nodera_service::env::{EnvOverlay, EnvSource};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+/// Prefix for the environment form of every key below.
+///
+/// A container is configured by its environment or it is not configurable at all, so every TOML key
+/// has an exact environment twin: `NODERA_RENDEZVOUS_` plus the key, uppercased, and nothing else.
+pub const ENV_PREFIX: &str = "NODERA_RENDEZVOUS_";
+
 /// The full service configuration.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+///
+/// `Serialize` exists so a test can enumerate the keys of a serialized default and fail if any of
+/// them has no environment override.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     /// Address to listen on.
@@ -138,9 +148,86 @@ pub enum ConfigError {
     /// A value was structurally valid but unusable.
     #[error("invalid config value: {0}")]
     Invalid(String),
+    /// An environment variable was unusable, or named nothing this service has.
+    #[error("invalid environment configuration: {0}")]
+    Env(#[from] nodera_service::env::EnvError),
 }
 
 impl Config {
+    /// Overlay `NODERA_RENDEZVOUS_*` onto an already-loaded configuration.
+    ///
+    /// Precedence is defaults, then the file, then this. Validation runs after, never before.
+    pub fn apply_env(
+        &mut self,
+        env: &impl EnvSource,
+    ) -> Result<nodera_service::env::Applied, ConfigError> {
+        let mut overlay = EnvOverlay::new(ENV_PREFIX, env);
+        // These three are read by the Java peer/worker (`HeadlessPeerMain`), which is a *client* of
+        // rendezvous services. A shell holding both must be able to start both.
+        overlay.ignore("NODERA_RENDEZVOUS_ENDPOINTS");
+        overlay.ignore("NODERA_RENDEZVOUS_FANOUT");
+        overlay.ignore("NODERA_RENDEZVOUS_SWEEP_SECONDS");
+
+        overlay.set("bind_addr", &mut self.bind_addr);
+        overlay.set(
+            "registration_ttl_seconds",
+            &mut self.registration_ttl_seconds,
+        );
+        overlay.set(
+            "refresh_interval_seconds",
+            &mut self.refresh_interval_seconds,
+        );
+        overlay.set("clock_skew_seconds", &mut self.clock_skew_seconds);
+        overlay.set("discover_page_limit", &mut self.discover_page_limit);
+        overlay.set(
+            "max_records_per_namespace",
+            &mut self.max_records_per_namespace,
+        );
+        overlay.set("max_namespaces", &mut self.max_namespaces);
+        overlay.set("reservation_ttl_seconds", &mut self.reservation_ttl_seconds);
+        overlay.set("reservation_max_bytes", &mut self.reservation_max_bytes);
+        overlay.set(
+            "reservation_max_duration_seconds",
+            &mut self.reservation_max_duration_seconds,
+        );
+        overlay.set(
+            "circuit_idle_timeout_seconds",
+            &mut self.circuit_idle_timeout_seconds,
+        );
+        overlay.set("per_ip_request_quota", &mut self.per_ip_request_quota);
+        overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
+        overlay.set(
+            "reservation_hmac_key_hex",
+            &mut self.reservation_hmac_key_hex,
+        );
+        overlay.set("telemetry_endpoint", &mut self.telemetry_endpoint);
+        overlay.set(
+            "telemetry_interval_seconds",
+            &mut self.telemetry_interval_seconds,
+        );
+        overlay.set_list("tracker_endpoints", &mut self.tracker_endpoints);
+        overlay.set_list("advertised_routes", &mut self.advertised_routes);
+        overlay.set("identity_file", &mut self.identity_file);
+        overlay.set("drain_grace_seconds", &mut self.drain_grace_seconds);
+        overlay.set("max_concurrent_circuits", &mut self.max_concurrent_circuits);
+        overlay.set("update_channel", &mut self.update_channel);
+        overlay.set("update_feed_base_url", &mut self.update_feed_base_url);
+        overlay.set(
+            "update_check_interval_seconds",
+            &mut self.update_check_interval_seconds,
+        );
+
+        Ok(overlay.finish()?)
+    }
+
+    /// Every environment variable this service understands, sorted. For the operator reference.
+    pub fn env_reference() -> Vec<String> {
+        Config::default()
+            .apply_env(&nodera_service::env::MapEnv::empty())
+            .expect("an empty environment applies cleanly")
+            .declared
+    }
+
     /// Load and validate a config file.
     pub fn load(path: &std::path::Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
@@ -361,5 +448,78 @@ mod tests {
         assert_eq!(config.discover_page_limit, 5);
         assert_eq!(config.reservation_max_bytes, 1_048_576);
         assert_eq!(config.max_namespaces, Config::default().max_namespaces);
+    }
+
+    #[test]
+    fn every_config_key_has_an_environment_override() {
+        // The drift guard: a key reachable only from a file is a key a container cannot set.
+        let serialized = toml::Value::try_from(Config::default()).expect("config serializes");
+        let file_keys: Vec<String> = serialized
+            .as_table()
+            .expect("a table")
+            .keys()
+            .cloned()
+            .collect();
+
+        let declared = Config::env_reference();
+        let missing: Vec<&String> = file_keys
+            .iter()
+            .filter(|key| !declared.contains(&format!("{ENV_PREFIX}{}", key.to_uppercase())))
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "config keys with no env override: {missing:?}"
+        );
+        assert_eq!(declared.len(), file_keys.len(), "declared: {declared:?}");
+    }
+
+    #[test]
+    fn the_environment_overrides_the_file_and_validation_still_runs_after() {
+        use nodera_service::env::MapEnv;
+
+        let mut config: Config = toml::from_str("bind_addr = \"127.0.0.1:25601\"\n").unwrap();
+        let env = MapEnv::empty()
+            .with("NODERA_RENDEZVOUS_BIND_ADDR", "0.0.0.0:7500")
+            .with(
+                "NODERA_RENDEZVOUS_TRACKER_ENDPOINTS",
+                "tcp://t1:6969,tcp://t2:6969",
+            )
+            .with("NODERA_RENDEZVOUS_MAX_CONCURRENT_CIRCUITS", "128");
+        let applied = config.apply_env(&env).unwrap();
+        config.validate().unwrap();
+
+        assert_eq!(config.bind_addr, "0.0.0.0:7500".parse().unwrap());
+        assert_eq!(config.tracker_endpoints, ["tcp://t1:6969", "tcp://t2:6969"]);
+        assert_eq!(config.max_concurrent_circuits, 128);
+        assert_eq!(applied.applied.len(), 3);
+    }
+
+    #[test]
+    fn an_environment_value_that_breaks_a_bound_is_still_refused() {
+        use nodera_service::env::MapEnv;
+
+        let mut config = Config::default();
+        config
+            .apply_env(&MapEnv::empty().with("NODERA_RENDEZVOUS_REGISTRATION_TTL_SECONDS", "1"))
+            .unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn the_java_peers_rendezvous_variables_do_not_stop_this_service() {
+        use nodera_service::env::MapEnv;
+
+        // All three belong to the peer, and all three sit in this service's prefix.
+        let mut config = Config::default();
+        config
+            .apply_env(
+                &MapEnv::empty()
+                    .with("NODERA_RENDEZVOUS_ENDPOINTS", "tcp://host:7500")
+                    .with("NODERA_RENDEZVOUS_FANOUT", "3")
+                    .with("NODERA_RENDEZVOUS_SWEEP_SECONDS", "60"),
+            )
+            .unwrap();
+        assert_eq!(config, Config::default());
     }
 }

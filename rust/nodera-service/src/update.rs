@@ -73,26 +73,111 @@ impl UpdateConfig {
     }
 }
 
+/// The largest response the update lane will hold in memory.
+///
+/// A release binary is single-digit megabytes and the digest manifest is a few hundred bytes. This
+/// ceiling exists so a feed that answers with an endless stream — a misconfigured proxy, a hostile
+/// mirror — costs a bounded allocation and an error instead of the service's memory.
+pub const MAX_RESPONSE_BYTES: u64 = 128 * 1024 * 1024;
+
 /// Fetches bytes over HTTPS.
 ///
-/// A trait, and blocking, for two reasons: the default implementation is a `curl` subprocess (no TLS
-/// stack is pulled into a service whose whole point is to be small), and a test needs to drive the
-/// whole decision path — digest mismatch, missing manifest, unreachable feed — without a network.
+/// A trait, and blocking, for two reasons: this path runs once every few hours and has no business
+/// holding an async runtime's attention, and a test needs to drive the whole decision path — digest
+/// mismatch, missing manifest, unreachable feed — without a network.
 pub trait Fetcher: Send + Sync {
     /// Fetch `url`, or fail.
     fn get(&self, url: &str) -> io::Result<Vec<u8>>;
 }
 
-/// The default fetcher: `curl -fsSL`.
+/// The default fetcher: an in-process HTTPS client.
 ///
-/// `curl` rather than a Rust HTTP client because the alternative is a TLS stack, a certificate store,
-/// and an async runtime dependency in a code path that runs once every few hours. The cost is a
-/// runtime dependency on a binary that is present on every host that could install a release in the
-/// first place — checked once, with a clear message, instead of failing obscurely.
-#[derive(Debug, Clone, Default)]
+/// This replaced a `curl` subprocess (L-82). The original reasoning for `curl` was that the
+/// alternative pulls a TLS stack into a service whose whole point is to be small, and that curl is
+/// present on every host that could install a release in the first place. The second half turned
+/// out to be false in the deployment that matters most: the published container images are
+/// `alpine` with one static binary in them, and `curl` is exactly the kind of thing they do not
+/// have. Shipping it to satisfy an update path would have added a package, a package manager's
+/// worth of attack surface, and a second TLS configuration to keep correct.
+///
+/// What the in-process client buys beyond removing that dependency: the timeout, the redirect
+/// limit and the response ceiling are all values this code sets and a test can assert, rather than
+/// flags on a subprocess whose absence, version and proxy configuration are the host's business.
+#[derive(Debug, Clone)]
+pub struct HttpsFetcher {
+    /// Whole-request timeout in seconds, redirects included. 0 means the default.
+    pub timeout_seconds: u64,
+    /// Largest response accepted.
+    pub max_bytes: u64,
+}
+
+impl Default for HttpsFetcher {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 0,
+            max_bytes: MAX_RESPONSE_BYTES,
+        }
+    }
+}
+
+impl HttpsFetcher {
+    /// Seconds allowed for one whole request.
+    fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.timeout_seconds == 0 {
+            60
+        } else {
+            self.timeout_seconds
+        })
+    }
+}
+
+impl Fetcher for HttpsFetcher {
+    fn get(&self, url: &str) -> io::Result<Vec<u8>> {
+        // Redirects are followed because a GitHub release asset URL is one: the release page hands
+        // out a redirect to object storage. Bounded, though — an unbounded chain is a way to make
+        // this request last as long as an attacker likes despite the timeout.
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(self.timeout()))
+            .max_redirects(5)
+            .build()
+            .into();
+        let mut response = agent
+            .get(url)
+            .call()
+            .map_err(|e| io::Error::other(format!("fetch failed for {url}: {e}")))?;
+        response
+            .body_mut()
+            .with_config()
+            .limit(self.max_bytes)
+            .read_to_vec()
+            .map_err(|e| io::Error::other(format!("reading {url} failed: {e}")))
+    }
+}
+
+/// The previous fetcher: `curl -fsSL`.
+///
+/// Kept, and kept working, for the host where curl is the right answer — one already configured
+/// with a proxy, a corporate CA bundle, or a `.curlrc` that the operator maintains and this code
+/// has no business duplicating. It is no longer the default; see [`HttpsFetcher`].
+#[derive(Debug, Clone)]
 pub struct CurlFetcher {
     /// Per-request timeout in seconds.
     pub timeout_seconds: u64,
+    /// The program to run. `curl` unless an operator has a reason to name a specific one.
+    ///
+    /// A field rather than a literal so the missing-program path is reachable from a test: that
+    /// error message is the only thing standing between an operator and an update lane that fails
+    /// for a reason nobody can guess from the outside.
+    pub program: String,
+}
+
+impl Default for CurlFetcher {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 0,
+            program: "curl".to_owned(),
+        }
+    }
 }
 
 impl Fetcher for CurlFetcher {
@@ -102,7 +187,7 @@ impl Fetcher for CurlFetcher {
         } else {
             self.timeout_seconds
         };
-        let output = std::process::Command::new("curl")
+        let output = std::process::Command::new(&self.program)
             .arg("--fail")
             .arg("--silent")
             .arg("--show-error")
@@ -558,5 +643,100 @@ mod tests {
             trailing.asset_url("SHA256SUMS"),
             "https://example.invalid/latest/SHA256SUMS"
         );
+    }
+
+    #[test]
+    fn a_missing_curl_still_says_what_to_do_about_it() {
+        // `CurlFetcher` is no longer the default (L-82) but it is still reachable, and the value of
+        // it was always this message: an update lane that fails because a program is absent must
+        // say so, and say how to turn the lane off, rather than reporting a bare ENOENT.
+        let fetcher = CurlFetcher {
+            program: "nodera-no-such-program".to_owned(),
+            ..CurlFetcher::default()
+        };
+        let error = fetcher
+            .get("https://example.invalid/whatever")
+            .expect_err("a program that does not exist cannot fetch");
+        let rendered = error.to_string();
+
+        assert!(rendered.contains("cannot run curl"), "{rendered}");
+        assert!(rendered.contains("update_channel"), "{rendered}");
+    }
+
+    #[test]
+    fn the_default_fetcher_caps_what_it_will_hold_in_memory() {
+        // A feed that answers with an endless stream must cost a bounded allocation, not the
+        // service. The ceiling is the code's, not the transport's.
+        assert_eq!(HttpsFetcher::default().max_bytes, MAX_RESPONSE_BYTES);
+        assert_eq!(
+            HttpsFetcher::default().timeout(),
+            std::time::Duration::from_secs(60)
+        );
+    }
+
+    #[test]
+    fn a_response_larger_than_the_ceiling_is_refused_rather_than_allocated() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut discard = [0u8; 1024];
+            let _ = stream.read(&mut discard);
+            // Declares more than the ceiling allows, then sends what it can before the client hangs
+            // up. `Content-Length` alone is not trusted — the read itself is what is bounded.
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n",
+            );
+            let chunk = vec![b'x'; 4096];
+            for _ in 0..256 {
+                if stream.write_all(&chunk).is_err() {
+                    return;
+                }
+            }
+        });
+
+        let fetcher = HttpsFetcher {
+            timeout_seconds: 10,
+            max_bytes: 1024,
+        };
+        let result = fetcher.get(&format!("http://{addr}/big"));
+        let _ = server.join();
+
+        assert!(
+            result.is_err(),
+            "a body past the ceiling must fail, not truncate silently: {:?}",
+            result.map(|b| b.len())
+        );
+    }
+
+    #[test]
+    fn the_default_fetcher_reads_a_body_it_is_allowed_to_read() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut discard = [0u8; 1024];
+            let _ = stream.read(&mut discard);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\nhello world",
+            );
+        });
+
+        let body = HttpsFetcher::default()
+            .get(&format!("http://{addr}/small"))
+            .expect("a small body is fetched");
+        let _ = server.join();
+
+        assert_eq!(body, b"hello world");
     }
 }

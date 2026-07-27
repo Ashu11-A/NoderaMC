@@ -542,7 +542,7 @@ mod tests {
                     lifecycle,
                     identity(),
                     config(),
-                    Arc::new(update::CurlFetcher::default()),
+                    Arc::new(update::HttpsFetcher::default()),
                     async move {
                         let _ = rx.await;
                     },
