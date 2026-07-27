@@ -17,19 +17,31 @@ license = "MIT"
 publish = false
 description = "Nodera companion app: always-on headless peer + dashboard + system tray"
 
+# Two targets on purpose: the desktop binary, and the cdylib the Android Activity loads through JNI.
+# `rlib` keeps the unit tests compiling against the same code the app runs.
+[lib]
+name = "nodera_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 nodera-codec = { path = "../nodera-codec" }
+# The mobile build IS the peer — there is no JVM on Android to supervise — so it signs its own
+# announces. Same curve, same canonical bytes, same tracker verification path as the Java peer.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # The bundled telemetry registry the disclosure falls back to when the collector is
 # unreachable (L-78). A path dependency rather than a copied JSON file: two
 # hand-maintained copies of a privacy notice drift, and the stale one is the one
 # people read.
 nodera-telemetry = { path = "../nodera-telemetry" }
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-autostart = "2"
-tauri-plugin-single-instance = "2"
+# The native save dialog behind "Save logs" — the OS picker, not a path typed into the app.
+tauri-plugin-dialog = "2"
+# Diagnostics that must be readable on a device with no terminal; the Android build routes this
+# into logcat, the desktop build into stderr.
+log = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "process", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -38,10 +50,36 @@ thiserror = "1.0"
 base64 = "0.22"
 # System + per-process RAM/CPU sampling for the dashboard's resource tiles.
 sysinfo = "0.30"
-# Host power state for the battery rules (src/power.rs). The decision itself is a pure function, so
-# the crate is only ever asked "is there a battery, is it discharging, how full" — a machine without
-# one simply reports none and every power rule goes inert.
+# Host power state for the battery rules (src/power.rs).
+#
+# Desktop only, and deliberately so. It does not build for Android — and it should not: a phone's
+# power management belongs to the phone, an app that second-guesses it is an app the OS will kill,
+# and the mobile build has no worker to pause anyway. `power::battery` degrades to "no battery" when
+# the crate is absent, which is the same branch a desktop with no battery takes.
+# Android has no stdout to read: anything a process prints goes nowhere unless it is written to the
+# system log. Without this the peer loop would be running correctly and completely unobservable,
+# which is indistinguishable from not running at all.
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.14"
+log = "0.4"
+# Talking to the Android framework from Rust: reading the battery-optimisation state and opening
+# the settings screen are both Java-only APIs, and this is how a Rust process reaches them without
+# a whole Tauri plugin for two calls.
+jni = "0.21"
+ndk-context = "0.1"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 starship-battery = "0.10"
+# Two desktop OS integrations with no mobile meaning: an Android app is already single-instance,
+# and "launch at login" is not something a phone offers. Both crates compile for Android but with
+# their entire API cfg'd out, which turns a missing concept into a build error — so they are
+# excluded here rather than papered over at the call site.
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+
+# Free-space reporting for the storage picker (statvfs). One call, no wrapper crate.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 # `test-util` gives the control-socket tests a paused clock, so the read-timeout test proves the

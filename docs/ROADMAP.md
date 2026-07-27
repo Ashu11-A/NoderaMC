@@ -43,11 +43,12 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | [Network](network/Task.0.md) | 12 | 11 | 1 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry |
 | [Tracker](tracker/Task.0.md) | 4 | 3 | 1 | 0 | Always-on discovery service |
 | [Rendezvous](rendezvous/Task.0.md) | 4 | 3 | 0 | 1 | NAT reach: punching + relay fallback |
-| [Minecraft](minecraft/Task.0.md) | 8 | 3 | 4 | 1 | The NeoForge mod — the playable product |
-| [Worker](worker/Task.0.md) | 5 | 4 | 1 | 0 | The always-on headless peer |
-| [App](app/Task.0.md) | 5 | 2 | 2 | 1 | The Tauri companion that supervises the worker |
+| [Minecraft](minecraft/Task.0.md) | 9 | 4 | 4 | 1 | The NeoForge mod — the playable product |
+| [Worker](worker/Task.0.md) | 7 | 6 | 1 | 0 | The always-on headless peer |
+| [App](app/Task.0.md) | 8 | 5 | 2 | 1 | The Tauri companion that supervises the worker |
+| [Mobile](mobile/Task.0.md) | 4 | 3 | 1 | 0 | The Android build — the worker itself, on a phone |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
-| **Total** | **53** | **34** | **15** | **3** | |
+| **Total** | **62** | **42** | **16** | **3** | |
 
 The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
 [`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
@@ -125,6 +126,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [6](minecraft/Task.6.md) | World identity + permissions (mod half) | 🚧 | worker 2, worker 3, minecraft 1 |
 | [7](minecraft/Task.7.md) | Companion presence gate | ✅ | worker 1 |
 | [8](minecraft/Task.8.md) | In-game telemetry + consent mirror | ✅ headless | worker 5, network 12, minecraft 7 |
+| [9](minecraft/Task.9.md) | Profiling lane — the spark profiler | ✅ | minecraft 1 |
 
 ### Worker — [`docs/worker/`](worker/Task.0.md)
 
@@ -135,6 +137,8 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [3](worker/Task.3.md) | Host/join delegation + world seeding | 🚧 | minecraft 5, network 4, tracker 2, rendezvous 2 |
 | [4](worker/Task.4.md) | Out-of-game committee validation | ✅ headless | engine 5, network 2 |
 | [5](worker/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
+| [6](worker/Task.6.md) | World ownership + durable world registry | ✅ | worker 2, worker 3, network 3 |
+| [7](worker/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
 
 ### App — [`docs/app/`](app/Task.0.md)
 
@@ -145,6 +149,9 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [3](app/Task.3.md) | Per-OS packaging + CI | 🚧 | app 1 |
 | [4](app/Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ | worker 3, minecraft 1 |
 | [5](app/Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 | worker 5, app 2 |
+| [6](app/Task.6.md) | Dashboard API + live worker link | ✅ | app 2, worker 2, worker 6 |
+| [7](app/Task.7.md) | The client becomes the way in | ✅ | app 6, worker 7 |
+| [8](app/Task.8.md) | Screen redesign: one subject per screen | ✅ | app 6, app 7 |
 
 ### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
 

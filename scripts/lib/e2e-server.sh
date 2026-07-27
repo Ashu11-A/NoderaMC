@@ -144,6 +144,29 @@ nodera_endpoint_preflight() {
     log "platform: $platform ($jar) · plugin: $PLUGIN_JAR"
 }
 
+# nodera_endpoint_preflight_soft <paper|folia> — the same check, as a QUESTION.
+#
+# nodera_endpoint_preflight ends the process, which is right for a suite whose
+# every stage needs the platform. It is wrong for a suite that has already
+# asserted something real and is now offering an extra platform stage on top:
+# exiting there would throw away a passed stage and report the whole run as
+# skipped. This returns non-zero instead, sets the same SERVER_JAR/
+# SERVER_PLATFORM, and leaves the caller to say what it is not asserting.
+nodera_endpoint_preflight_soft() {
+    local platform="$1" jar
+    SERVER_PLATFORM="$platform"
+    case "$platform" in
+        paper) jar="$PAPER_JAR" ;;
+        folia) jar="$FOLIA_JAR" ;;
+        *) fail "unknown platform '$platform' (paper|folia)" ;;
+    esac
+    SERVER_JAR="$jar"
+    [[ -f "$PLUGIN_JAR" ]] || return 1
+    [[ -f "$jar" ]] || return 1
+    command -v python3 >/dev/null || return 1
+    log "platform: $platform ($jar) · plugin: $PLUGIN_JAR"
+}
+
 # ---------------------------------------------------------------------------
 # Staging + launch
 # ---------------------------------------------------------------------------
@@ -188,7 +211,13 @@ threaded-regions:
   scheduler: EDF
 misc:
   max-joins-per-tick: 10
+$(nodera_spark_paper_global)
 EOF
+
+    # Paper and Folia bundle spark; this only writes its config, and only when
+    # NODERA_SPARK=1. It has to come after the rm -rf above or it is deleted.
+    declare -F nodera_spark_stage_plugin >/dev/null \
+        && nodera_spark_stage_plugin "${SERVER_PLATFORM:-paper}" || true
 
     cp "$PLUGIN_JAR" "$SERVER_STAGE/plugins/nodera-endpoint.jar"
     cat > "$SERVER_STAGE/plugins/NoderaEndpoint/nodera-endpoint.yml" <<EOF
@@ -234,8 +263,12 @@ install_corpus_plugin() {
 
 start_bukkit_server() { # [log-file]
     local logfile="${1:-$LOG_DIR/server.log}"
+    local sparkargs=()
+    declare -F nodera_spark_bukkit_jvm_args >/dev/null \
+        && read -r -a sparkargs <<<"$(nodera_spark_bukkit_jvm_args)"
     ( cd "$SERVER_STAGE" && exec setsid java \
         -Xms"$NODERA_SERVER_XMS" -Xmx"$NODERA_SERVER_XMX" \
+        "${sparkargs[@]}" \
         -Dcom.mojang.eula.agree=true \
         -jar "$SERVER_JAR" --nogui \
         </dev/null >"$logfile" 2>&1 ) 9>&- &

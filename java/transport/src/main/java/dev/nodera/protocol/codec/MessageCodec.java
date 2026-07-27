@@ -259,8 +259,23 @@ public final class MessageCodec {
     /** A region no node can validate, observed by a node that owns none of it (L-60). */
     public static final int TAG_REGION_REFUSAL = 61;
 
+    /** One world's doubly-signed ownership claim, gossiped to the peers that serve it. */
+    public static final int TAG_WORLD_OWNERSHIP_GOSSIP = 62;
+
+    // The LAN-tunnel family: a guest's game client reaching a host's "Open to LAN" world through
+    // this network. These carry somebody else's protocol and are deliberately opaque here.
+    /** {@link dev.nodera.protocol.tunnel.TunnelOpen} — attach a stream to a published session. */
+    public static final int TAG_TUNNEL_OPEN = 63;
+    /** {@link dev.nodera.protocol.tunnel.TunnelData} — one chunk of a tunnelled stream. */
+    public static final int TAG_TUNNEL_DATA = 64;
+    /** {@link dev.nodera.protocol.tunnel.TunnelClose} — the end of one stream, with a reason. */
+    public static final int TAG_TUNNEL_CLOSE = 65;
+
+    /** A world's owner asking the network to forget it, with the proof that it was the owner. */
+    public static final int TAG_WORLD_DELETION_GOSSIP = 66;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 61;
+    public static final int NEXT_TAG = 66;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -291,7 +306,9 @@ public final class MessageCodec {
             TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER,
             TAG_HALO_UPDATE, TAG_GROUP_MIGRATION,
             TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT,
-            TAG_WORLD_GRANT_GOSSIP, TAG_REGION_REFUSAL);
+            TAG_WORLD_GRANT_GOSSIP, TAG_REGION_REFUSAL, TAG_WORLD_OWNERSHIP_GOSSIP,
+            TAG_TUNNEL_OPEN, TAG_TUNNEL_DATA, TAG_TUNNEL_CLOSE,
+            TAG_WORLD_DELETION_GOSSIP);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -366,6 +383,11 @@ public final class MessageCodec {
             case TAG_GENESIS_APPROVAL_REQUEST -> "GenesisApprovalRequest";
             case TAG_GENESIS_APPROVAL_GRANT -> "GenesisApprovalGrant";
             case TAG_WORLD_GRANT_GOSSIP -> "WorldGrantGossip";
+            case TAG_WORLD_OWNERSHIP_GOSSIP -> "WorldOwnershipGossip";
+            case TAG_TUNNEL_OPEN -> "TunnelOpen";
+            case TAG_TUNNEL_DATA -> "TunnelData";
+            case TAG_TUNNEL_CLOSE -> "TunnelClose";
+            case TAG_WORLD_DELETION_GOSSIP -> "WorldDeletionGossip";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -526,12 +548,20 @@ public final class MessageCodec {
         if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalRequest) return TAG_GENESIS_APPROVAL_REQUEST;
         if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalGrant) return TAG_GENESIS_APPROVAL_GRANT;
         if (msg instanceof dev.nodera.protocol.membership.WorldGrantGossip) return TAG_WORLD_GRANT_GOSSIP;
+        if (msg instanceof dev.nodera.protocol.membership.WorldOwnershipGossip) {
+            return TAG_WORLD_OWNERSHIP_GOSSIP;
+        }
+        if (msg instanceof dev.nodera.protocol.tunnel.TunnelOpen) return TAG_TUNNEL_OPEN;
+        if (msg instanceof dev.nodera.protocol.tunnel.TunnelData) return TAG_TUNNEL_DATA;
+        if (msg instanceof dev.nodera.protocol.tunnel.TunnelClose) return TAG_TUNNEL_CLOSE;
+        if (msg instanceof dev.nodera.protocol.membership.WorldDeletionGossip) {
+            return TAG_WORLD_DELETION_GOSSIP;
+        }
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
 
     private static void encodeInto(CanonicalWriter w, NoderaMessage msg) {
-        switch (msg) {
-            case ClientHello m -> {
+        if (msg instanceof ClientHello m) {
                 w.writeU16(TAG_CLIENT_HELLO).writeU16(ENCODING_VERSION);
                 w.writeU32(Integer.toUnsignedLong(m.protocolVersion()));
                 m.nodeId().encode(w);
@@ -540,27 +570,23 @@ public final class MessageCodec {
                 w.writeU32(Integer.toUnsignedLong(m.rulesVersion()));
                 w.writeU64(m.registryFingerprint());
                 w.writeBytes(m.signature());
-            }
-            case ServerHello m -> {
+        } else if (msg instanceof ServerHello m) {
                 w.writeU16(TAG_SERVER_HELLO).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.networkId());
                 w.writeU64(m.currentTick());
                 w.writeU32(Integer.toUnsignedLong(m.regionSizeChunks()));
                 w.writeU32(Integer.toUnsignedLong(m.requiredValidators()));
                 w.writeBytes(m.challenge());
-            }
-            case ChallengeResponse m -> {
+        } else if (msg instanceof ChallengeResponse m) {
                 w.writeU16(TAG_CHALLENGE_RESPONSE).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.signature());
-            }
-            case WorkerActivation m -> {
+        } else if (msg instanceof WorkerActivation m) {
                 w.writeU16(TAG_WORKER_ACTIVATION).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.sessionId());
                 w.writeU32(Integer.toUnsignedLong(m.maxPrimary()));
                 w.writeU32(Integer.toUnsignedLong(m.maxReplica()));
                 w.writeU64(m.heartbeatTicks());
-            }
-            case RegionAssigned m -> {
+        } else if (msg instanceof RegionAssigned m) {
                 w.writeU16(TAG_REGION_ASSIGNED).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.epoch().encode(w);
@@ -568,49 +594,41 @@ public final class MessageCodec {
                 m.snapshotVersion().encode(w);
                 w.writeU64(m.leaseExpiryTick());
                 w.writeList(m.committee(), CanonicalWriter::writeEncodable);
-            }
-            case RegionRevoked m -> {
+        } else if (msg instanceof RegionRevoked m) {
                 w.writeU16(TAG_REGION_REVOKED).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.epoch().encode(w);
                 w.writeString(m.reason());
-            }
-            case LeaseRenewal m -> {
+        } else if (msg instanceof LeaseRenewal m) {
                 w.writeU16(TAG_LEASE_RENEWAL).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.epoch().encode(w);
                 w.writeU64(m.newExpiryTick());
-            }
-            case SnapshotAnnounce m -> {
+        } else if (msg instanceof SnapshotAnnounce m) {
                 w.writeU16(TAG_SNAPSHOT_ANNOUNCE).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.version().encode(w);
                 w.writeU32(Integer.toUnsignedLong(m.contentLength()));
                 w.writeU32(Integer.toUnsignedLong(m.chunkCount()));
                 m.root().encode(w);
-            }
-            case StreamChunk m -> {
+        } else if (msg instanceof StreamChunk m) {
                 w.writeU16(TAG_STREAM_CHUNK).writeU16(ENCODING_VERSION);
                 w.writeU64(m.streamId());
                 w.writeU32(Integer.toUnsignedLong(m.index()));
                 w.writeU32(Integer.toUnsignedLong(m.total()));
                 w.writeBytes(m.payload());
-            }
-            case ActionBatchMsg m -> {
+        } else if (msg instanceof ActionBatchMsg m) {
                 w.writeU16(TAG_ACTION_BATCH_MSG).writeU16(ENCODING_VERSION);
                 m.batch().encode(w);
-            }
-            case ActionForward m -> {
+        } else if (msg instanceof ActionForward m) {
                 w.writeU16(TAG_ACTION_FORWARD).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 w.writeBytes(m.encodedEnvelope());
-            }
-            case dev.nodera.protocol.simulationmsg.RegionRefusal m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.RegionRefusal m) {
                 w.writeU16(TAG_REGION_REFUSAL).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 w.writeU16(m.reasonCode());
-            }
-            case RegionProposal m -> {
+        } else if (msg instanceof RegionProposal m) {
                 w.writeU16(TAG_REGION_PROPOSAL).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.epoch().encode(w);
@@ -624,64 +642,53 @@ public final class MessageCodec {
                     m.batchRoot().encode(w);
                 }
                 w.writeBytes(m.proposerSig());
-            }
-            case ValidationVote m -> {
+        } else if (msg instanceof ValidationVote m) {
                 w.writeU16(TAG_VALIDATION_VOTE).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.epoch().encode(w);
                 m.version().encode(w);
                 m.vote().encode(w);
-            }
-            case CommitAnnounce m -> {
+        } else if (msg instanceof CommitAnnounce m) {
                 w.writeU16(TAG_COMMIT_ANNOUNCE).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.version().encode(w);
                 m.resultingRoot().encode(w);
                 w.writeBytes(m.certificateBytes());
-            }
-            case EntityTransferPrepare m -> {
+        } else if (msg instanceof EntityTransferPrepare m) {
                 w.writeU16(TAG_ENTITY_TRANSFER_PREPARE).writeU16(ENCODING_VERSION);
                 m.descriptor().encode(w);
                 m.sourceDelta().encode(w);
                 m.targetDelta().encode(w);
-            }
-            case EntityTransferAccept m -> {
+        } else if (msg instanceof EntityTransferAccept m) {
                 w.writeU16(TAG_ENTITY_TRANSFER_ACCEPT).writeU16(ENCODING_VERSION);
                 w.writeU64(m.transferId());
                 m.side().encode(w);
                 m.vote().encode(w);
-            }
-            case EntityTransferCommit m -> {
+        } else if (msg instanceof EntityTransferCommit m) {
                 w.writeU16(TAG_ENTITY_TRANSFER_COMMIT).writeU16(ENCODING_VERSION);
                 m.certificate().encode(w);
                 m.sourceActionCertificate().encode(w);
                 m.sourceDelta().encode(w);
                 m.targetDelta().encode(w);
-            }
-            case ResyncRequest m -> {
+        } else if (msg instanceof ResyncRequest m) {
                 w.writeU16(TAG_RESYNC_REQUEST).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.haveVersion().encode(w);
-            }
-            case Heartbeat m -> {
+        } else if (msg instanceof Heartbeat m) {
                 w.writeU16(TAG_HEARTBEAT).writeU16(ENCODING_VERSION);
                 w.writeU64(m.tick());
                 encodeWorkerLoadBody(w, m.load());
-            }
-            case WorkerLoad m -> {
+        } else if (msg instanceof WorkerLoad m) {
                 w.writeU16(TAG_WORKER_LOAD).writeU16(ENCODING_VERSION);
                 encodeWorkerLoadBody(w, m);
-            }
-            case EchoTest m -> {
+        } else if (msg instanceof EchoTest m) {
                 w.writeU16(TAG_ECHO_TEST).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.payload());
-            }
-            case RelayEnvelope m -> {
+        } else if (msg instanceof RelayEnvelope m) {
                 w.writeU16(TAG_RELAY_ENVELOPE).writeU16(ENCODING_VERSION);
                 m.target().encode(w);
                 w.writeBytes(m.innerFrame());
-            }
-            case PeerJoin m -> {
+        } else if (msg instanceof PeerJoin m) {
                 w.writeU16(TAG_PEER_JOIN).writeU16(ENCODING_VERSION);
                 m.joiner().encode(w);
                 w.writeString(m.listenRoute());
@@ -689,25 +696,21 @@ public final class MessageCodec {
                 w.writeBoolean(m.bootstrap());
                 w.writeBytes(m.publicKey());
                 w.writeString(m.clientVersion());
-            }
-            case MembershipUpdate m -> {
+        } else if (msg instanceof MembershipUpdate m) {
                 w.writeU16(TAG_MEMBERSHIP_UPDATE).writeU16(ENCODING_VERSION);
                 w.writeU64(m.epoch());
                 m.gatewayId().encode(w);
                 w.writeList(m.members(), MessageCodec::writeMemberEntry);
-            }
-            case PeerGoodbye m -> {
+        } else if (msg instanceof PeerGoodbye m) {
                 w.writeU16(TAG_PEER_GOODBYE).writeU16(ENCODING_VERSION);
                 m.who().encode(w);
                 w.writeU64(m.epoch());
                 w.writeString(m.reason());
-            }
-            case GatewayClaim m -> {
+        } else if (msg instanceof GatewayClaim m) {
                 w.writeU16(TAG_GATEWAY_CLAIM).writeU16(ENCODING_VERSION);
                 m.gatewayId().encode(w);
                 w.writeU64(m.epoch());
-            }
-            case SessionKeepAlive m -> {
+        } else if (msg instanceof SessionKeepAlive m) {
                 w.writeU16(TAG_SESSION_KEEP_ALIVE)
                         .writeU16(SESSION_KEEP_ALIVE_ENCODING_VERSION);
                 m.from().encode(w);
@@ -720,33 +723,28 @@ public final class MessageCodec {
                     progress.primary().encode(ww);
                     ww.writeU64(progress.lastAppliedTick());
                 });
-            }
-            case ContentRequest m -> {
+        } else if (msg instanceof ContentRequest m) {
                 w.writeU16(TAG_CONTENT_REQUEST).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.manifestRoot());
                 // The record's compact constructor already de-duplicated and sorted the indexes,
                 // so the encoded order is canonical without sorting again here.
                 w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
-            }
-            case ContentChunk m -> {
+        } else if (msg instanceof ContentChunk m) {
                 w.writeU16(TAG_CONTENT_CHUNK).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.manifestRoot());
                 w.writeU32(Integer.toUnsignedLong(m.index()));
                 w.writeBytes(m.payload());
-            }
-            case ContentAvailability m -> {
+        } else if (msg instanceof ContentAvailability m) {
                 w.writeU16(TAG_CONTENT_AVAILABILITY).writeU16(ENCODING_VERSION);
                 m.holder().encode(w);
                 w.writeList(m.holdings(), (ww, h) -> {
                     ww.writeBytes(h.manifestRoot());
                     ww.writeBytes(h.pieceBitmap());
                 });
-            }
-            case TrackerQuery m -> {
+        } else if (msg instanceof TrackerQuery m) {
                 w.writeU16(TAG_TRACKER_QUERY).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
-            }
-            case TrackerResponse m -> {
+        } else if (msg instanceof TrackerResponse m) {
                 w.writeU16(TAG_TRACKER_RESPONSE).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
                 w.writeString(m.worldName());
@@ -760,81 +758,87 @@ public final class MessageCodec {
                 w.writeU32(Integer.toUnsignedLong(m.reliabilityBps()));
                 m.health().encode(w);
                 w.writeU64(m.retentionDeadlineEpochMillis());
-            }
-            case TrackerCatalogQuery m -> {
+        } else if (msg instanceof TrackerCatalogQuery m) {
                 w.writeU16(TAG_TRACKER_CATALOG_QUERY).writeU16(ENCODING_VERSION);
                 w.writeU32(Integer.toUnsignedLong(m.limit()));
-            }
-            case TrackerCatalogResponse m -> {
+        } else if (msg instanceof TrackerCatalogResponse m) {
                 w.writeU16(TAG_TRACKER_CATALOG_RESPONSE).writeU16(ENCODING_VERSION);
                 w.writeList(m.worlds(), MessageCodec::writeCatalogEntry);
-            }
-            case TrackerRoutesQuery m -> {
+        } else if (msg instanceof TrackerRoutesQuery m) {
                 w.writeU16(TAG_TRACKER_ROUTES_QUERY).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
-            }
-            case TrackerRoutesResponse m -> {
+        } else if (msg instanceof TrackerRoutesResponse m) {
                 w.writeU16(TAG_TRACKER_ROUTES_RESPONSE).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
                 w.writeList(m.peers(), (ww, p) -> {
                     p.peer().encode(ww);
                     ww.writeList(p.routes(), CanonicalWriter::writeString);
                 });
-            }
-            case dev.nodera.protocol.simulationmsg.EventSyncQuery m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncQuery m) {
                 w.writeU16(TAG_EVENT_SYNC_QUERY).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 w.writeU64(m.sinceEventId());
-            }
-            case dev.nodera.protocol.simulationmsg.EventSyncAnswer m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncAnswer m) {
                 w.writeU16(TAG_EVENT_SYNC_ANSWER).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 w.writeList(m.encodedEvents(), CanonicalWriter::writeBytes);
                 w.writeList(m.encodedCertificates(), CanonicalWriter::writeBytes);
-            }
-            case dev.nodera.protocol.simulationmsg.HaloUpdate m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.HaloUpdate m) {
                 w.writeU16(TAG_HALO_UPDATE).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
                 m.version().encode(w);
                 w.writeList(m.encodedEdgeColumns(), CanonicalWriter::writeBytes);
-            }
-            case dev.nodera.protocol.simulationmsg.GroupMigration m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.GroupMigration m) {
                 w.writeU16(TAG_GROUP_MIGRATION).writeU16(ENCODING_VERSION);
                 m.newPrimary().encode(w);
                 w.writeList(m.bumps(), (ww, b) -> {
                     b.region().encode(ww);
                     b.newEpoch().encode(ww);
                 });
-            }
-            case dev.nodera.protocol.simulationmsg.GenesisApprovalRequest m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalRequest m) {
                 w.writeU16(TAG_GENESIS_APPROVAL_REQUEST).writeU16(ENCODING_VERSION);
                 m.genesisRoot().encode(w);
                 w.writeList(m.founders(), (ww, f) -> {
                     f.nodeId().encode(ww);
                     ww.writeBytes(f.publicKey());
                 });
-            }
-            case dev.nodera.protocol.simulationmsg.GenesisApprovalGrant m -> {
+        } else if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalGrant m) {
                 w.writeU16(TAG_GENESIS_APPROVAL_GRANT).writeU16(ENCODING_VERSION);
                 m.genesisRoot().encode(w);
                 m.founder().encode(w);
                 w.writeBytes(m.signature());
-            }
-            case dev.nodera.protocol.membership.WorldGrantGossip m -> {
+        } else if (msg instanceof dev.nodera.protocol.membership.WorldGrantGossip m) {
                 w.writeU16(TAG_WORLD_GRANT_GOSSIP).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
                 w.writeBytes(m.encodedGrant());
-            }
-            case WorldManifestQuery m -> {
+        } else if (msg instanceof dev.nodera.protocol.membership.WorldOwnershipGossip m) {
+                w.writeU16(TAG_WORLD_OWNERSHIP_GOSSIP).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+                w.writeBytes(m.encodedOwnership());
+        } else if (msg instanceof dev.nodera.protocol.tunnel.TunnelOpen m) {
+                w.writeU16(TAG_TUNNEL_OPEN).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.sessionId());
+                w.writeU64(m.streamId());
+        } else if (msg instanceof dev.nodera.protocol.tunnel.TunnelData m) {
+                w.writeU16(TAG_TUNNEL_DATA).writeU16(ENCODING_VERSION);
+                w.writeU64(m.streamId());
+                w.writeBytes(m.payload());
+        } else if (msg instanceof dev.nodera.protocol.tunnel.TunnelClose m) {
+                w.writeU16(TAG_TUNNEL_CLOSE).writeU16(ENCODING_VERSION);
+                w.writeU64(m.streamId());
+                w.writeString(m.reason());
+        } else if (msg instanceof dev.nodera.protocol.membership.WorldDeletionGossip m) {
+                w.writeU16(TAG_WORLD_DELETION_GOSSIP).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+                w.writeBytes(m.encodedTombstone());
+        } else if (msg instanceof WorldManifestQuery m) {
                 w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
-            }
-            case WorldManifestAnswer m -> {
+        } else if (msg instanceof WorldManifestAnswer m) {
                 w.writeU16(TAG_WORLD_MANIFEST_ANSWER).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
                 w.writeList(m.manifests(), CanonicalWriter::writeBytes);
-            }
-            case InventoryAdvertisement m -> {
+        } else if (msg instanceof InventoryAdvertisement m) {
                 w.writeU16(TAG_INVENTORY_ADVERTISEMENT).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.genesisHash());
                 m.holder().encode(w);
@@ -842,20 +846,17 @@ public final class MessageCodec {
                     ww.writeBytes(h.manifestRoot());
                     ww.writeBytes(h.pieceBitmap());
                 });
-            }
-            case ArchiveReplicaAssignment m -> {
+        } else if (msg instanceof ArchiveReplicaAssignment m) {
                 w.writeU16(TAG_ARCHIVE_REPLICA_ASSIGNMENT).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.manifestRoot());
                 m.assignee().encode(w);
                 w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
-            }
-            case ArchiveReplicaAck m -> {
+        } else if (msg instanceof ArchiveReplicaAck m) {
                 w.writeU16(TAG_ARCHIVE_REPLICA_ACK).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.manifestRoot());
                 m.assignee().encode(w);
                 w.writeList(m.pieceIndexes(), (ww, i) -> ww.writeU32(Integer.toUnsignedLong(i)));
-            }
-            case ExternalDelta m -> {
+        } else if (msg instanceof ExternalDelta m) {
                 w.writeU16(TAG_EXTERNAL_DELTA).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.baseVersion().encode(w);
@@ -864,42 +865,35 @@ public final class MessageCodec {
                 if (m.bodyVersion() >= 2) {
                     w.writeU64(m.tick());
                 }
-            }
-            case TrackerAnnounce m -> {
+        } else if (msg instanceof TrackerAnnounce m) {
                 // The record owns the signed-portion layout so the codec and the signer can never
                 // disagree about where the signature starts.
                 m.writeSignedPortion(w);
                 w.writeBytes(m.signature());
-            }
-            case TrackerAnnounceAck m -> {
+        } else if (msg instanceof TrackerAnnounceAck m) {
                 w.writeU16(TAG_TRACKER_ANNOUNCE_ACK).writeU16(ENCODING_VERSION);
                 w.writeBoolean(m.accepted());
                 w.writeU32(Integer.toUnsignedLong(m.nextAnnounceAfterSeconds()));
                 w.writeString(m.reason());
-            }
-            case RendezvousRegister m -> {
+        } else if (msg instanceof RendezvousRegister m) {
                 w.writeU16(TAG_RENDEZVOUS_REGISTER).writeU16(ENCODING_VERSION);
                 writeSignedRecord(w, m.signed());
-            }
-            case RendezvousDiscover m -> {
+        } else if (msg instanceof RendezvousDiscover m) {
                 w.writeU16(TAG_RENDEZVOUS_DISCOVER).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.networkId());
                 w.writeBytes(m.genesisHash());
                 w.writeU32(Integer.toUnsignedLong(m.cursor()));
                 w.writeU32(Integer.toUnsignedLong(m.limit()));
-            }
-            case RendezvousPeers m -> {
+        } else if (msg instanceof RendezvousPeers m) {
                 w.writeU16(TAG_RENDEZVOUS_PEERS).writeU16(ENCODING_VERSION);
                 w.writeU32(Integer.toUnsignedLong(m.nextCursor()));
                 w.writeList(m.records(), MessageCodec::writeSignedRecord);
-            }
-            case RelayReserve m -> {
+        } else if (msg instanceof RelayReserve m) {
                 w.writeU16(TAG_RELAY_RESERVE).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.networkId());
                 w.writeBytes(m.genesisHash());
                 m.peer().encode(w);
-            }
-            case RelayReservation m -> {
+        } else if (msg instanceof RelayReservation m) {
                 w.writeU16(TAG_RELAY_RESERVATION).writeU16(ENCODING_VERSION);
                 w.writeBoolean(m.accepted());
                 w.writeString(m.relayRoute());
@@ -908,23 +902,20 @@ public final class MessageCodec {
                 w.writeU64(m.maxDurationMillis());
                 w.writeBytes(m.proof());
                 w.writeString(m.reason());
-            }
-            case RelayConnect m -> {
+        } else if (msg instanceof RelayConnect m) {
                 w.writeU16(TAG_RELAY_CONNECT).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.networkId());
                 w.writeBytes(m.genesisHash());
                 m.source().encode(w);
                 m.target().encode(w);
-            }
-            case RelayIncoming m -> {
+        } else if (msg instanceof RelayIncoming m) {
                 w.writeU16(TAG_RELAY_INCOMING).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.networkId());
                 w.writeBytes(m.genesisHash());
                 m.source().encode(w);
                 m.target().encode(w);
                 w.writeBytes(m.proof());
-            }
-            case PunchSync m -> {
+        } else if (msg instanceof PunchSync m) {
                 w.writeU16(TAG_PUNCH_SYNC).writeU16(ENCODING_VERSION);
                 writeUuid(w, m.networkId());
                 w.writeBytes(m.genesisHash());
@@ -932,14 +923,11 @@ public final class MessageCodec {
                 m.target().encode(w);
                 w.writeList(m.observedCandidates(), (ww, c) -> c.encode(ww));
                 w.writeU64(m.goSignalEpochMillis());
-            }
-            case ObservedAddress m -> {
+        } else if (msg instanceof ObservedAddress m) {
                 w.writeU16(TAG_OBSERVED_ADDRESS).writeU16(ENCODING_VERSION);
                 m.peer().encode(w);
                 w.writeString(m.observedRoute());
-            }
-            default -> throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
-        }
+        } else { throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass()); }
     }
 
     /**
@@ -1353,6 +1341,28 @@ public final class MessageCodec {
             case TAG_WORLD_GRANT_GOSSIP -> {
                 Bytes worldId = r.readBytesValue();
                 yield new dev.nodera.protocol.membership.WorldGrantGossip(
+                        worldId, r.readBytesValue());
+            }
+            case TAG_WORLD_OWNERSHIP_GOSSIP -> {
+                Bytes worldId = r.readBytesValue();
+                yield new dev.nodera.protocol.membership.WorldOwnershipGossip(
+                        worldId, r.readBytesValue());
+            }
+            case TAG_TUNNEL_OPEN -> {
+                Bytes sessionId = r.readBytesValue();
+                yield new dev.nodera.protocol.tunnel.TunnelOpen(sessionId, r.readU64());
+            }
+            case TAG_TUNNEL_DATA -> {
+                long streamId = r.readU64();
+                yield new dev.nodera.protocol.tunnel.TunnelData(streamId, r.readBytesValue());
+            }
+            case TAG_TUNNEL_CLOSE -> {
+                long streamId = r.readU64();
+                yield new dev.nodera.protocol.tunnel.TunnelClose(streamId, r.readString());
+            }
+            case TAG_WORLD_DELETION_GOSSIP -> {
+                Bytes worldId = r.readBytesValue();
+                yield new dev.nodera.protocol.membership.WorldDeletionGossip(
                         worldId, r.readBytesValue());
             }
             case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());

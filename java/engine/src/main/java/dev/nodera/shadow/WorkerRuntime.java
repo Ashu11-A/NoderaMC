@@ -6,7 +6,6 @@ import dev.nodera.simulation.RegionExecutionResult;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -41,7 +40,7 @@ public final class WorkerRuntime implements AutoCloseable {
             throw new IllegalArgumentException("engine must not be null");
         }
         this.engine = engine;
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.executor = dev.nodera.core.concurrent.Threads.newTaskExecutor();
     }
 
     /** @return the current lifecycle state (safe from any thread). */

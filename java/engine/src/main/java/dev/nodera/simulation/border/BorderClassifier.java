@@ -75,21 +75,30 @@ public final class BorderClassifier {
     }
 
     private static NBlockPos targetPosition(GameAction action) {
-        return switch (action) {
-            case PlaceBlockAction p -> p.pos();
-            case BreakBlockAction b -> b.pos();
-            case DropItemAction d -> new NBlockPos(d.origin().blockX(), d.origin().blockY(), d.origin().blockZ());
-            case PickupItemAction ignored -> throw new IllegalStateException(
+        // See EntityRuleSet.validate: a type-pattern switch is unusable on Android.
+        if (action instanceof PlaceBlockAction p) return p.pos();
+        if (action instanceof BreakBlockAction b) return b.pos();
+        if (action instanceof DropItemAction d) {
+            return new NBlockPos(d.origin().blockX(), d.origin().blockY(), d.origin().blockZ());
+        }
+        if (action instanceof PickupItemAction ignored) {
+            throw new IllegalStateException(
                     "PickupItemAction has no block target; handled before reaching targetPosition");
-            case dev.nodera.core.action.AttackEntityAction ignored -> throw new IllegalStateException(
+        }
+        if (action instanceof dev.nodera.core.action.AttackEntityAction ignored) {
+            throw new IllegalStateException(
                     "AttackEntityAction has no block target; handled before reaching targetPosition");
-            case dev.nodera.core.action.ContainerAction c -> c.pos();
-            case dev.nodera.core.action.MovePlayerAction ignored -> throw new IllegalStateException(
+        }
+        if (action instanceof dev.nodera.core.action.ContainerAction c) return c.pos();
+        if (action instanceof dev.nodera.core.action.MovePlayerAction ignored) {
+            throw new IllegalStateException(
                     "MovePlayerAction is region-local by construction; handled before targetPosition");
-                    case dev.nodera.core.action.InteractBlockAction i -> i.pos();
-            // A command's box is validated against the owned region on both corners, so the
-            // "from" corner is a faithful single target for the cross-region classifier.
-            case dev.nodera.core.action.CommandAction c -> c.from();
-        };
+        }
+        if (action instanceof dev.nodera.core.action.InteractBlockAction i) return i.pos();
+        // A command's box is validated against the owned region on both corners, so the
+        // "from" corner is a faithful single target for the cross-region classifier.
+        if (action instanceof dev.nodera.core.action.CommandAction c) return c.from();
+        throw new IllegalStateException(
+                "unhandled GameAction subtype: " + action.getClass());
     }
 }

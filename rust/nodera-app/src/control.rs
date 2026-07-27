@@ -5,24 +5,26 @@
 //! bind that port; it *connects* to it to (a) confirm the worker is alive for the tray/dashboard and
 //! (b) later pull state. Line-oriented ASCII, matching `dev.nodera.peer.control.ControlProtocol`:
 //!
-//! * app → worker:  `NODERA-PROBE <protocolVersion>\n`
-//! * worker → app:  `NODERA-OK <protocolVersion> <workerVersion>\n`
+//! This module is the **request/response** half: one verb, one connection, one reply line. The
+//! live half — the stream the worker pushes state into — is `api::link`, which is what the
+//! dashboard runs on. What is left here is the handful of exchanges that are genuinely questions:
+//! a piece map for a world the user just opened, a configuration push, a consent decision.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use crate::metrics::MetricsHandle;
-
 /// Control-protocol version. MUST match `ControlProtocol.PROTOCOL_VERSION` (Java) + the mod.
+///
+/// Worker task 6 appended `NODERA-WORLDS` and `NODERA-PROVE`. Neither is used from here and neither
+/// is declared below: this app reads world ownership from the `owned` / `world_public_key` fields
+/// that ride the `NODERA-STATE` snapshot it already polls, so a second round trip per second would
+/// buy nothing. A constant for a verb nothing sends would be a claim about this file that is not
+/// true.
 pub const PROTOCOL_VERSION: u32 = 2;
 
-const PROBE: &str = "NODERA-PROBE";
-const OK: &str = "NODERA-OK";
 const STATE: &str = "NODERA-STATE";
 const PIECES: &str = "NODERA-PIECES";
 const ERR: &str = "NODERA-ERR";
@@ -53,6 +55,17 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// wants "did it answer", but fatal for configuration pushes, where the whole point is to show the
 /// user *why* the worker declined. Callers that genuinely do not care map `Err` to `None`.
 pub(crate) async fn request(control_addr: &str, line: String) -> Result<String, String> {
+    // The protocol is line-oriented and whitespace-split, so a request line is only unambiguous if
+    // it contains no newline and no stray control character. Every argument on this socket
+    // ultimately comes from the frontend — a world id, a session id, an action — and a value
+    // carrying `\n` would be delivered to the worker as *two* requests, the second one entirely
+    // attacker-chosen. Checked here rather than at each of the eleven call sites, because one of
+    // them will eventually be added without the check.
+    if let Some(bad) = line.chars().find(|c| c.is_control()) {
+        return Err(format!(
+            "refusing to send a control request containing {bad:?}"
+        ));
+    }
     let stream = timeout(CONNECT_TIMEOUT, TcpStream::connect(control_addr))
         .await
         .map_err(|_| format!("the worker did not accept a connection on {control_addr} in time"))?
@@ -88,25 +101,6 @@ pub(crate) async fn request(control_addr: &str, line: String) -> Result<String, 
     Ok(reply)
 }
 
-/// Probe the worker once; returns its reported version on success.
-pub async fn probe(control_addr: &str) -> Option<String> {
-    let stream = TcpStream::connect(control_addr).await.ok()?;
-    let (read, mut write) = stream.into_split();
-    write
-        .write_all(format!("{PROBE} {PROTOCOL_VERSION}\n").as_bytes())
-        .await
-        .ok()?;
-    write.flush().await.ok()?;
-    let mut lines = BufReader::new(read).lines();
-    let line = lines.next_line().await.ok()??;
-    let mut parts = line.split_whitespace();
-    if parts.next()? != OK {
-        return None;
-    }
-    let _proto = parts.next();
-    Some(parts.next().unwrap_or("unknown").to_string())
-}
-
 /// Fetch the worker's live metrics snapshot (`NODERA-STATE`), parsing the JSON reply into
 /// [`crate::metrics::Metrics`]. Returns `None` if the worker is unreachable or replies with an error.
 pub async fn fetch_state(control_addr: &str) -> Option<crate::metrics::Metrics> {
@@ -132,37 +126,6 @@ pub async fn fetch_pieces(control_addr: &str, world_id: &str) -> Option<crate::m
     .await
     .ok()?;
     serde_json::from_str::<crate::metrics::PieceMap>(&line).ok()
-}
-
-/// Poll the worker's control endpoint on a cadence: pull the live metrics snapshot into the shared
-/// handle so the dashboard + tray reflect real data + node liveness. A failed fetch marks the node
-/// offline (keeping the rest of the snapshot as its last-known value).
-///
-/// `on_reconnect` is signalled on every offline→**online** edge. The worker holds configuration in
-/// memory only, so anything that made it forget — a crash, a restart, an operator starting it by
-/// hand in attach mode, or simply this app launching second — presents to us as exactly that edge.
-/// Re-pushing here is therefore the *single* mechanism that keeps the worker's configuration equal
-/// to the user's, and it needs no knowledge of which of those things happened.
-pub async fn monitor(control_addr: String, metrics: Arc<MetricsHandle>, on_reconnect: Arc<Notify>) {
-    let mut tick = tokio::time::interval(Duration::from_secs(2));
-    let mut was_up = false;
-    loop {
-        tick.tick().await;
-        match fetch_state(&control_addr).await {
-            Some(mut snapshot) => {
-                snapshot.daemon_up = true;
-                metrics.set(snapshot);
-                if !was_up {
-                    on_reconnect.notify_one();
-                }
-                was_up = true;
-            }
-            None => {
-                metrics.set_daemon_up(false);
-                was_up = false;
-            }
-        }
-    }
 }
 
 #[cfg(test)]

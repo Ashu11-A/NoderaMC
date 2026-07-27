@@ -388,22 +388,29 @@ public final class FlatWorldRules implements RuleSet {
 
     @Override
     public Optional<ActionRejection> validate(RegionWorldView view, ActionEnvelope env) {
-        return switch (env.action()) {
-            case PlaceBlockAction p -> validatePlace(view, env, p);
-            case BreakBlockAction b -> validateBreak(view, env, b);
-            // The block-only MVP rules do not implement the entity lane (Task 12a ships its own
-            // EntityRuleSet); item actions are rejected here rather than silently dropped.
-            case DropItemAction d -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
-            case PickupItemAction p -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
-            case dev.nodera.core.action.AttackEntityAction a -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
-            case dev.nodera.core.action.ContainerAction c -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
-            case dev.nodera.core.action.MovePlayerAction m -> Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
-            case dev.nodera.core.action.InteractBlockAction i -> validateInteract(view, env, i);
-            // L-14: the deterministic command subset. Authority is checked HERE, against the
-            // committee-agreed operator set, not at the capture point a modified client controls.
-            case dev.nodera.core.action.CommandAction c ->
-                    CommandRules.validate(view, env, c, view.operators(), PLACEABLE::get);
-        };
+        // An `instanceof` chain, not a type-pattern switch: those compile to an
+        // invokedynamic on SwitchBootstraps, which ART does not implement.
+        dev.nodera.core.action.GameAction acted = env.action();
+        if (acted instanceof PlaceBlockAction p) return validatePlace(view, env, p);
+        if (acted instanceof BreakBlockAction b) return validateBreak(view, env, b);
+        // The block-only MVP rules do not implement the entity lane (Task 12a ships its own
+        // EntityRuleSet); item actions are rejected here rather than silently dropped.
+        if (acted instanceof DropItemAction d
+                || acted instanceof PickupItemAction
+                || acted instanceof dev.nodera.core.action.AttackEntityAction
+                || acted instanceof dev.nodera.core.action.ContainerAction
+                || acted instanceof dev.nodera.core.action.MovePlayerAction) {
+            return Optional.of(new ActionRejection(env, ActionRejection.Reason.UNSUPPORTED_ACTION));
+        }
+        if (acted instanceof dev.nodera.core.action.InteractBlockAction i) {
+            return validateInteract(view, env, i);
+        }
+        // L-14: the deterministic command subset. Authority is checked HERE, against the
+        // committee-agreed operator set, not at the capture point a modified client controls.
+        if (acted instanceof dev.nodera.core.action.CommandAction c) {
+            return CommandRules.validate(view, env, c, view.operators(), PLACEABLE::get);
+        }
+        throw new IllegalStateException("unhandled GameAction subtype: " + acted.getClass());
     }
 
     private static Optional<ActionRejection> validateInteract(
@@ -452,8 +459,7 @@ public final class FlatWorldRules implements RuleSet {
 
     @Override
     public void apply(MutableRegionState state, ActionEnvelope env, DeterministicRandom rng) {
-        switch (env.action()) {
-            case PlaceBlockAction p -> {
+        if (env.action() instanceof PlaceBlockAction p) {
                 state.setBlock(p.pos(), p.blockStateId(), env, rng);
                 if (RedstoneRules.isRedstoneFamily(p.blockStateId())
                         || touchesRedstone(state, p.pos())) {
@@ -471,7 +477,7 @@ public final class FlatWorldRules implements RuleSet {
                                     .HOPPER_INTERVAL_TICKS, 0);
                 }
             }
-            case BreakBlockAction b -> {
+        else if (env.action() instanceof BreakBlockAction b) {
                 boolean affected = RedstoneRules.isRedstoneFamily(state.getBlock(b.pos()))
                         || touchesRedstone(state, b.pos());
                 boolean wetted = FluidRules.isFluid(state.getBlock(b.pos()))
@@ -490,23 +496,22 @@ public final class FlatWorldRules implements RuleSet {
                 GravityRules.onVacated(state, b.pos(), rng);
                 RedstoneRules.observersOnChange(state, b.pos(), env.targetTick());
             }
-            case dev.nodera.core.action.CommandAction c -> CommandRules.apply(state, env, c, rng);
-            case dev.nodera.core.action.InteractBlockAction i -> {
+        else if (env.action() instanceof dev.nodera.core.action.CommandAction c) { CommandRules.apply(state, env, c, rng); }
+        else if (env.action() instanceof dev.nodera.core.action.InteractBlockAction i) {
                 RedstoneRules.interact(state, i.pos(), env, rng, env.targetTick());
             }
             // Drop/Pickup are validated as UNSUPPORTED_ACTION above, so apply never sees them;
             // the entity lane (Task 12a EntityRuleSet) owns their application. Exhaustive by kind.
-            case DropItemAction d -> throw new IllegalStateException(
-                    "FlatWorldRules.apply received a DropItemAction (should be rejected in validate)");
-            case PickupItemAction p -> throw new IllegalStateException(
-                    "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)");
-            case dev.nodera.core.action.AttackEntityAction a -> throw new IllegalStateException(
-                    "FlatWorldRules.apply received an AttackEntityAction (should be rejected in validate)");
-            case dev.nodera.core.action.ContainerAction c -> throw new IllegalStateException(
-                    "FlatWorldRules.apply received a ContainerAction (should be rejected in validate)");
-            case dev.nodera.core.action.MovePlayerAction m -> throw new IllegalStateException(
-                    "FlatWorldRules.apply received a MovePlayerAction (should be rejected in validate)");
-        }
+        else if (env.action() instanceof DropItemAction d) { throw new IllegalStateException(
+                    "FlatWorldRules.apply received a DropItemAction (should be rejected in validate)"); }
+        else if (env.action() instanceof PickupItemAction p) { throw new IllegalStateException(
+                    "FlatWorldRules.apply received a PickupItemAction (should be rejected in validate)"); }
+        else if (env.action() instanceof dev.nodera.core.action.AttackEntityAction a) { throw new IllegalStateException(
+                    "FlatWorldRules.apply received an AttackEntityAction (should be rejected in validate)"); }
+        else if (env.action() instanceof dev.nodera.core.action.ContainerAction c) { throw new IllegalStateException(
+                    "FlatWorldRules.apply received a ContainerAction (should be rejected in validate)"); }
+        else if (env.action() instanceof dev.nodera.core.action.MovePlayerAction m) { throw new IllegalStateException(
+                    "FlatWorldRules.apply received a MovePlayerAction (should be rejected in validate)"); }
     }
 
     /** Whether any of {@code pos}'s six neighbors is a fluid cell. */

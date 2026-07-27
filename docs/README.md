@@ -55,6 +55,7 @@ docs/
 ├── minecraft/             ← category: the NeoForge mod (+ prior-art studies & upstream sources)
 ├── worker/                ← category: the always-on headless peer worker
 ├── app/                   ← category: the Tauri companion application
+├── mobile/                ← category: the Android build — the same app and worker, on a phone
 ├── server/                ← category: the Paper/Folia endpoint plugin (plans/Plan.5.md)
 └── telemetry/             ← category: consented measurement + the Big Data plane (plans/Plan.6.md)
 ```
@@ -138,6 +139,7 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 | [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 8 |
 | [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `dev.nodera.headless`, `dev.nodera.peer.control` | 5 |
 | [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 5 |
+| [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `rust/nodera-app/android`, `scripts/android-*.sh` | 3 |
 | [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | (unwritten) | 10 |
 | [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `rust/nodera-telemetry`, `docker/telemetry` | 3 |
 

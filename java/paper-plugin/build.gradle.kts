@@ -17,6 +17,11 @@ repositories {
 dependencies {
     compileOnly(libs.paper.api)
     implementation(project(":core"))
+    // The peer stack. This plugin is how an UNMODIFIED Paper/Folia server joins the network: the
+    // server has no companion app supervising a worker beside it, so the peer runs in-process here.
+    // That is the opposite trade from the NeoForge mod — see java/worker/build.gradle.kts — and it
+    // is deliberate: a server operator installs one jar, a player installs an app.
+    implementation(project(":peer"))
 
     testImplementation(project(":core"))
 }
@@ -26,13 +31,16 @@ dependencies {
 tasks.jar {
     archiveBaseName.set("nodera-endpoint")
     archiveVersion.set("")
-    // The plugin's classes need `dev.nodera.core` at runtime and the server provides no such
-    // library, so core rides inside the jar. Only core: the endpoint deliberately does not carry
-    // the whole peer stack yet — task 2 decides how the worker is reached.
+    // The plugin's classes need the Nodera stack at runtime and the server provides none of it, so
+    // our own modules ride inside the jar. Ours only — never Paper, never a third-party library the
+    // server already has, which would shade a second copy of the platform into the plugin.
     dependsOn(configurations.runtimeClasspath)
     from({
         configurations.runtimeClasspath.get()
-            .filter { it.name.startsWith("core") }
+            .filter { artifact ->
+                listOf("core", "transport", "engine", "storage", "peer")
+                    .any { artifact.name.startsWith("$it-") || artifact.name == "$it.jar" }
+            }
             .map { if (it.isDirectory) it else zipTree(it) }
     })
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE

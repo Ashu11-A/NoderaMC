@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Launch-at-login, which only a desktop has. Kept in its own file because the autostart plugin is not compiled for Android at all (see Cargo.toml), so naming its permission in the shared capability would fail the mobile build rather than being ignored there.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["main"],
+  "permissions": ["autostart:default"]
+}

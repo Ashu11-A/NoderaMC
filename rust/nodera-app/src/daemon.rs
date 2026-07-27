@@ -3,8 +3,8 @@
 //! player on the network with Minecraft closed and owns the control endpoint the mod probes.
 //!
 //! The supervisor launches the worker's `bin/nodera-headless` launcher, restarts it with backoff if
-//! it dies, and keeps the shared [`MetricsHandle`] daemon-up flag in sync (the authoritative liveness
-//! signal is [`crate::control::monitor`] probing the worker's control port).
+//! it dies, and marks the dashboard link down when it does (the authoritative liveness signal is
+//! [`crate::api::link`], which is connected to the worker's control port).
 //!
 //! **Attach mode** (`NODERA_APP_ATTACH=1`): do NOT spawn a worker — one is already running (e.g.
 //! started by `scripts/dev.sh`). The app only monitors + shows the UI. This prevents two workers
@@ -20,7 +20,7 @@ use tokio::process::Command;
 use tokio::sync::Notify;
 
 use crate::logs::LogBuffer;
-use crate::metrics::MetricsHandle;
+use crate::api::store::DashboardStore;
 use crate::settings::{Settings, SettingsHandle};
 
 /// True when the app should attach to an already-running worker instead of supervising its own.
@@ -125,7 +125,7 @@ fn worker_launcher() -> PathBuf {
 /// [`worker_env`] from the settings as they are now. There is deliberately no second spawn site to
 /// keep in sync — a settings change plus a restart is how env-shaped configuration takes effect.
 pub async fn supervise(
-    metrics: Arc<MetricsHandle>,
+    store: Arc<DashboardStore>,
     logs: Arc<LogBuffer>,
     settings: Arc<SettingsHandle>,
     restart: Arc<RestartSignal>,
@@ -204,7 +204,9 @@ pub async fn supervise(
                 eprintln!("nodera-app: failed to start peer worker ({launcher:?}): {e}");
             }
         }
-        metrics.set_daemon_up(false);
+        // The link reports its own state, but it can take a moment to notice; saying it here means
+        // the screen reflects a worker we KNOW is gone the instant we stop it.
+        store.mark_offline("the peer worker is not running");
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(max_backoff);
     }

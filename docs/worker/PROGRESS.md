@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-25 · Tasks completed: **4 / 5**
+**Category:** worker · **Last audit:** 2026-07-26 · Tasks completed: **6 / 7**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -20,10 +20,83 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [3](Task.3.md) | Host/join delegation + seeding | 🚧 IN PROGRESS | Archive seeding + grant gossip + the announce heartbeat's live holdings + validated-lane region-piece seeding (`NODERA-SEED-REGION`, `RegionSeedSpool`) landed; L-41 retired 2026-07-26. Deliverable 9 — rendezvous registration persisting across game sessions — has no evidence yet |
 | [4](Task.4.md) | Out-of-game validation | ✅ COMPLETED (headless) | L-48 retired; live region feed rides the mod |
 | [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
+| [6](Task.6.md) | World ownership + durable registry | ✅ COMPLETED | `WorldHostingPersistenceTest`, `OwnershipGossipIT`, `WorldOwnershipVerbIT`; verified live against the built distribution |
+| [7](Task.7.md) | The LAN lane — playing without a mod | ✅ COMPLETED | `TunnelServiceIT`, `LanSessionServiceTest`, `LanBeaconTest`; verified live: two workers, a real tracker, a vanilla beacon, bytes reaching the host's game |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — Two people can play together with nothing installed in Minecraft
+
+The worker now hears the multicast beacon vanilla Minecraft sends when a world is opened to LAN, and
+can extend that socket across the network. Player A presses **Open to LAN** in an ordinary game; A's
+app asks whether to share it; B finds it in the directory and clicks Join; B's own Minecraft
+direct-connects to a loopback port that leads to A's running game. **No world data moves** — the
+tunnel carries the connection, which is exactly why an unmodified client can use it.
+
+Proven live, two worker processes and a real tracker binary:
+
+```
+3. B browses:      "Ashu's Survival World"  players=1  pieces=0  mine=False
+4. B clicks Join:  NODERA-OK 127.0.0.1:35461
+5. B connects:     B received: [A's world] HELLO FROM PLAYER B
+                   A's game actually saw: ['hello from player B']
+6. A closes it:    A's sessions: []
+```
+
+Two rules are load-bearing and are pinned by tests rather than by discipline. **A guest names a
+session, never an address** — `TunnelOpen` has no host field, and `publish` is the only thing that
+maps a session to a port, so a peer cannot be talked into proxying into its own loopback or LAN.
+**Detection is not consent** — a detected world sits in `offered` and reaches nothing until the
+player answers, and "not now" leaves it shareable rather than forgetting it.
+
+### 2026-07-26 — The worker is its own module, and is no longer inside the mod
+
+`dev.nodera.headless` moved from `:peer` to a new `:worker`. It had been a package in the peer
+library, which meant the worker executable was compiled into anything depending on that library —
+including the NeoForge mod's fat jar, which shipped `HeadlessPeerMain` into every player's `mods/`
+folder. A worker inside the mod is a contradiction: the whole point of it is that it outlives the
+game.
+
+Verified by counting: `dev/nodera/headless` classes in `neoforge-mod.jar` went 60 → **0**. The mod's
+one compile-time reference to the control plane also went: `CompanionProtocol` now holds literals,
+with `CompanionProtocolContractTest` comparing them against the worker's definition — a drift alarm
+in a test, which fails loudly, rather than in a coupling, which fails silently between two
+separately-installed artifacts that talk over a socket. `:paper-plugin` gained `:peer`, which is how
+an unmodified Paper/Folia server joins the network with no companion app beside it.
+
+### 2026-07-26 — The worker survives its own restart, and worlds get keys of their own
+
+Two things landed together because they are the same question asked twice: what does this peer keep on
+the network, and which of it does it speak for.
+
+**The registry.** `WorldHostingService` held its worlds in memory only, so every worker restart
+dropped them all: it stopped announcing, stopped advertising pieces it still had on disk, and answered
+`NODERA-STATE` with `"connected_worlds": []`. That is what "the companion app shows no data" turned
+out to be — the app was reading the worker correctly and the worker had forgotten. Reproduced against
+the shipped launcher before the fix and after: host, `kill`, restart, and the world is now still there
+with its original `addedAt`, its ownership intact, and — correctly — no game endpoint.
+
+Evidence: `WorldHostingPersistenceTest`, which asserts against a **second** hosting service reading
+the same file, because the only interesting property is the one that crosses a process boundary. It
+also pins the negative: liveness is not restored, so a restored world never advertises itself as
+joinable.
+
+This also gives worker [Task 3](Task.3.md) deliverable 9 its mechanism — the restore re-announces and
+re-registers every persisted world with the rendezvous services on the hosting scheduler — though the
+cross-session evidence for that deliverable is still an e2e run nobody has done.
+
+**The keys.** Each world now has its own Ed25519 key pair, minted inside `mintWorldIdentity` because
+the world id derivation already binds the minting node's key, which makes that call the moment of
+authorship by construction. The private half never leaves the creating machine; the public half
+travels in a doubly-signed `WorldOwnership` that every peer verifies for itself, and
+`NODERA-PROVE <world> <challenge>` answers a verifier's nonce with a signature only the administrator
+can produce.
+
+Evidence: `OwnershipGossipIT` — over a loopback mesh, every peer learns and independently verifies the
+owner, a later rival claim does **not** displace it, a tampered claim is refused *and not relayed*,
+and an envelope naming a different world than the claim it carries is dropped.
 
 ### 2026-07-25 — The worker becomes the node's emitter, and the outage lane is green
 

@@ -61,9 +61,21 @@ export function ConsentModal(props: {
     setBusy(true);
     setError("");
     try {
-      props.onAnswered(await setTelemetryConsent(granted));
+      const status = await setTelemetryConsent(granted);
+      props.onAnswered(status);
+      // Cleared even on success. This used to stay `true`, on the assumption that a successful
+      // answer always unmounts the modal — but the gate above is `status.asked`, and a worker that
+      // accepted the call without recording the answer returns `asked: false`. The modal then
+      // stayed on screen as a full-viewport `z-50` overlay with both buttons permanently disabled,
+      // and nothing else in the app was reachable.
+      if (!status.asked) {
+        setError(
+          "your answer was sent, but this node did not record it — try again, or check the peer console",
+        );
+      }
     } catch (e) {
       setError(String(e));
+    } finally {
       setBusy(false);
     }
   }
@@ -217,20 +229,38 @@ export function PrivacyCard(props: {
           title={
             schema?.live
               ? "What is collected (read from the collector this node reports to)"
-              : "What is collected (from this app's bundled copy — the collector was unreachable)"
+              : "What is collected (this app's bundled copy — the collector was unreachable)"
           }
         >
-          <ul className="mb-3 list-disc pl-5 text-sm text-muted">
-            {BUNDLED_SUMMARY.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          <div className="text-sm font-medium">Never collected</div>
-          <ul className="list-disc pl-5 text-sm text-muted">
-            {NEVER_COLLECTED.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
+          {/* When the collector answered, show WHAT IT SAID. The previous version fetched that
+              answer, labelled the section "read from the collector", and then rendered the bundled
+              list anyway — a live claim over static content, which is the one thing a privacy
+              disclosure must not be. */}
+          {schema?.live && schema.text ? (
+            <pre
+              className={cx(
+                MONO,
+                "max-h-[320px] overflow-auto rounded-sm border border-line bg-surface-2 p-2.5",
+                "break-words whitespace-pre-wrap text-muted",
+              )}
+            >
+              {schema.text}
+            </pre>
+          ) : (
+            <>
+              <ul className="mb-3 list-disc pl-5 text-sm text-muted">
+                {BUNDLED_SUMMARY.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <div className="text-sm font-medium">Never collected</div>
+              <ul className="list-disc pl-5 text-sm text-muted">
+                {NEVER_COLLECTED.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </Disclosure>
       </div>
     </Card>

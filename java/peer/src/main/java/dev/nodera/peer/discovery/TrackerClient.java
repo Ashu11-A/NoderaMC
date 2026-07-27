@@ -195,6 +195,16 @@ public final class TrackerClient implements AutoCloseable {
     private volatile int announceIntervalSeconds = DEFAULT_ANNOUNCE_INTERVAL_SECONDS;
 
     /**
+     * Where a tracker's "that world was deleted" answer goes; null until the deletion lane binds.
+     *
+     * <p>This is how a peer that was offline when a world was deleted finds out. It announces the
+     * world as usual, and instead of an ack the tracker hands back the owner's signed record. The
+     * handler re-verifies it — nothing here trusts the tracker's verdict, only its delivery.
+     */
+    private volatile java.util.function.Consumer<
+            dev.nodera.protocol.membership.WorldDeletionGossip> deletionNotices;
+
+    /**
      * @param endpoints the configured tracker endpoints; may be empty (the client then no-ops,
      *                  which is the correct behaviour for a LAN-only deployment).
      * @param identity  this peer's identity — used to sign announces. The private key never leaves
@@ -319,10 +329,54 @@ public final class TrackerClient implements AutoCloseable {
                     if (ack.accepted()) {
                         announceIntervalSeconds = ack.nextAnnounceAfterSeconds();
                     }
+                } else if (reply instanceof dev.nodera.protocol.membership.WorldDeletionGossip
+                        deletion) {
+                    // Not an ack, and not an error either: the world we just announced has been
+                    // deleted by its owner, and the tracker is handing us the proof rather than
+                    // asking us to take its word for it.
+                    java.util.function.Consumer<dev.nodera.protocol.membership.WorldDeletionGossip>
+                            handler = deletionNotices;
+                    if (handler != null) {
+                        handler.accept(deletion);
+                    }
                 }
             });
         }
         return acks;
+    }
+
+    /**
+     * Bind the handler for deletion notices returned in place of an announce ack.
+     *
+     * @param handler receives the notice; it must verify the record itself before acting on it.
+     * @Thread-context any thread.
+     */
+    public void onDeletionNotice(java.util.function.Consumer<
+            dev.nodera.protocol.membership.WorldDeletionGossip> handler) {
+        this.deletionNotices = handler;
+    }
+
+    /**
+     * Tell every configured tracker that a world has been deleted.
+     *
+     * <p>Sent to the trackers rather than only to peers because a tracker is where a world is
+     * <b>found</b>. A deletion that reached every current peer but no tracker would leave the world
+     * advertised to everyone who had not joined yet, and the first of them to announce it would put
+     * it back in front of the rest.
+     *
+     * @param deletion the signed deletion.
+     * @return how many trackers answered.
+     * @Thread-context any thread; never throws for a network failure.
+     */
+    public int publishDeletion(dev.nodera.protocol.membership.WorldDeletionGossip deletion) {
+        Objects.requireNonNull(deletion, "deletion");
+        int delivered = 0;
+        for (Endpoint endpoint : endpoints) {
+            if (exchange(endpoint, deletion).isPresent()) {
+                delivered++;
+            }
+        }
+        return delivered;
     }
 
     /**

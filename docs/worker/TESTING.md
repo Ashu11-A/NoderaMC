@@ -5,16 +5,19 @@
      MUST use real OS processes and real SIGKILLs; a mocked daemon proves nothing about the property
      this category exists for. Keep counts and Last run current. -->
 
-**Category:** worker · **Last run:** 2026-07-26 · Covered inside `java/peer` (549 tests, 0 failing),
-plus the headless `scripts/e2e-telemetry.sh`
+**Category:** worker · **Last run:** 2026-07-26 · `java/worker` plus the peer-side lanes it drives
+(`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/e2e-telemetry.sh`
 
-The worker is packages inside `java/peer` (`dev.nodera.headless`, `dev.nodera.peer.control`), not a
-separate Gradle module, so its tests are counted there — see
-[`../network/TESTING.md`](../network/TESTING.md) for the module totals.
+The worker is now its own Gradle module (`:worker`) — it was a package inside `:peer` until
+2026-07-26, which put the worker executable inside anything depending on the peer library, the mod's
+fat jar included. The control endpoint and the tunnel lane stay in `:peer` because they are library
+code the Paper plugin uses too.
 
 ```bash
-./gradlew :peer:test --tests '*Control*' --tests '*Worker*' --tests '*Companion*'
-printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610     # manual live check against a running worker
+./gradlew :worker:test
+./gradlew :peer:test --tests '*Control*' --tests '*Tunnel*' --tests '*Lan*'
+printf 'NODERA-STATE 2\n' | nc 127.0.0.1 25610     # manual live check against a running worker
+printf 'NODERA-LAN 2 LIST\n' | nc 127.0.0.1 25610  # what this machine has open to LAN
 ```
 
 ---
@@ -28,6 +31,7 @@ printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610     # manual live check against a
 | Real-process crash tests | The daemon is genuinely a different process, proven by killing another one |
 | Quorum ITs | A companion-only node is a real committee member, not a spectator |
 | Manual live checks | The endpoint returns non-zero real data, per increment |
+| **Second-instance tests** | State survives the process — a test that only touches one service instance cannot see a restart defect |
 
 ## 2. Landmark tests
 
@@ -46,6 +50,16 @@ printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610     # manual live check against a
 | `WorkerHeartbeatHoldingsTest` (4) | The announce heartbeat re-reads holdings every time, so content seeded after a world was hosted is advertised; an unreachable tracker never stops it; the cadence keeps its floor |
 | `RegionPieceSeedingTest` (7) | The two lanes keep separate ladders — a region version cannot supersede the world's save — with an idempotent re-seed, a bounded per-region window, and a deterministic capped announce |
 | `CommittedRegionSeederTest` (6) | A commit is filed under the one world this node hosts, and hosting several seeds nothing rather than advertising a region to peers fetching a different world |
+| `TunnelServiceIT` (7) | Over real sockets: a guest's local port reaches the host's game **both ways**; an unpublished session is refused and the host's game is never dialled (the property that keeps this from being an open proxy); withdrawing a session drops the connections it was carrying; the guest's door is loopback-only |
+| `LanSessionServiceTest` (11) | Detection announces nothing; sharing publishes *and* announces; declining keeps the world listed so it can be shared later; stopping differs from declining; closing the world withdraws it whatever was decided; a repeated beacon does not reset the decision |
+| `LanBeaconTest` (6) | The payloads an unmodified Minecraft actually broadcasts, including a MOTD with colour codes and brackets, and every malformed shape that must not be mistaken for a joinable world |
+| `CompanionProtocolContractTest` (3) | The mod and the worker spell every verb identically — a drift alarm in a test rather than a compile-time coupling between two separately-installed artifacts |
+| `ControlWatchStreamTest` (6) | The one verb the worker **writes**: a change is pushed unasked, an unchanged node is not re-sent at the sampling interval, the interval is clamped, an abandoned watcher never disturbs the endpoint, ordinary verbs keep working while a watch is open, and a throwing state renderer ends one stream rather than the node |
+| `WorldHostingPersistenceTest` (8) | A **second** hosting service over the same registry file finds the world the first one shared — the restart defect that made the companion app look broken. Pins the negative too: liveness is never restored, so a restored world does not advertise itself as joinable |
+| `WorldRegistryStoreTest` (11) | Durability across the process, hosting never demoted by a later seed, ownership not erased by a routine re-share, a corrupt file starting empty rather than stopping the node, owner-only permissions |
+| `WorldKeyStoreTest` (9) | One key per world, stable across restarts, owner-only, a non-hex world id never becoming a path, a corrupt key file reported and never overwritten |
+| `OwnershipGossipIT` (6) | Over a real mesh: every peer independently verifies who administers a world; a later rival claim does not displace the owner; a tampered claim is refused **and not relayed**; an envelope naming a different world than its claim is dropped |
+| `WorldOwnershipVerbIT` (6) | Over the real control socket: minting a world identity mints its key and claim; `NODERA-PROVE` answers a challenge with a proof verifiable from the world's public key alone; a world this node did not create is refused |
 | `RegionSeedSpoolTest` (7) | The mod hands snapshots over without the commit path touching disk or a socket: throttled per region, bounded backlog that drops rather than grows, every failure contained |
 
 ## 3. Conventions
@@ -57,6 +71,9 @@ printf 'NODERA-STATE 1\n' | nc 127.0.0.1 25610     # manual live check against a
   stop exercises the path that does not fail, and the whole claim here is about the path that does.
 - **Three mirrors, one commit.** Any protocol change lands in `ControlProtocol`, the mod's
   `CompanionProtocol`, and the app's `control.rs` together, with the version bumped.
+- **State that must survive the process is tested with a second instance.** A test that mutates one
+  service and asserts against that same object cannot see a restart defect — which is exactly how the
+  world registry shipped without one for as long as it did.
 - **Manual live verification per increment** is recorded in the progress ledger — the worker's most
   important properties (it boots, it becomes gateway, it survives a game restart) are observed on a
   real machine before they are claimed.

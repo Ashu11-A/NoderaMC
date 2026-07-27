@@ -55,7 +55,7 @@ jobs:
         run: cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 
       - name: Java emitter tests
-        run: ./gradlew :peer:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
+        run: ./gradlew :peer:test --tests '*Telemetry*' :worker:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
 
       - name: End-to-end consent lane
         run: scripts/e2e-telemetry.sh

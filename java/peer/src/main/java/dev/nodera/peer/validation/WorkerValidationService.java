@@ -801,20 +801,18 @@ public final class WorkerValidationService {
      * {@code runtime.onApplicationMessage(service::onMessage)}.
      */
     public void onMessage(PeerAddress from, NoderaMessage message) {
-        switch (message) {
-            case dev.nodera.protocol.assignment.RegionAssigned m -> onRegionAssigned(m);
-            case ActionBatchMsg m -> onBatch(from, m.batch());
-            case dev.nodera.protocol.simulationmsg.ActionForward f -> onActionForward(f);
-            case RegionProposal p -> onProposal(from, p);
-            case ValidationVote v -> onVote(from, v);
-            case CommitAnnounce c -> worldExecutor.accept(() -> onCommitAnnounce(from, c));
-            case EntityTransferPrepare p -> onTransferPrepare(from, p);
-            case EntityTransferAccept a -> onTransferAccept(from, a);
-            case EntityTransferCommit c -> worldExecutor.accept(() -> onTransferCommit(from, c));
-            case ExternalDelta e -> worldExecutor.accept(() -> onExternalDelta(from, e));
-            case RegionRefusal r -> onRegionRefusal(from, r);
-            default -> { /* not a validation message */ }
-        }
+        if (message instanceof dev.nodera.protocol.assignment.RegionAssigned m) { onRegionAssigned(m);
+        } else if (message instanceof ActionBatchMsg m) { onBatch(from, m.batch());
+        } else if (message instanceof dev.nodera.protocol.simulationmsg.ActionForward f) { onActionForward(f);
+        } else if (message instanceof RegionProposal p) { onProposal(from, p);
+        } else if (message instanceof ValidationVote v) { onVote(from, v);
+        } else if (message instanceof CommitAnnounce c) { worldExecutor.accept(() -> onCommitAnnounce(from, c));
+        } else if (message instanceof EntityTransferPrepare p) { onTransferPrepare(from, p);
+        } else if (message instanceof EntityTransferAccept a) { onTransferAccept(from, a);
+        } else if (message instanceof EntityTransferCommit c) { worldExecutor.accept(() -> onTransferCommit(from, c));
+        } else if (message instanceof ExternalDelta e) { worldExecutor.accept(() -> onExternalDelta(from, e));
+        } else if (message instanceof RegionRefusal r) { onRegionRefusal(from, r);
+        } else { /* not a validation message */ }
     }
 
     /**

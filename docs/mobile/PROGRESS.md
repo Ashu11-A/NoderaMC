@@ -1,0 +1,142 @@
+# Mobile — Progress Ledger
+
+<!-- AI-AGENT-INSTRUCTION: Per-task status ledger for the mobile category. On every outcome-changing
+     commit touching this category: update the §1 row, append a dated §2 milestone note naming the
+     EVIDENCE (a test, a log line, a control-socket answer), then reconcile ../ROADMAP.md §2.
+     Never rewrite an old note. -->
+
+**Category:** mobile · **Last audit:** 2026-07-27 · Tasks completed: **6 / 6**
+
+Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
+
+---
+
+## 1. Task status
+
+| Task | Title | Status | Evidence |
+|---|---|---|---|
+| 1 | Android build pipeline | ✅ COMPLETED | `scripts/android-apk.sh` → signed `build/nodera-release.apk`, installed on a Xiaomi 2210129SG |
+| 2 | The Java worker runs on ART | ✅ COMPLETED | `NODERA-PROBE 2` → `NODERA-OK 2 0.1.0` from the device; `self_route 10.0.0.104:25620` |
+| 3 | Material You, generated not imitated | ✅ COMPLETED | `m3/theme.ts` via `@material/material-color-utilities`; changing the source re-tints the whole tree |
+| 4 | Dual desktop/mobile layouts | ✅ COMPLETED | `useIsCompact` (window) + `useIsMobileBuild` (binary), deliberately two questions |
+| 5 | First-run setup + storage + battery | ✅ COMPLETED | SAF picker returns `/storage/emulated/0/Documents`, write-probed; battery dialog names the vendor |
+| 6 | Native navigation | ✅ COMPLETED | System back walks the WebView history; navigation bar hides in sub-screens |
+| 7 | The phone in the mesh, tested | ✅ COMPLETED | `scripts/e2e-android-mesh.sh` — asserts the phone's own `total_received_bytes` moves after joining the Linux mesh |
+
+## 2. Milestone notes (newest first)
+
+### 2026-07-27 — The phone exchanges real data with the Linux peers, and what stood in the way
+
+`scripts/e2e-android-mesh.sh` found a defect on its first run that every earlier check had missed —
+which is the entire argument for asserting on bytes rather than on status:
+
+```
+FATAL EXCEPTION: nodera-peer-state-0f0b34b4
+java.lang.BootstrapMethodError: Exception from call site #6 bootstrap method
+    at dev.nodera.protocol.codec.MessageCodec.encodeInto(MessageCodec.java:564)
+Caused by: java.lang.ClassCastException: java.lang.Class cannot be cast to java.lang.Object
+```
+
+**Java 21 type-pattern switches are unusable on Android.** They compile to an `invokedynamic` on
+`java.lang.runtime.SwitchBootstraps`, and:
+
+* at `--min-api 26` D8 keeps the call site, because invokedynamic is native from API 26 — and ART's
+  own `SwitchBootstraps` throws the **first time the call site executes**;
+* below 26 D8 tries to desugar, cannot find `SwitchBootstraps` (Android does not ship it and
+  `desugar_jdk_libs` does not provide it), and silently replaces the instruction with a stub that
+  throws `Instruction is unrepresentable in DEX V35: invoke-dynamic`.
+
+Both are **latent**: the worker boots, announces, serves state and answers the control socket, then
+dies on its first encoded message. On a phone that takes the whole app with it, because the worker
+shares the process. It is exactly the failure mode that a "did it connect" test cannot see.
+
+Ten methods across engine, peer, transport and worker were rewritten as `instanceof` chains. The
+transport's wire contract is unchanged, proven by the golden fixtures round-tripping byte-exactly in
+both implementations. `scripts/check-android-bytecode.sh` now fails the build if an
+`invoke-custom` site ever reappears in the dexed closure.
+
+Result, both directions, from each node's own counters:
+
+```
+phone       received=21534  sent=18429  peers=1
+linux peer  received=4515   sent=21908  peers=1
+            peer 0f0b34b4-208e-4705-8ec1-45fa2b8681aa  10.0.0.104:25620
+```
+
+**A correction worth recording.** Earlier notes in this file said the `SwitchBootstraps` story was a
+misdiagnosis and that only the D8 version was real. That was an overcorrection: the D8 version was
+one real blocker, and ART's missing `SwitchBootstraps` is a second, independent one. The first hid
+the second, because nothing had executed a type-switch until the mesh join.
+
+### 2026-07-27 — A suite that asks whether the phone actually receives anything
+
+`scripts/e2e-android-mesh.sh` puts the phone in a mesh with the Linux peers and asserts the one
+thing that cannot be inferred from a screen: the **phone's own** `total_received_bytes` moving after
+it joins, plus a non-empty membership view. Both directions are checked separately, because a NAT
+can let traffic flow one way while "connected" hides it.
+
+Everything about the phone is observed through `adb` — its control socket for state, logcat for the
+worker's own account of itself — so no assertion depends on what the app draws.
+
+Two supporting changes:
+
+* The launcher gained `NODERA_SERVICE_BIND_ADDR` / `NODERA_SERVICE_ADVERTISE_ADDR`. The tracker and
+  rendezvous configs hard-coded `127.0.0.1`, which no off-box peer can open a socket to. Defaults are
+  unchanged, so every existing suite is byte-identical.
+* `run-tests.sh` grew an `OPTIONAL_SUITES` list. This suite needs a physical phone, and a default
+  batch that fails on every machine without one would train people to ignore the batch.
+
+Guards verified against the live device: an unreachable serial and a USB-only serial each fail with
+their own reason, and the phone-side helpers read `node_id`, `self_route` (`10.0.0.104:25620` — a LAN
+route, not loopback), `total_received_bytes` and the tracker list straight from `NODERA-STATE`.
+
+### 2026-07-26 — The phone runs the real Java worker, not a smaller substitute
+
+The worker was believed unportable to Android, and the reasons given were wrong in a way worth
+recording, because both were stated with confidence:
+
+* *"Java 21 type-pattern switches compile to `SwitchBootstraps.typeSwitch`, which ART cannot run and
+  D8 cannot desugar."* The obstacle was the **D8 version**. Build-tools 34 ships R8 8.2, which
+  refuses Java 21 class files outright — `Unsupported class file major version 65` — and that error
+  was read as a language-support problem. D8 from build-tools 35 dexes the entire closure (core,
+  transport, storage, engine, peer, worker, BouncyCastle, fastutil, caffeine, rocksdbjni, zstd-jni)
+  without complaint, and ART runs it.
+* *"rocksdbjni and zstd-jni ship desktop-only natives."* They do. They are never loaded on the path
+  the worker takes: the dex payload strips every foreign `.so` and the worker still reaches
+  `online`.
+
+One genuine incompatibility existed and is now fixed properly:
+`Thread.ofVirtual()` **exists** on ART and throws when started
+(`NullPointerException … ThreadGroup.add`), so `dev.nodera.core.concurrent.Threads` probes the
+capability by starting one and seeing whether it runs, rather than testing a version.
+
+Evidence, from the device:
+
+```
+[main] INFO NoderaWorker - Nodera peer worker 0.1.0 online — node NodeId[5b33c37b-…]
+       listening 10.0.0.104:25620, control 127.0.0.1:25610, 1 tracker(s) / 1 rendezvous
+```
+
+### 2026-07-26 — Three defects found only by running it on a phone
+
+* **`std::fs::read("/dev/urandom")`** in `peer/identity.rs`. `fs::read` reads to EOF and
+  `/dev/urandom` has none, so creating the device's identity allocated ~300 MB/s until Android killed
+  the process — a crash a few seconds after launch, with the peer never announcing. Invisible on
+  desktop, where an identity file already existed. Fixed with `read_exact(&mut [u8; 32])`, pinned by
+  `a_fresh_seed_is_bounded_and_unpredictable`.
+* **`dirs_config()` had no Android arm**, so every path resolved to `"."` = `/`, which is
+  unwritable. Settings could not be saved, which made the first-run flow reappear on every launch and
+  the storage choice never stick. The data directory is now injected from `app_data_dir()` and the
+  settings handle re-read once it is known.
+* **R8 stripped the JNI entry points.** `NoderaStorage.pick` is called only from Rust, which R8
+  cannot see, so it was renamed and the folder picker failed with
+  `NoSuchMethodError: no static method …pick()V`. Keep rules are injected by the build script.
+
+### 2026-07-26 — What Android will and will not allow, said out loud
+
+The folder picker is the system's own (`ACTION_OPEN_DOCUMENT_TREE`), the grant is persisted, and the
+chosen tree is mapped back to a filesystem path **and then written to**. That probe is the feature:
+a SAF grant does not give a `java.io.File`-based worker access to shared storage on Android 11+, so
+the app reports the refusal in plain words instead of saving a setting that silently stores nothing.
+On the test device `/storage/emulated/0/Documents` probed writable.

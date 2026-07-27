@@ -17,11 +17,11 @@
 //!   live transfer service.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::config::PushSignal;
-use crate::metrics::MetricsHandle;
+use crate::api::store::DashboardStore;
 use crate::settings::{Settings, SettingsHandle};
 
 /// How often host power state is read. Battery level moves in percent-per-minute at worst, so a
@@ -80,15 +80,17 @@ pub fn should_transfer(settings: &Settings, battery: BatteryState, game_running:
     true
 }
 
-/// The single `transfers_paused` value, with the two independent reasons it can be set.
+/// The single `transfers_paused` value, with the three independent reasons it can be set.
 ///
-/// Two flags OR-ed rather than one, because "the tray says pause" and "the battery says pause" have
-/// to be able to clear independently: plugging the laptop in must not silently un-pause a node the
-/// user paused by hand, and un-pausing by hand must not be undone by the next battery sample.
+/// Separate flags OR-ed rather than one, because "the tray says pause", "the battery says pause"
+/// and "we are on mobile data" have to be able to clear independently: plugging the laptop in must
+/// not silently un-pause a node the user paused by hand, un-pausing by hand must not be undone by
+/// the next battery sample, and walking onto Wi-Fi must not resume a node paused for battery.
 #[derive(Default)]
 pub struct PauseHandle {
     manual: AtomicBool,
     power: AtomicBool,
+    network: AtomicBool,
 }
 
 impl PauseHandle {
@@ -98,7 +100,26 @@ impl PauseHandle {
 
     /// The value pushed to the worker.
     pub fn paused(&self) -> bool {
-        self.manual.load(Ordering::Relaxed) || self.power.load(Ordering::Relaxed)
+        self.manual.load(Ordering::Relaxed)
+            || self.power.load(Ordering::Relaxed)
+            || self.network.load(Ordering::Relaxed)
+    }
+
+    /// Why the node is paused, in the order a person would want to hear it.
+    ///
+    /// Returned as a reason rather than a bare boolean because "paused" on its own is the single
+    /// most confusing state this app can be in: a phone that quietly stops seeding on mobile data
+    /// looks exactly like a phone whose node crashed. The UI shows this string.
+    pub fn reason(&self) -> Option<&'static str> {
+        if self.manual.load(Ordering::Relaxed) {
+            Some("paused by you")
+        } else if self.network.load(Ordering::Relaxed) {
+            Some("this connection is not allowed by your network setting")
+        } else if self.power.load(Ordering::Relaxed) {
+            Some("paused by the battery rules")
+        } else {
+            None
+        }
     }
 
     pub fn manual_paused(&self) -> bool {
@@ -118,6 +139,14 @@ impl PauseHandle {
         self.power.store(pause, Ordering::Relaxed);
         before != self.paused()
     }
+
+    /// Set the connection-policy half, with the same edge-trigger contract as
+    /// [`Self::set_power_pause`].
+    pub fn set_network_pause(&self, pause: bool) -> bool {
+        let before = self.paused();
+        self.network.store(pause, Ordering::Relaxed);
+        before != self.paused()
+    }
 }
 
 /// Read host power state, collapsing every failure to "no battery".
@@ -127,6 +156,17 @@ impl PauseHandle {
 ///
 /// The manager is constructed per sample rather than held across the `await` in [`sample`]: it is
 /// cheap, and nothing platform-specific then has to be `Send` for the task to compile everywhere.
+/// Read the host's battery, where there is one to read.
+///
+/// The mobile build has no battery crate: a phone's power management is the phone's, an app that
+/// second-guesses it gets killed for it, and there is no worker to pause. Reporting "no battery"
+/// takes the same branch a desktop tower takes, so every rule downstream is already written for it.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn read_battery() -> BatteryState {
+    BatteryState::none()
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_battery() -> BatteryState {
     let Ok(manager) = starship_battery::Manager::new() else {
         return BatteryState::none();
@@ -147,22 +187,58 @@ fn read_battery() -> BatteryState {
 
 /// Is a Minecraft session open on this node?
 ///
-/// Derived from the metrics the app already polls every 2 s rather than from new plumbing: a world
-/// only carries an `mc_route` while its host's game is listening, and it is cleared when the game
+/// Read from the same dashboard store the UI renders, rather than from plumbing of its own: a world
+/// only carries a game endpoint while its host's game is listening, and it is cleared when the game
 /// closes. That makes "the game is running" an observation of the worker's own state instead of a
-/// second, disagreeable source of truth.
-pub fn game_running(metrics: &MetricsHandle) -> bool {
-    metrics
+/// second, disagreeable source of truth — and it means the power rules and the screen can never
+/// disagree about whether anyone is playing.
+pub fn game_running(store: &DashboardStore) -> bool {
+    store
         .snapshot()
-        .connected_worlds
+        .worlds
         .iter()
-        .any(|world| !world.mc_route.trim().is_empty())
+        .any(|world| world.game_endpoint.is_some())
+}
+
+/// How often the active connection is re-read.
+///
+/// Faster than the power sampler because a network change is instantaneous and user-visible: a
+/// phone that leaves Wi-Fi should stop seeding within seconds, not within half a minute of mobile
+/// data. The read is a pair of JNI calls against an in-memory system service, so the cost is
+/// negligible.
+const NETWORK_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Sample the active connection and pause when the user's policy does not allow it.
+///
+/// Runs on every platform. On desktop [`crate::android::network::state`] reports the subject as
+/// unsupported and [`crate::android::network::allows_transfers`] is inert, so this loop costs one
+/// comparison every ten seconds and exists so the two platforms do not diverge — a rule that only
+/// exists on one of them is a rule nobody maintains.
+pub async fn sample_network(
+    settings: Arc<SettingsHandle>,
+    pause: Arc<PauseHandle>,
+    push: Arc<PushSignal>,
+    latest: Arc<Mutex<crate::android::network::NetworkState>>,
+) {
+    let mut tick = tokio::time::interval(NETWORK_INTERVAL);
+    loop {
+        tick.tick().await;
+        let state = crate::android::network::state();
+        let policy = settings.snapshot().network.transfer_network;
+        let allowed = crate::android::network::allows_transfers(policy, &state);
+        // Cached for the UI: the screen has to be able to say *which* connection the node is on and
+        // why it is paused, or "paused" is indistinguishable from "crashed".
+        *latest.lock().unwrap() = state;
+        if pause.set_network_pause(!allowed) {
+            push.request();
+        }
+    }
 }
 
 /// Sample host power on a cadence and push only when the verdict changes.
 pub async fn sample(
     settings: Arc<SettingsHandle>,
-    metrics: Arc<MetricsHandle>,
+    store: Arc<DashboardStore>,
     pause: Arc<PauseHandle>,
     push: Arc<PushSignal>,
 ) {
@@ -170,7 +246,7 @@ pub async fn sample(
     loop {
         tick.tick().await;
         let battery = read_battery();
-        let transfer = should_transfer(&settings.snapshot(), battery, game_running(&metrics));
+        let transfer = should_transfer(&settings.snapshot(), battery, game_running(&store));
         if pause.set_power_pause(!transfer) {
             push.request();
         }
@@ -292,25 +368,34 @@ mod tests {
     #[test]
     fn a_world_with_an_open_mc_route_means_the_game_is_running() {
         use crate::metrics::{Metrics, WorldRow};
-        let metrics = MetricsHandle::new();
-        assert!(!game_running(&metrics));
+        let store = DashboardStore::new();
+        assert!(
+            !game_running(&store),
+            "a store that has heard nothing must not claim a game is open"
+        );
 
-        metrics.set(Metrics {
-            connected_worlds: vec![WorldRow {
-                mc_route: "  ".to_owned(),
-                ..WorldRow::default()
-            }],
-            ..Metrics::default()
-        });
-        assert!(!game_running(&metrics), "a blank route is a closed game");
+        store.accept(
+            &Metrics {
+                connected_worlds: vec![WorldRow {
+                    mc_route: String::new(),
+                    ..WorldRow::default()
+                }],
+                ..Metrics::default()
+            },
+            "stream",
+        );
+        assert!(!game_running(&store), "no endpoint is a closed game");
 
-        metrics.set(Metrics {
-            connected_worlds: vec![WorldRow {
-                mc_route: "127.0.0.1:25565".to_owned(),
-                ..WorldRow::default()
-            }],
-            ..Metrics::default()
-        });
-        assert!(game_running(&metrics));
+        store.accept(
+            &Metrics {
+                connected_worlds: vec![WorldRow {
+                    mc_route: "127.0.0.1:25565".to_owned(),
+                    ..WorldRow::default()
+                }],
+                ..Metrics::default()
+            },
+            "stream",
+        );
+        assert!(game_running(&store));
     }
 }

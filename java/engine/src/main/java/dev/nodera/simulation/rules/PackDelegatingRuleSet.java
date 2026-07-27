@@ -85,15 +85,22 @@ public final class PackDelegatingRuleSet implements RuleSet {
 
     /** The pack owning the block this action targets, for the read-only validate path. */
     private Optional<PackRules> packFor(RegionWorldView view, ActionEnvelope env) {
-        Integer id = switch (env.action()) {
+        // An `instanceof` chain, not a type-pattern switch: those compile to an invokedynamic on
+        // SwitchBootstraps, which ART does not implement.
+        dev.nodera.core.action.GameAction acted = env.action();
+        Integer id;
+        if (acted instanceof PlaceBlockAction p) {
             // A placement is owned by the id being PLACED — that is the block whose rules decide
             // whether it may exist there at all.
-            case PlaceBlockAction p -> p.blockStateId();
+            id = p.blockStateId();
+        } else if (acted instanceof BreakBlockAction b) {
             // A break or an interact is owned by the id ALREADY THERE.
-            case BreakBlockAction b -> blockAt(view, b.pos());
-            case InteractBlockAction i -> blockAt(view, i.pos());
-            default -> null;
-        };
+            id = blockAt(view, b.pos());
+        } else if (acted instanceof InteractBlockAction i) {
+            id = blockAt(view, i.pos());
+        } else {
+            id = null;
+        }
         return packForTargetId(id);
     }
 
@@ -103,12 +110,10 @@ public final class PackDelegatingRuleSet implements RuleSet {
      * saw a moment earlier, so ownership cannot change between the two calls.
      */
     private Integer targetIdForApply(MutableRegionState state, ActionEnvelope env) {
-        return switch (env.action()) {
-            case PlaceBlockAction p -> p.blockStateId();
-            case BreakBlockAction b -> state.getBlock(b.pos());
-            case InteractBlockAction i -> state.getBlock(i.pos());
-            default -> null;
-        };
+               if (env.action() instanceof PlaceBlockAction p) { return p.blockStateId(); }
+               if (env.action() instanceof BreakBlockAction b) { return state.getBlock(b.pos()); }
+               if (env.action() instanceof InteractBlockAction i) { return state.getBlock(i.pos()); }
+               return null;
     }
 
     private Optional<PackRules> packForTargetId(Integer id) {
