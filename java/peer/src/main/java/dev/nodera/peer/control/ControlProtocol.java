@@ -209,6 +209,162 @@ public final class ControlProtocol {
     public static final String CONFIG = "NODERA-CONFIG";
 
     /**
+     * <b>Stream</b> the state snapshot instead of asking for it: {@code NODERA-WATCH <ver> [minMs]}.
+     *
+     * <p>Every other verb is one request, one reply, one connection. This one holds the connection
+     * open and the <b>worker writes</b>: one {@link #STATE} JSON line immediately, another whenever
+     * the state actually changes, and a repeat of the current line on a keepalive interval so a
+     * reader can tell "nothing has changed" from "the link died". The stream ends when the client
+     * disconnects or the worker stops.
+     *
+     * <p><b>Why this exists.</b> A poller cannot be both current and cheap: a two-second cadence
+     * means a dashboard is up to two seconds wrong about a world that just came online, and a
+     * faster one spends the difference on connections that mostly re-read the same bytes. Worse, a
+     * poll has no way to distinguish a value that is genuinely zero from one it has not managed to
+     * refresh — which is exactly how a dashboard ends up showing a confident, stale zero. Here the
+     * worker announces its own changes, and the reader always knows when it last heard.
+     *
+     * <p>{@code minMs} bounds how often the worker may write (default 250 ms, floor 50 ms): a node
+     * whose counters move continuously must not turn this into a busy loop.
+     *
+     * <p>Additive verb — an older worker answers {@code NODERA-ERR unknown verb} on the first line,
+     * which a client treats as "this worker cannot stream" and falls back to polling {@link #STATE}.
+     */
+    public static final String WATCH = "NODERA-WATCH";
+
+    /**
+     * Read the worlds this peer keeps on the network, with their ownership:
+     * {@code NODERA-WORLDS <ver>}. Reply is one JSON line
+     *
+     * <pre>
+     * {"worlds":[{"world_id":"…","name":"…","role":"shared|supported","owned":true,
+     *             "world_public_key":"&lt;base64&gt;","added_at":…,"updated_at":…}, …]}
+     * </pre>
+     *
+     * <p>Distinct from {@link #STATE}'s {@code connected_worlds}, which describes what this node is
+     * doing <i>right now</i> and carries live counters. This verb answers the durable question —
+     * what has this peer shared, and what is it supporting for other people — and is therefore
+     * answerable with the game closed, the mesh empty, and the trackers unreachable.
+     *
+     * <p>Additive verb — an older worker answers {@code NODERA-ERR unknown verb}.
+     */
+    public static final String WORLDS = "NODERA-WORLDS";
+
+    /**
+     * Prove this peer administers a world: {@code NODERA-PROVE <ver> <worldIdHex> <challengeB64>};
+     * reply {@code NODERA-OK <proofB64>} where the payload is a canonical
+     * {@code WorldAdminProof} signed by the <b>world's</b> private key.
+     *
+     * <p>The challenge is supplied by whoever is asking, and it is signed together with this node's
+     * id, so a proof is good for exactly one challenge from exactly one claimant. A peer that does
+     * not hold the world's key answers {@code NODERA-ERR}, which is the honest answer: it cannot
+     * produce the signature and must not be able to pretend otherwise.
+     *
+     * <p>Additive verb — an older worker answers {@code NODERA-ERR unknown verb}.
+     */
+    public static final String PROVE = "NODERA-PROVE";
+
+    /**
+     * <b>Stream</b> the things that happen on this node: {@code NODERA-EVENTS <ver> [sinceSeq]}.
+     *
+     * <p>The second verb the worker <i>writes</i> rather than answers, and the counterpart to
+     * {@link #WATCH}: that one carries what is <b>true</b> of the node, this one carries what
+     * <b>happened</b> to it. A client that learned about moments by diffing successive state
+     * snapshots would have to keep its own previous copy, decide what counts as a change, and be
+     * connected at the time — three chances to miss the one thing it is watching for.
+     *
+     * <p>Each line is one event:
+     *
+     * <pre>
+     * {"seq":7,"event":"lan.opened","at":1785106864612,
+     *  "attributes":{"session":"05f8…","world":"My World","port":"51234"}}
+     * </pre>
+     *
+     * <p><b>{@code sinceSeq} is what makes this reliable.</b> The worker keeps a short history, so a
+     * client passing the last sequence it saw — or {@code 0} on a fresh start — receives what it
+     * missed before the live stream begins. Without it the lane would only work when the app
+     * happened to connect before the event, which for "a player opened a world to LAN and then
+     * looked at the app" is a coin toss.
+     *
+     * <p>A keepalive line {@code {"seq":<n>,"event":"keepalive"}} is sent when nothing has happened
+     * for a while, so silence on the socket is never mistaken for a healthy quiet node.
+     *
+     * <p>Additive verb — an older worker answers {@code NODERA-ERR unknown verb}, which a client
+     * treats as "this worker cannot announce events" and falls back to watching state.
+     */
+    public static final String EVENTS = "NODERA-EVENTS";
+
+    /**
+     * The "Open to LAN" lane: {@code NODERA-LAN <ver> LIST | SHARE <port> | DECLINE <port> |
+     * STOP <port>}.
+     *
+     * <p>{@code LIST} answers one JSON line describing every world this machine can currently see
+     * opened to LAN and what the player decided about each. The other three are the decision, and
+     * they exist as separate verbs rather than as a boolean because "no" and "not yet" are the same
+     * answer to the prompt and different answers to the question — a declined world stays listed so
+     * it can still be shared later.
+     *
+     * <p>Nothing is announced to the network until {@code SHARE} arrives. Detection is not consent.
+     *
+     * <p>Additive verb — an older worker answers {@code NODERA-ERR unknown verb}.
+     */
+    public static final String LAN = "NODERA-LAN";
+
+    /**
+     * Browse what is joinable: {@code NODERA-DIRECTORY <ver> [limit]}. Reply is one JSON line of
+     * worlds the configured trackers know about, each with a name, a player count and the id to
+     * {@link #CONNECT} to.
+     *
+     * <p>Separate from {@link #STATE}'s {@code connected_worlds}, which is what <i>this</i> node is
+     * doing. This is what everyone else is offering.
+     */
+    public static final String DIRECTORY = "NODERA-DIRECTORY";
+
+    /**
+     * Join a live session: {@code NODERA-CONNECT <ver> <sessionIdHex>}; reply
+     * {@code NODERA-OK 127.0.0.1:<port>}.
+     *
+     * <p>The worker resolves the host through the trackers, opens a tunnel to it, and binds a
+     * loopback port on this machine. The reply is what a player types into Minecraft's <b>Direct
+     * Connect</b> — which is why this works with a completely unmodified game: from Minecraft's
+     * point of view it is joining a server on localhost.
+     *
+     * <p>No world data crosses this. The tunnel carries the game's own connection and nothing else.
+     */
+    public static final String CONNECT = "NODERA-CONNECT";
+
+    /** Leave a session joined with {@link #CONNECT}: {@code NODERA-DISCONNECT <ver> <sessionIdHex>}. */
+    public static final String DISCONNECT = "NODERA-DISCONNECT";
+
+    /**
+     * Mint a shareable invitation: {@code NODERA-SHARELINK <ver> <worldIdHex>}; reply
+     * {@code NODERA-OK <nodera:?xt=…>}.
+     *
+     * <p>The link carries the world id, its name, this node's configured trackers and rendezvous
+     * services, and the world's public key when known. It carries no content and no secret — it is
+     * an address and a set of places to ask, which is exactly what makes it safe to paste.
+     */
+    public static final String SHARELINK = "NODERA-SHARELINK";
+
+    /**
+     * Ask the network to forget a world this peer owns:
+     * {@code NODERA-DELETE <ver> <worldIdHex> [reasonB64]}; reply {@code NODERA-OK <n>} where
+     * {@code n} is how many peers the request was relayed to, or {@code NODERA-ERR <reason>}.
+     *
+     * <p><b>Irreversible.</b> The worker mints a tombstone signed by the world's own key and by this
+     * node's identity, applies it here, and floods it. Every receiver re-verifies it against the
+     * ownership claim the tombstone carries, so a peer that has never heard of the world can still
+     * tell a real deletion from a request to destroy somebody else's. A node that does not hold the
+     * world's private key cannot produce the request at all — which is why the verb refuses rather
+     * than asking anyone's permission: authority here is possession of the key, not the connection.
+     *
+     * <p>The reason is base64 for the same reason {@link #CONFIG}'s payload is: the dispatch splits
+     * on whitespace. It is quoted back to other players, and it is covered by both signatures, so it
+     * cannot be edited in flight.
+     */
+    public static final String DELETE = "NODERA-DELETE";
+
+    /**
      * Telemetry consent and event intake (worker task 5).
      *
      * <pre>

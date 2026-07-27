@@ -444,13 +444,12 @@ public final class PeerRuntime implements DiagnosticsSource {
     // ---- dispatch (state thread) ---------------------------------------------------------
 
     private void dispatch(PeerAddress from, NoderaMessage msg) {
-        switch (msg) {
-            case PeerJoin j -> onPeerJoin(j);
-            case MembershipUpdate u -> onMembershipUpdate(u);
-            case PeerGoodbye g -> onPeerGoodbye(g);
-            case GatewayClaim c -> onGatewayClaim(c);
-            case SessionKeepAlive k -> onKeepAlive(k);
-            default -> {
+        if (msg instanceof PeerJoin j) { onPeerJoin(j);
+        } else if (msg instanceof MembershipUpdate u) { onMembershipUpdate(u);
+        } else if (msg instanceof PeerGoodbye g) { onPeerGoodbye(g);
+        } else if (msg instanceof GatewayClaim c) { onGatewayClaim(c);
+        } else if (msg instanceof SessionKeepAlive k) { onKeepAlive(k);
+        } else {
                 // Not a membership message: hand it to the application lane (e.g. the
                 // dev.nodera.peer.validation committee flow). Runs on the state thread like
                 // every other dispatch, so application handlers see serialized delivery.
@@ -459,7 +458,6 @@ public final class PeerRuntime implements DiagnosticsSource {
                     app.onApplicationMessage(from, msg);
                 }
             }
-        }
     }
 
     /**

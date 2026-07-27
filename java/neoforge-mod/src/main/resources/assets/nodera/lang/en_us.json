@@ -67,6 +67,17 @@
   "nodera.share.status.offline": "Game endpoint: not open",
   "nodera.share.status.worker.on": "Worker: keeping this world online",
   "nodera.share.status.worker.off": "Worker: not running — world dies with the game",
+  "nodera.delete.button": "Delete world from network…",
+  "nodera.delete.title": "Delete this world from Nodera",
+  "nodera.delete.warning": "This cannot be undone. Every peer will destroy its copy.",
+  "nodera.delete.confirm.prompt": "Type %s to confirm",
+  "nodera.delete.confirm.field": "World name",
+  "nodera.delete.confirm": "Delete everywhere",
+  "nodera.delete.reason": "Reason",
+  "nodera.delete.reason.hint": "Reason (optional, shown to other players)",
+  "nodera.delete.result.done": "Deleted. %s peer(s) told directly; the trackers tell the rest.",
+  "nodera.delete.result.refused": "Refused: %s",
+  "nodera.delete.result.noworker": "The Nodera worker is not running.",
   "nodera.exit.packing": "Packing world for the Nodera network…",
   "nodera.exit.uploading": "Sending latest data to the Nodera network…"
 }

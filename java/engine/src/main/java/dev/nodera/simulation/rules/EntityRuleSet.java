@@ -1,6 +1,7 @@
 package dev.nodera.simulation.rules;
 
 import dev.nodera.core.action.ActionEnvelope;
+import dev.nodera.core.action.GameAction;
 import dev.nodera.core.action.AttackEntityAction;
 import dev.nodera.core.action.BreakBlockAction;
 import dev.nodera.core.action.DropItemAction;
@@ -27,19 +28,30 @@ public final class EntityRuleSet implements RuleSet {
 
     @Override
     public Optional<ActionRejection> validate(RegionWorldView view, ActionEnvelope env) {
-        return switch (env.action()) {
-            case PlaceBlockAction p -> blocks.validate(view, env);
-            case BreakBlockAction b -> blocks.validate(view, env);
-            case dev.nodera.core.action.InteractBlockAction i -> blocks.validate(view, env);
-            case DropItemAction drop -> validateDrop(view, env, drop);
-            case PickupItemAction pickup -> validatePickup(view, env, pickup);
-            case AttackEntityAction attack -> validateAttack(view, env, attack);
-            case dev.nodera.core.action.ContainerAction container ->
-                    dev.nodera.simulation.entity.ContainerRules.validate(view, env, container);
-            case dev.nodera.core.action.MovePlayerAction move ->
-                    dev.nodera.simulation.entity.MovementRules.validate(view, env, move);
-            case dev.nodera.core.action.CommandAction command -> blocks.validate(view, env);
-        };
+        // An `instanceof` chain, not a type-pattern switch: those compile to an invokedynamic on
+        // java.lang.runtime.SwitchBootstraps, which ART does not implement and D8 can neither run
+        // nor desugar — so on Android the first execution of such a switch throws. See
+        // docs/mobile/LIMITATIONS.fixed.md M-8.
+        GameAction action = env.action();
+        if (action instanceof PlaceBlockAction p) return blocks.validate(view, env);
+        if (action instanceof BreakBlockAction b) return blocks.validate(view, env);
+        if (action instanceof dev.nodera.core.action.InteractBlockAction i) {
+            return blocks.validate(view, env);
+        }
+        if (action instanceof DropItemAction drop) return validateDrop(view, env, drop);
+        if (action instanceof PickupItemAction pickup) return validatePickup(view, env, pickup);
+        if (action instanceof AttackEntityAction attack) return validateAttack(view, env, attack);
+        if (action instanceof dev.nodera.core.action.ContainerAction container) {
+            return dev.nodera.simulation.entity.ContainerRules.validate(view, env, container);
+        }
+        if (action instanceof dev.nodera.core.action.MovePlayerAction move) {
+            return dev.nodera.simulation.entity.MovementRules.validate(view, env, move);
+        }
+        if (action instanceof dev.nodera.core.action.CommandAction command) {
+            return blocks.validate(view, env);
+        }
+        throw new IllegalStateException(
+                "unhandled GameAction subtype: " + action.getClass());
     }
 
     private static Optional<ActionRejection> validateDrop(
@@ -87,18 +99,29 @@ public final class EntityRuleSet implements RuleSet {
 
     @Override
     public void apply(MutableRegionState state, ActionEnvelope env, DeterministicRandom rng) {
-        switch (env.action()) {
-            case PlaceBlockAction p -> blocks.apply(state, env, rng);
-            case BreakBlockAction b -> blocks.apply(state, env, rng);
-            case dev.nodera.core.action.InteractBlockAction i -> blocks.apply(state, env, rng);
-            case DropItemAction drop -> applyDrop(state, env, drop);
-            case PickupItemAction pickup -> applyPickup(state, env, pickup);
-            case AttackEntityAction attack -> applyAttack(state, attack);
-            case dev.nodera.core.action.ContainerAction container ->
-                    dev.nodera.simulation.entity.ContainerRules.apply(state, env, container, rng);
-            case dev.nodera.core.action.MovePlayerAction move ->
-                    dev.nodera.simulation.entity.MovementRules.apply(state, env, move);
-            case dev.nodera.core.action.CommandAction command -> blocks.apply(state, env, rng);
+        // An `instanceof` chain, not a type-pattern switch: those compile to an
+        // invokedynamic on SwitchBootstraps, which ART does not implement.
+        GameAction acted = env.action();
+        if (acted instanceof PlaceBlockAction p) {
+            blocks.apply(state, env, rng);
+        } else if (acted instanceof BreakBlockAction b) {
+            blocks.apply(state, env, rng);
+        } else if (acted instanceof dev.nodera.core.action.InteractBlockAction i) {
+            blocks.apply(state, env, rng);
+        } else if (acted instanceof DropItemAction drop) {
+            applyDrop(state, env, drop);
+        } else if (acted instanceof PickupItemAction pickup) {
+            applyPickup(state, env, pickup);
+        } else if (acted instanceof AttackEntityAction attack) {
+            applyAttack(state, attack);
+        } else if (acted instanceof dev.nodera.core.action.ContainerAction container) {
+            dev.nodera.simulation.entity.ContainerRules.apply(state, env, container, rng);
+        } else if (acted instanceof dev.nodera.core.action.MovePlayerAction move) {
+            dev.nodera.simulation.entity.MovementRules.apply(state, env, move);
+        } else if (acted instanceof dev.nodera.core.action.CommandAction command) {
+            blocks.apply(state, env, rng);
+        } else {
+            throw new IllegalStateException("unhandled GameAction subtype: " + acted.getClass());
         }
     }
 

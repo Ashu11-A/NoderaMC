@@ -93,12 +93,19 @@ public final class CommitteeSession {
             collector.submit(ballot.vote());
         }
 
+        // An `instanceof` chain, not a type-pattern switch: those compile to an invokedynamic on
+        // SwitchBootstraps, which ART does not implement.
         Decision decision = collector.decide();
-        return switch (decision) {
-            case Decision.Commit c -> onCommit(c.certificate(), ballots, members, equivocators);
-            case Decision.Reject r -> CommitResult.rejected(r.reason().name(), equivocators);
-            case Decision.Unresolved u -> CommitResult.pending();
-        };
+        if (decision instanceof Decision.Commit c) {
+            return onCommit(c.certificate(), ballots, members, equivocators);
+        }
+        if (decision instanceof Decision.Reject r) {
+            return CommitResult.rejected(r.reason().name(), equivocators);
+        }
+        if (decision instanceof Decision.Unresolved u) {
+            return CommitResult.pending();
+        }
+        throw new IllegalStateException("unhandled Decision subtype: " + decision.getClass());
     }
 
     private CommitResult onCommit(
