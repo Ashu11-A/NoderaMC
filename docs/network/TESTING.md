@@ -120,3 +120,37 @@ The decisive ones:
 - `ServiceMessageCodecTest` + `rust/nodera-codec/tests/fixtures.rs` — the six frames round-trip
   byte-exactly across languages, **and** the Java-computed composite equals the Rust-computed one. A
   divergence there would silently reorder every peer's failover list.
+
+## Running a suite against the real deployed services
+
+Every suite in `scripts/` normally spawns its own tracker and rendezvous on loopback. `--official`
+points the whole run at [`services/official.json`](../../services/official.json) instead, so the
+Minecraft clients, the headless peers and the dedicated server all discover and route through the
+production architecture rather than through two processes that only ever talk to themselves:
+
+```bash
+scripts/e2e-continuity.sh --official
+scripts/run-tests.sh --official all      # the flag is exported, so every child suite inherits it
+```
+
+Nothing local binds 25600/25601 in this mode and the run does not demand those ports be free.
+
+**It is not the default and must not become one.** A suite that needs the internet goes red when
+somebody else's host reboots, and all of these run in CI. The default path is byte-identical to what
+it was before the flag existed.
+
+### What the flag fixed on its way in
+
+The endpoint list reached the four components by four different routes, and three of them were
+wrong in a way one tracker on the default port hides:
+
+| Component | Before | Now |
+|---|---|---|
+| Headless workers | the real list, via env | unchanged |
+| Minecraft client | hardcoded `127.0.0.1:$TRACKER_PORT` | the real list |
+| Dedicated server | **no `[tracker]` section at all** — fell back to `NoderaConfig`'s compiled `127.0.0.1:25600` | the real list |
+| Paper/Folia endpoint | hardcoded `127.0.0.1:$TRACKER_PORT` | the real list |
+
+So `--trackers 2` started two trackers and told the mod about one, and changing `TRACKER_PORT` left
+the dedicated server announcing into the void while every other component used the new port. Both
+were invisible because the compiled fallback and the launcher default were the same string.
