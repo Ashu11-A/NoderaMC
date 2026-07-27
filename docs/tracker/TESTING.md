@@ -6,12 +6,14 @@
      include a degradation test when touching the service: tracker down must degrade discovery only.
      Keep counts and Last run current. -->
 
-**Category:** tracker · **Last run:** 2026-07-25 · **62 Rust tests · 0 failing** (plus
-`TrackerServiceIT` and the client tests on the Java gate)
+**Category:** tracker · **Last run:** 2026-07-27 · **102 Rust tests · 0 failing** (plus
+`TrackerServiceIT` and the client tests on the Java gate, and 38 in the shared `nodera-service` crate)
 
 ```bash
-cd rust && cargo test -p nodera-tracker      # the service
+cd rust && cargo test -p nodera-tracker      # the service (102)
+cd rust && cargo test -p nodera-service      # identity, announce, drain, update (38)
 ./gradlew :peer:test --tests '*Tracker*'     # the client + the real-binary IT
+./gradlew :peer:test --tests '*ServiceScoreBoardTest*' --tests '*RendezvousDirectoryTest*'
 ```
 
 ---
@@ -38,6 +40,11 @@ The service is tested at three levels, and the third is the one that matters:
 - Invalid-signature rejection: the record never reaches the registry.
 - Health and retention-countdown transitions.
 - UDP: one datagram per request, the anti-amplification cap, silent drop of undecodable datagrams.
+- The service directory (Task 5): signed admission and trust-on-first-use binding, a tampered record
+  refused, a draining service still listed with its deadline, a stopped one removed, bounded reporter
+  tables, freshness decay between refresh and expiry, and the two anti-abuse properties — a capped
+  reporter cannot sink an available service, and three honest reporters beat one liar on the median.
+- Separate quotas: a score-report flood cannot starve the announce budget the world list depends on.
 
 ## 3. `TrackerServiceIT` — the decisive scenario
 

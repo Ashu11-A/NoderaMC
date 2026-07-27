@@ -132,7 +132,15 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_TUNNEL_DATA).isEqualTo(64);
         assertThat(MessageCodec.TAG_TUNNEL_CLOSE).isEqualTo(65);
         assertThat(MessageCodec.TAG_WORLD_DELETION_GOSSIP).isEqualTo(66);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(66);
+        // The service-directory family: how a peer learns which rendezvous exist, how good each is,
+        // and when one is leaving.
+        assertThat(MessageCodec.TAG_SERVICE_ANNOUNCE).isEqualTo(67);
+        assertThat(MessageCodec.TAG_SERVICE_ANNOUNCE_ACK).isEqualTo(68);
+        assertThat(MessageCodec.TAG_SERVICE_DIRECTORY_QUERY).isEqualTo(69);
+        assertThat(MessageCodec.TAG_SERVICE_DIRECTORY_RESPONSE).isEqualTo(70);
+        assertThat(MessageCodec.TAG_SERVICE_SCORE_REPORT).isEqualTo(71);
+        assertThat(MessageCodec.TAG_SERVICE_DRAIN_NOTICE).isEqualTo(72);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(72);
     }
 
     @Test

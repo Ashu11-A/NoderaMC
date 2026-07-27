@@ -117,6 +117,15 @@ fn type_tag_registry_mirrors_java() {
     assert_mirrors(&source, "WORLD_REGISTRY", WORLD_REGISTRY, FILE);
     assert_mirrors(&source, "WORLD_SHARE_LINK", WORLD_SHARE_LINK, FILE);
     assert_mirrors(&source, "WORLD_TOMBSTONE", WORLD_TOMBSTONE, FILE);
+    assert_mirrors(&source, "SERVICE_RECORD", SERVICE_RECORD, FILE);
+    assert_mirrors(&source, "SERVICE_SCORE", SERVICE_SCORE, FILE);
+    assert_mirrors(&source, "SERVICE_OBSERVATION", SERVICE_OBSERVATION, FILE);
+    assert_mirrors(
+        &source,
+        "SERVICE_DIRECTORY_ENTRY",
+        SERVICE_DIRECTORY_ENTRY,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT", NEXT, FILE);
 }
 
@@ -202,6 +211,37 @@ fn message_tag_registry_mirrors_java() {
         &source,
         "TAG_WORLD_DELETION_GOSSIP",
         WORLD_DELETION_GOSSIP,
+        FILE,
+    );
+    assert_mirrors(&source, "TAG_SERVICE_ANNOUNCE", SERVICE_ANNOUNCE, FILE);
+    assert_mirrors(
+        &source,
+        "TAG_SERVICE_ANNOUNCE_ACK",
+        SERVICE_ANNOUNCE_ACK,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "TAG_SERVICE_DIRECTORY_QUERY",
+        SERVICE_DIRECTORY_QUERY,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "TAG_SERVICE_DIRECTORY_RESPONSE",
+        SERVICE_DIRECTORY_RESPONSE,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "TAG_SERVICE_SCORE_REPORT",
+        SERVICE_SCORE_REPORT,
+        FILE,
+    );
+    assert_mirrors(
+        &source,
+        "TAG_SERVICE_DRAIN_NOTICE",
+        SERVICE_DRAIN_NOTICE,
         FILE,
     );
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);

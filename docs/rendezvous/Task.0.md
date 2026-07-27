@@ -6,8 +6,8 @@
      elsewhere in the project are rendezvous *hashing* and have nothing to do with this service — do
      not "unify" them. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (3 of 4 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (3 of 5 tasks completed) ·
+**Last audit:** 2026-07-27
 
 ---
 
@@ -61,6 +61,7 @@ same seam — call sites cannot tell which path carried a message.
 | [2](Task.2.md) | The Java rendezvous transport | ✅ COMPLETED |
 | [3](Task.3.md) | Live cross-internet proof | ⏳ BLOCKED |
 | [4](Task.4.md) | Service telemetry + NAT-pair statistics | ✅ COMPLETED |
+| [5](Task.5.md) | Discoverable, drainable, self-updating | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
@@ -74,6 +75,7 @@ bind that reference to Nodera.
 | Path | Contents |
 |---|---|
 | `rust/nodera-rendezvous/src/` | `main`, `config`, `registry`, `register`, `discover`, `observed`, `reservation`, `circuit`, `punch`, `limits` |
+| `rust/nodera-service/src/` | Shared with the tracker: `identity`, `directory`, `drain`, `lifecycle`, `update` |
 | `java/transport/.../transport/rendezvous/` | `RendezvousPeerTransport`, `CandidateDialer`, `RelayCircuitClient`, `HolePunchCoordinator`, `TransportSelector`, `EndToEndCipher` |
 | `java/transport/.../protocol/rendezvous/` | The rendezvous/relay message family |
 
@@ -92,3 +94,8 @@ Package architecture: [`rust/nodera-rendezvous/README.md`](../../rust/nodera-ren
 - **The service is untrusted by construction:** it can refuse introductions, but it can never
   impersonate (signed records) or read traffic (the E2E cipher).
 - **A relayed steady state is legal.** Hole punching is best-effort; RELAYED is not a failure.
+- **A restart is a migration, not an outage.** Refuse new work, tell the peers holding reservations on
+  their own sockets, tell the trackers, let in-flight circuits finish, then stop — in that order
+  ([`Task.5.md`](Task.5.md) §Design). A "drain" that logs the word and drops the runtime is the bug that
+  task exists to remove. A draining relay **keeps answering discovery**: those are the peers who need to
+  look somewhere else.

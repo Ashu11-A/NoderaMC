@@ -16,6 +16,7 @@ pub mod framing;
 pub mod messages;
 pub mod reader;
 pub mod rendezvous;
+pub mod service;
 pub mod sig;
 pub mod tags;
 pub mod tombstone;

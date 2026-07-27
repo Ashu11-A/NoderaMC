@@ -227,12 +227,25 @@ dependencies = [
  "ed25519-dalek",
  "hmac",
  "nodera-codec",
+ "nodera-service",
  "nodera-telemetry",
  "serde",
  "sha2",
  "thiserror",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "nodera-service"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "nodera-codec",
+ "serde",
+ "sha2",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -255,8 +268,10 @@ version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
  "nodera-codec",
+ "nodera-service",
  "nodera-telemetry",
  "serde",
+ "sha2",
  "thiserror",
  "tokio",
  "toml",

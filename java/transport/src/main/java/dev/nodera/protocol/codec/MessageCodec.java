@@ -274,8 +274,24 @@ public final class MessageCodec {
     /** A world's owner asking the network to forget it, with the proof that it was the owner. */
     public static final int TAG_WORLD_DELETION_GOSSIP = 66;
 
+    // The service-directory family: peers stop reading their rendezvous list out of a configuration
+    // string and learn it from trackers instead, and a service announces its own departure before it
+    // stops answering — so a restart is a migration rather than an outage.
+    /** {@link dev.nodera.protocol.service.ServiceAnnounce} — a service's signed self-description. */
+    public static final int TAG_SERVICE_ANNOUNCE = 67;
+    /** {@link dev.nodera.protocol.service.ServiceAnnounceAck} — admitted/refused + sibling list. */
+    public static final int TAG_SERVICE_ANNOUNCE_ACK = 68;
+    /** {@link dev.nodera.protocol.service.ServiceDirectoryQuery} — "which services do you know?". */
+    public static final int TAG_SERVICE_DIRECTORY_QUERY = 69;
+    /** {@link dev.nodera.protocol.service.ServiceDirectoryResponse} — the answer, best first. */
+    public static final int TAG_SERVICE_DIRECTORY_RESPONSE = 70;
+    /** {@link dev.nodera.protocol.service.ServiceScoreReport} — a peer's measured counters. */
+    public static final int TAG_SERVICE_SCORE_REPORT = 71;
+    /** {@link dev.nodera.protocol.service.ServiceDrainNotice} — "I am going away; go here". */
+    public static final int TAG_SERVICE_DRAIN_NOTICE = 72;
+
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 66;
+    public static final int NEXT_TAG = 72;
 
     /**
      * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
@@ -308,7 +324,10 @@ public final class MessageCodec {
             TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT,
             TAG_WORLD_GRANT_GOSSIP, TAG_REGION_REFUSAL, TAG_WORLD_OWNERSHIP_GOSSIP,
             TAG_TUNNEL_OPEN, TAG_TUNNEL_DATA, TAG_TUNNEL_CLOSE,
-            TAG_WORLD_DELETION_GOSSIP);
+            TAG_WORLD_DELETION_GOSSIP,
+            TAG_SERVICE_ANNOUNCE, TAG_SERVICE_ANNOUNCE_ACK,
+            TAG_SERVICE_DIRECTORY_QUERY, TAG_SERVICE_DIRECTORY_RESPONSE,
+            TAG_SERVICE_SCORE_REPORT, TAG_SERVICE_DRAIN_NOTICE);
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -388,6 +407,12 @@ public final class MessageCodec {
             case TAG_TUNNEL_DATA -> "TunnelData";
             case TAG_TUNNEL_CLOSE -> "TunnelClose";
             case TAG_WORLD_DELETION_GOSSIP -> "WorldDeletionGossip";
+            case TAG_SERVICE_ANNOUNCE -> "ServiceAnnounce";
+            case TAG_SERVICE_ANNOUNCE_ACK -> "ServiceAnnounceAck";
+            case TAG_SERVICE_DIRECTORY_QUERY -> "ServiceDirectoryQuery";
+            case TAG_SERVICE_DIRECTORY_RESPONSE -> "ServiceDirectoryResponse";
+            case TAG_SERVICE_SCORE_REPORT -> "ServiceScoreReport";
+            case TAG_SERVICE_DRAIN_NOTICE -> "ServiceDrainNotice";
             default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
         };
     }
@@ -556,6 +581,22 @@ public final class MessageCodec {
         if (msg instanceof dev.nodera.protocol.tunnel.TunnelClose) return TAG_TUNNEL_CLOSE;
         if (msg instanceof dev.nodera.protocol.membership.WorldDeletionGossip) {
             return TAG_WORLD_DELETION_GOSSIP;
+        }
+        if (msg instanceof dev.nodera.protocol.service.ServiceAnnounce) return TAG_SERVICE_ANNOUNCE;
+        if (msg instanceof dev.nodera.protocol.service.ServiceAnnounceAck) {
+            return TAG_SERVICE_ANNOUNCE_ACK;
+        }
+        if (msg instanceof dev.nodera.protocol.service.ServiceDirectoryQuery) {
+            return TAG_SERVICE_DIRECTORY_QUERY;
+        }
+        if (msg instanceof dev.nodera.protocol.service.ServiceDirectoryResponse) {
+            return TAG_SERVICE_DIRECTORY_RESPONSE;
+        }
+        if (msg instanceof dev.nodera.protocol.service.ServiceScoreReport) {
+            return TAG_SERVICE_SCORE_REPORT;
+        }
+        if (msg instanceof dev.nodera.protocol.service.ServiceDrainNotice) {
+            return TAG_SERVICE_DRAIN_NOTICE;
         }
         throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
     }
@@ -831,6 +872,36 @@ public final class MessageCodec {
                 w.writeU16(TAG_WORLD_DELETION_GOSSIP).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
                 w.writeBytes(m.encodedTombstone());
+        } else if (msg instanceof dev.nodera.protocol.service.ServiceAnnounce m) {
+                w.writeU16(TAG_SERVICE_ANNOUNCE).writeU16(ENCODING_VERSION);
+                m.record().encode(w);
+                w.writeBytes(m.signature());
+        } else if (msg instanceof dev.nodera.protocol.service.ServiceAnnounceAck m) {
+                w.writeU16(TAG_SERVICE_ANNOUNCE_ACK).writeU16(ENCODING_VERSION);
+                w.writeBoolean(m.accepted());
+                w.writeU32(Integer.toUnsignedLong(m.nextAnnounceAfterSeconds()));
+                w.writeString(m.reason());
+                w.writeList(m.directory(), (ww, e) -> e.encode(ww));
+        } else if (msg instanceof dev.nodera.protocol.service.ServiceDirectoryQuery m) {
+                w.writeU16(TAG_SERVICE_DIRECTORY_QUERY).writeU16(ENCODING_VERSION);
+                w.writeU8(m.kind().ordinal());
+                w.writeU64(m.networkId().getMostSignificantBits());
+                w.writeU64(m.networkId().getLeastSignificantBits());
+                w.writeU32(Integer.toUnsignedLong(m.limit()));
+        } else if (msg instanceof dev.nodera.protocol.service.ServiceDirectoryResponse m) {
+                w.writeU16(TAG_SERVICE_DIRECTORY_RESPONSE).writeU16(ENCODING_VERSION);
+                w.writeList(m.entries(), (ww, e) -> e.encode(ww));
+        } else if (msg instanceof dev.nodera.protocol.service.ServiceScoreReport m) {
+                // As with TrackerAnnounce: the record owns the signed-portion layout so the codec
+                // and the signer cannot disagree about where the signature starts.
+                m.writeSignedPortion(w);
+                w.writeBytes(m.signature());
+        } else if (msg instanceof dev.nodera.protocol.service.ServiceDrainNotice m) {
+                w.writeU16(TAG_SERVICE_DRAIN_NOTICE).writeU16(ENCODING_VERSION);
+                m.record().encode(w);
+                w.writeBytes(m.signature());
+                w.writeList(m.replacements(), (ww, e) -> e.encode(ww));
+                w.writeString(m.reason());
         } else if (msg instanceof WorldManifestQuery m) {
                 w.writeU16(TAG_WORLD_MANIFEST_QUERY).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
@@ -1364,6 +1435,49 @@ public final class MessageCodec {
                 Bytes worldId = r.readBytesValue();
                 yield new dev.nodera.protocol.membership.WorldDeletionGossip(
                         worldId, r.readBytesValue());
+            }
+            case TAG_SERVICE_ANNOUNCE -> {
+                dev.nodera.protocol.service.ServiceRecord record =
+                        dev.nodera.protocol.service.ServiceRecord.decode(r);
+                yield new dev.nodera.protocol.service.ServiceAnnounce(record, r.readBytesValue());
+            }
+            case TAG_SERVICE_ANNOUNCE_ACK -> {
+                boolean accepted = r.readBoolean();
+                int nextAfter = r.readU32AsInt();
+                String reason = r.readString();
+                yield new dev.nodera.protocol.service.ServiceAnnounceAck(accepted, nextAfter,
+                        reason, r.readList(
+                                dev.nodera.protocol.service.ServiceDirectoryEntry::decode));
+            }
+            case TAG_SERVICE_DIRECTORY_QUERY -> {
+                dev.nodera.protocol.service.ServiceKind kind =
+                        dev.nodera.protocol.service.ServiceKind.decodeOrdinal(r);
+                java.util.UUID networkId = new java.util.UUID(r.readU64(), r.readU64());
+                yield new dev.nodera.protocol.service.ServiceDirectoryQuery(kind, networkId,
+                        r.readU32AsInt());
+            }
+            case TAG_SERVICE_DIRECTORY_RESPONSE -> new dev.nodera.protocol.service
+                    .ServiceDirectoryResponse(r.readList(
+                            dev.nodera.protocol.service.ServiceDirectoryEntry::decode));
+            case TAG_SERVICE_SCORE_REPORT -> {
+                dev.nodera.core.identity.NodeId reporter =
+                        dev.nodera.core.identity.NodeId.decode(r);
+                Bytes publicKey = r.readBytesValue();
+                java.util.UUID networkId = new java.util.UUID(r.readU64(), r.readU64());
+                java.util.List<dev.nodera.protocol.service.ServiceObservation> observations =
+                        r.readList(dev.nodera.protocol.service.ServiceObservation::decode);
+                long reportedAt = r.readU64();
+                yield new dev.nodera.protocol.service.ServiceScoreReport(reporter, publicKey,
+                        networkId, observations, reportedAt, r.readBytesValue());
+            }
+            case TAG_SERVICE_DRAIN_NOTICE -> {
+                dev.nodera.protocol.service.ServiceRecord record =
+                        dev.nodera.protocol.service.ServiceRecord.decode(r);
+                Bytes signature = r.readBytesValue();
+                java.util.List<dev.nodera.protocol.service.ServiceDirectoryEntry> replacements =
+                        r.readList(dev.nodera.protocol.service.ServiceDirectoryEntry::decode);
+                yield new dev.nodera.protocol.service.ServiceDrainNotice(record, signature,
+                        replacements, r.readString());
             }
             case TAG_WORLD_MANIFEST_QUERY -> new WorldManifestQuery(r.readBytesValue());
             case TAG_WORLD_MANIFEST_ANSWER -> {

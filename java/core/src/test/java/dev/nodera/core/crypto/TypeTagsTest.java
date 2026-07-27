@@ -126,7 +126,13 @@ final class TypeTagsTest {
         assertThat(TypeTags.WORLD_REGISTRY).isEqualTo(112);
         assertThat(TypeTags.WORLD_SHARE_LINK).isEqualTo(113);
         assertThat(TypeTags.WORLD_TOMBSTONE).isEqualTo(114);
-        assertThat(TypeTags.NEXT).isEqualTo(114);
+        // The service directory: a rendezvous' or tracker's own signed record, the score a tracker
+        // aggregates for it, one peer's measurement of it, and the directory row that carries both.
+        assertThat(TypeTags.SERVICE_RECORD).isEqualTo(115);
+        assertThat(TypeTags.SERVICE_SCORE).isEqualTo(116);
+        assertThat(TypeTags.SERVICE_OBSERVATION).isEqualTo(117);
+        assertThat(TypeTags.SERVICE_DIRECTORY_ENTRY).isEqualTo(118);
+        assertThat(TypeTags.NEXT).isEqualTo(118);
     }
 
     @Test

@@ -68,7 +68,15 @@ public final class WorldHostingService implements AutoCloseable {
     /** Supplies the worker's currently-advertised P2P route (may change as the runtime settles). */
     private final Supplier<String> selfRoute;
 
-    private final List<RendezvousEndpoint> rendezvousEndpoints;
+    /**
+     * The rendezvous points in use, best first.
+     *
+     * <p><b>Volatile and replaceable</b> ({@link #setRendezvousEndpoints}). The set is discovered from
+     * trackers and re-scored on a cadence now, so losing a relay or gaining a better one has to reach
+     * the register, refresh and probe paths at once — and it moves "rendezvous endpoints" from a
+     * restart-required setting to a live one, which is what makes a relay restart survivable.
+     */
+    private volatile List<RendezvousEndpoint> rendezvousEndpoints;
     private final TrackerClient tracker;
     private final RendezvousClient rendezvous;
 
@@ -562,8 +570,38 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     /** Register / refresh / unregister one world's host record with every rendezvous. Never throws. */
+    /**
+     * Replace the rendezvous endpoints in use and re-register every hosted world immediately.
+     *
+     * <p>Re-registering here rather than waiting for the refresh tick is the point: after a relay
+     * drains, the new relays hold no record of this host at all until it says so, and half a
+     * registration TTL of invisibility is exactly the window a joiner would fail in.
+     *
+     * @param endpoints the endpoints to use from now on, best first; an empty list is ignored, because
+     *                  having no relay is worse than keeping a stale one.
+     * @throws IllegalArgumentException if {@code endpoints} is null.
+     * @Thread-context any thread.
+     */
+    public void setRendezvousEndpoints(List<RendezvousEndpoint> endpoints) {
+        java.util.Objects.requireNonNull(endpoints, "endpoints");
+        if (endpoints.isEmpty() || endpoints.equals(rendezvousEndpoints)) {
+            return;
+        }
+        this.rendezvousEndpoints = List.copyOf(endpoints);
+        LOG.info("rendezvous endpoints are now {}", endpoints);
+        for (HostedWorld world : worlds.values()) {
+            registerRendezvous(world, RegistrationEvent.REGISTER);
+        }
+    }
+
+    /** @return the rendezvous endpoints in use, best first. @Thread-context any thread. */
+    public List<RendezvousEndpoint> rendezvousEndpoints() {
+        return rendezvousEndpoints;
+    }
+
     private void registerRendezvous(HostedWorld world, RegistrationEvent event) {
-        if (rendezvousEndpoints.isEmpty()) {
+        List<RendezvousEndpoint> endpoints = rendezvousEndpoints;
+        if (endpoints.isEmpty()) {
             return;
         }
         String route = selfRoute.get();
@@ -573,7 +611,7 @@ public final class WorldHostingService implements AutoCloseable {
         long now = System.currentTimeMillis();
         SignedRecord record = rendezvous.sign(world.networkId, world.worldId, event, candidates,
                 capabilities, now, now + REGISTRATION_TTL.toMillis());
-        for (RendezvousEndpoint endpoint : rendezvousEndpoints) {
+        for (RendezvousEndpoint endpoint : endpoints) {
             try {
                 rendezvous.register(endpoint, record);
             } catch (Exception e) {

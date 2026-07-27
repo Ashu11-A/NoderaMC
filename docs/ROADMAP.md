@@ -8,13 +8,16 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-26** · Overall system completion **91.3%** · 1,519 Java tests · 248 Rust
-workspace tests · 61 `nodera-app` tests · 0 failing.
+**Snapshot: 2026-07-27** · Overall system completion **90.4%** · 1,549 Java tests · 351 Rust
+workspace tests · 157 `nodera-app` tests · 0 failing.
 
-The figure moved 93.1 → 85.7 → **91.3 %** in one day, and both moves were real: the **telemetry
-programme** ([`plans/Plan.6.md`](plans/Plan.6.md)) first added ten tasks across seven categories,
-then delivered seven of them. A percentage that only ever rises is a percentage measured against a
-scope that quietly moves.
+The figure moved 93.1 → 85.7 → 91.3 → **90.4 %**, and every move was real. The **telemetry
+programme** ([`plans/Plan.6.md`](plans/Plan.6.md)) first added ten tasks across seven categories, then
+delivered seven of them. The drop to 90.4 % is the **service-directory lane** adding three tasks
+([tracker 5](tracker/Task.5.md), [rendezvous 5](rendezvous/Task.5.md),
+[network 13](network/Task.13.md)) of which none is finished yet, against a body of work that is
+otherwise green. A percentage that only ever rises is a percentage measured against a scope that
+quietly moves.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
 
@@ -95,6 +98,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [10](network/Task.10.md) | Tick-lag / TPS metric + low-TPS region handoff | ✅ | engine 5, network 7 |
 | [11](network/Task.11.md) | Telemetry core | ✅ | network 1 |
 | [12](network/Task.12.md) | Telemetry emitter core | ✅ | network 11, telemetry 1 |
+| [13](network/Task.13.md) | Measured service selection on the peer | 🚧 | tracker 5, rendezvous 5, network 2 |
 
 ### Tracker — [`docs/tracker/`](tracker/Task.0.md)
 
@@ -104,6 +108,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [2](tracker/Task.2.md) | The Java client: announce family + `TrackerClient` | ✅ | tracker 1, network 5 |
 | [3](tracker/Task.3.md) | Operations hardening | 🚧 | tracker 1 |
 | [4](tracker/Task.4.md) | Service telemetry | ✅ | tracker 1, telemetry 1 |
+| [5](tracker/Task.5.md) | Service directory + scoring plane | 🚧 | tracker 1, tracker 2, network 1 |
 
 ### Rendezvous — [`docs/rendezvous/`](rendezvous/Task.0.md)
 
@@ -113,6 +118,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [2](rendezvous/Task.2.md) | The Java rendezvous transport | ✅ | rendezvous 1, network 2 |
 | [3](rendezvous/Task.3.md) | Live cross-internet proof | ⏳ | network 2, minecraft 1 |
 | [4](rendezvous/Task.4.md) | Service telemetry + NAT-pair statistics | ✅ | rendezvous 1, telemetry 1 |
+| [5](rendezvous/Task.5.md) | Discoverable, drainable, self-updating | 🚧 | rendezvous 1, rendezvous 2, tracker 5 |
 
 ### Minecraft — [`docs/minecraft/`](minecraft/Task.0.md)
 

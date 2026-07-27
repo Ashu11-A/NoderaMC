@@ -21,6 +21,10 @@ use std::net::IpAddr;
 /// the synchronized `PunchSync` before they dial.
 const PUNCH_LEAD_MILLIS: u64 = 500;
 
+/// The refusal code a draining relay returns. Stable: the Java side branches on it to re-reserve
+/// elsewhere immediately instead of retrying here.
+pub const DRAINING_REASON: &str = "draining";
+
 /// What the service decided about a control frame — the caller ([`crate::wire`]) performs the IO.
 #[derive(Debug)]
 pub enum Decision {
@@ -62,6 +66,12 @@ pub struct Rendezvous {
     /// Bounded by the registration TTL sweep below, and it holds a boolean per peer — never an
     /// address, and never anything that leaves this process except as a four-way class label.
     nat_hardness: std::collections::HashMap<NodeId, bool>,
+    /// Shared with the lifecycle task: are we still open for new work, and until when?
+    ///
+    /// A draining relay must refuse **reservations and circuits** while continuing to answer
+    /// registration and discovery. Refusing discovery too would strand exactly the peers that need to
+    /// find each other in order to move somewhere else.
+    drain: std::sync::Arc<nodera_service::drain::DrainState>,
     registrations: u64,
     discoveries: u64,
     reservations: u64,
@@ -70,8 +80,21 @@ pub struct Rendezvous {
 }
 
 impl Rendezvous {
-    /// Build a service from validated config and a reservation keeper.
+    /// Build a service with its own private drain state.
+    ///
+    /// The binary uses [`Self::with_drain`] so the reserve/connect paths and the lifecycle task share
+    /// one state; this is the convenience the unit tests construct with.
+    #[cfg(test)]
     pub fn new(config: Config, keeper: ReservationKeeper) -> Self {
+        Self::with_drain(config, keeper, nodera_service::drain::DrainState::new())
+    }
+
+    /// Build a service sharing an existing drain state with the lifecycle task.
+    pub fn with_drain(
+        config: Config,
+        keeper: ReservationKeeper,
+        drain: std::sync::Arc<nodera_service::drain::DrainState>,
+    ) -> Self {
         let quota = RequestQuota::new(
             u64::from(config.refresh_interval_seconds) * 1_000,
             config.per_ip_request_quota,
@@ -85,6 +108,7 @@ impl Rendezvous {
             punch: PunchCoordinator::new(),
             outcomes: crate::punch::PunchOutcomes::default(),
             nat_hardness: std::collections::HashMap::new(),
+            drain,
             registrations: 0,
             discoveries: 0,
             reservations: 0,
@@ -196,7 +220,16 @@ impl Rendezvous {
             RendezvousMessage::Reserve(m) => {
                 self.on_reserve(m.network_id, m.genesis_hash, m.peer, source, now_millis)
             }
-            RendezvousMessage::Connect(m) => Decision::Connect(m),
+            RendezvousMessage::Connect(m) => {
+                if !self.drain.accepts_new_work() {
+                    // A new circuit through a relay that is about to stop is a connection that will
+                    // break within the grace period. Refusing it now sends the caller back to the
+                    // selector while it still has somewhere else to go.
+                    self.rejected += 1;
+                    return Decision::Drop(DRAINING_REASON.to_owned());
+                }
+                Decision::Connect(m)
+            }
             RendezvousMessage::PunchSync(mut m) => {
                 let class = crate::punch::PairClass::of(
                     self.nat_hardness.get(&m.source).copied(),
@@ -301,6 +334,24 @@ impl Rendezvous {
                 return Decision::Drop(register::Rejection::Quota.code().to_owned());
             }
         }
+        if !self.drain.accepts_new_work() {
+            // Refused with a *reason*, not a closed socket. The peer side treats a reason it can read
+            // as "re-reserve elsewhere now" and a silent close as "retry here" — the difference between
+            // a migration and a stall.
+            self.rejected += 1;
+            return Decision::Reply(
+                RendezvousMessage::Reservation(nodera_codec::rendezvous::RelayReservation {
+                    accepted: false,
+                    relay_route: String::new(),
+                    expires_at_epoch_millis: 0,
+                    max_bytes: 0,
+                    max_duration_millis: 0,
+                    proof: Vec::new(),
+                    reason: DRAINING_REASON.to_owned(),
+                })
+                .encode(),
+            );
+        }
         let namespace = Namespace::new(network_id, genesis_hash);
         let reservation = self
             .keeper
@@ -311,6 +362,16 @@ impl Rendezvous {
             peer,
             reservation,
         }
+    }
+
+    /// How many registrations this service holds, for the capacity it reports about itself.
+    pub fn registration_count(&self) -> usize {
+        self.registry.record_count()
+    }
+
+    /// The drain state, shared with the lifecycle task and the bridge.
+    pub fn drain(&self) -> &std::sync::Arc<nodera_service::drain::DrainState> {
+        &self.drain
     }
 
     /// Expire silent records and idle quota counters.
