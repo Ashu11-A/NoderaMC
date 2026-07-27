@@ -39,7 +39,7 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Mutex;
 
 fn usage() -> &'static str {
-    "usage: nodera-tracker [--config <file>] [--bind <addr>] [--healthcheck <addr>] [--version]"
+    "usage: nodera-tracker [--config <file>] [--bind <addr>] [--healthcheck <addr>] [--print-env] [--version]"
 }
 
 enum Command {
@@ -49,6 +49,9 @@ enum Command {
     },
     Healthcheck(String),
     Version,
+    /// List every environment variable this service reads, for an operator writing a unit or a
+    /// compose file. Names only — no values are read, so it is safe to run anywhere.
+    PrintEnv,
     Usage,
 }
 
@@ -59,6 +62,7 @@ fn parse_args(args: &[String]) -> Command {
     while index < args.len() {
         match args[index].as_str() {
             "--version" | "-V" => return Command::Version,
+            "--print-env" => return Command::PrintEnv,
             "--help" | "-h" => return Command::Usage,
             "--healthcheck" => {
                 return args
@@ -98,6 +102,12 @@ async fn main() -> ExitCode {
             println!("nodera-tracker {}", env!("NODERA_VERSION"));
             ExitCode::SUCCESS
         }
+        Command::PrintEnv => {
+            for key in Config::env_reference() {
+                println!("{key}");
+            }
+            ExitCode::SUCCESS
+        }
         Command::Usage => {
             eprintln!("{}", usage());
             ExitCode::FAILURE
@@ -133,6 +143,17 @@ async fn serve(
         Some(path) => Config::load(&path)?,
         None => Config::default(),
     };
+    // Defaults, then the file, then the environment, then the flag: each layer belongs to someone
+    // closer to this particular start than the last. Only the names are printed — one of these
+    // variables on the rendezvous side is a key, and a startup log outlives the process.
+    let from_env = config.apply_env(&nodera_service::env::SystemEnv)?;
+    if !from_env.applied.is_empty() {
+        println!(
+            "nodera-tracker: {} setting(s) from the environment: {}",
+            from_env.applied.len(),
+            from_env.applied.join(" ")
+        );
+    }
     if let Some(bind) = bind_override {
         config.bind_addr = bind.parse()?;
     }
@@ -212,8 +233,9 @@ async fn serve(
                 lifecycle,
                 identity,
                 lifecycle_config,
-                Arc::new(nodera_service::update::CurlFetcher {
+                Arc::new(nodera_service::update::HttpsFetcher {
                     timeout_seconds: 120,
+                    ..Default::default()
                 }),
                 shutdown_signal(),
             )

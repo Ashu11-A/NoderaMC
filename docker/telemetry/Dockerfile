@@ -10,28 +10,45 @@
 # actually resolves against, and a transitive dependency requiring edition 2024 broke the image
 # while every other build was green — the workspace builds with the pinned 1.93.1 everywhere else.
 # Bump this with rust-toolchain.toml, in the same commit.
+# <!-- AI-AGENT-INSTRUCTION: The three service Dockerfiles under docker/ are deliberately near
+#      identical. Change one and change the other two in the same commit. `COPY rust ./rust` copies
+#      the WHOLE workspace on purpose — this file used to list members one COPY at a time, and
+#      adding `nodera-service` to the workspace silently broke the image while every other build was
+#      green. Do not turn it back into a member list. -->
 FROM rust:1.93.1-alpine AS build
-RUN apk add --no-cache musl-dev
+# build-base, not just musl-dev: the shared service crate's TLS provider (rustls/ring) compiles C.
+RUN apk add --no-cache build-base
 WORKDIR /src
 COPY VERSION ./VERSION
-COPY rust/Cargo.toml rust/Cargo.lock ./rust/
-# EVERY workspace member has to be copied, not just the ones this image builds: Cargo resolves the
-# whole workspace manifest before it builds anything, so a member listed in `[workspace] members` and
-# absent from the context fails the build outright. Adding a crate to the workspace therefore means
-# adding a line here, in the same commit — `nodera-service` did not, and the image was the only thing
-# that noticed.
-COPY rust/nodera-codec ./rust/nodera-codec
-COPY rust/nodera-service ./rust/nodera-service
-COPY rust/nodera-tracker ./rust/nodera-tracker
-COPY rust/nodera-rendezvous ./rust/nodera-rendezvous
-COPY rust/nodera-telemetry ./rust/nodera-telemetry
+COPY rust ./rust
 WORKDIR /src/rust
-RUN cargo build --release -p nodera-telemetry
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/rust/target,sharing=locked \
+    cargo build --release -p nodera-telemetry \
+    && install -m 0755 target/release/nodera-telemetry /usr/local/bin/nodera-telemetry
 
 FROM alpine:3.20
-RUN adduser -D -H -u 10001 nodera
-COPY --from=build /src/rust/target/release/nodera-telemetry /usr/local/bin/nodera-telemetry
-RUN mkdir -p /var/lib/nodera/spool && chown -R nodera /var/lib/nodera
+RUN apk add --no-cache ca-certificates \
+    && adduser -D -H -u 10001 nodera \
+    && mkdir -p /var/lib/nodera/spool \
+    && chown -R nodera /var/lib/nodera
+COPY --from=build /usr/local/bin/nodera-telemetry /usr/local/bin/nodera-telemetry
+
+# Every setting is an environment variable — `NODERA_TELEMETRY_` plus the TOML key, uppercased —
+# so the config file below is optional. `NODERA_TELEMETRY_SUBJECT_SECRET` has no default and the
+# service refuses to start without it; that is the point, not an oversight.
+ENV NODERA_TELEMETRY_BIND_ADDR=0.0.0.0:25620 \
+    NODERA_TELEMETRY_SPOOL_DIR=/var/lib/nodera/spool
+
+# NOT a `VOLUME` declaration. Declaring one forces an anonymous volume onto every `docker run`,
+# which is a surprise (they accumulate, they are never reclaimed, and on some storage drivers the
+# copy-up fails outright), and it does not make the data any more durable than the compose file
+# below already does. Mount something at /var/lib/nodera — docker/compose.yml does.
 USER nodera
+WORKDIR /var/lib/nodera
 EXPOSE 25620
+
+# The config path is still passed because the telemetry deployment mounts a reviewable file for the
+# policy settings and supplies only the secret from the environment. Both layers work; the file wins
+# over the defaults and the environment wins over the file.
 ENTRYPOINT ["nodera-telemetry", "--config", "/etc/nodera/nodera-telemetry.toml"]
