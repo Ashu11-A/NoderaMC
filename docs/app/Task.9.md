@@ -151,8 +151,13 @@ Decisive tests:
 3. ✅ Store endpoints reach a running worker, not only the next one.
 4. ✅ The built-in store is deletable.
 5. ✅ A fresh install — including on a handset — has a reachable tracker.
-6. ⬜ Verified on a physical Android device (the APK lane needs a device; see
-   [`../mobile/TESTING.md`](../mobile/TESTING.md)).
+6. ✅ Verified on a physical Android device (2026-07-27). The release APK installs, the `nodera`
+   scheme is registered (`dumpsys package` reports the VIEW/BROWSABLE filter with `Scheme:
+   "nodera"`), and a cold `nodera://tracker-store?url=…` intent starts `.MainActivity` — the app was
+   not running beforehand, which is the case a listener registered after window creation would miss.
+   What a release build does **not** allow is reading the app's own storage (`run-as` is denied), so
+   the synchronisation file's contents and the confirm dialog were not inspected on-device; both are
+   covered by unit tests on each side of the boundary.
 
 ## Limitations
 
