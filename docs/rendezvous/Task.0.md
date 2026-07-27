@@ -62,6 +62,7 @@ same seam — call sites cannot tell which path carried a message.
 | [3](Task.3.md) | Live cross-internet proof | ⏳ BLOCKED |
 | [4](Task.4.md) | Service telemetry + NAT-pair statistics | ✅ COMPLETED |
 | [5](Task.5.md) | Discoverable, drainable, self-updating | 🚧 IN PROGRESS |
+| [6](Task.6.md) | A published image, and a relay anyone can run | ✅ DONE |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
