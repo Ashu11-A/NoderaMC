@@ -26,7 +26,16 @@ import java.util.concurrent.TimeUnit;
  */
 public final class MultiplayerStatusFeed {
 
-    private static final int PROBE_TIMEOUT_MS = 800;
+    /**
+     * How long the status screen waits for a handshake before calling an endpoint offline.
+     *
+     * <p>800 ms was under one round trip to a tracker on another continent, so this screen —
+     * the one a player consults to find out whether the network is up — reported healthy,
+     * answering services as offline. Matched to the other two probes and to the scoring
+     * ceiling above which a service is worth zero anyway.
+     */
+    private static final int PROBE_TIMEOUT_MS =
+            dev.nodera.protocol.service.ServiceScore.LATENCY_CEILING_MILLIS + 500;
 
     private static volatile List<TrackerEndpointStatus> trackers = List.of();
     private static volatile List<RendezvousEndpointStatus> rendezvous = List.of();

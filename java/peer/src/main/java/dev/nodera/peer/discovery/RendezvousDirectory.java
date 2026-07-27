@@ -59,7 +59,16 @@ public final class RendezvousDirectory {
     public static final int DEFAULT_FANOUT = ServiceScoreBoard.DEFAULT_FANOUT;
 
     /** Probe timeout: a relay that cannot complete a TCP handshake this fast is not a good relay. */
-    public static final Duration PROBE_TIMEOUT = Duration.ofMillis(400);
+    /**
+     * How long a candidate probe waits for a TCP handshake.
+     *
+     * <p>Above {@link dev.nodera.protocol.service.ServiceScore#LATENCY_CEILING_MILLIS}, past
+     * which a relay scores zero regardless — giving up sooner would drop a relay the scorer
+     * was still willing to rank, which is how a working service becomes an invisible one.
+     * 400 ms was under one round trip to most of the world; see WorldHostingService.
+     */
+    public static final Duration PROBE_TIMEOUT = Duration.ofMillis(
+            dev.nodera.protocol.service.ServiceScore.LATENCY_CEILING_MILLIS + 500);
 
     /**
      * How a candidate is measured. A seam, not a wrapper: the production implementation is a TCP
