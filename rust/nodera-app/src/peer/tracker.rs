@@ -157,11 +157,7 @@ fn announce_for(identity: &PeerIdentity, world: &[u8], routes: Vec<String>) -> T
 }
 
 /// Announce this device to one tracker and report how it went.
-pub fn announce(
-    identity: &PeerIdentity,
-    endpoint: &str,
-    routes: Vec<String>,
-) -> TrackerStatus {
+pub fn announce(identity: &PeerIdentity, endpoint: &str, routes: Vec<String>) -> TrackerStatus {
     let mut status = TrackerStatus {
         endpoint: endpoint.to_owned(),
         ..TrackerStatus::default()
@@ -183,7 +179,11 @@ pub fn announce(
             status.latency_ms = Some(started.elapsed().as_millis() as u64);
             // The tracker's own rejection code, verbatim. A peer that was refused needs to know
             // which rule it broke, and inventing a friendlier message would lose that.
-            status.error = if ack.accepted { String::new() } else { ack.reason };
+            status.error = if ack.accepted {
+                String::new()
+            } else {
+                ack.reason
+            };
         }
         Ok(other) => {
             status.reachable = true;
@@ -206,7 +206,9 @@ pub fn query(endpoint: &str, world: &[u8]) -> Result<Vec<String>, String> {
             .into_iter()
             .map(|peer| peer.node_id.to_uuid_string())
             .collect()),
-        other => Err(format!("the tracker answered with {other:?} instead of peers")),
+        other => Err(format!(
+            "the tracker answered with {other:?} instead of peers"
+        )),
     }
 }
 
@@ -246,7 +248,17 @@ pub fn self_test(identity: &PeerIdentity, endpoints: &[String], routes: Vec<Stri
         result.error = result
             .trackers
             .iter()
-            .map(|t| format!("{}: {}", t.endpoint, if t.error.is_empty() { "refused" } else { &t.error }))
+            .map(|t| {
+                format!(
+                    "{}: {}",
+                    t.endpoint,
+                    if t.error.is_empty() {
+                        "refused"
+                    } else {
+                        &t.error
+                    }
+                )
+            })
             .collect::<Vec<_>>()
             .join("; ");
         return result;
@@ -353,7 +365,9 @@ mod tests {
 
     /// Where `cargo build -p nodera-tracker` leaves the binary.
     fn tracker_binary() -> Option<std::path::PathBuf> {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent()?.to_path_buf();
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()?
+            .to_path_buf();
         ["release", "debug"]
             .iter()
             .map(|profile| root.join("target").join(profile).join("nodera-tracker"))

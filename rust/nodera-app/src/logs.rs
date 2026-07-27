@@ -106,7 +106,7 @@ pub async fn tail_attach_log(buffer: Arc<LogBuffer>) {
         };
         let len = file.metadata().map(|m| m.len()).unwrap_or(0);
         let from = match offset {
-            None => len, // first sight: only new lines from here on
+            None => len,                   // first sight: only new lines from here on
             Some(prev) if prev > len => 0, // rotation/truncation: start over
             Some(prev) => prev,
         };

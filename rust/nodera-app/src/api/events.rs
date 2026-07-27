@@ -195,7 +195,11 @@ mod tests {
                     .unwrap()
                     .push(String::from_utf8_lossy(&buffer[..read]).trim().to_owned());
                 for line in &lines {
-                    if socket.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                    if socket
+                        .write_all(format!("{line}\n").as_bytes())
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                     let _ = socket.flush().await;
@@ -260,10 +264,18 @@ mod tests {
 
         let asked = requests.lock().unwrap().clone();
         assert!(asked.len() >= 2, "expected a reconnect, saw {asked:?}");
-        assert!(asked[0].ends_with(" 0"), "a fresh app asks for the backlog: {}", asked[0]);
+        assert!(
+            asked[0].ends_with(" 0"),
+            "a fresh app asks for the backlog: {}",
+            asked[0]
+        );
         // The whole point of the cursor: without it the second connection replays event 7 and the
         // UI reopens a prompt the user has already answered.
-        assert!(asked[1].ends_with(" 7"), "a reconnect resumes: {}", asked[1]);
+        assert!(
+            asked[1].ends_with(" 7"),
+            "a reconnect resumes: {}",
+            asked[1]
+        );
     }
 
     #[tokio::test]
@@ -272,7 +284,11 @@ mod tests {
         let sink = Arc::new(Recorder::default());
         run_briefly(addr, Arc::clone(&sink), 250).await;
 
-        assert_eq!(sink.seen().len(), 1, "the good line after a bad one must still arrive");
+        assert_eq!(
+            sink.seen().len(),
+            1,
+            "the good line after a bad one must still arrive"
+        );
     }
 
     #[tokio::test]
@@ -284,6 +300,9 @@ mod tests {
         assert!(sink.seen().is_empty());
         // Backoff doubles on a refusal, so an older worker costs a couple of connections rather
         // than a reconnect loop for as long as the app is open.
-        assert!(requests.lock().unwrap().len() <= 3, "backoff should slow the retries");
+        assert!(
+            requests.lock().unwrap().len() <= 3,
+            "backoff should slow the retries"
+        );
     }
 }

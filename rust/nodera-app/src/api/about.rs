@@ -86,7 +86,10 @@ mod tests {
         let about = about();
         // A build whose attribution list failed to parse would render an empty About screen with no
         // indication anything was wrong, which is the one outcome worse than not having the screen.
-        assert!(!about.packages.is_empty(), "licences.json must embed real packages");
+        assert!(
+            !about.packages.is_empty(),
+            "licences.json must embed real packages"
+        );
         assert!(!about.licences_generated_at.is_empty());
     }
 
@@ -108,7 +111,11 @@ mod tests {
         // The generator reports what it read. Anything it could not read stays empty here, and the
         // UI is required to say "unknown" rather than filling it in.
         let about = about();
-        let named = about.packages.iter().filter(|p| !p.licence.is_empty()).count();
+        let named = about
+            .packages
+            .iter()
+            .filter(|p| !p.licence.is_empty())
+            .count();
         assert!(named > 0, "at least some licences must have been readable");
         assert!(named <= about.packages.len());
     }

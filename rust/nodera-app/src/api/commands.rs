@@ -26,7 +26,10 @@ pub fn dashboard(store: tauri::State<Arc<DashboardStore>>) -> Dashboard {
 /// `None` rather than a blank world on purpose: a world that has been stopped, or was never here,
 /// must not render as a world with every counter at zero.
 #[tauri::command]
-pub fn dashboard_world(store: tauri::State<Arc<DashboardStore>>, world_id: String) -> Option<World> {
+pub fn dashboard_world(
+    store: tauri::State<Arc<DashboardStore>>,
+    world_id: String,
+) -> Option<World> {
     store
         .snapshot()
         .worlds

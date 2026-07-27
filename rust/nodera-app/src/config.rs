@@ -103,7 +103,13 @@ impl WorkerConfig {
     pub fn of(settings: &Settings, transfers_paused: bool) -> Self {
         Self {
             transfers_paused,
-            default_trackers: settings.network.default_trackers.clone(),
+            // Merged with the stores', so adding a store takes effect on a running worker rather
+            // than at the next restart. `merged` puts the user's own first and deduplicates.
+            default_trackers: crate::stores::merged(
+                &settings.network.default_trackers,
+                &settings.network.tracker_stores,
+                crate::stores::ServiceKind::Tracker,
+            ),
             unlimited_connections_only: settings.network.unlimited_connections_only,
             max_connections: settings.network.max_connections,
             max_connections_per_world: settings.network.max_connections_per_world,
@@ -315,12 +321,44 @@ mod tests {
     /// Golden JSON. This string is the wire contract with the Java `applyConfig` handler: if it
     /// changes, the two sides have to change together, and a test that has to be edited is the
     /// cheapest possible way to notice.
+    ///
+    /// Deliberately built with **no tracker stores**. `Settings::default()` now carries the built-in
+    /// store, whose contents come from `services/official.json` — a file maintained by pull request
+    /// from outside the project. Pinning the golden string to that data would mean a contributor
+    /// adding their own tracker breaks a Rust wire-contract test, which teaches exactly the wrong
+    /// lesson about what this test is for. The merge itself is asserted separately below.
     #[test]
     fn default_settings_serialise_to_the_agreed_json() {
-        let config = WorkerConfig::of(&Settings::default(), false);
+        let mut settings = Settings::default();
+        settings.network.tracker_stores = vec![];
+        let config = WorkerConfig::of(&settings, false);
         assert_eq!(
             serde_json::to_string(&config).unwrap(),
             r#"{"behavior.transfers_paused":false,"network.default_trackers":["tcp://127.0.0.1:25600"],"network.unlimited_connections_only":false,"network.max_connections":200,"network.max_connections_per_world":50,"network.max_upload_slots_per_world":4,"network.max_upload_bytes_per_sec":0,"network.max_download_bytes_per_sec":0,"network.port_range":"random","network.rendezvous_endpoints":"","storage.peer_worlds_dir":"","storage.replication_budget_bytes":0,"storage.replication_sweep_seconds":0}"#
+        );
+    }
+
+    /// A store's trackers reach a *running* worker, not only the next one that starts.
+    ///
+    /// `network.default_trackers` is a live key — `WorkerControlHandler` applies it straight to
+    /// `TrackerClient.setEndpoints`. If the push path used the raw setting while the spawn path used
+    /// the merged one, adding a store would appear to do nothing until the worker was restarted, and
+    /// the user would have no way to tell which of the two they were looking at.
+    #[test]
+    fn a_stores_trackers_are_pushed_to_a_running_worker() {
+        let mut settings = Settings::default();
+        settings.network.default_trackers = vec!["tcp://mine.example:25600".to_owned()];
+        let config = WorkerConfig::of(&settings, false);
+
+        assert_eq!(
+            config.default_trackers.first().map(String::as_str),
+            Some("tcp://mine.example:25600"),
+            "the user's own entry keeps its place"
+        );
+        assert!(
+            config.default_trackers.len() > 1,
+            "the built-in store must contribute: {:?}",
+            config.default_trackers
         );
     }
 
@@ -370,10 +408,7 @@ mod tests {
         settings.network.use_random_port = false;
         settings.network.port_range_start = 37000;
         settings.network.port_range_end = 37009;
-        assert_eq!(
-            WorkerConfig::of(&settings, false).port_range,
-            "37000-37009"
-        );
+        assert_eq!(WorkerConfig::of(&settings, false).port_range, "37000-37009");
     }
 
     #[test]
@@ -431,7 +466,9 @@ mod tests {
         assert!(is_unknown_verb("unknown verb"));
         assert!(is_unknown_verb("Unknown command NODERA-CONFIG"));
         assert!(is_unknown_verb("unsupported verb"));
-        assert!(!is_unknown_verb("the worker is unreachable on 127.0.0.1:25610"));
+        assert!(!is_unknown_verb(
+            "the worker is unreachable on 127.0.0.1:25610"
+        ));
         // A refusal about a *value* is not evidence about the worker's age, and telling the user to
         // upgrade would send them after a fix that does not exist.
         assert!(!is_unknown_verb("unsupported tracker scheme 'udp'"));

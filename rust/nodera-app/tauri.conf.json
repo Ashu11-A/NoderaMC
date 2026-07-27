@@ -31,7 +31,20 @@
     }
   },
   "plugins": {
-    "autostart": null
+    "autostart": null,
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "nodera"
+        ]
+      },
+      "mobile": [
+        {
+          "scheme": "nodera",
+          "host": "tracker-store"
+        }
+      ]
+    }
   },
   "bundle": {
     "active": true,

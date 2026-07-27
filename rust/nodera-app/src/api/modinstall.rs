@@ -182,8 +182,8 @@ pub fn install(game_dir: &str) -> Result<String, String> {
 /// at an arbitrary path is a foot-gun in a folder full of other people's work.
 pub fn uninstall(game_dir: &str) -> Result<String, String> {
     let mods = PathBuf::from(game_dir).join("mods");
-    let entries = std::fs::read_dir(&mods)
-        .map_err(|e| format!("could not read {}: {e}", mods.display()))?;
+    let entries =
+        std::fs::read_dir(&mods).map_err(|e| format!("could not read {}: {e}", mods.display()))?;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if is_nodera_jar(&name) {
@@ -272,7 +272,10 @@ mod tests {
 
         let error = uninstall(&dir.display().to_string()).expect_err("nothing of ours");
         assert!(error.contains("no NoderaMC jar"), "{error}");
-        assert!(mods.join("sodium.jar").exists(), "somebody else's mod must survive");
+        assert!(
+            mods.join("sodium.jar").exists(),
+            "somebody else's mod must survive"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
