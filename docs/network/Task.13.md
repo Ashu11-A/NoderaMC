@@ -41,8 +41,15 @@ Landed and green (`./gradlew :core:test :transport:test :peer:test`, **579 peer-
   sweep, and a live rendezvous endpoint list that re-registers every hosted world when it changes.
 - `rust/nodera-app/src/daemon.rs` — passes `NODERA_RENDEZVOUS_ENDPOINTS`, which it never did.
 
-Remaining: the mod's own transport composition still takes a static list from `NoderaConfig` at world
-open; wiring it to the worker's directory is a `neoforge-mod` change tracked as L-84.
+The mod half landed on 2026-07-27: `WorkerStateParser.rendezvousRoutes` reads the worker's live
+selection out of the `NODERA-STATE` reply the mod already fetches, both transport-composition paths
+seed from it, and the announce cadence pushes later changes through `setEndpoints`. No new control
+verb and no wire change were needed — the `rendezvous` array was already in the STATE contract, and
+reading a field that exists is free where adding one is not.
+
+Remaining: the exit test. It is a **live** suite — two relays, one drained mid-session, the in-game
+transport asserted to re-register — and it does not exist yet, so L-84 is RETIRING rather than
+RETIRED.
 
 ## Dependencies
 
@@ -64,7 +71,7 @@ open; wiring it to the worker's directory is a `neoforge-mod` change tracked as 
 | 8 | A verified drain notice migrates the peer, using the replacement it names | ✅ |
 | 9 | Configured endpoints survive as seeds | ✅ |
 | 10 | The worker drives the sweep and re-registers on change | ✅ |
-| 11 | The mod's transport reads the worker's selection | ⬜ L-84 |
+| 11 | The mod's transport reads the worker's selection | ✅ code; ⬜ live exit test (L-84) |
 
 ## Design
 
@@ -113,6 +120,21 @@ from a working relay and herd its traffic somewhere chosen for it.
 
 **Configured endpoints are seeds, not overrides.** An operator who pinned a relay meant it, and a
 LAN-only deployment has no tracker to ask. Seeds come first; discovered endpoints follow in score order.
+
+**The mod asks the worker rather than growing its own directory.** The companion is already
+running, already discovering relays from trackers, already probing and scoring them, and already
+re-picking when one drains. Duplicating that inside the mod would mean two directories that
+disagree — and the mod is the one with less information, since it starts and stops with the world.
+So the mod reads the answer and keeps configuration as the fallback: a player with no companion
+linked, an older worker whose STATE predates the field, or a LAN-only deployment with no tracker to
+ask must all still be able to share a world. A relay the worker marks unreachable is skipped, because
+composing a transport from a relay the worker just failed to reach is worse than using the
+configured list.
+
+**The refresh is guarded separately from the announce it rides with.** A task that throws out of
+`scheduleWithFixedDelay` is silently never run again. Sharing the announce's cadence is right —
+the worker's selection changes at most once a minute — but sharing its failure would stop the
+announce too, with nothing anywhere saying so.
 
 **Probing is an injectable seam.** `RendezvousDirectory.Prober` defaults to `Reachability::measure`. The
 discovery, verification, selection and migration logic is then testable without standing up relays, and
@@ -165,10 +187,11 @@ Decisive tests:
 5. ✅ A rendezvous restart does not end a peer's inbound relay path.
 6. ✅ A verified drain notice migrates the peer before the old relay stops.
 7. ✅ Configured endpoints keep working, with or without a tracker.
-8. ⬜ The Minecraft mod's transport reads the worker's selection (L-84).
+8. 🚧 The Minecraft mod's transport reads the worker's selection — code landed and unit-tested; the live drain suite that is this row's exit test is still to be written (L-84).
 
 ## Limitations
 
-Owns **L-84** (the mod still composes its rendezvous transport from a static config list at world open,
-so a drain-driven migration reaches the worker but not the in-game transport until the next world open).
-Recorded in [`LIMITATIONS.md`](LIMITATIONS.md) with its exit test.
+Owns **L-84**, now RETIRING. The mod reads the worker's live selection and pushes changes into the
+transport without a world reopen; what is not yet proved is the loop closing against a relay that
+actually drains, which is a live suite this branch has not written. Recorded in
+[`LIMITATIONS.md`](LIMITATIONS.md) with its exit test.
