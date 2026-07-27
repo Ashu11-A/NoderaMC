@@ -30,10 +30,11 @@ IMAGE_TAG="${NODERA_IMAGE_TAG:-canary}"
 
 # What the services publish about themselves. These must be the addresses OTHER machines use: a
 # service that advertises its bind address is a service nobody outside the container can reach.
-# Both a name and a literal address are advertised, so a peer whose DNS is broken, filtered, or
-# simply ahead of the DNS record still has a route.
-TRACKER_ROUTES="${NODERA_TRACKER_ROUTES:-tcp://tracker.noderamc.org:6969,tcp://$VPS_HOST:6969}"
-RENDEZVOUS_ROUTES="${NODERA_RENDEZVOUS_ROUTES:-tcp://rendezvous.noderamc.org:7500,tcp://$VPS_HOST:7500}"
+# Addresses, not names. noderamc.org sits behind a proxy that does not carry raw TCP on these
+# ports, so advertising a hostname that never resolves to this service costs every peer a failing
+# probe and every user a red row that means nothing.
+TRACKER_ROUTES="${NODERA_TRACKER_ROUTES:-tcp://$VPS_HOST:6969}"
+RENDEZVOUS_ROUTES="${NODERA_RENDEZVOUS_ROUTES:-tcp://$VPS_HOST:7500}"
 # Where the relay announces ITSELF. This script always deploys both services into one compose
 # project, so the sibling is reachable by its compose service name — which is also the only form
 # that works: a container reaching its own host's public address has to hairpin back through the

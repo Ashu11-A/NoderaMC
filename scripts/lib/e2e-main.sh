@@ -202,7 +202,16 @@ nodera_parse_args() {
             --keep-running) KEEP_RUNNING=1; shift ;;
             # Exported so a batch run (`run-tests.sh --official`) reaches every child
             # suite it spawns, which are separate processes.
-            --official) NODERA_OFFICIAL_SERVICES=1; export NODERA_OFFICIAL_SERVICES; shift ;;
+            # --official implies relay-only. Two players on one machine will always find a
+            # direct path and take it, so an "official services" run would otherwise prove that
+            # the tracker answers and nothing whatsoever about the relay lane it exists to test.
+            # Set NODERA_FORCE_RELAY=0 before the run to keep direct paths.
+            --official)
+                NODERA_OFFICIAL_SERVICES=1
+                NODERA_FORCE_RELAY="${NODERA_FORCE_RELAY:-1}"
+                export NODERA_OFFICIAL_SERVICES NODERA_FORCE_RELAY
+                shift ;;
+            --relay-only) NODERA_FORCE_RELAY=1; export NODERA_FORCE_RELAY; shift ;;
             *)
                 NODERA_ARGS_EATEN=0
                 declare -F nodera_suite_arg >/dev/null && nodera_suite_arg "$@"
