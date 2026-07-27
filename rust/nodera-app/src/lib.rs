@@ -149,6 +149,7 @@ async fn add_tracker_store(
         .retain(|held| held.url != store.url);
     settings.network.tracker_stores.push(store.clone());
     state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
     push.request();
     Ok(store)
 }
@@ -170,6 +171,7 @@ fn remove_tracker_store(
         return Err(format!("no store here is served from {url}"));
     }
     state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
     push.request();
     Ok(())
 }
@@ -200,8 +202,62 @@ async fn refresh_tracker_stores(
     }
     let refreshed = settings.network.tracker_stores.clone();
     state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
     push.request();
     Ok(refreshed)
+}
+
+/// How often the stores are re-read in the background.
+///
+/// Six hours. A service list changes when somebody opens a pull request against it, which is not an
+/// hourly event; polling harder loads somebody's web server for no benefit, and the manual Refresh
+/// button covers the case where a user knows something changed.
+const STORE_SYNC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Keep the tracker stores, and the file the worker reads, up to date.
+///
+/// Runs for the life of the app: once at startup, then on the interval. This is the
+/// "synchronisation" half of the store model — the subscriptions are settings the user owns, and
+/// the content behind them is refreshed without anybody having to remember to.
+///
+/// A failed sync is not an error. `refresh` keeps the services a store last reported and puts the
+/// reason beside them, so an outage costs freshness and never the endpoints this node is using.
+async fn sync_stores_forever(settings: Arc<settings::SettingsHandle>, push: Arc<PushSignal>) {
+    loop {
+        let mut document = settings.snapshot();
+        if document.network.tracker_stores.is_empty() {
+            // Nothing subscribed. Still write the file: the user's own typed endpoints belong in it
+            // too, and an absent file reads as "never synced".
+            settings::write_sync_file(&document);
+        } else {
+            let mut changed = false;
+            for store in &mut document.network.tracker_stores {
+                let url = store.url.clone();
+                let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&url)).await;
+                match fetched {
+                    Ok(Ok(body)) => match stores::parse_index(&body) {
+                        Ok(index) => {
+                            let built_in = store.built_in;
+                            *store = stores::store_from(&store.url, index, now_millis(), built_in);
+                            changed = true;
+                        }
+                        Err(e) => store.last_error = e.to_string(),
+                    },
+                    Ok(Err(e)) => store.last_error = e.to_string(),
+                    Err(e) => store.last_error = format!("the fetch task failed: {e}"),
+                }
+            }
+            if settings.save(document.clone()).is_ok() {
+                settings::write_sync_file(&document);
+                if changed {
+                    // A store that gained a tracker should reach a running worker rather than wait
+                    // for a restart — `network.default_trackers` is a live key.
+                    push.request();
+                }
+            }
+        }
+        tokio::time::sleep(STORE_SYNC_INTERVAL).await;
+    }
 }
 
 /// Wall-clock millis, for "when did this store last answer".
@@ -333,6 +389,9 @@ fn save_settings(
 ) -> Result<(), String> {
     let auto_start = next.behavior.auto_start;
     state.save(next)?;
+    // Kept in step with the document, because on Android this file is the only way the worker ever
+    // learns about a tracker (see `stores::sync_file_body`).
+    settings::write_sync_file(&state.snapshot());
     push.request();
     // Auto-start is applied here rather than merely stored, because the OS — not the worker — is
     // what enforces it. A plugin error is reported, never swallowed: silently failing to register a
@@ -949,6 +1008,15 @@ pub fn run() {
             let events_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 api::events::run(control_addr(), events_app).await;
+            });
+
+            // Keep the tracker stores fresh, and the worker's synchronisation file with them.
+            // Started before the pusher so a first-run install has written the file — the only
+            // channel to an Android worker — by the time the worker looks for it.
+            let sync_settings = Arc::clone(&user_settings);
+            let sync_push = Arc::clone(&push_signal);
+            tauri::async_runtime::spawn(async move {
+                sync_stores_forever(sync_settings, sync_push).await;
             });
 
             // Coalesce configuration pushes: one per settle window, however many saves arrive.

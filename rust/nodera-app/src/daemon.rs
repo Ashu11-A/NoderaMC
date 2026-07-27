@@ -104,6 +104,17 @@ pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
         env.push(("NODERA_RENDEZVOUS_ENDPOINTS".to_owned(), rendezvous));
     }
 
+    // Where the worker can read the app's synchronised service list. Redundant on the desktop —
+    // the two variables above already carry it — but it is the ONLY path on Android, where the
+    // worker runs inside this process and a process cannot set its own environment from Java. One
+    // mechanism on both platforms beats two that diverge.
+    env.push((
+        "NODERA_SERVICES_FILE".to_owned(),
+        crate::settings::sync_file_path()
+            .to_string_lossy()
+            .into_owned(),
+    ));
+
     let archive_dir = settings.storage.peer_worlds_dir.trim();
     if !archive_dir.is_empty() {
         env.push(("NODERA_ARCHIVE_DIR".to_owned(), archive_dir.to_owned()));
@@ -354,6 +365,7 @@ mod tests {
                     key.as_str(),
                     "NODERA_TRACKER_ENDPOINTS"
                         | "NODERA_RENDEZVOUS_ENDPOINTS"
+                        | "NODERA_SERVICES_FILE"
                         | "NODERA_ARCHIVE_DIR"
                         | "NODERA_P2P_PORT"
                         | "NODERA_P2P_PORT_RANGE"

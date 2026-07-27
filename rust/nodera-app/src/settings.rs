@@ -691,6 +691,55 @@ fn settings_path() -> PathBuf {
 static ANDROID_DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 /// Tell the settings layer where this Android app may write. No-op if already set.
+/// Where the worker's synchronised service list lives.
+///
+/// Beside `settings.json`, which on Android is the app's data directory — the one place both the
+/// app and the in-process worker can reach.
+pub fn sync_file_path() -> PathBuf {
+    config_dir().join(crate::stores::SYNC_FILE_NAME)
+}
+
+/// Write the synchronised service list from the current settings.
+///
+/// Called after anything that can change the resolved endpoints: a settings save, a store added or
+/// removed, a scheduled sync. Failure is logged and swallowed — the desktop still has the
+/// environment variables, and refusing to save a setting because a cache file could not be written
+/// would be the wrong trade.
+pub fn write_sync_file(settings: &Settings) {
+    let trackers = crate::stores::merged(
+        &settings.network.default_trackers,
+        &settings.network.tracker_stores,
+        crate::stores::ServiceKind::Tracker,
+    );
+    let rendezvous = crate::stores::merged(
+        &settings.network.rendezvous_endpoints,
+        &settings.network.tracker_stores,
+        crate::stores::ServiceKind::Rendezvous,
+    );
+    let synced = settings
+        .network
+        .tracker_stores
+        .iter()
+        .map(|store| store.last_refreshed_epoch_millis)
+        .max()
+        .unwrap_or(0);
+    let body = crate::stores::sync_file_body(&trackers, &rendezvous, &iso_millis(synced));
+    if let Err(e) = crate::stores::write_sync_file(&config_dir(), &body) {
+        log::warn!("could not write the synced service list: {e}");
+    }
+}
+
+/// An epoch-millis stamp as an ISO-ish string, for the file's comment header only.
+fn iso_millis(millis: u64) -> String {
+    if millis == 0 {
+        return String::new();
+    }
+    let secs = (millis / 1000) as i64;
+    // Deliberately not a date library: this is a human-readable comment in a cache file, and the
+    // worker never parses it.
+    format!("epoch {secs}")
+}
+
 pub fn set_android_data_dir(dir: PathBuf) {
     let _ = ANDROID_DATA_DIR.set(dir);
 }

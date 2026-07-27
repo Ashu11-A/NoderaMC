@@ -387,6 +387,59 @@ fn percent_decode(raw: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// The name of the file the app keeps in sync for the worker to read.
+///
+/// See [`sync_file_body`] for why this file exists at all.
+pub const SYNC_FILE_NAME: &str = "nodera-services.list";
+
+/// Render the synchronisation file: the resolved endpoint list, one route per line.
+///
+/// ## Why a file, and not just the environment
+///
+/// On the desktop the app spawns the worker and can hand it environment variables. **On Android it
+/// cannot.** The worker there is loaded into the app's own process by `NoderaWorker.start`, and
+/// `NoderaWorker.kt` says it plainly: *"Environment variables cannot be set for our own process
+/// from Java."* So an Android install had no way at all to tell its worker about a tracker — it fell
+/// back to `127.0.0.1:25600`, which on a handset is the handset. Every store a user added on their
+/// phone reached the app and stopped there.
+///
+/// A file both sides agree on is the fix, and it is the same shape Mihon uses: the *subscriptions*
+/// are user settings, the *synced content* is a file the app refreshes on a schedule and something
+/// else consumes.
+///
+/// The format is deliberately not JSON. The worker's side of this has to be a few lines of parsing
+/// with no dependency and no failure mode more interesting than "skip the line I cannot read" — a
+/// half-written or hand-edited file must cost one endpoint, never the worker's ability to start.
+pub fn sync_file_body(trackers: &[String], rendezvous: &[String], synced_iso: &str) -> String {
+    let mut out = String::new();
+    out.push_str("# Nodera synced services. Written by the companion app — do not edit.\n");
+    out.push_str("# Change these under Settings -> Tracker stores; edits here are overwritten.\n");
+    if !synced_iso.is_empty() {
+        out.push_str(&format!("# last synced {synced_iso}\n"));
+    }
+    for route in trackers {
+        out.push_str(&format!("tracker {route}\n"));
+    }
+    for route in rendezvous {
+        out.push_str(&format!("rendezvous {route}\n"));
+    }
+    out
+}
+
+/// Write the synchronisation file next to the app's other state.
+///
+/// Write-then-rename, because the worker may read it at any moment — including while this runs, on
+/// Android, where both live in one process. A half-written list is the one outcome that would be
+/// worse than a stale one.
+pub fn write_sync_file(dir: &std::path::Path, body: &str) -> std::io::Result<std::path::PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    let final_path = dir.join(SYNC_FILE_NAME);
+    let temp_path = dir.join(format!("{SYNC_FILE_NAME}.tmp"));
+    std::fs::write(&temp_path, body)?;
+    std::fs::rename(&temp_path, &final_path)?;
+    Ok(final_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,6 +568,52 @@ mod tests {
             store_url_from_deep_link("nodera://tracker-store?url=https%3A%2F%2Fa.org%2Fx%ZZ"),
             Some("https://a.org/x%ZZ".to_owned())
         );
+    }
+
+    #[test]
+    fn the_sync_file_is_readable_by_a_parser_with_no_dependencies() {
+        let body = sync_file_body(
+            &["tcp://t.example.org:6969".to_owned()],
+            &["tcp://r.example.org:7500".to_owned()],
+            "2026-07-27T12:00:00Z",
+        );
+        // Every non-comment line is exactly "<kind> <route>", which is all the worker's reader needs
+        // to know. Anything richer here becomes a JSON parser on the other side of the boundary.
+        let rows: Vec<&str> = body
+            .lines()
+            .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                "tracker tcp://t.example.org:6969",
+                "rendezvous tcp://r.example.org:7500"
+            ]
+        );
+        assert!(body.contains("do not edit"), "{body}");
+    }
+
+    #[test]
+    fn an_empty_selection_writes_a_file_with_no_routes_rather_than_no_file() {
+        // "I synced and there is nothing" and "I have never synced" are different states, and the
+        // worker has to be able to tell them apart. An absent file means the latter.
+        let body = sync_file_body(&[], &[], "2026-07-27T12:00:00Z");
+        assert!(body.contains("last synced"));
+        assert!(!body.contains("tracker "));
+    }
+
+    #[test]
+    fn writing_the_sync_file_is_atomic_and_leaves_no_temporary_behind() {
+        let dir = std::env::temp_dir().join(format!("nodera-sync-{}", std::process::id()));
+        let body = sync_file_body(&["tcp://t.example.org:6969".to_owned()], &[], "");
+        let written = write_sync_file(&dir, &body).expect("written");
+
+        assert_eq!(std::fs::read_to_string(&written).unwrap(), body);
+        assert!(
+            !dir.join(format!("{SYNC_FILE_NAME}.tmp")).exists(),
+            "the temporary file must be renamed, not left beside the real one"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
