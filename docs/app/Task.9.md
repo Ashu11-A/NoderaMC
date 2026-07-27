@@ -37,6 +37,7 @@ Android. 172 `nodera-app` tests green — and now running in CI, which they neve
 | 7 | `nodera://tracker-store?url=…` on desktop and Android | ✅ |
 | 8 | A confirmation dialog showing the URL before anything is fetched | ✅ |
 | 9 | List / add / refresh / copy / delete, on both layouts | ✅ |
+| 10 | A synchronisation file the worker reads, refreshed on a schedule | ✅ |
 
 ## Design
 
@@ -78,13 +79,38 @@ purpose — `127.0.0.1` is the handset, and a baked LAN address is unreachable o
 one, so both options produce a permanently failing row that teaches the user to ignore red. A real,
 reachable, publicly operated tracker in a list they can inspect is neither.
 
+**The synchronisation file is what makes any of this work on a phone.** On the desktop the app
+spawns the worker and hands it `NODERA_TRACKER_ENDPOINTS`. On Android it cannot — the worker is
+loaded into the app's own process, and `NoderaWorker.kt` states the constraint: *"Environment
+variables cannot be set for our own process from Java."* So before this, an Android install had no
+channel to its worker at all: it fell back to `127.0.0.1:25600`, which on a handset is the handset,
+and every store a user added stopped at the app.
+
+The resolved list is therefore written to a file, which is the same split Mihon uses — the
+*subscriptions* are settings the user owns, the *synced content* is refreshed on a schedule and
+consumed by something else. A system property carries the path on Android (Java can set those for
+itself); `NODERA_SERVICES_FILE` carries it on the desktop, so there is one mechanism rather than two
+that diverge.
+
+**The file is not JSON, and that is the point.** The worker's reader runs before anything else it
+does. A malformed line must cost one endpoint, never the worker's ability to start — so every parse
+failure is a skipped line and an unreadable file is the defaults plus a warning. Written
+write-then-rename, because on Android the reader and the writer share a process.
+
+**Six hours between syncs.** A service list changes when somebody opens a pull request against it,
+which is not an hourly event; polling harder loads somebody's web server for nothing, and the manual
+Refresh button covers a user who knows something changed.
+
 **The merge feeds both push paths.** The spawn environment *and* the live `NODERA-CONFIG` push, so
 adding a store takes effect on a running worker. If only one had it, adding a store would appear to
 do nothing until a restart and the user would have no way to tell which they were looking at.
 
 ## Files
 
-- `rust/nodera-app/src/stores.rs`
+- `rust/nodera-app/src/stores.rs` — including `sync_file_body` / `write_sync_file`
+- `rust/nodera-app/src/lib.rs` — `sync_stores_forever`
+- `rust/nodera-app/android/kotlin/NoderaWorker.kt` — the Android path
+- `java/worker/.../HeadlessPeerMain.java` — `SyncedServices`, the reader
 - `rust/nodera-app/src/settings.rs` — `network.tracker_stores` + its enforcement row
 - `rust/nodera-app/src/daemon.rs` · `src/config.rs` — the merge into both push paths
 - `rust/nodera-app/src/lib.rs` — five commands, the deep-link handler, `PendingStore`
@@ -113,6 +139,10 @@ Decisive tests:
   is shown this string; repairing it silently would show them one URL and use another.
 - `config::tests::a_stores_trackers_are_pushed_to_a_running_worker`.
 - `daemon::tests::a_store_adds_endpoints_without_displacing_the_users_own`.
+- `stores::tests::the_sync_file_is_readable_by_a_parser_with_no_dependencies` and Java's
+  `SyncedServicesTest.readsWhatTheAppWrote` — the same format, pinned once on each side of a
+  boundary neither language can check for the other.
+- `SyncedServicesTest.aMalformedLineIsSkipped` — a half-written cache file costs one endpoint.
 
 ## Acceptance criteria
 
