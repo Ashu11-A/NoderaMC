@@ -81,6 +81,25 @@ jobs:
       # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
       - run: cargo test
 
+  # `services/official.json` is data maintained by pull request from outside the project, so the
+  # gate has to be something a contributor can run before opening one — and the failure has to name
+  # the offending line rather than being "the app did not start". Pure stdlib Python: a validation
+  # job that needs its own dependency install is a job that breaks for reasons unrelated to the file
+  # it validates.
+  services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the official service index
+        run: scripts/services.py --validate
+      # Proves the file is usable, not merely well-formed: a list that parses and yields no
+      # endpoints would pass a schema check and leave every peer with nothing to contact.
+      - name: The index yields endpoints of both kinds
+        run: |
+          set -euo pipefail
+          scripts/services.py --endpoints tracker
+          scripts/services.py --endpoints rendezvous
+
   release-artifacts:
     # Service binaries are published per tag: operators run `nodera-tracker` / `nodera-rendezvous`
     # as standalone infrastructure, so they need built artifacts, not a source checkout.
