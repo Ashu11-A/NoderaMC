@@ -9,7 +9,7 @@
 
 use crate::sig;
 use crate::tags::{message_tags, type_tags};
-use crate::{CanonicalReader, CanonicalWriter, CodecError, ENCODING_VERSION, Result};
+use crate::{CanonicalReader, CanonicalWriter, CodecError, Result, ENCODING_VERSION};
 
 /// A world's public key bound to the peer that created it, signed by both halves.
 ///
@@ -265,7 +265,9 @@ mod tests {
     #[test]
     fn a_genuine_deletion_from_java_verifies_here() {
         let gossip = WorldDeletionGossip::decode(&golden()).expect("decode");
-        let tombstone = gossip.verified().expect("the Java-signed deletion must verify");
+        let tombstone = gossip
+            .verified()
+            .expect("the Java-signed deletion must verify");
 
         assert_eq!(tombstone.world_id, gossip.world_id);
         assert!(tombstone.ownership().is_some());
