@@ -193,10 +193,10 @@ impl Reporter {
 
 /// Accept `host:port` as well as `tcp://host:port`, matching every other endpoint in the project.
 fn normalise(endpoint: &str) -> String {
-    endpoint
-        .strip_prefix("tcp://")
-        .unwrap_or(endpoint)
-        .to_owned()
+    // Delegated rather than repeated. This function was the only place in the project that got it
+    // right, and the service-directory lane grew its own connect path without it — a rendezvous
+    // configured the documented way announced to nobody until a live deployment showed it.
+    nodera_service::endpoint::socket_target(endpoint).to_owned()
 }
 
 async fn submit(endpoint: &str, body: &str) -> Result<String, String> {

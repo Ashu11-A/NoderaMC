@@ -12,6 +12,7 @@
 //! * [`update`] — noticing that the published binary is not the one running, verifying the replacement,
 //!   and swapping it.
 //! * [`env`] — reading configuration out of the environment, so an image can be run without a file.
+//! * [`endpoint`] — taking the scheme off a configured route before a socket is opened to it.
 //!
 //! ## The rule this crate does not break
 //!
@@ -23,6 +24,7 @@
 
 pub mod directory;
 pub mod drain;
+pub mod endpoint;
 pub mod env;
 pub mod identity;
 pub mod lifecycle;
