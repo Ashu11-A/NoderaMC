@@ -91,6 +91,12 @@ pub struct Config {
     pub update_feed_base_url: String,
     /// How often to check for a newer published build.
     pub update_check_interval_seconds: u64,
+    /// The Ed25519 key a release manifest must be signed with, 64 hex characters.
+    ///
+    /// Defaults to the key this build was compiled with. Set it only to trust a fork's or a
+    /// mirror's releases instead of ours — an empty value means the update lane checks
+    /// integrity but not provenance, which it says out loud on every check (L-81).
+    pub update_release_public_key: String,
 }
 
 impl Default for Config {
@@ -120,6 +126,8 @@ impl Default for Config {
             update_channel: String::new(),
             update_feed_base_url: nodera_service::update::DEFAULT_FEED_BASE_URL.to_owned(),
             update_check_interval_seconds: 3_600,
+            update_release_public_key: nodera_service::update::DEFAULT_RELEASE_PUBLIC_KEY
+                .to_owned(),
         }
     }
 }
@@ -215,6 +223,10 @@ impl Config {
         overlay.set(
             "update_check_interval_seconds",
             &mut self.update_check_interval_seconds,
+        );
+        overlay.set(
+            "update_release_public_key",
+            &mut self.update_release_public_key,
         );
 
         Ok(overlay.finish()?)
@@ -335,6 +347,7 @@ impl Config {
             asset_name: "nodera-rendezvous".to_owned(),
             check_interval_seconds: self.update_check_interval_seconds,
             drain_grace_seconds: self.drain_grace_seconds,
+            release_public_key: self.update_release_public_key.clone(),
         }
     }
 

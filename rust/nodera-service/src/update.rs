@@ -46,6 +46,21 @@ pub const DEFAULT_FEED_BASE_URL: &str =
 /// The digest manifest published alongside the binaries.
 pub const CHECKSUM_ASSET: &str = "SHA256SUMS";
 
+/// The detached Ed25519 signature over [`CHECKSUM_ASSET`].
+pub const CHECKSUM_SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
+
+/// The release signing key this build trusts, as 64 hex characters, or empty.
+///
+/// **Empty means integrity without provenance** — the digest still has to match, but it came from
+/// the same release as the binary, so whoever can publish to the release can publish a matching
+/// digest. That is L-81, and it is stated rather than papered over: a build with no pinned key logs
+/// the fact at every check rather than implying a guarantee it cannot make.
+///
+/// Compiled in rather than configured because a trust root an attacker can set in a config file is
+/// not a trust root. `update_release_public_key` exists for forks and for private mirrors, and
+/// setting it is a deliberate act of trusting somebody else's releases instead of ours.
+pub const DEFAULT_RELEASE_PUBLIC_KEY: &str = "";
+
 /// How the update lane is configured. Empty `channel` means the whole lane is inert.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateConfig {
@@ -59,6 +74,10 @@ pub struct UpdateConfig {
     pub check_interval_seconds: u64,
     /// How long in-flight work may hold up the restart.
     pub drain_grace_seconds: u64,
+    /// The Ed25519 key releases must be signed with, 64 hex characters. Empty disables the check.
+    ///
+    /// See [`DEFAULT_RELEASE_PUBLIC_KEY`] for why empty is not the same as safe.
+    pub release_public_key: String,
 }
 
 impl UpdateConfig {
@@ -250,6 +269,61 @@ pub fn digest_for_asset(manifest: &str, asset: &str) -> Option<String> {
     None
 }
 
+/// Refuse a digest manifest that is not signed by the key this build trusts.
+///
+/// A no-op when no key is pinned, which is L-81's state and is logged rather than assumed.
+fn verify_manifest_signature(
+    config: &UpdateConfig,
+    fetcher: &dyn Fetcher,
+    manifest: &[u8],
+) -> io::Result<()> {
+    let key_hex = config.release_public_key.trim();
+    if key_hex.is_empty() {
+        // Said out loud on every check. An update lane that verifies less than the operator thinks
+        // it does is worse than one that verifies nothing and says so.
+        eprintln!(
+            "nodera-service: no release signing key is pinned — the update lane is checking \
+             integrity, not provenance (L-81)"
+        );
+        return Ok(());
+    }
+    let key = decode_hex(key_hex).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "update_release_public_key is not 64 hex characters".to_owned(),
+        )
+    })?;
+
+    // A missing signature is a refusal, not a fallback. Treating "the .sig is absent" as "unsigned
+    // release, carry on" would let anyone who can delete one asset turn the check off.
+    let signature = fetcher
+        .get(&config.asset_url(CHECKSUM_SIGNATURE_ASSET))
+        .map_err(|e| {
+            io::Error::other(format!(
+                "this build requires a signed release manifest and {CHECKSUM_SIGNATURE_ASSET} \
+                 could not be fetched ({e})"
+            ))
+        })?;
+
+    nodera_codec::sig::verify(&key, manifest, &signature).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("the release manifest is not signed by the expected key: {e}"),
+        )
+    })
+}
+
+/// Decode 64 hex characters into 32 bytes.
+fn decode_hex(hex: &str) -> Option<Vec<u8>> {
+    if hex.len() != 64 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
 /// Whether a newer build is published, and its digest.
 ///
 /// `Ok(None)` means "already current" — the common case, and deliberately not an error.
@@ -262,6 +336,13 @@ pub fn check(
         return Ok(None);
     }
     let manifest = fetcher.get(&config.asset_url(CHECKSUM_ASSET))?;
+
+    // Provenance BEFORE integrity, and the order is the whole point. The digest says "these bytes
+    // are the bytes the manifest names"; the signature says "this manifest is ours". Checking the
+    // digest first would mean a substituted manifest gets a vote on which binary we install before
+    // anyone asks whether the manifest is genuine.
+    verify_manifest_signature(config, fetcher, &manifest)?;
+
     let manifest = String::from_utf8_lossy(&manifest);
     let published = digest_for_asset(&manifest, &config.asset_name).ok_or_else(|| {
         io::Error::new(
@@ -435,6 +516,7 @@ mod tests {
             asset_name: "nodera-rendezvous".to_owned(),
             check_interval_seconds: 3_600,
             drain_grace_seconds: 30,
+            release_public_key: String::new(),
         }
     }
 
@@ -738,5 +820,121 @@ mod tests {
         let _ = server.join();
 
         assert_eq!(body, b"hello world");
+    }
+
+    /// L-81's exit test: a manifest whose digests are perfectly correct but whose signature is not
+    /// ours must be refused *before* any digest is read.
+    ///
+    /// This is the attack the digest alone cannot see. The digest says "the binary matches what the
+    /// manifest names" — it says nothing about who wrote the manifest, so whoever can publish to the
+    /// release can publish a self-consistent pair.
+    #[test]
+    fn a_validly_digested_but_wrongly_signed_manifest_is_refused() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let ours = SigningKey::from_bytes(&[7u8; 32]);
+        let theirs = SigningKey::from_bytes(&[9u8; 32]);
+
+        let dir = temp_dir("wrong-sig");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"the build that is running").unwrap();
+        // A digest that is genuinely correct for a *different* build, so nothing but the signature
+        // can be what refuses this.
+        let manifest = format!(
+            "{}  nodera-rendezvous\n",
+            hex(&Sha256::digest(b"a newer build"))
+        );
+
+        let feed = FakeFeed::new();
+        feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
+        feed.serve(
+            CHECKSUM_SIGNATURE_ASSET,
+            &theirs.sign(manifest.as_bytes()).to_bytes(),
+        );
+
+        let config = UpdateConfig {
+            release_public_key: hex(ours.verifying_key().as_bytes()),
+            ..config()
+        };
+        let error = check(&config, &feed, &running).expect_err("a foreign signature must refuse");
+        assert!(
+            error.to_string().contains("not signed by the expected key"),
+            "{error}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_manifest_signed_by_the_expected_key_is_accepted() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let ours = SigningKey::from_bytes(&[7u8; 32]);
+        let dir = temp_dir("right-sig");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"the build that is running").unwrap();
+        let published = hex(&Sha256::digest(b"a newer build"));
+        let manifest = format!("{published}  nodera-rendezvous\n");
+
+        let feed = FakeFeed::new();
+        feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
+        feed.serve(
+            CHECKSUM_SIGNATURE_ASSET,
+            &ours.sign(manifest.as_bytes()).to_bytes(),
+        );
+
+        let config = UpdateConfig {
+            release_public_key: hex(ours.verifying_key().as_bytes()),
+            ..config()
+        };
+        assert_eq!(check(&config, &feed, &running).unwrap(), Some(published));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_signature_is_a_refusal_not_a_fallback() {
+        use ed25519_dalek::SigningKey;
+
+        // Otherwise anyone who can delete one asset from a release turns the check off.
+        let ours = SigningKey::from_bytes(&[7u8; 32]);
+        let dir = temp_dir("no-sig");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"the build that is running").unwrap();
+        let manifest = format!("{}  nodera-rendezvous\n", hex(&Sha256::digest(b"newer")));
+
+        let feed = FakeFeed::new();
+        feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
+        // No CHECKSUM_SIGNATURE_ASSET served at all.
+
+        let config = UpdateConfig {
+            release_public_key: hex(ours.verifying_key().as_bytes()),
+            ..config()
+        };
+        assert!(check(&config, &feed, &running).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn no_pinned_key_still_checks_the_digest_and_says_what_it_is_not_checking() {
+        // L-81's actual state until a signing key exists. The lane must keep working — refusing to
+        // update at all would be a worse outcome than the gap it is documenting — but it must not
+        // imply a guarantee it cannot make.
+        let dir = temp_dir("unpinned");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"running").unwrap();
+        let published = hex(&Sha256::digest(b"newer"));
+
+        let feed = FakeFeed::new();
+        feed.serve(
+            CHECKSUM_ASSET,
+            format!("{published}  nodera-rendezvous\n").as_bytes(),
+        );
+
+        assert_eq!(check(&config(), &feed, &running).unwrap(), Some(published));
+        assert!(DEFAULT_RELEASE_PUBLIC_KEY.is_empty(), "L-81 is still open");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

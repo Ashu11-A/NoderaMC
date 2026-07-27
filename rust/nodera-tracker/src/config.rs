@@ -111,6 +111,12 @@ pub struct Config {
     pub update_feed_base_url: String,
     /// How often to check for a newer published build.
     pub update_check_interval_seconds: u64,
+    /// The Ed25519 key a release manifest must be signed with, 64 hex characters.
+    ///
+    /// Defaults to the key this build was compiled with. Set it only to trust a fork's or a
+    /// mirror's releases instead of ours — an empty value means the update lane checks
+    /// integrity but not provenance, which it says out loud on every check (L-81).
+    pub update_release_public_key: String,
     /// How long in-flight work may hold up a drain before the restart proceeds anyway.
     pub drain_grace_seconds: u64,
     /// Trackers this tracker announces *itself* to, so peers can discover it the same way they
@@ -153,6 +159,8 @@ impl Default for Config {
             update_channel: String::new(),
             update_feed_base_url: nodera_service::update::DEFAULT_FEED_BASE_URL.to_owned(),
             update_check_interval_seconds: 3_600,
+            update_release_public_key: nodera_service::update::DEFAULT_RELEASE_PUBLIC_KEY
+                .to_owned(),
             drain_grace_seconds: 30,
             peer_tracker_endpoints: Vec::new(),
             advertised_routes: Vec::new(),
@@ -266,6 +274,10 @@ impl Config {
         overlay.set(
             "update_check_interval_seconds",
             &mut self.update_check_interval_seconds,
+        );
+        overlay.set(
+            "update_release_public_key",
+            &mut self.update_release_public_key,
         );
         overlay.set("drain_grace_seconds", &mut self.drain_grace_seconds);
         overlay.set_list("peer_tracker_endpoints", &mut self.peer_tracker_endpoints);
@@ -383,6 +395,7 @@ impl Config {
             asset_name: "nodera-tracker".to_owned(),
             check_interval_seconds: self.update_check_interval_seconds,
             drain_grace_seconds: self.drain_grace_seconds,
+            release_public_key: self.update_release_public_key.clone(),
         }
     }
 
