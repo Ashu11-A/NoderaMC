@@ -167,6 +167,130 @@ public interface ControlHandler {
     }
 
     /**
+     * The durable world list behind {@link ControlProtocol#WORLDS}: what this peer has shared and
+     * what it supports for other peers, with the ownership binding for each.
+     *
+     * @return one JSON line, or {@code null} when this worker keeps no world registry.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String worldsJson() {
+        return null;
+    }
+
+    /**
+     * Sign a challenge with a world's private key ({@link ControlProtocol#PROVE}).
+     *
+     * <p>The only honest answer for a world this node does not administer is a refusal: the
+     * signature cannot be produced without the key, and returning anything else would be a claim
+     * the node cannot back.
+     *
+     * @param worldIdHex   the world.
+     * @param challengeB64 base64 of the verifier's nonce.
+     * @return base64 of the canonical {@code WorldAdminProof}, or {@code null} when this node does
+     *         not administer the world (the dispatch turns that into {@code NODERA-ERR}).
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String proveAdmin(String worldIdHex, String challengeB64) {
+        return null;
+    }
+
+    /**
+     * The node's event stream ({@link ControlProtocol#EVENTS}).
+     *
+     * @return the bus clients subscribe to, or {@code null} when this worker announces nothing —
+     *         the server then refuses the verb, so a client can tell "no events yet" from "this
+     *         worker will never tell me" and fall back to watching state.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default WorkerEventBus events() {
+        return null;
+    }
+
+    /**
+     * The LAN worlds this machine can see and what was decided about each
+     * ({@link ControlProtocol#LAN} {@code LIST}).
+     *
+     * @return one JSON line, or {@code null} when this worker has no LAN lane (it could not join
+     *         the multicast group, or was built without one) — declining loudly so the app shows
+     *         "unavailable on this machine" rather than an empty list that means "none open".
+     */
+    default String lanJson() {
+        return null;
+    }
+
+    /**
+     * Act on one detected LAN world: share it with the network, decline, or stop sharing.
+     *
+     * @param action {@code SHARE} | {@code DECLINE} | {@code STOP}.
+     * @param port   the world's LAN port, which is its identity here.
+     * @return {@code null} on success, or a short error message.
+     */
+    default String lanAction(String action, int port) {
+        return "unsupported";
+    }
+
+    /**
+     * What is joinable right now, as the trackers report it ({@link ControlProtocol#DIRECTORY}).
+     *
+     * @param limit the most entries to return.
+     * @return one JSON line, or {@code null} when this worker has no discovery lane.
+     */
+    default String directoryJson(int limit) {
+        return null;
+    }
+
+    /**
+     * Open a local door onto a remote session ({@link ControlProtocol#CONNECT}).
+     *
+     * @param sessionIdHex the session to join.
+     * @return {@code 127.0.0.1:<port>} for the player to Direct Connect to, or {@code null} when
+     *         this worker cannot tunnel; a thrown {@link RuntimeException}'s message becomes the
+     *         error line, so "nobody is hosting that" reaches the user in those words.
+     */
+    default String connectSession(String sessionIdHex) {
+        return null;
+    }
+
+    /**
+     * Close a door opened by {@link #connectSession}.
+     *
+     * @param sessionIdHex the session.
+     * @return {@code null} on success, or a short error message.
+     */
+    default String disconnectSession(String sessionIdHex) {
+        return "unsupported";
+    }
+
+    /**
+     * Mint a shareable invitation to a world ({@link ControlProtocol#SHARELINK}).
+     *
+     * @param worldIdHex the world.
+     * @return the {@code nodera:?…} URI, or {@code null} when this worker does not know the world.
+     */
+    default String shareLink(String worldIdHex) {
+        return null;
+    }
+
+    /**
+     * Delete a world this node owns, everywhere ({@link ControlProtocol#DELETE}).
+     *
+     * <p>Irreversible, and deliberately narrow: an implementation must refuse unless it holds the
+     * world's private key, because that key is the only thing that makes the request provable to
+     * anybody else. There is no "force" variant — a deletion nobody can verify is not a weaker
+     * deletion, it is one every honest peer will drop.
+     *
+     * @param worldIdHex the world.
+     * @param reasonB64  base64 of an optional short reason shown to other players; may be blank.
+     * @return {@code OK <peersNotified>} on success, or {@code null} when this worker has no
+     *         deletion lane at all (the dispatch turns that into {@code NODERA-ERR unsupported}).
+     *         A thrown {@link RuntimeException}'s message becomes the error line.
+     * @Thread-context called on a per-connection worker thread; implementations must be thread-safe.
+     */
+    default String deleteWorld(String worldIdHex, String reasonB64) {
+        return null;
+    }
+
+    /**
      * Apply a configuration push from the companion app ({@link ControlProtocol#CONFIG}).
      *
      * <p>Configuration is <b>app-pushed and held in memory only</b>: the worker watches no config

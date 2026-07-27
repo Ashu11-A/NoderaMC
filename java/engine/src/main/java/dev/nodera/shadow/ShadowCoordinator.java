@@ -124,19 +124,17 @@ public final class ShadowCoordinator {
             }
             ShadowWorker worker = workers.get(e.getKey());
             ShadowOutcome outcome = worker.execute(batch);
-            switch (outcome) {
-                case ShadowOutcome.Computed c -> {
+            if (outcome instanceof ShadowOutcome.Computed c) {
                     // A diverging worker is re-snapshotted so one bad batch does not cascade into a
                     // storm of dependent false mismatches; an in-sync worker is left untouched.
                     if (!tracker.compare(ref.root(), c.result())) {
                         reseed(worker, region);
                     }
                 }
-                case ShadowOutcome.Resync r -> {
+            else if (outcome instanceof ShadowOutcome.Resync r) {
                     tracker.metrics().recordResync();
                     reseed(worker, region);
                 }
-            }
         }
     }
 

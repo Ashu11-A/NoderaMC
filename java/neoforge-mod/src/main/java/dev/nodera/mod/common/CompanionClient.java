@@ -197,6 +197,53 @@ public final class CompanionClient implements CompanionProbe {
                 + (worldSeed == null ? "" : " " + worldSeed)));
     }
 
+    /**
+     * Ask the network to forget a world this player owns.
+     *
+     * <p><b>Irreversible.</b> The worker refuses unless it holds the world's private key, so this
+     * cannot delete a world this machine merely hosts or supports for somebody else. The mod has no
+     * authority of its own here: it asks, and the worker decides on the evidence.
+     *
+     * @param worldId hex world id.
+     * @param reason  the player's own words, shown to other players; may be blank.
+     * @return the outcome — how many peers were told, or why it was refused.
+     */
+    public DeleteOutcome deleteWorld(String worldId, String reason) {
+        String reasonB64 = reason == null || reason.isBlank() ? ""
+                : " " + java.util.Base64.getEncoder().encodeToString(
+                        reason.getBytes(StandardCharsets.UTF_8));
+        String reply = exchange(CompanionProtocol.DELETE + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " " + worldId + reasonB64);
+        if (reply == null) {
+            return new DeleteOutcome(false, 0, "the Nodera worker is not running");
+        }
+        if (reply.startsWith(CompanionProtocol.OK)) {
+            String tail = reply.length() > CompanionProtocol.OK.length()
+                    ? reply.substring(CompanionProtocol.OK.length()).trim() : "0";
+            int peers;
+            try {
+                peers = Integer.parseInt(tail);
+            } catch (NumberFormatException notANumber) {
+                peers = 0;
+            }
+            return new DeleteOutcome(true, peers, "");
+        }
+        String error = reply.startsWith(CompanionProtocol.ERR + " ")
+                ? reply.substring(CompanionProtocol.ERR.length() + 1).trim() : reply;
+        return new DeleteOutcome(false, 0, error);
+    }
+
+    /**
+     * What a deletion request did.
+     *
+     * @param deleted       whether the world was deleted here and the request published.
+     * @param peersNotified how many peers were handed the request directly. Zero still means
+     *                      deleted — the rest of the network learns from the trackers and from
+     *                      whoever is still announcing it.
+     * @param error         why it was refused, when it was.
+     */
+    public record DeleteOutcome(boolean deleted, int peersNotified, String error) {}
+
     /** Ask the worker to stop hosting a world. @return empty on success, else the error message. */
     public Optional<String> stop(String worldId) {
         return errorOf(exchange(CompanionProtocol.STOP + " " + CompanionProtocol.PROTOCOL_VERSION

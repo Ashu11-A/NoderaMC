@@ -96,8 +96,31 @@ public final class ShareWorldScreen extends Screen {
             y += 24;
         }
 
+        // Offered only to the world's administrator. A peer that merely hosts or supports somebody
+        // else's world has no key to sign a deletion with, so the worker would refuse — showing the
+        // button anyway would be offering an action that cannot work.
+        if (this.canEditPassword) {
+            String worldId = NoderaPeerService.get().currentWorldIdHex();
+            if (worldId != null && !worldId.isBlank()) {
+                addRenderableWidget(Button.builder(
+                                Component.translatable("nodera.delete.button"),
+                                b -> openDelete(worldId))
+                        .bounds(x, y, WIDTH, 20).build());
+                y += 24;
+            }
+        }
+
         addRenderableWidget(Button.builder(CommonComponents.GUI_DONE, b -> onClose())
                 .bounds(x, y, WIDTH, 20).build());
+    }
+
+    private void openDelete(String worldId) {
+        if (this.minecraft == null) {
+            return;
+        }
+        var server = this.minecraft.getSingleplayerServer();
+        String name = server == null ? worldId : server.getWorldData().getLevelName();
+        this.minecraft.setScreen(new DeleteWorldScreen(this, worldId, name));
     }
 
     private Component delegateLabel() {

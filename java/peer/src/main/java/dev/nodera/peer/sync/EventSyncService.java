@@ -56,8 +56,7 @@ public final class EventSyncService {
      * returns true when the message was a sync message this service consumed.
      */
     public boolean onMessage(PeerAddress from, NoderaMessage message) {
-        switch (message) {
-            case EventSyncQuery q -> {
+        if (message instanceof EventSyncQuery q) {
                 List<Bytes> events = new ArrayList<>();
                 List<Bytes> certificates = new ArrayList<>();
                 java.util.Set<Bytes> certHashes = new java.util.LinkedHashSet<>();
@@ -79,15 +78,12 @@ public final class EventSyncService {
                 }
                 send(from, new EventSyncAnswer(q.region(), events, certificates));
                 return true;
-            }
-            case EventSyncAnswer a -> {
+        } else if (message instanceof EventSyncAnswer a) {
                 ingest(a);
                 return true;
-            }
-            default -> {
+        } else {
                 return false;
             }
-        }
     }
 
     /**

@@ -88,11 +88,9 @@ public final class GenesisApprovalFlow {
 
     /** Both sides' message entry point — attach alongside the other application handlers. */
     public void onMessage(PeerAddress from, NoderaMessage message) {
-        switch (message) {
-            case GenesisApprovalRequest request -> onRequest(from, request);
-            case GenesisApprovalGrant grant -> onGrant(grant);
-            default -> { /* not a genesis message */ }
-        }
+        if (message instanceof GenesisApprovalRequest request) { onRequest(from, request);
+        } else if (message instanceof GenesisApprovalGrant grant) { onGrant(grant);
+        } else { /* not a genesis message */ }
     }
 
     /** @return the quorum-complete certificate once a strict founder majority has signed. */
