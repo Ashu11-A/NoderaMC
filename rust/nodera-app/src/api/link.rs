@@ -262,7 +262,9 @@ async fn stream_once(
             ))
         }
         Ok(Err(e)) => {
-            return Outcome::Unreachable(format!("the worker is unreachable on {control_addr}: {e}"))
+            return Outcome::Unreachable(format!(
+                "the worker is unreachable on {control_addr}: {e}"
+            ))
         }
         Ok(Ok(stream)) => stream,
     };
@@ -293,7 +295,11 @@ async fn stream_once(
             if first {
                 return Outcome::CannotStream(format!(
                     "this worker cannot stream state ({}), falling back to polling",
-                    if reason.is_empty() { "no reason given" } else { reason }
+                    if reason.is_empty() {
+                        "no reason given"
+                    } else {
+                        reason
+                    }
                 ));
             }
             return Outcome::Ended(format!("the worker ended the stream: {reason}"));
@@ -478,9 +484,7 @@ mod tests {
     }
 
     fn state(sent: u64) -> String {
-        format!(
-            "{{\"node_id\":\"abc\",\"worker_version\":\"9.9\",\"total_sent_bytes\":{sent}}}"
-        )
+        format!("{{\"node_id\":\"abc\",\"worker_version\":\"9.9\",\"total_sent_bytes\":{sent}}}")
     }
 
     /// Drive the pump briefly and stop it — the loop is infinite by design.
@@ -500,7 +504,10 @@ mod tests {
         run_briefly(addr, Arc::clone(&store), Arc::clone(&sink), 300).await;
 
         let dash = store.snapshot();
-        assert!(dash.link.has_data, "the worker spoke, so the picture is real");
+        assert!(
+            dash.link.has_data,
+            "the worker spoke, so the picture is real"
+        );
         assert_eq!(dash.link.status, LinkStatus::Live);
         assert_eq!(dash.link.transport, "stream");
         assert_eq!(dash.node.node_id, "abc");
@@ -565,8 +572,15 @@ mod tests {
         // The regression this guards: a silently dropped parse leaves a live-looking dashboard
         // frozen on old numbers with nothing saying why.
         assert_eq!(dash.link.status, LinkStatus::Offline);
-        assert!(dash.link.last_error.contains("cannot read"), "got {}", dash.link.last_error);
-        assert!(dash.link.has_data, "the earlier snapshot is still the best we have");
+        assert!(
+            dash.link.last_error.contains("cannot read"),
+            "got {}",
+            dash.link.last_error
+        );
+        assert!(
+            dash.link.has_data,
+            "the earlier snapshot is still the best we have"
+        );
         assert_eq!(dash.traffic.total_sent_bytes, 5);
     }
 
@@ -579,7 +593,10 @@ mod tests {
 
         let dash = store.snapshot();
         assert_eq!(dash.link.status, LinkStatus::Offline);
-        assert!(!dash.link.last_error.is_empty(), "offline must always say why");
+        assert!(
+            !dash.link.last_error.is_empty(),
+            "offline must always say why"
+        );
     }
 
     #[tokio::test]
@@ -587,12 +604,22 @@ mod tests {
         // Port 1 on loopback: reserved, nothing listens.
         let store = Arc::new(DashboardStore::new());
         let sink = Arc::new(Recorder::default());
-        run_briefly("127.0.0.1:1".to_owned(), Arc::clone(&store), Arc::clone(&sink), 200).await;
+        run_briefly(
+            "127.0.0.1:1".to_owned(),
+            Arc::clone(&store),
+            Arc::clone(&sink),
+            200,
+        )
+        .await;
 
         let dash = store.snapshot();
         assert!(!dash.link.has_data);
         assert_eq!(dash.link.status, LinkStatus::Offline);
-        assert!(dash.link.last_error.contains("unreachable"), "got {}", dash.link.last_error);
+        assert!(
+            dash.link.last_error.contains("unreachable"),
+            "got {}",
+            dash.link.last_error
+        );
     }
 
     /// The constants are a contract with `ControlServer`, not preferences: a silence timeout below
@@ -604,7 +631,10 @@ mod tests {
             SILENCE_TIMEOUT >= Duration::from_secs(20),
             "must tolerate at least two missed keepalives"
         );
-        assert!(WATCH_INTERVAL_MILLIS >= 50, "the worker clamps below 50 ms anyway");
+        assert!(
+            WATCH_INTERVAL_MILLIS >= 50,
+            "the worker clamps below 50 ms anyway"
+        );
     }
 
     #[test]

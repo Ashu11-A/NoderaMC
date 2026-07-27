@@ -165,7 +165,11 @@ fn external_candidates(_data_dir: &Path) -> Vec<(PathBuf, &'static str, &'static
             .map(|(index, dir)| {
                 (
                     PathBuf::from(dir).join("worlds"),
-                    if index == 0 { "Shared storage" } else { "SD card" },
+                    if index == 0 {
+                        "Shared storage"
+                    } else {
+                        "SD card"
+                    },
                     if index == 0 {
                         "Visible over USB. Survives clearing the app's data."
                     } else {
@@ -274,7 +278,10 @@ mod tests {
         // platform's own locations, so it used to disappear from the list and the choice looked
         // like it had reset itself.
         assert_eq!(info.current, chosen.display().to_string());
-        assert_eq!(info.options.first().map(|o| o.path.clone()), Some(info.current.clone()));
+        assert_eq!(
+            info.options.first().map(|o| o.path.clone()),
+            Some(info.current.clone())
+        );
         assert!(info.options[0].writable);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&chosen);
@@ -289,7 +296,9 @@ mod tests {
 
         // Not "the path exists" — an actual write happened and was cleaned up.
         assert!(app.writable);
-        assert!(!std::path::Path::new(&app.path).join(".nodera-write-probe").exists());
+        assert!(!std::path::Path::new(&app.path)
+            .join(".nodera-write-probe")
+            .exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

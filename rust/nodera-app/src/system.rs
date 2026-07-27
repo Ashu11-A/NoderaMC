@@ -61,9 +61,12 @@ pub async fn sample(handle: std::sync::Arc<SystemHandle>) {
     let refresh = RefreshKind::new()
         .with_cpu(sysinfo::CpuRefreshKind::new().with_cpu_usage())
         .with_memory(sysinfo::MemoryRefreshKind::everything())
-        .with_processes(ProcessRefreshKind::new().with_cpu().with_memory().with_cmd(
-            sysinfo::UpdateKind::OnlyIfNotSet,
-        ));
+        .with_processes(
+            ProcessRefreshKind::new()
+                .with_cpu()
+                .with_memory()
+                .with_cmd(sysinfo::UpdateKind::OnlyIfNotSet),
+        );
     let mut sys = System::new_with_specifics(refresh);
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     loop {

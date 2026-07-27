@@ -91,9 +91,17 @@ pub fn open_settings() -> Result<(), String> {
         Some(&target),
     )
     .or_else(|_| {
-        open_intent_action("android.settings.APPLICATION_DETAILS_SETTINGS", Some(&target))
+        open_intent_action(
+            "android.settings.APPLICATION_DETAILS_SETTINGS",
+            Some(&target),
+        )
     })
-    .or_else(|_| open_intent_action("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS", None))
+    .or_else(|_| {
+        open_intent_action(
+            "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS",
+            None,
+        )
+    })
 }
 
 #[cfg(not(target_os = "android"))]
@@ -159,8 +167,8 @@ mod platform {
         // SAFETY: the pointers were handed to us by the Android runtime through
         // `NoderaBridge.initialise`, are valid for the life of the process, and are only used to
         // attach to the already-running VM.
-        let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }
-            .map_err(|e| format!("no Java VM: {e}"))?;
+        let vm =
+            unsafe { JavaVM::from_raw(ctx.vm().cast()) }.map_err(|e| format!("no Java VM: {e}"))?;
         let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
         let mut env = vm
             .attach_current_thread()
@@ -352,9 +360,7 @@ pub extern "system" fn Java_dev_nodera_app_NoderaBridge_initialise(
     // is a log line.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let vm = env.get_java_vm().map_err(|e| e.to_string())?;
-        let global = env
-            .new_global_ref(&context)
-            .map_err(|e| e.to_string())?;
+        let global = env.new_global_ref(&context).map_err(|e| e.to_string())?;
         // Deliberately leaked: the context must live as long as the process, and dropping the
         // global ref would invalidate the pointer handed to `ndk_context`.
         let global = Box::leak(Box::new(global));
@@ -438,7 +444,10 @@ mod tests {
         assert_eq!(help_url("Xiaomi"), "https://dontkillmyapp.com/xiaomi");
         assert_eq!(help_url("OnePlus"), "https://dontkillmyapp.com/oneplus");
         // Punctuation and spacing vary by vendor string; the slug must stay a usable path segment.
-        assert_eq!(help_url("Sony Ericsson"), "https://dontkillmyapp.com/sonyericsson");
+        assert_eq!(
+            help_url("Sony Ericsson"),
+            "https://dontkillmyapp.com/sonyericsson"
+        );
         // No vendor is not a broken link.
         assert_eq!(help_url(""), "https://dontkillmyapp.com");
     }

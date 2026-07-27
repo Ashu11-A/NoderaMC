@@ -114,6 +114,12 @@ pub struct Network {
     /// path was the spawn environment, which a phone — where the worker is started by the Activity
     /// — has no way to write.
     pub rendezvous_endpoints: Vec<String>,
+    /// Lists of trackers and relays this user has chosen to trust, on top of the two above.
+    ///
+    /// See [`crate::stores`]. A store contributes endpoints; it never displaces one the user typed,
+    /// and it never grants a service any authority it would not otherwise have. Deleting a store
+    /// removes only what it contributed.
+    pub tracker_stores: Vec<crate::stores::TrackerStore>,
     /// Which links this node will move data over. See [`NetworkPolicy`].
     pub transfer_network: NetworkPolicy,
     /// Refuse peers that impose a connection cap of their own.
@@ -185,6 +191,12 @@ impl Default for Network {
         Self {
             default_trackers: default_trackers(),
             rendezvous_endpoints: Vec::new(),
+            // A fresh install starts with the store the app shipped with. This is the first honest
+            // default a handset has had: `default_trackers()` is empty there on purpose, because
+            // loopback is the handset and a baked LAN address is unreachable everywhere but one
+            // network — both produce a permanently failing row that teaches the user to ignore red.
+            // A publicly operated tracker, in a list they can inspect and delete, is neither.
+            tracker_stores: crate::stores::built_in_store().into_iter().collect(),
             transfer_network: default_transfer_network(),
             unlimited_connections_only: false,
             use_random_port: true,
@@ -442,6 +454,17 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     ),
     // The worker binds its rendezvous clients once, at startup.
     ("network.rendezvous_endpoints", Enforcement::AtRestart),
+    // A store feeds both lists. The tracker half goes live the moment it is pushed, which is what
+    // the badge reports; the relay half rides `network.rendezvous_endpoints` and waits for a
+    // restart, which that row already says. Claiming `AtRestart` here would under-report the half
+    // that does take effect immediately, and a badge that is wrong in the pessimistic direction
+    // still teaches people not to read it.
+    (
+        "network.tracker_stores",
+        Enforcement::Live {
+            confirmed_by: "network.default_trackers",
+        },
+    ),
     // Decided here and pushed as the same one flag the battery rules use: the worker has no idea
     // what kind of link it is on, and a phone is the only thing that does.
     (
@@ -453,7 +476,8 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
     (
         "network.unlimited_connections_only",
         Enforcement::Never {
-            reason: "no peer advertises a connection cap on the wire, so there is nothing to filter on",
+            reason:
+                "no peer advertises a connection cap on the wire, so there is nothing to filter on",
         },
     ),
     // Bind-time: the listening socket is opened once, at startup.
@@ -685,7 +709,9 @@ fn dirs_config() -> Option<PathBuf> {
                 return Some(PathBuf::from(xdg));
             }
         }
-        return std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".config"));
+        return std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".config"));
     }
     #[cfg(target_os = "macos")]
     {
@@ -1207,7 +1233,10 @@ mod tests {
 
         let per_world = state_of(&statuses, "network.max_connections_per_world");
         assert_eq!(per_world.state, SettingState::Unenforced);
-        assert!(per_world.reason.contains("no world dimension"), "{per_world:?}");
+        assert!(
+            per_world.reason.contains("no world dimension"),
+            "{per_world:?}"
+        );
 
         let unlimited = state_of(&statuses, "network.unlimited_connections_only");
         assert_eq!(unlimited.state, SettingState::Unenforced);

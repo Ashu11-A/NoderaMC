@@ -58,6 +58,12 @@ jobs:
         run: cd rust/nodera-app/ui && bun install --frozen-lockfile && bun run build
       - name: Build the companion app
         run: cd rust/nodera-app && cargo build --release
+      # The app's own tests have never run in CI, which is how the settings model, the
+      # NODERA-CONFIG golden string and the worker's spawn environment were all covered by tests
+      # that only ever ran on somebody's laptop. `nodera-app` is outside the cargo workspace, so
+      # the `rust` job's `cargo test` does not reach it.
+      - name: Test the companion app
+        run: cd rust/nodera-app && cargo test
       - name: Gate both ways (worker present => start, absent => actionable abort)
         run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
