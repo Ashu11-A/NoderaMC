@@ -499,6 +499,53 @@ public final class WorldArchiveService implements AutoCloseable {
                 "superseded, no longer seeded");
     }
 
+    /**
+     * Drop <b>everything</b> this node holds for a world: every archive version and every region
+     * snapshot, unpinned and unpublished from the content store.
+     *
+     * <p>Unlike {@link #supersedeOlderVersions} this keeps no newest version, because it does not
+     * serve a retention policy — it serves a verified deletion by the world's owner. A deletion
+     * that removed the world from the directory but left this node still able to serve its bytes
+     * to anyone who already knew the manifest root would delete only the listing, not the world.
+     *
+     * @param worldIdHex the world.
+     * @return how many manifests (archive and region) were dropped.
+     * @Thread-context any thread.
+     */
+    public int forget(String worldIdHex) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        int dropped = 0;
+        NavigableMap<Long, PieceManifest> versions = manifests.remove(worldIdHex);
+        if (versions != null) {
+            for (PieceManifest gone : versions.values()) {
+                release(gone);
+                dropped++;
+            }
+        }
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.remove(worldIdHex);
+        if (byRegion != null) {
+            for (NavigableMap<Long, PieceManifest> regionVersions : byRegion.values()) {
+                for (PieceManifest gone : regionVersions.values()) {
+                    release(gone);
+                    dropped++;
+                }
+            }
+        }
+        pendingManifests.remove(worldIdHex);
+        if (dropped > 0) {
+            LOG.info("Dropped {} manifest(s) for deleted world {}", dropped, shortId(worldIdHex));
+        }
+        return dropped;
+    }
+
+    /** Stop protecting and stop serving one manifest's content. */
+    private void release(PieceManifest manifest) {
+        if (pins != null) {
+            pins.unpin(manifest.blob());
+        }
+        content.unpublish(manifest.manifestRoot());
+    }
+
     /** Protect a seeded archive from a bounded store's eviction (L-62); a no-op when unbounded. */
     private void pin(PieceManifest manifest) {
         if (pins != null) {
@@ -690,21 +737,16 @@ public final class WorldArchiveService implements AutoCloseable {
                 && !from.route().isBlank()) {
             routes.putIfAbsent(from.nodeId(), from);
         }
-        switch (message) {
-            case WorldManifestQuery q -> answerManifestQuery(from, q);
-            case WorldManifestAnswer a -> onManifestAnswer(from, a);
+        if (message instanceof WorldManifestQuery q) { answerManifestQuery(from, q);
+        } else if (message instanceof WorldManifestAnswer a) { onManifestAnswer(from, a);
             // Re-encoding to feed the piece plane's frame-level handler costs one copy on content
-            // traffic only; every other application message is not ours and is not re-encoded.
-            case dev.nodera.protocol.content.ContentRequest m ->
-                    content.onMessage(from, MessageCodec.encode(m));
-            case dev.nodera.protocol.content.ContentChunk m ->
-                    content.onMessage(from, MessageCodec.encode(m));
-            case dev.nodera.protocol.content.ContentAvailability m ->
-                    content.onMessage(from, MessageCodec.encode(m));
-            default -> {
+            // traffic only; every other application message is not ours and is not re-encoded.;
+        } else if (message instanceof dev.nodera.protocol.content.ContentRequest m) { content.onMessage(from, MessageCodec.encode(m));
+        } else if (message instanceof dev.nodera.protocol.content.ContentChunk m) { content.onMessage(from, MessageCodec.encode(m));
+        } else if (message instanceof dev.nodera.protocol.content.ContentAvailability m) { content.onMessage(from, MessageCodec.encode(m));
+        } else {
                 // another service's message
             }
-        }
     }
 
     private void answerManifestQuery(PeerAddress from, WorldManifestQuery query) {

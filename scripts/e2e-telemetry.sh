@@ -112,12 +112,12 @@ wait_for() { # description seconds command...
 # --- T0: build + start the collector -----------------------------------------------------------
 log "T0: build the collector and the worker"
 INGEST_BIN="$NODERA_ROOT/rust/target/release/nodera-telemetry"
-WORKER_BIN="$NODERA_ROOT/java/peer/build/install/nodera-headless/bin/nodera-headless"
+WORKER_BIN="$NODERA_ROOT/java/worker/build/install/nodera-headless/bin/nodera-headless"
 
 if [[ "$NO_BUILD" != "1" ]]; then
     ( cd "$NODERA_ROOT/rust" && cargo build --release -p nodera-telemetry ) \
         || { fail "T0: the collector did not build"; exit 1; }
-    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist -q ) \
+    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist -q ) \
         || { fail "T0: the worker did not build"; exit 1; }
 fi
 [[ -x "$INGEST_BIN" ]] || { fail "T0: no collector binary at $INGEST_BIN (drop --no-build)"; exit 1; }

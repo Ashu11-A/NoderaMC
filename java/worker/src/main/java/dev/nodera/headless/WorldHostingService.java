@@ -93,6 +93,22 @@ public final class WorldHostingService implements AutoCloseable {
     private final java.util.function.Function<String,
             List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor;
 
+    /**
+     * The on-disk record of what this peer keeps on the network, or {@code null} when this
+     * embedding is memory-only (the control-verb tests).
+     *
+     * <p>With it, a worker restart resumes announcing what it was announcing. Without it — which is
+     * how this class shipped — a restart silently stopped announcing everything, and the node kept
+     * the world's bytes on disk while telling every tracker it had none.
+     */
+    private final WorldRegistryStore registry;
+
+    /**
+     * Worlds this node must refuse to serve, whatever asks it to (see
+     * {@link #refuseDeletedWorlds}). Defaults to refusing nothing.
+     */
+    private volatile java.util.function.Predicate<String> deleted = worldIdHex -> false;
+
     /** A hosting service with no archive lane: its announces carry no piece holdings. */
     public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
                                Supplier<String> selfRoute,
@@ -133,6 +149,26 @@ public final class WorldHostingService implements AutoCloseable {
                                List<RendezvousEndpoint> rendezvousEndpoints,
                                java.util.function.Function<String,
                                        List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor) {
+        this(identity, capabilities, selfRoute, sharedTracker, rendezvousEndpoints, holdingsFor, null);
+    }
+
+    /**
+     * As above, plus the persisted world registry this service restores from and writes through to.
+     *
+     * @param registry the on-disk record of the worlds this peer shares and supports, or
+     *                 {@code null} for a memory-only service. When present, every world it holds is
+     *                 restored and re-announced here, at construction — which is what makes the
+     *                 worker's promise ("your world stays on the network") survive the worker's own
+     *                 restart.
+     */
+    public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
+                               Supplier<String> selfRoute,
+                               TrackerClient sharedTracker,
+                               List<RendezvousEndpoint> rendezvousEndpoints,
+                               java.util.function.Function<String,
+                                       List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor,
+                               WorldRegistryStore registry) {
+        this.registry = registry;
         this.identity = identity;
         this.capabilities = capabilities;
         this.selfRoute = selfRoute;
@@ -149,6 +185,54 @@ public final class WorldHostingService implements AutoCloseable {
         int refresh = refreshIntervalSeconds();
         scheduler.scheduleWithFixedDelay(this::refreshAll, refresh, refresh, TimeUnit.SECONDS);
         scheduler.scheduleWithFixedDelay(this::probeHealth, 0, HEALTH_PROBE_SECONDS, TimeUnit.SECONDS);
+        restoreFromRegistry();
+    }
+
+    /**
+     * Bind the test that decides whether a world has been deleted at its owner's request.
+     *
+     * <p>Both ways back onto the network pass through {@link #host} and {@link #seed} — the control
+     * verbs a game or the app drives, and the replication lane adopting a world it was placed for.
+     * Putting the check here rather than at each caller means a lane added later inherits it instead
+     * of having to remember it, which matters because the failure mode is silent: a deleted world
+     * quietly comes back and nothing logs that anything went wrong.
+     *
+     * @param isDeleted answers "has this world been deleted"; never null.
+     */
+    public void refuseDeletedWorlds(java.util.function.Predicate<String> isDeleted) {
+        this.deleted = java.util.Objects.requireNonNull(isDeleted, "isDeleted");
+    }
+
+    /**
+     * Repopulate the live world set from the persisted registry and announce every world again.
+     *
+     * <p>The announce is scheduled rather than performed inline because construction happens on the
+     * worker's main thread while the transport is still settling: {@code selfRoute} may not have a
+     * value yet, and announcing an empty route would list this node as unreachable for its own
+     * worlds. The hosting scheduler runs it a moment later, by which time the route is bound; the
+     * regular heartbeat then keeps it fresh either way.
+     */
+    private void restoreFromRegistry() {
+        if (registry == null) {
+            return;
+        }
+        for (dev.nodera.storage.WorldRegistry.Entry entry : registry.entries()) {
+            HostedWorld world = new HostedWorld(entry.worldIdHex(), entry.worldId(), entry.name(),
+                    UUID.nameUUIDFromBytes(entry.worldId().toArray()),
+                    entry.addedAtEpochMillis(), entry.updatedAtEpochMillis());
+            world.seeding = entry.supporting();
+            // Liveness is NOT restored: mcRoute stays null and players stays 0 until a running game
+            // says otherwise. A restored world is "shared, game closed", which is the truth.
+            world.ownershipRecord = entry.ownershipRecord();
+            worlds.put(entry.worldIdHex(), world);
+        }
+        if (worlds.isEmpty()) {
+            return;
+        }
+        LOG.info("Resuming {} world(s) from the registry — {} administered by this node",
+                worlds.size(),
+                worlds.values().stream().filter(HostedWorld::owned).count());
+        scheduler.execute(this::refreshAll);
     }
 
     /**
@@ -163,6 +247,9 @@ public final class WorldHostingService implements AutoCloseable {
     public String host(String worldIdHex, String worldName, String optionsJson) {
         if (worldIdHex == null || worldIdHex.isBlank()) {
             return "missing worldId";
+        }
+        if (deleted.test(worldIdHex.trim())) {
+            return "this world was deleted by its owner";
         }
         Bytes worldId;
         try {
@@ -185,6 +272,7 @@ public final class WorldHostingService implements AutoCloseable {
         // next announce/heartbeat carries the change to every tracker.
         world.mcRoute = jsonStringField(optionsJson, "mc");
         world.players = jsonLongField(optionsJson, "players");
+        record(world);
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
         LOG.info("Now hosting world '{}' ({}) on {} tracker(s) / {} rendezvous (game endpoint: {})",
@@ -212,6 +300,9 @@ public final class WorldHostingService implements AutoCloseable {
         if (worldIdHex == null || worldIdHex.isBlank()) {
             return "missing worldId";
         }
+        if (deleted.test(worldIdHex.trim())) {
+            return "this world was deleted by its owner";
+        }
         Bytes worldId;
         try {
             worldId = Bytes.fromHex(worldIdHex.trim());
@@ -231,6 +322,7 @@ public final class WorldHostingService implements AutoCloseable {
             existing.name = name;
             return existing;
         });
+        record(world);
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
         LOG.info("Seeding world '{}' ({}) for the network on {} tracker(s)",
@@ -249,6 +341,11 @@ public final class WorldHostingService implements AutoCloseable {
             return "missing worldId";
         }
         HostedWorld world = worlds.remove(worldIdHex.trim());
+        if (registry != null) {
+            // Removed from the registry too: a stop the player asked for must not come back at the
+            // next worker start. The world's KEY is kept — see WorldRegistryStore.remove.
+            registry.remove(worldIdHex.trim());
+        }
         if (world == null) {
             return null;
         }
@@ -278,6 +375,86 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     /**
+     * Bind an ownership claim to a world — the moment this node becomes that world's provable
+     * administrator.
+     *
+     * <p>Called when the worker mints a world identity, which is by construction the point at which
+     * it is the world's author. The claim is persisted immediately, so administration survives a
+     * restart even if the world is not shared until later.
+     *
+     * <p>A world that is not yet hosted or seeded is registered as supported rather than dropped:
+     * a player can create and key a world before opening it to the network, and losing the claim in
+     * between would mean minting a second key for the same world later.
+     *
+     * @param worldIdHex      the world.
+     * @param ownershipRecord the canonical {@code WorldOwnership} bytes; ignored when empty.
+     * @Thread-context any thread.
+     */
+    public void bindOwnership(String worldIdHex, Bytes ownershipRecord) {
+        if (worldIdHex == null || worldIdHex.isBlank()
+                || ownershipRecord == null || ownershipRecord.isEmpty()) {
+            return;
+        }
+        String key = worldIdHex.trim();
+        // computeIfAbsent, not get: a world can be authored (and therefore keyed) before it is ever
+        // opened to the network, and dropping it here would leave the claim visible only after the
+        // next restart — the live world list would disagree with the file behind it.
+        HostedWorld world = worlds.computeIfAbsent(key, hex -> {
+            HostedWorld created = new HostedWorld(hex, Bytes.fromHex(hex), hex,
+                    UUID.nameUUIDFromBytes(Bytes.fromHex(hex).toArray()));
+            // Not hosting it: nothing has asked this node to serve the world yet. It is listed as
+            // administered, which is the only thing that is true so far.
+            created.seeding = true;
+            return created;
+        });
+        world.ownershipRecord = ownershipRecord;
+        if (registry != null) {
+            registry.put(key, world.name, world.seeding, ownershipRecord);
+        }
+    }
+
+    /**
+     * @param worldIdHex the world.
+     * @return whether this node holds an ownership claim for it.
+     */
+    public boolean administers(String worldIdHex) {
+        HostedWorld world = worldIdHex == null ? null : worlds.get(worldIdHex.trim());
+        if (world != null && world.owned()) {
+            return true;
+        }
+        return registry != null && worldIdHex != null
+                && registry.find(worldIdHex.trim()).map(e -> e.owned()).orElse(false);
+    }
+
+    /** Write one world through to the persisted registry (no-op without one). */
+    private void record(HostedWorld world) {
+        if (registry != null) {
+            registry.put(world.worldIdHex, world.name, world.seeding, world.ownershipRecord);
+        }
+    }
+
+    /**
+     * Pull the world public key out of an encoded ownership claim, verifying it first.
+     *
+     * @param ownershipRecord the canonical claim bytes, possibly empty.
+     * @return the world's public key, or {@link Bytes#empty()} when there is no verifiable claim.
+     */
+    static Bytes worldPublicKeyOf(Bytes ownershipRecord) {
+        if (ownershipRecord == null || ownershipRecord.isEmpty()) {
+            return Bytes.empty();
+        }
+        try {
+            dev.nodera.storage.WorldOwnership ownership = dev.nodera.storage.WorldOwnership
+                    .decode(new dev.nodera.core.crypto.CanonicalReader(ownershipRecord));
+            // Publishing the key out of an unverified record would let a corrupted or tampered file
+            // put somebody else's key on this node's world.
+            return ownership.verify() ? ownership.worldPublicKey() : Bytes.empty();
+        } catch (RuntimeException undecodable) {
+            return Bytes.empty();
+        }
+    }
+
+    /**
      * Re-announce one hosted world immediately (fresh holdings after an archive seed) instead of
      * waiting for the next heartbeat. No-op for a world this worker is not hosting.
      *
@@ -292,6 +469,9 @@ public final class WorldHostingService implements AutoCloseable {
         // refreshNow is called immediately after a seed/re-key publishes new content, so it is the
         // honest "last updated" moment: the network can now fetch a newer version than before.
         world.updatedAtEpochMillis = System.currentTimeMillis();
+        if (registry != null) {
+            registry.touch(worldIdHex, world.updatedAtEpochMillis);
+        }
         scheduler.execute(() -> {
             announce(world, AnnounceEvent.HEARTBEAT);
             registerRendezvous(world, RegistrationEvent.REFRESH);
@@ -439,14 +619,44 @@ public final class WorldHostingService implements AutoCloseable {
         volatile long updatedAtEpochMillis;
         /** {@code true} when this node only holds the world's bytes; {@code false} when it hosts it. */
         volatile boolean seeding;
+        /**
+         * The canonical {@code WorldOwnership} bytes when this node administers the world, or
+         * {@link Bytes#empty()} when it does not. Held encoded because this class only ever moves
+         * it around; whoever needs the claim decodes and verifies it.
+         */
+        volatile Bytes ownershipRecord = Bytes.empty();
 
         HostedWorld(String worldIdHex, Bytes worldId, String name, UUID networkId) {
+            this(worldIdHex, worldId, name, networkId, System.currentTimeMillis(),
+                    System.currentTimeMillis());
+        }
+
+        HostedWorld(String worldIdHex, Bytes worldId, String name, UUID networkId,
+                    long addedAtEpochMillis, long updatedAtEpochMillis) {
             this.worldIdHex = worldIdHex;
             this.worldId = worldId;
             this.name = name;
             this.networkId = networkId;
-            this.addedAtEpochMillis = System.currentTimeMillis();
-            this.updatedAtEpochMillis = this.addedAtEpochMillis;
+            this.addedAtEpochMillis = addedAtEpochMillis;
+            this.updatedAtEpochMillis = updatedAtEpochMillis;
+        }
+
+        /** @return whether this node holds this world's private key and administers it. */
+        public boolean owned() {
+            return !ownershipRecord.isEmpty();
+        }
+
+        /** @return the canonical ownership-claim bytes, empty when this node does not administer it. */
+        public Bytes ownershipRecord() {
+            return ownershipRecord;
+        }
+
+        /**
+         * @return the world's own public key — its administrative root — or {@link Bytes#empty()}
+         *         when this node has no ownership claim for it.
+         */
+        public Bytes worldPublicKey() {
+            return dev.nodera.headless.WorldHostingService.worldPublicKeyOf(ownershipRecord);
         }
 
         public String worldIdHex() {

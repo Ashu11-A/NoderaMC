@@ -26,6 +26,9 @@
 # host-client suites reuse):
 #   continuity ownership ownership-follow churn pickup mobs pearl password rekey mesh-soak commands farlands crash
 #
+# Hardware suites are named explicitly and never run by default:
+#   scripts/run-tests.sh android-mesh     # needs a phone on Wi-Fi debugging
+#
 # Each suite's stdout+stderr is teed to run/results/runner/<stamp>/<suite>.out
 # and a PASS/FAIL summary lands in summary.txt. The runner keeps going after a
 # failed suite (one broken lane must not hide the rest) and exits non-zero if
@@ -35,7 +38,13 @@ set -uo pipefail
 
 # telemetry is FIRST and headless: it needs no GUI and no client, so a batch on a machine without
 # a display still proves the measurement plane before spending twenty minutes on the live suites.
-ALL_SUITES=(telemetry continuity ownership ownership-follow churn pickup mobs pearl password rekey mesh-soak commands farlands crash)
+ALL_SUITES=(telemetry continuity ownership ownership-follow churn pickup mobs pearl password rekey mesh-soak commands farlands crash profile)
+
+# Suites that need hardware this machine may not have. Runnable by name, never part of the default
+# batch: `android-mesh` requires a physical phone on the same Wi-Fi with wireless debugging
+# connected, and a batch that fails on every machine without one would train people to ignore it.
+#   scripts/run-tests.sh android-mesh
+OPTIONAL_SUITES=(android-mesh)
 
 # The batch's own flags, on top of the shared --no-build. Suite names are not
 # options, so they are collected here too.
@@ -48,10 +57,12 @@ nodera_suite_arg() {
         --rendezvous)  export NODERA_RENDEZVOUS="$2";  NODERA_ARGS_EATEN=2 ;;
         all) SUITES=("${ALL_SUITES[@]}"); NODERA_ARGS_EATEN=1 ;;
         *)
-            if [[ " ${ALL_SUITES[*]} " == *" $1 "* ]]; then
+            if [[ " ${ALL_SUITES[*]} ${OPTIONAL_SUITES[*]} " == *" $1 "* ]]; then
                 SUITES+=("$1"); NODERA_ARGS_EATEN=1
             else
-                echo "unknown suite/option: $1 (suites: ${ALL_SUITES[*]})" >&2
+                echo "unknown suite/option: $1" >&2
+                echo "  suites:   ${ALL_SUITES[*]}" >&2
+                echo "  optional: ${OPTIONAL_SUITES[*]} (need hardware; not in the default batch)" >&2
                 NODERA_ARGS_EATEN=0
             fi
             ;;

@@ -17,11 +17,37 @@ plugins {
 // 21.1.238 matches the real test client at ~/.minecraft (Task 0 §6 pin reconciliation; was 21.1.77).
 the<NeoForgeExtension>().version = "21.1.238"
 
+// JVM arguments every dev run gets, whatever its role.
+//
+// -XX:+EnableDynamicAgentLoading is for the spark profiler (docs/minecraft/spark/):
+// spark resolves a sampled stack frame's class name to a Class<?> through a Java agent it
+// loads at runtime, and on Java 21+ that is deprecated-by-default — it warns, and where
+// disallowed it silently falls back to a weaker lookup, which shows up as OUR frames being
+// attributed to nobody. Allowing it explicitly keeps source attribution honest. It is
+// unconditional because it changes nothing when spark is absent.
+//
+// -Dnodera.spark.profile=<seconds> is the client-side capture bridge (SparkProfileBridge):
+// the integrated server has no RCON, so the mod itself dispatches the sparkc commands. Read
+// from the environment so the shell harness can set it per run without editing this file;
+// absent means the bridge stays inert.
+val noderaRunJvmArgs: List<String> = buildList {
+    add("-XX:+EnableDynamicAgentLoading")
+    providers.environmentVariable("NODERA_SPARK_PROFILE").orNull
+        ?.takeIf { it.isNotBlank() }
+        ?.let { add("-Dnodera.spark.profile=$it") }
+    providers.environmentVariable("NODERA_SPARK_TICKS_OVER").orNull
+        ?.takeIf { it.isNotBlank() }
+        ?.let { add("-Dnodera.spark.ticksOver=$it") }
+}
+
 // The L-45 exit's first half: `runClient`/`runServer` launch from Gradle. The mod under test is
 // this module's main source set; the harness (Xvfb log/screenshot assertions) drives these tasks.
 the<NeoForgeExtension>().apply {
     mods.register("nodera") {
         sourceSet(project.the<SourceSetContainer>()["main"])
+    }
+    runs.configureEach {
+        jvmArguments.addAll(noderaRunJvmArgs)
     }
     runs.register("client") {
         client()

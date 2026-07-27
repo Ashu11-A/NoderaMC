@@ -1,0 +1,22 @@
+# Upstream sources the docs/minecraft/ prior-art studies were derived from.
+#
+# These are REFERENCE CHECKOUTS, not dependencies: nothing in the Nodera build resolves
+# against them. They are pinned so that a study document and the code it describes can
+# never drift apart — `docs/minecraft/<name>/README.md` names the exact commit recorded
+# here, and re-reading a study means checking out that commit.
+#
+# folia and MultiPaper were committed as bare gitlinks with no .gitmodules, so a fresh
+# clone got two empty directories and `git submodule update` failed outright. Adding
+# spark was the occasion to repair them; the recorded SHAs were NOT changed.
+#
+# Populate with:  git submodule update --init docs/minecraft/upstream/<name>
+
+[submodule "docs/minecraft/upstream/spark"]
+	path = docs/minecraft/upstream/spark
+	url = https://github.com/lucko/spark.git
+[submodule "docs/minecraft/upstream/folia"]
+	path = docs/minecraft/upstream/folia
+	url = https://github.com/PaperMC/Folia.git
+[submodule "docs/minecraft/upstream/MultiPaper"]
+	path = docs/minecraft/upstream/MultiPaper
+	url = https://github.com/MultiPaper/MultiPaper.git

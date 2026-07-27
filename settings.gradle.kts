@@ -66,10 +66,14 @@ module("transport")
 // Unified storage API (issue #30): absorbs the former storage-api / storage-eventsourced /
 // storage-rocksdb / storage-client modules — packages unchanged (dev.nodera.storage.*).
 module("storage")
-// Unified peer API (issue #30): absorbs the former peer-runtime / distribution / diagnostics /
-// nodera-headless modules — packages unchanged. Carries the `application` plugin: the
-// installDist launcher stays `nodera-headless` (rust/nodera-app + scripts/dev.sh depend on it).
+// Unified peer API (issue #30): absorbs the former peer-runtime / distribution / diagnostics
+// modules — packages unchanged. A LIBRARY: the always-on worker that used to live in it moved to
+// `:worker` so that depending on the peer stack no longer compiles an executable into your jar.
 module("peer")
+// The always-on headless worker (`nodera-headless`). Depends on `:peer`; nothing depends on it
+// except the distribution, which is what keeps the worker out of the NeoForge mod's fat jar. The
+// installDist launcher name is contract (rust/nodera-app's daemon.rs + every script stage it).
+module("worker")
 // Shared test library (issue #30): LoopbackTransport, FakeRegion, wire-fixture IO. The planned
 // multi-peer scenario suite (old integration-tests) lands here when Task 5's live lane needs it.
 module("testing")
