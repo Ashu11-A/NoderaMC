@@ -12,6 +12,7 @@
         "tcp://tracker.noderamc.org:6969",
         "tcp://150.230.84.206:6969"
       ],
+      "node_id": "17324454ccfaa3398210b81910392675",
       "operator": "Ashu11-A",
       "region": "eu-frankfurt",
       "notes": "The project's own tracker. The literal address is listed after the name on purpose: a peer whose DNS is broken or filtered still has a route, and the name still wins when it resolves."
@@ -23,6 +24,7 @@
         "tcp://rendezvous.noderamc.org:7500",
         "tcp://150.230.84.206:7500"
       ],
+      "node_id": "5f0a3f4f661b30fbd6f7c5f79059ee2b",
       "operator": "Ashu11-A",
       "region": "eu-frankfurt",
       "notes": "The project's own relay. Announces itself to the tracker above, so peers normally discover it rather than reading it from here."

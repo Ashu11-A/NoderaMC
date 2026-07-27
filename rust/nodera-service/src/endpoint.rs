@@ -78,6 +78,9 @@ mod tests {
     fn an_unknown_scheme_is_not_reinterpreted() {
         // Left alone so the connect fails with the operator's own string, which is findable, rather
         // than with something this function invented.
-        assert_eq!(socket_target("https://example.org:443"), "https://example.org:443");
+        assert_eq!(
+            socket_target("https://example.org:443"),
+            "https://example.org:443"
+        );
     }
 }
