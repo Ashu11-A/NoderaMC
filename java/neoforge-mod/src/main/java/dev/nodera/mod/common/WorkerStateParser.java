@@ -88,6 +88,72 @@ public final class WorkerStateParser {
         return out;
     }
 
+    /**
+     * Extract the {@code rendezvous} routes from a worker STATE JSON line.
+     *
+     * <p>This is the worker's <em>live</em> selection: the relays its {@code RendezvousDirectory}
+     * discovered from trackers, probed, scored and chose, re-swept every minute and replaced the
+     * instant one of them says it is draining. The mod composes its own rendezvous transport from a
+     * static config list read once at world open, so without this the worker migrates to a
+     * replacement relay and the in-game transport keeps talking to the one that is leaving until the
+     * next world open (L-84).
+     *
+     * <p>Only reachable endpoints are returned, and order is preserved: the worker already sorted
+     * them best-first, and an unreachable row is one the worker is reporting on rather than
+     * recommending. An empty result means "no opinion" and callers fall back to configuration —
+     * never to nothing, because a worker that is absent, old, or still starting up must not take a
+     * player's ability to share a world with it.
+     *
+     * @param json the raw STATE reply, or {@code null}.
+     * @return {@code scheme://host:port} routes, best first; empty if absent, malformed, or none
+     *         reachable.
+     */
+    public static List<String> rendezvousRoutes(String json) {
+        List<String> out = new ArrayList<>();
+        if (json == null) {
+            return out;
+        }
+        int key = json.indexOf("\"rendezvous\"");
+        if (key < 0) {
+            return out;
+        }
+        int arrayStart = json.indexOf('[', key);
+        if (arrayStart < 0) {
+            return out;
+        }
+        int arrayEnd = matchingBracket(json, arrayStart, '[', ']');
+        if (arrayEnd < 0) {
+            return out;
+        }
+
+        int i = arrayStart + 1;
+        while (i < arrayEnd) {
+            int objStart = json.indexOf('{', i);
+            if (objStart < 0 || objStart >= arrayEnd) {
+                break;
+            }
+            int objEnd = matchingBracket(json, objStart, '{', '}');
+            if (objEnd < 0 || objEnd > arrayEnd) {
+                break;
+            }
+            String obj = json.substring(objStart, objEnd + 1);
+            String host = stringField(obj, "host");
+            long port = longField(obj, "port");
+            String scheme = stringField(obj, "scheme");
+            // `"reachable":true` — matched on the raw object because the value is a JSON literal,
+            // not a string, and this scanner has no boolean reader. A row that is not explicitly
+            // reachable is skipped: handing the transport a relay the worker just failed to reach
+            // would be worse than falling back to the configured list.
+            boolean reachable = obj.contains("\"reachable\":true");
+            if (reachable && host != null && !host.isBlank() && port > 0 && port <= 65535) {
+                String prefix = (scheme == null || scheme.isBlank()) ? "tcp" : scheme;
+                out.add(prefix + "://" + host + ":" + port);
+            }
+            i = objEnd + 1;
+        }
+        return out;
+    }
+
     /** @return the index of the bracket that closes {@code open} at {@code from}, respecting strings. */
     private static int matchingBracket(String s, int from, char open, char close) {
         int depth = 0;

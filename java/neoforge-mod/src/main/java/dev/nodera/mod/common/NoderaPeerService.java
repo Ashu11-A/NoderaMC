@@ -92,9 +92,19 @@ public final class NoderaPeerService {
     private final dev.nodera.peer.metric.PeerTrafficMeter clientPeerMeter =
             new dev.nodera.peer.metric.PeerTrafficMeter();
 
+    /**
+     * The host's rendezvous transport, held separately from {@link #serverDataTransport} because
+     * that field holds the metering wrapper and {@code MeteredPeerTransport} exposes no delegate.
+     * This is the handle {@link #refreshRendezvousEndpoints()} needs to replace a relay list without
+     * reopening the world (L-84).
+     */
+    private volatile RendezvousPeerTransport serverRendezvous;
+
     private NodeIdentity clientIdentity;
     private SocketPeerTransport clientTransport;
     private PeerTransport clientDataTransport;
+    /** The joiner's rendezvous transport; see {@link #serverRendezvous}. */
+    private volatile RendezvousPeerTransport clientRendezvous;
     private PeerRuntime clientRuntime;
     private DiagnosticsCollector clientCollector;
     private dev.nodera.peer.discovery.TrackerClient clientTrackerClient;
@@ -291,7 +301,8 @@ public final class NoderaPeerService {
      * rendezvous service is unreachable — a down relay must never stop a LAN/direct share.
      */
     private PeerTransport composeHostTransport(Bytes worldId) {
-        java.util.List<? extends String> routes = NoderaConfig.RENDEZVOUS_ENDPOINTS.get();
+        java.util.List<? extends String> routes =
+                selectedRendezvousRoutes(NoderaConfig.RENDEZVOUS_ENDPOINTS.get());
         if (routes == null || routes.isEmpty() || worldId == null) {
             return serverTransport;
         }
@@ -312,6 +323,8 @@ public final class NoderaPeerService {
         try {
             rendezvous.start(); // registers the signed record; also starts the direct socket
             LOG.info("Nodera rendezvous: host registered with {} (network {})", endpoints, networkId);
+            // Held so a later relay change can be pushed in without reopening the world (L-84).
+            this.serverRendezvous = rendezvous;
             return rendezvous;
         } catch (RuntimeException e) {
             // Issue #39: only degrade to "direct socket only" when the direct socket actually came up
@@ -337,7 +350,8 @@ public final class NoderaPeerService {
         if (worldIdHex == null || worldIdHex.isBlank()) {
             return clientTransport;
         }
-        java.util.List<? extends String> routes = NoderaConfig.CLIENT_RENDEZVOUS_ENDPOINTS.get();
+        java.util.List<? extends String> routes =
+                selectedRendezvousRoutes(NoderaConfig.CLIENT_RENDEZVOUS_ENDPOINTS.get());
         if (routes == null || routes.isEmpty()) {
             return clientTransport;
         }
@@ -365,6 +379,7 @@ public final class NoderaPeerService {
         try {
             rendezvous.start();
             LOG.info("Nodera rendezvous: joiner registered with {} (network {})", endpoints, networkId);
+            this.clientRendezvous = rendezvous;
             return rendezvous;
         } catch (RuntimeException e) {
             // Same discipline as the host path: degrade to the direct socket only when the socket
@@ -379,6 +394,99 @@ public final class NoderaPeerService {
         }
     }
 
+    /**
+     * The rendezvous routes to actually use: the worker's live selection when there is one,
+     * otherwise the configured list (L-84).
+     *
+     * <p>The worker discovers relays from trackers, probes them, scores them on its own
+     * measurements, and re-picks whenever one drains. The mod has none of that machinery and does
+     * not need it — the companion is already running, already asked, and its answer is the better
+     * one. Configuration remains the fallback and not a second-class one: a player with no companion
+     * linked, an older worker whose STATE has no {@code rendezvous} array, or a LAN-only deployment
+     * with no tracker to ask must all still be able to share a world.
+     *
+     * <p>Self-catching on purpose. This runs on a path reachable from {@code ServerStartedEvent},
+     * where NeoForge's bus does not isolate a listener exception and an escaping one takes the
+     * integrated server down. A companion that is absent, slow, or answering nonsense costs the
+     * player the better relay list; it must never cost them the world.
+     *
+     * @param configured the configured fallback.
+     * @return the routes to compose the transport from.
+     */
+    private java.util.List<? extends String> selectedRendezvousRoutes(
+            java.util.List<? extends String> configured) {
+        try {
+            CompanionClient companion = CompanionLink.client();
+            if (companion != null) {
+                List<String> live = companion.state()
+                        .map(WorkerStateParser::rendezvousRoutes)
+                        .orElse(List.of());
+                if (!live.isEmpty()) {
+                    LOG.info("Nodera rendezvous: using the worker's selection {}", live);
+                    return live;
+                }
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Nodera: could not read the worker's rendezvous selection ({}); "
+                    + "using the configured list", e.toString());
+        }
+        return configured;
+    }
+
+    /**
+     * Push the worker's current rendezvous selection into whichever transports are live (L-84).
+     *
+     * <p>This is the half that makes a mid-session migration reach the game. The worker learns a
+     * relay is draining from a signed notice on its own control channel and moves within seconds;
+     * without this the in-game transport keeps talking to the relay that is leaving until the world
+     * is reopened. {@code RendezvousPeerTransport.setEndpoints} re-registers immediately and ignores
+     * an empty list, so a worker that has gone quiet leaves the current selection in place rather
+     * than clearing it.
+     *
+     * <p>Called on the announce cadence rather than on a push, because the worker's selection is
+     * already the debounced, swept result of its own minute-long cycle — polling a value that
+     * changes at most once a minute is not worth a second control channel.
+     */
+    private void refreshRendezvousEndpoints() {
+        RendezvousPeerTransport host = this.serverRendezvous;
+        RendezvousPeerTransport joiner = this.clientRendezvous;
+        if (host == null && joiner == null) {
+            return;
+        }
+        List<String> live;
+        try {
+            CompanionClient companion = CompanionLink.client();
+            if (companion == null) {
+                return;
+            }
+            live = companion.state().map(WorkerStateParser::rendezvousRoutes).orElse(List.of());
+        } catch (RuntimeException e) {
+            LOG.debug("Nodera: rendezvous refresh skipped ({})", e.toString());
+            return;
+        }
+        if (live.isEmpty()) {
+            return;
+        }
+        List<RendezvousEndpoint> endpoints = new ArrayList<>();
+        for (String route : live) {
+            try {
+                endpoints.add(RendezvousEndpoint.parse(route));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed rendezvous endpoint '{}' from the worker: {}",
+                        route, e.getMessage());
+            }
+        }
+        if (endpoints.isEmpty()) {
+            return;
+        }
+        if (host != null) {
+            host.setEndpoints(endpoints);
+        }
+        if (joiner != null) {
+            joiner.setEndpoints(endpoints);
+        }
+    }
+
     /** Send the initial STARTED announce and refresh on the tracker's cadence — all off the lock. */
     private void startAnnouncing() {
         int interval = Math.max(15, serverTrackerClient.announceIntervalSeconds());
@@ -388,7 +496,23 @@ public final class NoderaPeerService {
             return t;
         });
         announceScheduler.scheduleWithFixedDelay(
-                () -> sendAnnounce(AnnounceEvent.STARTED), 0, interval, TimeUnit.SECONDS);
+                () -> {
+                    sendAnnounce(AnnounceEvent.STARTED);
+                    // Same cadence, same thread: the relay list the worker chose is pushed into the
+                    // live transport so a mid-session migration reaches the game (L-84).
+                    //
+                    // Guarded separately because a task that throws out of scheduleWithFixedDelay is
+                    // silently never run again — the announce would stop too, and nothing would say
+                    // so. The refresh is the newer and less-proven half; it must not be able to take
+                    // the announce with it.
+                    try {
+                        refreshRendezvousEndpoints();
+                    } catch (RuntimeException e) {
+                        LOG.warn("Nodera: rendezvous refresh failed ({}); the announce continues",
+                                e.toString());
+                    }
+                },
+                0, interval, TimeUnit.SECONDS);
     }
 
     /** Build + send a signed tracker announce for the shared world. Never throws. */
@@ -565,6 +689,7 @@ public final class NoderaPeerService {
             serverTransport = null;
         }
         serverDataTransport = null;
+        serverRendezvous = null;
         serverCollector = null;
         serverDiagnostics = null;
     }
@@ -633,6 +758,7 @@ public final class NoderaPeerService {
         serverDiagnostics = null;
         serverTransport = null;
         serverDataTransport = null;
+        serverRendezvous = null;
         serverIdentity = null;
         hostOptions = null;
         hostWorldId = null;
@@ -711,6 +837,7 @@ public final class NoderaPeerService {
         clientCollector = null;
         clientTransport = null;
         clientDataTransport = null;
+        clientRendezvous = null;
         clientIdentity = null;
     }
 
