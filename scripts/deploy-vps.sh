@@ -34,8 +34,12 @@ IMAGE_TAG="${NODERA_IMAGE_TAG:-canary}"
 # simply ahead of the DNS record still has a route.
 TRACKER_ROUTES="${NODERA_TRACKER_ROUTES:-tcp://tracker.noderamc.org:6969,tcp://$VPS_HOST:6969}"
 RENDEZVOUS_ROUTES="${NODERA_RENDEZVOUS_ROUTES:-tcp://rendezvous.noderamc.org:7500,tcp://$VPS_HOST:7500}"
-# The relay announces itself to the tracker by literal address: this one has to resolve today.
-RENDEZVOUS_TRACKERS="${NODERA_RENDEZVOUS_TRACKERS:-tcp://$VPS_HOST:6969}"
+# Where the relay announces ITSELF. This script always deploys both services into one compose
+# project, so the sibling is reachable by its compose service name — which is also the only form
+# that works: a container reaching its own host's public address has to hairpin back through the
+# published port, and on a default bridge network that is refused. Point this elsewhere with
+# NODERA_RENDEZVOUS_TRACKERS when the relay should announce to a tracker on another host.
+RENDEZVOUS_TRACKERS="${NODERA_RENDEZVOUS_TRACKERS:-tcp://tracker:6969}"
 
 DRY_RUN=0
 STATUS_ONLY=0
