@@ -34,7 +34,6 @@ import {
   fetchConfigStatus,
   fetchWorkerOwnership,
   restartWorker,
-  formatBytes,
   EMPTY_CONFIG_STATUS,
   type Settings as SettingsDoc,
   type SettingStatus,
@@ -42,7 +41,10 @@ import {
   type ConfigStatus,
   type WorkerOwnership,
   type Theme,
+  type NetworkPolicy,
 } from "./ipc";
+import { formatBytes } from "./api";
+import { fetchStorageInfo, type StorageInfo } from "./ipc";
 
 type Section = "appearance" | "behavior" | "network" | "storage" | "privacy";
 
@@ -75,9 +77,19 @@ function badgeFor(status: SettingStatus | undefined) {
     unenforced: { tone: "warn", label: "not enforced yet" },
   };
   const spec = BADGE[status.state];
-  // A non-empty reason on `unenforced` means the limitation is structural and permanent — the one
-  // case that must not look like a pending feature.
-  const permanent = status.state === "unenforced" && status.reason.length > 0;
+  // A structural limitation is permanent; a worker being offline or refusing one value is not.
+  //
+  // This used to be "unenforced with any reason", which caught both — so with the worker down,
+  // every network and battery control was badged muted "not supported", i.e. *permanently
+  // impossible*, when the truth was "saved, and it will apply when your node is back". The backend
+  // distinguishes the cases in its wording (`settings.rs::resolve`); matching on the transient
+  // phrasings is what keeps this side honest without a second wire field to drift.
+  const transient =
+    status.reason.includes("offline") ||
+    status.reason.includes("did not confirm") ||
+    status.reason.includes("older than the app");
+  const permanent =
+    status.state === "unenforced" && status.reason.length > 0 && !transient;
   return (
     <StatusBadge
       tone={permanent ? "muted" : spec.tone}
@@ -87,7 +99,54 @@ function badgeFor(status: SettingStatus | undefined) {
   );
 }
 
-const NAV_BTN = "flex items-center gap-2.5 rounded-sm px-[11px] py-2 text-left text-sm";
+/**
+ * The locations this machine can actually write to, each with its free space.
+ *
+ * Probed by the backend, not listed here: "can this process write there" is a question only the
+ * filesystem can answer, and answering it in the UI would be guessing.
+ */
+function StorageChoices(props: { current: string; onPick: (path: string) => void }) {
+  const [info, setInfo] = useState<StorageInfo | null>(null);
+
+  useEffect(() => {
+    fetchStorageInfo().then(setInfo).catch(() => {});
+  }, []);
+
+  if (!info || info.options.length === 0) return null;
+  // An empty setting means "the worker's own default", and the backend already resolves that to a
+  // real path in `info.current` — which is always one of the options. Comparing against the raw
+  // setting left **no** chip highlighted on a default install, so the location actually in force
+  // looked like one nobody had chosen.
+  const inUse = props.current.trim() === "" ? info.current : props.current;
+  return (
+    <div className="flex flex-wrap gap-2 pt-1">
+      {info.options.map((option) => (
+        <button
+          key={option.path}
+          type="button"
+          disabled={!option.writable}
+          title={option.writable ? option.path : "not writable"}
+          onClick={() => props.onPick(option.path)}
+          className={cx(
+            "rounded-sm border px-2.5 py-1 text-xs",
+            inUse === option.path
+              ? "border-brand-2 text-text"
+              : "border-line text-dim hover:bg-surface-hover",
+            !option.writable && "opacity-40",
+          )}
+        >
+          {option.label}
+          {option.free_bytes !== null && (
+            <span className="ml-1.5 text-faint">{formatBytes(option.free_bytes)} free</span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const TAB_BTN =
+  "flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm transition-colors";
 const NESTED = "my-0.5 ml-3.5 border-l-2 border-line pl-3.5";
 
 export function SettingsScreen(props: {
@@ -140,16 +199,24 @@ export function SettingsScreen(props: {
   const restartNeeded = config.restart_required.length > 0;
 
   return (
-    <div className="grid min-h-full grid-cols-[190px_1fr] max-narrow:grid-cols-1">
-      <nav className="flex flex-col gap-0.5 border-r border-line px-3 py-5 max-narrow:flex-row max-narrow:overflow-x-auto max-narrow:border-r-0 max-narrow:border-b max-narrow:px-3 max-narrow:py-2.5">
+    <div className="flex min-h-full flex-col">
+      {/* One category per tab, across the top. The categories were already separate views behind a
+          side rail; as tabs they read as what they are — five peers, all one click away — and the
+          content column gets the full width back, which is what the limits table needed. */}
+      <nav
+        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line bg-bg px-[22px]"
+        role="tablist"
+      >
         {SECTIONS.map((sec) => (
           <button
             key={sec.id}
+            role="tab"
+            aria-selected={section === sec.id}
             className={cx(
-              NAV_BTN,
+              TAB_BTN,
               section === sec.id
-                ? "bg-surface-hover font-semibold text-text"
-                : "text-dim hover:bg-surface-hover hover:text-text",
+                ? "border-b-brand-2 font-semibold text-text"
+                : "border-b-transparent text-dim hover:text-text",
             )}
             onClick={() => setSection(sec.id)}
           >
@@ -287,7 +354,8 @@ export function SettingsScreen(props: {
           <>
             <Card
               title="Default trackers"
-              hint="Discovery services this node announces its worlds to and queries for peers. One per line — tcp://host:port or udp://host:port; a bare host:port means TCP."
+              hint="Discovery services this node announces its worlds to and queries for peers. One per line — tcp://host:port; a bare host:port means TCP."
+              right={note("network.default_trackers")}
             >
               <textarea
                 className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-2 focus:outline-none"
@@ -301,6 +369,49 @@ export function SettingsScreen(props: {
                         .map((l) => l.trim())
                         .filter(Boolean)),
                   )
+                }
+              />
+            </Card>
+
+            <Card
+              title="Rendezvous relays"
+              hint="Used to reach peers that cannot accept an inbound connection. One per line, same syntax as the trackers."
+              right={note("network.rendezvous_endpoints")}
+            >
+              <textarea
+                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-2 focus:outline-none"
+                rows={3}
+                value={s.network.rendezvous_endpoints.join("\n")}
+                onChange={(e) =>
+                  update(
+                    (d) =>
+                      (d.network.rendezvous_endpoints = e.target.value
+                        .split("\n")
+                        .map((l) => l.trim())
+                        .filter(Boolean)),
+                  )
+                }
+              />
+            </Card>
+
+            {/* A cost rule, not a speed limit — which is why it is not in the bandwidth card. On a
+                phone this is the difference between a helpful node and an unexpected bill; on a
+                desktop it is normally inert, and says so. */}
+            <Card
+              title="Move data over"
+              hint="Which connections this node will use to carry other people's worlds."
+              right={note("network.transfer_network")}
+            >
+              <Segmented
+                label="Allowed connections"
+                value={s.network.transfer_network}
+                options={[
+                  { value: "any", label: "Any" },
+                  { value: "unmetered_only", label: "Unmetered only" },
+                  { value: "wifi_only", label: "Wi-Fi only" },
+                ]}
+                onChange={(v) =>
+                  update((d) => (d.network.transfer_network = v as NetworkPolicy))
                 }
               />
             </Card>
@@ -396,6 +507,13 @@ export function SettingsScreen(props: {
               note={note("storage.peer_worlds_dir")}
               onChange={(v) => update((d) => (d.storage.peer_worlds_dir = v))}
             />
+            {/* Offered beside the field rather than instead of it: a desktop user may type any
+                path, and this only saves them finding out after the fact that a location is not
+                writable — every option here was probed with a real write. */}
+            <StorageChoices
+              current={s.storage.peer_worlds_dir}
+              onPick={(path) => update((d) => (d.storage.peer_worlds_dir = path))}
+            />
             <Disclosure title="What gets stored here?">
               <p>
                 Content-addressed pieces of world archives, each verified against its manifest hash
@@ -403,6 +521,34 @@ export function SettingsScreen(props: {
                 matches its hash is discarded and re-fetched.
               </p>
             </Disclosure>
+          </Card>
+        )}
+
+        {/* The worker has honoured both of these since the replication lane landed and the app
+            never sent either, so a node's disk budget was whatever the worker decided. */}
+        {section === "storage" && (
+          <Card
+            title="Supporting other people's worlds"
+            hint="How much of this machine goes to keeping worlds you do not own alive."
+          >
+            <NumberField
+              label="Disk budget (GB)"
+              hint="0 uses the worker's own default."
+              value={Math.round(s.storage.replication_budget_bytes / 1_000_000_000)}
+              min={0}
+              note={note("storage.replication_budget_bytes")}
+              onChange={(v) =>
+                update((d) => (d.storage.replication_budget_bytes = Math.max(0, v) * 1_000_000_000))
+              }
+            />
+            <NumberField
+              label="Sweep every (seconds)"
+              hint="How often the node re-checks what needs replicating. 0 uses the worker's default; it clamps anything under 30."
+              value={s.storage.replication_sweep_seconds}
+              min={0}
+              note={note("storage.replication_sweep_seconds")}
+              onChange={(v) => update((d) => (d.storage.replication_sweep_seconds = Math.max(0, v)))}
+            />
           </Card>
         )}
 
@@ -421,7 +567,19 @@ function SpeedSlider(props: {
   note?: ReactNode;
   onChange: (v: number) => void;
 }) {
-  const index = Math.max(0, SPEEDS.indexOf(props.value));
+  // Nearest preset, not exact match. `indexOf` returned -1 for any value not in the table — a
+  // hand-edited settings.json, or a value written by an older build with a different table — and
+  // `Math.max(0, -1)` parked the slider on "unlimited" while the hint underneath printed the real
+  // rate. The next nudge then silently discarded the user's number.
+  const exact = SPEEDS.indexOf(props.value);
+  const index =
+    exact >= 0
+      ? exact
+      : SPEEDS.reduce(
+          (best, speed, i) =>
+            Math.abs(speed - props.value) < Math.abs(SPEEDS[best] - props.value) ? i : best,
+          0,
+        );
   return (
     <Slider
       label={props.label}

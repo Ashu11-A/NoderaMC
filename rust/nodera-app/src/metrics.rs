@@ -5,8 +5,6 @@
 //! this module is the deserialization + aggregation seam the React UI reads via Tauri events. Keep
 //! the two in lockstep: a field added on one side must be added on the other.
 
-use std::sync::Mutex;
-
 use serde::{Deserialize, Serialize};
 
 /// One connected peer this node is exchanging data with — a row of the Peers tab.
@@ -68,6 +66,20 @@ pub struct WorldRow {
     /// `true` when this node only keeps the world's bytes alive; `false` when it hosts it.
     #[serde(default)]
     pub seeding: bool,
+
+    /// `true` when this peer holds this world's private key and can prove it administers it.
+    ///
+    /// Independent of [`Self::seeding`], and the two must not be collapsed: a node can host a world
+    /// it did not create (it fetched somebody else's and re-shared it), and can administer one it is
+    /// currently only seeding. "What am I doing with this world" and "may I speak for it" are
+    /// different questions, and the Home screen answers them with two different lists.
+    #[serde(default)]
+    pub owned: bool,
+
+    /// The world's own public key (base64 X.509) — its administrative root — or empty when this
+    /// node has no verified ownership claim for the world.
+    #[serde(default)]
+    pub world_public_key: String,
 }
 
 /// A world's piece picture, fetched on demand for the Pieces tab (`NODERA-PIECES`).
@@ -112,6 +124,39 @@ impl PieceMap {
             })
             .collect()
     }
+}
+
+/// One world this machine has open to LAN, and what the player decided about it.
+///
+/// Mirrors `LanSessionService.Session`. The state is the whole point: detection is not consent, so a
+/// world the worker can see is not a world it is sharing.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct LanSessionRow {
+    pub session_id: String,
+    pub name: String,
+    /// The LAN port Minecraft chose — the session's identity, since a reopened world gets a new one.
+    pub port: u16,
+    /// `offered` | `shared` | `declined`.
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub detected_at: u64,
+}
+
+/// The LAN block of the worker's state.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct LanBlock {
+    /// `false` when this machine's network stack would not let the worker join the multicast group.
+    /// Distinct from an empty session list, and the UI must say so — one is "nothing open", the
+    /// other is "this can never work here".
+    #[serde(default)]
+    pub supported: bool,
+    /// Why not, when `supported` is false. Empty otherwise. "Switched off" and "this machine cannot"
+    /// are different answers and a screen that shows neither leaves the user with nothing to do.
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub sessions: Vec<LanSessionRow>,
 }
 
 /// A configured discovery service (tracker / rendezvous) plus its last-probed reachability — the
@@ -193,6 +238,10 @@ pub struct Metrics {
     #[serde(default)]
     pub rendezvous: Vec<EndpointHealth>,
 
+    /// Worlds opened to LAN on this machine, and the player's decision about each.
+    #[serde(default)]
+    pub lan: LanBlock,
+
     /// Whether the supervised headless peer is currently up.
     #[serde(default)]
     pub daemon_up: bool,
@@ -240,33 +289,6 @@ impl PieceMapView {
             held,
             holders: map.holders,
         }
-    }
-}
-
-/// Thread-safe holder the supervisor updates and the UI/control read.
-#[derive(Default)]
-pub struct MetricsHandle {
-    inner: Mutex<Metrics>,
-}
-
-impl MetricsHandle {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Replace the snapshot (called by the peer status pump).
-    pub fn set(&self, metrics: Metrics) {
-        *self.inner.lock().unwrap() = metrics;
-    }
-
-    /// Read a clone of the current snapshot (called by the UI cadence + control verbs).
-    pub fn snapshot(&self) -> Metrics {
-        self.inner.lock().unwrap().clone()
-    }
-
-    /// Flip just the daemon-up flag (supervisor lifecycle transitions).
-    pub fn set_daemon_up(&self, up: bool) {
-        self.inner.lock().unwrap().daemon_up = up;
     }
 }
 
@@ -340,6 +362,31 @@ mod tests {
     fn an_empty_map_expands_to_no_cells() {
         assert!(PieceMap::default().held_flags().is_empty());
         assert!(PieceMapView::of(PieceMap::default()).held.is_empty());
+    }
+
+    /// Ownership is read from the worker, never inferred here. In particular it is NOT the negation
+    /// of `seeding`: this case is a world the node hosts for somebody else, which the old code would
+    /// have shown under "your worlds".
+    #[test]
+    fn hosting_a_world_is_not_the_same_as_owning_it() {
+        let json = r#"{"connected_worlds":[
+            {"world_id":"a","name":"Someone else's","seeding":false,"owned":false},
+            {"world_id":"b","name":"Mine, only seeded here","seeding":true,"owned":true,
+             "world_public_key":"MCowBQYDK2VwAyEA"}]}"#;
+        let metrics: Metrics = serde_json::from_str(json).expect("parses");
+        assert!(!metrics.connected_worlds[0].owned, "hosting is not authorship");
+        assert!(metrics.connected_worlds[1].owned, "authorship survives not hosting");
+        assert_eq!(metrics.connected_worlds[1].world_public_key, "MCowBQYDK2VwAyEA");
+    }
+
+    /// A worker too old to report ownership must not have worlds attributed to it: the field
+    /// defaults to `false`, so an unanswered question reads as "not mine" rather than as a claim.
+    #[test]
+    fn a_worker_that_says_nothing_about_ownership_owns_nothing() {
+        let json = r#"{"connected_worlds":[{"world_id":"a","name":"W","seeding":false}]}"#;
+        let metrics: Metrics = serde_json::from_str(json).expect("parses");
+        assert!(!metrics.connected_worlds[0].owned);
+        assert!(metrics.connected_worlds[0].world_public_key.is_empty());
     }
 
     /// Unknown fields must not break the parse: the worker adds fields additively and an older app

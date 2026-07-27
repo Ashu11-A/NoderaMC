@@ -1,53 +1,11 @@
-// Task 32/33: the bridge from the Rust backend to the React dashboard. The backend emits a
-// `nodera://metrics` event each second and answers a `get_metrics` command on demand. The shapes
-// mirror `rust/nodera-app/src/metrics.rs`, which in turn mirror the worker's NODERA-STATE JSON.
+// The non-dashboard half of the bridge to the Rust backend: settings, telemetry consent, worker
+// ownership, resource sampling, logs, and the on-demand piece map.
+//
+// The dashboard itself moved to `api.ts`, which mirrors `src/api/model.rs` and lives on the pushed
+// `nodera://dashboard` event. Anything about "what is the node doing right now" belongs there; what
+// is left here is configuration and machine-local facts, which are asked for rather than announced.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-
-export interface PeerRow {
-  node_id: string;
-  /** Dialable route, rendered as tcp://host:port. */
-  route: string;
-  /** direct | relayed | unknown. */
-  path: string;
-  /** The peer's self-declared client agent, e.g. "NoderaMC 0.1.0". */
-  client: string;
-  up_bytes_per_sec: number;
-  down_bytes_per_sec: number;
-  total_up_bytes: number;
-  total_down_bytes: number;
-}
-
-export interface WorldRow {
-  world_id: string;
-  name: string;
-  players: number;
-  /** The host's open Minecraft endpoint while its game runs; empty once it closes. */
-  mc_route: string;
-  /** Epoch millis this world entered the network from this node. */
-  added_at: number;
-  /** Epoch millis of this world's most recent content change here. */
-  updated_at: number;
-  total_bytes: number;
-  /** Manifest root — the content checksum identifying these exact bytes. */
-  checksum: string;
-  version: number;
-  piece_count: number;
-  pieces_held: number;
-  seeders: number;
-  /** true = this node only keeps the bytes alive; false = it hosts the world. */
-  seeding: boolean;
-}
-
-export interface EndpointHealth {
-  host: string;
-  port: number;
-  /** tcp | udp — how this endpoint is actually reached. */
-  scheme: string;
-  reachable: boolean;
-  /** Handshake round-trip in ms, or -1 when unreachable / not yet probed. */
-  latency_ms: number;
-}
 
 /** One world's piece grid, pulled on demand (mirrors metrics.rs PieceMapView). */
 export interface PieceMapView {
@@ -72,67 +30,6 @@ export const EMPTY_PIECE_MAP: PieceMapView = {
   held: [],
   holders: [],
 };
-
-export interface Metrics {
-  node_id: string;
-  worker_version: string;
-  client: string;
-  uptime_seconds: number;
-  is_gateway: boolean;
-  self_route: string;
-  roles: string[];
-  maintained_pieces: number;
-  maintained_bytes: number;
-  total_sent_bytes: number;
-  total_received_bytes: number;
-  total_chunks: number;
-  /** Upload ÷ download, permille (1000 = 1.00). */
-  share_ratio_permille: number;
-  /** Verified-present pieces as a permille of all tracked pieces. */
-  availability_permille: number;
-  peers: PeerRow[];
-  connected_worlds: WorldRow[];
-  trackers: EndpointHealth[];
-  rendezvous: EndpointHealth[];
-  daemon_up: boolean;
-  /**
-   * The worker's own report that it is not moving bytes — from battery rules, the tray's Pause
-   * seeding, or a manual pause. Mirrored from NODERA-STATE rather than from the app's own request,
-   * so the UI shows what is happening and not what was asked for.
-   */
-  transfers_paused: boolean;
-}
-
-export const EMPTY_METRICS: Metrics = {
-  node_id: "",
-  worker_version: "",
-  client: "",
-  uptime_seconds: 0,
-  is_gateway: false,
-  self_route: "",
-  roles: [],
-  maintained_pieces: 0,
-  maintained_bytes: 0,
-  total_sent_bytes: 0,
-  total_received_bytes: 0,
-  total_chunks: 0,
-  share_ratio_permille: 0,
-  availability_permille: 0,
-  peers: [],
-  connected_worlds: [],
-  trackers: [],
-  rendezvous: [],
-  daemon_up: false,
-  transfers_paused: false,
-};
-
-export async function fetchMetrics(): Promise<Metrics> {
-  return invoke<Metrics>("get_metrics");
-}
-
-export function onMetrics(cb: (m: Metrics) => void): Promise<UnlistenFn> {
-  return listen<Metrics>("nodera://metrics", (event) => cb(event.payload));
-}
 
 // Machine + worker RAM/CPU (mirrors rust/nodera-app/src/system.rs).
 export interface SystemStats {
@@ -168,53 +65,36 @@ export async function fetchWorkerLogs(): Promise<string[]> {
   return invoke<string[]>("get_worker_logs");
 }
 
+// Write the whole scrollback to a file the user picks in the OS dialog.
+//
+// Resolves to the chosen path, or null when the dialog was cancelled — cancelling is a normal
+// outcome and is deliberately not an error the page has to explain.
+export async function saveWorkerLogs(): Promise<string | null> {
+  return invoke<string | null>("save_worker_logs");
+}
+
+// The outcome of asking the worker to delete a world its owner administers.
+export type DeleteOutcome = {
+  deleted: boolean;
+  peers_notified: number;
+  error: string;
+};
+
+// Ask the worker to delete a world, everywhere. IRREVERSIBLE.
+//
+// The worker signs the request with the world's private key and refuses outright without one, so a
+// world this peer merely supports cannot be deleted from here whatever this call sends. Every
+// receiving peer re-verifies the record before destroying anything.
+export async function deleteWorld(worldId: string, reason: string): Promise<DeleteOutcome> {
+  return invoke<DeleteOutcome>("delete_world", { worldId, reason });
+}
+
 // One world's piece grid. Pulled on demand rather than pushed with the metrics snapshot: only the
 // selected world matters, and a node seeding a dozen worlds should not re-encode every bitmap once
 // a second for a tab nobody has open.
 export async function fetchPieceMap(worldId: string): Promise<PieceMapView> {
   if (!worldId) return EMPTY_PIECE_MAP;
   return invoke<PieceMapView>("get_piece_map", { worldId });
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
-
-export function formatRate(bytesPerSec: number): string {
-  if (bytesPerSec < 1024) return `${bytesPerSec} B/s`;
-  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`;
-}
-
-export function formatUptime(seconds: number): string {
-  if (seconds <= 0) return "—";
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-export function shortId(id: string, head = 8, tail = 4): string {
-  if (!id) return "—";
-  if (id.length <= head + tail + 1) return id;
-  return `${id.slice(0, head)}…${id.slice(-tail)}`;
-}
-
-// Permille integers cross the wire so every surface renders the same number; formatting is the
-// only place they become decimal.
-export function formatPermille(permille: number, digits = 2): string {
-  return (permille / 1000).toFixed(digits);
-}
-
-export function formatPercent(permille: number): string {
-  return `${(permille / 10).toFixed(1)}%`;
 }
 
 /* ------------------------------------------------------------------------------------ settings */
@@ -234,8 +114,19 @@ export interface Behavior {
   power_rules_during_game: boolean;
 }
 
+/**
+ * Which links this node will move other people's data over.
+ *
+ * Not a speed limit — a cost rule. `unmetered_only` follows the OS's own metered flag, so it
+ * honours a user who marked their SIM unlimited; `wifi_only` is the literal reading and ignores it.
+ */
+export type NetworkPolicy = "any" | "unmetered_only" | "wifi_only";
+
 export interface NetworkSettings {
   default_trackers: string[];
+  /** Relay endpoints. Applied when the worker restarts. */
+  rendezvous_endpoints: string[];
+  transfer_network: NetworkPolicy;
   unlimited_connections_only: boolean;
   use_random_port: boolean;
   port_range_start: number;
@@ -249,6 +140,10 @@ export interface NetworkSettings {
 
 export interface StorageSettings {
   peer_worlds_dir: string;
+  /** Disk spent holding other people's worlds. 0 = the worker's own default. */
+  replication_budget_bytes: number;
+  /** Replication sweep period. 0 = the worker's own default. */
+  replication_sweep_seconds: number;
 }
 
 export interface Settings {
@@ -256,6 +151,14 @@ export interface Settings {
   behavior: Behavior;
   network: NetworkSettings;
   storage: StorageSettings;
+  /**
+   * Present so that a `Settings` built by the UI round-trips it.
+   *
+   * `save_settings` takes the whole document, and `setup` is `#[serde(default)]` on the Rust side —
+   * so any save from an object that omitted this field would silently reset `completed` to false
+   * and re-trigger the first-run flow on the next launch.
+   */
+  setup: SetupState;
 }
 
 export async function fetchSettings(): Promise<Settings> {
@@ -264,6 +167,62 @@ export async function fetchSettings(): Promise<Settings> {
 
 export async function saveSettings(next: Settings): Promise<void> {
   return invoke<void>("save_settings", { next });
+}
+
+/**
+ * Why the stored settings could not be read, or `""`.
+ *
+ * Non-empty means the screen is showing defaults while the real file is still on disk untouched.
+ * Saying nothing here would let a user conclude the app forgot their configuration and re-enter it
+ * on top of a file that was never the problem.
+ */
+export async function fetchSettingsFault(): Promise<string> {
+  return invoke<string>("settings_fault");
+}
+
+/* --------------------------------------------------------------------------------- connection */
+
+export type Transport = "unknown" | "offline" | "wifi" | "cellular" | "ethernet" | "other";
+
+/** Mirrors `android::network::NetworkState`. */
+export interface NetworkState {
+  /** false on desktop — the whole subject is hidden rather than shown as a control that decides nothing. */
+  supported: boolean;
+  transport: Transport;
+  metered: boolean;
+  vpn: boolean;
+  error: string;
+}
+
+export const EMPTY_NETWORK_STATE: NetworkState = {
+  supported: false,
+  transport: "unknown",
+  metered: false,
+  vpn: false,
+  error: "",
+};
+
+export const TRANSPORT_LABEL: Record<Transport, string> = {
+  unknown: "Unknown",
+  offline: "Offline",
+  wifi: "Wi-Fi",
+  cellular: "Mobile data",
+  ethernet: "Ethernet",
+  other: "Other",
+};
+
+export async function fetchNetworkState(): Promise<NetworkState> {
+  return invoke<NetworkState>("network_state");
+}
+
+/**
+ * Why transfers are paused, in words, or `""`.
+ *
+ * A node that quietly stops seeding on mobile data looks exactly like a node that crashed. This is
+ * the difference.
+ */
+export async function fetchPauseReason(): Promise<string> {
+  return invoke<string>("pause_reason");
 }
 
 // ---- telemetry consent (app task 5) ------------------------------------------------------------
@@ -311,17 +270,6 @@ export async function setTelemetryConsent(granted: boolean): Promise<TelemetrySt
 /** Ask the configured collector what it accepts. Rejects when it cannot be reached. */
 export async function fetchCollectedSchema(endpoint: string): Promise<string> {
   return invoke<string>("get_collected_schema", { endpoint });
-}
-
-/**
- * Which settings are persisted but not yet acted on by the worker.
- *
- * @deprecated A flat list of names cannot say *why*, and "the worker is too old" and "nobody has
- * implemented this" are different things to a user. Use {@link fetchSettingStatus}. Kept so an
- * older bundle keeps working against a newer backend.
- */
-export async function fetchUnenforcedSettings(): Promise<string[]> {
-  return invoke<string[]>("get_unenforced_settings");
 }
 
 /* --------------------------------------------------------------- settings enforcement + config */
@@ -423,30 +371,144 @@ export function onPauseToggled(cb: (paused: boolean) => void): Promise<UnlistenF
   return listen<boolean>("nodera://pause", (event) => cb(event.payload));
 }
 
-// Epoch millis → a short absolute date. 0 means "never recorded", not 1970.
-export function formatDate(epochMillis: number): string {
-  if (!epochMillis) return "—";
-  const d = new Date(epochMillis);
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+
+/* ------------------------------------------------------------------------------ the mobile peer */
+
+// One tracker and how the last exchange with it went (mirrors `peer::TrackerStatus`).
+export type TrackerStatus = {
+  endpoint: string;
+  reachable: boolean;
+  accepted: boolean;
+  next_announce_seconds: number;
+  latency_ms: number | null;
+  error: string;
+};
+
+// What this device's own peer is doing (mirrors `peer::PeerStatus`).
+export type PeerStatus = {
+  node_id: string;
+  public_key: string;
+  trackers: TrackerStatus[];
+  announced: boolean;
+  last_announce_ms: number;
+  known_peers: number;
+};
+
+// The announce round trip that proves this device is on the network (mirrors `peer::tracker::SelfTest`).
+export type PeerSelfTest = {
+  passed: boolean;
+  trackers: TrackerStatus[];
+  peers: string[];
+  found_self: boolean;
+  error: string;
+};
+
+export const EMPTY_PEER: PeerStatus = {
+  node_id: "",
+  public_key: "",
+  trackers: [],
+  announced: false,
+  last_announce_ms: 0,
+  known_peers: 0,
+};
+
+// Announce to every configured tracker and report each one's answer.
+export async function fetchPeerStatus(): Promise<PeerStatus> {
+  return invoke<PeerStatus>("peer_status");
 }
 
-// A dialable route as a URI, the way a torrent client shows a peer source.
-export function formatSource(route: string, scheme = "tcp"): string {
-  if (!route) return "—";
-  return route.includes("://") ? route : `${scheme}://${route}`;
+// Announce, then query the tracker back and look for THIS device's own entry. An accepted announce
+// alone would only say the tracker took the bytes.
+export async function runPeerSelfTest(): Promise<PeerSelfTest> {
+  return invoke<PeerSelfTest>("peer_self_test");
 }
 
-export function formatLatency(ms: number): string {
-  return ms < 0 ? "—" : `${ms} ms`;
+// Whether this build runs its own peer instead of supervising a Java worker. Compiled in, so it
+// answers "is this the Android build", not "is the window narrow".
+export async function fetchIsMobileBuild(): Promise<boolean> {
+  return invoke<boolean>("is_mobile_build");
 }
 
-// 0 means "unlimited" in every limit field, which is not the same as "zero allowed".
-export function formatLimit(value: number, unit = ""): string {
-  return value === 0 ? "Unlimited" : `${value}${unit}`;
+// The peer loop's own announcements, pushed as each round completes.
+export function onPeerStatus(cb: (s: PeerStatus) => void): Promise<UnlistenFn> {
+  return listen<PeerStatus>("nodera://peer", (event) => cb(event.payload));
+}
+
+/* ------------------------------------------------------------------------- storage & first run */
+
+// One place world data could live (mirrors `api::storage::StorageOption`).
+export type StorageOption = {
+  path: string;
+  label: string;
+  detail: string;
+  free_bytes: number | null;
+  writable: boolean;
+};
+
+// Where world data is kept, and what else this device offers.
+export type StorageInfo = {
+  current: string;
+  is_default: boolean;
+  options: StorageOption[];
+};
+
+export async function fetchStorageInfo(): Promise<StorageInfo> {
+  return invoke<StorageInfo>("storage_info");
+}
+
+// Whether the first-run questions have been answered.
+export type SetupState = { completed: boolean };
+
+export async function fetchSetupState(): Promise<SetupState> {
+  return invoke<SetupState>("setup_state");
+}
+
+// Record the answers. Telemetry consent is set separately, through the worker, because that is
+// where consent lives — this call only stores the storage choice and closes the flow.
+export async function completeSetup(worldsDir: string): Promise<void> {
+  return invoke("complete_setup", { worldsDir });
+}
+
+/* ---------------------------------------------------------------------------------- battery */
+
+// Whether the OS may stop this node in the background (mirrors `android::battery::BatteryPolicy`).
+export type BatteryPolicy = {
+  supported: boolean;
+  restricted: boolean;
+  manufacturer: string;
+  help_url: string;
+  error: string;
+};
+
+export async function fetchBatteryPolicy(): Promise<BatteryPolicy> {
+  return invoke<BatteryPolicy>("battery_policy");
+}
+
+// Open the system screen where the exemption is granted. The app never grants it itself.
+export async function openBatterySettings(): Promise<void> {
+  return invoke("open_battery_settings");
+}
+
+// Open this vendor's page on dontkillmyapp.com.
+export async function openBatteryHelp(): Promise<void> {
+  return invoke("open_battery_help");
+}
+
+// What the Android system folder picker came back with (mirrors `api::storage::PickedFolder`).
+export type PickedFolder = {
+  pending: boolean;
+  uri: string;
+  label: string;
+  path: string;
+  writable: boolean;
+  error: string;
+};
+
+// Open the system folder picker. Returns once it is on screen; poll `pickedFolder` for the answer.
+export async function pickStorageFolder(): Promise<void> {
+  return invoke("pick_storage_folder");
+}
+
+export async function pickedFolder(): Promise<PickedFolder> {
+  return invoke<PickedFolder>("picked_folder");
 }

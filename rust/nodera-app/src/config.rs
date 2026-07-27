@@ -79,9 +79,19 @@ pub struct WorkerConfig {
     /// gets to *say* `restart_required` rather than the app guessing on its behalf.
     #[serde(rename = "network.port_range")]
     pub port_range: String,
+    /// Relay endpoints, comma-separated — the shape the worker's `rendezvous_endpoints` handler
+    /// parses. Also restart-scoped, and also sent so the worker is the one that says so.
+    #[serde(rename = "network.rendezvous_endpoints")]
+    pub rendezvous_endpoints: String,
     /// Empty means "the worker's own default"; sent verbatim so the worker can answer honestly.
     #[serde(rename = "storage.peer_worlds_dir")]
     pub peer_worlds_dir: String,
+    /// Disk this node will spend on other people's worlds. 0 = the worker's default.
+    #[serde(rename = "storage.replication_budget_bytes")]
+    pub replication_budget_bytes: u64,
+    /// Replication sweep period in seconds. 0 = the worker's default.
+    #[serde(rename = "storage.replication_sweep_seconds")]
+    pub replication_sweep_seconds: u64,
 }
 
 impl WorkerConfig {
@@ -108,7 +118,10 @@ impl WorkerConfig {
                     settings.network.port_range_start, settings.network.port_range_end
                 )
             },
+            rendezvous_endpoints: settings.network.rendezvous_endpoints.join(","),
             peer_worlds_dir: settings.storage.peer_worlds_dir.clone(),
+            replication_budget_bytes: settings.storage.replication_budget_bytes,
+            replication_sweep_seconds: settings.storage.replication_sweep_seconds,
         }
     }
 
@@ -251,8 +264,11 @@ pub async fn push_once(control_addr: &str, config: &WorkerConfig) -> ConfigStatu
 /// and is not part of the wire contract; only the *shape* (`NODERA-ERR …unknown…verb…`) is.
 fn is_unknown_verb(reason: &str) -> bool {
     let lower = reason.to_ascii_lowercase();
-    lower.contains("unknown") && (lower.contains("verb") || lower.contains("command"))
-        || lower.contains("unsupported")
+    // Both halves of the shape are required. A bare `unsupported` used to qualify on its own, so a
+    // *value*-level refusal — "unsupported tracker scheme" — was reported to the user as "this
+    // worker is older than the app", pointing them at an upgrade that would fix nothing.
+    (lower.contains("unknown") || lower.contains("unsupported"))
+        && (lower.contains("verb") || lower.contains("command"))
 }
 
 /// Everything one push needs, so the debounce loop below stays a loop and nothing else.
@@ -304,7 +320,47 @@ mod tests {
         let config = WorkerConfig::of(&Settings::default(), false);
         assert_eq!(
             serde_json::to_string(&config).unwrap(),
-            r#"{"behavior.transfers_paused":false,"network.default_trackers":["tcp://127.0.0.1:25600"],"network.unlimited_connections_only":false,"network.max_connections":200,"network.max_connections_per_world":50,"network.max_upload_slots_per_world":4,"network.max_upload_bytes_per_sec":0,"network.max_download_bytes_per_sec":0,"network.port_range":"random","storage.peer_worlds_dir":""}"#
+            r#"{"behavior.transfers_paused":false,"network.default_trackers":["tcp://127.0.0.1:25600"],"network.unlimited_connections_only":false,"network.max_connections":200,"network.max_connections_per_world":50,"network.max_upload_slots_per_world":4,"network.max_upload_bytes_per_sec":0,"network.max_download_bytes_per_sec":0,"network.port_range":"random","network.rendezvous_endpoints":"","storage.peer_worlds_dir":"","storage.replication_budget_bytes":0,"storage.replication_sweep_seconds":0}"#
+        );
+    }
+
+    /// Every key this app sends has to be one the worker's `applyConfig` switch recognises;
+    /// anything else comes back `rejected: "unknown setting"` and silently badges as broken.
+    /// The two replication keys were accepted by the worker and sent by nobody until now.
+    #[test]
+    fn every_key_sent_is_one_the_worker_handles() {
+        let json = serde_json::to_value(WorkerConfig::of(&Settings::default(), false)).unwrap();
+        let sent: BTreeMap<String, serde_json::Value> = serde_json::from_value(json).unwrap();
+        // Mirrors WorkerControlHandler.applyConfig's accepted set (applied + restart_required +
+        // permanently-rejected). A key outside it is a bug in this file, not in the worker.
+        let handled = [
+            "behavior.transfers_paused",
+            "network.default_trackers",
+            "network.max_connections",
+            "network.max_connections_per_world",
+            "network.max_upload_slots_per_world",
+            "network.max_upload_bytes_per_sec",
+            "network.max_download_bytes_per_sec",
+            "network.port_range",
+            "network.rendezvous_endpoints",
+            "network.unlimited_connections_only",
+            "storage.peer_worlds_dir",
+            "storage.replication_budget_bytes",
+            "storage.replication_sweep_seconds",
+        ];
+        for key in sent.keys() {
+            assert!(handled.contains(&key.as_str()), "{key} is not a worker key");
+        }
+    }
+
+    #[test]
+    fn rendezvous_endpoints_go_out_comma_separated() {
+        let mut settings = Settings::default();
+        settings.network.rendezvous_endpoints =
+            vec!["tcp://a:1".to_owned(), "tcp://b:2".to_owned()];
+        assert_eq!(
+            WorkerConfig::of(&settings, false).rendezvous_endpoints,
+            "tcp://a:1,tcp://b:2"
         );
     }
 
@@ -374,7 +430,10 @@ mod tests {
     fn an_old_worker_is_recognised_from_its_refusal_wording() {
         assert!(is_unknown_verb("unknown verb"));
         assert!(is_unknown_verb("Unknown command NODERA-CONFIG"));
-        assert!(is_unknown_verb("unsupported"));
+        assert!(is_unknown_verb("unsupported verb"));
         assert!(!is_unknown_verb("the worker is unreachable on 127.0.0.1:25610"));
+        // A refusal about a *value* is not evidence about the worker's age, and telling the user to
+        // upgrade would send them after a fix that does not exist.
+        assert!(!is_unknown_verb("unsupported tracker scheme 'udp'"));
     }
 }

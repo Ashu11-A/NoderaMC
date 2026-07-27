@@ -29,7 +29,13 @@ impl LogBuffer {
     }
 
     /// Append one line, evicting the oldest beyond [`MAX_LINES`].
+    ///
+    /// On Android the line also goes to the system log. A phone has no console, so a buffer the
+    /// user can only see by opening the app is not something anyone can debug an install with;
+    /// `adb logcat -s NoderaMC` is.
     pub fn push(&self, line: String) {
+        #[cfg(target_os = "android")]
+        log::info!("{line}");
         let mut buf = self.inner.lock().unwrap();
         if buf.len() == MAX_LINES {
             buf.pop_front();
@@ -43,23 +49,59 @@ impl LogBuffer {
     }
 }
 
-/// The attach-mode log file: `NODERA_WORKER_LOG` else the dev-script default.
-fn attach_log_path() -> PathBuf {
-    std::env::var("NODERA_WORKER_LOG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("run/logs/nodera-worker.log"))
+/// Where the worker's log might be, best guess first.
+///
+/// A list rather than a path because on Android there are **two** plausible roots and only one of
+/// them is right. Kotlin writes under `context.filesDir`, which is `<app data>/files`; this process
+/// resolves its own directories from `app_data_dir`, which is `<app data>`. The single path this
+/// used to return was built from the second, so it pointed at a file the worker never creates and
+/// the Activity screen was permanently empty — the node was talking and nobody was listening.
+/// `api::storage` already had to work around the same discrepancy; this now does it the same way.
+fn attach_log_candidates() -> Vec<PathBuf> {
+    if let Ok(explicit) = std::env::var("NODERA_WORKER_LOG") {
+        return vec![PathBuf::from(explicit)];
+    }
+    // On Android the worker runs inside this process and writes through slf4j-simple to a file in
+    // the app's own directory (see `android/kotlin/NoderaWorker.kt`). Tailing it is what puts the
+    // node's own words on the Activity screen; without this the log exists only in logcat, which
+    // the person holding the phone cannot read.
+    #[cfg(target_os = "android")]
+    {
+        let base = crate::settings::config_dir();
+        let app_data = base.parent().map(PathBuf::from).unwrap_or(base.clone());
+        return vec![
+            app_data.join("files/worker/worker.log"),
+            base.join("worker/worker.log"),
+            app_data.join("worker/worker.log"),
+        ];
+    }
+    #[allow(unreachable_code)]
+    {
+        vec![PathBuf::from("run/logs/nodera-worker.log")]
+    }
 }
 
 /// Attach mode: follow the worker's log file (start from its current end, like `tail -f`;
 /// a truncated/rotated file restarts from the top). Runs until the app exits.
 pub async fn tail_attach_log(buffer: Arc<LogBuffer>) {
-    let path = attach_log_path();
+    let candidates = attach_log_candidates();
+    // Re-chosen until one exists, then fixed: the worker may not have written its first line when
+    // this loop starts, and picking a non-existent path once would mean never finding the real one.
+    let mut path: Option<PathBuf> = None;
     let mut offset: Option<u64> = None; // None = seek to end on first successful open
     let mut partial = String::new();
     let mut tick = tokio::time::interval(Duration::from_millis(1000));
     loop {
         tick.tick().await;
-        let Ok(mut file) = std::fs::File::open(&path) else {
+        if path.is_none() {
+            let Some(found) = candidates.iter().find(|candidate| candidate.is_file()) else {
+                continue;
+            };
+            log::info!("worker log: following {}", found.display());
+            path = Some(found.clone());
+        }
+        let current = path.clone().expect("just chosen");
+        let Ok(mut file) = std::fs::File::open(&current) else {
             continue;
         };
         let len = file.metadata().map(|m| m.len()).unwrap_or(0);

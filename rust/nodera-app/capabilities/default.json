@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the Nodera window is allowed to ask the core and the dialog plugin for. Without a capability granting it, `listen()` is refused and every push from the node is dropped before it reaches a pixel — the app renders its first snapshot and then never changes.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default"]
+}
