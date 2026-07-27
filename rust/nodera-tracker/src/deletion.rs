@@ -64,12 +64,15 @@ impl DeletedWorlds {
         self.entries.len()
     }
 
-    /// Whether nothing is remembered.
+    /// Whether nothing is remembered. Paired with [`Self::len`]; the guard path itself asks
+    /// [`Self::notice_for`], so this and [`Self::is_deleted`] exist for assertions.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     /// Whether this world has been deleted at its owner's verified request.
+    #[cfg(test)]
     pub fn is_deleted(&self, world_id: &[u8]) -> bool {
         self.entries.contains_key(world_id)
     }
@@ -224,12 +227,10 @@ mod tests {
         assert!(cache.is_deleted(&tombstone.world_id));
         // The answer is the proof, not an assertion by this tracker: the peer re-verifies it.
         let notice = cache.notice_for(&tombstone.world_id).expect("a notice");
-        assert!(
-            WorldDeletionGossip::decode(notice)
-                .expect("decode")
-                .verified()
-                .is_some()
-        );
+        assert!(WorldDeletionGossip::decode(notice)
+            .expect("decode")
+            .verified()
+            .is_some());
     }
 
     #[test]

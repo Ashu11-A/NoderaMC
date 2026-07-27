@@ -50,9 +50,7 @@ impl Tracker {
             config,
             registry: Registry::new(),
             bindings: IdentityBindings::new(),
-            deleted: DeletedWorlds::new(
-                config_persist_dir.map(|dir| dir.join("deleted-worlds")),
-            ),
+            deleted: DeletedWorlds::new(config_persist_dir.map(|dir| dir.join("deleted-worlds"))),
             quota,
             announces_accepted: 0,
             announces_rejected: 0,
@@ -83,7 +81,9 @@ impl Tracker {
         self.deleted.len()
     }
 
-    /// Whether this tracker holds a verified deletion for a world.
+    /// Whether this tracker holds a verified deletion for a world. The refusal path reads the
+    /// notice directly, so this is an assertion helper.
+    #[cfg(test)]
     pub fn is_world_deleted(&self, genesis_hash: &[u8]) -> bool {
         self.deleted.is_deleted(genesis_hash)
     }
@@ -379,12 +379,10 @@ mod tests {
         assert!(tracker.is_world_deleted(&deleted_world_id()));
         // The reply is the owner's record, not this tracker's say-so.
         match handled {
-            Handled::Reply(frame) => assert!(
-                WorldDeletionGossip::decode(&frame)
-                    .expect("decode")
-                    .verified()
-                    .is_some()
-            ),
+            Handled::Reply(frame) => assert!(WorldDeletionGossip::decode(&frame)
+                .expect("decode")
+                .verified()
+                .is_some()),
             other => panic!("expected the record echoed back, got {other:?}"),
         }
     }
@@ -415,7 +413,8 @@ mod tests {
         // A peer that was offline during the deletion announces the world as usual. Its own
         // signature is perfectly valid — and irrelevant, because it proves who is speaking, not
         // that the world should exist.
-        let handled = tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+        let handled =
+            tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
 
         assert_eq!(tracker.stats().3, 0, "the world was not re-listed");
         match handled {
@@ -442,7 +441,10 @@ mod tests {
         tracker.handle_frame(&deletion_frame(), None, None, issued);
 
         tracker.sweep(issued + crate::deletion::RETENTION_MILLIS);
-        assert!(tracker.is_world_deleted(&deleted_world_id()), "still inside");
+        assert!(
+            tracker.is_world_deleted(&deleted_world_id()),
+            "still inside"
+        );
 
         tracker.sweep(issued + crate::deletion::RETENTION_MILLIS + 1);
         assert!(!tracker.is_world_deleted(&deleted_world_id()));

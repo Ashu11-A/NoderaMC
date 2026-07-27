@@ -37,7 +37,14 @@ fn main() -> Result<(), String> {
     };
 
     let response = query(&endpoint, &world)?;
-    println!("world      {}", if response.world_name.is_empty() { "(unnamed)" } else { &response.world_name });
+    println!(
+        "world      {}",
+        if response.world_name.is_empty() {
+            "(unnamed)"
+        } else {
+            &response.world_name
+        }
+    );
     println!("health     {:?}", response.health);
     println!("players    {}", response.world_player_count);
     println!("peers      {}", response.peers.len());
@@ -45,7 +52,11 @@ fn main() -> Result<(), String> {
         println!(
             "  {} route={}",
             peer.node_id.to_uuid_string(),
-            if peer.route.is_empty() { "-" } else { &peer.route }
+            if peer.route.is_empty() {
+                "-"
+            } else {
+                &peer.route
+            }
         );
     }
     Ok(())
@@ -67,7 +78,9 @@ fn query(endpoint: &str, world: &[u8]) -> Result<nodera_codec::messages::Tracker
     stream.flush().map_err(|e| e.to_string())?;
 
     let mut header = [0u8; 4];
-    stream.read_exact(&mut header).map_err(|e| format!("the tracker sent no answer: {e}"))?;
+    stream
+        .read_exact(&mut header)
+        .map_err(|e| format!("the tracker sent no answer: {e}"))?;
     let length = framing::decode_length(header).map_err(|e| e.to_string())?;
     let mut body = vec![0u8; length];
     stream.read_exact(&mut body).map_err(|e| e.to_string())?;
