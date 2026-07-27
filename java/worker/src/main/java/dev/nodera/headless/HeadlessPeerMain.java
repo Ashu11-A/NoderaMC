@@ -296,6 +296,21 @@ public final class HeadlessPeerMain {
                     t.setDaemon(true);
                     return t;
                 });
+        // Presence in the commons namespace, so a node holding no world is still findable.
+        //
+        // Without this a world-less peer — every phone, and any desktop before its first share —
+        // announces nothing, appears in no tracker answer, and cannot ask what worlds exist,
+        // because the tracker deliberately has no full-scrape endpoint. It is reachable, healthy,
+        // and invisible: observed on a handset that reported its tracker up at 67 ms while the
+        // world its three desktop peers shared reported `peers 3`, none of them the phone.
+        //
+        // Announced unconditionally rather than only when world-less. A node that hosts something
+        // is discoverable through that world, but it is also the node a phone most wants to find,
+        // and dropping out of the commons the moment you share would make the swarm hardest to join
+        // exactly when there is finally something in it.
+        dev.nodera.peer.discovery.CommonsPresence commons =
+                new dev.nodera.peer.discovery.CommonsPresence(tracker, identity.nodeId(), caps);
+
         directoryScheduler.scheduleWithFixedDelay(() -> {
             try {
                 rendezvousDirectory.sweep(System.currentTimeMillis());
@@ -303,6 +318,27 @@ public final class HeadlessPeerMain {
                 // A sweep failure degrades discovery and nothing else; killing the scheduler thread
                 // would silently freeze the endpoint set at whatever it last was.
                 LOG.warn("rendezvous-directory sweep failed: {}", e.getMessage());
+            }
+            // Guarded separately: a task that throws out of scheduleWithFixedDelay is silently
+            // never run again, and the sweep above must not be taken down by the newer half.
+            try {
+                List<dev.nodera.protocol.membership.PeerEntry> present =
+                        commons.round(runtime.selfRoute(), System.currentTimeMillis());
+                for (dev.nodera.protocol.membership.PeerEntry peer : present) {
+                    // Dial what the commons offered, by node id and route — the same call the
+                    // mesh lane uses, so a peer met here is a peer in every other sense.
+                    try {
+                        runtime.joinSession(dev.nodera.transport.PeerAddress.of(
+                                peer.nodeId(), peer.route()));
+                    } catch (RuntimeException dial) {
+                        LOG.debug("commons: {} did not answer ({})", peer.route(), dial.toString());
+                    }
+                }
+                if (!present.isEmpty()) {
+                    LOG.info("commons: {} peer(s) present", present.size());
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("commons round failed: {}", e.getMessage());
             }
         }, 5, directorySweepSeconds, java.util.concurrent.TimeUnit.SECONDS);
 
