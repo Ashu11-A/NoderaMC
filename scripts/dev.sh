@@ -153,6 +153,7 @@ MC_DIR="${NODERA_MC_DIR:-$HOME/.minecraft}"
 
 # --- ports ---------------------------------------------------------------
 OFFICIAL="${NODERA_OFFICIAL_SERVICES:-0}"
+[[ "$OFFICIAL" -eq 1 ]] && export NODERA_OFFICIAL_SERVICES=1
 TRACKER_PORT="${NODERA_TRACKER_PORT:-25600}"
 RENDEZVOUS_PORT="${NODERA_RENDEZVOUS_PORT:-25601}"
 CONTROL_PORT="${NODERA_CONTROL_PORT:-25610}"
@@ -194,7 +195,13 @@ while [[ $# -gt 0 ]]; do
         --spare-peers) [[ $# -ge 2 ]] || die "--spare-peers needs a count"
                        SPARE_PEERS="$2"; shift 2 ;;
         --no-worker)   RUN_WORKER=0; shift ;;
-        --official)    OFFICIAL=1; shift ;;
+        # Exported HERE, at parse time, not inside resolve_services. `--play` hands the topology
+        # to scripts/lib/e2e-main.sh and never calls resolve_services, so exporting there meant
+        # `dev.sh --official --play` silently started a LOCAL tracker and wrote a client config
+        # pointing at it — while the workers used the official list. The mod then announced to one
+        # tracker and the joiner's worker queried another, so the joiner never saw the live world
+        # and fell through to re-hosting a stale copy of it.
+        --official)    OFFICIAL=1; export NODERA_OFFICIAL_SERVICES=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *)             die "unknown option: $1 (see --help)" ;;
     esac
@@ -486,9 +493,6 @@ resolve_services() {
             || die "cannot read the official tracker list"
         RENDEZVOUS_ENDPOINTS=$("$NODERA_ROOT/scripts/services.py" --endpoints rendezvous) \
             || die "cannot read the official rendezvous list"
-        # Exported so `--play`, which hands the topology to scripts/lib/e2e-main.sh, takes the same
-        # decision rather than quietly starting its own pair.
-        export NODERA_OFFICIAL_SERVICES=1
     else
         TRACKER_ENDPOINTS="127.0.0.1:$TRACKER_PORT"
         RENDEZVOUS_ENDPOINTS="127.0.0.1:$RENDEZVOUS_PORT"
