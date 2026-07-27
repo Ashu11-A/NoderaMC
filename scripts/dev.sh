@@ -201,7 +201,14 @@ while [[ $# -gt 0 ]]; do
         # pointing at it — while the workers used the official list. The mod then announced to one
         # tracker and the joiner's worker queried another, so the joiner never saw the live world
         # and fell through to re-hosting a stale copy of it.
-        --official)    OFFICIAL=1; export NODERA_OFFICIAL_SERVICES=1; shift ;;
+        --official)
+            OFFICIAL=1
+            export NODERA_OFFICIAL_SERVICES=1
+            # Relay-only by default with --official: on one machine the two players would find a
+            # direct path and the relay lane would go untested. NODERA_FORCE_RELAY=0 opts out.
+            NODERA_FORCE_RELAY="${NODERA_FORCE_RELAY:-1}"; export NODERA_FORCE_RELAY
+            shift ;;
+        --relay-only)  export NODERA_FORCE_RELAY=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *)             die "unknown option: $1 (see --help)" ;;
     esac
