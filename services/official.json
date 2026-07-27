@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "name": "NoderaMC Official",
+  "description": "Trackers and rendezvous services run by the NoderaMC project and by contributors who have opened a pull request to be listed here.",
+  "homepage": "https://noderamc.org",
+  "updated": "2026-07-27",
+  "services": [
+    {
+      "kind": "tracker",
+      "name": "noderamc.org",
+      "endpoints": [
+        "tcp://tracker.noderamc.org:6969",
+        "tcp://150.230.84.206:6969"
+      ],
+      "operator": "Ashu11-A",
+      "region": "eu-frankfurt",
+      "notes": "The project's own tracker. The literal address is listed after the name on purpose: a peer whose DNS is broken or filtered still has a route, and the name still wins when it resolves."
+    },
+    {
+      "kind": "rendezvous",
+      "name": "noderamc.org",
+      "endpoints": [
+        "tcp://rendezvous.noderamc.org:7500",
+        "tcp://150.230.84.206:7500"
+      ],
+      "operator": "Ashu11-A",
+      "region": "eu-frankfurt",
+      "notes": "The project's own relay. Announces itself to the tracker above, so peers normally discover it rather than reading it from here."
+    }
+  ]
+}
