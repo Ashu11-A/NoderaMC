@@ -59,14 +59,20 @@ final class RendezvousDirectoryTest {
     private final class StubTracker implements AutoCloseable {
         private final ServerSocket server;
         private final AtomicBoolean running = new AtomicBoolean(true);
+        /**
+         * Whether this tracker answers. See {@link #silence()} — the "off" state a test needs is
+         * "does not answer", which is not the same thing as "socket closed".
+         */
+        private final AtomicBoolean answering = new AtomicBoolean(true);
         private final List<ServiceDirectoryEntry> answer;
         private final List<ServiceScoreReport> reports = new CopyOnWriteArrayList<>();
         private final List<ServiceDirectoryQuery> queries = new CopyOnWriteArrayList<>();
+        private final Thread thread;
 
         StubTracker(List<ServiceDirectoryEntry> answer) throws IOException {
             this.answer = answer;
             this.server = new ServerSocket(0);
-            Thread thread = new Thread(this::serve, "stub-tracker");
+            this.thread = new Thread(this::serve, "stub-tracker");
             thread.setDaemon(true);
             thread.start();
             stubs.add(this);
@@ -75,6 +81,11 @@ final class RendezvousDirectoryTest {
         private void serve() {
             while (running.get()) {
                 try (Socket socket = server.accept()) {
+                    if (!answering.get()) {
+                        // Accepted and dropped. The caller sees a connection that yields no frame,
+                        // which is what "this tracker is not answering" looks like on the wire.
+                        continue;
+                    }
                     var frame = Frames.read(socket.getInputStream());
                     if (frame.isEmpty()) {
                         continue;
@@ -105,6 +116,27 @@ final class RendezvousDirectoryTest {
             return new TrackerClient.Endpoint("127.0.0.1", server.getLocalPort());
         }
 
+        /**
+         * Stop answering, but keep the port bound.
+         *
+         * <p>This is what a test means by "the tracker is down", and closing the socket is not a
+         * reliable way to say it. Closing releases the port the moment the OS is ready, so the
+         * assertion that follows depends on two things the test does not control: that
+         * {@code close()} interrupts a blocked {@code accept()} before the next connect lands, and
+         * that nothing else on the machine binds the freed ephemeral port in between. Either one
+         * going the other way turns "unreachable" back into "answered", which is exactly the
+         * intermittent failure this replaced —
+         * {@code an_unreachable_tracker_leaves_the_previous_selection_in_place} failed with
+         * {@code Expecting empty but was: [127.0.0.1:25601]} in one CI run and passed in another on
+         * the same commit.
+         *
+         * <p>Holding the port and refusing to answer is deterministic: the connect always succeeds,
+         * the frame never arrives, and no other process can take the port and reply on our behalf.
+         */
+        void silence() {
+            answering.set(false);
+        }
+
         @Override
         public void close() {
             running.set(false);
@@ -112,6 +144,12 @@ final class RendezvousDirectoryTest {
                 server.close();
             } catch (IOException ignored) {
                 // closing a test fixture
+            }
+            try {
+                // Joined so a stub from one test cannot still be serving during the next one.
+                thread.join(2_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
     }
@@ -314,7 +352,9 @@ final class RendezvousDirectoryTest {
         directory.sweep(System.currentTimeMillis());
         assertThat(directory.selected()).hasSize(1);
 
-        tracker.close();
+        // Silenced rather than closed: see StubTracker.silence(). The tracker keeps its port and
+        // stops answering, so "unreachable" cannot quietly turn back into "answered".
+        tracker.silence();
         // No answer, so no candidates, so nothing selected — but the call returns rather than throwing,
         // and a caller holding the previous list keeps using it.
         assertThat(directory.sweep(System.currentTimeMillis())).isEmpty();
