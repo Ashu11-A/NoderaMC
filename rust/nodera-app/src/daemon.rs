@@ -84,6 +84,16 @@ pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
         env.push(("NODERA_TRACKER_ENDPOINTS".to_owned(), trackers));
     }
 
+    // The rendezvous list, which this function used to drop on the floor: the setting existed, the UI
+    // wrote it, `NODERA_CONFIG` declared it restart-required — and nothing ever put it in the worker's
+    // environment, so a user's configured relay was silently ignored and the worker fell back to its
+    // 127.0.0.1 default. These are *seeds* now rather than the whole list (the worker discovers the
+    // rest from its trackers), which is what makes the default harmless instead of isolating.
+    let rendezvous = settings.network.rendezvous_endpoints.join(",");
+    if !rendezvous.trim().is_empty() {
+        env.push(("NODERA_RENDEZVOUS_ENDPOINTS".to_owned(), rendezvous));
+    }
+
     let archive_dir = settings.storage.peer_worlds_dir.trim();
     if !archive_dir.is_empty() {
         env.push(("NODERA_ARCHIVE_DIR".to_owned(), archive_dir.to_owned()));
@@ -286,15 +296,17 @@ mod tests {
     /// Nothing else may creep in: every key here is one the worker actually reads, and an unread
     /// key in the process environment is a claim the app cannot honour.
     #[test]
-    fn no_keys_beyond_the_documented_four_are_ever_sent() {
+    fn no_keys_beyond_the_documented_set_are_ever_sent() {
         let mut settings = Settings::default();
         settings.storage.peer_worlds_dir = "/srv/nodera".to_owned();
         settings.network.use_random_port = false;
+        settings.network.rendezvous_endpoints = vec!["rdv.example:25601".to_owned()];
         for (key, _) in worker_env(&settings) {
             assert!(
                 matches!(
                     key.as_str(),
                     "NODERA_TRACKER_ENDPOINTS"
+                        | "NODERA_RENDEZVOUS_ENDPOINTS"
                         | "NODERA_ARCHIVE_DIR"
                         | "NODERA_P2P_PORT"
                         | "NODERA_P2P_PORT_RANGE"
@@ -302,6 +314,30 @@ mod tests {
                 "unexpected worker env key {key}"
             );
         }
+    }
+
+    #[test]
+    fn the_configured_rendezvous_endpoints_reach_the_worker() {
+        // The bug this asserts against: the setting existed, the UI wrote it, NODERA-CONFIG declared it
+        // restart-required, and nothing ever put it in the worker's environment — so a user's
+        // configured relay was silently ignored.
+        let mut settings = Settings::default();
+        settings.network.rendezvous_endpoints =
+            vec!["rdv-a.example:25601".to_owned(), "rdv-b.example:25601".to_owned()];
+        let env = env_of(&settings);
+        assert_eq!(
+            env["NODERA_RENDEZVOUS_ENDPOINTS"],
+            "rdv-a.example:25601,rdv-b.example:25601"
+        );
+    }
+
+    #[test]
+    fn no_rendezvous_configured_sends_no_key_at_all() {
+        // An empty setting must not become an empty env var: the worker's own default is a seed, and
+        // an empty string would parse to no endpoints and no seeds.
+        let settings = Settings::default();
+        assert!(settings.network.rendezvous_endpoints.is_empty());
+        assert!(!env_of(&settings).contains_key("NODERA_RENDEZVOUS_ENDPOINTS"));
     }
 
     #[test]

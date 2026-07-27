@@ -11,6 +11,9 @@ punching, and — when no direct path exists — exchange end-to-end-encrypted f
 relay.
 
 - **Depends on:** `nodera-codec`.
+- **Also depends on:** `nodera-service` — identity, tracker self-announce, the drain sequence, and
+  self-update. The drain order lives there on purpose: a second copy of it here is how the two services
+  would end up meaning different things by "draining".
 - **Depended on by:** the Java rendezvous transport, the worker, the mod's host lane.
 - **Docs:** [`docs/rendezvous/`](../../docs/rendezvous/Task.0.md) · reference architecture:
   [`docs/rendezvous/REFERENCE.md`](../../docs/rendezvous/REFERENCE.md)

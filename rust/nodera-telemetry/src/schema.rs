@@ -174,6 +174,8 @@ const ERROR_KIND: &[&str] = &[
 const NAT_PAIR: &[&str] = &["easy_easy", "easy_hard", "hard_hard", "unknown"];
 const SHARE_ORIGIN: &[&str] = &["new_world", "existing_world", "rehost"];
 const PLATFORM: &[&str] = &["paper", "folia", "other"];
+/// Why a service drained. Enumerated rather than free text so the reason cannot smuggle a hostname.
+const DRAIN_REASON: &[&str] = &["update", "operator", "shutdown"];
 
 /// Every event NoderaMC is allowed to collect.
 ///
@@ -351,6 +353,28 @@ pub const REGISTRY: &[EventSpec] = &[
             int("healthy", 0, 10_000_000),
             int("degraded", 0, 10_000_000),
             int("dead", 0, 10_000_000),
+        ],
+    },
+    EventSpec {
+        name: "tracker.services",
+        source: Source::Tracker,
+        attrs: &[
+            int("listed", 0, 100_000),
+            int("draining_rendezvous", 0, 100_000),
+            int("draining_trackers", 0, 100_000),
+        ],
+    },
+    EventSpec {
+        // A service's own drain, as a count of one. What an operator wants from a fleet dashboard is
+        // "how many rollouts happened and how much work got cut", and both are numbers — no service
+        // id, no peer, no address, so a rollout is visible without the fleet becoming a directory.
+        name: "service.drain",
+        source: Source::Any,
+        attrs: &[
+            enumerated("reason", DRAIN_REASON),
+            int("peers_notified", 0, 1_000_000),
+            int("work_cut", 0, 1_000_000),
+            int("drain_seconds", 0, 86_400),
         ],
     },
     EventSpec {

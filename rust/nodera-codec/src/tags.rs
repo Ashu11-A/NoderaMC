@@ -82,8 +82,18 @@ pub mod type_tags {
     /// own ownership claim so any receiver can verify it with no prior knowledge of the world.
     pub const WORLD_TOMBSTONE: u16 = 114;
 
+    // --- service directory (tracker 5 / rendezvous 5 / network 13) ---
+    /// `ServiceRecord` — a rendezvous's or tracker's own signed self-description.
+    pub const SERVICE_RECORD: u16 = 115;
+    /// `ServiceScore` — a tracker's aggregate opinion of one service; components, not a verdict.
+    pub const SERVICE_SCORE: u16 = 116;
+    /// `ServiceObservation` — one peer's probe counters and RTT percentiles for one service.
+    pub const SERVICE_OBSERVATION: u16 = 117;
+    /// `ServiceDirectoryEntry` — one directory row: signed record + the answering tracker's score.
+    pub const SERVICE_DIRECTORY_ENTRY: u16 = 118;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 114;
+    pub const NEXT: u16 = 118;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).
@@ -168,8 +178,24 @@ pub mod message_tags {
     /// self-verifying `WorldTombstone` that proves the request is theirs.
     pub const WORLD_DELETION_GOSSIP: u16 = 66;
 
+    // --- service directory: peers discover rendezvous points through trackers, and a service
+    // announces its own departure before it stops answering ---
+    /// `ServiceAnnounce` — a rendezvous or tracker self-announces a signed `ServiceRecord`.
+    pub const SERVICE_ANNOUNCE: u16 = 67;
+    /// `ServiceAnnounceAck` — admitted or refused, plus the announcer's own sibling directory.
+    pub const SERVICE_ANNOUNCE_ACK: u16 = 68;
+    /// `ServiceDirectoryQuery` — a peer asks a tracker which services of a kind it knows.
+    pub const SERVICE_DIRECTORY_QUERY: u16 = 69;
+    /// `ServiceDirectoryResponse` — the directory answer, best score first.
+    pub const SERVICE_DIRECTORY_RESPONSE: u16 = 70;
+    /// `ServiceScoreReport` — a peer's signed probe counters and RTT percentiles.
+    pub const SERVICE_SCORE_REPORT: u16 = 71;
+    /// `ServiceDrainNotice` — a service tells its connected peers directly that it is going away,
+    /// naming replacements, so a restart is a migration rather than an outage.
+    pub const SERVICE_DRAIN_NOTICE: u16 = 72;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 66;
+    pub const NEXT_TAG: u16 = 72;
 }
 
 /// The message tags this crate can decode today.
@@ -196,4 +222,10 @@ pub const SUPPORTED_MESSAGE_TAGS: &[u16] = &[
     message_tags::TRACKER_CATALOG_RESPONSE,
     message_tags::TRACKER_ROUTES_QUERY,
     message_tags::TRACKER_ROUTES_RESPONSE,
+    message_tags::SERVICE_ANNOUNCE,
+    message_tags::SERVICE_ANNOUNCE_ACK,
+    message_tags::SERVICE_DIRECTORY_QUERY,
+    message_tags::SERVICE_DIRECTORY_RESPONSE,
+    message_tags::SERVICE_SCORE_REPORT,
+    message_tags::SERVICE_DRAIN_NOTICE,
 ];

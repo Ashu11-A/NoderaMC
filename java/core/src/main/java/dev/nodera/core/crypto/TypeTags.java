@@ -195,6 +195,33 @@ public final class TypeTags {
      */
     public static final int WORLD_TOMBSTONE = 114;
 
+    /**
+     * {@code ServiceRecord} — a rendezvous's or tracker's own Ed25519-signed self-description:
+     * where to dial it, what version it runs, how loaded it is, and whether it is draining.
+     */
+    public static final int SERVICE_RECORD = 115;
+
+    /**
+     * {@code ServiceScore} — a tracker's aggregate opinion of one service, as components (measured
+     * availability, RTT percentiles, free capacity, heartbeat freshness) plus a derived composite a
+     * peer recomputes rather than trusts.
+     */
+    public static final int SERVICE_SCORE = 116;
+
+    /**
+     * {@code ServiceObservation} — one peer's probe counters and RTT percentiles for one service
+     * over a window. Counters, never a verdict, so a tracker aggregates evidence instead of
+     * trusting one peer's judgement.
+     */
+    public static final int SERVICE_OBSERVATION = 117;
+
+    /**
+     * {@code ServiceDirectoryEntry} — one directory row: a signed {@code ServiceRecord} plus the
+     * answering tracker's {@code ServiceScore}. The signature travels with the row so a peer
+     * verifies the service's identity without trusting the tracker that listed it.
+     */
+    public static final int SERVICE_DIRECTORY_ENTRY = 118;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 114;
+    public static final int NEXT = 118;
 }

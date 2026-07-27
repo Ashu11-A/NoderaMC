@@ -5,8 +5,8 @@
      `PeerTransport` seam described here is sacred: no call site anywhere in the project may know
      which transport carried a message. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `network` · **Status:** 🚧 IN PROGRESS (11 of 12 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `network` · **Status:** 🚧 IN PROGRESS (11 of 13 tasks completed) ·
+**Last audit:** 2026-07-27
 
 ---
 
@@ -94,6 +94,7 @@ as a process), [`minecraft/`](../minecraft/Task.0.md) (which delivers every live
 | [10](Task.10.md) | Tick-lag / TPS metric + low-TPS region handoff | ✅ COMPLETED |
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED |
+| [13](Task.13.md) | Measured service selection on the peer | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) ·

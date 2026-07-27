@@ -53,7 +53,7 @@ pub async fn run(tracker: Arc<Mutex<Tracker>>) {
     loop {
         ticker.tick().await;
         let now = now_millis();
-        let (current, worlds, health) = {
+        let (current, worlds, health, services) = {
             let guard = tracker.lock().await;
             let (accepted, rejected, queries, worlds) = guard.stats();
             (
@@ -64,6 +64,7 @@ pub async fn run(tracker: Arc<Mutex<Tracker>>) {
                 },
                 worlds,
                 guard.world_health_counts(now),
+                guard.service_counts(),
             )
         };
 
@@ -86,6 +87,15 @@ pub async fn run(tracker: Arc<Mutex<Tracker>>) {
                 .number("healthy", health.0)
                 .number("degraded", health.1)
                 .number("dead", health.2),
+        );
+        // Counts only, exactly like every other row here: how many services this tracker knows and
+        // how many are draining. A per-service list would be a directory of infrastructure hosts
+        // pushed to a collector, and this service already answers that to peers who ask.
+        reporter.record(
+            ServiceEvent::new("tracker.services", now)
+                .number("listed", services.0 as u64)
+                .number("draining_rendezvous", services.1 as u64)
+                .number("draining_trackers", services.2 as u64),
         );
         previous = current;
 

@@ -1,8 +1,15 @@
-//! Ed25519 **verification** over canonical bytes.
+//! Ed25519 **verification** over canonical bytes, plus the key encoding Java expects.
 //!
-//! The services verify; they never sign. Signing stays a Java-peer capability (`NodeIdentity`), so
-//! no service process ever holds peer signing material — a compromised tracker or relay can lie
-//! about who it saw, never forge a record (Task 0 §4 rule 7).
+//! A service never holds *peer or world* signing material: signing a peer record, a vote, or a world
+//! stays a Java-peer capability (`NodeIdentity`), so a compromised tracker or relay can lie about who
+//! it saw and never forge a record or a world (Task 0 §4 rule 7).
+//!
+//! A service does sign exactly one thing — **its own address record** (`service::ServiceRecord`), with
+//! a key that lives in `nodera-service`. That is what makes a drain notice unforgeable and lets a peer
+//! pin the rendezvous points that actually worked for it across restarts; without a service identity,
+//! "this rendezvous is going away, use these instead" would be a message anyone on the path could
+//! inject. The narrow invariant that still holds absolutely: **nothing a service signs is authority
+//! over world state.**
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
@@ -42,6 +49,18 @@ pub fn raw_public_key(public_key: &[u8]) -> Result<[u8; 32], SignatureError> {
             .map_err(|_| SignatureError::BadPublicKey),
         _ => Err(SignatureError::BadPublicKey),
     }
+}
+
+/// Wrap a raw 32-byte Ed25519 key in Java's X.509 `SubjectPublicKeyInfo` encoding.
+///
+/// Services publish this 44-byte form rather than the raw key: Java's `SignatureService.verify`
+/// rebuilds a `PublicKey` through `X509EncodedKeySpec` and accepts nothing else, so a service that
+/// announced its raw key would be unverifiable by every peer that needs to check it.
+pub fn x509_public_key(raw: &[u8; 32]) -> Vec<u8> {
+    let mut encoded = Vec::with_capacity(44);
+    encoded.extend_from_slice(&X509_ED25519_PREFIX);
+    encoded.extend_from_slice(raw);
+    encoded
 }
 
 /// Verify `signature` over `message` under `public_key`.
@@ -99,6 +118,16 @@ mod tests {
         x509.extend_from_slice(&PUBLIC_KEY);
         assert_eq!(raw_public_key(&x509).unwrap(), PUBLIC_KEY);
         verify(&x509, b"", &SIGNATURE).unwrap();
+    }
+
+    #[test]
+    fn the_x509_wrapper_is_the_exact_form_java_parses() {
+        let encoded = x509_public_key(&PUBLIC_KEY);
+        assert_eq!(encoded.len(), 44);
+        assert_eq!(&encoded[..12], &X509_ED25519_PREFIX);
+        // Round-trip: what we emit is what our own extractor reads back, and it still verifies.
+        assert_eq!(raw_public_key(&encoded).unwrap(), PUBLIC_KEY);
+        verify(&encoded, b"", &SIGNATURE).unwrap();
     }
 
     #[test]

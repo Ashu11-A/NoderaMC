@@ -266,6 +266,43 @@ public final class HeadlessPeerMain {
                         runtime::announceTo);
         discovery.start();
 
+        // Where this node's rendezvous points come from. Configured endpoints are seeds; the trackers
+        // answer with the rest, this node scores them against its OWN probes, and it keeps the best
+        // few rather than one. Three things follow that did not work before:
+        //
+        //   * a peer with nothing configured but a tracker reaches the network at all,
+        //   * adding a rendezvous to the network reaches every peer instead of nobody,
+        //   * a rendezvous restart is a migration, because the drain notice arrives on the relay's own
+        //     control channel and the replacement it names is already in the candidate set.
+        //
+        // The sweep also reports what this node measured, which is the half of the scoring loop that
+        // stops the aggregate from being nothing but the services' own self-praise.
+        dev.nodera.peer.discovery.ServiceScoreBoard serviceScores =
+                new dev.nodera.peer.discovery.ServiceScoreBoard();
+        dev.nodera.peer.discovery.RendezvousDirectory rendezvousDirectory =
+                new dev.nodera.peer.discovery.RendezvousDirectory(tracker, serviceScores,
+                        dev.nodera.protocol.service.ServiceRecord.DEFAULT_NETWORK,
+                        (int) envLong("NODERA_RENDEZVOUS_FANOUT",
+                                dev.nodera.peer.discovery.RendezvousDirectory.DEFAULT_FANOUT),
+                        rendezvousEndpoints);
+        rendezvousDirectory.onEndpointsChanged(hosting::setRendezvousEndpoints);
+        int directorySweepSeconds = (int) envLong("NODERA_RENDEZVOUS_SWEEP_SECONDS", 60);
+        java.util.concurrent.ScheduledExecutorService directoryScheduler =
+                java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "nodera-rendezvous-directory");
+                    t.setDaemon(true);
+                    return t;
+                });
+        directoryScheduler.scheduleWithFixedDelay(() -> {
+            try {
+                rendezvousDirectory.sweep(System.currentTimeMillis());
+            } catch (RuntimeException e) {
+                // A sweep failure degrades discovery and nothing else; killing the scheduler thread
+                // would silently freeze the endpoint set at whatever it last was.
+                LOG.warn("rendezvous-directory sweep failed: {}", e.getMessage());
+            }
+        }, 5, directorySweepSeconds, java.util.concurrent.TimeUnit.SECONDS);
+
         // Replication: adopt worlds this node is deterministically placed for, so a shared world's
         // bytes live on more than the machine that shared it. Bounded by NODERA_REPLICATION_BUDGET
         // (bytes; 0 disables the whole lane for operators who only want to host their own worlds).

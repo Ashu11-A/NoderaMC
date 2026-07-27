@@ -23,8 +23,21 @@
      per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
      TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
 
-**Overall system completion: `99.2%`**
+**Overall system completion: `97.4%`**
 `███████████████████░`
+
+99.2 → **97.4 %**: the **service-directory lane** opened three tasks
+([tracker 5](docs/tracker/Task.5.md), [rendezvous 5](docs/rendezvous/Task.5.md),
+[network 13](docs/network/Task.13.md)) and finished none of them yet, so the figure fell against a
+larger scope. What landed inside them is substantial: peers discover rendezvous points through
+trackers instead of reading a configuration string, score them on their own measured latency and
+availability, use several at once, and migrate when one drains — and the services themselves announce,
+drain and self-update from a GitHub release. Two real defects fell out on the way: a peer's relay
+accept loop used to *end* after one failed re-reservation, so a rendezvous restart was a permanent
+invisible outage for anybody who had reserved there; and the companion app never passed the
+rendezvous setting it collected to the worker at all. Four limitation rows opened rather than being
+papered over (**L-81** release provenance, **L-82** the `curl` fetcher, **L-83** a drain grace that
+can still truncate, **L-84** the mod's still-static list).
 
 91.3 → **95.3 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
 binding, capture at the documented event priority, real chunk extraction, committed blocks projected

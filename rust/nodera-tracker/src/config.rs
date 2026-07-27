@@ -66,6 +66,50 @@ pub struct Config {
     pub telemetry_endpoint: String,
     /// How often a window event is emitted.
     pub telemetry_interval_seconds: u64,
+
+    // --- service directory (tracker Task 5) ---
+    /// Maximum services (rendezvous + trackers) listed at once.
+    ///
+    /// Far smaller than `max_worlds`: a network has a handful of infrastructure hosts and thousands
+    /// of worlds, so a directory that grew to world scale would be evidence of abuse rather than
+    /// success.
+    pub max_services: usize,
+    /// Rows returned in one directory answer when the caller does not ask for fewer.
+    pub service_directory_page_limit: usize,
+    /// How long a peer's measurement still counts toward a service's score.
+    ///
+    /// Long enough that a peer probing every few minutes always has a live contribution, short
+    /// enough that yesterday's outage does not still be shaping today's routing.
+    pub service_report_max_age_seconds: u64,
+    /// Distinct reporters retained per service.
+    ///
+    /// This is the width of the evidence, and therefore how many identities an attacker needs to
+    /// control before the median moves. It bounds memory too, but that is the lesser reason.
+    pub service_report_max_reporters: usize,
+    /// Score reports accepted per source IP per announce interval.
+    pub per_ip_report_quota: u32,
+
+    // --- self-update (tracker Task 5) ---
+    /// Release channel to update from. **Empty by default, and that means off.**
+    ///
+    /// Running this binary is agreement to run a tracker, not agreement to let it replace its own
+    /// executable. The project's own deployments set `"latest"`.
+    pub update_channel: String,
+    /// Base URL the release assets are fetched from.
+    pub update_feed_base_url: String,
+    /// How often to check for a newer published build.
+    pub update_check_interval_seconds: u64,
+    /// How long in-flight work may hold up a drain before the restart proceeds anyway.
+    pub drain_grace_seconds: u64,
+    /// Trackers this tracker announces *itself* to, so peers can discover it the same way they
+    /// discover a rendezvous. Empty is normal for a single-tracker deployment.
+    pub peer_tracker_endpoints: Vec<String>,
+    /// Routes this tracker advertises in its own record. Empty falls back to `bind_addr`, which is
+    /// wrong behind NAT — an operator on a public host should state the public name.
+    pub advertised_routes: Vec<String>,
+    /// Where the service signing identity is kept. Relative paths resolve against the working
+    /// directory; the file is created on first start and must then be preserved.
+    pub identity_file: PathBuf,
 }
 
 impl Default for Config {
@@ -89,6 +133,18 @@ impl Default for Config {
             udp_max_request_bytes: 8 * 1024,
             udp_max_reply_bytes: 32 * 1024,
             udp_max_amplification: 4,
+            max_services: 256,
+            service_directory_page_limit: 32,
+            service_report_max_age_seconds: 900,
+            service_report_max_reporters: 32,
+            per_ip_report_quota: 30,
+            update_channel: String::new(),
+            update_feed_base_url: nodera_service::update::DEFAULT_FEED_BASE_URL.to_owned(),
+            update_check_interval_seconds: 3_600,
+            drain_grace_seconds: 30,
+            peer_tracker_endpoints: Vec::new(),
+            advertised_routes: Vec::new(),
+            identity_file: PathBuf::from("nodera-tracker-identity.bin"),
         }
     }
 }
@@ -181,7 +237,69 @@ impl Config {
                 ));
             }
         }
+        for (name, value) in [
+            ("max_services", self.max_services),
+            (
+                "service_directory_page_limit",
+                self.service_directory_page_limit,
+            ),
+            (
+                "service_report_max_reporters",
+                self.service_report_max_reporters,
+            ),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::Invalid(format!("{name} must be positive")));
+            }
+        }
+        if self.service_report_max_age_seconds == 0 {
+            return Err(ConfigError::Invalid(
+                "service_report_max_age_seconds must be positive".to_owned(),
+            ));
+        }
+        if !self.update_channel.trim().is_empty() {
+            if self.update_check_interval_seconds == 0 {
+                // A zero interval is a hot loop against a release host, which gets the deployment
+                // rate-limited rather than updated.
+                return Err(ConfigError::Invalid(
+                    "update_check_interval_seconds must be positive when update_channel is set"
+                        .to_owned(),
+                ));
+            }
+            if !self.update_feed_base_url.starts_with("https://") {
+                // The digest in the release is the only integrity check there is; fetching it over
+                // plaintext would let whoever is on the path choose both the binary and its digest.
+                return Err(ConfigError::Invalid(
+                    "update_feed_base_url must be https://".to_owned(),
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// How long a peer's measurement still counts, in milliseconds.
+    pub fn service_report_max_age_millis(&self) -> u64 {
+        self.service_report_max_age_seconds.saturating_mul(1_000)
+    }
+
+    /// The update lane's configuration for this binary.
+    pub fn update_config(&self) -> nodera_service::update::UpdateConfig {
+        nodera_service::update::UpdateConfig {
+            channel: self.update_channel.clone(),
+            feed_base_url: self.update_feed_base_url.clone(),
+            asset_name: "nodera-tracker".to_owned(),
+            check_interval_seconds: self.update_check_interval_seconds,
+            drain_grace_seconds: self.drain_grace_seconds,
+        }
+    }
+
+    /// The routes this tracker advertises, falling back to its bind address.
+    pub fn routes(&self) -> Vec<String> {
+        if self.advertised_routes.is_empty() {
+            vec![self.bind_addr.to_string()]
+        } else {
+            self.advertised_routes.clone()
+        }
     }
 
     /// Peer TTL in milliseconds (the unit the registry works in).

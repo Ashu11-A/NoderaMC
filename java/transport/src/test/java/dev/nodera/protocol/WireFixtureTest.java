@@ -223,6 +223,57 @@ class WireFixtureTest {
         corpus.put("observed-address.bin",
                 new ObservedAddress(playerEntry.nodeId(), "198.51.100.7:40000"));
 
+        // The service-directory family. These matter more than most: the record is signed by a *Rust*
+        // service and verified by a *Java* peer, which is the opposite direction from every other
+        // signed message here — so byte identity is what makes a rendezvous' own record checkable at
+        // all, and the score's composite is a function both sides must compute identically.
+        dev.nodera.protocol.service.ServiceRecord serviceRecord =
+                new dev.nodera.protocol.service.ServiceRecord(
+                        seederEntry.nodeId(),
+                        filled(44, 0x42),
+                        dev.nodera.protocol.service.ServiceKind.RENDEZVOUS,
+                        dev.nodera.protocol.service.ServiceLifecycle.SERVING,
+                        networkId,
+                        List.of("rdv.example:25601", "tcp://198.51.100.9:25601"),
+                        "0.1.0",
+                        120, 5_000, 4, 64, 3,
+                        1_700_000_000_000L,
+                        1_700_000_300_000L,
+                        0L);
+        dev.nodera.protocol.service.ServiceScore serviceScore =
+                new dev.nodera.protocol.service.ServiceScore(980, 35, 90, 900, 1_000, 7, 0)
+                        .withComposite();
+        dev.nodera.protocol.service.ServiceDirectoryEntry serviceEntry =
+                new dev.nodera.protocol.service.ServiceDirectoryEntry(
+                        serviceRecord, filled(64, 0x77), serviceScore);
+
+        corpus.put("service-announce.bin",
+                new dev.nodera.protocol.service.ServiceAnnounce(serviceRecord, filled(64, 0x77)));
+        corpus.put("service-announce-ack.bin", new dev.nodera.protocol.service.ServiceAnnounceAck(
+                true, 120, "", List.of(serviceEntry)));
+        corpus.put("service-directory-query.bin",
+                new dev.nodera.protocol.service.ServiceDirectoryQuery(
+                        dev.nodera.protocol.service.ServiceKind.RENDEZVOUS, networkId, 8));
+        corpus.put("service-directory-response.bin",
+                new dev.nodera.protocol.service.ServiceDirectoryResponse(List.of(serviceEntry)));
+        corpus.put("service-score-report.bin", new dev.nodera.protocol.service.ServiceScoreReport(
+                playerEntry.nodeId(), filled(44, 0x66), networkId,
+                List.of(new dev.nodera.protocol.service.ServiceObservation(
+                        seederEntry.nodeId(),
+                        dev.nodera.protocol.service.ServiceKind.RENDEZVOUS,
+                        20, 19, 35, 90, 1_700_000_060_000L)),
+                1_700_000_060_000L, filled(64, 0x88)));
+        corpus.put("service-drain-notice.bin", new dev.nodera.protocol.service.ServiceDrainNotice(
+                new dev.nodera.protocol.service.ServiceRecord(
+                        seederEntry.nodeId(), filled(44, 0x42),
+                        dev.nodera.protocol.service.ServiceKind.RENDEZVOUS,
+                        dev.nodera.protocol.service.ServiceLifecycle.DRAINING,
+                        networkId,
+                        List.of("rdv.example:25601", "tcp://198.51.100.9:25601"),
+                        "0.1.0", 120, 5_000, 4, 64, 3,
+                        1_700_000_000_000L, 1_700_000_300_000L, 1_700_000_030_000L),
+                filled(64, 0x77), List.of(serviceEntry), "update"));
+
         return corpus;
     }
 

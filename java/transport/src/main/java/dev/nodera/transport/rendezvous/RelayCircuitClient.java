@@ -5,6 +5,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.service.ServiceDrainNotice;
 import dev.nodera.protocol.rendezvous.RelayIncoming;
 
 import java.io.IOException;
@@ -24,6 +25,10 @@ import java.util.Objects;
  * accept thread. {@link #dial} blocks on the handshake; use from the dialer's connect thread.
  */
 public final class RelayCircuitClient {
+
+    /** Verification only — a drain notice must be the relay's own signed record or it is ignored. */
+    private static final dev.nodera.core.crypto.SignatureService SIGNATURES =
+            new dev.nodera.core.crypto.SignatureService();
 
     private RelayCircuitClient() {}
 
@@ -58,10 +63,45 @@ public final class RelayCircuitClient {
      * @Thread-context the reserver's accept thread.
      */
     public static RelayIncoming readIncoming(RendezvousClient.Reserved reserved) throws IOException {
+        return readIncoming(reserved, notice -> { });
+    }
+
+    /**
+     * Read the next control frame, dispatching a drain notice to {@code onDrain} and continuing to
+     * wait for a circuit.
+     *
+     * <p>A drain notice is not an error and not a circuit: it is the relay saying "I am going away,
+     * here is where to go". Delivering it on this socket is the whole point — the reserver is, by
+     * construction, the peer whose inbound path is about to vanish, and this is the one channel it is
+     * already listening on. The notice is <b>verified here</b>, before the handler sees it: an
+     * unverified one is an eviction primitive anyone on the path could forge to herd a target's
+     * traffic onto a relay of their choosing.
+     *
+     * @param reserved the reservation and its control socket.
+     * @param onDrain  called with each verified drain notice; a forged one is dropped silently.
+     * @return the validated incoming circuit announcement.
+     * @throws IOException on transport failure, EOF, or a mismatched proof.
+     * @throws IllegalArgumentException if an argument is null.
+     * @Thread-context the reserver's accept thread.
+     */
+    public static RelayIncoming readIncoming(RendezvousClient.Reserved reserved,
+            java.util.function.Consumer<ServiceDrainNotice> onDrain) throws IOException {
         Objects.requireNonNull(reserved, "reserved");
-        byte[] frame = Frames.read(reserved.socket().getInputStream())
-                .orElseThrow(() -> new IOException("control socket closed before a circuit arrived"));
-        NoderaMessage message = MessageCodec.decode(frame);
+        Objects.requireNonNull(onDrain, "onDrain");
+        NoderaMessage message;
+        while (true) {
+            byte[] frame = Frames.read(reserved.socket().getInputStream()).orElseThrow(
+                    () -> new IOException("control socket closed before a circuit arrived"));
+            message = MessageCodec.decode(frame);
+            if (message instanceof ServiceDrainNotice notice) {
+                if (SIGNATURES.verify(notice.record().publicKey(),
+                        notice.record().signedBytes(), notice.signature())) {
+                    onDrain.accept(notice);
+                }
+                continue; // the reservation is still live until the relay's deadline
+            }
+            break;
+        }
         if (!(message instanceof RelayIncoming incoming)) {
             throw new IOException("expected RelayIncoming, got " + message.getClass().getSimpleName());
         }

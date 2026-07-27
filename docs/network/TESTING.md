@@ -6,7 +6,7 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-26 · **727 Java tests + 35 Rust (`nodera-codec`) ·
+**Category:** network · **Last run:** 2026-07-27 · **727 Java tests + 35 Rust (`nodera-codec`) ·
 0 failing · 0 skipped** — the Java figure includes the telemetry emitter core (task 12)
 
 | Module | Scope | Tests | Status |
@@ -92,3 +92,31 @@ a starved scheduler because a dead peer no longer spends it.
 `aPeerThatDiesMidHandshakeFailsTheSenderImmediately` asserts on the **clock** as well as the
 exception — a fail-fast that takes 30 s is the bug wearing a passing test's clothes. It returns in
 about 4 ms.
+
+## Service selection (Task 13)
+
+```bash
+./gradlew :peer:test --tests '*ServiceScoreBoardTest*'      # 20 — scoring and selection
+./gradlew :peer:test --tests '*RendezvousDirectoryTest*'    # 11 — discovery + migration, real sockets
+./gradlew :transport:test --tests '*ServiceMessageCodecTest*'  # 15 — the wire family + the formula
+```
+
+The decisive ones:
+
+- `RendezvousDirectoryTest.a_peer_with_no_configured_rendezvous_learns_one_from_a_tracker` — the
+  requirement of the whole lane, driven against a tracker socket.
+- `RendezvousDirectoryTest.a_forged_row_is_refused_and_never_dialled` — the trust boundary: a tracker may
+  hide a relay or list a dead one, and may not put words in a service's mouth.
+- `RendezvousDirectoryTest.a_drain_notice_migrates_the_peer_to_the_replacement_it_names` — the handover,
+  with no tracker round trip and no wait for a sweep.
+- `RendezvousDirectoryTest.a_sweep_reports_what_it_measured_back_to_the_tracker` — closes the scoring
+  loop. Without it the aggregate every peer reads is only the services' own self-praise.
+- `RendezvousDirectoryTest.an_unreachable_tracker_leaves_the_previous_selection_in_place` — the
+  degradation path: tracker down ⇒ discovery degrades, the relays already selected keep working.
+- `ServiceScoreBoardTest.a_failed_probe_is_not_a_fast_probe` — the sentinel that stops a dead relay
+  scoring best.
+- `ServiceScoreBoardTest.a_recent_recovery_pulls_the_score_back_up` — an outage ages out of the window
+  instead of condemning a relay forever.
+- `ServiceMessageCodecTest` + `rust/nodera-codec/tests/fixtures.rs` — the six frames round-trip
+  byte-exactly across languages, **and** the Java-computed composite equals the Rust-computed one. A
+  divergence there would silently reorder every peer's failover list.

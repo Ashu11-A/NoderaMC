@@ -5,7 +5,7 @@
      its evidence. Note §C: several properties that LOOK like limitations are the design working
      correctly (a relayed steady state, an untrusted service). Do not convert them into §B rows. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-25 · Open or retiring rows: **0**
+**Category:** rendezvous · **Last audit:** 2026-07-27 · Open or retiring rows: **1**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -22,7 +22,9 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 
 ## §B — Staged capabilities
 
-**Empty.** No open or retiring rows.
+| ID | Gap | Why it is not permanent | Elimination path | Owner | Exit test | Status |
+|---|---|---|---|---|---|---|
+| L-83 | A drain's grace period can expire with circuits still bridged, and those circuits are then cut — bounded and reported, but a truncation | The bound exists because an unbounded wait lets one stuck circuit hang a restart forever. What is missing is the *other* half: telling the peers on those circuits to move the transfer rather than losing it | Have the drain notice carry the deadline to the circuit's peers (it already carries it in the record) and have the content lane checkpoint and resume a transfer across a relay change, so an expired grace costs a re-dial instead of the transfer | [5](Task.5.md) | a test where a circuit still live at the deadline resumes through a replacement relay instead of failing | OPEN |
 
 The remaining work in this category — real cross-internet numbers and the pure-relay continuity run —
 is [`Task.3.md`](Task.3.md), which is **blocked on a real cross-internet/NAT environment**. The

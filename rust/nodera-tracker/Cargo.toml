@@ -9,12 +9,16 @@ publish.workspace = true
 
 [dependencies]
 nodera-codec = { workspace = true }
+# Identity, self-announce, drain and self-update are identical in both services; sharing them is what
+# keeps a rendezvous and a tracker from drifting into two different definitions of "draining".
+nodera-service = { workspace = true }
 # The event model is shared with the receiver that validates it, so the two cannot drift.
 nodera-telemetry = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 ed25519-dalek = { workspace = true }
