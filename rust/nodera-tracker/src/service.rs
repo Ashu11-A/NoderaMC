@@ -7,10 +7,13 @@
 
 use crate::announce::{self, IdentityBindings, Rejection};
 use crate::config::Config;
+use crate::deletion::DeletedWorlds;
 use crate::limits::AnnounceQuota;
 use crate::query;
 use crate::registry::{AnnounceOutcome, Registry};
 use nodera_codec::messages::{AnnounceEvent, DiscoveryMessage, TrackerAnnounceAck};
+use nodera_codec::tags::message_tags;
+use nodera_codec::tombstone::WorldDeletionGossip;
 use std::net::IpAddr;
 
 /// What the tracker did with a frame — the caller logs this; the peer gets the reply.
@@ -28,6 +31,7 @@ pub struct Tracker {
     config: Config,
     registry: Registry,
     bindings: IdentityBindings,
+    deleted: DeletedWorlds,
     quota: AnnounceQuota,
     announces_accepted: u64,
     announces_rejected: u64,
@@ -37,6 +41,7 @@ pub struct Tracker {
 impl Tracker {
     /// Build a tracker from validated config.
     pub fn new(config: Config) -> Self {
+        let config_persist_dir = config.persist_dir.clone();
         let quota = AnnounceQuota::new(
             u64::from(config.announce_interval_seconds) * 1_000,
             config.per_ip_announce_quota,
@@ -45,6 +50,9 @@ impl Tracker {
             config,
             registry: Registry::new(),
             bindings: IdentityBindings::new(),
+            deleted: DeletedWorlds::new(
+                config_persist_dir.map(|dir| dir.join("deleted-worlds")),
+            ),
             quota,
             announces_accepted: 0,
             announces_rejected: 0,
@@ -65,6 +73,19 @@ impl Tracker {
             self.queries_answered,
             self.registry.world_count(),
         )
+    }
+
+    /// How many deletions this tracker remembers.
+    ///
+    /// Logged so an operator can see the cache exists and is bounded — a number that only grows is
+    /// the symptom of a retention sweep that stopped running.
+    pub fn deleted_world_count(&self) -> usize {
+        self.deleted.len()
+    }
+
+    /// Whether this tracker holds a verified deletion for a world.
+    pub fn is_world_deleted(&self, genesis_hash: &[u8]) -> bool {
+        self.deleted.is_deleted(genesis_hash)
     }
 
     /// How many tracked worlds are healthy, degraded, and dead right now.
@@ -105,6 +126,13 @@ impl Tracker {
         if frame.len() > self.config.max_frame_bytes {
             return self.reject(Rejection::TooLarge);
         }
+        // Deletions are their own family and are handled before the discovery decode, because the
+        // discovery codec does not know tag 66 and would reject the frame as unsupported.
+        if frame.len() >= 2
+            && u16::from_be_bytes([frame[0], frame[1]]) == message_tags::WORLD_DELETION_GOSSIP
+        {
+            return self.handle_deletion(frame);
+        }
         let message = match DiscoveryMessage::decode(frame) {
             Ok(message) => message,
             Err(e) => return Handled::Unsupported(e.to_string()),
@@ -129,6 +157,15 @@ impl Tracker {
                 Handled::Reply(DiscoveryMessage::TrackerRoutesResponse(response).encode())
             }
             DiscoveryMessage::TrackerAnnounce(a) => {
+                // A world its owner deleted is not re-listed, whoever announces it and however
+                // valid their signature is — theirs proves who is speaking, not that the world
+                // should exist. The announcer gets the owner's record back so it can verify the
+                // refusal itself and delete its own copy; a peer that was offline during the
+                // deletion learns about it here and nowhere else.
+                if let Some(notice) = self.deleted.notice_for(&a.genesis_hash) {
+                    self.announces_rejected += 1;
+                    return Handled::Reply(notice.to_vec());
+                }
                 if let Some(ip) = source {
                     if !self.quota.admit(ip, now_millis) {
                         return self.reject(Rejection::Quota);
@@ -197,6 +234,29 @@ impl Tracker {
         }
     }
 
+    /// Handle a world-deletion request (tag 66).
+    ///
+    /// The tracker verifies exactly what a peer verifies and has no extra authority: it cannot
+    /// delete a world nobody asked it to, and it cannot refuse one whose owner did — beyond
+    /// declining to serve, which is not a power over anyone else's copy. A record that does not
+    /// verify is dropped and nothing changes.
+    fn handle_deletion(&mut self, frame: &[u8]) -> Handled {
+        let gossip = match WorldDeletionGossip::decode(frame) {
+            Ok(gossip) => gossip,
+            Err(e) => return Handled::Unsupported(e.to_string()),
+        };
+        let Some(tombstone) = gossip.verified() else {
+            self.announces_rejected += 1;
+            return self.reject(Rejection::BadSignature);
+        };
+        self.registry.remove_world(&tombstone.world_id);
+        self.deleted.remember(&tombstone);
+        // Echoed back, not merely acknowledged: the sender may be a relay rather than the owner,
+        // and returning the record keeps the reply verifiable instead of asking anyone to take
+        // this tracker's word for what happened.
+        Handled::Reply(gossip.encode())
+    }
+
     /// Register host-supplied world metadata directly.
     ///
     /// The production path is a host's own announce (see `handle_frame`); this is the seam tests
@@ -217,9 +277,10 @@ impl Tracker {
         );
     }
 
-    /// Expire silent peers and idle quota counters.
+    /// Expire silent peers, idle quota counters, and deletions past the retention window.
     pub fn sweep(&mut self, now_millis: u64) -> usize {
         self.quota.sweep(now_millis);
+        self.deleted.prune(now_millis);
         self.registry
             .sweep(now_millis, self.config.peer_ttl_millis())
     }
@@ -278,6 +339,124 @@ mod tests {
         }
         signer.sign_announce(&mut a);
         DiscoveryMessage::TrackerAnnounce(a).encode()
+    }
+
+    /// The Java-emitted golden deletion — the same bytes a peer would relay to a tracker.
+    fn deletion_frame() -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("repo root")
+            .join("fixtures/wire/world-deletion-gossip.bin");
+        std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    }
+
+    fn deleted_world_id() -> Vec<u8> {
+        WorldDeletionGossip::decode(&deletion_frame())
+            .expect("decode")
+            .world_id
+    }
+
+    /// A signed announce for the world the golden deletion names.
+    fn announce_for_deleted_world(signer: &TestSigner, now: u64) -> Vec<u8> {
+        let mut a = build_announce(1, &deleted_world_id(), AnnounceEvent::Started, host_caps());
+        a.announce_epoch_millis = now;
+        signer.sign_announce(&mut a);
+        DiscoveryMessage::TrackerAnnounce(a).encode()
+    }
+
+    #[test]
+    fn a_verified_deletion_unlists_the_world_and_is_remembered() {
+        let mut tracker = Tracker::new(config());
+        let signer = TestSigner::new(7);
+        let now = 10_000;
+        tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+        assert_eq!(tracker.stats().3, 1, "the world starts out listed");
+
+        let handled = tracker.handle_frame(&deletion_frame(), None, None, now);
+
+        assert_eq!(tracker.stats().3, 0, "the world is no longer listed");
+        assert!(tracker.is_world_deleted(&deleted_world_id()));
+        // The reply is the owner's record, not this tracker's say-so.
+        match handled {
+            Handled::Reply(frame) => assert!(
+                WorldDeletionGossip::decode(&frame)
+                    .expect("decode")
+                    .verified()
+                    .is_some()
+            ),
+            other => panic!("expected the record echoed back, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_forged_deletion_changes_nothing() {
+        let mut tracker = Tracker::new(config());
+        let signer = TestSigner::new(7);
+        let now = 10_000;
+        tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+        let mut forged = deletion_frame();
+        let last = forged.len() - 1;
+        forged[last] ^= 0x01; // one bit of the owner's signature
+
+        tracker.handle_frame(&forged, None, None, now);
+
+        assert_eq!(tracker.stats().3, 1, "the world is still listed");
+        assert!(!tracker.is_world_deleted(&deleted_world_id()));
+    }
+
+    #[test]
+    fn a_deleted_world_cannot_be_re_listed_and_the_announcer_is_handed_the_proof() {
+        let mut tracker = Tracker::new(config());
+        let signer = TestSigner::new(7);
+        let now = 10_000;
+        tracker.handle_frame(&deletion_frame(), None, None, now);
+
+        // A peer that was offline during the deletion announces the world as usual. Its own
+        // signature is perfectly valid — and irrelevant, because it proves who is speaking, not
+        // that the world should exist.
+        let handled = tracker.handle_frame(&announce_for_deleted_world(&signer, now), None, None, now);
+
+        assert_eq!(tracker.stats().3, 0, "the world was not re-listed");
+        match handled {
+            Handled::Reply(frame) => {
+                let notice = WorldDeletionGossip::decode(&frame).expect("decode");
+                assert!(
+                    notice.verified().is_some(),
+                    "the refusal must carry proof the announcer can check itself"
+                );
+                assert_eq!(notice.world_id, deleted_world_id());
+            }
+            other => panic!("expected a deletion notice, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_deletion_is_forgotten_after_the_retention_window() {
+        let mut tracker = Tracker::new(config());
+        let issued = WorldDeletionGossip::decode(&deletion_frame())
+            .expect("decode")
+            .verified()
+            .expect("verify")
+            .issued_at_epoch as u64;
+        tracker.handle_frame(&deletion_frame(), None, None, issued);
+
+        tracker.sweep(issued + crate::deletion::RETENTION_MILLIS);
+        assert!(tracker.is_world_deleted(&deleted_world_id()), "still inside");
+
+        tracker.sweep(issued + crate::deletion::RETENTION_MILLIS + 1);
+        assert!(!tracker.is_world_deleted(&deleted_world_id()));
+    }
+
+    #[test]
+    fn a_malformed_deletion_frame_is_unsupported_rather_than_fatal() {
+        let mut tracker = Tracker::new(config());
+        let truncated = &deletion_frame()[..8];
+
+        assert!(matches!(
+            tracker.handle_frame(truncated, None, None, 10_000),
+            Handled::Unsupported(_)
+        ));
     }
 
     fn query_frame(genesis: &[u8]) -> Vec<u8> {
