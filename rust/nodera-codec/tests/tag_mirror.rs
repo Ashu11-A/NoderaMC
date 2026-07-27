@@ -111,6 +111,12 @@ fn type_tag_registry_mirrors_java() {
     assert_mirrors(&source, "COMMAND_ACTION", COMMAND_ACTION, FILE);
     assert_mirrors(&source, "SCHEDULED_TICK_ENTRY", SCHEDULED_TICK_ENTRY, FILE);
     assert_mirrors(&source, "BLOCK_EVENT_ENTRY", BLOCK_EVENT_ENTRY, FILE);
+    assert_mirrors(&source, "WORLD_OWNERSHIP", WORLD_OWNERSHIP, FILE);
+    assert_mirrors(&source, "WORLD_KEY_SECRET", WORLD_KEY_SECRET, FILE);
+    assert_mirrors(&source, "WORLD_ADMIN_PROOF", WORLD_ADMIN_PROOF, FILE);
+    assert_mirrors(&source, "WORLD_REGISTRY", WORLD_REGISTRY, FILE);
+    assert_mirrors(&source, "WORLD_SHARE_LINK", WORLD_SHARE_LINK, FILE);
+    assert_mirrors(&source, "WORLD_TOMBSTONE", WORLD_TOMBSTONE, FILE);
     assert_mirrors(&source, "NEXT", NEXT, FILE);
 }
 
@@ -182,6 +188,22 @@ fn message_tag_registry_mirrors_java() {
         FILE,
     );
     assert_mirrors(&source, "TAG_WORLD_GRANT_GOSSIP", WORLD_GRANT_GOSSIP, FILE);
+    assert_mirrors(&source, "TAG_REGION_REFUSAL", REGION_REFUSAL, FILE);
+    assert_mirrors(
+        &source,
+        "TAG_WORLD_OWNERSHIP_GOSSIP",
+        WORLD_OWNERSHIP_GOSSIP,
+        FILE,
+    );
+    assert_mirrors(&source, "TAG_TUNNEL_OPEN", TUNNEL_OPEN, FILE);
+    assert_mirrors(&source, "TAG_TUNNEL_DATA", TUNNEL_DATA, FILE);
+    assert_mirrors(&source, "TAG_TUNNEL_CLOSE", TUNNEL_CLOSE, FILE);
+    assert_mirrors(
+        &source,
+        "TAG_WORLD_DELETION_GOSSIP",
+        WORLD_DELETION_GOSSIP,
+        FILE,
+    );
     assert_mirrors(&source, "NEXT_TAG", NEXT_TAG, FILE);
 }
 

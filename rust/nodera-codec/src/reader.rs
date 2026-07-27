@@ -27,6 +27,30 @@ impl<'a> CanonicalReader<'a> {
         self.data.len() - self.pos
     }
 
+    /// The cursor's offset into the frame.
+    ///
+    /// Exists so a decoder can keep the **received** bytes a signature covers instead of
+    /// re-encoding the value it just decoded. Re-encoding is how a second implementation quietly
+    /// starts accepting records the first would reject: any disagreement about canonical form
+    /// turns into a verification difference rather than a decode error.
+    pub fn position(&self) -> usize {
+        self.pos
+    }
+
+    /// Borrow an already-read span of the frame.
+    ///
+    /// # Errors
+    /// [`CodecError::UnexpectedEof`] if the span is not inside the frame.
+    pub fn slice(&self, from: usize, to: usize) -> Result<&'a [u8]> {
+        if from > to || to > self.data.len() {
+            return Err(CodecError::UnexpectedEof {
+                needed: to.saturating_sub(from),
+                remaining: self.data.len().saturating_sub(from.min(self.data.len())),
+            });
+        }
+        Ok(&self.data[from..to])
+    }
+
     /// Whether the whole frame has been consumed.
     pub fn is_empty(&self) -> bool {
         self.remaining() == 0

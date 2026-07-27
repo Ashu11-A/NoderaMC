@@ -194,10 +194,12 @@ pub async fn run(
                 let mut guard = tracker.lock().await;
                 let expired = guard.sweep(now_millis());
                 let (accepted, rejected, queries, worlds) = guard.stats();
+                let deleted = guard.deleted_world_count();
                 if expired > 0 || accepted > 0 || queries > 0 {
                     println!(
                         "nodera-tracker: worlds={worlds} announces_accepted={accepted} \
-                         announces_rejected={rejected} queries={queries} expired_now={expired}"
+                         announces_rejected={rejected} queries={queries} expired_now={expired} \
+                         deleted_worlds={deleted}"
                     );
                 }
             }

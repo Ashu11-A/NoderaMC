@@ -8,6 +8,7 @@
 use nodera_codec::messages::DiscoveryMessage;
 use nodera_codec::rendezvous::RendezvousMessage;
 use nodera_codec::tags::message_tags;
+use nodera_codec::tombstone::WorldDeletionGossip;
 use std::path::{Path, PathBuf};
 
 /// Decode a golden frame with whichever family owns its tag, and re-encode it.
@@ -17,6 +18,18 @@ use std::path::{Path, PathBuf};
 /// routed to the codec that owns it.
 fn round_trip(golden: &[u8]) -> Result<Vec<u8>, String> {
     let tag = u16::from_be_bytes([golden[0], golden[1]]);
+    if tag == message_tags::WORLD_DELETION_GOSSIP {
+        // Byte identity is necessary but not sufficient for this one: the whole point of the
+        // record is that the Rust side reaches the SAME verdict as Java on the same signatures.
+        let gossip = WorldDeletionGossip::decode(golden).map_err(|e| e.to_string())?;
+        let verified = gossip
+            .verified()
+            .ok_or_else(|| "the golden deletion did not verify in Rust".to_string())?;
+        if verified.world_id != gossip.world_id {
+            return Err("envelope and proof disagree about the world".into());
+        }
+        return Ok(gossip.encode());
+    }
     if (message_tags::RENDEZVOUS_REGISTER..=message_tags::OBSERVED_ADDRESS).contains(&tag) {
         RendezvousMessage::decode(golden)
             .map(|m| m.encode())

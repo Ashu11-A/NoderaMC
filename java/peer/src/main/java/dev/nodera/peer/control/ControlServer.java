@@ -112,7 +112,20 @@ public final class ControlServer implements AutoCloseable {
             if (line == null) {
                 return;
             }
-            String reply = dispatch(line.trim());
+            String request = line.trim();
+            if (request.startsWith(ControlProtocol.EVENTS)) {
+                // The other verb the worker writes: discrete things that happened, rather than a
+                // picture of what is true. See ControlProtocol.EVENTS for why both exist.
+                streamEvents(c, request);
+                return;
+            }
+            if (request.startsWith(ControlProtocol.WATCH)) {
+                // The one verb the worker writes rather than answers: it keeps this connection and
+                // pushes state as it changes. Everything below assumes one line out and a close.
+                watch(c, request);
+                return;
+            }
+            String reply = dispatch(request);
             if (reply != null) {
                 OutputStream out = c.getOutputStream();
                 out.write((reply + "\n").getBytes(StandardCharsets.UTF_8));
@@ -121,6 +134,125 @@ public final class ControlServer implements AutoCloseable {
         } catch (IOException ignored) {
             // best-effort per-connection; a dropped client must never take the server down
         }
+    }
+
+    /** Smallest interval a watcher may be pushed at, whatever it asks for. */
+    static final long MIN_WATCH_INTERVAL_MILLIS = 50L;
+
+    /** Default push interval when the client names none. */
+    static final long DEFAULT_WATCH_INTERVAL_MILLIS = 250L;
+
+    /**
+     * How long the worker stays silent before re-sending the current state unchanged.
+     *
+     * <p>Not decoration. A reader that has heard nothing cannot tell a quiet node from a dead
+     * socket, and TCP will not tell it either — a half-open connection reads as silence for
+     * minutes. The keepalive turns "no news" into evidence, which is what lets a dashboard say
+     * "live, nothing changed" instead of showing numbers it cannot vouch for.
+     */
+    static final long WATCH_KEEPALIVE_MILLIS = 10_000L;
+
+    /**
+     * Serve one {@link ControlProtocol#WATCH} client until it goes away.
+     *
+     * <p>Sampling rather than subscribing is deliberate: the state JSON is assembled from half a
+     * dozen independent lanes (membership, meters, hosting, archive, validation, telemetry), none
+     * of which has a change notification, and giving each one a listener would make every lane
+     * responsible for a dashboard concern. Comparing the rendered line is one place, costs a string
+     * compare at the client's own interval, and cannot miss a change that any lane makes.
+     */
+    private void watch(Socket c, String request) throws IOException {
+        long interval = watchInterval(request);
+        // No read timeout: this connection is silent by design after the request line. The client
+        // going away is detected by the write failing, not by a read.
+        c.setSoTimeout(0);
+        OutputStream out = c.getOutputStream();
+        String previous = null;
+        long lastWrite = 0L;
+        while (running.get() && !c.isClosed()) {
+            String state;
+            try {
+                state = handler.stateJson();
+            } catch (RuntimeException e) {
+                // A lane that throws while rendering must end this stream, not kill the node. The
+                // client sees the error line and reconnects.
+                out.write((err(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())
+                        + "\n").getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                return;
+            }
+            long now = System.currentTimeMillis();
+            boolean changed = !state.equals(previous);
+            boolean keepalive = now - lastWrite >= WATCH_KEEPALIVE_MILLIS;
+            if (changed || keepalive) {
+                out.write((state + "\n").getBytes(StandardCharsets.UTF_8));
+                out.flush(); // an unflushed change is a change the reader does not have
+                previous = state;
+                lastWrite = now;
+            }
+            try {
+                Thread.sleep(interval);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    /**
+     * How long an event stream stays silent before sending a keepalive.
+     *
+     * <p>Events are sparse by nature — a player opens a world to LAN once, not continuously — so a
+     * reader could sit for an hour with nothing to distinguish "nothing happened" from "this socket
+     * died forty minutes ago". The keepalive carries the current sequence number, so it doubles as
+     * the reader's proof that it has not missed anything.
+     */
+    static final long EVENT_KEEPALIVE_MILLIS = 15_000L;
+
+    /**
+     * Serve one {@link ControlProtocol#EVENTS} client until it goes away.
+     *
+     * <p>The optional {@code sinceSeq} argument is what makes this reliable rather than merely live:
+     * a client that was not running when something happened passes the last sequence it saw (or
+     * {@code 0}) and receives the backlog before the live stream. For the LAN prompt that is the
+     * difference between "works if the app was open first" and "works".
+     */
+    private void streamEvents(Socket c, String request) throws IOException {
+        WorkerEventBus bus = handler.events();
+        OutputStream out = c.getOutputStream();
+        if (bus == null) {
+            out.write((err("this worker does not announce events") + "\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            return;
+        }
+        long since = parseLong(arg(request.split("\\s+"), 2));
+        c.setSoTimeout(0);
+        try (WorkerEventBus.Subscription subscription = bus.subscribe(since)) {
+            while (running.get() && !c.isClosed() && subscription.isOpen()) {
+                WorkerEventBus.Published published;
+                try {
+                    published = subscription.next(EVENT_KEEPALIVE_MILLIS,
+                            java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                String line = published != null ? published.toJson()
+                        : "{\"seq\":" + bus.lastSequence() + ",\"event\":\"keepalive\","
+                                + "\"at\":" + System.currentTimeMillis() + ",\"attributes\":{}}";
+                out.write((line + "\n").getBytes(StandardCharsets.UTF_8));
+                out.flush(); // an unflushed event is an event the reader does not have
+            }
+        }
+    }
+
+    /** Parse the optional interval argument of a watch request, clamped to the floor. */
+    static long watchInterval(String request) {
+        String[] parts = request.split("\\s+");
+        long requested = parseLong(arg(parts, 2));
+        return requested <= 0 ? DEFAULT_WATCH_INTERVAL_MILLIS
+                : Math.max(MIN_WATCH_INTERVAL_MILLIS, requested);
     }
 
     /** Parse the request line and produce the reply line (or null to close silently). */
@@ -190,7 +322,8 @@ public final class ControlServer implements AutoCloseable {
             if (ControlProtocol.GRANT.equals(verb)) {
                 // NODERA-GRANT <ver> <worldIdHex> <subjectNodeId> <subjectPubKeyB64> <role> <grantVer>
                 String grant = handler.grantRole(arg(parts, 2), arg(parts, 3), arg(parts, 4),
-                        (int) parseLong(arg(parts, 5)), parseLong(arg(parts, 6)));
+                        parseInt(arg(parts, 5), 0, Integer.MAX_VALUE),
+                        parseLong(arg(parts, 6)));
                 return grant == null ? err("cannot mint grant") : ControlProtocol.OK + " " + grant;
             }
             if (ControlProtocol.REKEY.equals(verb)) {
@@ -199,6 +332,53 @@ public final class ControlServer implements AutoCloseable {
                         arg(parts, 5));
                 return reKeyed == null ? err("archive lane unavailable")
                         : ControlProtocol.OK + " " + reKeyed;
+            }
+            if (ControlProtocol.LAN.equals(verb)) {
+                // NODERA-LAN <ver> LIST | SHARE <port> | DECLINE <port> | STOP <port>
+                String action = arg(parts, 2).toUpperCase(java.util.Locale.ROOT);
+                if (action.isEmpty() || "LIST".equals(action)) {
+                    String lan = handler.lanJson();
+                    return lan == null ? err("this worker cannot watch for LAN worlds") : lan;
+                }
+                return ackOrErr(handler.lanAction(action, parseInt(arg(parts, 3), 0, 65535)));
+            }
+            if (ControlProtocol.DIRECTORY.equals(verb)) {
+                // NODERA-DIRECTORY <ver> [limit]
+                int limit = parseInt(arg(parts, 2), 0, 500);
+                String directory = handler.directoryJson(limit <= 0 ? 50 : limit);
+                return directory == null ? err("no discovery lane") : directory;
+            }
+            if (ControlProtocol.CONNECT.equals(verb)) {
+                // NODERA-CONNECT <ver> <sessionIdHex>
+                String address = handler.connectSession(arg(parts, 2));
+                return address == null ? err("this worker cannot tunnel connections")
+                        : ControlProtocol.OK + " " + address;
+            }
+            if (ControlProtocol.DISCONNECT.equals(verb)) {
+                return ackOrErr(handler.disconnectSession(arg(parts, 2)));
+            }
+            if (ControlProtocol.SHARELINK.equals(verb)) {
+                // NODERA-SHARELINK <ver> <worldIdHex>
+                String link = handler.shareLink(arg(parts, 2));
+                return link == null ? err("this node does not know that world")
+                        : ControlProtocol.OK + " " + link;
+            }
+            if (ControlProtocol.DELETE.equals(verb)) {
+                // NODERA-DELETE <ver> <worldIdHex> [reasonB64]
+                String outcome = handler.deleteWorld(arg(parts, 2), arg(parts, 3));
+                return outcome == null ? err("this worker cannot delete worlds")
+                        : ControlProtocol.OK + " " + outcome;
+            }
+            if (ControlProtocol.WORLDS.equals(verb)) {
+                // NODERA-WORLDS <ver> — the durable "what have I shared / what am I supporting".
+                String worlds = handler.worldsJson();
+                return worlds == null ? err("no world registry") : worlds;
+            }
+            if (ControlProtocol.PROVE.equals(verb)) {
+                // NODERA-PROVE <ver> <worldIdHex> <challengeB64>
+                String proof = handler.proveAdmin(arg(parts, 2), arg(parts, 3));
+                return proof == null ? err("this node does not administer that world")
+                        : ControlProtocol.OK + " " + proof;
             }
             if (ControlProtocol.CONFIG.equals(verb)) {
                 // NODERA-CONFIG <ver> [<configJsonB64>] — with a payload it is a set, without one
@@ -243,6 +423,18 @@ public final class ControlServer implements AutoCloseable {
 
     private static String arg(String[] parts, int i) {
         return i < parts.length ? parts[i] : "";
+    }
+
+    /**
+     * A control argument as an int, clamped into {@code [lo, hi]}.
+     *
+     * <p>Narrowing a caller-supplied long with a cast is a truncation bug waiting to happen — a
+     * limit of 4294967296 becomes 0, and a port of 65536 becomes 0 — so every int-valued verb
+     * argument states the range it accepts instead.
+     */
+    private static int parseInt(String s, int lo, int hi) {
+        long value = parseLong(s);
+        return (int) Math.max(lo, Math.min(hi, value));
     }
 
     private static long parseLong(String s) {

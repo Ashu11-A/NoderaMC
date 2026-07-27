@@ -23,10 +23,10 @@ java/*/bin/
 /divergences/
 /world-store/
 
-# Third-party architecture-study clones (local reference only; not part of NoderaMC).
-# Our own analysis lives in docs/Context/*.md and docs/Context/docs/** — those ARE committed.
-docs/Context/MultiPaper/
-docs/Context/folia/
+# NOTE: third-party architecture-study clones are NOT ignored. They live in
+# docs/minecraft/upstream/ as pinned submodules (see .gitmodules) so a study document and
+# the upstream commit it describes cannot drift apart. The two rules that used to sit here
+# pointed at docs/Context/, a directory deleted in the 2026-07-25 docs reorg.
 
 # jqwik property-test database (runtime artifact)
 .jqwik-database
@@ -58,6 +58,7 @@ claude_code_zai_env.sh
 java/neoforge-mod/run/
 java/neoforge-mod/run-join/
 java/neoforge-mod/run-join2/
+java/neoforge-mod/run-join3/
 java/neoforge-mod/run-host/
 
 # Telemetry deployment (docker/telemetry/) — secrets, TLS material, and collected data never land

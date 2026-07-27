@@ -45,6 +45,9 @@ public final class ClientBootstrap {
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onLoggingIn);
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onLoggingOut);
         NeoForge.EVENT_BUS.addListener(ClientBootstrap::onRegisterClientCommands);
+        // Diagnostic only, and inert unless -Dnodera.spark.profile=<seconds> is set: lets a
+        // player-hosted world be profiled, which RCON cannot reach (docs/minecraft/spark/).
+        dev.nodera.mod.debug.SparkProfileBridge.register(NeoForge.EVENT_BUS);
         NeoForge.EVENT_BUS.addListener(MultiplayerScreenAddon::onScreenInit);
         NeoForge.EVENT_BUS.addListener(
                 dev.nodera.mod.client.multiplayer.NoderaContinuity::onScreenOpening); // continuity rehost

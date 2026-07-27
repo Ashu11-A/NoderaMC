@@ -34,6 +34,13 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-26 — The Paper/Folia plugin carries the peer
+
+`:paper-plugin` now depends on `:peer` and bundles the Nodera stack into `nodera-endpoint.jar`. This
+is the opposite trade from the NeoForge mod, and it is deliberate: a player installs an app that
+supervises a worker beside their game, whereas a server operator installs one jar into a machine that
+has no desktop app on it. The peer therefore runs in-process here, and only here.
+
 ### 2026-07-26 — The server JVM was killed and the world stayed on the network — L-71 RETIRED
 
 L-71's exit test is a sentence about a crash, so the suite performs one: `e2e-endpoint.sh` E4 links

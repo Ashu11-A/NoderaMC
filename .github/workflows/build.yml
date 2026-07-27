@@ -50,9 +50,9 @@ jobs:
       - name: Build service binaries + worker dist
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
-          ./gradlew :peer:installDist
+          ./gradlew :worker:installDist
           mkdir -p build
-          cp -r java/peer/build/install/nodera-headless build/
+          cp -r java/worker/build/install/nodera-headless build/
       - uses: oven-sh/setup-bun@v2
       - name: Build the companion UI (tauri frontendDist)
         run: cd rust/nodera-app/ui && bun install --frozen-lockfile && bun run build
@@ -61,7 +61,7 @@ jobs:
       - name: Gate both ways (worker present => start, absent => actionable abort)
         run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
-        run: ./gradlew :peer:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
+        run: ./gradlew :worker:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
 
   rust:
     runs-on: ubuntu-latest

@@ -263,9 +263,8 @@ public final class SocketPeerTransport implements PeerTransport {
                     this.serverSocket = ss;
                     this.listenRoute = advertiseHost + ":" + ss.getLocalPort();
                     this.running = true;
-                    this.acceptThread = Thread.ofVirtual()
-                            .name("nodera-socket-accept-" + ss.getLocalPort())
-                            .start(this::acceptLoop);
+                    this.acceptThread = dev.nodera.core.concurrent.Threads.start(
+                            "nodera-socket-accept-" + ss.getLocalPort(), this::acceptLoop);
                     return;
                 } catch (IOException busy) {
                     lastFailure = busy;
@@ -488,7 +487,7 @@ public final class SocketPeerTransport implements PeerTransport {
         }
 
         void startReader() {
-            Thread.ofVirtual().name("nodera-socket-reader").start(this::readLoop);
+            dev.nodera.core.concurrent.Threads.start("nodera-socket-reader", this::readLoop);
         }
 
         void sendHello() {

@@ -157,8 +157,10 @@ final class SessionKeepAliveCodecTest {
                 .hasMessageContaining("unsupported message encoding version 2");
         assertThat(MessageCodec.ENCODING_VERSION).isEqualTo(1);
         assertThat(MessageCodec.TAG_SESSION_KEEP_ALIVE).isEqualTo(23);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(61);
-        assertThat(MessageCodec.KNOWN_TAGS).hasSize(61).doesNotHaveDuplicates();
+        // The watermark moves only when a tag is appended; existing tags never move, which is what
+        // this assertion is really guarding.
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(66);
+        assertThat(MessageCodec.KNOWN_TAGS).hasSize(66).doesNotHaveDuplicates();
     }
 
     private static RegionProgress progress(

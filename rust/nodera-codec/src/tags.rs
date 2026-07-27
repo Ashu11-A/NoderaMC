@@ -68,8 +68,22 @@ pub mod type_tags {
     /// `BlockEventEntry` — Task 13 hashed piston two-phase event entry (reserved 37, live 2026-07-23).
     pub const BLOCK_EVENT_ENTRY: u16 = 37;
 
+    /// `WorldOwnership` — a world's public key bound to the peer that created it, doubly signed.
+    pub const WORLD_OWNERSHIP: u16 = 109;
+    /// `PersistedWorldKey` — a world signing key's on-disk form. Secret; never on the wire.
+    pub const WORLD_KEY_SECRET: u16 = 110;
+    /// `WorldAdminProof` — a challenge signed by a world's private key.
+    pub const WORLD_ADMIN_PROOF: u16 = 111;
+    /// `WorldRegistry` — the worlds a peer shares or supports, as persisted by the worker.
+    pub const WORLD_REGISTRY: u16 = 112;
+    /// `WorldShareLink` — an invitation to one world: its id, where to look, who administers it.
+    pub const WORLD_SHARE_LINK: u16 = 113;
+    /// `WorldTombstone` — the owner's signed request that the network forget a world, carrying its
+    /// own ownership claim so any receiver can verify it with no prior knowledge of the world.
+    pub const WORLD_TOMBSTONE: u16 = 114;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 108;
+    pub const NEXT: u16 = 114;
 }
 
 /// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).
@@ -142,8 +156,20 @@ pub mod message_tags {
     /// it (L-60). Java-side only: refusals are consensus traffic, never discovery.
     pub const REGION_REFUSAL: u16 = 61;
 
+    /// `WorldOwnershipGossip` — a world's ownership claim relayed to the peers that serve it.
+    pub const WORLD_OWNERSHIP_GOSSIP: u16 = 62;
+    /// `TunnelOpen` — a request to open a tunnelled stream to a published LAN session.
+    pub const TUNNEL_OPEN: u16 = 63;
+    /// `TunnelData` — one chunk of tunnelled game traffic.
+    pub const TUNNEL_DATA: u16 = 64;
+    /// `TunnelClose` — the end of a tunnelled stream.
+    pub const TUNNEL_CLOSE: u16 = 65;
+    /// `WorldDeletionGossip` — a world's owner asking the network to forget it, carrying the
+    /// self-verifying `WorldTombstone` that proves the request is theirs.
+    pub const WORLD_DELETION_GOSSIP: u16 = 66;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 61;
+    pub const NEXT_TAG: u16 = 66;
 }
 
 /// The message tags this crate can decode today.

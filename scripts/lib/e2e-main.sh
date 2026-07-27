@@ -92,7 +92,7 @@ nodera_paths() {
     NODERA_ROOT="${NODERA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
     RUST_RELEASE="${RUST_RELEASE:-$NODERA_ROOT/rust/target/release}"
     MOD_DIR="${MOD_DIR:-$NODERA_ROOT/java/neoforge-mod}"
-    WORKER_DIST="${WORKER_DIST:-$NODERA_ROOT/java/peer/build/install/nodera-headless/bin/nodera-headless}"
+    WORKER_DIST="${WORKER_DIST:-$NODERA_ROOT/java/worker/build/install/nodera-headless/bin/nodera-headless}"
     E2E_LOCK_FILE="${E2E_LOCK_FILE:-$NODERA_ROOT/run/.e2e-suite.lock}"
 }
 
@@ -125,6 +125,13 @@ nodera_ports() {
     # sets 0.0.0.0 / auto before sourcing.
     NODERA_P2P_BIND_ADDR="${NODERA_P2P_BIND_ADDR:-127.0.0.1}"
     NODERA_P2P_ADVERTISE_ADDR="${NODERA_P2P_ADVERTISE_ADDR:-127.0.0.1}"
+    # Where the TRACKER and RENDEZVOUS services bind, and the address peers are told to reach them
+    # on. Loopback is right for a suite whose every node is this machine. A suite with a node that
+    # is NOT this machine — a phone on the same Wi-Fi — sets the bind to 0.0.0.0 and the advertise
+    # address to this host's LAN address, or the off-box peer announces into a socket it cannot
+    # open. Defaults keep every existing suite byte-identical.
+    NODERA_SERVICE_BIND_ADDR="${NODERA_SERVICE_BIND_ADDR:-127.0.0.1}"
+    NODERA_SERVICE_ADVERTISE_ADDR="${NODERA_SERVICE_ADVERTISE_ADDR:-127.0.0.1}"
 }
 
 # The standard topology + the per-slot ports derived from it.
@@ -475,14 +482,19 @@ PYEOF
 build_stack() {
     ( cd "$NODERA_ROOT/rust" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous ) \
         || fail "build: cargo"
-    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist :neoforge-mod:build -x test -x check ) \
+    # :paper-plugin:jar is here because without it the three server-category
+    # suites (endpoint, folia, profile) can only ever SKIP: their preflight looks
+    # for build/libs/nodera-endpoint.jar and nothing else in the harness builds
+    # it. A skip that is structural rather than circumstantial is not a skip, it
+    # is a suite that never runs.
+    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist :neoforge-mod:build :paper-plugin:jar -x test -x check ) \
         || fail "build: gradle"
 }
 
 check_binaries() {
     [[ -x "$RUST_RELEASE/nodera-tracker" && -x "$RUST_RELEASE/nodera-rendezvous" ]] \
         || fail "service binaries missing — run without --no-build first"
-    [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :peer:installDist)"
+    [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :worker:installDist)"
 }
 
 # Preflight every port the topology is about to bind. A busy port gets a bounded WAIT before it
@@ -540,7 +552,7 @@ nodera_start_trackers() {
         else port=$(( TRACKER_EXTRA_BASE + i - 1 )); suffix="-$i"; fi
         cfg="$LOG_DIR/tracker$suffix.toml"
         cat > "$cfg" <<EOF
-bind_addr = "127.0.0.1:$port"
+bind_addr = "$NODERA_SERVICE_BIND_ADDR:$port"
 announce_interval_seconds = 5
 peer_ttl_seconds = 60
 healthy_seeder_floor = 1
@@ -550,7 +562,7 @@ EOF
         setsid "$RUST_RELEASE/nodera-tracker" --config "$cfg" \
             >"$LOG_DIR/tracker$suffix.log" 2>&1 9>&- &
         PIDS+=("$!")
-        NODERA_TRACKER_ENDPOINT_LIST="${NODERA_TRACKER_ENDPOINT_LIST:+$NODERA_TRACKER_ENDPOINT_LIST,}127.0.0.1:$port"
+        NODERA_TRACKER_ENDPOINT_LIST="${NODERA_TRACKER_ENDPOINT_LIST:+$NODERA_TRACKER_ENDPOINT_LIST,}$NODERA_SERVICE_ADVERTISE_ADDR:$port"
     done
 }
 
@@ -562,7 +574,7 @@ nodera_start_rendezvous() {
         else port=$(( RENDEZVOUS_EXTRA_BASE + i - 1 )); suffix="-$i"; fi
         cfg="$LOG_DIR/rendezvous$suffix.toml"
         cat > "$cfg" <<EOF
-bind_addr = "127.0.0.1:$port"
+bind_addr = "$NODERA_SERVICE_BIND_ADDR:$port"
 registration_ttl_seconds = 300
 refresh_interval_seconds = 60
 reservation_max_bytes = 1073741824
@@ -572,7 +584,7 @@ EOF
         setsid "$RUST_RELEASE/nodera-rendezvous" --config "$cfg" \
             >"$LOG_DIR/rendezvous$suffix.log" 2>&1 9>&- &
         PIDS+=("$!")
-        NODERA_RENDEZVOUS_ENDPOINT_LIST="${NODERA_RENDEZVOUS_ENDPOINT_LIST:+$NODERA_RENDEZVOUS_ENDPOINT_LIST,}127.0.0.1:$port"
+        NODERA_RENDEZVOUS_ENDPOINT_LIST="${NODERA_RENDEZVOUS_ENDPOINT_LIST:+$NODERA_RENDEZVOUS_ENDPOINT_LIST,}$NODERA_SERVICE_ADVERTISE_ADDR:$port"
     done
 }
 
@@ -631,6 +643,9 @@ nodera_stack_up() {
     nodera_check_ram
     [[ "${NO_BUILD:-0}" -eq 0 ]] && build_stack
     check_binaries
+    # The profiler, when NODERA_SPARK=1 asked for one. Fetched before anything
+    # binds a port so a cold cache costs the run a download, not a timeout.
+    declare -F nodera_spark_fetch >/dev/null && nodera_spark_fetch
     mapfile -t ports < <(nodera_all_ports)
     check_ports "${ports[@]}"
     nodera_start_trackers
@@ -682,6 +697,7 @@ EOF
 write_client_config() {
     mkdir -p "$MOD_DIR/$1/config"
     stage_client_options "$1"
+    declare -F nodera_spark_stage_mod >/dev/null && nodera_spark_stage_mod "$MOD_DIR/$1"
     cat > "$MOD_DIR/$1/config/nodera-client.toml" <<EOF
 [join]
 	password = "${3:-}"
@@ -700,6 +716,7 @@ EOF
 stage_dedicated_server() {
     rm -rf "$MOD_DIR/run/world"
     mkdir -p "$MOD_DIR/run"
+    declare -F nodera_spark_stage_mod >/dev/null && nodera_spark_stage_mod "$MOD_DIR/run"
     echo "eula=true" > "$MOD_DIR/run/eula.txt"
     cat > "$MOD_DIR/run/server.properties" <<EOF
 server-port=$GAME_PORT
@@ -903,7 +920,10 @@ nodera_hosted_two_players() {
 # header is benign iff its cause line is the reset/close of a peer this harness
 # itself killed; any other cause still counts.
 nodera_audit_errors() {
-    local file="$1" from="${2:-1}"
+    # Named in the message rather than left to `set -u`, which reports it as a bare
+    # `$1: unbound variable` from inside the library — a line number in a file the suite author is
+    # not reading, for a mistake at their own call site.
+    local file="${1:?nodera_audit_errors needs a log file to audit}" from="${2:-1}"
     tail -n +"$from" "$file" 2>/dev/null | awk \
         -v netty="$NODERA_BENIGN_NETTY" -v benign="$NODERA_BENIGN_ERRORS" '
         /Exception caught in connection/ {
@@ -937,6 +957,13 @@ collect_results() { # dest-dir (defaults to $RESULTS_DIR)
     for d in "$MOD_DIR"/run/world/nodera-selftest "$MOD_DIR"/run-host/saves/*/nodera-selftest; do
         [[ -d "$d" ]] && cp -r "$d" "$dest/" 2>/dev/null
     done
+    # Profiler captures, and the per-source summary of each. Swept BEFORE the
+    # LOG_DIR copy above would have been useful — but the sweep writes into
+    # LOG_DIR/spark, so it runs here and copies its own output across.
+    if declare -F nodera_spark_collect >/dev/null && nodera_spark_enabled; then
+        nodera_spark_collect
+        cp -r "$(nodera_spark_out)" "$dest/" 2>/dev/null
+    fi
     log "results collected in $dest"
 }
 
