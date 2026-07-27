@@ -53,7 +53,22 @@ scripts/e2e-ownership-follow.sh --no-build
 
 scripts/dev.sh --play --no-build        # not a test: two interactive clients
 scripts/dev.sh --play --with-app        # …plus a companion window per player
+
+scripts/dev.sh --lan  --with-app        # two UNMODIFIED clients, for the Open-to-LAN lane
 ```
+
+**`--lan` is the only mode that runs Minecraft without the mod**, which is the whole point: the LAN
+lane's claim is that two people can play together with nothing installed in the game, and a harness
+that used the NeoForge dev client would be testing the opposite. It launches real vanilla clients
+through `scripts/lib/vanilla-client.py`, reusing whatever libraries and assets an installed launcher
+already has and downloading only what is missing (~25 MB on a first run). It never writes into
+`~/.minecraft`.
+
+One asymmetry is deliberate and is what makes a single-machine run mean anything: **player 2's worker
+runs with LAN detection off** (`NODERA_LAN_WATCH=0`). Both workers would otherwise hear the same
+multicast beacon, and player 2 could reach the world locally without the network being involved at
+all. With it off, the only route from player 2 to player 1 is the tracker and the tunnel — so if they
+meet, the lane worked.
 
 **The shared world bakes itself.** The ownership, churn, and crash suites reuse a genuinely shared
 save (signed world identity, certified genesis); the launcher bakes it on first use, so any suite can
@@ -77,6 +92,33 @@ run first — or alone on its own machine, which is what CI does.
 | `e2e-farlands.sh` | Two players ~566 km apart: positions verified and per-player chunk control interrogated | ~8 min |
 | `e2e-crash.sh` | One client **SIGKILLed** mid-session: the survivor sees no disruption, no continuity arm, **no migration screen**; the crashed player rejoins | ~7 min |
 | `e2e-ownership-follow.sh` | Ownership follows the player: after a multi-thousand-block teleport the session re-plans and the client re-derives its owned region set | ~5 min |
+| `e2e-profile.sh` | **Where the tick went.** R1: the dedicated server under a live two-player entity-lane drive is profiled and `nodera` must appear as an attributed source with non-zero self time. R2: the same against Paper, whose spark is **bundled** (no jar installed), asserting the capture is non-empty and that spark enumerated `NoderaEndpoint`. R3 (Folia) currently **SKIPS with a named reason** — Folia refuses to enable its bundled spark and the community jar targets a newer Folia | ~12 min |
+
+### 1.2.1 The profiling overlay
+
+Any suite can be profiled, and by default none is:
+
+```bash
+NODERA_SPARK=1 scripts/e2e-mobs.sh                       # steady-load capture
+NODERA_SPARK=1 NODERA_SPARK_TICKS_OVER=100 scripts/e2e-mesh-soak.sh   # lag spikes only
+scripts/e2e-profile.sh                                   # the dedicated suite; always profiles
+```
+
+With `NODERA_SPARK` unset nothing is downloaded, staged, configured or launched differently — the
+overlay is `scripts/lib/spark.sh`, and every function in it returns immediately when the flag is
+off. Captures are **never uploaded**: every stop passes `--save-to-file`, and the results land in
+`$RESULTS_DIR/spark/` alongside a `.sources.txt` per-source summary produced by
+`scripts/lib/sparkprofile.py`.
+
+Read one with `python3 scripts/lib/sparkprofile.py <profile> --thread '^Server thread$'`, or by
+dragging the `.sparkprofile` onto `https://spark.lucko.me/` (parsed in the browser, uploaded
+nowhere). Full documentation: [`spark/`](spark/); the runbook is
+[13 — Reading a Profile](spark/13-reading-a-profile.md).
+
+**Two traps, both verified live rather than inferred.** spark's replies never come back over RCON
+(it answers asynchronously, after the exchange has closed), and a capture taken with **no
+`--thread` flag** contained zero threads on Paper 1.21.1-133 — twice, under load. The overlay
+always passes `--thread *` and locates captures by file mtime; do not "simplify" either.
 
 ## 1.3 How clients are launched — no GUI automation anywhere
 
@@ -164,6 +206,7 @@ suites pass through it by design.
 | `commands-*.log` / `interrogation.log` | Per-player command → response transcripts |
 | `nodera-selftest/selftest-*.{json,md}` | The in-game suite's per-command status, benchmark, and response report |
 | Control sockets (25610–25612) | Live JSON: maintained pieces, connected worlds, validation counters |
+| `spark/*.sparkprofile` + `spark/*.sources.txt` | Profiled runs only. The per-source table: self time per owning mod/plugin, and our hottest frames named. `spark/SUMMARY.txt` on `e2e-profile` carries both the all-threads and tick-thread views of every capture |
 
 ---
 
@@ -186,6 +229,7 @@ Landmark unit tests:
 | `ClientStallReporterTest` | A client outside a world for ten seconds logs the active screen's class, repeating while it does not change — the fact every opaque live CI failure was missing |
 | `HostJoinGateTest` | The live-join password gate's whole admission rule, Minecraft-free: right password in, wrong password out, no password out, per-connection nonces, single use, expiry, a bounded challenge store, and a **sealed** gate that refuses everyone rather than silently opening the world |
 | `NoderaWorldStoreTest` | The per-world signed identity file, written atomically |
+| `SparkProfileBridgeTest` | The client profiling bridge's schedule, Minecraft-free: inert without its property, garbage input disables rather than throws, the warm-up keeps world loading out of the capture, and it fires **exactly once** across a re-login |
 
 ## Conventions
 

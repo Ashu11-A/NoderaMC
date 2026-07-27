@@ -25,10 +25,70 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 | [6](Task.6.md) | World identity + permissions | 🚧 IN PROGRESS | Identity, grants, and ban enforcement landed; world-list mixin remains (L-49) |
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED | Defaults on; verified both ways in CI |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) | `ModTelemetryTest` (8) against a loopback worker; live pass pending |
+| [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED | `e2e-profile` R1 green: `nodera` attributed in a live dedicated-server capture |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-26 — The mod no longer carries the worker, and no longer imports its control plane
+
+`dev.nodera.headless` left `:peer` for a new `:worker` module, so the mod's fat jar stopped shipping
+`HeadlessPeerMain` and every service behind it: `dev/nodera/headless` classes in `neoforge-mod.jar`
+went 60 → **0**. The mod keeps the peer *library* — the in-game host, validation and entity lanes are
+built on it — but the always-on worker is an application, and an application inside a mod jar can
+only ever be the wrong copy of itself.
+
+`CompanionProtocol` also stopped delegating to `dev.nodera.peer.control.ControlProtocol` and now
+holds literals, with `CompanionProtocolContractTest` (test scope) comparing the two. A shared
+compile-time constant cannot make two *separately installed* artifacts agree — a player updates the
+app on Tuesday and the mod on Friday — so what it really bought was a drift alarm, and that belongs
+in a test that fails loudly rather than in a coupling that fails silently in the field.
+
+The presence gate (`companion.required`) is already `true` on both client and server: the mod refuses
+to launch without a running worker, which is now also how an unmodified player's LAN world reaches
+the network ([worker 7](../worker/Task.7.md)).
+
+### 2026-07-26 — The tick has a breakdown now: the spark profiler lane (task 9)
+
+"The entity lane is expensive" was an opinion. The mod is a fat jar of the whole core running
+inside Minecraft's tick loop and the endpoint runs inside somebody else's, so nothing we could
+add to our own code separated our frames from the game's.
+
+Landed: the upstream source vendored at `docs/minecraft/upstream/spark` (`f181ccf`), a 13-part
+study in [`spark/`](spark/), `scripts/lib/spark.sh` (opt-in via `NODERA_SPARK=1`),
+`scripts/lib/sparkprofile.py` (an offline per-source reader, pure stdlib), `scripts/e2e-profile.sh`,
+and `SparkProfileBridge` for the player-hosted world RCON cannot reach.
+
+**Evidence:** `scripts/e2e-profile.sh` R1 — `PASS R1: 'nodera' is an attributed source in the
+dedicated-server profile`, from a live two-player entity-lane drive on the NeoForge dedicated
+server. Artifacts in `run/results/e2e-profile/<stamp>/spark/`.
+
+Six things were checked against a running server rather than assumed, and two of them were not
+what the documentation implied:
+
+- **spark's replies never come back over RCON.** Every `/spark …` returns an empty string — spark
+  answers asynchronously, after the RCON exchange has closed. The harness therefore locates a
+  capture by file mtime against a marker, not by parsing output.
+- **The default thread dumper produced a capture containing ZERO threads**, twice, under load, on
+  Paper 1.21.1-133. `--thread *` is mandatory; a silently empty artifact is indistinguishable from
+  fast code, which is also why the suite asserts on presence rather than only collecting.
+- Paper **bundles** spark (`me/lucko/spark-paper` resolves into `libraries/` on boot), so it needs
+  no jar. **Folia bundles it and refuses to enable it** — with `spark.enabled: true` and
+  `-Dpaper.preferSparkPlugin=false` both set — and the community `spark-folia` build dies against
+  our pinned 1.21.4 with `NoClassDefFoundError: ca/spottedleaf/moonrise/…/TickData`. Folia
+  profiling is unavailable; the stage skips and names why.
+- FML **does** scan `<gameDir>/mods/` in an MDG dev run, and a production Modrinth jar loads
+  unremapped there.
+
+**The first finding.** On the server tick thread `nodera` is 20 ms of self time out of 69 s
+sampled, with a 4 ms subtree; across all threads its subtree is 138,948 ms. The entity lane's work
+is genuinely off-tick, as designed — and the hottest Nodera frames *on* the tick are
+`RegionDriveDebug.trackRegions` and `TabListRenderer.header`, both diagnostics.
+
+Also repaired on the way past: `.gitmodules` did not exist, so the `folia` and `MultiPaper`
+gitlinks under `docs/minecraft/upstream/` had no submodule mapping — a fresh clone got two empty
+directories and `git submodule update` failed. Both now resolve; the recorded SHAs were unchanged.
 
 ### 2026-07-26 — `e2e-mobs` is green — L-60 and L-24 RETIRED
 
