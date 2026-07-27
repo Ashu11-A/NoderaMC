@@ -451,6 +451,7 @@ mod tests {
                 asset_name: "nodera-rendezvous".to_owned(),
                 check_interval_seconds: 3_600,
                 drain_grace_seconds: 1,
+                release_public_key: String::new(),
             },
         }
     }

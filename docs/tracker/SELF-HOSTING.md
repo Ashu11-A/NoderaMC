@@ -143,8 +143,28 @@ tracker, not agreement to let it replace its own executable. Same rule as the te
 Inside a container it is the wrong tool anyway: it asks the image to rewrite its own executable, and
 if it succeeds you have a container whose contents no longer match its tag. Use §5.
 
-The digest proves **integrity, not provenance** — whoever can publish to the release can publish a
-matching digest. That is tracked as an open limitation (L-81) rather than pretended away.
+### Provenance
+
+The service also fetches `SHA256SUMS.sig` and verifies it against a pinned Ed25519 key **before** it
+reads any digest, so a substituted manifest cannot choose the binary. A missing signature is a
+refusal rather than a fallback — otherwise deleting one asset from a release turns the check off.
+
+**No key is pinned yet.** `DEFAULT_RELEASE_PUBLIC_KEY` is empty, the check is skipped, and the
+service says so on every check. Until it is set, the digest proves integrity and not provenance
+(L-81): whoever can publish to the release can publish a matching digest.
+
+For the project (or a fork) to close that:
+
+```bash
+openssl genpkey -algorithm ED25519 -out release-signing.pem     # keep this offline
+gh secret set NODERA_RELEASE_SIGNING_KEY < release-signing.pem
+# the public half, as the 64 hex characters DEFAULT_RELEASE_PUBLIC_KEY wants:
+openssl pkey -in release-signing.pem -pubout -outform DER | tail -c 32 | xxd -p -c 32
+```
+
+A fork with its own releases sets `NODERA_TRACKER_UPDATE_RELEASE_PUBLIC_KEY` instead of editing the
+constant — but note that a trust root an attacker can set in a config file is not a trust root, so
+that variable is for deliberately trusting somebody else's releases, not for convenience.
 
 ## 7. Getting listed
 
