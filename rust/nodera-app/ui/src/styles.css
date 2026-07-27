@@ -134,3 +134,22 @@
 @utility bg-brand {
   background-image: var(--brand-gradient);
 }
+
+/* ------------------------------------------------------------------ Material 3 (mobile layout)
+ *
+ * Only the two things the M3 components cannot express as utilities: the navigation-bar height they
+ * all reserve space against, and the indeterminate progress keyframes. Every colour is a
+ * `--md-sys-color-*` custom property written at runtime by `m3/theme.ts` from the user's source
+ * colour — nothing here hard-codes one, which is what makes the palette actually dynamic. */
+:root {
+  --m3-nav-height: 80px;
+}
+
+@keyframes m3-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+
+.m3-indeterminate {
+  animation: m3-indeterminate 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
