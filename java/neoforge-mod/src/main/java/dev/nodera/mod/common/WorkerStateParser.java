@@ -89,6 +89,24 @@ public final class WorkerStateParser {
     }
 
     /**
+     * Extract the {@code trackers} routes from a worker STATE JSON line.
+     *
+     * <p>The worker's live tracker list. The mod used to build its own from `NoderaConfig`, and
+     * when the two disagreed nothing said so: the mod announced a world to one tracker while every
+     * other peer's worker queried a different one, so the world was live and invisible, and joiners
+     * fell through to re-hosting a stale copy of it — which is how one world becomes two.
+     *
+     * <p>Same contract as {@link #rendezvousRoutes}: reachable rows only, worker order preserved,
+     * empty means "no opinion" and the caller falls back to configuration.
+     *
+     * @param json the raw STATE reply, or {@code null}.
+     * @return {@code scheme://host:port} routes; empty if absent, malformed, or none reachable.
+     */
+    public static List<String> trackerRoutes(String json) {
+        return routesOf(json, "\"trackers\"");
+    }
+
+    /**
      * Extract the {@code rendezvous} routes from a worker STATE JSON line.
      *
      * <p>This is the worker's <em>live</em> selection: the relays its {@code RendezvousDirectory}
@@ -109,15 +127,19 @@ public final class WorkerStateParser {
      *         reachable.
      */
     public static List<String> rendezvousRoutes(String json) {
+        return routesOf(json, "\"rendezvous\"");
+    }
+
+    private static List<String> routesOf(String json, String key) {
         List<String> out = new ArrayList<>();
         if (json == null) {
             return out;
         }
-        int key = json.indexOf("\"rendezvous\"");
-        if (key < 0) {
+        int at = json.indexOf(key);
+        if (at < 0) {
             return out;
         }
-        int arrayStart = json.indexOf('[', key);
+        int arrayStart = json.indexOf('[', at);
         if (arrayStart < 0) {
             return out;
         }

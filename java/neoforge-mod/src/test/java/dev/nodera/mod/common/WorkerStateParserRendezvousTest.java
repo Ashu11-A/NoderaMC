@@ -95,6 +95,35 @@ class WorkerStateParserRendezvousTest {
     }
 
     @Test
+    @DisplayName("the tracker array is read, and is not confused with the rendezvous one beside it")
+    void readsTrackersSeparatelyFromRendezvous() {
+        // The two arrays sit next to each other in the same flat line and have identical row shapes.
+        // A reader that found the first '[' after the wrong key would hand the announce lane the
+        // relay list — and a world announced to a relay is a world nobody can find.
+        String json = "{\"trackers\":[" + row("t.example.org", 6969, "tcp", true, 11)
+                + "],\"rendezvous\":[" + row("r.example.org", 7500, "tcp", true, 22) + "]}";
+
+        assertEquals(List.of("tcp://t.example.org:6969"), WorkerStateParser.trackerRoutes(json));
+        assertEquals(List.of("tcp://r.example.org:7500"), WorkerStateParser.rendezvousRoutes(json));
+    }
+
+    @Test
+    @DisplayName("an unreachable tracker is not handed to the announce lane")
+    void unreachableTrackersAreDropped() {
+        String json = "{\"trackers\":[" + row("dead.example.org", 6969, "tcp", false, -1)
+                + "," + row("live.example.org", 6969, "tcp", true, 9) + "]}";
+
+        assertEquals(List.of("tcp://live.example.org:6969"), WorkerStateParser.trackerRoutes(json));
+    }
+
+    @Test
+    @DisplayName("a worker with no tracker opinion leaves the mod on its configured list")
+    void noTrackerOpinionIsEmpty() {
+        assertTrue(WorkerStateParser.trackerRoutes("{\"rendezvous\":[]}").isEmpty());
+        assertTrue(WorkerStateParser.trackerRoutes(null).isEmpty());
+    }
+
+    @Test
     @DisplayName("the rendezvous array is not confused with the worlds array beside it")
     void doesNotReadTheWrongArray() {
         // Both arrays are objects with string fields in one flat line; a scanner that found the

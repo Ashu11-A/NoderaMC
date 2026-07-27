@@ -255,7 +255,8 @@ public final class NoderaPeerService {
         serverDiagnostics = new dev.nodera.mod.debug.DiagnosticsService(serverRuntime, serverCollector);
 
         // Announce to the tracker (Task 28) and keep re-announcing on its cadence.
-        serverTrackerClient = trackerClient(NoderaConfig.TRACKER_ENDPOINTS.get(), serverIdentity);
+        serverTrackerClient = trackerClient(
+                selectedTrackerRoutes(NoderaConfig.TRACKER_ENDPOINTS.get()), serverIdentity);
         if (!serverTrackerClient.endpoints().isEmpty()) {
             LOG.info("Nodera tracker endpoints: {}", serverTrackerClient.endpoints());
             startAnnouncing();
@@ -413,22 +414,48 @@ public final class NoderaPeerService {
      * @param configured the configured fallback.
      * @return the routes to compose the transport from.
      */
+    /**
+     * The tracker routes to use: the worker's live list when there is one, otherwise the configured
+     * list.
+     *
+     * <p>Split-brain here is not a degraded mode, it is an invisible outage. If the mod announces a
+     * world to tracker A while every other peer's worker queries tracker B, the world is live and
+     * undiscoverable — and the joiner, finding no route, re-hosts a stale copy from the archive
+     * instead. That is how one world silently becomes two. Following the worker makes the two lists
+     * incapable of disagreeing.
+     */
+    private java.util.List<? extends String> selectedTrackerRoutes(
+            java.util.List<? extends String> configured) {
+        return selectedRoutes(configured, WorkerStateParser::trackerRoutes, "tracker");
+    }
+
     private java.util.List<? extends String> selectedRendezvousRoutes(
             java.util.List<? extends String> configured) {
+        return selectedRoutes(configured, WorkerStateParser::rendezvousRoutes, "rendezvous");
+    }
+
+    /** Shared body: ask the companion, fall back to configuration, never throw. */
+    private java.util.List<? extends String> selectedRoutes(
+            java.util.List<? extends String> configured,
+            java.util.function.Function<String, List<String>> read,
+            String what) {
         try {
             CompanionClient companion = CompanionLink.client();
             if (companion != null) {
-                List<String> live = companion.state()
-                        .map(WorkerStateParser::rendezvousRoutes)
-                        .orElse(List.of());
+                List<String> live = companion.state().map(read).orElse(List.of());
                 if (!live.isEmpty()) {
-                    LOG.info("Nodera rendezvous: using the worker's selection {}", live);
+                    if (!live.equals(configured)) {
+                        // Said at INFO, with both lists, because this is the difference between a
+                        // world everyone can see and a world only its host can.
+                        LOG.info("Nodera {}: following the worker's list {} (configured: {})",
+                                what, live, configured);
+                    }
                     return live;
                 }
             }
         } catch (RuntimeException e) {
-            LOG.warn("Nodera: could not read the worker's rendezvous selection ({}); "
-                    + "using the configured list", e.toString());
+            LOG.warn("Nodera: could not read the worker's {} list ({}); using the configured list",
+                    what, e.toString());
         }
         return configured;
     }
@@ -814,7 +841,8 @@ public final class NoderaPeerService {
                 new dev.nodera.peer.CompositePeerEventListener(
                         new LoggingListener("client"), clientGatewayListener()),
                 clientCounts);
-        clientTrackerClient = trackerClient(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get(), clientIdentity);
+        clientTrackerClient = trackerClient(
+                selectedTrackerRoutes(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get()), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
                 .register(clientRuntime)
                 .register(dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.get())
