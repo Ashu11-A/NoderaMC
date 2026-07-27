@@ -56,7 +56,7 @@ public final class WorldKeyStore {
      * @throws NullPointerException if {@code directory} is null.
      */
     public WorldKeyStore(Path directory) {
-        this.directory = Objects.requireNonNull(directory, "directory");
+        this.directory = Objects.requireNonNull(directory, "directory").normalize();
     }
 
     /** @return the directory this store reads and writes. */
@@ -165,8 +165,20 @@ public final class WorldKeyStore {
         LocalFiles.writeAtomically(fileFor(normalise(key.worldId().toHex())), w.toByteArray());
     }
 
+    /**
+     * The key file for an ALREADY-{@link #normalise(String) normalised} id.
+     *
+     * <p>Hex validation is what makes traversal impossible, but this resolves and re-checks
+     * containment anyway: the guard and the file access then sit in the same method, so no future
+     * caller can reach the resolve without it, and a reader does not have to trace the id back to
+     * its validation to see that the store cannot write outside its own directory.
+     */
     private Path fileFor(String worldIdHex) {
-        return directory.resolve(worldIdHex + SUFFIX);
+        Path resolved = directory.resolve(worldIdHex + SUFFIX).normalize();
+        if (!resolved.startsWith(directory)) {
+            throw new IllegalArgumentException("world key path escapes " + directory);
+        }
+        return resolved;
     }
 
     /**
