@@ -38,6 +38,29 @@
 #   trade pieces in real time, which is the whole point of a P2P dashboard and
 #   is not observable with a single app.
 #
+# LAN (--lan) — the same two players, but with **completely unmodified** Minecraft
+# clients, to exercise the Open-to-LAN lane end to end:
+#
+#   Player 1 window: singleplayer world → Esc → "Open to LAN" → Start LAN World.
+#                    Player 1's companion app raises a modal: "Share it".
+#   Player 2 window: Multiplayer → Direct Connection → paste the address that
+#                    Player 2's companion app shows under "Join a world".
+#
+# No mod is installed in either client, and none is built. That is the point: if
+# the two players meet, they did it through the peer network, because there is
+# nothing else in the game that could have arranged it.
+#
+# The clients are real Minecraft, launched by scripts/lib/vanilla-client.py — it
+# reuses the libraries and assets an installed launcher already has and downloads
+# only what is missing (~25 MB on a first run). It never writes into ~/.minecraft.
+#
+# Both workers watch for LAN worlds, so whichever client you open to LAN, that
+# player's Nodera window is the one that asks. On a single machine this tests the
+# pipeline and NOT the isolation — Minecraft's own Multiplayer screen scans the
+# same multicast group, so the other client lists the world by itself whatever
+# Nodera does. Join through Nodera to test Nodera; a genuine cross-network run
+# needs two machines.
+#
 # PLAY mode is NOT a test: no assertions, nothing exits on its own. It stages
 # the same topology the scripted suites use, through the same launcher
 # (scripts/lib/e2e-main.sh), so what you see by hand is what CI measures:
@@ -60,6 +83,9 @@
 #   --play          Two Minecraft clients + the full peer topology (see above).
 #                   Implies the live-suite launcher; combine with --with-app for
 #                   one companion window per player.
+#   --lan           Two UNMODIFIED Minecraft clients + two workers + two companion
+#                   apps, for testing Open to LAN. Builds no mod and installs none.
+#   --lan-version <v>  Which Minecraft to launch for --lan (default 1.21.1).
 #   --build-only    Compile everything, collect artifacts into build/, then exit.
 #                   No services run. This is what CI runs.
 #   --test          Run the full gate (gradlew build + cargo test) instead of a fast build.
@@ -82,9 +108,12 @@
 #   NODERA_TRACKER_PORT=25600   NODERA_RENDEZVOUS_PORT=25601
 #   NODERA_CONTROL_PORT=25610   NODERA_WORKER_P2P_PORT=25620
 #   NODERA_MC_DIR=~/.minecraft  NODERA_BUILD_DIR=./build  NODERA_LOG_DIR=./run/logs
+#   NODERA_MC_JAVA=<path to java 21>   NODERA_MC_MEMORY=2G
+#   NODERA_VANILLA_ROOT=~/.nodera/vanilla   (where --lan keeps its client)
 #
 # Logs: INFRA → run/logs/*.log.  PLAY → run/logs/play/*.log, plus each client's
 # own game dir under java/neoforge-mod/run (player 1) and run-join (player 2).
+#       LAN  → run/logs/lan/*.log; each client's world lives in run/lan/<player>/.
 # ===========================================================================
 set -euo pipefail
 
@@ -99,7 +128,7 @@ BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ROOT/build}"
 SRC_MOD_JAR="$NODERA_ROOT/java/neoforge-mod/build/libs/neoforge-mod.jar"
 
 # The headless peer worker (Task 32): built via the `application` plugin's installDist.
-WORKER_SRC_DIST="$NODERA_ROOT/java/peer/build/install/nodera-headless"
+WORKER_SRC_DIST="$NODERA_ROOT/java/worker/build/install/nodera-headless"
 APP_DIR="$RUST_DIR/nodera-app"
 
 # Runtime consumes the collected copies in build/ — never the per-toolchain output dirs.
@@ -123,7 +152,7 @@ log()  { printf '\033[1;36m[nodera]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[nodera]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[nodera] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
-usage() { sed -n '2,86p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,114p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- args ----------------------------------------------------------------
 DO_BUILD=1
@@ -133,12 +162,17 @@ INSTALL_MOD=0
 WITH_APP=0
 RUN_WORKER=1
 PLAY=0
+LAN=0
+LAN_VERSION="${NODERA_MC_VERSION:-1.21.1}"
 # -1 = "not given": --with-app then means one app per player in PLAY mode.
 APP_COUNT=-1
 SPARE_PEERS=1
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --play)        PLAY=1; shift ;;
+        --lan)         LAN=1; shift ;;
+        --lan-version) [[ $# -ge 2 ]] || die "--lan-version needs a Minecraft version"
+                       LAN_VERSION="$2"; shift 2 ;;
         --build-only)  BUILD_ONLY=1; shift ;;
         --test)        RUN_TESTS=1; shift ;;
         --no-build)    DO_BUILD=0; shift ;;
@@ -158,6 +192,12 @@ done
 [[ "$SPARE_PEERS" =~ ^[0-9]+$ ]] || die "--spare-peers takes a non-negative number, got '$SPARE_PEERS'"
 if [[ "$PLAY" -eq 1 && "$BUILD_ONLY" -eq 1 ]]; then
     die "--play and --build-only are mutually exclusive (--build-only never starts anything)"
+fi
+if [[ "$LAN" -eq 1 && "$PLAY" -eq 1 ]]; then
+    die "--lan and --play are different two-player stacks: --play runs the MODDED dev clients, --lan runs unmodified ones"
+fi
+if [[ "$LAN" -eq 1 && "$BUILD_ONLY" -eq 1 ]]; then
+    die "--lan and --build-only are mutually exclusive (--build-only never starts anything)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -191,8 +231,8 @@ build_mod() {
 
 # The headless peer worker — a runnable distribution (bin + all deps on the classpath).
 build_worker() {
-    log "Worker: ./gradlew :peer:installDist"
-    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist )
+    log "Worker: ./gradlew :worker:installDist"
+    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist )
     [[ -x "$WORKER_SRC_DIST/bin/nodera-headless" ]] \
         || die "expected worker launcher not found: $WORKER_SRC_DIST/bin/nodera-headless"
 }
@@ -349,6 +389,24 @@ start_worker() {
 # launch focus the first window and exit — the exact behaviour a two-player stack must not have.
 # The window title and the worker log are per-instance so two windows are tellable apart and each
 # tails its own node's output rather than all of them sharing one.
+# Warn when the app binary is older than the UI it is supposed to be showing.
+#
+# A release build EMBEDS ui/dist, so rebuilding the frontend does nothing for an already-built
+# binary — and running with --no-build shows an interface from whenever cargo last ran. That is
+# invisible from the outside: the window opens, the data flows, and a feature added since simply is
+# not there. Cheap to detect, so it is detected.
+warn_if_app_is_stale() {
+    local bin="$APP_DIR/target/release/nodera-app"
+    [[ -x "$bin" ]] || return 0
+    local newest
+    newest="$(find "$APP_DIR/ui/src" "$APP_DIR/src" -type f -newer "$bin" -print -quit 2>/dev/null)"
+    if [[ -n "$newest" ]]; then
+        warn "the companion app binary is older than its source ($(basename "$newest") is newer)."
+        warn "A release build embeds the frontend, so this window will show a stale interface."
+        warn "Rebuild: (cd $APP_DIR/ui && bun run build) && (cd $APP_DIR && cargo build --release)"
+    fi
+}
+
 start_app() { # control-port title app-log worker-log [multi]
     local port="$1" title="$2" app_log="$3" worker_log="$4" multi="${5:-0}"
     local bin="$APP_DIR/target/release/nodera-app"
@@ -558,6 +616,181 @@ play_start_app() { # app-dir control-port title app-log worker-log
     PIDS+=("$!")
 }
 
+
+# ---------------------------------------------------------------------------
+# 4. LAN mode — two UNMODIFIED clients, two workers, two apps.
+# ---------------------------------------------------------------------------
+#
+# This is the only mode that tests the claim the LAN lane actually makes: that two people can play
+# together with *nothing installed in Minecraft*. Everything else here runs the modded dev client,
+# which would prove the opposite — the mod is what this feature exists to do without.
+#
+# Ports. Two workers, so two of everything: the joiner cannot share the host's control port, and two
+# peers on one machine cannot share a P2P port.
+LAN_HOST_CONTROL="${NODERA_LAN_HOST_CONTROL:-25610}"
+LAN_HOST_P2P="${NODERA_LAN_HOST_P2P:-25620}"
+LAN_JOIN_CONTROL="${NODERA_LAN_JOIN_CONTROL:-25611}"
+LAN_JOIN_P2P="${NODERA_LAN_JOIN_P2P:-25621}"
+
+LAN_DIR="$NODERA_ROOT/run/lan"
+LAN_LOG_DIR="$NODERA_ROOT/run/logs/lan"
+VANILLA="$NODERA_ROOT/scripts/lib/vanilla-client.py"
+
+# One worker for one player. Separate from start_worker() because that one is the INFRA singleton
+# (fixed ports, fixed log) and CI depends on it behaving exactly as it does.
+#
+# Both workers watch for LAN worlds. An earlier version switched detection off for the joiner, on the
+# theory that it stopped Player 2 reaching the world locally and so proved the connection had gone
+# through the network. That theory was wrong: Minecraft's own Multiplayer screen scans the same
+# multicast group, so Player 2's *client* lists a same-machine LAN world whatever the worker does.
+# The asymmetry bought nothing and cost a great deal — it made one of two identical-looking windows
+# silently dead, so a player who opened the world in the "wrong" one saw no prompt and no reason.
+start_lan_worker() { # name control-port p2p-port lan-watch
+    local name="$1" control="$2" p2p="$3" lan_watch="$4"
+    local logfile="$LAN_LOG_DIR/worker-$name.log"
+    local state="$LAN_DIR/$name/nodera"
+    if [[ ! -x "$WORKER_BIN" ]]; then
+        warn "worker launcher missing ($WORKER_BIN) — build it: scripts/dev.sh --build-only"
+        return 1
+    fi
+    mkdir -p "$state"
+    log "Starting worker '$name' → control 127.0.0.1:$control · p2p $p2p · LAN watch $lan_watch"
+    # Per-player state directories: two workers sharing ~/.nodera would share an identity, a world
+    # registry and a set of world keys, which is one node wearing two hats rather than two nodes.
+    NODERA_CONTROL_HOST="127.0.0.1" NODERA_CONTROL_PORT="$control" \
+    NODERA_P2P_PORT="$p2p" NODERA_P2P_ADVERTISE="127.0.0.1" \
+    NODERA_IDENTITY_FILE="$state/worker-identity.bin" \
+    NODERA_ARCHIVE_DIR="$state/archive" \
+    NODERA_STATE_DIR="$state" \
+    NODERA_TELEMETRY_DIR="$state" \
+    NODERA_TRACKER_ENDPOINTS="127.0.0.1:$TRACKER_PORT" \
+    NODERA_RENDEZVOUS_ENDPOINTS="127.0.0.1:$RENDEZVOUS_PORT" \
+    NODERA_LAN_WATCH="$lan_watch" \
+        "$WORKER_BIN" >"$logfile" 2>&1 &
+    local pid=$!
+    SERVICE_PIDS+=("$pid")
+    local attempt
+    for attempt in $(seq 1 20); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            warn "worker '$name' exited immediately (see $logfile)"
+            return 1
+        fi
+        if control_probe "127.0.0.1" "$control"; then
+            log "worker '$name' healthy on 127.0.0.1:$control"
+            return 0
+        fi
+        sleep 0.5
+    done
+    warn "worker '$name' did not answer the control probe (see $logfile)"
+    return 1
+}
+
+# Launch one unmodified Minecraft. The command is BUILT by the helper and RUN here, so the harness
+# keeps the thing it is good at — logs, PIDs, teardown — and the helper keeps the thing it is good
+# at, which is knowing what a Minecraft classpath looks like.
+start_vanilla_client() { # player-name game-dir log
+    local username="$1" game_dir="$2" logfile="$3"
+    local cmd=()
+    mkdir -p "$game_dir"
+    if ! mapfile -t cmd < <(python3 "$VANILLA" command \
+            --version "$LAN_VERSION" --game-dir "$game_dir" --username "$username" 2>>"$logfile"); then
+        warn "could not assemble a launch command for $username (see $logfile)"
+        return 1
+    fi
+    [[ ${#cmd[@]} -gt 0 ]] || { warn "empty launch command for $username (see $logfile)"; return 1; }
+    log "Starting unmodified Minecraft '$username' → $game_dir"
+    ( cd "$game_dir" && setsid "${cmd[@]}" >>"$logfile" 2>&1 & )
+    LAN_CLIENT_STARTED+=("$username")
+}
+
+LAN_CLIENT_STARTED=()
+
+# Vanilla writes options.txt on first exit, not first start, so a fresh game dir opens on the
+# language screen with the default 70% GUI scale on a 4K panel. Seeding the couple of options that
+# make a two-window test bearable is not cosmetic: the whole exercise is reading two clients at once.
+lan_seed_options() { # game-dir
+    local dir="$1"
+    [[ -f "$dir/options.txt" ]] && return 0
+    mkdir -p "$dir"
+    cat > "$dir/options.txt" <<'OPTS'
+version:3955
+guiScale:2
+pauseOnLostFocus:false
+enableVsync:false
+maxFps:60
+renderDistance:6
+soundCategory_master:0.0
+skipMultiplayerWarning:true
+tutorialStep:none
+OPTS
+}
+
+run_lan() {
+    mkdir -p "$LAN_LOG_DIR" "$LAN_DIR"
+
+    command -v python3 >/dev/null 2>&1 || die "python3 is needed to launch an unmodified client"
+    [[ -f "$VANILLA" ]] || die "missing $VANILLA"
+
+    # Fetch/verify the client before anything else starts: a first run downloads ~25 MB, and doing
+    # it while two workers and two apps idle in the background would just make the logs confusing.
+    log "Preparing an unmodified Minecraft $LAN_VERSION (reusing ${NODERA_MC_DIR:-$HOME/.minecraft} where it can)"
+    python3 "$VANILLA" prepare --version "$LAN_VERSION" \
+        || die "could not prepare Minecraft $LAN_VERSION (see the messages above)"
+
+    start_service "nodera-tracker" "$TRACKER_BIN" "$LAN_LOG_DIR/tracker.log" \
+        "$TRACKER_PORT" --bind "0.0.0.0:$TRACKER_PORT" || true
+    start_service "nodera-rendezvous" "$RENDEZVOUS_BIN" "$LAN_LOG_DIR/rendezvous.log" \
+        "$RENDEZVOUS_PORT" --bind "0.0.0.0:$RENDEZVOUS_PORT" || true
+
+    start_lan_worker host   "$LAN_HOST_CONTROL" "$LAN_HOST_P2P" 1 || true
+    start_lan_worker joiner "$LAN_JOIN_CONTROL" "$LAN_JOIN_P2P" 1 || true
+
+    if [[ "$WITH_APP" -eq 1 ]]; then
+        warn_if_app_is_stale
+        # Two windows, one per player. Attach mode so neither spawns a worker, NODERA_APP_MULTI so
+        # the second launch opens rather than focusing the first — the single-instance guard is
+        # right for an end user and wrong for this.
+        start_app "$LAN_HOST_CONTROL" "Nodera — Player 1 (host, control $LAN_HOST_CONTROL)" \
+            "$LAN_LOG_DIR/app-host.log" "$LAN_LOG_DIR/worker-host.log" 1 || true
+        start_app "$LAN_JOIN_CONTROL" "Nodera — Player 2 (joiner, control $LAN_JOIN_CONTROL)" \
+            "$LAN_LOG_DIR/app-joiner.log" "$LAN_LOG_DIR/worker-joiner.log" 1 || true
+    else
+        warn "no companion apps (--with-app not given) — you can still drive both sides with:"
+        warn "  printf 'NODERA-LAN 2 LIST\\n'      | nc 127.0.0.1 $LAN_HOST_CONTROL"
+        warn "  printf 'NODERA-DIRECTORY 2 50\\n'  | nc 127.0.0.1 $LAN_JOIN_CONTROL"
+    fi
+
+    lan_seed_options "$LAN_DIR/host"
+    lan_seed_options "$LAN_DIR/joiner"
+    start_vanilla_client LanHost   "$LAN_DIR/host"   "$LAN_LOG_DIR/client-host.log"   || true
+    start_vanilla_client LanJoiner "$LAN_DIR/joiner" "$LAN_LOG_DIR/client-joiner.log" || true
+
+    log ""
+    log "LAN stack up — 2 unmodified clients · 2 workers · 1 tracker · 1 rendezvous"
+    log "  worker host    control 127.0.0.1:$LAN_HOST_CONTROL"
+    log "  worker joiner  control 127.0.0.1:$LAN_JOIN_CONTROL"
+    log ""
+    log "  Player 1 (LanHost):"
+    log "    1. Singleplayer → create or open a world"
+    log "    2. Esc → Open to LAN → Start LAN World"
+    log "    3. Player 1's Nodera window asks whether to share it → \"Share it\""
+    log ""
+    log "  Player 2 (LanJoiner):"
+    log "    4. Player 2's Nodera window → \"Join a world\" → the world appears → Join"
+    log "    5. Copy the 127.0.0.1:<port> it gives you"
+    log "    6. Minecraft → Multiplayer → Direct Connection → paste → Join Server"
+    log ""
+    log "  Either window can be the host — both workers watch, so whichever client you open to LAN,"
+    log "  that player's Nodera window is the one that asks."
+    log ""
+    log "  On ONE machine this exercises the pipeline, not the isolation: Minecraft's own Multiplayer"
+    log "  screen scans the same multicast group, so the other client will also list the world by"
+    log "  itself. Join through Nodera to test Nodera; a real cross-network run needs two machines."
+    log ""
+    log "  logs in $LAN_LOG_DIR; Ctrl-C stops the services (close the game windows yourself)"
+    wait
+}
+
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
@@ -566,6 +799,25 @@ play_start_app() { # app-dir control-port title app-log worker-log
 # exactly what the scripted suites run against — running this script's collect-into-build/ pass as
 # well would compile the same three things twice. The companion app is the exception: the launcher
 # knows nothing about it, so build it here.
+# LAN mode builds the services, the worker and (optionally) the app — and deliberately NOT the mod.
+# Building a mod that no client in this mode loads would be a minute of confusion for every run.
+if [[ "$LAN" -eq 1 ]]; then
+    if [[ "$DO_BUILD" -eq 1 ]]; then
+        build_rust
+        build_worker
+        mkdir -p "$BUILD_DIR"
+        install -m 0755 "$RUST_RELEASE/nodera-tracker"    "$TRACKER_BIN"
+        install -m 0755 "$RUST_RELEASE/nodera-rendezvous" "$RENDEZVOUS_BIN"
+        rm -rf "$WORKER_DIST"
+        cp -r "$WORKER_SRC_DIST" "$WORKER_DIST"
+        if [[ "$WITH_APP" -eq 1 ]]; then
+            build_app
+        fi
+    fi
+    run_lan
+    exit $?
+fi
+
 if [[ "$PLAY" -eq 1 ]]; then
     if [[ "$DO_BUILD" -eq 1 && "$WITH_APP" -eq 1 ]]; then
         build_app

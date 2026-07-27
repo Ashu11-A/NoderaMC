@@ -32,6 +32,9 @@ import java.util.Map;
  */
 public final class WorkerControlHandler implements ControlHandler {
 
+    private static final org.slf4j.Logger LOG =
+            org.slf4j.LoggerFactory.getLogger("NoderaWorker");
+
     private final String version;
     private final NodeIdentity identity;
     private final NodeCapabilities capabilities;
@@ -44,6 +47,32 @@ public final class WorkerControlHandler implements ControlHandler {
     private final dev.nodera.peer.discovery.PeerDiscoveryService discovery; // nullable
     private final ConfigSeams config; // nullable — no config plane wired
     private final WorldGrantGossipService grants; // nullable — no permission lane wired
+    /**
+     * The private keys of the worlds this node created, or {@code null} when this embedding keeps
+     * none. Without it a world can still be hosted and seeded; what is missing is the ability to
+     * <em>prove</em> who administers it, so the ownership verbs decline rather than improvise.
+     */
+    private final WorldKeyStore keys; // nullable — no world-key plane wired
+    /**
+     * The lanes that make an unmodified Minecraft usable on this network: LAN detection, the
+     * connection tunnel, and the discovery client a browser reads. {@code null} when this embedding
+     * has none, and every verb behind them then declines explicitly.
+     */
+    private final LiveLanes lanes; // nullable
+
+    /** The deletion lane; null until {@link #attachDeletion}, and then the only way to delete. */
+    private volatile WorldDeletionService deletion;
+    /**
+     * What this node announces to local clients, or {@code null} when it announces nothing.
+     *
+     * <p>Set after construction like the telemetry emitter: the bus is created before the services
+     * that publish to it, and threading it through five constructor overloads for one optional lane
+     * would cost more than it explains.
+     */
+    private volatile dev.nodera.peer.control.WorkerEventBus events;
+
+    /** Publishes this node's ownership claims to the mesh; {@code null} when no lane is wired. */
+    private volatile WorldOwnershipService ownership;
     /**
      * The node's single telemetry emitter, or {@code null} when this embedding has none — the
      * telemetry verb then declines with {@code NODERA-ERR unsupported}, so an app talking to a
@@ -97,6 +126,48 @@ public final class WorkerControlHandler implements ControlHandler {
                                 WorldArchiveService archive, PeerTrafficMeter peerMeter,
                                 dev.nodera.peer.discovery.PeerDiscoveryService discovery,
                                 ConfigSeams config, WorldGrantGossipService grants) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, archive, peerMeter,
+                discovery, config, grants, null);
+    }
+
+    /**
+     * Full constructor including the world-key plane — the half of world ownership that lives on
+     * this machine only.
+     *
+     * @param keys the store holding the private key of every world this node created, or
+     *             {@code null} when this embedding has none. A worker without it can host and seed
+     *             worlds but cannot mint an ownership claim or answer
+     *             {@link dev.nodera.peer.control.ControlProtocol#PROVE}; both decline explicitly
+     *             rather than reporting an authority that does not exist.
+     */
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive, PeerTrafficMeter peerMeter,
+                                dev.nodera.peer.discovery.PeerDiscoveryService discovery,
+                                ConfigSeams config, WorldGrantGossipService grants,
+                                WorldKeyStore keys) {
+        this(version, identity, capabilities, runtime, meter, hosting, validation, archive, peerMeter,
+                discovery, config, grants, keys, null);
+    }
+
+    /**
+     * Full constructor including the LAN/tunnel/discovery lanes.
+     *
+     * @param lanes the live-connection lanes, or {@code null} when this embedding has none — the
+     *              LAN, directory, connect and share-link verbs then decline rather than answering
+     *              emptily, because "no LAN lane on this machine" and "no worlds open" are different
+     *              things and only one of them is the user's fault.
+     */
+    public WorkerControlHandler(String version, NodeIdentity identity, NodeCapabilities capabilities,
+                                PeerRuntime runtime, TrafficMeter meter, WorldHostingService hosting,
+                                dev.nodera.peer.validation.WorkerValidationService validation,
+                                WorldArchiveService archive, PeerTrafficMeter peerMeter,
+                                dev.nodera.peer.discovery.PeerDiscoveryService discovery,
+                                ConfigSeams config, WorldGrantGossipService grants,
+                                WorldKeyStore keys, LiveLanes lanes) {
+        this.lanes = lanes;
+        this.keys = keys;
         this.grants = grants;
         this.config = config;
         this.version = version;
@@ -121,6 +192,32 @@ public final class WorkerControlHandler implements ControlHandler {
      */
     public void attachTelemetry(WorkerTelemetryService service) {
         this.telemetry = service;
+    }
+
+    /**
+     * Attach the lane that publishes this node's ownership claims to the mesh.
+     *
+     * <p>Set after construction for the same reason as the telemetry emitter: the service needs the
+     * runtime this handler already serves, and an ownership claim is minted here (in
+     * {@link #mintWorldIdentity}) but has to reach the peers that co-host the world.
+     */
+    public void attachOwnership(WorldOwnershipService service) {
+        this.ownership = service;
+    }
+
+    /** Attach the lane that applies and floods verified world deletions ({@code NODERA-DELETE}). */
+    public void attachDeletion(WorldDeletionService service) {
+        this.deletion = service;
+    }
+
+    /** Attach the event bus this worker announces on ({@code NODERA-EVENTS}). */
+    public void attachEvents(dev.nodera.peer.control.WorkerEventBus bus) {
+        this.events = bus;
+    }
+
+    @Override
+    public dev.nodera.peer.control.WorkerEventBus events() {
+        return events;
     }
 
     @Override
@@ -193,6 +290,13 @@ public final class WorkerControlHandler implements ControlHandler {
                     + ",\"pieces_held\":" + (report == null ? 0 : report.heldCount())
                     + ",\"seeders\":" + (report == null ? 0 : report.holders().size())
                     + ",\"seeding\":" + world.seeding()
+                    // Ownership. "seeding" says what this node DOES with the world; "owned" says
+                    // whether it may speak for it. They are independent: a node can host a world it
+                    // did not create (it fetched and re-shared it), and can administer a world it is
+                    // currently only seeding. The app renders them as two different lists, so
+                    // collapsing them into one flag here would make that impossible.
+                    + ",\"owned\":" + world.owned()
+                    + ",\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\""
                     + "}");
         }
 
@@ -235,12 +339,39 @@ public final class WorkerControlHandler implements ControlHandler {
                 // Inbound sockets turned away by the connection cap. A climbing value is the only
                 // signal that distinguishes "my cap is too low" from "nobody is connecting".
                 + "\"refused_connections\":" + refusedConnections() + ","
+                // The LAN block rides STATE so the companion app learns about a world being opened
+                // on the same push that carries everything else — a modal that needed its own poll
+                // would appear seconds after the player pressed the button.
+                + "\"lan\":" + lanBlock() + ","
                 + "\"daemon_up\":true,"
                 // The consent state travels with the metrics so the app and the mod both read one
                 // source of truth for it. A worker with no emitter reports "unanswered" rather than
                 // omitting the block — an absent field would be indistinguishable from a denial.
                 + "\"telemetry\":" + telemetryJson()
                 + "}";
+    }
+
+    /**
+     * The {@code lan} block of the state JSON.
+     *
+     * <p>{@code supported:false} is not the same as an empty session list, and both are reported:
+     * a machine whose network stack would not let the worker join the multicast group can never see
+     * a LAN world, and telling the user that is more useful than showing them an empty list forever.
+     */
+    private String lanBlock() {
+        String json = lanJson();
+        return json == null
+                ? "{\"supported\":false,\"reason\":\"" + escape(lanUnavailableReason())
+                        + "\",\"sessions\":[]}"
+                : json;
+    }
+
+    /** Why this worker is not watching for LAN worlds. Empty is not an answer, so there is a default. */
+    private String lanUnavailableReason() {
+        if (lanes != null && !lanes.lanUnavailable().isEmpty()) {
+            return lanes.lanUnavailable();
+        }
+        return "this worker was built or started without the LAN lane";
     }
 
     /** The {@code telemetry} block of the state JSON. */
@@ -587,9 +718,152 @@ public final class WorkerControlHandler implements ControlHandler {
         Bytes manifestRef = decodeBytes(manifestRefB64);
         WorldIdentity id = WorldIdentity.create(identity, genesisRoot, createdAtEpoch, shared, listed,
                 encrypted, manifestRef);
+        // Minting a world identity IS the moment of authorship — the derivation binds this node's
+        // public key into the world id, and no other node can produce the same one. So this is
+        // exactly where the world's own key pair is created: the peer that authored the world takes
+        // the private half, and the ownership claim binding the two is persisted and published.
+        //
+        // Doing it here rather than behind a separate verb means a node cannot be talked into
+        // claiming a world it did not author: there is no code path that mints a key for a world id
+        // that arrived from outside.
+        mintOwnership(id.worldId(), createdAtEpoch);
         CanonicalWriter w = new CanonicalWriter();
         id.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+    }
+
+    /**
+     * Create (or reuse) this world's key pair and record the ownership claim it supports.
+     *
+     * <p>Reuse matters: a world re-shared after a re-key, a restart or a reinstall must keep the
+     * same administrative key, or every peer that already learned the world's public key would see
+     * the world change hands.
+     *
+     * @param worldId        the world just authored.
+     * @param createdAtEpoch the world's creation time, so the claim and the identity agree.
+     */
+    private void mintOwnership(Bytes worldId, long createdAtEpoch) {
+        if (keys == null) {
+            return;
+        }
+        String hex = worldId.toHex();
+        try {
+            dev.nodera.storage.PersistedWorldKey worldKey = keys.loadOrGenerate(hex);
+            dev.nodera.storage.WorldOwnership claim =
+                    dev.nodera.storage.WorldOwnership.create(identity, worldKey, createdAtEpoch);
+            CanonicalWriter w = new CanonicalWriter();
+            claim.encode(w);
+            hosting.bindOwnership(hex, w.toBytes());
+            WorldOwnershipService lane = ownership;
+            if (lane != null) {
+                lane.publish(claim);
+            }
+        } catch (RuntimeException e) {
+            // A world that cannot be keyed is still a world: the identity is already signed and the
+            // save is usable. Losing the admin badge is a smaller failure than losing the share, so
+            // this is reported and not rethrown.
+            LOG.warn("Could not mint the administrator key for world {}: {}", hex, e.getMessage());
+        }
+    }
+
+    @Override
+    public String worldsJson() {
+        List<String> rows = new ArrayList<>();
+        for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
+            rows.add("{\"world_id\":\"" + escape(world.worldIdHex()) + "\","
+                    + "\"name\":\"" + escape(world.name()) + "\","
+                    + "\"role\":\"" + (world.seeding() ? "supported" : "shared") + "\","
+                    + "\"owned\":" + world.owned() + ","
+                    + "\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\","
+                    + "\"added_at\":" + world.addedAtEpochMillis() + ","
+                    + "\"updated_at\":" + world.updatedAtEpochMillis() + "}");
+        }
+        return "{\"worlds\":[" + String.join(",", rows) + "]}";
+    }
+
+    @Override
+    public String deleteWorld(String worldIdHex, String reasonB64) {
+        WorldDeletionService lane = deletion;
+        if (lane == null) {
+            return null; // no deletion lane at all — the dispatch says so rather than pretending
+        }
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            throw new IllegalArgumentException("missing worldId");
+        }
+        String hex = worldIdHex.trim().toLowerCase(java.util.Locale.ROOT);
+        if (lane.isDeleted(hex)) {
+            return "0"; // already deleted here; saying so beats minting a second tombstone
+        }
+        if (keys == null) {
+            throw new IllegalStateException("this worker administers no worlds");
+        }
+        // Authority is the world's private key and nothing else. No key, no deletion — not even for
+        // a world this node is currently hosting, because hosting somebody else's world must never
+        // become the power to destroy it.
+        dev.nodera.storage.PersistedWorldKey worldKey = keys.load(hex).orElseThrow(
+                () -> new IllegalStateException("this node does not administer that world"));
+        // The stored claim is preferred so the tombstone quotes the world's real founding date, but
+        // its absence is not a blocker: holding both keys is what a claim proves, and this node
+        // holds both, so it can restate it. Requiring the stored copy would mean a world could only
+        // be deleted while it was still being shared.
+        dev.nodera.storage.WorldOwnership claim = ownershipClaimFor(hex).orElseGet(
+                () -> dev.nodera.storage.WorldOwnership.create(identity, worldKey,
+                        System.currentTimeMillis()));
+        String reason = new String(decodeBytes(reasonB64).toArray(),
+                java.nio.charset.StandardCharsets.UTF_8);
+        dev.nodera.storage.WorldTombstone tombstone = dev.nodera.storage.WorldTombstone.create(
+                identity, worldKey, claim, reason, System.currentTimeMillis());
+        WorldDeletionService.Outcome outcome = lane.publish(tombstone);
+        if (outcome.error() != null) {
+            throw new IllegalStateException(outcome.error());
+        }
+        return Integer.toString(outcome.peersNotified());
+    }
+
+    /** The signed ownership claim this node already holds for a world, if it is still hosting it. */
+    private java.util.Optional<dev.nodera.storage.WorldOwnership> ownershipClaimFor(String hex) {
+        for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
+            if (world.worldIdHex().equalsIgnoreCase(hex) && world.owned()) {
+                return decodeOwnership(world.ownershipRecord());
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
+    private static java.util.Optional<dev.nodera.storage.WorldOwnership> decodeOwnership(
+            Bytes record) {
+        if (record == null || record.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        try {
+            return java.util.Optional.of(dev.nodera.storage.WorldOwnership.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(record)));
+        } catch (RuntimeException malformed) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    @Override
+    public String proveAdmin(String worldIdHex, String challengeB64) {
+        if (keys == null || worldIdHex == null || worldIdHex.isBlank()) {
+            return null;
+        }
+        Bytes challenge = decodeBytes(challengeB64);
+        if (challenge.isEmpty()) {
+            // Refused rather than signed: a proof over an empty challenge is the same bytes every
+            // time, so anyone who saw one could replay it forever.
+            throw new IllegalArgumentException("a proof needs a challenge");
+        }
+        return keys.load(worldIdHex.trim())
+                .map(worldKey -> {
+                    dev.nodera.storage.WorldAdminProof proof =
+                            dev.nodera.storage.WorldAdminProof.create(worldKey, identity.nodeId(),
+                                    challenge, System.currentTimeMillis());
+                    CanonicalWriter w = new CanonicalWriter();
+                    proof.encode(w);
+                    return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+                })
+                .orElse(null);
     }
 
     @Override
@@ -687,6 +961,184 @@ public final class WorkerControlHandler implements ControlHandler {
         reSigned.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray())
                 + " " + manifest.version().value();
+    }
+
+
+    // --- the live-connection lanes: LAN, tunnel, directory, share links -------------------------
+
+    /**
+     * The services behind the verbs that let an <b>unmodified</b> Minecraft use this network.
+     *
+     * <p>Bundled rather than passed individually because they only make sense together: LAN
+     * detection with no tunnel produces offers nobody can accept, and a tunnel with no discovery
+     * client produces sessions nobody can find. A embedding either has this lane or does not.
+     *
+     * @param lan        watches for worlds opened to LAN and holds the player's decision.
+     * @param tunnel     carries the connections.
+     * @param tracker    the discovery client a browser reads and a joiner resolves through.
+     * @param rendezvous the configured rendezvous routes, for minting share links.
+     * @param lanUnavailable why {@code lan} is absent, in words a person can act on — or empty when
+     *                       it is present. "Switched off" and "this machine's network stack would
+     *                       not let me listen" are different situations and only one of them is the
+     *                       user's to fix; a bare {@code supported:false} makes them identical.
+     * @Thread-context immutable holder; the services behind it are individually thread-safe.
+     */
+    public record LiveLanes(LanSessionService lan,
+                            dev.nodera.peer.tunnel.TunnelService tunnel,
+                            dev.nodera.peer.discovery.TrackerClient tracker,
+                            List<String> rendezvous,
+                            String lanUnavailable) {
+        public LiveLanes {
+            rendezvous = List.copyOf(rendezvous == null ? List.of() : rendezvous);
+            lanUnavailable = lanUnavailable == null ? "" : lanUnavailable;
+        }
+
+        /** Backwards-compatible constructor for an embedding with a working LAN lane. */
+        public LiveLanes(LanSessionService lan, dev.nodera.peer.tunnel.TunnelService tunnel,
+                         dev.nodera.peer.discovery.TrackerClient tracker, List<String> rendezvous) {
+            this(lan, tunnel, tracker, rendezvous, "");
+        }
+    }
+
+    @Override
+    public String lanJson() {
+        if (lanes == null || lanes.lan() == null) {
+            return null; // → "this worker cannot watch for LAN worlds"
+        }
+        List<String> rows = new ArrayList<>();
+        for (LanSessionService.Session session : lanes.lan().sessions()) {
+            rows.add("{\"session_id\":\"" + escape(session.sessionIdHex()) + "\","
+                    + "\"name\":\"" + escape(session.name()) + "\","
+                    + "\"port\":" + session.port() + ","
+                    + "\"state\":\"" + session.state().name().toLowerCase(java.util.Locale.ROOT) + "\","
+                    + "\"detected_at\":" + session.detectedAtEpochMillis() + "}");
+        }
+        return "{\"supported\":true,\"reason\":\"\",\"sessions\":[" + String.join(",", rows) + "]}";
+    }
+
+    @Override
+    public String lanAction(String action, int port) {
+        if (lanes == null || lanes.lan() == null) {
+            return "this worker cannot watch for LAN worlds";
+        }
+        return switch (action == null ? "" : action.toUpperCase(java.util.Locale.ROOT)) {
+            case "SHARE" -> lanes.lan().share(port);
+            case "DECLINE" -> lanes.lan().decline(port);
+            case "STOP" -> lanes.lan().stop(port);
+            default -> "unknown LAN action '" + action + "'";
+        };
+    }
+
+    @Override
+    public String directoryJson(int limit) {
+        if (lanes == null || lanes.tracker() == null) {
+            return null;
+        }
+        List<String> rows = new ArrayList<>();
+        for (var entry : lanes.tracker().catalog(limit)) {
+            String worldId = entry.genesisHash().toHex();
+            // A world this node is itself hosting is still listed: a player with two machines is a
+            // real case, and hiding your own worlds from the browser would look like a bug.
+            rows.add("{\"session_id\":\"" + escape(worldId) + "\","
+                    + "\"name\":\"" + escape(entry.worldName()) + "\","
+                    + "\"players\":" + entry.worldPlayerCount() + ","
+                    + "\"pieces\":" + entry.storedChunks() + ","
+                    + "\"health\":\"" + entry.health().name().toLowerCase(java.util.Locale.ROOT) + "\","
+                    + "\"mine\":" + hosting.hostedWorlds().stream()
+                            .anyMatch(w -> w.worldIdHex().equalsIgnoreCase(worldId))
+                    + "}");
+        }
+        return "{\"worlds\":[" + String.join(",", rows) + "]}";
+    }
+
+    @Override
+    public String connectSession(String sessionIdHex) {
+        if (lanes == null || lanes.tunnel() == null || lanes.tracker() == null) {
+            return null;
+        }
+        if (sessionIdHex == null || sessionIdHex.isBlank()) {
+            throw new IllegalArgumentException("missing session id");
+        }
+        String session = sessionIdHex.trim();
+        Bytes worldId;
+        try {
+            worldId = Bytes.fromHex(session);
+        } catch (RuntimeException malformed) {
+            throw new IllegalArgumentException("malformed session id");
+        }
+        // Resolve who is hosting it. The tracker's routes answer is per-peer, and a peer publishes
+        // both its P2P route and (for a LAN session) an "mc/" claim — only the former can be dialled
+        // by this node's transport, so the mc/ claims are filtered out rather than tried and failed.
+        dev.nodera.transport.PeerAddress host = null;
+        for (var peer : lanes.tracker().routes(worldId).peers()) {
+            if (peer.peer().equals(runtime.nodeId())) {
+                continue; // ourselves: tunnelling to our own loopback would be a loop, not a join
+            }
+            for (String route : peer.routes()) {
+                if (route != null && !route.isBlank()
+                        && !route.startsWith(WorldHostingService.MC_ROUTE_PREFIX)) {
+                    host = dev.nodera.transport.PeerAddress.of(peer.peer(), route);
+                    break;
+                }
+            }
+            if (host != null) {
+                break;
+            }
+        }
+        if (host == null) {
+            throw new IllegalStateException(
+                    "nobody reachable is hosting that world right now");
+        }
+        try {
+            return lanes.tunnel().open(session, host).address();
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("could not open a local port: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String disconnectSession(String sessionIdHex) {
+        if (lanes == null || lanes.tunnel() == null) {
+            return "this worker cannot tunnel connections";
+        }
+        return lanes.tunnel().closeLocal(sessionIdHex) ? null : "not connected to that world";
+    }
+
+    @Override
+    public String shareLink(String worldIdHex) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return null;
+        }
+        String id = worldIdHex.trim();
+        WorldHostingService.HostedWorld world = hosting.hostedWorlds().stream()
+                .filter(w -> w.worldIdHex().equalsIgnoreCase(id))
+                .findFirst()
+                .orElse(null);
+        if (world == null) {
+            return null; // → "this node does not know that world"
+        }
+        List<String> trackers = new ArrayList<>();
+        if (lanes != null && lanes.tracker() != null) {
+            for (var endpoint : lanes.tracker().endpoints()) {
+                trackers.add(endpoint.toString());
+            }
+        }
+        // A LAN session is an invitation to a live connection; a hosted world is an invitation to
+        // content. The link says which, because they behave completely differently on arrival: one
+        // is joinable only while the host's game is open, the other survives it.
+        boolean lan = lanes != null && lanes.lan() != null
+                && lanes.lan().byId(id).isPresent();
+        dev.nodera.storage.WorldShareLink link = new dev.nodera.storage.WorldShareLink(
+                Bytes.fromHex(id),
+                world.name(),
+                lan ? dev.nodera.storage.WorldShareLink.KIND_LAN
+                        : dev.nodera.storage.WorldShareLink.KIND_WORLD,
+                trackers,
+                lanes == null ? List.of() : lanes.rendezvous(),
+                world.worldPublicKey(),
+                identity.nodeId().value().toString(),
+                System.currentTimeMillis());
+        return link.toUri();
     }
 
     // --- NODERA-CONFIG: the settings screen's other end ---------------------------------------
@@ -1093,6 +1545,12 @@ public final class WorkerControlHandler implements ControlHandler {
 
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    /** Base64 for a JSON string field; empty bytes render as {@code ""}, never as a placeholder. */
+    private static String base64(Bytes bytes) {
+        return bytes == null || bytes.isEmpty()
+                ? "" : Base64.getEncoder().encodeToString(bytes.toArray());
     }
 
     /** Minimal JSON string escaping for the hand-written state payload. */

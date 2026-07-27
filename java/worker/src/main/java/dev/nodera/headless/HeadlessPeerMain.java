@@ -139,8 +139,25 @@ public final class HeadlessPeerMain {
                     + "oldest cold content evicted first", contentBudget);
         }
 
+        // What this peer keeps on the network, and which of it this peer administers.
+        //
+        // Both are on disk, and both are read BEFORE the hosting service is built, because the
+        // hosting service restores itself from the registry at construction. Without this the
+        // worker forgot every hosted and seeded world on every restart: it stopped announcing them,
+        // stopped advertising the pieces it still held, and reported an empty world list to the
+        // companion app — the app looked broken and the worker was the one that had lost the state.
+        Path stateDir = Path.of(env("NODERA_STATE_DIR", System.getProperty("user.home") + "/.nodera"));
+        WorldRegistryStore worldRegistry =
+                new WorldRegistryStore(Path.of(env("NODERA_WORLDS_FILE",
+                        stateDir.resolve("worlds.dat").toString())));
+        // The private key of every world this player created. Its presence is what makes this node
+        // that world's provable administrator; it is generated locally and never accepted from the
+        // network.
+        WorldKeyStore worldKeys = new WorldKeyStore(Path.of(env("NODERA_WORLD_KEYS_DIR",
+                stateDir.resolve("world-keys").toString())));
+
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
-                tracker, rendezvousEndpoints, archive::holdingsFor);
+                tracker, rendezvousEndpoints, archive::holdingsFor, worldRegistry);
 
         // The validation lane (L-48/L-30): this worker re-executes region batches out-of-game
         // with THE engine and participates in committee quorum over the same PeerTransport its
@@ -184,12 +201,49 @@ public final class HeadlessPeerMain {
         WorldGrantGossipService grants = new WorldGrantGossipService(
                 identity.nodeId(), metered, () -> runtime.sessionView().members());
 
-        // One application lane, three consumers: validation, archive/content, and permissions.
-        // Each ignores message types it does not own.
+        // The connection tunnel: what carries an unmodified player's game traffic to somebody
+        // else's "Open to LAN" world. It moves the connection, never the world — no save is copied
+        // and no chunk is replicated, which is exactly why a vanilla client can use it at all.
+        dev.nodera.peer.tunnel.TunnelService tunnel =
+                new dev.nodera.peer.tunnel.TunnelService(identity.nodeId(), metered);
+
+        // The ownership lane: which peer administers each world this node serves. A supporter holds
+        // a world's bytes and, without this, nothing about the authority behind them — so it could
+        // neither show a player who runs the world nor tell an administrative claim from an
+        // assertion. Every claim is verified locally against both its signatures; nothing here is
+        // trusted because it was relayed.
+        WorldOwnershipService ownership = new WorldOwnershipService(
+                identity.nodeId(), metered, () -> runtime.sessionView().members());
+
+        // The deletion lane: the owner of a world can ask the network to forget it, and every peer
+        // decides for itself whether the request is really the owner's. Built before the message
+        // lane is bound so no deletion can arrive while nothing is listening for it, and given the
+        // hosting service as its admission gate so a deleted world cannot come back through the
+        // ordinary host/seed paths.
+        WorldDeletionService deletions = new WorldDeletionService(
+                identity.nodeId(), metered, () -> runtime.sessionView().members(),
+                hosting, worldRegistry, archive, tunnel, null);
+        deletions.attachStore(new WorldTombstoneStore(
+                Path.of(env("NODERA_TOMBSTONE_DIR", stateDir.resolve("deleted").toString()))));
+        deletions.attachTrackers(tracker);
+        hosting.refuseDeletedWorlds(deletions::isDeleted);
+        // Worlds deleted while this node was down are undone here rather than left announced: the
+        // registry restored them at construction, before the tombstones were read back.
+        for (dev.nodera.storage.WorldTombstone tombstone : deletions.tombstones()) {
+            hosting.stop(tombstone.worldIdHex());
+            worldRegistry.remove(tombstone.worldIdHex());
+            archive.forget(tombstone.worldIdHex());
+        }
+
+        // One application lane, five consumers: validation, archive/content, permissions,
+        // ownership and deletion. Each ignores message types it does not own.
         runtime.onApplicationMessage((from, msg) -> {
             validation.onMessage(from, msg);
             archive.onMessage(from, msg);
             grants.onMessage(from, msg);
+            ownership.onMessage(from, msg);
+            tunnel.onMessage(from, msg);
+            deletions.onMessage(from, msg);
         });
 
         // Peer discovery (the plane that was built but never asked): on a cadence, ask every
@@ -223,6 +277,40 @@ public final class HeadlessPeerMain {
                         WorldReplicationService.DEFAULT_SWEEP_SECONDS));
         replication.start();
 
+        // What this node tells local clients about things that HAPPEN, as opposed to what is true
+        // of it. The companion app's "you opened a world to LAN — share it?" prompt hangs off this:
+        // a client that had to notice that by diffing state snapshots would need to have been
+        // connected at the moment the player pressed the button, which is a coin toss.
+        dev.nodera.peer.control.WorkerEventBus events =
+                new dev.nodera.peer.control.WorkerEventBus();
+
+        // LAN detection. Optional by construction: a machine whose network stack will not let us
+        // join the multicast group (a locked-down container, a VPN-only interface) still runs a
+        // perfectly good peer — it just cannot notice a world being opened to LAN, and the control
+        // verbs say so rather than reporting an empty list forever.
+        LanSessionService lan = null;
+        String lanUnavailable = "";
+        if (envBool("NODERA_LAN_WATCH", true)) {
+            try {
+                lan = new LanSessionService(identity.nodeId(), tunnel, hosting, events);
+                lan.start();
+            } catch (java.io.IOException noMulticast) {
+                lanUnavailable = "this machine's network stack would not let the worker listen for "
+                        + "Minecraft's LAN announcements: " + noMulticast.getMessage();
+                LOG.warn("Not watching for LAN worlds: {}", noMulticast.getMessage());
+            }
+        } else {
+            // Switched off deliberately. Reported as such, because "off" and "broken" are different
+            // situations and only one of them is the user's to fix.
+            lanUnavailable = "LAN detection is switched off for this worker (NODERA_LAN_WATCH=0)";
+            LOG.info("LAN detection disabled by NODERA_LAN_WATCH");
+        }
+        final LanSessionService lanSessions = lan;
+        List<String> rendezvousRoutes = new ArrayList<>();
+        for (RendezvousEndpoint endpoint : rendezvousEndpoints) {
+            rendezvousRoutes.add(endpoint.host() + ":" + endpoint.port());
+        }
+
         // The seams a NODERA-CONFIG push may re-bound. Passing the real services (not a copy of
         // their values) is what makes a setting change what this node does, with no second copy of
         // the configuration to drift out of sync.
@@ -231,7 +319,18 @@ public final class HeadlessPeerMain {
                 peerMeter, discovery,
                 new WorkerControlHandler.ConfigSeams(
                         archive.content(), replication, transport, tracker, contentStore),
-                grants);
+                grants, worldKeys,
+                new WorkerControlHandler.LiveLanes(lan, tunnel, tracker, rendezvousRoutes,
+                        lanUnavailable));
+        handler.attachOwnership(ownership);
+        handler.attachEvents(events);
+        handler.attachDeletion(deletions);
+        deletions.attachEvents(events);
+        // Claims already on disk are republished once at startup: a peer that was offline while a
+        // world's owner was online would otherwise never learn who administers it.
+        for (dev.nodera.storage.WorldRegistry.Entry world : worldRegistry.entries()) {
+            world.ownership().ifPresent(ownership::publish);
+        }
         // Telemetry: OFF unless an endpoint is configured, and silent until somebody consents.
         // Two independent gates, deliberately: an operator who sets an endpoint has decided WHERE
         // reports would go, not that any may be collected — only the person answering the app's
@@ -280,6 +379,10 @@ public final class HeadlessPeerMain {
                     .flag("clean", true)
                     .build());
             telemetry.close();
+            if (lanSessions != null) {
+                lanSessions.close();
+            }
+            tunnel.close();
             discovery.close();
             replication.close();
             hosting.close();
@@ -323,14 +426,45 @@ public final class HeadlessPeerMain {
                 dev.nodera.diagnostics.model.HealthStat.healthy());
     }
 
+    /** A boolean switch from the environment; anything but an explicit off keeps the default. */
+    /**
+     * One setting, from the environment or from a system property of the same name.
+     *
+     * <p>The environment wins, because that is how this worker has always been configured and how
+     * every script and CI job still configures it. The system-property fallback exists for
+     * <b>Android</b>, where the worker runs inside the companion app's own process: a process cannot
+     * set environment variables for itself, so without this the phone's worker would be permanently
+     * stuck on its compiled-in defaults — wrong archive directory, wrong trackers, and no way to
+     * say otherwise.
+     *
+     * @param key the {@code NODERA_*} name.
+     * @return the configured value, or null when neither source has one.
+     */
+    private static String setting(String key) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            value = System.getProperty(key);
+        }
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static boolean envBool(String key, boolean fallback) {
+        String v = setting(key);
+        if (v == null) {
+            return fallback;
+        }
+        String value = v.trim().toLowerCase(java.util.Locale.ROOT);
+        return !(value.equals("0") || value.equals("false") || value.equals("no"));
+    }
+
     private static String env(String key, String fallback) {
-        String v = System.getenv(key);
-        return v == null || v.isBlank() ? fallback : v;
+        String v = setting(key);
+        return v == null ? fallback : v;
     }
 
     private static long envLong(String key, long fallback) {
-        String v = System.getenv(key);
-        if (v == null || v.isBlank()) {
+        String v = setting(key);
+        if (v == null) {
             return fallback;
         }
         try {
