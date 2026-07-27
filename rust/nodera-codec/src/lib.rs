@@ -18,6 +18,7 @@ pub mod reader;
 pub mod rendezvous;
 pub mod sig;
 pub mod tags;
+pub mod tombstone;
 pub mod types;
 pub mod writer;
 

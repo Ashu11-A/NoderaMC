@@ -165,6 +165,36 @@ public final class TypeTags {
     /** One command from the deterministic command subset (Task 16 / L-14). */
     public static final int COMMAND_ACTION = 108;
 
+    /**
+     * {@code WorldOwnership} — a world's own public key bound to the peer that created it, signed by
+     * both halves. The record the network reads to answer "who administers this world".
+     */
+    public static final int WORLD_OWNERSHIP = 109;
+
+    /**
+     * {@code PersistedWorldKey} — the world signing key's on-disk form. <b>Secret material</b>: it
+     * exists only on the creating peer's machine and is never a network message.
+     */
+    public static final int WORLD_KEY_SECRET = 110;
+
+    /** {@code WorldAdminProof} — a challenge signed by a world's private key (proof of authority). */
+    public static final int WORLD_ADMIN_PROOF = 111;
+
+    /** {@code WorldRegistry} — the worlds a peer shares or supports, as persisted by the worker. */
+    public static final int WORLD_REGISTRY = 112;
+
+    /**
+     * {@code WorldShareLink} — an invitation to one world: its id, where to look for it, and who
+     * administers it. The file form of what a magnet link carries as text. No content, no secret.
+     */
+    public static final int WORLD_SHARE_LINK = 113;
+
+    /**
+     * {@code WorldTombstone} — the owner's signed request that the network forget a world, carrying
+     * its own ownership claim so any receiver can verify it without prior knowledge.
+     */
+    public static final int WORLD_TOMBSTONE = 114;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 108;
+    public static final int NEXT = 114;
 }

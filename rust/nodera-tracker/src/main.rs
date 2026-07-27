@@ -18,6 +18,7 @@
 
 mod announce;
 mod config;
+mod deletion;
 mod health;
 mod limits;
 mod query;

@@ -227,6 +227,18 @@ impl Registry {
     /// Worlds that end up empty are kept only if a host registered metadata for them — an empty
     /// named world still answers queries (with a countdown), which is exactly what the UI needs
     /// while a host reboots.
+    /// Forget a world entirely — every peer, every seeder, and its display metadata.
+    ///
+    /// Used when a world's owner has proved it should be deleted. Unlike [`Self::sweep`] this is
+    /// not a retention decision, so nothing is kept: leaving the name or the peer list behind would
+    /// keep the world visible in the directory it was deleted from.
+    ///
+    /// # Returns
+    /// Whether the world was listed here at all.
+    pub fn remove_world(&mut self, genesis_hash: &[u8]) -> bool {
+        self.swarms.remove(genesis_hash).is_some()
+    }
+
     pub fn sweep(&mut self, now_millis: u64, ttl_millis: u64) -> usize {
         let mut removed = 0;
         for swarm in self.swarms.values_mut() {

@@ -118,7 +118,15 @@ final class TypeTagsTest {
         assertThat(TypeTags.MOVE_PLAYER_ACTION).isEqualTo(106);
         assertThat(TypeTags.WORLD_PERMISSION_SET).isEqualTo(107);
         assertThat(TypeTags.COMMAND_ACTION).isEqualTo(108);
-        assertThat(TypeTags.NEXT).isEqualTo(108);
+        // world ownership: a world's own key pair, the claim that binds it to its creator, the
+        // challenge proof signed with it, and the peer's persisted list of worlds.
+        assertThat(TypeTags.WORLD_OWNERSHIP).isEqualTo(109);
+        assertThat(TypeTags.WORLD_KEY_SECRET).isEqualTo(110);
+        assertThat(TypeTags.WORLD_ADMIN_PROOF).isEqualTo(111);
+        assertThat(TypeTags.WORLD_REGISTRY).isEqualTo(112);
+        assertThat(TypeTags.WORLD_SHARE_LINK).isEqualTo(113);
+        assertThat(TypeTags.WORLD_TOMBSTONE).isEqualTo(114);
+        assertThat(TypeTags.NEXT).isEqualTo(114);
     }
 
     @Test

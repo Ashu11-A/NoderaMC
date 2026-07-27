@@ -125,7 +125,14 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_GENESIS_APPROVAL_GRANT).isEqualTo(59);
         assertThat(MessageCodec.TAG_WORLD_GRANT_GOSSIP).isEqualTo(60);
         assertThat(MessageCodec.TAG_REGION_REFUSAL).isEqualTo(61);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(61);
+        // World ownership travels the same application lane the permission grants do.
+        assertThat(MessageCodec.TAG_WORLD_OWNERSHIP_GOSSIP).isEqualTo(62);
+        // The LAN-tunnel family — a guest's game client reaching a host's LAN world.
+        assertThat(MessageCodec.TAG_TUNNEL_OPEN).isEqualTo(63);
+        assertThat(MessageCodec.TAG_TUNNEL_DATA).isEqualTo(64);
+        assertThat(MessageCodec.TAG_TUNNEL_CLOSE).isEqualTo(65);
+        assertThat(MessageCodec.TAG_WORLD_DELETION_GOSSIP).isEqualTo(66);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(66);
     }
 
     @Test
