@@ -40,7 +40,9 @@
       },
       "mobile": [
         {
-          "scheme": "nodera",
+          "scheme": [
+            "nodera"
+          ],
           "host": "tracker-store"
         }
       ]
