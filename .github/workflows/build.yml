@@ -61,7 +61,7 @@ jobs:
       - name: Gate both ways (worker present => start, absent => actionable abort)
         run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
-        run: ./gradlew :peer:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
+        run: ./gradlew :worker:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
 
   rust:
     runs-on: ubuntu-latest

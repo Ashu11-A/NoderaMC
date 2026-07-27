@@ -429,7 +429,11 @@ public final class WorldHostingService implements AutoCloseable {
     /** Write one world through to the persisted registry (no-op without one). */
     private void record(HostedWorld world) {
         if (registry != null) {
-            registry.put(world.worldIdHex, world.name, world.seeding, world.ownershipRecord);
+            dev.nodera.storage.WorldRegistry.Entry row =
+                    registry.put(world.worldIdHex, world.name, world.seeding, world.ownershipRecord);
+            // Adopt the stored date rather than the one this object minted: the row is what a
+            // restart reads back, so it is the only value that can be reported twice and agree.
+            world.addedAtEpochMillis = row.addedAtEpochMillis();
         }
     }
 
@@ -613,8 +617,16 @@ public final class WorldHostingService implements AutoCloseable {
         volatile String mcRoute;
         /** Players currently online in-world, as last reported by the mod. */
         volatile long players;
-        /** When this world first entered the Nodera network from this node (the "Date added"). */
-        final long addedAtEpochMillis;
+        /**
+         * When this world first entered the Nodera network from this node (the "Date added").
+         *
+         * <p>Not final: the persisted row is the authority. A fresh {@code HostedWorld} stamps a
+         * provisional value, and {@link WorldHostingService#record} replaces it with whatever the
+         * registry stored — otherwise the live object and the file disagree by however many
+         * milliseconds elapsed between the two clock reads, and the date visibly moves at the next
+         * restart.
+         */
+        volatile long addedAtEpochMillis;
         /** When this world's content last changed here — bumped by every seed (the "Last updated"). */
         volatile long updatedAtEpochMillis;
         /** {@code true} when this node only holds the world's bytes; {@code false} when it hosts it. */
