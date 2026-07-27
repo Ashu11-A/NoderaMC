@@ -322,7 +322,8 @@ public final class ControlServer implements AutoCloseable {
             if (ControlProtocol.GRANT.equals(verb)) {
                 // NODERA-GRANT <ver> <worldIdHex> <subjectNodeId> <subjectPubKeyB64> <role> <grantVer>
                 String grant = handler.grantRole(arg(parts, 2), arg(parts, 3), arg(parts, 4),
-                        (int) parseLong(arg(parts, 5)), parseLong(arg(parts, 6)));
+                        parseInt(arg(parts, 5), 0, Integer.MAX_VALUE),
+                        parseLong(arg(parts, 6)));
                 return grant == null ? err("cannot mint grant") : ControlProtocol.OK + " " + grant;
             }
             if (ControlProtocol.REKEY.equals(verb)) {
@@ -339,12 +340,12 @@ public final class ControlServer implements AutoCloseable {
                     String lan = handler.lanJson();
                     return lan == null ? err("this worker cannot watch for LAN worlds") : lan;
                 }
-                return ackOrErr(handler.lanAction(action, (int) parseLong(arg(parts, 3))));
+                return ackOrErr(handler.lanAction(action, parseInt(arg(parts, 3), 0, 65535)));
             }
             if (ControlProtocol.DIRECTORY.equals(verb)) {
                 // NODERA-DIRECTORY <ver> [limit]
-                long limit = parseLong(arg(parts, 2));
-                String directory = handler.directoryJson(limit <= 0 ? 50 : (int) limit);
+                int limit = parseInt(arg(parts, 2), 0, 500);
+                String directory = handler.directoryJson(limit <= 0 ? 50 : limit);
                 return directory == null ? err("no discovery lane") : directory;
             }
             if (ControlProtocol.CONNECT.equals(verb)) {
@@ -422,6 +423,18 @@ public final class ControlServer implements AutoCloseable {
 
     private static String arg(String[] parts, int i) {
         return i < parts.length ? parts[i] : "";
+    }
+
+    /**
+     * A control argument as an int, clamped into {@code [lo, hi]}.
+     *
+     * <p>Narrowing a caller-supplied long with a cast is a truncation bug waiting to happen — a
+     * limit of 4294967296 becomes 0, and a port of 65536 becomes 0 — so every int-valued verb
+     * argument states the range it accepts instead.
+     */
+    private static int parseInt(String s, int lo, int hi) {
+        long value = parseLong(s);
+        return (int) Math.max(lo, Math.min(hi, value));
     }
 
     private static long parseLong(String s) {
