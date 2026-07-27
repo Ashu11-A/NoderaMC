@@ -79,6 +79,7 @@ here.
 | [6](Task.6.md) | World identity + permissions (mod half) | 🚧 IN PROGRESS |
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) |
+| [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and the live suites:
 [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
@@ -93,7 +94,8 @@ Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and the live suites:
 | `COMPATIBILITY.md` (repo root) | The normative mod-compatibility contract |
 | [`RESEARCH.md`](RESEARCH.md) | The origin research: what exists, what does not, and why this design |
 | [`folia/`](folia/) · [`MultiPaper/`](MultiPaper/) | Prior-art studies: regionised ticking, thread-context guards, ownership takeover, write barriers, chunk sync |
-| [`upstream/`](upstream/) | The upstream sources those studies were derived from |
+| [`spark/`](spark/) | The spark profiler (lucko): how it works, how per-mod attribution is computed, and how Nodera drives it in test runs |
+| [`upstream/`](upstream/) | The upstream sources those studies were derived from — pinned submodules, see `.gitmodules` |
 
 Package architecture: [`java/neoforge-mod/README.md`](../../java/neoforge-mod/README.md),
 [`java/build-logic/README.md`](../../java/build-logic/README.md).

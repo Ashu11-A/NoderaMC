@@ -100,6 +100,13 @@ verb; nothing password-shaped is logged or serialized.
 4. ✅ Configuration results are honest per key.
 5. ✅ No secret material is logged or serialized.
 
+## Streaming
+
+`NODERA-WATCH` (app task 6) is the one verb that inverts this protocol: the worker holds the
+connection and writes a `STATE` line whenever its own state changes, plus a keepalive every 10 s so
+a reader can tell a quiet node from a dead socket. Everything else here stays one request, one reply,
+one connection. See [`../app/Task.6.md`](../app/Task.6.md) for why the dashboard needed it.
+
 ## Limitations
 
 None owned. **L-56** (two connection settings that cannot be honoured as specified) is owned by

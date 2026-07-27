@@ -61,6 +61,35 @@ is present — so a local run and a CI run execute the same code path.
 | `e2e-folia.sh` | Two Folia regions ticking and committing **concurrently**; ALIGN-1 holding live; **zero** thread-context violations across the whole run | ~10 min |
 | `e2e-plugins.sh` | The pinned plugin corpus loads; a WorldEdit `//set` in a delegated region is **certified**, not suppressed and not silently reverted; the log audit is clean | ~8 min |
 
+### 1.2.1 Profiling a server suite
+
+Paper 1.21+ **bundles the spark profiler** — verified in this repository: booting
+`run/servers/paper.jar` resolves `me/lucko/spark-paper` into `<stage>/libraries/` and creates
+`plugins/spark/`. So on Paper there is **no plugin jar to install**; the harness writes
+`plugins/spark/config.json` and drives the profiler over the existing RCON helper.
+
+**Folia cannot currently be profiled.** It bundles spark and then refuses to enable it, and the
+community `spark-folia` build targets a newer Folia than our pinned 1.21.4. The profiling stage
+skips and names the reason — details in
+[12 — Nodera on Paper & Folia](../minecraft/spark/12-nodera-paper-folia.md).
+
+```bash
+NODERA_SPARK=1 scripts/e2e-endpoint.sh    # profile this suite
+scripts/e2e-profile.sh                    # stages R2 (Paper) and R3 (Folia)
+```
+
+Attribution on Bukkit is **exact** — spark reflects the plugin out of its classloader, so our
+source name is `NoderaEndpoint` and the shaded `core` classes attribute to it as well.
+
+Two platform facts that shaped the integration, both observed rather than inferred: spark's replies
+**never come back over RCON** (it answers asynchronously, after the exchange has closed), and a
+capture taken with no `--thread` flag contained **zero threads** on Paper 1.21.1-133. On Folia
+`--thread *` is doubly required — there is no main thread, and profiling one region thread would
+profile a thread that does almost nothing.
+
+Full documentation: [`../minecraft/spark/`](../minecraft/spark/), and in particular
+[12 — Nodera on Paper & Folia](../minecraft/spark/12-nodera-paper-folia.md).
+
 ## 1.3 `e2e-endpoint.sh` — stages
 
 | Stage | Assertion | Blocked by |
