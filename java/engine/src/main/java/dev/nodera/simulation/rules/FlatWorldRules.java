@@ -51,7 +51,7 @@ import java.util.Optional;
 public final class FlatWorldRules implements RuleSet {
 
     /** Rules-version: bumped whenever this rule set's semantics change. Mixed-version committees must refuse. */
-    public static final int RULES_VERSION = 6;
+    public static final int RULES_VERSION = 7;
 
     /** Palette id for air. */
     public static final int AIR = 0;

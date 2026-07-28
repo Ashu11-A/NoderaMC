@@ -29,7 +29,7 @@ all deterministic, all in the state root.
 | Observer + quasi-connectivity | ✅ RETIRED (L-5) |
 | Daylight sensor (`committedWorldTime` context) | ✅ RETIRED (L-6) |
 | Random ticks | 🚧 RETIRING (L-1) — engine-owned selection landed; live suppression mixin + farm soak remain |
-| Fluids | 🚧 RETIRING (L-2) — finite deterministic automaton landed; cross-region spread + interactions remain |
+| Fluids | 🚧 RETIRING (L-2) — finite automaton, interactions, and dense-halo border seeding landed; certified halo delivery + live evidence remain |
 
 **Random ticks (L-1).** `RandomTickRules` runs on the engine tick hook with vanilla-shaped selection:
 three draws per eligible 16³ section per tick from the per-tick `DeterministicRandom`, canonical
@@ -48,8 +48,15 @@ falling first, so a hanging column never pyramids; horizontal contribution requi
 *sit on solid*; support loss decays flows to air, so breaking the source drains the network. Vanilla
 cadence (water 5, lava 30) and reach (water 7, lava 3); water outcompetes lava deterministically;
 fluids do not block pistons (the push destroys them); spread across a border emits
-`BorderSignal.Kind.FLUID` — **no halo writes**. Remaining: cross-region spread consumption, fluid
-interactions (obsidian/cobblestone), live evidence.
+`BorderSignal.Kind.FLUID` — **no halo writes**. A backed halo scans the complete ownership-facing
+16×16 face for either representation, skips diagonal columns, and indexes scheduled positions once.
+At the standard 8×8×24 shape, dense work is bounded at 4×8×24×256 = 196,608 candidates instead of
+36×24×1,024 = 884,736 four-face probes. Cadence comes from `desiredAt`'s winning fluid, not whichever
+source was visited first. `CrossRegionFluidTest` proves blocked uniform targets do not hide open
+cells, dense scans remain side-only, mixed water/lava uses water cadence, and the off-corner dense
+case schedules the exact same tick and root on two replicas. `RULES_VERSION` stays at the issue's
+6→7 increment; the palette remains `palette.v6`. Remaining: certified halo delivery and live
+evidence tracked by L-2. L-51 is RETIRED.
 
 ## Dependencies
 
@@ -113,6 +120,9 @@ skip is free.
 - `FluidRulesTest` (6, full engine path) — level-per-hop and finite reach with replica-identical
   roots; source-break drain; fall-before-spread and pooling; lava reach 3; mint protection; border
   signal.
+- `CrossRegionFluidTest` (9) — complete uniform-face behavior, bounded ownership-facing dense scans,
+  diagonal rejection, winning-fluid cadence, receiver authority, halo-root input, and exact
+  two-replica dense-section off-corner seeding.
 - `LightFieldTest`, `GravityFireRulesTest`, `ObserverQcTest`, `DaylightSensorTest`.
 - Pending: farm soak with the live suppression counter at zero; cross-region fluid spread.
 
@@ -129,4 +139,4 @@ skip is free.
 
 - **L-1** — random ticks (RETIRING).
 - **L-2** — fluids (RETIRING).
-- L-3, L-4, L-5, L-6 — RETIRED, see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+- L-3, L-4, L-5, L-6, L-51 — RETIRED, see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

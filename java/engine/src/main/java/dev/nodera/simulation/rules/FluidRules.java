@@ -1,9 +1,14 @@
 package dev.nodera.simulation.rules;
 
+import dev.nodera.core.region.RegionBounds;
+import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.simulation.DeterministicRandom;
 import dev.nodera.simulation.MutableRegionState;
 import dev.nodera.simulation.border.BorderSignal;
+
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * The Task 14 finite fluid lane (L-2): water and lava spread as a deterministic PER-CELL
@@ -37,6 +42,33 @@ public final class FluidRules {
     public static final int WATER_MAX_FLOW = 7;
     /** Maximum lava flow level (3 — lava dies out faster). */
     public static final int LAVA_MAX_FLOW = 3;
+
+    private enum BoundaryFace {
+        EAST(15, -1, 1, 0),
+        WEST(0, -1, -1, 0),
+        SOUTH(-1, 15, 0, 1),
+        NORTH(-1, 0, 0, -1);
+
+        private final int fixedX;
+        private final int fixedZ;
+        private final int stepX;
+        private final int stepZ;
+
+        BoundaryFace(int fixedX, int fixedZ, int stepX, int stepZ) {
+            this.fixedX = fixedX;
+            this.fixedZ = fixedZ;
+            this.stepX = stepX;
+            this.stepZ = stepZ;
+        }
+
+        int localX(int offset) {
+            return fixedX >= 0 ? fixedX : offset;
+        }
+
+        int localZ(int offset) {
+            return fixedZ >= 0 ? fixedZ : offset;
+        }
+    }
 
     private FluidRules() {
     }
@@ -205,9 +237,11 @@ public final class FluidRules {
      * cell then decides for itself through {@link #desiredAt}, exactly as an interior cell does, so
      * a neighbour can cause a look but never dictate a result.
      *
-     * <p>Walking the halo rather than the boundary is deliberate: the halo is a few dozen columns
-     * and the owned boundary is ~200k cells, and an empty halo — every single-region path, every
-     * fixture — costs one branch.
+     * <p>Walking the halo rather than the owned boundary is deliberate. Only the one 16×16 face of
+     * each side-adjacent halo column can feed an owned cell; diagonal columns are skipped. Work is
+     * therefore bounded to 256 candidates per relevant section, in canonical column/section/y/offset
+     * order. Existing scheduled positions are indexed once before that walk, so dedupe never copies
+     * and sorts the hashed queue per candidate. An empty halo still costs one branch.
      *
      * @param state the working state, whose halo carries the neighbour slices.
      * @param tick  the tick the inflow is scheduled from.
@@ -218,37 +252,92 @@ public final class FluidRules {
         if (halo == null || halo.isEmpty()) {
             return 0;
         }
+        Set<NBlockPos> scheduledPositions = new HashSet<>();
+        for (var entry : state.scheduledTicks()) {
+            scheduledPositions.add(entry.pos());
+        }
+        RegionBounds bounds = state.bounds();
         int scheduled = 0;
-        for (dev.nodera.core.state.ChunkColumnState column : halo.backing()) {
+        for (ChunkColumnState column : halo.backing()) {
+            BoundaryFace face = ownershipFacingFace(bounds, column);
+            if (face == null) {
+                continue; // diagonal and non-adjacent halo columns cannot feed an owned cell
+            }
+            int[] uniform = column.paletteStateIdsPerSection();
+            var denseSections = column.denseSections();
+            int denseIndex = 0;
             for (int section = 0; section < column.sectionCount(); section++) {
-                // The snapshot model is section-uniform, so one read per section answers the whole
-                // column: a fluid anywhere in the section means the section IS that fluid.
-                int id = column.blockAt(section, 0, 0, 0);
-                if (!isFluid(id)) {
+                ChunkColumnState.DenseSection dense = denseIndex < denseSections.size()
+                        && denseSections.get(denseIndex).sectionIndex() == section
+                        ? denseSections.get(denseIndex++) : null;
+                int uniformId = uniform[section];
+                if (dense == null && !isFluid(uniformId)) {
                     continue;
                 }
-                int y = column.minY() + section * 16;
-                for (int[] step : new int[][]{{16, 0}, {-16, 0}, {0, 16}, {0, -16}}) {
-                    NBlockPos target = new NBlockPos(
-                            column.chunkX() * 16 + step[0], y, column.chunkZ() * 16 + step[1]);
-                    if (!state.inOwnedRegion(target)) {
-                        continue;
+                int[] blocks = dense == null ? null : dense.blocks();
+                int sectionY = column.minY() + section * 16;
+                for (int localY = 0; localY < 16; localY++) {
+                    for (int offset = 0; offset < 16; offset++) {
+                        int localX = face.localX(offset);
+                        int localZ = face.localZ(offset);
+                        int id = blocks == null ? uniformId
+                                : blocks[(localY << 8) | (localZ << 4) | localX];
+                        scheduled += seedBorderCell(
+                                state, column, id, localX, localY, localZ,
+                                face.stepX, face.stepZ, sectionY, tick, scheduledPositions);
                     }
-                    int current = state.getBlock(target);
-                    if (current != FlatWorldRules.AIR
-                            || desiredAt(state, target, FlatWorldRules.AIR) == FlatWorldRules.AIR) {
-                        continue;
-                    }
-                    NBlockPos pos = target;
-                    if (state.scheduledTicks().stream().anyMatch(e -> e.pos().equals(pos))) {
-                        continue;
-                    }
-                    state.scheduleTick(target, current, tick + delayOf(isWater(id)), 0);
-                    scheduled++;
                 }
             }
         }
         return scheduled;
+    }
+
+    private static BoundaryFace ownershipFacingFace(RegionBounds bounds, ChunkColumnState column) {
+        int chunkX = column.chunkX();
+        int chunkZ = column.chunkZ();
+        if ((long) chunkX == (long) bounds.minChunkX() - 1
+                && chunkZ >= bounds.minChunkZ() && chunkZ <= bounds.maxChunkZ()) {
+            return BoundaryFace.EAST;
+        }
+        if ((long) chunkX == (long) bounds.maxChunkX() + 1
+                && chunkZ >= bounds.minChunkZ() && chunkZ <= bounds.maxChunkZ()) {
+            return BoundaryFace.WEST;
+        }
+        if ((long) chunkZ == (long) bounds.minChunkZ() - 1
+                && chunkX >= bounds.minChunkX() && chunkX <= bounds.maxChunkX()) {
+            return BoundaryFace.SOUTH;
+        }
+        if ((long) chunkZ == (long) bounds.maxChunkZ() + 1
+                && chunkX >= bounds.minChunkX() && chunkX <= bounds.maxChunkX()) {
+            return BoundaryFace.NORTH;
+        }
+        return null;
+    }
+
+    private static int seedBorderCell(MutableRegionState state, ChunkColumnState column, int id,
+                                       int localX, int localY, int localZ, int stepX, int stepZ,
+                                      int sectionY, long tick, Set<NBlockPos> scheduledPositions) {
+        if (!isFluid(id)) {
+            return 0;
+        }
+        NBlockPos target = new NBlockPos(
+                column.chunkX() * 16 + localX + stepX,
+                sectionY + localY,
+                column.chunkZ() * 16 + localZ + stepZ);
+        if (!state.inOwnedRegion(target)) {
+            return 0;
+        }
+        int current = state.getBlock(target);
+        if (current != FlatWorldRules.AIR || scheduledPositions.contains(target)) {
+            return 0;
+        }
+        int desired = desiredAt(state, target, FlatWorldRules.AIR);
+        if (!isFluid(desired)) {
+            return 0;
+        }
+        state.scheduleTick(target, current, tick + delayOf(isWater(desired)), 0);
+        scheduledPositions.add(target);
+        return 1;
     }
 
     /** The cell's settled fluid state as a pure function of its neighborhood. */
