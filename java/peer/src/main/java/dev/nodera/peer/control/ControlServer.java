@@ -279,7 +279,11 @@ public final class ControlServer implements AutoCloseable {
                 return ackOrErr(handler.mesh(arg(parts, 2), arg(parts, 3)));
             }
             if (ControlProtocol.JOIN.equals(verb)) {
-                return ackOrErr(handler.join(arg(parts, 2)));
+                // NODERA-JOIN <ver> <worldId> [<nameB64>] [<leaseSeconds>] [<playersInWorld>] —
+                // every trailing argument is additive, and `arg` yields "" for a caller that
+                // predates them.
+                return ackOrErr(handler.join(
+                        arg(parts, 2), arg(parts, 3), arg(parts, 4), arg(parts, 5)));
             }
             if (ControlProtocol.STOP.equals(verb)) {
                 return ackOrErr(handler.stop(arg(parts, 2)));
@@ -312,10 +316,13 @@ public final class ControlServer implements AutoCloseable {
                         : ControlProtocol.OK + " " + fetched;
             }
             if (ControlProtocol.WORLDID.equals(verb)) {
-                // NODERA-WORLDID <ver> <genesisRootB64> <createdAt> <shared> <listed> <enc> <manifestRefB64>
+                // NODERA-WORLDID <ver> <genesisRootB64> <createdAt> <shared> <listed> <enc>
+                //                <manifestRefB64> [pinnedWorldIdHex]
+                // The last argument is optional: an older mod omits it and gets the original
+                // derive-from-genesis behaviour, so the verb stays backward compatible.
                 String minted = handler.mintWorldIdentity(arg(parts, 2), parseLong(arg(parts, 3)),
                         parseBool(arg(parts, 4)), parseBool(arg(parts, 5)), parseBool(arg(parts, 6)),
-                        arg(parts, 7));
+                        arg(parts, 7), arg(parts, 8));
                 return minted == null ? err("cannot mint world identity")
                         : ControlProtocol.OK + " " + minted;
             }

@@ -18,7 +18,7 @@ import {
   FiTerminal,
   FiUsers,
 } from "react-icons/fi";
-import { cx, MONO } from "./components";
+import { cx, MONO, SCROLLPORT_ID } from "./components";
 import { SettingsScreen } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
 import { OverviewScreen } from "./Overview";
@@ -111,14 +111,18 @@ export function App() {
   if (mobileBuild || compact) {
     return <MobileApp dashboard={d} scheme={scheme} onSettings={setSettings} />;
   }
-  return <DesktopApp settings={settings} onSettings={setSettings} />;
+  return <DesktopApp dashboard={d} settings={settings} onSettings={setSettings} />;
 }
 
 function DesktopApp(props: {
+  dashboard: Dashboard;
   settings: SettingsDoc | null;
   onSettings: (next: SettingsDoc) => void;
 }) {
-  const d = useDashboard(EMPTY_DASHBOARD);
+  // Passed in, never re-subscribed. A second `useDashboard` here meant two `nodera://dashboard`
+  // listeners and two initial fetches, and every worker push — four a second — re-rendered both
+  // this component and its parent.
+  const d = props.dashboard;
   const [sys, setSys] = useState<SystemStats>(EMPTY_SYSTEM);
   const settings = props.settings;
   const setSettings = props.onSettings;
@@ -186,7 +190,15 @@ function DesktopApp(props: {
 
       <div className="flex min-h-0 min-w-0 flex-col">
         <TopBar d={d} title={titleOf(screen, selected?.name)} />
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
+            property of the DOM node — without a key React keeps that same node across navigation
+            and a screen opened after a long scroll starts halfway down, or looks frozen when its
+            content is shorter than the offset it inherited. A new key is a new node at zero. */}
+        <div
+          id={SCROLLPORT_ID}
+          key={screen.name === "world" ? `world:${screen.id}` : screen.name}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
           {screen.name === "settings" ? (
             <SettingsScreen settings={settings} onChange={setSettings} />
           ) : screen.name === "about" ? (

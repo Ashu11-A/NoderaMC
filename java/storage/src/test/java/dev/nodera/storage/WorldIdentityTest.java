@@ -75,4 +75,40 @@ final class WorldIdentityTest {
         assertTrue(updated.encrypted());
         assertEquals(id.worldId(), updated.worldId());
     }
+
+    @Test
+    void aPinnedIdentityKeepsItsIdWhenTheGenesisRootMoves() {
+        NodeIdentity author = NodeIdentity.generate();
+        WorldIdentity first = WorldIdentity.create(author, root(), 1000L, true, true, false,
+                Bytes.empty());
+
+        // The same save, re-shared after its genesis file went missing and was re-certified from a
+        // different set of loaded chunks. Deriving again is how one world became several on the
+        // network: a different root is a different id, and both stayed announced.
+        Bytes movedRoot = new dev.nodera.core.crypto.HashService().sha256("re-certified".getBytes());
+        assertNotEquals(first.worldId(),
+                WorldIdentity.deriveWorldId(movedRoot, author.publicKeyBytes(), 1000L));
+
+        WorldIdentity second = WorldIdentity.createPinned(author, first.worldId(), 1000L, true, true,
+                false, Bytes.fromHex("aa"));
+        assertEquals(first.worldId(), second.worldId());
+        assertTrue(second.verifySignature());
+        assertTrue(second.isAuthor(author.nodeId()));
+    }
+
+    @Test
+    void pinningDoesNotLetOneNodeSignAnotherNodesWorld() {
+        NodeIdentity author = NodeIdentity.generate();
+        NodeIdentity thief = NodeIdentity.generate();
+        WorldIdentity mine = WorldIdentity.create(author, root(), 7L, true, true, false, Bytes.empty());
+
+        // Naming an id is not claiming it. The thief can produce a record carrying the id, but it
+        // is signed by, and therefore authored by, the thief — every peer that already knows the
+        // world's author sees a different author, which is the check that matters.
+        WorldIdentity forged = WorldIdentity.createPinned(thief, mine.worldId(), 7L, true, true,
+                false, Bytes.empty());
+        assertEquals(mine.worldId(), forged.worldId());
+        assertFalse(forged.isAuthor(author.nodeId()));
+        assertNotEquals(mine.authorNodeId(), forged.authorNodeId());
+    }
 }

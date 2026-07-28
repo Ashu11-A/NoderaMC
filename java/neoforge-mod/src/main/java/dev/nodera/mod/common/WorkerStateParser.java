@@ -23,6 +23,8 @@ public final class WorkerStateParser {
     /**
      * One hosted world as the worker reports it.
      *
+     * @param players players in-world, or <b>negative when no node in that world has reported</b>.
+     *                Not clamped to zero — see {@link #connectedWorlds}.
      * @param mcRoute the host's open Minecraft game endpoint ({@code host:port}), or {@code ""}
      *                while the hosting player's game is closed (listed but not joinable).
      */
@@ -31,6 +33,11 @@ public final class WorkerStateParser {
         /** Pre-join-flow shape (no game endpoint reported). */
         public HostedWorldInfo(String worldId, String name, long players) {
             this(worldId, name, players, "");
+        }
+
+        /** @return whether anybody in the world has reported its player count. */
+        public boolean playersKnown() {
+            return players >= 0;
         }
     }
 
@@ -74,13 +81,18 @@ public final class WorkerStateParser {
             String obj = json.substring(objStart, objEnd + 1);
             String worldId = stringField(obj, "world_id");
             String name = stringField(obj, "name");
-            long players = longField(obj, "players");
+            // NOT clamped to zero. The worker sends -1 for "no node in this world has reported its
+            // player count", and clamping turned that into a confident "nobody is playing" on every
+            // screen downstream — which is how a world with people in it advertised 0 players from
+            // every peer except the one hosting the game. A world row whose count is absent from the
+            // JSON entirely is likewise unknown, not empty.
+            long players = longField(obj, "players", -1);
             String mcRoute = stringField(obj, "mc_route");
             if (worldId != null || name != null) {
                 out.add(new HostedWorldInfo(
                         worldId == null ? "" : worldId,
                         name == null ? "" : name,
-                        Math.max(0, players),
+                        players,
                         mcRoute == null ? "" : mcRoute));
             }
             i = objEnd + 1;
@@ -255,13 +267,24 @@ public final class WorkerStateParser {
 
     /** Read a JSON integer field {@code "key":123} from a flat object; {@code 0} if absent/bad. */
     private static long longField(String obj, String keyName) {
+        return longField(obj, keyName, 0);
+    }
+
+    /**
+     * As above, with the value to return when the field is absent or unreadable.
+     *
+     * <p>Explicit because zero is a legitimate reading for some fields and a wrong answer for
+     * others: a missing player count means "nobody told us", and reporting that as "nobody is
+     * playing" is the whole defect this overload exists to make impossible to write by accident.
+     */
+    private static long longField(String obj, String keyName, long absent) {
         int at = obj.indexOf("\"" + keyName + "\"");
         if (at < 0) {
-            return 0;
+            return absent;
         }
         int colon = obj.indexOf(':', at + keyName.length() + 2);
         if (colon < 0) {
-            return 0;
+            return absent;
         }
         int i = colon + 1;
         while (i < obj.length() && Character.isWhitespace(obj.charAt(i))) {
@@ -272,12 +295,12 @@ public final class WorkerStateParser {
             i++;
         }
         if (i == start) {
-            return 0;
+            return absent;
         }
         try {
             return Long.parseLong(obj.substring(start, i));
         } catch (NumberFormatException e) {
-            return 0;
+            return absent;
         }
     }
 }

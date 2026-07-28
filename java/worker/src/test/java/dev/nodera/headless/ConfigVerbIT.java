@@ -318,6 +318,95 @@ final class ConfigVerbIT {
                 "the app sent a key this worker does not know — the key tables have drifted: " + reply);
     }
 
+    /**
+     * The app's DEFAULT settings must not switch seeding off.
+     *
+     * <p>Live, 2026-07-27: two players, one world, both workers running under the companion app.
+     * The joiner's recovery failed with {@code archive fetch stalled at 0/75 piece(s) after 120s
+     * with no progress, from 2 seeder(s)} — from two seeders that held all 75 pieces. Both had been
+     * told, by the app, at connect, {@code network.max_upload_bytes_per_sec: 0}. The app documents
+     * that as "unlimited"; {@code setServeBounds} reads it as "serve nothing". Nothing logged,
+     * nothing failed, and the wire has no way to answer "I am refusing" — so the download simply
+     * received silence until its deadline.
+     *
+     * <p>Asserted on behaviour rather than on the stored bound, because the bound is exactly what
+     * both sides already agreed on and still disagreed about.
+     */
+    @Test
+    void theAppsDefaultConfigurationLeavesTheNodeSeeding() throws Exception {
+        worker();
+
+        String worldIdHex = hashes.sha256("default-config-world".getBytes(StandardCharsets.UTF_8))
+                .toHex();
+        // Three whole archive pieces, so "served everything asked for" and "served some of it" are
+        // distinguishable counts rather than one chunk either way.
+        byte[] blob = new byte[3 * dev.nodera.distribution.WorldArchive.ARCHIVE_PIECE_BYTES];
+        new java.util.Random(29L).nextBytes(blob);
+        PieceManifest manifest = archive.seedArchive(worldIdHex, blob);
+        assertEquals(3, manifest.pieceCount());
+
+        String reply = config("{\"network.max_upload_bytes_per_sec\":0,"
+                + "\"network.max_upload_slots_per_world\":0}");
+        assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+        assertTrue(reply.contains("network.max_upload_bytes_per_sec"), reply);
+
+        PeerAddress requester = PeerAddress.of(NodeId.random(), "peer:1");
+        ContentRequest wholeWorld =
+                new ContentRequest(manifest.manifestRoot(), List.of(0, 1, 2));
+        archive.onMessage(requester, wholeWorld);
+        assertEquals(3, contentTransport.chunks().size(),
+                "0 means 'no limit' to the app, so an unconfigured cap must not stop the upload");
+
+        // And the read-back speaks the app's dialect: an unlimited bound reports as 0, not as the
+        // saturation value the enforcer happens to use.
+        String effective = request(ControlProtocol.CONFIG + " 2");
+        assertTrue(effective.contains("\"network.max_upload_bytes_per_sec\":0"), effective);
+        assertTrue(effective.contains("\"network.max_upload_slots_per_world\":0"), effective);
+
+        // A real cap is still a real cap — "0 is unlimited" must not become "every value is".
+        assertFalse(config("{\"network.max_upload_bytes_per_sec\":65536}")
+                .startsWith(ControlProtocol.ERR));
+        assertEquals(65536L, archive.content().serveBandwidthBudget());
+        contentTransport.clear();
+        // A fresh window, so the throttle below is the new budget refusing the piece and not the
+        // bytes the unlimited run above already spent.
+        archive.content().resetServeWindow();
+        archive.onMessage(requester, wholeWorld);
+        assertTrue(contentTransport.chunks().isEmpty(),
+                "a 64 KiB/s budget cannot pass a 256 KiB piece, got "
+                        + contentTransport.chunks().size());
+    }
+
+    /**
+     * The app's default storage settings must not switch replication off.
+     *
+     * <p>`rust/nodera-app/src/settings.rs` documents `replication_budget_bytes: 0` as "the worker's
+     * default" and ships it as the DEFAULT value, pushed on every connect.
+     * {@link WorldReplicationService#start()} reads a zero budget as "hold nothing for anybody" and
+     * schedules no sweep at all — so every worker running under the app quietly stopped adopting
+     * worlds, and a peer supporting somebody else's world received not one piece of it. The live
+     * symptom was a world row reading "Supporting for the network · v0 · 0 B · no manifest yet"
+     * indefinitely, on a peer that was online, meshed, and doing nothing about it.
+     */
+    @Test
+    void theAppsDefaultStorageSettingsLeaveReplicationRunning() throws Exception {
+        worker();
+
+        String reply = config("{\"storage.replication_budget_bytes\":0,"
+                + "\"storage.replication_sweep_seconds\":0}");
+        assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+        assertTrue(reply.contains("storage.replication_budget_bytes"), reply);
+
+        assertEquals(WorldReplicationService.DEFAULT_BUDGET_BYTES, replication.budgetBytes(),
+                "0 means 'your default' to the app; a zero budget here disables the lane entirely");
+        assertEquals(WorldReplicationService.DEFAULT_SWEEP_SECONDS, replication.sweepSeconds());
+
+        // A real budget is still a real budget — "0 is the default" must not become "any value is".
+        assertFalse(config("{\"storage.replication_budget_bytes\":65536}")
+                .startsWith(ControlProtocol.ERR));
+        assertEquals(65536L, replication.budgetBytes());
+    }
+
     @Test
     void configReadsBackTheWorkersOwnEffectiveValuesNotTheLastPush() throws Exception {
         worker();
@@ -333,6 +422,29 @@ final class ConfigVerbIT {
         assertTrue(effective.contains("\"network.max_download_bytes_per_sec\":2048"), effective);
         assertTrue(effective.contains("\"behavior.transfers_paused\":false"), effective);
         assertEquals(30, replication.sweepSeconds());
+    }
+
+    /**
+     * A sweep interval too large for an {@code int} saturates instead of truncating.
+     *
+     * <p>The guard that rejects a non-positive interval reads the value as a {@code long}, so a
+     * narrowing cast after it handed back exactly what the guard had just refused: 2^32 truncates to
+     * {@code 0} and 2^31 to {@link Integer#MIN_VALUE}. Nothing crashed, because
+     * {@link WorldReplicationService#reconfigure} floors the interval at 30 s — which is what made
+     * this worth a test rather than a one-line note. The corruption is silent and it *inverts* the
+     * request: an operator asking for the longest sweep the field can express got the shortest one
+     * the lane allows, and every read-back agreed with them that it had been applied.
+     */
+    @Test
+    void aSweepIntervalBeyondAnIntSaturatesRatherThanTruncatingToTheFloor() throws Exception {
+        worker();
+
+        for (long huge : new long[] {1L << 31, 1L << 32, Long.MAX_VALUE}) {
+            String reply = config("{\"storage.replication_sweep_seconds\":" + huge + "}");
+            assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+            assertEquals(Integer.MAX_VALUE, replication.sweepSeconds(),
+                    huge + " must saturate, not wrap round to the 30 s floor");
+        }
     }
 
     @Test

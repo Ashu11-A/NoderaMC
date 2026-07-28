@@ -319,16 +319,34 @@ public final class TrackerClient implements AutoCloseable {
             NodeCapabilities capabilities, List<ManifestHolding> holdings,
             String worldName, long retentionDeadlineEpochMillis, int reliabilityBps,
             long nowEpochMillis) {
+        return buildAnnounce(genesisHash, event, routes, capabilities, holdings, worldName,
+                retentionDeadlineEpochMillis, reliabilityBps,
+                TrackerAnnounce.UNKNOWN_PLAYER_COUNT, nowEpochMillis);
+    }
+
+    /**
+     * As above, also reporting how many players this peer can see in the world.
+     *
+     * @param worldPlayerCount players in-world, or {@link TrackerAnnounce#UNKNOWN_PLAYER_COUNT}
+     *                         when this peer has no game there and therefore cannot count. Every
+     *                         seeder is in the second case, which is why the overload above
+     *                         defaults to it rather than to zero.
+     */
+    public TrackerAnnounce buildAnnounce(
+            Bytes genesisHash, AnnounceEvent event, List<String> routes,
+            NodeCapabilities capabilities, List<ManifestHolding> holdings,
+            String worldName, long retentionDeadlineEpochMillis, int reliabilityBps,
+            long worldPlayerCount, long nowEpochMillis) {
         // Signature covers everything but itself, so the placeholder below is never signed over.
         TrackerAnnounce unsigned = new TrackerAnnounce(
                 genesisHash, identity.nodeId(), identity.publicKeyBytes(), event, routes,
                 capabilities, holdings, worldName, retentionDeadlineEpochMillis, reliabilityBps,
-                nowEpochMillis, Bytes.empty());
+                worldPlayerCount, nowEpochMillis, Bytes.empty());
         Bytes signature = identity.sign(unsigned.signedPortion());
         return new TrackerAnnounce(
                 genesisHash, identity.nodeId(), identity.publicKeyBytes(), event, routes,
                 capabilities, holdings, worldName, retentionDeadlineEpochMillis, reliabilityBps,
-                nowEpochMillis, signature);
+                worldPlayerCount, nowEpochMillis, signature);
     }
 
     /**

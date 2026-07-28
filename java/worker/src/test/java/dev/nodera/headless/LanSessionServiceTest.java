@@ -166,8 +166,8 @@ final class LanSessionServiceTest {
     }
 
     @Test
-    @DisplayName("re-opening a world on a new port is a new session")
-    void thePortIsTheIdentity() {
+    @DisplayName("re-opening a world on a new port is the same session")
+    void thePortIsNotTheIdentity() {
         LanSessionService lan = service();
         lan.onOpened(beacon("My World", 54321));
         String first = lan.session(54321).orElseThrow().sessionIdHex();
@@ -176,10 +176,29 @@ final class LanSessionServiceTest {
         lan.onOpened(beacon("My World", 54322));
         String second = lan.session(54322).orElseThrow().sessionIdHex();
 
-        // Minecraft picks a fresh port each time. Reusing the id would advertise a session that
-        // resolves to a socket nobody is listening on.
-        assertThat(second).isNotEqualTo(first);
+        // Minecraft picks a fresh ephemeral port on every Open-to-LAN, so a port in the derivation
+        // meant a new world on the network every time a player re-opened the same save. One player
+        // sharing one world across five evenings was five worlds nobody could tell apart.
+        assertThat(second).isEqualTo(first);
         assertThat(lan.session(54321)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a world that moves port stays shared, at its new address")
+    void aSharedWorldFollowsItsPort() {
+        LanSessionService lan = service();
+        lan.onOpened(beacon("My World", 54321));
+        lan.share(54321);
+        String id = lan.session(54321).orElseThrow().sessionIdHex();
+
+        // The new beacon arrives before the old one's close: that is the ordinary race when a player
+        // re-opens a world, and it is why the close must not be allowed to withdraw the live one.
+        lan.onOpened(beacon("My World", 54322));
+        lan.onClosed(beacon("My World", 54321));
+
+        assertThat(lan.session(54322).orElseThrow().state()).isEqualTo(LanSessionService.State.SHARED);
+        assertThat(hosting.hostedWorlds()).hasSize(1);
+        assertThat(tunnel.publishedPort(id)).contains(54322);
     }
 
     @Test

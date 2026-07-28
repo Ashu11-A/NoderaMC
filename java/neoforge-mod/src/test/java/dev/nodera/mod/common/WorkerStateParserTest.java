@@ -29,6 +29,31 @@ final class WorkerStateParserTest {
         assertThat(worlds.get(1).players()).isEqualTo(0);
     }
 
+    /**
+     * The worker's "nobody in that world has reported" must survive the parser.
+     *
+     * <p>It did not: the parser clamped with {@code Math.max(0, players)}, so the one value that
+     * means "unknown" arrived downstream as a confident zero, and every screen fed by it told
+     * players that a world they were standing in with other people was empty.
+     */
+    @Test
+    void anUnreportedPlayerCountStaysUnknownInsteadOfBecomingZero() {
+        String json = "{\"connected_worlds\":["
+                + "{\"world_id\":\"aa\",\"name\":\"Unknown\",\"players\":-1},"
+                + "{\"world_id\":\"bb\",\"name\":\"Reported empty\",\"players\":0},"
+                + "{\"world_id\":\"cc\",\"name\":\"No field at all\"}"
+                + "]}";
+        List<HostedWorldInfo> worlds = WorkerStateParser.connectedWorlds(json);
+
+        assertThat(worlds.get(0).players()).isNegative();
+        assertThat(worlds.get(0).playersKnown()).isFalse();
+        // A node in the world said it is empty. Different answer, and it must not be lost either.
+        assertThat(worlds.get(1).players()).isZero();
+        assertThat(worlds.get(1).playersKnown()).isTrue();
+        // An older worker that does not send the field at all has told us nothing.
+        assertThat(worlds.get(2).playersKnown()).isFalse();
+    }
+
     @Test
     void readsTheGameEndpointWhenPresent() {
         String json = "{\"connected_worlds\":["

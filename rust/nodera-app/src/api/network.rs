@@ -29,8 +29,15 @@ pub struct DirectoryEntry {
     pub session_id: String,
     #[serde(default)]
     pub name: String,
-    #[serde(default)]
-    pub players: u64,
+    /// Live announcing **peers** for this world, as the tracker counts them.
+    ///
+    /// Named for what it is. It used to be `players`, and it was rendered under a "Players" column
+    /// — but a tracker only ever sees peers announcing a swarm: three always-on seeders of a world
+    /// nobody plays produced "3 players", and two players on one machine produced one. Who is
+    /// actually in a world is known only to a node with a game there, and reaches this app through
+    /// the world's own row, not through the directory.
+    #[serde(default, alias = "players")]
+    pub peers: u64,
     /// Content pieces held network-wide. Zero for a LAN session, which has no content at all.
     #[serde(default)]
     pub pieces: u64,

@@ -31,7 +31,7 @@ import { SettingsScreen, type Page as SettingsPage } from "./Settings";
 import { useBackStack } from "./nav";
 import { SetupFlow } from "./Setup";
 import { fetchSetupState, fetchWorkerLogs, type Settings as SettingsDoc } from "../ipc";
-import { formatBytes, linkFault, shortId, type Dashboard } from "../api";
+import { formatBytes, heldBytes, linkFault, shortId, type Dashboard } from "../api";
 
 type Tab = "node" | "worlds" | "activity" | "settings";
 
@@ -93,7 +93,10 @@ export function MobileApp(props: {
             title={tab === "node" ? "Nodera" : tab === "worlds" ? "Worlds" : "Activity"}
             trailing={<LinkChip d={d} />}
           />
-          <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
+          {/* Keyed by tab so the scroll offset does not travel between destinations. `scrollTop`
+              belongs to this node, not to the tab rendered inside it; without the key, opening a
+              short tab after scrolling a long one landed past the end of its content. */}
+          <div key={tab} className="flex-1 overflow-y-auto overscroll-contain px-4 pb-6">
             <FadeThrough screenKey={tab}>
               {tab === "node" && (
                 <NodeTab
@@ -224,33 +227,72 @@ function NodeTab(props: { d: Dashboard; onAddTrackers: () => void }) {
 
 /* -------------------------------------------------------------------------------------- worlds */
 
+/**
+ * The same three groups the desktop Worlds screen uses, in the same order and for the same reason:
+ * where you are, what you run, what you carry for other people.
+ *
+ * A phone shows less, so what it shows has to be the part that answers a question. Each row's
+ * supporting line is this device's contribution — pieces held and the bytes they amount to — rather
+ * than the world's size, which is the same on every peer and therefore tells the owner of this
+ * phone nothing about their own node.
+ */
 function WorldsTab(props: { d: Dashboard }) {
   const worlds = props.d.worlds;
+  const playing = worlds.filter((w) => w.connected);
+  const mine = worlds.filter((w) => !w.connected && w.administered);
+  const helping = worlds.filter((w) => !w.connected && !w.administered);
+
   if (worlds.length === 0) {
     return (
       <Card>
-        <ListItem headline="No worlds yet" supporting="Worlds you host or support appear here" />
+        <ListItem
+          headline="No worlds yet"
+          supporting="Worlds you play in, run, or help share appear here"
+        />
       </Card>
     );
   }
+
   return (
-    <Stagger className="flex flex-col gap-2">
-      {worlds.map((w) => (
-        <StaggerItem key={w.world_id}>
-        <Card>
+    <Stagger className="flex flex-col gap-3">
+      <StaggerItem className="grid grid-cols-2 gap-3">
+        <Metric label="Playing in" value={String(props.d.counts.connected_worlds)} />
+        <Metric label="You serve" value={formatBytes(props.d.counts.shared_bytes)} />
+      </StaggerItem>
+      <WorldGroup title="You are playing in" worlds={playing} />
+      <WorldGroup title="Worlds you run" worlds={mine} />
+      <WorldGroup title="Worlds you help share" worlds={helping} />
+    </Stagger>
+  );
+}
+
+/** One labelled group, omitted entirely when empty — a phone has no room for three empty states. */
+function WorldGroup(props: { title: string; worlds: Dashboard["worlds"] }) {
+  if (props.worlds.length === 0) return null;
+  return (
+    <StaggerItem>
+      <h2 className="px-1 pt-1 pb-2 text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+        {props.title}
+      </h2>
+      <Card>
+        {props.worlds.map((w) => (
           <ListItem
+            key={w.world_id}
             headline={w.name || shortId(w.world_id, 10, 6)}
-            supporting={`${formatBytes(w.total_bytes)} · ${w.administered ? "yours" : "supported"}`}
+            supporting={
+              w.piece_count === 0
+                ? "no pieces here yet"
+                : `${formatBytes(heldBytes(w))} held · ${w.pieces_held}/${w.piece_count} pieces`
+            }
             trailing={
-              <Chip tone={w.game_endpoint ? "good" : "neutral"}>
-                {w.game_endpoint ? "live" : "idle"}
+              <Chip tone={w.connected ? "good" : w.game_endpoint ? "good" : "neutral"}>
+                {w.connected ? "here" : w.game_endpoint ? "live" : "idle"}
               </Chip>
             }
           />
-        </Card>
-        </StaggerItem>
-      ))}
-    </Stagger>
+        ))}
+      </Card>
+    </StaggerItem>
   );
 }
 

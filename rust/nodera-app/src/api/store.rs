@@ -10,12 +10,31 @@
 //! 2. **Rates.** Throughput is measured here, between two accepted snapshots, against a real
 //!    elapsed time. Not in React (which sees renders, not samples) and not assumed from the event
 //!    cadence (which is a wish, not a measurement).
+//!
+//! 3. **Totals that survive the worker.** The worker's byte counters are `LongAdder`s born with
+//!    its JVM, so every restart — including the one the app itself performs when a restart-scoped
+//!    setting is saved — sent "Uploaded / Downloaded" back to zero. The store banks the last
+//!    reading of a lifetime that is ending and adds it to everything reported afterwards, and it
+//!    writes that bank to disk so closing the app does not reset it either. What the tiles show is
+//!    therefore the node's traffic, not the current process's.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::api::model::{Dashboard, Link, LinkStatus, Rates};
 use crate::metrics::Metrics;
+
+/// The shortest interval a rate may be measured over.
+///
+/// The worker pushes every 250 ms. Dividing each of those gaps on its own makes an idle quarter of
+/// a second read `0 B/s` and a busy one read four times the truth, so the top bar flickered at 4 Hz
+/// and never settled on a number anybody could read. Rates are held between updates and refreshed
+/// on this cadence instead.
+const RATE_WINDOW: Duration = Duration::from_secs(1);
+
+/// How often the banked totals are written back to disk.
+const PERSIST_EVERY: Duration = Duration::from_secs(10);
 
 /// Epoch millis, saturating at zero — a clock before 1970 is not worth a panic.
 fn now_ms() -> u64 {
@@ -33,6 +52,20 @@ struct Sample {
     at: Instant,
 }
 
+/// Bytes accumulated by worker lifetimes that have already ended.
+///
+/// `seen` is the last reading of the lifetime currently being counted. It is what gets banked when
+/// the counters go backwards, and — persisted alongside the bank — it is how a freshly started app
+/// tells "the worker I am attaching to is the one that was already running" (its counter is at or
+/// above `seen`, so nothing is banked) from "this is a new process" (its counter is below).
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct Banked {
+    sent: u64,
+    received: u64,
+    seen_sent: u64,
+    seen_received: u64,
+}
+
 /// Shared, revisioned dashboard state.
 pub struct DashboardStore {
     inner: Mutex<Inner>,
@@ -41,6 +74,13 @@ pub struct DashboardStore {
 struct Inner {
     dashboard: Dashboard,
     previous: Option<Sample>,
+    /// The sample the current rate is measured from; kept until `RATE_WINDOW` has passed.
+    rate_base: Option<Sample>,
+    /// The last rate actually measured, re-reported between windows.
+    held: Rates,
+    banked: Banked,
+    persist_to: Option<PathBuf>,
+    persisted_at: Option<Instant>,
     revision: u64,
     reconnects: u64,
 }
@@ -52,11 +92,28 @@ impl Default for DashboardStore {
 }
 
 impl DashboardStore {
+    /// A store that keeps its totals only in memory. Used by tests and by anything short-lived.
     pub fn new() -> Self {
+        Self::at(None)
+    }
+
+    /// The store the application runs on: totals are read back from disk at startup and written
+    /// there as they grow.
+    pub fn restored() -> Self {
+        Self::at(Some(crate::settings::config_dir().join("traffic-totals.json")))
+    }
+
+    fn at(persist_to: Option<PathBuf>) -> Self {
+        let banked = persist_to.as_deref().and_then(read_banked).unwrap_or_default();
         Self {
             inner: Mutex::new(Inner {
                 dashboard: Dashboard::default(),
                 previous: None,
+                rate_base: None,
+                held: Rates::default(),
+                banked,
+                persist_to,
+                persisted_at: None,
                 revision: 0,
                 reconnects: 0,
             }),
@@ -72,18 +129,52 @@ impl DashboardStore {
     pub fn accept(&self, metrics: &Metrics, transport: &'static str) -> Dashboard {
         let mut inner = self.inner.lock().unwrap();
         let now = Instant::now();
-        let rates = inner
-            .previous
-            .and_then(|previous| rates_between(previous, metrics, now))
-            .unwrap_or_default();
-        inner.previous = Some(Sample {
+
+        // A counter that went backwards is a worker that was restarted. Bank the highest reading
+        // of the lifetime that just ended before it is lost, and start the rate over: differencing
+        // across the reset would print a negative, and pretending it is one interval's traffic
+        // would print a spike that never happened.
+        let restarted = metrics.total_sent_bytes < inner.banked.seen_sent
+            || metrics.total_received_bytes < inner.banked.seen_received;
+        if restarted {
+            inner.banked.sent += inner.banked.seen_sent;
+            inner.banked.received += inner.banked.seen_received;
+            inner.rate_base = None;
+            inner.previous = None;
+            inner.held = Rates {
+                up: Some(0),
+                down: Some(0),
+            };
+        }
+        inner.banked.seen_sent = metrics.total_sent_bytes;
+        inner.banked.seen_received = metrics.total_received_bytes;
+
+        let sample = Sample {
             sent: metrics.total_sent_bytes,
             received: metrics.total_received_bytes,
             at: now,
-        });
+        };
+        // Held between windows so the readout is a number, not a flicker.
+        match inner.rate_base {
+            Some(base) if now.saturating_duration_since(base.at) >= RATE_WINDOW => {
+                if let Some(measured) = rates_between(base, metrics, now) {
+                    inner.held = measured;
+                }
+                inner.rate_base = Some(sample);
+            }
+            None => inner.rate_base = Some(sample),
+            Some(_) => {}
+        }
+        let rates = inner.held;
+        inner.previous = Some(sample);
         inner.revision += 1;
 
+        let banked = inner.banked;
         let mut dashboard = Dashboard::of(metrics, rates);
+        dashboard.traffic.total_sent_bytes = banked.sent.saturating_add(metrics.total_sent_bytes);
+        dashboard.traffic.total_received_bytes =
+            banked.received.saturating_add(metrics.total_received_bytes);
+        persist(&mut inner, now, restarted);
         let stamp = now_ms();
         dashboard.link = Link {
             status: if transport == "stream" {
@@ -115,8 +206,13 @@ impl DashboardStore {
         inner.dashboard.link.transport = "none".to_owned();
         inner.dashboard.link.last_error = reason.into();
         // The rate baseline is dropped: differencing across an outage would attribute a whole gap
-        // to one interval and print a spike that never happened.
+        // to one interval and print a spike that never happened. The held rate goes with it — a
+        // number that stopped being measured must stop being shown.
         inner.previous = None;
+        inner.rate_base = None;
+        inner.held = Rates::default();
+        inner.dashboard.traffic.up_bytes_per_sec = None;
+        inner.dashboard.traffic.down_bytes_per_sec = None;
         inner.dashboard.clone()
     }
 
@@ -129,6 +225,10 @@ impl DashboardStore {
         inner.dashboard.link.transport = "none".to_owned();
         inner.dashboard.link.last_error = reason.into();
         inner.previous = None;
+        inner.rate_base = None;
+        inner.held = Rates::default();
+        inner.dashboard.traffic.up_bytes_per_sec = None;
+        inner.dashboard.traffic.down_bytes_per_sec = None;
         inner.dashboard.clone()
     }
 
@@ -143,6 +243,58 @@ impl DashboardStore {
         };
         dashboard
     }
+}
+
+/// Write the bank back to disk — immediately after a restart was absorbed, otherwise at most once
+/// every `PERSIST_EVERY`. A failure is ignored: losing a byte count is not worth failing a frame.
+fn persist(inner: &mut Inner, now: Instant, force: bool) {
+    let Some(path) = inner.persist_to.clone() else {
+        return;
+    };
+    let due = force
+        || inner
+            .persisted_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= PERSIST_EVERY);
+    if !due {
+        return;
+    }
+    inner.persisted_at = Some(now);
+    let b = inner.banked;
+    let body = format!(
+        "{{\"sent\":{},\"received\":{},\"seen_sent\":{},\"seen_received\":{}}}",
+        b.sent, b.received, b.seen_sent, b.seen_received
+    );
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let temporary = path.with_extension("json.tmp");
+    if std::fs::write(&temporary, body.as_bytes()).is_ok() {
+        let _ = std::fs::rename(&temporary, &path);
+    }
+}
+
+/// Read the bank back. Anything unreadable or malformed reads as "no history", never as an error:
+/// a corrupt counter file must not stop the application from showing a dashboard.
+fn read_banked(path: &std::path::Path) -> Option<Banked> {
+    let body = std::fs::read_to_string(path).ok()?;
+    let field = |name: &str| -> u64 {
+        body.split(&format!("\"{name}\":"))
+            .nth(1)
+            .map(|rest| {
+                rest.trim_start()
+                    .chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>()
+            })
+            .and_then(|digits| digits.parse().ok())
+            .unwrap_or(0)
+    };
+    Some(Banked {
+        sent: field("sent"),
+        received: field("received"),
+        seen_sent: field("seen_sent"),
+        seen_received: field("seen_received"),
+    })
 }
 
 /// Bytes per second between two samples, or `None` when the interval is too short to divide by.
@@ -207,17 +359,84 @@ mod tests {
     fn a_rate_is_measured_between_two_accepted_snapshots() {
         let store = DashboardStore::new();
         store.accept(&metrics(0, 0), "stream");
-        std::thread::sleep(Duration::from_millis(60));
+        std::thread::sleep(RATE_WINDOW + Duration::from_millis(60));
         let dash = store.accept(&metrics(6_000, 0), "stream");
 
         let up = dash
             .traffic
             .up_bytes_per_sec
-            .expect("two samples make a rate");
-        // ~6000 bytes over ~60 ms is ~100 KB/s. Loose bounds: the assertion is that it is measured
+            .expect("two samples a window apart make a rate");
+        // ~6000 bytes over ~1.06 s is ~5.7 KB/s. Loose bounds: the assertion is that it is measured
         // against elapsed time, not that the test machine has a real-time scheduler.
-        assert!(up > 20_000 && up < 400_000, "unexpected rate {up}");
+        assert!(up > 3_000 && up < 9_000, "unexpected rate {up}");
         assert_eq!(dash.link.revision, 2);
+    }
+
+    #[test]
+    fn a_rate_is_held_between_windows_instead_of_flickering_to_zero() {
+        let store = DashboardStore::new();
+        store.accept(&metrics(0, 0), "stream");
+        std::thread::sleep(RATE_WINDOW + Duration::from_millis(60));
+        let measured = store
+            .accept(&metrics(6_000, 0), "stream")
+            .traffic
+            .up_bytes_per_sec
+            .expect("a window elapsed");
+
+        // The worker's own cadence is 250 ms. Before this, an idle push inside the window divided
+        // zero bytes by a quarter second and painted 0 B/s over a live transfer, four times a
+        // second. The last measurement stands until there is a new one.
+        let held = store.accept(&metrics(6_000, 0), "stream");
+        assert_eq!(held.traffic.up_bytes_per_sec, Some(measured));
+    }
+
+    #[test]
+    fn totals_survive_a_worker_restart() {
+        let store = DashboardStore::new();
+        store.accept(&metrics(9_000_000, 4_000_000), "stream");
+        // A new JVM: `LongAdder`s start at zero again.
+        let dash = store.accept(&metrics(10, 20), "stream");
+
+        // The complaint this fixes: saving a restart-scoped setting sent "Uploaded" back to 0.
+        assert_eq!(dash.traffic.total_sent_bytes, 9_000_010);
+        assert_eq!(dash.traffic.total_received_bytes, 4_000_020);
+    }
+
+    #[test]
+    fn totals_survive_the_application_itself() {
+        let dir = std::env::temp_dir().join(format!("nodera-traffic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("traffic-totals.json");
+
+        let first = DashboardStore::at(Some(path.clone()));
+        first.accept(&metrics(9_000_000, 0), "stream");
+        first.accept(&metrics(10, 0), "stream"); // restart: 9 MB banked and written out
+        drop(first);
+
+        // The app is closed and reopened; the worker it attaches to is a third lifetime.
+        let second = DashboardStore::at(Some(path.clone()));
+        let dash = second.accept(&metrics(5, 0), "stream");
+        assert_eq!(dash.traffic.total_sent_bytes, 9_000_015);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn attaching_to_the_worker_that_was_already_running_banks_nothing() {
+        let dir = std::env::temp_dir().join(format!("nodera-attach-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("traffic-totals.json");
+
+        let first = DashboardStore::at(Some(path.clone()));
+        first.accept(&metrics(700, 0), "stream");
+        drop(first);
+
+        // Same worker, still climbing. Counting 700 twice would be an invented 700 bytes.
+        let second = DashboardStore::at(Some(path.clone()));
+        let dash = second.accept(&metrics(900, 0), "stream");
+        assert_eq!(dash.traffic.total_sent_bytes, 900);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -138,9 +138,20 @@ final class TrackerServiceIT {
     private static TrackerAnnounce announce(
             TrackerClient client, Bytes world, AnnounceEvent event, Set<PeerRole> roles,
             List<ManifestHolding> holdings, String worldName) {
+        // No population: an announce with no game behind it says "I cannot see", which is what
+        // every seeder says. The tracker's count used to be its peer count, so these announces
+        // produced a player total by existing.
+        return announce(client, world, event, roles, holdings, worldName,
+                TrackerAnnounce.UNKNOWN_PLAYER_COUNT);
+    }
+
+    /** As above, reporting a population — a peer with a game in the world. */
+    private static TrackerAnnounce announce(
+            TrackerClient client, Bytes world, AnnounceEvent event, Set<PeerRole> roles,
+            List<ManifestHolding> holdings, String worldName, long players) {
         return client.buildAnnounce(
                 world, event, List.of("127.0.0.1:25599"), capabilities(roles), holdings,
-                worldName, 0L, 9_400, System.currentTimeMillis());
+                worldName, 0L, 9_400, players, System.currentTimeMillis());
     }
 
     private static Bytes world(String name) {
@@ -182,7 +193,9 @@ final class TrackerServiceIT {
 
             TrackerResponse a = player.query(worldA).orElseThrow();
             assertThat(a.worldName()).isEqualTo("Survival");
-            assertThat(a.worldPlayerCount()).isEqualTo(2);
+            // Two peers announcing, neither with a game in the world: no players. This asserted
+            // `2` — the peer count under a player's name.
+            assertThat(a.worldPlayerCount()).isZero();
             assertThat(a.peers()).hasSize(2);
             assertThat(a.seeders()).hasSize(1);
             assertThat(a.seeders().get(0).manifestRoot()).isEqualTo(manifestA);
@@ -191,7 +204,7 @@ final class TrackerServiceIT {
             assertThat(a.health()).isEqualTo(WorldHealth.HEALTHY);
 
             TrackerResponse b = player.query(worldB).orElseThrow();
-            assertThat(b.worldPlayerCount()).as("worlds never leak into each other").isEqualTo(1);
+            assertThat(b.worldPlayerCount()).isZero();
             assertThat(b.seeders()).isEmpty();
             assertThat(b.worldName()).as("a non-host cannot name a world").isEmpty();
         }
@@ -247,7 +260,10 @@ final class TrackerServiceIT {
                     Set.of(PeerRole.FULL_ARCHIVE, PeerRole.WORLD_SEEDER),
                     List.of(new ManifestHolding(DiscoveryFixtures.manifestHash(1),
                             DiscoveryFixtures.bitmapOf(Set.of(0, 1)))),
-                    "Survival"));
+                    // A host WITH a game open, reporting the one player in it — otherwise the row
+                    // below would be rendering a population nothing had reported, which the view
+                    // model now correctly refuses to print as a number.
+                    "Survival", 1));
 
             TrackerResponse response = host.query(worldA).orElseThrow();
             TorrentWorldListView.TorrentWorldEntry entry =
@@ -264,7 +280,7 @@ final class TrackerServiceIT {
             assertThat(panel.rows()).hasSize(1);
             assertThat(panel.rows().get(0).cells())
                     .extracting(cell -> cell.text())
-                    .contains("Survival", "1 players", "2 chunks", "94.0%", "HEALTHY");
+                    .contains("Survival", "1 online", "2 chunks", "94.0%", "HEALTHY");
             assertThat(TorrentWorldListView.semanticOf(response.health()))
                     .isEqualTo(Semantic.WORLD_HEALTHY);
         }
@@ -280,11 +296,11 @@ final class TrackerServiceIT {
         try (TrackerClient peer = new TrackerClient(List.of(endpoint), NodeIdentity.generate())) {
             peer.announce(announce(peer, worldA, AnnounceEvent.STARTED,
                     Set.of(PeerRole.PARTIAL_ARCHIVE), List.of(), ""));
-            assertThat(peer.query(worldA).orElseThrow().worldPlayerCount()).isEqualTo(1);
+            assertThat(peer.query(worldA).orElseThrow().peers()).hasSize(1);
 
             peer.announce(announce(peer, worldA, AnnounceEvent.STOPPED,
                     Set.of(PeerRole.PARTIAL_ARCHIVE), List.of(), ""));
-            assertThat(peer.query(worldA).orElseThrow().worldPlayerCount()).isZero();
+            assertThat(peer.query(worldA).orElseThrow().peers()).isEmpty();
         }
     }
 
@@ -303,7 +319,8 @@ final class TrackerServiceIT {
                     honest.genesisHash(), honest.peer(), honest.publicKey(), honest.event(),
                     List.of("10.0.0.1:1"), honest.capabilities(), honest.holdings(),
                     honest.worldName(), honest.retentionDeadlineEpochMillis(),
-                    honest.reliabilityBps(), honest.announceEpochMillis(), honest.signature());
+                    honest.reliabilityBps(), honest.worldPlayerCount(),
+                    honest.announceEpochMillis(), honest.signature());
 
             Map<TrackerClient.Endpoint, TrackerAnnounceAck> acks = peer.announce(tampered);
             assertThat(acks.get(endpoint).accepted()).isFalse();
@@ -311,6 +328,46 @@ final class TrackerServiceIT {
             assertThat(peer.query(worldA).orElseThrow().worldPlayerCount())
                     .as("a rejected announce never reaches the registry")
                     .isZero();
+        }
+    }
+
+    /**
+     * A player count reaches the directory only from a peer that is IN the world, and is not summed.
+     *
+     * <p>End to end against the real tracker binary, because this is a cross-language contract: the
+     * count is written by the Java announce encoder, verified as part of the signed portion, stored
+     * per peer by the Rust registry, and reduced there. It used to be `live.len()` on the Rust side
+     * — a peer count under a player's name — and no Java-side change could have fixed that.
+     */
+    @Test
+    void onlyPeersInTheWorldContributeToItsPlayerCount() throws Exception {
+        Optional<Path> binary = trackerBinary();
+        assumeThat(binary).as("nodera-tracker binary").isPresent();
+        TrackerClient.Endpoint endpoint = startTracker(binary.get());
+        Bytes world = world("survival");
+
+        try (TrackerClient seeder = new TrackerClient(List.of(endpoint), NodeIdentity.generate());
+             TrackerClient hostPeer = new TrackerClient(List.of(endpoint), NodeIdentity.generate());
+             TrackerClient joiner = new TrackerClient(List.of(endpoint), NodeIdentity.generate())) {
+
+            // A seeder holds the bytes and has no game: it cannot see, and says so.
+            seeder.announce(announce(seeder, world, AnnounceEvent.STARTED,
+                    Set.of(PeerRole.WORLD_SEEDER), List.of(), ""));
+            assertThat(seeder.query(world).orElseThrow().worldPlayerCount())
+                    .as("one seeder is not one player")
+                    .isZero();
+
+            // The host and a joiner are both in the world and both see the same two people.
+            hostPeer.announce(announce(hostPeer, world, AnnounceEvent.STARTED,
+                    Set.of(PeerRole.FULL_ARCHIVE), List.of(), "Survival", 2));
+            joiner.announce(announce(joiner, world, AnnounceEvent.STARTED,
+                    Set.of(PeerRole.PARTIAL_ARCHIVE), List.of(), "", 2));
+
+            TrackerResponse response = seeder.query(world).orElseThrow();
+            assertThat(response.worldPlayerCount())
+                    .as("two observers of the same two players is two, not four")
+                    .isEqualTo(2);
+            assertThat(response.peers()).hasSize(3);
         }
     }
 
@@ -325,22 +382,22 @@ final class TrackerServiceIT {
         try (TrackerClient peer = new TrackerClient(List.of(first), identity)) {
             peer.announce(announce(peer, worldA, AnnounceEvent.STARTED,
                     Set.of(PeerRole.WORLD_SEEDER), List.of(), ""));
-            assertThat(peer.query(worldA).orElseThrow().worldPlayerCount()).isEqualTo(1);
+            assertThat(peer.query(worldA).orElseThrow().peers()).hasSize(1);
         }
 
         // Restart: announce state is deliberately ephemeral, so the new process starts empty.
         stopTracker();
         TrackerClient.Endpoint second = startTracker(binary.get());
         try (TrackerClient peer = new TrackerClient(List.of(second), identity)) {
-            assertThat(peer.query(worldA).orElseThrow().worldPlayerCount())
+            assertThat(peer.query(worldA).orElseThrow().peers())
                     .as("a restarted tracker knows nothing until peers re-announce")
-                    .isZero();
+                    .isEmpty();
 
             peer.announce(announce(peer, worldA, AnnounceEvent.HEARTBEAT,
                     Set.of(PeerRole.WORLD_SEEDER), List.of(), ""));
-            assertThat(peer.query(worldA).orElseThrow().worldPlayerCount())
+            assertThat(peer.query(worldA).orElseThrow().peers())
                     .as("one announce interval is all it takes to repopulate")
-                    .isEqualTo(1);
+                    .hasSize(1);
         }
     }
 }

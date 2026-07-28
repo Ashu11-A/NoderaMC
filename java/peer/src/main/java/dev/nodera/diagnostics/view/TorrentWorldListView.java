@@ -30,7 +30,12 @@ public final class TorrentWorldListView {
      * One torrent world as the tracker reports it.
      *
      * @param name                      the display name from the tracker directory (Task 20).
-     * @param playerCount               players currently online in the world.
+     * @param playerCount               players currently online in the world, or <b>negative when
+     *                                  nothing that can see into the world has reported</b>. Only a
+     *                                  node with a game in the world can count them; a tracker
+     *                                  cannot, and a seeder cannot. Rendering "unknown" as
+     *                                  {@code 0 players} is what made this number wrong on every
+     *                                  row that did not come from the world's own host.
      * @param storedChunks              distinct pieces held network-wide (Task 19/21).
      * @param reliabilityBps            mean network reliability in basis points (Task 22).
      * @param health                    the tracker's {@link WorldHealth} classification.
@@ -78,6 +83,35 @@ public final class TorrentWorldListView {
         public boolean hasHost() {
             return !hostName.isBlank();
         }
+
+        /** @return whether anything that can see into the world has reported its player count. */
+        public boolean playersKnown() {
+            return playerCount >= 0;
+        }
+
+        /**
+         * @return the population, in words: {@code "3 online"}, or {@code "players unknown"} when
+         *         nothing that can see into the world has said.
+         */
+        public String playersLabel() {
+            return TorrentWorldListView.playersLabel(playerCount);
+        }
+    }
+
+    /**
+     * Format a player count for display — <b>the</b> place that decides how one is rendered.
+     *
+     * <p>Centralised because it was not, and the cost of that was visible: the sentinel for "nobody
+     * that can see into this world has reported" reached a screen as the literal string
+     * {@code "-1 online"}, next to worlds that read {@code "0 online"} — so a player comparing two
+     * rows saw a negative population and a real one and had no way to tell which was a measurement.
+     * Every surface that prints a population goes through here.
+     *
+     * @param playerCount players in-world, or negative when nobody could count.
+     * @return the label.
+     */
+    public static String playersLabel(long playerCount) {
+        return playerCount < 0 ? "players unknown" : playerCount + " online";
     }
 
     private static final Comparator<TorrentWorldEntry> NAME_ORDER =
@@ -125,7 +159,12 @@ public final class TorrentWorldListView {
         if (entry.hasHost()) {
             cells.add(Cell.of("by " + entry.hostName(), Semantic.SECONDARY));
         }
-        cells.add(Cell.of(entry.playerCount() + " players", Semantic.NEUTRAL));
+        // Said only when somebody could actually count. A directory row comes from a tracker, which
+        // sees announcing peers and not players, so it has no honest number to put here — and the
+        // cell it used to fill said "3 players" about three seeders of an empty world.
+        cells.add(entry.playersKnown()
+                ? Cell.of(entry.playersLabel(), Semantic.NEUTRAL)
+                : Cell.of(entry.playersLabel(), Semantic.SECONDARY));
         cells.add(Cell.of(entry.storedChunks() + " chunks", Semantic.SECONDARY));
         cells.add(Cell.of(formatReliability(entry.reliabilityBps()), Semantic.SECONDARY));
         cells.add(Cell.of(entry.health().name(), health));

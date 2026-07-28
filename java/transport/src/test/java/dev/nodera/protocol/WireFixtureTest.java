@@ -153,6 +153,8 @@ class WireFixtureTest {
                 "nodera-overworld",
                 0L,
                 9_400,
+                // A FULL_ARCHIVE host with people in its world: the case the field exists for.
+                3L,
                 1_700_000_000_000L,
                 filled(64, 0x77)));
 
@@ -168,6 +170,9 @@ class WireFixtureTest {
                 "",
                 0L,
                 0,
+                // A leaving peer reports "I cannot see" — the sentinel, pinned on the wire so the
+                // offset-by-one encoding that carries it is covered by a golden fixture.
+                TrackerAnnounce.UNKNOWN_PLAYER_COUNT,
                 1_700_000_060_000L,
                 filled(64, 0x88)));
 

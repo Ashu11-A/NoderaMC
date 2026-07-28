@@ -79,11 +79,19 @@ object NoderaWorker {
             // set environment variables for itself from Java — so the desktop's
             // NODERA_TRACKER_ENDPOINTS route does not exist here. Without it every install fell back
             // to 127.0.0.1:25600, which on a handset is the handset, and every tracker store the
-            // user added stopped at the app. The app writes it to its own data directory, which is
-            // `filesDir` — the same directory Tauri's app_data_dir() resolves to.
+            // user added stopped at the app.
+            //
+            // The path is the Rust side's `settings::sync_file_path()` spelled out: Tauri's
+            // `app_data_dir()` is `Context.dataDir` (`/data/user/0/<pkg>`) and `config_dir()` joins
+            // `nodera` to it. It is NOT `filesDir` — that is `/data/user/0/<pkg>/files`, one level
+            // down. This file was read from `filesDir` and written to `dataDir/nodera` for its whole
+            // existence, so it had never once been read on a device; the network only came up
+            // because `network.default_trackers` also arrives over NODERA-CONFIG.
+            // `src/api/storage.rs` records the same `filesDir` ≠ `app_data_dir()` trap for
+            // `storage-pick.json`, and works around it by trying both paths.
             System.setProperty(
                 "NODERA_SERVICES_FILE",
-                File(context.filesDir, "nodera-services.list").absolutePath,
+                File(File(context.dataDir, "nodera"), "nodera-services.list").absolutePath,
             )
             // ART has no console; slf4j-simple writes to stderr, which logcat captures per-process.
             System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "info")

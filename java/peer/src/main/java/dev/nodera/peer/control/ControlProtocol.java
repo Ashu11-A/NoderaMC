@@ -39,7 +39,36 @@ public final class ControlProtocol {
     /** Start hosting a world: {@code NODERA-HOST <worldId> <nameB64> <optionsJson>}. */
     public static final String HOST = "NODERA-HOST";
 
-    /** Resolve + join a world: {@code NODERA-JOIN <worldId>}. */
+    /**
+     * Resolve + join a world:
+     * {@code NODERA-JOIN <worldId> [<nameB64>] [<leaseSeconds>] [<playersInWorld>]}.
+     *
+     * <p>Sent by a player's game when it connects to somebody else's world, and <b>repeated on a
+     * cadence for as long as that session lasts</b>. Both halves matter:
+     *
+     * <ul>
+     *   <li>the world enters this node's sweep set, so a joiner starts supporting the world it is
+     *       playing in rather than only taking from it;</li>
+     *   <li>each call renews a short <i>connected</i> lease, which is what lets the companion app
+     *       say "you are playing in this world" without a leave verb it could miss. A game that
+     *       crashes stops renewing and the claim expires on its own — the alternative, a flag set
+     *       once and cleared by a message, is a flag that is wrong forever the first time the
+     *       message is lost.</li>
+     * </ul>
+     *
+     * <p>The name is optional and additive: without it the world still joins, it just lists under
+     * its id until some other lane learns a better name. {@code leaseSeconds} is likewise optional
+     * — absent means the worker's own default, and {@code 0} is the clean goodbye a game sends when
+     * the player leaves on purpose, so the app stops saying "playing" immediately instead of at the
+     * end of the lease. The world stays supported either way: leaving a world is not abandoning it.
+     *
+     * <p>{@code playersInWorld} is what the caller's own game can see in that world — the client's
+     * online-player set, the same live set the entity and region lanes plan over. It is sent by
+     * every node that is <b>in</b> the world, joiner and host alike, because only such a node can
+     * see it. A peer that merely holds the world's bytes has no game and no opinion; the confident
+     * zero it used to publish is the bug this argument exists to end. Absent or negative means "I
+     * cannot tell", and is carried through as unknown rather than collapsed to none.
+     */
     public static final String JOIN = "NODERA-JOIN";
 
     /** Stop hosting a world: {@code NODERA-STOP <worldId>}. */
@@ -90,8 +119,13 @@ public final class ControlProtocol {
 
     /**
      * Mint a signed world identity (the worker is the author):
-     * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted> <manifestRefB64>};
-     * reply is {@code NODERA-OK <worldIdentityBytesB64>}.
+     * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted>
+     * <manifestRefB64> [pinnedWorldIdHex]}; reply is {@code NODERA-OK <worldIdentityBytesB64>}.
+     *
+     * <p>{@code pinnedWorldIdHex} is optional and additive. When present the worker signs that id
+     * instead of deriving one from the genesis root — the fix for a world appearing on the network
+     * more than once, because the derivation is only stable while the genesis root is, and a root
+     * re-certified after a missing genesis file is not the root that minted the original id.
      */
     public static final String WORLDID = "NODERA-WORLDID";
 

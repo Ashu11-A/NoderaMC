@@ -226,6 +226,11 @@ public final class MultiplayerWorldFeed {
             long countdown = deadline <= 0 ? -1 : Math.max(0, (deadline - now) / 1000);
             out.add(new TorrentWorldEntry(
                     name,
+                    // A real population now: the count rides each host's tracker announce (only a
+                    // node with a game in the world reports one), and the tracker takes the maximum
+                    // across the peers that could see rather than counting peers. It reads 0 for a
+                    // world whose observers have all left — which is the honest floor, since the
+                    // catalog field cannot carry "unknown".
                     entry.worldPlayerCount(),
                     entry.storedChunks(),
                     entry.reliabilityBps(),

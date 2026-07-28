@@ -6,7 +6,7 @@
      the root README bar. Live observations count as evidence here ONLY when they name the log line
      or artifact that showed them. Never rewrite an old note. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-25 · Tasks completed: **2 / 8**
+**Category:** minecraft · **Last audit:** 2026-07-27 · Tasks completed: **2 / 10**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) ·
 retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -26,10 +26,65 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED | Defaults on; verified both ways in CI |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) | `ModTelemetryTest` (8) against a loopback worker; live pass pending |
 | [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED | `e2e-profile` R1 green: `nodera` attributed in a live dedicated-server capture |
+| [10](Task.10.md) | A world is shown only when it can be played | ⬜ NOT STARTED | Readiness gate, thread discipline on join/host, capture defaults |
+| [11](Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ NOT STARTED | Duplicate entry points, overflowing panels, the footer drawn into the body |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — The endless "Migrating world…" screen, root-caused from a live run
+
+Reported repeatedly and reproduced from `run/logs/play`. The chain, with the log lines that prove
+each link:
+
+1. The host shares a **password-gated** world — `'Asd' is password-gated — joiners must supply the
+   world password`.
+2. The joiner connects and is refused during configuration — `JoinerDev lost connection:
+   Disconnected`, four seconds after `Nodera join: connecting to 'Asd'`.
+3. That refusal opens a `DisconnectedScreen`, which is indistinguishable from the one a host crash
+   opens. `NoderaContinuity.onScreenOpening` runs on `ScreenEvent.Opening`, **before**
+   `JoinPasswordScreen.onScreenInit` runs on `Init.Post`, and replaced the whole screen — so the
+   prompt that would have asked for the password was thrown away before it could attach.
+4. `RehostScreen` then held the player for the full fetch timeout with no button (added only once a
+   failure existed), no Esc (`shouldCloseOnEsc` agreed with it), and a hardcoded string: the
+   `status` field the fetch thread moves through starting → fetching → unpacking → opening was
+   **written by four call sites and read by none**.
+5. It ended in `the worker could not fetch the archive (no seeder online?)` — while the seeder was
+   online and had just seeded v3 at 40 pieces. The archive is encrypted; the joiner had no
+   password, because of step 3.
+
+Fixed: continuity stands down when the disconnect belongs to the gate; the marker is set on **every**
+challenge rather than only unanswerable ones, because a wrong password produces a proof and was the
+case the narrow marker missed; it is cleared on `ClientPlayerNetworkEvent.LoggingIn` so a genuine
+host loss later in the session still recovers; the screen always has a working Cancel and Esc,
+renders the step it is on, and honours the cancel rather than dragging the player into a world they
+left; and the failure message no longer asserts a cause it has not checked. `rehosting` is now
+cleared by `disarm()` — it latched, so a second disconnect in one session was ignored.
+
+Evidence: `ClientJoinPasswordsGateMarkerTest` (3, green). The gate decision was split into a
+Minecraft-free overload to make it testable at all — the packet record implements a Minecraft
+interface, so a test that named it could not even be discovered.
+
+### 2026-07-27 — What the mod's screens and its join flow actually do
+
+Two audits, one functional and one visual, opened [`Task.10.md`](Task.10.md) and
+[`Task.11.md`](Task.11.md).
+
+Functional: the capture lane is **off by default** (`entity.laneAutoActivate=false`), and switching
+it on is not enough because the first non-zombie entity revokes the region permanently. Client and
+server derive different committee membership, because the plan payload carries no resident list.
+Nothing anywhere expresses readiness — `MultiplayerWorldFeed` hardcodes `HEALTHY` for the node's own
+worlds even with an empty `mc_route`, and the join button gates on "a row is selected" — which is
+how a player reaches a loading screen that never resolves. Peer bring-up runs on the client render
+thread and host activation on the server main thread, each capable of ~90 s of freeze with
+unreachable relays.
+
+Visual: the mod uses **zero** vanilla layout objects. `PanelWidget` never measures text against its
+own width and calls no scissor, so a tracker row (≈234 px with the `tcp://` scheme shown) overflows
+a 224 px column at GUI width 480; the status footer is drawn at an absolute `height-66` into a body
+whose bottom is `height-64`, after every widget. "Multiplayer" and "Nodera Network" open the same
+screen from two registration sites. Twenty-nine further layout defects are itemised in Task 11.
 
 ### 2026-07-26 — The mod no longer carries the worker, and no longer imports its control plane
 

@@ -90,8 +90,22 @@ public final class PieceDownloader {
     private final Map<NodeId, Set<Integer>> holders = new LinkedHashMap<>();
     /** piece index → holders currently asked for it. */
     private final Map<Integer, Set<NodeId>> inflight = new HashMap<>();
-    /** piece index → holders that served bad or missing bytes for it. */
+    /** piece index → holders that served bytes failing the manifest hash. Permanent: a peer that
+     *  lied about one piece is never asked for that piece again. */
     private final Map<Integer, Set<NodeId>> excluded = new HashMap<>();
+    /**
+     * piece index → holders that were asked and did not answer, since the last retry round.
+     *
+     * <p><b>Soft, and separate from {@link #excluded} on purpose.</b> Not answering is not lying:
+     * it is what a peer does when it is over budget, behind a flaky relay, or does not actually
+     * hold the piece it was optimistically credited with. Treating it as a permanent exclusion is
+     * what wedged a live download at 22 of 150 pieces — the selector is deterministic, so every
+     * retry re-picked the same silent peer for the same pieces, those requests held the whole
+     * in-flight budget, and the pieces behind them in the queue were never asked for at all. Held
+     * for one round so the next {@link #retryPending()} rotates to a different holder, and dropped
+     * as soon as a peer answers.
+     */
+    private final Map<Integer, Set<NodeId>> unanswered = new HashMap<>();
     private final CompletableFuture<Bytes> completion = new CompletableFuture<>();
 
     private long requestsIssued;
@@ -255,6 +269,7 @@ public final class PieceDownloader {
             if (accepted) {
                 inflight.remove(index);
                 excluded.remove(index);
+                unanswered.remove(index);
                 unlock(index);
             } else {
                 piecesRejected++;
@@ -286,13 +301,24 @@ public final class PieceDownloader {
                 asked.remove(peer);
             }
             inflight.entrySet().removeIf(e -> e.getValue().isEmpty());
+            // A peer that is gone cannot be the reason another one is skipped when it comes back.
+            for (Set<NodeId> silent : unanswered.values()) {
+                silent.remove(peer);
+            }
+            unanswered.entrySet().removeIf(e -> e.getValue().isEmpty());
         }
         pump();
     }
 
     /**
      * One outstanding request failed (timeout, transport error). The piece is re-selected; the
-     * holder is excluded for that piece but keeps its other holdings.
+     * holder is skipped for that piece until the next retry round, but keeps its other holdings.
+     *
+     * <p>Skipped, not excluded. A send that failed says the route was bad at that instant — a relay
+     * circuit that had just been torn down, a socket mid-reconnect — and says nothing about whether
+     * the peer holds the piece or would serve it a second later. Excluding it permanently, which is
+     * what this used to do, spends a holder on every transport hiccup; with a small swarm that runs
+     * out of holders and the download can never finish, whatever the network then does.
      *
      * @param peer  the peer that did not answer.
      * @param index the piece index that was requested.
@@ -308,7 +334,7 @@ public final class PieceDownloader {
                     inflight.remove(index);
                 }
             }
-            excluded.computeIfAbsent(index, k -> new HashSet<>()).add(peer);
+            unanswered.computeIfAbsent(index, k -> new LinkedHashSet<>()).add(peer);
         }
         pump();
     }
@@ -327,6 +353,16 @@ public final class PieceDownloader {
         synchronized (this) {
             if (!started || completion.isDone()) {
                 return;
+            }
+            // Whoever was asked and stayed silent for a whole round is skipped on the next one, so
+            // the re-select lands on a DIFFERENT holder. Without this the retry is a no-op in the
+            // only case that needs it: the selector is deterministic, so clearing `inflight` and
+            // re-pumping re-issues exactly the same requests to exactly the same silent peer, and
+            // those requests keep occupying the in-flight budget that the rest of the manifest is
+            // waiting behind.
+            for (Map.Entry<Integer, Set<NodeId>> asked : inflight.entrySet()) {
+                unanswered.computeIfAbsent(asked.getKey(), k -> new LinkedHashSet<>())
+                        .addAll(asked.getValue());
             }
             inflight.clear();
         }
@@ -378,8 +414,21 @@ public final class PieceDownloader {
                 while (asked.size() < requestReplication && budget > 0) {
                     Set<NodeId> skip = new HashSet<>(asked);
                     skip.addAll(excluded.getOrDefault(index, Set.of()));
+                    skip.addAll(unanswered.getOrDefault(index, Set.of()));
                     NodeId holder = PieceSelector.chooseHolder(
                             manifest.manifestRoot(), index, holders, skip);
+                    if (holder == null && !unanswered.getOrDefault(index, Set.of()).isEmpty()) {
+                        // Every holder has now been round-robined through without an answer. Start
+                        // the rotation again rather than stop asking: a piece nobody is *currently*
+                        // answering for is not a piece nobody will ever answer for, and a downloader
+                        // that gives up on it silently is a download that can never complete. The
+                        // hash-verification exclusions are NOT reset here — a liar stays a liar.
+                        unanswered.remove(index);
+                        skip = new HashSet<>(asked);
+                        skip.addAll(excluded.getOrDefault(index, Set.of()));
+                        holder = PieceSelector.chooseHolder(
+                                manifest.manifestRoot(), index, holders, skip);
+                    }
                     if (holder == null) {
                         break;
                     }

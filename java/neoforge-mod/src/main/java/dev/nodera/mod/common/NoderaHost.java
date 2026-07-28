@@ -142,7 +142,13 @@ public final class NoderaHost {
         // world keeps its id + author + shared status across restarts. A fresh identity derives its
         // worldId from the certified genesis root (30c); an existing record keeps its id.
         WorldIdentity identity = ensureIdentity(saveRoot, world, opts, genesisSeed);
-        Bytes worldId = identity != null ? identity.worldId() : genesisSeed;
+        // The persisted record is consulted even when the mint failed. Falling straight through to
+        // `genesisSeed` announced a world that already had a name under a second, different one —
+        // and since the genesis root is re-derived, that second name changed again on the next
+        // launch. A save that has ever been named keeps that name whatever the worker is doing.
+        Bytes worldId = identity != null
+                ? identity.worldId()
+                : NoderaWorldStore.read(saveRoot).map(WorldIdentity::worldId).orElse(genesisSeed);
 
         boolean already = NoderaPeerService.get().isHosting();
         String route;
@@ -171,7 +177,7 @@ public final class NoderaHost {
         // Delegate the network hosting to the always-on worker when present (Task 32), so the world
         // stays on the network even after the game closes. A missing worker falls back to the in-JVM
         // host lane already started above.
-        notifyWorker(server, worldId, world, opts, mcRoute);
+        notifyWorker(server, worldId, world, opts, mcRoute, null);
 
         // The sharing player is the world's operator (Task 33 permission model): the author is OWNER.
         grantHostOperator(server);
@@ -254,14 +260,16 @@ public final class NoderaHost {
     private static WorldIdentity ensureIdentity(Path saveRoot, String world, ShareOptions opts,
                                                 Bytes seed) {
         Optional<WorldIdentity> existing = NoderaWorldStore.read(saveRoot);
-        // A world minted before 30c derived its id from the interim name seed; re-minting with the
-        // genesis seed would silently change its worldId (breaking tracker/joiner continuity). Match
-        // the existing derivation and keep whichever seed produced the persisted id.
-        Bytes mintSeed = existing.map(id -> {
-            Bytes interim = worldId(world);
-            return WorldIdentity.deriveWorldId(interim, id.authorPublicKey(), id.createdAtEpoch())
-                    .equals(id.worldId()) ? interim : seed;
-        }).orElse(seed);
+        // Once a world has an id, that id is the world's name for life — it is pinned and re-signed,
+        // never re-derived. Derivation binds the genesis root, and the root is only stable while
+        // `nodera-genesis.dat` survives: lose it and it is re-certified from whichever chunks are
+        // loaded at the time, which mints a *different* id for the same save. Both then stay
+        // announced, each with its own administrator key, and the world is on the network twice.
+        // This is the machine that produced ten registry rows for four saves on the author's node.
+        //
+        // The seed is still sent, because a world being shared for the first time has no id yet and
+        // the worker derives from it.
+        Bytes pinnedWorldId = existing.map(WorldIdentity::worldId).orElse(null);
         try {
             // A rehosting peer is not the author: re-minting with the local worker's key would
             // derive a DIFFERENT worldId (author is part of the derivation) and silently fork the
@@ -279,8 +287,8 @@ public final class NoderaHost {
                 long createdAt = existing.map(WorldIdentity::createdAtEpoch)
                         .orElse(System.currentTimeMillis());
                 Optional<Bytes> minted = CompanionLink.client().mintWorldIdentity(
-                        mintSeed, createdAt, true, opts.listedOnTracker(), opts.encryptionEnabled(),
-                        manifestRef);
+                        seed, createdAt, true, opts.listedOnTracker(), opts.encryptionEnabled(),
+                        manifestRef, pinnedWorldId);
                 if (minted.isPresent()) {
                     WorldIdentity id = WorldIdentity.decode(
                             new dev.nodera.core.crypto.CanonicalReader(minted.get()));
@@ -292,7 +300,14 @@ public final class NoderaHost {
             // leave it as-is); nothing to persist without the worker's key.
             return existing.orElse(null);
         } catch (IOException | RuntimeException e) {
-            LOG.warn("Nodera: could not persist world identity for '{}': {}", world, e.getMessage());
+            // Loud, because of what it costs when it repeats: with no `nodera-world.dat` on disk
+            // there is nothing to pin against, so the next share mints another id and the network
+            // gains another copy of this world. A world that cannot record its own identity is one
+            // launch away from being a duplicate.
+            LOG.error("Nodera: could not persist the world identity for '{}': {}. The save cannot "
+                    + "remember its network id, so re-sharing it will publish it as a NEW world. "
+                    + "Fix the save directory's permissions before sharing again.", world,
+                    e.getMessage());
             return existing.orElse(null);
         }
     }
@@ -489,20 +504,65 @@ public final class NoderaHost {
      * linked worker.
      */
     private static void notifyWorker(MinecraftServer server, Bytes worldId, String world,
-                                     ShareOptions opts, String mcRoute) {
+                                     ShareOptions opts, String mcRoute, ServerPlayer leaving) {
         if (!CompanionLink.isPresent()) {
             return;
         }
-        int players = server.getPlayerList() == null ? 0 : server.getPlayerList().getPlayerCount();
-        CompanionLink.client().host(worldId.toHex(), world, shareOptionsJson(opts, mcRoute, players))
+        CompanionLink.client()
+                .host(worldId.toHex(), world,
+                        shareOptionsJson(opts, mcRoute, livePlayerCount(server, leaving)))
                 .ifPresent(err -> LOG.warn("Nodera worker refused HOST for '{}': {}", world, err));
     }
 
     /**
+     * Players actually connected to this world right now.
+     *
+     * <p>Counted from the live player list — the same set the entity and region lanes plan over —
+     * and not from {@code getPlayerList().getPlayerCount()}, which is wrong at the one moment this
+     * is most often asked. {@code PlayerList.remove} fires
+     * {@code EventHooks.firePlayerLoggedOut} as its <b>first</b> statement and calls
+     * {@code players.remove} sixteen lines later, so every logout handler observes the departing
+     * player still in the list. The count therefore ran permanently one too high from the first
+     * disconnect onwards, and a world everybody had left reported one player forever — there being
+     * no later event to correct it. That is the chronic wrongness this method exists to remove;
+     * {@code leaving} is who is on their way out, or {@code null} outside a logout.
+     *
+     * <p>A connection is required, not just presence in the list: a player mid-handshake or already
+     * disconnected is in neither this world nor its region plan.
+     *
+     * @param server  the hosting server.
+     * @param leaving the player being removed, or {@code null}.
+     * @return the number of connected players, never negative.
+     */
+    public static int livePlayerCount(MinecraftServer server, ServerPlayer leaving) {
+        if (server == null || server.getPlayerList() == null) {
+            return 0;
+        }
+        int live = 0;
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player == leaving || player.connection == null) {
+                continue;
+            }
+            live++;
+        }
+        return live;
+    }
+
+    /**
      * Refresh the worker's view of the currently-hosted world (player count, game endpoint).
-     * Called on player join/leave; cheap and safe on the server thread.
+     * Called on player join/leave and on a cadence; cheap and safe on the server thread.
      */
     public static void refreshWorkerPresence(MinecraftServer server) {
+        refreshWorkerPresence(server, null);
+    }
+
+    /**
+     * As above, excluding a player who is in the middle of leaving.
+     *
+     * @param server  the hosting server.
+     * @param leaving the departing player, or {@code null} — see {@link #livePlayerCount}.
+     */
+    public static void refreshWorkerPresence(MinecraftServer server, ServerPlayer leaving) {
         if (!NoderaPeerService.get().isHosting()) {
             return;
         }
@@ -514,7 +574,32 @@ public final class NoderaHost {
         ShareOptions opts = NoderaPeerService.get().hostOptions();
         notifyWorker(server, id.get().worldId(), server.getWorldData().getLevelName(),
                 opts == null ? ShareOptions.playerDefault() : opts,
-                NoderaPeerService.get().gameRoute());
+                NoderaPeerService.get().gameRoute(), leaving);
+    }
+
+    /** How often the hosting server re-reports its player count, in server ticks (20 ≈ 1 s). */
+    private static final int PRESENCE_REFRESH_TICKS = 20 * 30;
+
+    private static int presenceTicks;
+
+    /**
+     * Re-report the hosted world's player count on a cadence ({@code ServerTickEvent.Post}).
+     *
+     * <p>The worker holds this number under a lease and forgets it when nobody refreshes, which is
+     * what stops a dead game vouching for a stale count. Something therefore has to keep saying it
+     * while the game is alive, and login/logout alone do not: a world nobody joins or leaves for an
+     * hour would go quiet and read as unknown for that hour.
+     */
+    public static void tickWorkerPresence(MinecraftServer server) {
+        if (!NoderaPeerService.get().isHosting()) {
+            presenceTicks = 0;
+            return;
+        }
+        if (++presenceTicks < PRESENCE_REFRESH_TICKS) {
+            return;
+        }
+        presenceTicks = 0;
+        refreshWorkerPresence(server);
     }
 
     /** Minimal JSON for the worker HOST verb (share options + live session state). */
@@ -1130,7 +1215,7 @@ public final class NoderaHost {
             NoderaWorldStore.read(saveRoot).ifPresent(id -> {
                 ShareOptions opts = NoderaPeerService.get().hostOptions();
                 notifyWorker(server, id.worldId(), server.getWorldData().getLevelName(),
-                        opts == null ? ShareOptions.playerDefault() : opts, null);
+                        opts == null ? ShareOptions.playerDefault() : opts, null, null);
             });
         }
         publishedGamePort = -1;
@@ -1158,10 +1243,13 @@ public final class NoderaHost {
         Optional<WorldIdentity> existing = NoderaWorldStore.read(saveRoot);
         if (existing.isPresent() && existing.get().shared() && CompanionLink.isPresent()) {
             WorldIdentity id = existing.get();
-            // Re-mint with the SAME seed + createdAt so the derived worldId is unchanged; only the
-            // shared flag flips to false.
+            // Re-sign against the id the save already carries; only the shared flag flips to false.
+            // Passing the id explicitly rather than trusting the seed to reproduce it is the point:
+            // `identitySeed` is the interim name hash, and it stopped reproducing the id the moment
+            // 30c started deriving from the certified genesis root.
             CompanionLink.client().mintWorldIdentity(identitySeed(saveRoot, world), id.createdAtEpoch(), false,
-                    id.listedOnTracker(), id.encrypted(), id.manifestRef()).ifPresent(minted -> {
+                    id.listedOnTracker(), id.encrypted(), id.manifestRef(),
+                    id.worldId()).ifPresent(minted -> {
                 try {
                     NoderaWorldStore.write(saveRoot, WorldIdentity.decode(
                             new dev.nodera.core.crypto.CanonicalReader(minted)));

@@ -257,6 +257,23 @@ public final class LanSessionService implements AutoCloseable {
         }
         // Withdraw unconditionally. A session whose game has gone is not joinable however it was
         // announced, and leaving it listed would send every browser at a socket that is not there.
+        //
+        // Unless the same world is open again on another port: the session id no longer carries the
+        // port, so re-opening a world produces the *same* id on a new port, and the old port's close
+        // beacon arriving afterwards would withdraw the live session. Identity is the id, not the
+        // map key.
+        Session moved = openElsewhere(session);
+        if (moved != null) {
+            // The world moved, so the route has to move with it — the id is unchanged, and an
+            // announce pointing at the abandoned port would send every joiner at a closed socket.
+            if (session.state() == State.SHARED) {
+                sessions.put(moved.port(), new Session(moved.sessionIdHex(), moved.name(),
+                        moved.port(), State.OFFERED, moved.detectedAtEpochMillis()));
+                share(moved.port());
+            }
+            announce(WorkerEvent.LAN_CLOSED, session);
+            return;
+        }
         tunnel.unpublish(session.sessionIdHex());
         if (session.state() == State.SHARED) {
             hosting.stop(session.sessionIdHex());
@@ -265,6 +282,16 @@ public final class LanSessionService implements AutoCloseable {
         // Announced whatever was decided: a client showing a prompt for this world has to take it
         // down, and one showing it as shared has to stop.
         announce(WorkerEvent.LAN_CLOSED, session);
+    }
+
+    /** The live session carrying the same id — i.e. the world moved port rather than closing. */
+    private Session openElsewhere(Session closed) {
+        for (Session other : sessions.values()) {
+            if (other.sessionIdHex().equals(closed.sessionIdHex())) {
+                return other;
+            }
+        }
+        return null;
     }
 
     /**
@@ -288,17 +315,23 @@ public final class LanSessionService implements AutoCloseable {
     }
 
     /**
-     * Derive a session id from the node, the world's name and its port.
+     * Derive a session id from the node and the world's advertised name.
      *
      * <p>Deterministic so the same open world keeps one identity across a worker restart, and
-     * node-scoped so two players sharing "New World" on port 25565 are two different sessions.
+     * node-scoped so two players sharing "New World" are two different sessions.
+     *
+     * <p><strong>The port is deliberately not part of this.</strong> It used to be, and the comment
+     * here claimed the result was stable across a restart — it was not: vanilla's Open-to-LAN picks
+     * a fresh ephemeral port every time it is opened, so every re-open minted a different session
+     * id, announced it, and left the previous one in the registry. One world, one player, five
+     * evenings = five worlds on the network, none of which could be told apart by name. The MOTD
+     * carries the player and the level name, which is what actually identifies the session.
      */
     private Bytes sessionId(LanBeacon beacon) {
         CanonicalWriter w = new CanonicalWriter();
         w.writeU64(self.value().getMostSignificantBits());
         w.writeU64(self.value().getLeastSignificantBits());
         w.writeString(beacon.motd());
-        w.writeU32(beacon.port());
         return hashes.sha256(w.toBytes());
     }
 

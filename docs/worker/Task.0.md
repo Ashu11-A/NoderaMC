@@ -72,6 +72,9 @@ dials), [`engine/Task.5.md`](../engine/Task.5.md) (the validation stack for task
 | [3](Task.3.md) | Host/join delegation + world seeding | 🚧 IN PROGRESS |
 | [4](Task.4.md) | Out-of-game committee validation | ✅ COMPLETED (headless) |
 | [5](Task.5.md) | Telemetry emitter + consent record | ✅ COMPLETED |
+| [6](Task.6.md) | World ownership and the durable world registry | ✅ COMPLETED |
+| [7](Task.7.md) | The LAN lane: playing together without a mod | ✅ COMPLETED |
+| [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
