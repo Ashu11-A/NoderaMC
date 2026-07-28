@@ -5,7 +5,7 @@
      two copies of the image and upgrade instructions is two things to forget to update. The ENV
      table comes from `nodera-rendezvous --print-env`; regenerate it rather than hand-editing. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-27
+**Category:** rendezvous · **Last audit:** 2026-07-28
 
 A relay is the reachability half of the network. Most players are behind a NAT that will not accept
 an inbound connection; a relay lets two such peers meet, and bridges an **end-to-end-encrypted**

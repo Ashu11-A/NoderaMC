@@ -3,7 +3,10 @@
 <!-- AI-AGENT-INSTRUCTION: Append only, newest first. Every row names the evidence that retired it.
      A row here must never reappear in LIMITATIONS.md without a new id. -->
 
-**Category:** mobile · **Last audit:** 2026-07-26
+**Category:** mobile · **Last audit:** 2026-07-28
+
+No limitations retired in the 2026-07-28 sweep — every open M-* row was re-confirmed still live in
+code (see [`LIMITATIONS.md`](LIMITATIONS.md)). New rows land below as their exit tests go green.
 
 | id | Was | Retired by | Evidence |
 |---|---|---|---|

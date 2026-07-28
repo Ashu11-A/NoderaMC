@@ -3,10 +3,18 @@
 <!-- AI-AGENT-INSTRUCTION: This task reports about the SERVICE. The rendezvous sees both ends of every
      connection attempt — the most identifying vantage point in the whole system — and none of it may
      enter a telemetry event: only counters and NAT-pair CLASSES over a window. Emission is OFF
-     unless the operator configures an endpoint. Keep this header's status accurate. -->
+     unless the operator configures an endpoint. Keep this header's status accurate.
+     Context: the service's own counters + the NAT-pair punch statistics. Sub-deliverables 1-7 ✅;
+     deliverable 8 (relayed byte VOLUME + median circuit DURATION, needs circuit-bridge metering
+     plumbed into the reporter) remains ⬜ — the only open sub-item. Acceptance 5 defers to Task.3's
+     population, not to code here. Key files: rust/nodera-rendezvous/src/telemetry.rs:27 (windowed
+     reporter), punch.rs:96 (PunchOutcomes inferred-success counter) + :47 (PairClass four classes),
+     config.rs:63 (telemetry_endpoint, empty by default), circuit.rs:56 (CircuitMeter — has
+     bytes_transferred but not yet exported). 71 Rust tests in the crate. Depends on: Task.1.md,
+     ../telemetry/Task.1.md (endpoint + rendezvous.* events). Consumed by: Task.3.md, ../telemetry/Task.3.md. -->
 
 **Status:** ✅ COMPLETED
-**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [rendezvous 1](Task.1.md), [telemetry 1](../telemetry/Task.1.md)
 **Consumed by:** [rendezvous 3](Task.3.md), [telemetry 3](../telemetry/Task.3.md)
 
@@ -20,7 +28,7 @@ the service ever describing a single connection.
 
 ## Status detail
 
-Complete and green (`cargo test -p nodera-rendezvous`, 62 tests).
+Core goal delivered and green (`cargo test -p nodera-rendezvous`, **71 tests** in the crate).
 
 Landed: `telemetry_endpoint` / `telemetry_interval_seconds`, empty by default; `src/telemetry.rs`,
 the windowed reporter; and the substantial half — `PairClass` + `PunchOutcomes` in `punch.rs`,
@@ -30,6 +38,13 @@ where its packets arrive from?) and judging it by whether the same pair later op
 That inference is stated in the code rather than hidden: this service never learns whether a dial
 connected, so "punched and did not come back for a relay" is what success means here, and the bias
 it carries is documented where the counter lives.
+
+**Remaining sub-item (deliverable 8):** relay *byte volume* and *median circuit duration* are not yet
+emitted. `CircuitMeter` already tracks `bytes_transferred` (`circuit.rs:68`) and the bridge logs it at
+teardown (`wire.rs:419`), but neither reaches the reporter — `rendezvous.relay` carries only circuit
+counts and denials. Closing this needs the bridge to hand its per-circuit byte total and duration into
+the windowed counters the reporter drains. It is the single open sub-deliverable; it is tracked here
+rather than as a limitation row because it is an additive metric, not a correctness gap.
 
 ## Dependencies
 
@@ -77,11 +92,12 @@ depend on a dashboard.
 - `rust/nodera-rendezvous/src/telemetry.rs` — the reporter
 - `rust/nodera-rendezvous/src/punch.rs` — outcome + pair-class counters
 - `rust/nodera-rendezvous/src/config.rs` — `telemetry_endpoint`, `telemetry_interval_seconds`
+- `rust/nodera-rendezvous/src/circuit.rs` — `CircuitMeter` (byte/duration/idle source for D8)
 
 ## Testing
 
 ```bash
-cd rust && cargo test -p nodera-rendezvous   # 62 tests, telemetry + punch outcomes included
+cd rust && cargo test -p nodera-rendezvous   # 71 tests in the crate, telemetry + punch outcomes included
 ```
 
 - `telemetry::tests::telemetry_is_off_without_an_endpoint` — the loop returns rather than running.

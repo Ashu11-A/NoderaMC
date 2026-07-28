@@ -8,8 +8,11 @@
      discipline. When a task file contradicts this file, fix the task file. Keep every
      `<!-- AI-AGENT-INSTRUCTION: ... -->` comment intact when editing a document. -->
 
-Last documentation reorganization: **2026-07-25** · Overall system completion: **91.3%** ·
-Tests: **2,055 Java · 408 Rust workspace · 61 `nodera-app`** (2,524 total).
+Last documentation reorganization: **2026-07-28** (ten-agent full-sweep: every category's tasks,
+limitations, progress, testing refreshed against the tree; a new `REFACTORING.md` added per
+category) · Overall system completion: **91.3%** (figure not recomputed this sweep — its weighting
+is not raw done/total; see [`ROADMAP.md`](ROADMAP.md) §1 note) · Tests: **2,055 Java · 408 Rust
+workspace · 61 `nodera-app`** (2,524 total).
 
 ---
 
@@ -77,6 +80,13 @@ category folder or to `plans/`.
 A category may add reference documents (`REFERENCE.md`, `SDK.md`, study folders). It may never drop
 one of the six above.
 
+**`REFACTORING.md`** (added to every category by the 2026-07-28 sweep) is a seventh per-category
+file: a prioritized register of refactoring candidates with line counts, cross-file duplication %
+(sourced from a repo-wide `jscpd` run), the duplicated-with list, and a one-line refactoring plan
+per row, followed by a `## Sequencing` section ordering the top 5. It is reference material for
+maintainers and agents; it is updated when code lands that changes the duplication picture, and it
+is not a task-status surface.
+
 ### 2.2 The task-file template
 
 Every `Task.<n>.md` starts with a status header and follows this section order:
@@ -133,13 +143,13 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 | Category | Component | Code | Tasks |
 |---|---|---|---|
 | [`engine/`](engine/Task.0.md) | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | `java/core`, `java/engine`, `java/testing` | 12 |
-| [`network/`](network/Task.0.md) | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | `java/transport`, `java/storage`, `java/peer`, `rust/nodera-codec` | 12 |
-| [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `rust/nodera-tracker`, `dev.nodera.peer.discovery` | 4 |
-| [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rust/nodera-rendezvous`, `dev.nodera.transport.rendezvous` | 4 |
-| [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 8 |
-| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `dev.nodera.headless`, `dev.nodera.peer.control` | 5 |
-| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 5 |
-| [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `rust/nodera-app/android`, `scripts/android-*.sh` | 3 |
+| [`network/`](network/Task.0.md) | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | `java/transport`, `java/storage`, `java/peer`, `rust/nodera-codec` | 14 |
+| [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `rust/nodera-tracker`, `dev.nodera.peer.discovery` | 6 |
+| [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rust/nodera-rendezvous`, `dev.nodera.transport.rendezvous` | 6 |
+| [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 11 |
+| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `dev.nodera.headless`, `dev.nodera.peer.control` | 8 |
+| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 10 |
+| [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `rust/nodera-app/android`, `scripts/android-*.sh` | 5 |
 | [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | (unwritten) | 10 |
 | [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `rust/nodera-telemetry`, `docker/telemetry` | 3 |
 

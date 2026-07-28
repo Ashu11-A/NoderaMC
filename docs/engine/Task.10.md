@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** 🚧 IN PROGRESS (four of six sub-lanes retired; random ticks and fluids RETIRING)
-**Category:** engine · **Owns:** L-1, L-2 · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** L-1, L-2 · **Last audit:** 2026-07-28
 **Depends on:** [engine 8](Task.8.md), [engine 9](Task.9.md), [engine 7](Task.7.md) live half
 **Consumed by:** [engine 11](Task.11.md), [engine 12](Task.12.md)
 
@@ -99,8 +99,11 @@ skip is free.
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/rules/{RandomTickRules,FluidRules,GravityRules,FireRules,ObserverRules,DaylightSensorRules}.java`
-- `java/engine/src/main/java/dev/nodera/simulation/lighting/LightField.java`
+- `java/engine/src/main/java/dev/nodera/simulation/rules/RandomTickRules.java` — random-tick selection, grass spread, **fire** (fuel-bounded spread/burnout lives in `applyFireTick` here, not a separate `FireRules`), and crop growth.
+- `java/engine/src/main/java/dev/nodera/simulation/rules/FluidRules.java` — the finite fluid automaton + lava/water interactions.
+- `java/engine/src/main/java/dev/nodera/simulation/rules/GravityRules.java` — instant-settle gravity.
+- Observer + quasi-connectivity and the daylight sensor live in `RedstoneRules.java` (not separate files): `RedstoneRules.isObserver/observer*/daylightOutput` and the comparator fill signal.
+- `java/engine/src/main/java/dev/nodera/simulation/lighting/LightField.java` — deterministic sky/block light as a pure function of committed state.
 
 ## Testing
 

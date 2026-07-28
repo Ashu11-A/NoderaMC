@@ -6,7 +6,7 @@
      the root README bar. Live observations count as evidence here ONLY when they name the log line
      or artifact that showed them. Never rewrite an old note. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-27 · Tasks completed: **2 / 10**
+**Category:** minecraft · **Last audit:** 2026-07-28 · Tasks completed: **5 / 11**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) ·
 retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -17,21 +17,51 @@ retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | Skeleton, build, run harness | ✅ DONE | Dev runs + 9 scripted suites, green under Xvfb in CI (`e2e-live`) — L-45 retired 2026-07-25 |
-| [2](Task.2.md) | Live validation lane | ⏳ BLOCKED | Entity lane and ownership run live; capture/mixin lane and repeatable evidence remain |
+| [1](Task.1.md) | Skeleton, build, run harness | ✅ DONE | Dev runs + 15 scripted suites, green under Xvfb in CI (`e2e-live`) — L-45 retired 2026-07-25 |
+| [2](Task.2.md) | Live validation lane | 🚧 IN PROGRESS | Entity lane and ownership run live; apply half + capture defaults remain (L-50, L-80 RETIRING) — unblocked, Task 1's harness is green |
 | [3](Task.3.md) | Diagnostics HUD + commands | ✅ COMPLETED | Live providers replaced the placeholders (L-31 retired) |
 | [4](Task.4.md) | Multiplayer + share GUI | 🚧 IN PROGRESS | Built and feed-wired; live presentation pass remains (L-43, L-46) |
-| [5](Task.5.md) | Decentralized host lane | 🚧 IN PROGRESS | Genesis, continuity, and re-key landed; live re-key and join gate remain (L-51, L-52) |
+| [5](Task.5.md) | Decentralized host lane | 🚧 IN PROGRESS | Genesis, continuity, re-key, and the live-join password gate landed (L-51/L-52/L-59 retired); live rendezvous + per-piece encryption at share remain |
 | [6](Task.6.md) | World identity + permissions | 🚧 IN PROGRESS | Identity, grants, and ban enforcement landed; world-list mixin remains (L-49) |
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED | Defaults on; verified both ways in CI |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) | `ModTelemetryTest` (8) against a loopback worker; live pass pending |
 | [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED | `e2e-profile` R1 green: `nodera` attributed in a live dedicated-server capture |
-| [10](Task.10.md) | A world is shown only when it can be played | ⬜ NOT STARTED | Readiness gate, thread discipline on join/host, capture defaults |
-| [11](Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ NOT STARTED | Duplicate entry points, overflowing panels, the footer drawn into the body |
+| [10](Task.10.md) | A world is shown only when it can be played | 🚧 IN PROGRESS | Readiness gate, thread discipline on join/host, capture defaults (MC-JOIN-1…6; MC-JOIN-4 RETIRING) |
+| [11](Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ NOT STARTED | Duplicate entry points, overflowing panels, the footer drawn into the body (MC-GUI-1…5) |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: status reconciliation across the category
+
+A category-wide audit (`docs/full-sweep`) reconciled every task header against the current evidence
+and the retired-limitation register. Net status changes:
+
+- **Task 1 → ✅ COMPLETED.** Its one open deliverable was the CI harness under a headless display;
+  **L-45 is RETIRED** (the `e2e-live` workflow is green under Xvfb —
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)), so the exit is met.
+- **Task 2 → 🚧 IN PROGRESS** (was ⏳ BLOCKED). Its only blocker was repeatable live evidence, which
+  Task 1's now-green harness supplies. The capture/apply lane and its live scenarios remain (L-50,
+  L-80 RETIRING).
+- **Task 5** keeps 🚧 IN PROGRESS but now **owns no open limitation**: **L-51**, **L-52**, and **L-59**
+  are RETIRED (the re-key live exit, the live-join password gate, and the plaintext-publishing hole —
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)). Remaining work is deliverable 10 (live rendezvous
+  composition + per-piece encryption at share).
+- **Task 10 → 🚧 IN PROGRESS** (the PROGRESS row previously read NOT STARTED, contradicting
+  [`Task.10.md`](Task.10.md); reconciled). Its six MC-JOIN rows stay open; MC-JOIN-4 is RETIRING with
+  `ClientJoinPasswordsGateMarkerTest` (3) green headlessly.
+
+Module unit-test count re-verified by grep: **155 `@Test`** in `java/neoforge-mod/src/test`
+(`rg -c '@Test'` summed across the 27 test files — was reported as 118/97); live suites re-counted at
+**15** (was 14; `e2e-profile` was omitted from the header). No limitation retired on this pass: L-43,
+L-46, L-49, L-50, and L-80 all have **live** exit tests that cannot be verified green from a static
+read, so they stay open/retiring.
+
+A new [`REFACTORING.md`](REFACTORING.md) registers the jscpd duplication (81 clones touch a
+`neoforge-mod` file; 37 internal) and the god-class candidates (`NoderaHost` 1307, `NoderaPeerService`
+946, `NoderaCommand` 628) for scheduled structural work. The mod keeps its minimal **three-mixin** set
+(`LevelChunkMixin`, `LevelTicksMixin`, `ServerLevelRandomTickMixin`) — no mixin-chain concern.
 
 ### 2026-07-27 — The endless "Migrating world…" screen, root-caused from a live run
 

@@ -8,7 +8,7 @@
      a status pill. Keep this header accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-26
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [app 6](Task.6.md), [app 7](Task.7.md)
 **Consumed by:** [app 3](Task.3.md)
 

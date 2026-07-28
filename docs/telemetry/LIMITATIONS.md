@@ -6,7 +6,7 @@
      to LIMITATIONS.fixed.md with its evidence. Note §C: some properties that LOOK like limitations
      are the privacy model working as designed and must not be "fixed". -->
 
-**Category:** telemetry · **Last audit:** 2026-07-25 · Open or retiring rows: **4**
+**Category:** telemetry · **Last audit:** 2026-07-28 · Open or retiring rows: **4**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -30,7 +30,7 @@ and by labelling every published number as an opt-in sample ([telemetry 3](Task.
 | **L-72** | OPEN | The operator holds the pseudonymisation secret, so during a *current* rotation period they could recompute the mapping from install id to subject. Rotation bounds the window; it does not remove the capability. Elimination path: move the derivation to a key the ingest process holds only in memory and discards on rotation, so past periods are unrecoverable even to the operator | [1](Task.1.md) | A restart-and-rotate test proving a previous period's subjects cannot be reproduced from the configuration alone |
 | **L-73** | OPEN | The ingest listener is plaintext. Reports carry no secrets and no identifiers, but a network observer still learns that a given address reports telemetry and roughly how much. TLS is available only by putting the `edge` proxy in front. Elimination path: native TLS in the service, or making the proxy non-optional in the shipped deployment | [1](Task.1.md) | A test that a non-TLS connection to the public endpoint is refused once the deployment declares itself public |
 | **L-74** | OPEN | The compose stack is single-node: no replication, no backup, no restore procedure. A disk loss loses collected history — which costs insight only, never correctness | [2](Task.2.md) | A documented and exercised backup/restore of the ClickHouse volume in CI |
-| **L-75** | OPEN | Nothing is emitting yet, so every claim about what the pipeline *shows* is untested against real data. The receiver is proven; the population is not | [3](Task.3.md) | The first dashboard answering a §1.1 question from real reports, cited in `PROGRESS.md` |
+| **L-75** | OPEN | Nothing has been collected against a real opted-in population yet, so every claim about what the pipeline *shows* is untested against real data. The receiver and the emitters are proven; the population is not | [3](Task.3.md) | The first dashboard answering a §1.1 question from real reports, cited in `PROGRESS.md` |
 
 ---
 

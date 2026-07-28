@@ -6,7 +6,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED (live commit/content/lifecycle adapters → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 4](Task.4.md), [network 6](Task.6.md), [network 7](Task.7.md)
 **Consumed by:** [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md)
 

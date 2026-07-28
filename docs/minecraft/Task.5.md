@@ -6,8 +6,8 @@
      and the re-key must not silently re-seed a plaintext archive. Keep this header's status
      accurate. -->
 
-**Status:** 🚧 IN PROGRESS
-**Category:** minecraft · **Owns:** L-51, L-52 · **Last audit:** 2026-07-25
+**Status:** 🚧 IN PROGRESS (genesis, continuity, re-key, and the live-join password gate all landed; live rendezvous composition + per-piece encryption at share remain)
+**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 3](../network/Task.3.md), [network 8](../network/Task.8.md), [rendezvous 2](../rendezvous/Task.2.md), [worker 3](../worker/Task.3.md)
 **Consumed by:** players, [worker 3](../worker/Task.3.md)
 
@@ -36,12 +36,18 @@ with a bounded final flush and a freshness marker; a client that loses its host 
 disconnect screen for a recovery flow — fetch, unpack, re-open, auto-re-share — so the joiner becomes
 the world's next host **with the same world id**.
 
-**The password re-key pipeline landed headlessly.** A re-key packs a fresh archive, re-encrypts it
-under a new salt, re-signs the identity, re-announces, and evicts the superseded ciphertext.
+**The password re-key pipeline landed and is green live.** A re-key packs a fresh archive,
+re-encrypts it under a new salt, re-signs the identity, re-announces, and evicts the superseded
+ciphertext — and `e2e-rekey.sh` drives it end to end in CI (**L-51** retired; see
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)). The live **join password gate** landed too: a
+configuration-phase challenge-response refuses a joiner at the game server before a player is
+created (**L-52** retired, `e2e-password.sh` green in CI). Along the way a plaintext-publishing hole
+closed (**L-59** retired): the continuous streaming lane now routes a password-protected world through
+the re-encrypting path with no plaintext fallback.
 
-**Remaining:** the live GUI exit for the re-key (**L-51**), live rendezvous composition and per-piece
-encryption at share time, and the live **join password gate** — today a world's password protects the
-archived content plane, not who connects to the live game (**L-52**).
+**Remaining:** live rendezvous composition and per-piece encryption **at share time** (deliverable 10)
+— the re-key path proves the crypto round trip, but a first share of a password-protected world still
+seeds through the ordinary share activation. That is the last open half of this lane.
 
 ## Dependencies
 
@@ -61,9 +67,9 @@ archived content plane, not who connects to the live game (**L-52**).
 | 6 | Continuous archive streaming + bounded final flush + freshness marker | ✅ |
 | 7 | Disconnect-recovery: fetch, unpack, re-open, auto-re-share | ✅ |
 | 8 | Password re-key pipeline (headless) | ✅ |
-| 9 | Re-key live GUI exit | 🚧 (**L-51**) |
+| 9 | Re-key live GUI exit | ✅ (**L-51** retired — `e2e-rekey.sh` green in CI) |
 | 10 | Live rendezvous composition + per-piece encryption at share | 🚧 |
-| 11 | Password gate on the live join path | ⬜ (**L-52**) |
+| 11 | Password gate on the live join path | ✅ (**L-52** retired — `e2e-password.sh` green in CI) |
 
 ## Design
 
@@ -110,14 +116,13 @@ genesis; the host's signing key and runtime state do not.
 1. ✅ A world can be shared from the pause menu with no dedicated server anywhere.
 2. ✅ A certified genesis is produced from an existing world and reused across restarts.
 3. ✅ A shared world survives its host closing the game, and the joiner re-hosts it with the same id.
-4. 🚧 An author changes the password from the share screen and joiners must supply the new one
-   (**L-51** exit).
-5. ⬜ A password-protected world refuses a joiner at the live game server without the password
-   (**L-52** exit).
+4. ✅ An author changes the password from the share screen and joiners must supply the new one
+   (**L-51** retired).
+5. ✅ A password-protected world refuses a joiner at the live game server without the password
+   (**L-52** retired).
 
 ## Limitations
 
-- **L-51** — the re-key live exit (RETIRING).
-- **L-52** — no password gate on the live Minecraft join path (OPEN).
-
-See [`LIMITATIONS.md`](LIMITATIONS.md).
+None open. **L-51**, **L-52**, and **L-59** are RETIRED — see
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). The remaining work (live rendezvous composition +
+per-piece encryption at share) is tracked as deliverable 10 above, not as a limitation row.

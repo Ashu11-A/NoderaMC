@@ -7,7 +7,7 @@
      small it looks. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-07-27
+**Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-07-28
 **Depends on:** [minecraft 6](Task.6.md), [minecraft 7](Task.7.md), [worker 8](../worker/Task.8.md)
 **Consumed by:** [minecraft 11](Task.11.md)
 

@@ -5,10 +5,19 @@
      already committed, tell the trackers, wait for in-flight circuits, only then stop. Do not reorder
      it, and do not reintroduce a "drain" that logs the word and drops the runtime — that is exactly
      the bug this task fixes. A draining relay MUST keep answering discovery. Keep this header's
-     status accurate. -->
+     status accurate.
+     Context: announce-to-tracker, real drain, self-update. Sub-deliverables 1-8 ✅; deliverable 9
+     (live numbers) → Task.3.md. Acceptance 7 ⏳ (two separate networks). Owns L-83 (drain grace can
+     expire with a circuit live). Key files: rust/nodera-rendezvous/src/service.rs:323 (on_reserve
+     drain refusal) + :224 (connect drain refusal) + :26 (DRAINING_REASON), wire.rs:88 (broadcast_frame)
+     + :242 (run_reserved, in-flight guard at :292) + :51 (std-mutex ControlChannels), config.rs:82
+     (drain_grace_seconds) + :71 (tracker_endpoints) + :88 (update_*), main.rs:265 (RendezvousHost
+     ServiceHost::notify_peers) + :192 (lifecycle wiring). 71 Rust tests (5 socket-level drain tests in
+     wire.rs). Depends on: Task.1.md, Task.2.md, ../tracker/Task.5.md (directory + ack). Consumed by:
+     ../network/Task.13.md, ../worker/Task.3.md, ../minecraft/Task.5.md. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** rendezvous · **Owns:** L-83 · **Last audit:** 2026-07-27
+**Category:** rendezvous · **Owns:** L-83 · **Last audit:** 2026-07-28
 **Depends on:** [rendezvous 1](Task.1.md), [rendezvous 2](Task.2.md), [tracker 5](Task.5.md)
 **Consumed by:** [network 13](../network/Task.13.md), [worker 3](../worker/Task.3.md),
 [minecraft 5](../minecraft/Task.5.md)
@@ -25,8 +34,8 @@ only then exits.
 
 ## Status detail
 
-Landed and green (`cargo test -p nodera-rendezvous`, **67 tests**, up from 62; the five new ones are
-socket-level).
+Landed and green (`cargo test -p nodera-rendezvous`, **71 tests** in the crate; 5 of the new ones are
+the socket-level drain suite in `wire.rs`, 8 `#[tokio::test]` in total).
 
 - `src/service.rs` — shares a `DrainState` with the lifecycle task; a draining relay refuses
   `RELAY_RESERVE` with the readable reason `draining` and refuses `RELAY_CONNECT`, while continuing to
@@ -123,7 +132,7 @@ itself into first place.
 ## Testing
 
 ```bash
-cd rust && cargo test -p nodera-rendezvous   # 67 tests, 5 of them socket-level drain tests
+cd rust && cargo test -p nodera-rendezvous   # 71 tests in the crate; 5 socket-level drain tests
 cd rust && cargo test -p nodera-service      # 38 tests, drain + lifecycle ordering
 ./gradlew :peer:test --tests '*RendezvousDirectoryTest*'
 ```

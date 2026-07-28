@@ -6,7 +6,7 @@
      owned by minecraft/Task.2.md and its evidence gap is tracked there, not here. -->
 
 **Status:** ✅ COMPLETED (headless; live half → [minecraft 2](../minecraft/Task.2.md))
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 2](Task.2.md), [network 1](../network/Task.1.md) (transport seam)
 **Consumed by:** [engine 4](Task.4.md), [minecraft 2](../minecraft/Task.2.md)
 

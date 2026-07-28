@@ -6,7 +6,7 @@
      root README bar. Live observations count as evidence ONLY when they name the log line or
      artifact that showed them. Never rewrite an old note. -->
 
-**Category:** server · **Last audit:** 2026-07-25 · Tasks completed: **0 / 10**
+**Category:** server · **Last audit:** 2026-07-28 · Tasks completed: **1 / 10**
 
 Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 [`REFERENCE.md`](REFERENCE.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
@@ -19,20 +19,34 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains |
-| [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` is parsed, validated and enforced at enable (`EndpointConfig`, 9 tests); the node itself remains. Owns L-71 |
+| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains. `NoderaScheduler` seam + ArchUnit ban deferred to tasks 3–5 |
+| [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` parsed/validated/enforced (`EndpointConfig`, 9 tests); **external worker link shipped** (`EndpointPeerLink` + `ControlClient`, E4 green). **L-71 retired 2026-07-26**. The in-process `PeerRuntime` remains; `embedded` does nothing (follow-on scope) |
 | [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | Owns L-62; **L-63 retired 2026-07-26** (multi-view planning). **The design risk**, deliberately before any behaviour change |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED | Owns L-70. Admission is `registryFingerprint` equality |
 | [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED | Owns L-65. PC-1…PC-4 make "100 %" falsifiable |
-| [9](Task.9.md) | Live acceptance: mixed-client suites + CI | ⬜ NOT STARTED | The three suites are **committed and skipping** |
+| [9](Task.9.md) | Live acceptance: mixed-client suites + CI | 🚧 IN PROGRESS | The three suites + launcher + CI matrix are **committed and green for the built subset** (enable, ALIGN-1, external link). Headline stages (P5, F3/F6, WorldEdit cert.) skip on open rows |
 | [10](Task.10.md) | Endpoint telemetry + the tenant boundary | 🚧 IN PROGRESS | **L-79 retired 2026-07-26**: `TenantBoundary` + floor landed and tested; the reporter itself remains, and must emit through it |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: statuses reconciled against the actual code
+
+A category-wide audit against the tree (5 main + 3 test classes in `java/paper-plugin`, 20 unit tests;
+jscpd duplicated-block count for the module: **0**) reconciled every task header with the code. Three
+headers had been lying: [Task.1](Task.1.md)'s status detail still read "Not started" under a ✅
+COMPLETED header; [Task.2](Task.2.md)'s still read "Not started" while its external-mode link and
+L-71's SIGKILL exit were already green; [Task.9](Task.9.md)'s read "the suites exist and skip" while
+`e2e-endpoint.sh` E1–E4, `e2e-folia.sh` ALIGN-1, and `e2e-plugins.sh` co-existence all run green. All
+three are corrected, `Last audit` rolled to 2026-07-28 across the category, the task index in
+[Task.0](Task.0.md) now matches [`TESTING.md`](TESTING.md), and a new
+[`REFACTORING.md`](REFACTORING.md) records that the module is too small to have any duplication to
+refactor yet. No limitation moved: the open rows in [`LIMITATIONS.md`](LIMITATIONS.md) are unchanged
+because no exit test was newly run.
 
 ### 2026-07-26 — The Paper/Folia plugin carries the peer
 

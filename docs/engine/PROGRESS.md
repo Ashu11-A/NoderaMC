@@ -6,7 +6,7 @@
      ../ROADMAP.md §2 and the root README bar. A milestone note that does not name its evidence is
      not a milestone note. Never rewrite an old note — append a new one. -->
 
-**Category:** engine · **Last audit:** 2026-07-25 · Tasks completed: **7 / 12**
+**Category:** engine · **Last audit:** 2026-07-28 · Tasks completed: **7 / 12**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -27,12 +27,45 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [8](Task.8.md) | Entity & mob lane | 🚧 IN PROGRESS | Headless/durable green; proven live; scripted CI drives remain (L-50) |
 | [9](Task.9.md) | Validated redstone | 🚧 IN PROGRESS | Palette complete (L-26 retired); contraption migration remains |
 | [10](Task.10.md) | Environment lane | 🚧 IN PROGRESS | L-3/L-4/L-5/L-6 retired; L-1/L-2 retiring |
-| [11](Task.11.md) | Deterministic entity simulation | 🚧 IN PROGRESS | L-8 + L-9 retired; L-7 retiring; L-24 open |
+| [11](Task.11.md) | Deterministic entity simulation | 🚧 IN PROGRESS | L-8/L-9/L-24 retired; L-7 retiring |
 | [12](Task.12.md) | Player lane & trustless closure | 🚧 IN PROGRESS | L-10/L-11/L-13/L-14/L-15/L-18/L-20/L-21 retired; L-12/L-16/L-17/L-25 remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: status reconciliation + refactoring register
+
+A category-wide documentation sweep (no code change) reconciled every task header, the limitations
+register, and the testing ledger against the current tree. Findings of substance:
+
+- **Retirements reflected in the task headers.** `L-8` (engine spawn cycle) and `L-24`
+  (`mobCapture` default-off) were already in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) but the
+  [Task 11](Task.11.md) header still described them as RETIRING/OPEN; both are now marked RETIRED in
+  the header, the status-detail, and the per-task row above. Evidence: `SpawnRulesTest` (L-8);
+  `e2e-mobs.sh` G2a/G2b green on live run 30196607049 (L-24). `L-25` (async-write call site) was
+  likewise still described as open in [Task 7](Task.7.md); it is RETIRED (the `LevelChunkMixin` →
+  `BlockWriteGuard` call site landed; `MutationGuardTest` pins the headless semantics).
+- **`RULES_VERSION` corrected.** [Task 2](Task.2.md) and [Task 9](Task.9.md) status prose carried
+  stale version literals (4 / 5); the live values are `RULES_VERSION = 6`, palette literal
+  `palette.v6` (v5: obsidian for L-2; v6: farmland + wheat for L-1).
+- **Files sections corrected.** [Task 10](Task.10.md) listed `FireRules`/`ObserverRules`/
+  `DaylightSensorRules` as separate files; fire lives in `RandomTickRules.applyFireTick`, and
+  observer/daylight/comparator logic lives in `RedstoneRules`. The task file now names the real
+  locations.
+- **Type-tag registry scope.** [Task 1](Task.1.md) stated tags "through 108"; the registry has since
+  grown to `TypeTags.NEXT = 118` (world-identity, service-directory, archive types owned by other
+  categories). `core` only hosts the constants; the append-only frozen-contract rules are unchanged.
+- **Test counts refreshed** in [`TESTING.md`](TESTING.md) from a `@Test`/`@Property` grep (pending
+  XML-report re-confirmation): core 257, engine 499 `@Test` + 3 `@Property`, testing 14.
+- **No limitation retired this pass.** Every open §B row's exit test is still pending (live-evidence
+  gated or unfinished engine scope). Two new rows were opened — see [`LIMITATIONS.md`](LIMITATIONS.md)
+  L-51 (cross-region fluid inflow reads one cell per dense halo section) and L-52 (the fixed-point
+  multiply / entity-`withMotion` helpers are copy-pasted across four entity-rule classes — a
+  determinism-maintainability hazard).
+- **New artifact:** [`REFACTORING.md`](REFACTORING.md) — the jscpd-driven duplicate register plus
+  manual candidates (god classes, long methods, shared-helper extraction) for this category's three
+  modules.
 
 ### 2026-07-26 — The prediction overlay finally gets told something (L-16)
 

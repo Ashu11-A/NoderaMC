@@ -8,7 +8,7 @@
      is RETIRED: the harness exists and is green, so a row whose only gap was "needs a real client"
      now retires by ADDING A STAGE to a live suite, not by waiting. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-27 · Open or retiring rows: **16**
+**Category:** minecraft · **Last audit:** 2026-07-28 · Open or retiring rows: **16**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).

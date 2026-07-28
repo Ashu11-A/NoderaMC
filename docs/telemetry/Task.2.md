@@ -7,7 +7,7 @@
      commit. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** telemetry · **Owns:** L-74 · **Last audit:** 2026-07-25
+**Category:** telemetry · **Owns:** L-74 · **Last audit:** 2026-07-28
 **Depends on:** [telemetry 1](Task.1.md)
 **Consumed by:** [telemetry 3](Task.3.md)
 
@@ -108,11 +108,12 @@ with `TelemetryOutageIT`.
 
 - Schema validity: the init SQL applies cleanly to an empty ClickHouse (manual today, CI in
   deliverable 8).
-- Planned `telemetry-compose-smoke` CI job: `docker compose up -d`, submit one batch with the
+- `scripts/telemetry-stack.sh smoke` CI job: `docker compose up -d`, submit one batch with the
   reference client, poll ClickHouse until the row appears, assert `country`/`subject` shapes and the
-  absence of any address column, then `docker compose down -v`.
-- Retention: a row inserted with a back-dated `received_at` is gone after a TTL merge; asserted in
-  the same job.
+  absence of any address column, then `docker compose down -v`. **Green.**
+- Retention: a row inserted with a back-dated `received_at` is gone after a TTL merge; this expiry
+  half is still read from the schema rather than observed after a merge (deliverable 9 / acceptance
+  criterion 4).
 
 ## Acceptance criteria
 

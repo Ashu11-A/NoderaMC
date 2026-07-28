@@ -4,10 +4,17 @@
      ../tracker/Task.6.md and is linked rather than restated — the two Dockerfiles are deliberately
      near identical and their justifications should not drift into two versions. What is genuinely
      different here is the drain: a relay's SIGTERM has to move real transfers, not just stop
-     answering queries. Keep this header's status accurate. -->
+     answering queries. Keep this header's status accurate.
+     Context: the published GHCR image + operator docs. All deliverables ✅. The difference from the
+     tracker image is the stop grace period (60s here vs 45s) because a relay drains live transfers.
+     Key files: docker/rendezvous/Dockerfile, docker/compose.yml, docker/.env.example,
+     rust/nodera-rendezvous/src/config.rs (env twins) + main.rs (--print-env),
+     .github/workflows/containers.yml, scripts/deploy-vps.sh. Operator doc: SELF-HOSTING.md.
+     Depends on: Task.1.md, Task.5.md (the drain), ../tracker/Task.6.md (shared image reasoning).
+     Consumed by: ../network/Task.13.md, ../app/Task.9.md. -->
 
 **Status:** ✅ DONE
-**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-27
+**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [rendezvous 1](Task.1.md), [rendezvous 5](Task.5.md), [tracker 6](../tracker/Task.6.md)
 **Consumed by:** [network 13](../network/Task.13.md), [app 9](../app/Task.9.md)
 
@@ -22,7 +29,8 @@ tracker does not: a stop that moves live transfers instead of cutting them.
 
 Landed 2026-07-27 and running in production alongside the tracker. The relay announces itself into
 the tracker's service directory, which is what makes it discoverable rather than merely reachable —
-verified from a third machine with `nodera-query --services`.
+verified from a third machine with `nodera-query --services`. Reviewed 2026-07-28 against the current
+config surface: every TOML key still has its environment twin, and `--print-env` enumerates them.
 
 ## Deliverables
 

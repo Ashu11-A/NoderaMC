@@ -6,8 +6,8 @@
      control.rs a strict mirror of the worker's ControlProtocol. Keep the task index in agreement with
      ../ROADMAP.md §2. -->
 
-**Category:** `app` · **Status:** 🚧 IN PROGRESS (2 of 5 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `app` · **Status:** 🚧 IN PROGRESS (6 of 10 tasks completed) ·
+**Last audit:** 2026-07-28
 
 ---
 

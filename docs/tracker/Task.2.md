@@ -5,7 +5,7 @@
      unreachable. Do not add a "primary tracker" concept. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (periodic announce scheduling lives in [worker 3](../worker/Task.3.md))
-**Category:** tracker · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [network 5](../network/Task.5.md)
 **Consumed by:** [minecraft 4](../minecraft/Task.4.md), [worker 3](../worker/Task.3.md), [app 2](../app/Task.2.md)
 
@@ -77,7 +77,7 @@ is what makes it recoverable when one does not.
 ## Files
 
 - `java/transport/src/main/java/dev/nodera/protocol/discovery/{TrackerAnnounce,TrackerAnnounceAck,TrackerRoutesQuery}.java`
-- `java/peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java`
+- `java/peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java` — announce/query/catalog/routes, plus `serviceDirectory`/`reportServiceScores` (Task 5) and `onDeletionNotice`/`publishDeletion`
 - Mod config: `tracker.endpoints = []` in both TOML files
 
 ## Testing

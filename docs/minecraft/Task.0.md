@@ -7,8 +7,8 @@
      and every mixin carries a "why an event was not enough" header plus a COMPATIBILITY.md note.
      Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `minecraft` · **Status:** 🚧 IN PROGRESS (3 of 8 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `minecraft` · **Status:** 🚧 IN PROGRESS (5 of 11 tasks completed) ·
+**Last audit:** 2026-07-28
 
 ---
 
@@ -71,8 +71,8 @@ here.
 
 | Task | Title | Status |
 |---|---|---|
-| [1](Task.1.md) | Mod skeleton, build conventions, run harness | 🚧 IN PROGRESS |
-| [2](Task.2.md) | The live validation lane | ⏳ BLOCKED |
+| [1](Task.1.md) | Mod skeleton, build conventions, run harness | ✅ COMPLETED |
+| [2](Task.2.md) | The live validation lane | 🚧 IN PROGRESS |
 | [3](Task.3.md) | Diagnostics HUD + command tree | ✅ COMPLETED |
 | [4](Task.4.md) | Multiplayer + share GUI | 🚧 IN PROGRESS |
 | [5](Task.5.md) | Decentralized host lane | 🚧 IN PROGRESS |

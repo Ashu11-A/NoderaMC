@@ -7,8 +7,8 @@
      degraded discovery, and no more. Do NOT let the tracker mint, re-word, or arbitrate a service
      record. Keep this header's status accurate. -->
 
-**Status:** 🚧 IN PROGRESS
-**Category:** tracker · **Owns:** L-81, L-82 · **Last audit:** 2026-07-27
+**Status:** ✅ COMPLETED
+**Category:** tracker · **Owns:** L-81 · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [tracker 2](Task.2.md), [network 1](../network/Task.1.md)
 **Consumed by:** [rendezvous 5](../rendezvous/Task.5.md), [network 13](../network/Task.13.md),
 [worker 3](../worker/Task.3.md), [app 2](../app/Task.2.md)
@@ -25,7 +25,8 @@ built from those measurements — as components, never as a verdict.
 
 ## Status detail
 
-Landed and green (`cargo test -p nodera-tracker`, **102 tests**, up from 72).
+Complete and green (`cargo test -p nodera-tracker`, **109 `#[test]`s** in the crate, up from the 72
+noted when the lane landed).
 
 - `src/services.rs` — the directory: admission (signature, freshness, trust-on-first-use binding),
   bounded state, TTL sweep, and the score aggregation.
@@ -37,8 +38,15 @@ Landed and green (`cargo test -p nodera-tracker`, **102 tests**, up from 72).
 - `src/telemetry.rs` — `tracker.services` (listed / draining counts; no service ids).
 - `src/main.rs` — the shared `nodera-service` lifecycle task: identity, self-announce, drain, update.
 
-Remaining: the operator documentation for the new keys, which is
-[Task 3](Task.3.md)'s deployment section rather than a second document here.
+The operator documentation for the new keys landed with [Task 6](Task.6.md) in
+[`SELF-HOSTING.md`](SELF-HOSTING.md) §3 (`NODERA_TRACKER_MAX_SERVICES`,
+`NODERA_TRACKER_PER_IP_REPORT_QUOTA`, `NODERA_TRACKER_SERVICE_REPORT_MAX_REPORTERS`,
+`NODERA_TRACKER_PEER_TRACKER_ENDPOINTS`), which is the deployment section this task pointed at rather
+than a second document here.
+
+The one open row, **L-81** (release provenance), is not code: the verification mechanism is built and
+its exit test is green, but no release signing key has been minted yet — a credential-creating step
+that belongs to the project owner. See [`LIMITATIONS.md`](LIMITATIONS.md).
 
 ## Dependencies
 
@@ -59,7 +67,7 @@ Remaining: the operator documentation for the new keys, which is
 | 7 | The tracker announces *itself*, so trackers are discoverable the same way | ✅ |
 | 8 | `tracker.services` telemetry — counts only | ✅ |
 | 9 | Self-update from a GitHub release, off by default, drain before install | ✅ |
-| 10 | Operator documentation for the new keys ([Task 3](Task.3.md)) | ⬜ |
+| 10 | Operator documentation for the new keys ([Task 3](Task.3.md)) | ✅ [`SELF-HOSTING.md`](SELF-HOSTING.md) §3 |
 
 ## Design
 
@@ -109,7 +117,9 @@ tracker agreed to run a tracker; they did not agree to let it replace its own ex
 consent rule the telemetry lane follows, for the same reason. The comparison is a **digest**, not a
 version string, because the rolling `latest` release keeps `VERSION` at one value across hundreds of
 builds; comparing the published SHA-256 of our own asset against the digest of the running file answers
-"am I running what is published" with no version plumbing.
+"am I running what is published" with no version plumbing. Provenance is checked **before** integrity
+(`update::check` verifies `SHA256SUMS.sig` against a pinned Ed25519 key before it reads any digest), so a
+substituted manifest cannot choose the binary. A missing signature is a refusal, not a fallback (L-81).
 
 ## Files
 
@@ -122,13 +132,15 @@ builds; comparing the published SHA-256 of our own asset against the digest of t
 - `java/core/.../crypto/TypeTags.java` — 115–118
 - `java/transport/.../protocol/codec/MessageCodec.java` — 67–72
 - `java/peer/.../discovery/TrackerClient.java` — `serviceDirectory`, `reportServiceScores`
+- `java/peer/.../discovery/ServiceScoreBoard.java` — peer-local scoring + selection
+- `java/peer/.../discovery/RendezvousDirectory.java` — the sweep/probe/select driver
 - `fixtures/wire/service-*.bin` — the six golden frames
 
 ## Testing
 
 ```bash
-cd rust && cargo test -p nodera-tracker      # 102 tests
-cd rust && cargo test -p nodera-service      # 38 tests
+cd rust && cargo test -p nodera-tracker      # 109 tests in the crate
+cd rust && cargo test -p nodera-service      # identity, announce, drain, update (incl. L-81's exit test)
 cd rust && cargo test -p nodera-codec        # 48 + fixtures + tag mirror
 ./gradlew :transport:test --tests '*ServiceMessageCodecTest*'
 ./gradlew :peer:test --tests '*ServiceScoreBoardTest*' --tests '*RendezvousDirectoryTest*'
@@ -147,8 +159,9 @@ Decisive tests:
 - `services::tests::the_published_composite_is_what_a_peer_recomputes` — the non-authority argument.
 - `fixtures.rs` — the six frames round-trip byte-exactly **and** the Java-computed composite equals the
   Rust-computed one. A divergence there would silently reorder every peer's failover list.
-- `update::tests::a_download_that_does_not_match_its_digest_is_refused_before_anything_is_staged` — the
-  decisive property of the update lane.
+- `update::tests::a_download_that_does_not_match_its_digest_is_refused_before_anything_is_staged` and
+  `a_validly_digested_but_wrongly_signed_manifest_is_refused` (L-81's exit test, in `nodera-service`) —
+  the decisive properties of the update lane.
 
 ## Acceptance criteria
 
@@ -159,10 +172,12 @@ Decisive tests:
 5. ✅ A draining service is visible, with its deadline, to a peer that asks.
 6. ✅ Tracker down ⇒ discovery degrades; a peer keeps the relays it already selected.
 7. ✅ Updating is inert unless an operator configures a channel, and never installs an unverified file.
-8. ⬜ The new configuration keys are documented for operators ([Task 3](Task.3.md)).
+8. ✅ The new configuration keys are documented for operators ([`SELF-HOSTING.md`](SELF-HOSTING.md) §3).
 
 ## Limitations
 
-Owns **L-81** (release artifacts carry a digest but no signature — integrity, not provenance) and
-**L-82** (the update fetcher shells out to `curl`). Both are in
-[`LIMITATIONS.md`](LIMITATIONS.md) with their exit tests.
+Owns **L-81** (release artifacts carry a digest but no signature — integrity, not provenance). It is
+RETIRING: the mechanism is built, the exit test is green, and the only remaining step is minting the
+release signing key (a project-owner credential action, not code). See
+[`LIMITATIONS.md`](LIMITATIONS.md). **L-82** (the update fetcher shelling out to `curl`) is RETIRED —
+see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

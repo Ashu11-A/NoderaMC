@@ -1,0 +1,77 @@
+# Worker — Refactoring Register
+
+<!-- AI-AGENT-INSTRUCTION: A living register of duplication and structural debt in the worker
+     category. Source: jscpd (build/jscpd/jscpd-report.json, 155 dup blocks touch this category) plus
+     manual god-class / long-method findings. Update in the SAME commit as any refactor that lands a
+     row, and move retired rows to a "Completed" section with the commit that did it. Never delete a
+     row. -->
+
+Built 2026-07-28 from `jscpd` plus manual review. Scope: `java/worker/` (the `dev.nodera.headless`
+package) and `java/peer/.../dev/nodera/peer/control/` (the loopback control protocol). `build/`
+excluded. Line counts from `build/loccount.txt`; `% duplicated` = (sum of this file's duplicated
+line-runs ÷ file lines) × 100, to one decimal. A `—` means jscpd did not flag the file and it is
+listed here on structural grounds (god class / long method).
+
+## 1. Candidates
+
+| File | Lines | % duplicated | Duplicated-with | Refactor plan |
+|---|---:|---:|---|---|
+| `worker/.../headless/HeldVersionBeatsAnUnreachableNewerOneTest.java` | 117 | 68.4 | `ArchiveRetentionWindowTest` (38), `FetchSurvivesSupersessionTest` (31) | Extract a shared `ArchiveFixture` (build seeder+joiner `WorldArchiveService` over `InMemoryContentStore`, seed N versions, capture manifests) — this whole cluster rebuilds the same 3-peer harness |
+| `worker/.../headless/SeedRegionVerbIT.java` | 215 | 57.2 | `RekeyVerbIT` (38), `ConfigVerbIT` (22), `WorldDeletionVerbIT` (25) | Extract a `ControlSocketHarness` (open `Socket` to 127.0.0.1:port, send verb, read reply line) — every `*VerbIT` re-implements it |
+| `worker/.../headless/FetchSurvivesSupersessionTest.java` | 169 | 47.3 | `SupersededManifestEvictionTest` (33), `HeldVersionBeatsAnUnreachableNewerOneTest` (31) | Same `ArchiveFixture` as above |
+| `worker/.../headless/ArchiveRetentionWindowTest.java` | 198 | 45.5 | `HeldVersionBeatsAnUnreachableNewerOneTest` (38), `SupersededManifestEvictionTest` (32) | Same `ArchiveFixture` |
+| `worker/.../headless/RekeyVerbIT.java` | 295 | 44.7 | `SeedRegionVerbIT` (38), `ConfigVerbIT` (31), `WorldContinuityIT` (22) | `ControlSocketHarness` |
+| `worker/.../headless/SupersededManifestEvictionTest.java` | 150 | 43.3 | `FetchSurvivesSupersessionTest` (33), `ArchiveRetentionWindowTest` (32) | Same `ArchiveFixture` |
+| `worker/.../headless/OwnershipGossipIT.java` | 260 | 41.5 | `GrantGossipIT` (62) | Extract a `LoopbackMeshHarness` (2–3 `PeerRuntime`s over `LoopbackTransport`, member supplier wiring) — `OwnershipGossipIT` and `GrantGossipIT` mirror each other almost line-for-line |
+| `worker/.../headless/WorldOwnershipService.java` | 214 | 41.1 | `WorldGrantGossipService` (40), `WorldDeletionService` (30) | Extract a `SignedGossipRelay` (members iteration, `transport.send`, exclude-self + exclude-source, log-and-continue on `TransportException`) — three services carry the same relay loop |
+| `worker/.../headless/GrantGossipIT.java` | 287 | 40.4 | `OwnershipGossipIT` (62) | Same `LoopbackMeshHarness` |
+| `worker/.../headless/WorldGrantGossipService.java` | 196 | 38.8 | `WorldOwnershipService` (40), `WorldDeletionService` (23) | Same `SignedGossipRelay` |
+| `worker/.../headless/ArchiveFetchThroughputTest.java` | 169 | 37.3 | `ArchiveFetchOverSocketsIT` (41) | Same `ArchiveFixture`; also share the `SocketPeerTransport` bridge lambda |
+| `worker/.../headless/ArchiveFetchOverSocketsIT.java` | 203 | 36.5 | `ArchiveFetchThroughputTest` (41) | Same `ArchiveFixture` + the socket `bridge(transport, service)` helper (currently duplicated) |
+| `worker/.../headless/CompanionCrashSurvivalIT.java` | 169 | 35.5 | `WorldContinuityIT` (20), `TelemetryVerbIT` (9) | Extract a `WorkerDaemonFixture` (launch the real worker distribution, SIGKILL a co-located stand-in game) — shared with `WorldContinuityIT` |
+| `worker/.../headless/WorldOwnershipVerbIT.java` | 234 | 28.2 | self (20), `ConfigVerbIT` (17), `SeedRegionVerbIT` (15) | `ControlSocketHarness`; the self-dup is the per-world JSON assert block |
+| `worker/.../headless/ConfigVerbIT.java` | 536 | 27.4 | `RekeyVerbIT` (31), `SeedRegionVerbIT` (22), `WorldOwnershipVerbIT` (17) | `ControlSocketHarness` — this is also the largest IT and the anchor for the harness extraction |
+| `worker/.../headless/WorldDeletionVerbIT.java` | 235 | 26.8 | `SeedRegionVerbIT` (25), `ConfigVerbIT` (18) | `ControlSocketHarness` |
+| `worker/.../headless/WorldDeletionService.java` | 325 | 25.2 | `WorldOwnershipService` (30), `WorldGrantGossipService` (23) | Same `SignedGossipRelay` |
+| `worker/.../headless/WorldRegistryStore.java` | 200 | 23.5 | `storage/.../WorldShareLink` (11), `peer/.../distribution/WorldArchive` (10), `peer/.../discovery/PersistentIdentityStore` (10) | The canonical encode/save + lower-case-key normalisation; consider a shared `CanonicalStore` helper across the three stores that use it |
+| `worker/.../headless/LocalFiles.java` | 77 | 23.4 | `peer/.../discovery/PersistentIdentityStore` (18) | `PersistentIdentityStore` re-implements the same temp-file + `ATOMIC_MOVE` + `PosixFilePermissions` dance. Promote `LocalFiles` to a shared module (or make `PersistentIdentityStore` call it). Note: W-DUP-3 tracks that this helper throws on non-POSIX FS — fix the helper as part of that row |
+| `peer/.../peer/control/WorkerEvent.java` | 159 | 22.0 | `worker/.../headless/WorkerControlHandler` (23) | The hand-rolled JSON `escape(...)` is copied into `WorkerControlHandler`; extract one `JsonEscape` in the control package |
+| `worker/.../headless/WorldContinuityIT.java` | 392 | 19.1 | `RekeyVerbIT` (22), `CompanionCrashSurvivalIT` (20) | `ControlSocketHarness` + `WorkerDaemonFixture` |
+| `peer/.../peer/control/ControlWatchStreamTest.java` | 205 | 19.0 | `ControlServerTest` (12) | Shared "open control socket, assert reply line" scaffolding |
+| `worker/.../headless/WorldKeyStore.java` | 209 | 16.7 | `WorldTombstoneStore` (19), `WorldRegistryStore` (10) | The three on-disk stores share the lower-case-hex `normalise`/`key` guard and the file-for-id resolution; a `HexKeyedStore` base would carry the path-traversal guard once |
+| `worker/.../headless/RegionPieceSeedingTest.java` | 222 | 12.2 | `engine/.../CrossRegionFluidTest` (11), `neoforge-mod/.../RegionSeedSpoolTest` (8) | Mostly the region-snapshot builder; leave unless the engine test also moves |
+| `worker/.../headless/WorkerTelemetryServiceTest.java` | 231 | 11.3 | `neoforge-mod/.../ModTelemetryTest` (10), `peer/.../SnapshotBuilder` (9) | Minor — the telemetry-event builder shape |
+| `worker/.../headless/WorldRegistryStoreTest.java` | 204 | 10.8 | `peer/.../DurableCoordinatorStateTest` (11), `WorldKeyStoreTest` (11) | The "second instance over the same file" pattern — fold into a `SecondInstanceFixture` |
+| `worker/.../headless/HeadlessPeerMain.java` | 794 | 5.2 | `neoforge-mod/.../NoderaPeerService` (33) | **Long `main(...)`.** ~410 lines of linear wiring. Extract a `WorkerContext` builder (identity + transport + meters + tracker) and per-lane factories so `main` reads as "build context, wire lanes, await stop" |
+| `worker/.../headless/WorldHostingService.java` | 1048 | 3.9 | self (22) | **Large file** carrying announce + rendezvous register + restore + ownership binding + the `HostedWorld` inner class. Extract `HostedWorld` to its own file and `RendezvousRegistrar` out of `registerRendezvous` |
+| `worker/.../headless/WorldArchiveService.java` | 1413 | 3.7 | `WorldOwnershipService` (12) | **Large file.** Two lanes (archive + region) + fetch + serve + retention. Split: `ArchiveSeedLane`, `RegionSeedLane`, `ArchiveFetchLane` over a shared `ContentTransferService`. Retention/supersede rules already isolated — they are the load-bearing part and should stay one place |
+| `worker/.../headless/WorkerControlHandler.java` | 1798 | 3.5 | self (26), `WorkerEvent` (23) | **God class.** 26 control verbs in one file. Split per lane (host/world-lifecycle, telemetry, config, lan/tunnel, deletion, directory/sharelink) into delegates behind `ControlHandler`, keeping `WorkerControlHandler` as the composition root. Highest absolute maintainability cost in the category despite the low dup % |
+| `worker/.../headless/WorldReplicationService.java` | 435 | — | — (not jscpd-flagged) | Not duplicated, but the largest unflagged production file here and a sibling of the gossip trio (it also iterates members and sends). When the `SignedGossipRelay` is extracted, audit this for the same shape |
+
+## 2. Sequencing
+
+The top-5 ordered so each makes the next cheaper:
+
+1. **Extract `ControlSocketHarness`** (anchors: `ConfigVerbIT` 536 lines, `RekeyVerbIT`,
+   `SeedRegionVerbIT`, `WorldDeletionVerbIT`, `WorldOwnershipVerbIT`). ~150 dup lines collapse into
+   one helper. Pure test scaffolding, zero behaviour risk, and it makes every future verb IT cheaper
+   to write — do it first.
+2. **Extract `ArchiveFixture` + the socket `bridge(...)` helper** (`ArchiveFetchOverSocketsIT`,
+   `ArchiveFetchThroughputTest`, `FetchSurvivesSupersessionTest`, `SupersededManifestEvictionTest`,
+   `ArchiveRetentionWindowTest`, `HeldVersionBeatsAnUnreachableNewerOneTest`). The highest-dup
+   cluster in the category (one test is 68%). Same rationale: test-only, no behaviour risk.
+3. **Split `WorkerControlHandler` (1798-line god class) per lane.** The composition root stays; the
+   26 verbs move into lane delegates implementing `ControlHandler` defaults. Biggest readability win
+   and de-risks every future verb addition. Land after the test harnesses (1–2) so the move is
+   protected by the verb ITs already refactored to the harness.
+4. **Extract `SignedGossipRelay`** from `WorldOwnershipService` / `WorldGrantGossipService` /
+   `WorldDeletionService` (~150 shared lines across the three). The members-iterate + `send` +
+   exclude-self/source + log-and-continue loop is identical; one extraction serves all three and the
+   replication sweep (audit `WorldReplicationService` at the same time).
+5. **Promote `LocalFiles` and call it from `peer`'s `PersistentIdentityStore`.** Removes the 18-line
+   dup AND is the natural place to fix **W-DUP-3** (the non-POSIX `UnsupportedOperationException`
+   that currently escapes the `catch (IOException)`). Land as part of Task 8 deliverable 8.
+
+## 3. Completed
+
+_None yet._

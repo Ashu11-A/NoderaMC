@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** ✅ COMPLETED (live churn soak → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 4](Task.4.md), [network 5](Task.5.md)
 **Consumed by:** [network 7](Task.7.md), [network 9](Task.9.md), [worker 3](../worker/Task.3.md)
 

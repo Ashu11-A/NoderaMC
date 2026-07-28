@@ -6,8 +6,8 @@
      versioned, and NON-AUTHORITATIVE: requiring the worker is a persistence and reachability
      convenience, never a new trust anchor. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `worker` · **Status:** 🚧 IN PROGRESS (4 of 5 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `worker` · **Status:** 🚧 IN PROGRESS (6 of 8 tasks completed) ·
+**Last audit:** 2026-07-28
 
 ---
 
@@ -77,20 +77,27 @@ dials), [`engine/Task.5.md`](../engine/Task.5.md) (the validation stack for task
 | [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
-[`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+[`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) ·
+refactoring register: [`REFACTORING.md`](REFACTORING.md).
 
 ## 6. Files
 
+> Paths reflect the 2026-07-26 module split: `dev.nodera.headless` moved from `:peer` into the new
+> `:worker` Gradle module (`java/worker/`). The control endpoint and the tunnel lane stay in
+> `:peer` (`java/peer/.../dev/nodera/peer/control/`) because the Paper plugin reuses that library
+> code. `WorkerState` is **not** a separate file in this category — the live state snapshot lives in
+> `WorkerControlHandler.stateJson` (a `dev.nodera.shadow.WorkerState` exists in `:engine`, unrelated).
+
 | Path | Contents |
 |---|---|
-| `java/peer/.../headless/HeadlessPeerMain.java` | Boots the runtime, holds the identity, serves the control endpoint |
-| `java/peer/.../headless/WorkerControlHandler.java` | Answers the verb table from live runtime state |
-| `java/peer/.../headless/WorkerState.java` | Maintained pieces and bytes, peers, hosted-world snapshot |
+| `java/worker/.../headless/HeadlessPeerMain.java` | Boots the runtime, holds the identity, serves the control endpoint |
+| `java/worker/.../headless/WorkerControlHandler.java` | Answers the verb table; builds the live `STATE` snapshot from runtime state |
 | `java/peer/.../peer/control/ControlProtocol.java` | The wire: verbs and version — the single source of truth |
 | `java/peer/.../peer/control/ControlServer.java` | Loopback listener + handler dispatch |
 | Mirrors | `java/neoforge-mod/.../common/CompanionProtocol.java`, `rust/nodera-app/src/control.rs` |
 
-Package architecture: [`java/peer/README.md`](../../java/peer/README.md).
+Package architecture: [`java/peer/README.md`](../../java/peer/README.md),
+[`java/worker/README.md`](../../java/worker/README.md).
 
 ## 7. Conventions specific to this category
 

@@ -6,7 +6,7 @@
      owns only the client side and the peer-local caches. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (mod-side feed → [minecraft 4](../minecraft/Task.4.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 2](Task.2.md)
 **Consumed by:** [tracker 2](../tracker/Task.2.md), [network 6](Task.6.md), [worker 1](../worker/Task.1.md)
 

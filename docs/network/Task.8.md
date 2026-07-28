@@ -6,7 +6,7 @@
      BEFORE allocation. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (opt-in create/join UI → [minecraft 4](../minecraft/Task.4.md), [minecraft 5](../minecraft/Task.5.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 4](Task.4.md)
 **Consumed by:** [minecraft 5](../minecraft/Task.5.md), [worker 3](../worker/Task.3.md)
 

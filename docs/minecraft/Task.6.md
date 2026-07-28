@@ -6,7 +6,7 @@
      first and must stay minimal, with a COMPATIBILITY.md note. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** minecraft · **Owns:** L-49 · **Last audit:** 2026-07-25
+**Category:** minecraft · **Owns:** L-49 · **Last audit:** 2026-07-28
 **Depends on:** [worker 2](../worker/Task.2.md), [worker 3](../worker/Task.3.md), [task 1](Task.1.md)
 **Consumed by:** players, world authors, and operators
 

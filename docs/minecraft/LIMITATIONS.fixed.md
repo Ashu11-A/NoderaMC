@@ -5,7 +5,7 @@
      trail that lets a reader check a retirement instead of trusting it. If a retired capability
      regresses, open a bug issue and add a NEW row to LIMITATIONS.md; do not edit history here. -->
 
-**Category:** minecraft · **Last audit:** 2026-07-25 · Retired rows: **6**
+**Category:** minecraft · **Last audit:** 2026-07-28 · Retired rows: **6**
 
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|

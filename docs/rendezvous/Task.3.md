@@ -3,10 +3,17 @@
 <!-- AI-AGENT-INSTRUCTION: This task's whole value is that it runs on REAL NAT with REAL internet
      paths — a loopback or LAN run does not substitute for it and must not be recorded as satisfying
      it. Record the measured direct/punched/relayed mix; a number nobody wrote down is a number
-     nobody can regress. Keep this header's status accurate. -->
+     nobody can regress. Keep this header's status accurate.
+     Context: the live soak that proves the mechanism on real NAT. No sub-deliverable is code — all
+     are measurement runs blocked on the live environment. Key files the soak drives:
+     java/peer/.../SessionContinuityIT.java (pure-relay run),
+     java/transport/.../rendezvous/TransportSelector.java:57 (the metrics surface),
+     rust/nodera-rendezvous/src/telemetry.rs:27 + punch.rs:96 (the population numbers source). Numbers
+     land in ../plans/Plan.0.md. Depends on: ../network/Task.2.md (migration machinery),
+     ../minecraft/Task.1.md (live environment). Consumed by: the project's reachability claims. -->
 
 **Status:** ⏳ BLOCKED (needs the live/NAT environment)
-**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 2](../network/Task.2.md) (migration machinery), [minecraft 1](../minecraft/Task.1.md) (live environment)
 **Consumed by:** the project's reachability claims
 
@@ -25,6 +32,10 @@ Blocked, not stalled. The mechanism is complete and proven: the service and the 
 is missing is a live environment with genuine NAT — the same environment the mod's run harness
 ([`minecraft/Task.1.md`](../minecraft/Task.1.md)) is being built to provide — and the migration
 machinery in [`network/Task.2.md`](../network/Task.2.md) that this soak is meant to exercise.
+
+The measurement instrument ([Task 4](Task.4.md)) has landed: punch attempts and successes grouped by
+NAT-pair class are collected and reportable. So Task 3 is no longer blocked on *how to answer* the
+question — only on a population on a real network.
 
 ## Dependencies
 

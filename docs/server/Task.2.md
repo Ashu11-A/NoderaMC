@@ -6,8 +6,8 @@
      (ControlProtocol v2) — served in-process for the embedded mode and over the loopback socket for
      the external mode. Do not invent a fourth mirror of the protocol. Keep this header accurate. -->
 
-**Status:** 🚧 IN PROGRESS (config parsed, validated and enforced at enable; the node itself remains)
-**Category:** server · **Owns:** L-71 · **Last audit:** 2026-07-25
+**Status:** 🚧 IN PROGRESS (config parsed/validated/enforced at enable; external worker link shipped and proven live; the in-process `PeerRuntime` remains)
+**Category:** server · **Owns:** — (L-71 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [server 1](Task.1.md), [network 2](../network/Task.2.md), [network 5](../network/Task.5.md), [worker 2](../worker/Task.2.md)
 **Consumed by:** [server 3](Task.3.md) … [server 9](Task.9.md)
 
@@ -23,11 +23,33 @@ interrogate an endpoint without learning anything new.
 
 ## Status detail
 
-Not started.
+**Two of the seven deliverables landed; the node itself has not.**
+
+- **`nodera-endpoint.yml` is parsed, validated, and enforced at enable** — `EndpointConfig` reads the
+  file **without Bukkit's YAML reader** (the contract is unit-testable with no server), takes
+  documented defaults for omissions, and refuses contradictions with every reason at once. Running it
+  against a real Paper server corrected the first rule: *custody: FULL with no world id* is fine until
+  the world is also **announced**, which is the shape the harness stages.
+- **`peer.mode: external` works and is the harness default.** `EndpointPeerLink` links the plugin to
+  an always-on worker over the worker's **own** control protocol (one line out, one line back —
+  written first with the app's 4-byte framing, which the worker ignored, and a live run said so in one
+  line), then hands it the world with the same `NODERA-HOST` verb the mod sends. The endpoint is
+  another client of the same node, not a special case.
+- **L-71 is RETIRED** (2026-07-26). `e2e-endpoint.sh` **E4 is the exit test, run against real Paper
+  1.21.1**: the endpoint links, the worker reports the world in `connected_worlds`, the server JVM is
+  **SIGKILLed** (`kill -9`, because a graceful stop proves the opposite of the claim), and the worker
+  still answers and still reports the world hosted. Evidence in
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+
+**What remains** is the in-process node: a persistent identity under
+`plugins/NoderaEndpoint/identity.bin`, a booted `PeerRuntime`, and an in-process `ControlHandler`
+serving the v2 verb table. **Follow-on scope from L-71's retirement** (not a new limitation): `embedded`
+is still a config value that does nothing — given that an external worker is the crash-independent
+answer, it should host a node or be deleted, and deleting it is the honest end state.
 
 ## Dependencies
 
-- [server 1](Task.1.md) — the module, the jar, and the scheduler seam.
+- [server 1](Task.1.md) — the module, the jar, and the platform seam.
 - [network 2](../network/Task.2.md) — `PeerRuntime` is what gets embedded.
 - [network 5](../network/Task.5.md) — `PersistentIdentityStore` for the node key.
 - [worker 2](../worker/Task.2.md) — `ControlProtocol` is the single source of truth for the verbs;
@@ -39,10 +61,10 @@ Not started.
 |---|---|---|
 | 1 | `EndpointPeerService` — boots/stops `PeerRuntime` on the plugin lifecycle | ⬜ |
 | 2 | Persistent node identity under `plugins/NoderaEndpoint/identity.bin` | ⬜ |
-| 3 | `nodera-endpoint.yml` config: trackers, rendezvous, P2P bind/advertise, custody class, peer mode | ⬜ |
+| 3 | `nodera-endpoint.yml` config: trackers, rendezvous, P2P bind/advertise, custody class, peer mode | ✅ (`EndpointConfig`, 9 unit tests) |
 | 4 | In-process `ControlHandler` implementation serving the v2 verb table | ⬜ |
-| 5 | Optional loopback `ControlServer` (so external tools can talk to an endpoint) | ⬜ |
-| 6 | `peer.mode = external` — attach to a standalone `nodera-headless` worker instead of embedding | ⬜ |
+| 5 | Optional loopback `ControlServer` (so external tools can talk to an endpoint) | ⬜ (external mode reaches the worker's own socket instead) |
+| 6 | `peer.mode = external` — attach to a standalone `nodera-headless` worker instead of embedding | ✅ (`EndpointPeerLink` + `ControlClient`; E4 green) |
 | 7 | `/nodera` command tree on the endpoint (status, regions, peers, world, custody) | ⬜ |
 
 ## Design
@@ -69,7 +91,7 @@ JVM's — a server crash takes the node down with it, which is the exact couplin
 In `external` mode the plugin holds no `PeerRuntime` at all: it drives the worker over the loopback
 control socket exactly as the mod's `CompanionClient` does, and the same gate semantics apply (fail
 closed with an actionable message, never a silent no-network degrade). The property this buys —
-*the world stays served while the Minecraft server is down* — is [L-71](LIMITATIONS.md)'s exit test.
+*the world stays served while the Minecraft server is down* — was **L-71's exit test, now green**.
 
 **The control plane is not re-specified.** `dev.nodera.peer.control.ControlProtocol` stays the single
 source of truth. The endpoint implements `ControlHandler` against live plugin state; that is
@@ -89,32 +111,44 @@ problem; this task only carries it onto the wire.
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/peer/{EndpointPeerService,EndpointControlHandler,ExternalWorkerLink}.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/config/EndpointConfig.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/command/NoderaEndpointCommand.java`
-- `java/paper-plugin/src/main/resources/nodera-endpoint.yml`
+- `java/paper-plugin/src/main/java/dev/nodera/endpoint/NoderaEndpointPlugin.java:86` — `linkPeer()`:
+  the external-mode wiring (probes, links, hosts through the worker)
+- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointConfig.java:25` — the parsed +
+  validated configuration (`PeerMode`, `Custody`, `problems()`)
+- `java/paper-plugin/src/main/java/dev/nodera/endpoint/ControlClient.java:32` — one exchange with the
+  worker's control socket (`NODERA-PROBE`, `NODERA-HOST`)
+- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPeerLink.java:23` — background retry
+  link (linking is never a startup gate; only state changes are logged)
+- `java/paper-plugin/src/main/resources/nodera-endpoint.yml` — the file the harness stages
+- Tests: `EndpointConfigTest` (9) · `EndpointPeerLinkTest` (6, against a real stand-in worker socket)
+- Live: `scripts/e2e-endpoint.sh` E1–E4 (E4 SIGKILLs the server JVM; the worker keeps hosting)
+- *Not yet created:* `endpoint/peer/{EndpointPeerService,EndpointControlHandler,ExternalWorkerLink}.java`,
+  `endpoint/command/NoderaEndpointCommand.java`
 
 ## Testing
 
 - `EndpointControlHandlerTest` — every v2 verb answers from live state; an unknown verb answers
-  `NODERA-ERR unknown verb` rather than hanging (the same contract the worker holds).
+  `NODERA-ERR unknown verb` rather than hanging (the same contract the worker holds). *(planned —
+  handler not yet built)*
 - `EndpointPeerLifecycleTest` — enable → boot → disable stops every thread; a second enable after a
-  reload does not leak a listener or double-announce.
-- `ExternalWorkerLinkTest` — `peer.mode = external` with no worker running fails closed with an
-  actionable message; with a worker running it proxies verbs faithfully.
-- Live (`e2e-endpoint.sh` P1): the endpoint answers `NODERA-PROBE 2` and `NODERA-STATE 2` on its
-  control port, and appears in another peer's membership with a public key.
+  reload does not leak a listener or double-announce. *(planned)*
+- `EndpointPeerLinkTest` — the external link probes a real socket, logs only changes, and a wrong
+  answer is not a link. *(green)*
+- Live (`e2e-endpoint.sh` E4): the endpoint links to a worker, hands it the world, and the world
+  stays hosted through a SIGKILL of the server JVM. *(green — L-71's exit)*
 
 ## Acceptance criteria
 
 1. ⬜ An endpoint boots a `PeerRuntime`, announces to the tracker, and registers with rendezvous.
 2. ⬜ Its identity persists across restarts (same `NodeId`, same public key).
-3. ⬜ `control_verb <port> 'NODERA-STATE 2'` returns live JSON from an endpoint, unmodified tooling.
+3. 🚧 `control_verb <port> 'NODERA-STATE 2'` returns live JSON — in `external` mode the worker
+   answers; the in-process handler for `embedded` mode is not yet built.
 4. ⬜ Another peer sees the endpoint as a session member with a verified key.
-5. ⬜ `peer.mode = external` drives a standalone worker and fails closed when one is absent.
-6. ⬜ Disable stops every peer thread; no listener survives a `/reload`.
+5. ✅ `peer.mode = external` drives a standalone worker and fails closed when one is absent (E4 green).
+6. 🚧 Disable stops the link thread cleanly; the in-process peer thread does not exist yet.
 
 ## Limitations
 
-- **L-71** — the embedded peer dies with the server JVM; `external` mode is the elimination path and
-  its exit test is a SIGKILLed server whose world stays served.
+- **L-71** — RETIRED 2026-07-26: the external worker link survives a SIGKILLed server JVM and keeps
+  the world hosted. Evidence in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). The residual — `embedded`
+  does nothing — is follow-on scope, tracked in [`PROGRESS.md`](PROGRESS.md), not a new row.

@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE, then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** app · **Last audit:** 2026-07-27 · Tasks completed: **5 / 10**
+**Category:** app · **Last audit:** 2026-07-28 · Tasks completed: **6 / 10**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -23,11 +23,30 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [6](Task.6.md) | Dashboard API + live link | ✅ COMPLETED | `NODERA-WATCH` push (9 ms measured), typed Rust model, 92 crate tests |
 | [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED | LAN modal + Join a world + invitations + mod installer; 107 crate tests |
 | [8](Task.8.md) | Screen redesign: one subject per screen | ✅ COMPLETED | 8 screens, each owning one subject; worker events drive the LAN prompt; generated licence manifest; 116 crate tests |
+| [9](Task.9.md) | Tracker stores | ✅ COMPLETED | Trust lists added by URL or deep link; built-in store is deletable; the services sync file is the Android worker's only channel; verified on a physical device 2026-07-27 |
 | [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll and a single dashboard subscription landed; the content pass and the settings-honesty pass remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: statuses, test count, refactoring register
+
+A category-wide audit reconciled every task header against the tree. **No code changed and no
+limitation retired**: L-47 and L-56 stay OPEN (their exit tests are an architectural decision and a
+cross-machine CI job, neither green), and A-UX-1…A-UX-5 stay OPEN (Task 10's content and
+settings-honesty passes are still ⬜).
+
+The test count was wrong in three places at once: TESTING.md carried **63**, Task 2's prose carried
+**56**, and the actual source holds **183** `#[test]` / `#[tokio::test]` functions (grep-verified;
+the crate was **not** re-run on this date — see TESTING.md). The ledger under-counted completed tasks
+(5 → 6: Task 9 was missing from the §1 table) and Task 0's header still read "2 of 5".
+
+Task 1's Files section named a `tray.rs` that does not exist — the tray is built by `build_tray` in
+`lib.rs`. Corrected. A new [`REFACTORING.md`](REFACTORING.md) records the crate's structural debt:
+jscpd flags **zero** duplicated blocks in `rust/nodera-app/`, so the register is manual candidates
+only (the `lib.rs::run` god-function, `settings.rs`'s dual responsibility, the repeated wire→view
+conversions in `api::model`).
 
 ### 2026-07-27 — Numbers that stop resetting, screens that start at the top
 

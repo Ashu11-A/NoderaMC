@@ -5,7 +5,7 @@
      note naming the EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old
      note. -->
 
-**Category:** telemetry · **Last audit:** 2026-07-25 · Tasks completed: **1 / 3** (plus 6 of the 7 emitter tasks in other categories — see [`../plans/Plan.6.md`](../plans/Plan.6.md) §6)
+**Category:** telemetry · **Last audit:** 2026-07-28 · Tasks completed: **1 / 3** (plus 6 of the 7 emitter tasks in other categories — see [`../plans/Plan.6.md`](../plans/Plan.6.md) §6)
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md) ·
@@ -17,13 +17,38 @@ programme: [`../plans/Plan.6.md`](../plans/Plan.6.md).
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 83 Rust tests; clippy clean; the gate is at the receiver, and the shared reporter lives here too |
-| [2](Task.2.md) | The Big Data plane | 🚧 IN PROGRESS | Compose + warehouse + rollups landed; `stack-smoke` green in CI. Parquet export + TTL assertion remain |
+| [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 91 Rust tests; clippy clean; the gate is at the receiver, and the shared reporter lives here too |
+| [2](Task.2.md) | The Big Data plane | 🚧 IN PROGRESS | Compose + warehouse + rollups landed; `stack-smoke` green in CI. Parquet export + TTL-merge assertion remain |
 | [3](Task.3.md) | Analysis, dashboards, alerting, report | ⬜ NOT STARTED | The emitters exist now; what is missing is a **population** that has opted in |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: test-count reconciliation, ledger fix, refactoring register
+
+Status reconciliation pass against the current tree. No code changed; the receiver, the Big Data
+plane, and the emitters are exactly where the 2026-07-26 note left them. Three documentation
+defects corrected, all in this directory:
+
+1. **The Rust test count was stale.** `cargo test -p nodera-telemetry` is **91 tests**, not 83.
+   `Task.1.md` and `TESTING.md` carried the old number, and the `TESTING.md` per-module table did
+   not list `reporter.rs` at all (9 tests) while `schema.rs` (8), `config.rs` (11), and `main.rs`
+   (6) were each undercounted by one or two. Counts now grep-verified.
+2. **A limitation row was referenced by the wrong number.** `PROGRESS.md` and `TESTING.md` both
+   pointed at **L-76** ("nothing has collected a population yet"), but the normative register
+   [`LIMITATIONS.md`](LIMITATIONS.md) §B owns that row as **L-75** (task 3). L-76 does not exist
+   anywhere in this category; the two stale references now cite L-75, matching `Task.3.md` and
+   `../plans/Plan.6.md` §6.
+3. **A refactoring register was added** ([`REFACTORING.md`](REFACTORING.md)). jscpd finds *zero*
+   in-module clones; the real duplication is cross-crate (the three service crates share a
+   near-identical `build.rs` / `main.rs` / `wire.rs` / `config.rs` / `limits.rs` scaffold) and
+   in-diagnostics (`TpsMeter` ↔ `TickSkewMeter`, ~40–48%). Recorded with elimination paths so the
+   next maintainer does not rediscover it.
+
+No limitation moved status: **L-72, L-73, L-74, L-75** are all still OPEN — none of their exit
+tests exist in this crate yet (a restart-and-rotate pseudonymisation test, a non-TLS refusal test,
+a ClickHouse backup/restore drill, and the first real-population dashboard respectively).
 
 ### 2026-07-26 — Four defects the smoke job found on its first four runs
 
@@ -63,9 +88,9 @@ whether the programme was worth doing at all:
   field by field with the pre-kill one. Everything except the telemetry block and the clock is
   identical. That is D10 ("the stack is never a dependency") as a test.
 
-One thing deliberately not claimed: nothing has *collected* anything yet. **L-76** stays RETIRING
-and [telemetry 3](Task.3.md) stays ⬜ until a deployment has a population that opted in — the
-mechanism is finished, the measurement has not started.
+One thing deliberately not claimed: nothing has *collected* anything against a real population yet.
+**L-75** stays OPEN and [telemetry 3](Task.3.md) stays ⬜ until a deployment has a population that
+opted in — the mechanism is finished, the measurement has not started.
 
 ### 2026-07-25 — The category opens with its gate already built
 

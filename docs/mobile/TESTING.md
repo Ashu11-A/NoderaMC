@@ -5,7 +5,7 @@
      invocations; (2) any claim about the worker must be evidenced by a control-socket answer FROM
      THE DEVICE, never by what the app's own UI shows. Keep §0 (the device last used) accurate. -->
 
-**Category:** mobile · **Last run:** 2026-07-26
+**Category:** mobile · **Last run:** 2026-07-28
 
 Last verified on a **Xiaomi 2210129SG** (`ziyi`), **Android 15 / API 35**, arm64-v8a, against a
 tracker on the development machine at `10.0.0.101:25600`.
@@ -45,7 +45,7 @@ Installs under `$ANDROID_HOME` (default `~/Android/Sdk`); nothing lands in the r
 | Component | Pinned version | Why pinned |
 |---|---|---|
 | Command-line tools | 11076708 | reproducibility |
-| Platform | android-34 | compile target |
+| Platform | android-34 (toolchain) | compile target installed by the script. ⚠ The **generated** Gradle project now `compileSdk`/`targetSdk = 36` (`gen/android/app/build.gradle.kts:17,23`); AGP will pull platform 36 + its licences on the first build. Tracked as [M-9](LIMITATIONS.md) — the toolchain and the generated project disagree |
 | Build-tools | 34.0.0 **and 35.0.0** | 34 signs; **35 is required to dex** — see §1.2 |
 | NDK | 26.1.10909125 | Rust cross-compilation |
 | Rust targets | 4 Android triples | `aarch64`, `armv7`, `i686`, `x86_64` |
@@ -106,7 +106,7 @@ rust/target/release/nodera-tracker          # a tracker to announce to
 
 ### 2.3 Rebuild loops that do not waste time
 
-| You changed | Run |
+| You Changed | Run |
 |---|---|
 | Only the React UI | `scripts/android-apk.sh --skip-worker` |
 | Rust in `nodera-app` | `scripts/android-apk.sh --skip-worker` |
@@ -340,6 +340,7 @@ Environment variables the scripts read:
 |---|---|---|
 | `Unsupported class file major version 69` | Gradle running on JDK 25 | The script picks JDK 21; set `NODERA_ANDROID_JAVA_HOME` if it cannot find one |
 | `Unsupported class file major version 65` | `d8` from build-tools 34 | Install build-tools 35 (`scripts/android-toolchain.sh`) |
+| `Failed to install … platforms;android-36` | Toolchain installs platform 34; the generated project compileSdk is 36 | Let AGP install 36, or `sdkmanager "platforms;android-36"`. Tracked as [M-9](LIMITATIONS.md) |
 | Build killed, exit 137 | Out of memory while dexing | `./gradlew --stop`, then rebuild |
 | `adb: no devices/emulators found` mid-install | USB re-enumerated under load | Use Wi-Fi debugging (§3.2) |
 | `more than one device/emulator` | USB **and** wireless both connected | `export ANDROID_SERIAL=…` |
