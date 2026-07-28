@@ -4,12 +4,24 @@
 //! anyone can open a socket to it and announce. The defaults are deliberately conservative — an
 //! operator raises them knowingly rather than discovering the ceiling under load.
 
-use serde::Deserialize;
+use nodera_service::env::{EnvOverlay, EnvSource};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+/// Prefix for the environment form of every key below.
+///
+/// A container is configured by its environment or it is not configurable at all, so every TOML key
+/// has an exact environment twin: `NODERA_TRACKER_` plus the key, uppercased, and nothing else.
+/// One name per setting in two syntaxes beats two names that drift.
+pub const ENV_PREFIX: &str = "NODERA_TRACKER_";
+
 /// The full service configuration.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+///
+/// `Serialize` exists for one reason: a test enumerates the keys of a serialized default and fails
+/// if any of them has no environment override. Adding a config key and forgetting the container is
+/// otherwise a silent gap that only shows up in production.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields, default)]
 pub struct Config {
     /// Address to listen on.
@@ -99,6 +111,12 @@ pub struct Config {
     pub update_feed_base_url: String,
     /// How often to check for a newer published build.
     pub update_check_interval_seconds: u64,
+    /// The Ed25519 key a release manifest must be signed with, 64 hex characters.
+    ///
+    /// Defaults to the key this build was compiled with. Set it only to trust a fork's or a
+    /// mirror's releases instead of ours — an empty value means the update lane checks
+    /// integrity but not provenance, which it says out loud on every check (L-81).
+    pub update_release_public_key: String,
     /// How long in-flight work may hold up a drain before the restart proceeds anyway.
     pub drain_grace_seconds: u64,
     /// Trackers this tracker announces *itself* to, so peers can discover it the same way they
@@ -141,6 +159,8 @@ impl Default for Config {
             update_channel: String::new(),
             update_feed_base_url: nodera_service::update::DEFAULT_FEED_BASE_URL.to_owned(),
             update_check_interval_seconds: 3_600,
+            update_release_public_key: nodera_service::update::DEFAULT_RELEASE_PUBLIC_KEY
+                .to_owned(),
             drain_grace_seconds: 30,
             peer_tracker_endpoints: Vec::new(),
             advertised_routes: Vec::new(),
@@ -173,6 +193,9 @@ pub enum ConfigError {
     /// A value was structurally valid but unusable.
     #[error("invalid config value: {0}")]
     Invalid(String),
+    /// An environment variable was unusable, or named nothing this service has.
+    #[error("invalid environment configuration: {0}")]
+    Env(#[from] nodera_service::env::EnvError),
 }
 
 impl Config {
@@ -188,6 +211,88 @@ impl Config {
         })?;
         config.validate()?;
         Ok(config)
+    }
+
+    /// Overlay `NODERA_TRACKER_*` onto an already-loaded configuration.
+    ///
+    /// Precedence is defaults, then the file, then this — the environment is the layer the
+    /// orchestrator controls, so it has to be able to override the layer a human committed.
+    /// Validation runs *after* this, never before: an environment that fixes an out-of-range file
+    /// value must be allowed to.
+    pub fn apply_env(
+        &mut self,
+        env: &impl EnvSource,
+    ) -> Result<nodera_service::env::Applied, ConfigError> {
+        let mut overlay = EnvOverlay::new(ENV_PREFIX, env);
+        // Read by the Java peer/worker (`HeadlessPeerMain`), which is a client of trackers, not a
+        // tracker. A shell holding both must be able to start both.
+        overlay.ignore("NODERA_TRACKER_ENDPOINTS");
+
+        overlay.set("bind_addr", &mut self.bind_addr);
+        overlay.set(
+            "announce_interval_seconds",
+            &mut self.announce_interval_seconds,
+        );
+        overlay.set("peer_ttl_seconds", &mut self.peer_ttl_seconds);
+        overlay.set(
+            "announce_clock_skew_seconds",
+            &mut self.announce_clock_skew_seconds,
+        );
+        overlay.set("max_worlds", &mut self.max_worlds);
+        overlay.set("max_peers_per_world", &mut self.max_peers_per_world);
+        overlay.set("sample_size", &mut self.sample_size);
+        overlay.set("seeder_floor", &mut self.seeder_floor);
+        overlay.set("healthy_seeder_floor", &mut self.healthy_seeder_floor);
+        overlay.set("per_ip_announce_quota", &mut self.per_ip_announce_quota);
+        overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
+        overlay.set_optional_path("persist_dir", &mut self.persist_dir);
+        overlay.set("udp_enabled", &mut self.udp_enabled);
+        overlay.set("udp_max_request_bytes", &mut self.udp_max_request_bytes);
+        overlay.set("udp_max_reply_bytes", &mut self.udp_max_reply_bytes);
+        overlay.set("udp_max_amplification", &mut self.udp_max_amplification);
+        overlay.set("telemetry_endpoint", &mut self.telemetry_endpoint);
+        overlay.set(
+            "telemetry_interval_seconds",
+            &mut self.telemetry_interval_seconds,
+        );
+        overlay.set("max_services", &mut self.max_services);
+        overlay.set(
+            "service_directory_page_limit",
+            &mut self.service_directory_page_limit,
+        );
+        overlay.set(
+            "service_report_max_age_seconds",
+            &mut self.service_report_max_age_seconds,
+        );
+        overlay.set(
+            "service_report_max_reporters",
+            &mut self.service_report_max_reporters,
+        );
+        overlay.set("per_ip_report_quota", &mut self.per_ip_report_quota);
+        overlay.set("update_channel", &mut self.update_channel);
+        overlay.set("update_feed_base_url", &mut self.update_feed_base_url);
+        overlay.set(
+            "update_check_interval_seconds",
+            &mut self.update_check_interval_seconds,
+        );
+        overlay.set(
+            "update_release_public_key",
+            &mut self.update_release_public_key,
+        );
+        overlay.set("drain_grace_seconds", &mut self.drain_grace_seconds);
+        overlay.set_list("peer_tracker_endpoints", &mut self.peer_tracker_endpoints);
+        overlay.set_list("advertised_routes", &mut self.advertised_routes);
+        overlay.set("identity_file", &mut self.identity_file);
+
+        Ok(overlay.finish()?)
+    }
+
+    /// Every environment variable this service understands, sorted. For the operator reference.
+    pub fn env_reference() -> Vec<String> {
+        Config::default()
+            .apply_env(&nodera_service::env::MapEnv::empty())
+            .expect("an empty environment applies cleanly")
+            .declared
     }
 
     /// Reject values that would disable a bound rather than tune it.
@@ -290,6 +395,7 @@ impl Config {
             asset_name: "nodera-tracker".to_owned(),
             check_interval_seconds: self.update_check_interval_seconds,
             drain_grace_seconds: self.drain_grace_seconds,
+            release_public_key: self.update_release_public_key.clone(),
         }
     }
 
@@ -356,5 +462,80 @@ mod tests {
         assert_eq!(config.healthy_seeder_floor, 2);
         // Unset keys keep their defaults.
         assert_eq!(config.max_worlds, Config::default().max_worlds);
+    }
+
+    #[test]
+    fn every_config_key_has_an_environment_override() {
+        // The drift guard. A key that exists in the file and not in the environment is a setting an
+        // operator can only reach by bind-mounting a config file into a container — which is the
+        // thing this lane exists to remove.
+        let config = Config {
+            persist_dir: Some(PathBuf::from("/var/lib/nodera")), // `None` serializes to nothing.
+            ..Config::default()
+        };
+        let serialized = toml::Value::try_from(&config).expect("config serializes");
+        let file_keys: Vec<String> = serialized
+            .as_table()
+            .expect("a table")
+            .keys()
+            .cloned()
+            .collect();
+
+        let declared = Config::env_reference();
+        let missing: Vec<&String> = file_keys
+            .iter()
+            .filter(|key| !declared.contains(&format!("{ENV_PREFIX}{}", key.to_uppercase())))
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "config keys with no env override: {missing:?}"
+        );
+        assert_eq!(declared.len(), file_keys.len(), "declared: {declared:?}");
+    }
+
+    #[test]
+    fn the_environment_overrides_the_file_and_validation_still_runs_after() {
+        use nodera_service::env::MapEnv;
+
+        let mut config: Config = toml::from_str("bind_addr = \"127.0.0.1:25600\"\n").unwrap();
+        let env = MapEnv::empty()
+            .with("NODERA_TRACKER_BIND_ADDR", "0.0.0.0:6969")
+            .with(
+                "NODERA_TRACKER_ADVERTISED_ROUTES",
+                "tcp://a:6969,tcp://b:6969",
+            )
+            .with("NODERA_TRACKER_UDP_ENABLED", "false");
+        let applied = config.apply_env(&env).unwrap();
+        config.validate().unwrap();
+
+        assert_eq!(config.bind_addr, "0.0.0.0:6969".parse().unwrap());
+        assert_eq!(config.advertised_routes, ["tcp://a:6969", "tcp://b:6969"]);
+        assert!(!config.udp_enabled);
+        assert_eq!(applied.applied.len(), 3);
+    }
+
+    #[test]
+    fn an_environment_value_that_breaks_a_bound_is_still_refused() {
+        use nodera_service::env::MapEnv;
+
+        // Env-configurability must not become a way around validation.
+        let mut config = Config::default();
+        config
+            .apply_env(&MapEnv::empty().with("NODERA_TRACKER_PEER_TTL_SECONDS", "1"))
+            .unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn the_java_peers_tracker_endpoint_variable_does_not_stop_this_service() {
+        use nodera_service::env::MapEnv;
+
+        // `NODERA_TRACKER_ENDPOINTS` belongs to the peer. Sharing a shell with one must not be fatal.
+        let mut config = Config::default();
+        config
+            .apply_env(&MapEnv::empty().with("NODERA_TRACKER_ENDPOINTS", "tcp://host:6969"))
+            .unwrap();
+        assert_eq!(config, Config::default());
     }
 }

@@ -69,6 +69,10 @@ externally started worker untouched: the app must never kill a process it did no
 | [3](Task.3.md) | Per-OS packaging + CI | 🚧 IN PROGRESS |
 | [4](Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ BLOCKED |
 | [5](Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 IN PROGRESS |
+| [6](Task.6.md) | The dashboard API and the live link | ✅ COMPLETED |
+| [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED |
+| [8](Task.8.md) | One subject per screen | ✅ COMPLETED |
+| [9](Task.9.md) | Tracker stores | ✅ DONE |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

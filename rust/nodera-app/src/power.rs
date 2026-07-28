@@ -20,8 +20,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::config::PushSignal;
 use crate::api::store::DashboardStore;
+use crate::config::PushSignal;
 use crate::settings::{Settings, SettingsHandle};
 
 /// How often host power state is read. Battery level moves in percent-per-minute at worst, so a

@@ -195,10 +195,23 @@ nodera_suite() {
 nodera_parse_args() {
     NO_BUILD="${NO_BUILD:-0}"
     KEEP_RUNNING="${KEEP_RUNNING:-0}"
+    NODERA_OFFICIAL_SERVICES="${NODERA_OFFICIAL_SERVICES:-0}"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --no-build) NO_BUILD=1; shift ;;
             --keep-running) KEEP_RUNNING=1; shift ;;
+            # Exported so a batch run (`run-tests.sh --official`) reaches every child
+            # suite it spawns, which are separate processes.
+            # --official implies relay-only. Two players on one machine will always find a
+            # direct path and take it, so an "official services" run would otherwise prove that
+            # the tracker answers and nothing whatsoever about the relay lane it exists to test.
+            # Set NODERA_FORCE_RELAY=0 before the run to keep direct paths.
+            --official)
+                NODERA_OFFICIAL_SERVICES=1
+                NODERA_FORCE_RELAY="${NODERA_FORCE_RELAY:-1}"
+                export NODERA_OFFICIAL_SERVICES NODERA_FORCE_RELAY
+                shift ;;
+            --relay-only) NODERA_FORCE_RELAY=1; export NODERA_FORCE_RELAY; shift ;;
             *)
                 NODERA_ARGS_EATEN=0
                 declare -F nodera_suite_arg >/dev/null && nodera_suite_arg "$@"
@@ -519,9 +532,14 @@ check_ports() { # ports...
 # Every port the current topology will bind, in one list — what check_ports gets.
 nodera_all_ports() {
     local i port
-    printf '%s\n' "$GAME_PORT" "$TRACKER_PORT" "$RENDEZVOUS_PORT"
-    for (( i = 1; i < NODERA_TRACKERS; i++ ));   do printf '%s\n' "$(( TRACKER_EXTRA_BASE + i - 1 ))"; done
-    for (( i = 1; i < NODERA_RENDEZVOUS; i++ )); do printf '%s\n' "$(( RENDEZVOUS_EXTRA_BASE + i - 1 ))"; done
+    printf '%s\n' "$GAME_PORT"
+    # With --official nothing local binds these, and demanding they be free
+    # would fail a run for a reason that has nothing to do with it.
+    if [[ "${NODERA_OFFICIAL_SERVICES:-0}" -ne 1 ]]; then
+        printf '%s\n' "$TRACKER_PORT" "$RENDEZVOUS_PORT"
+        for (( i = 1; i < NODERA_TRACKERS; i++ ));   do printf '%s\n' "$(( TRACKER_EXTRA_BASE + i - 1 ))"; done
+        for (( i = 1; i < NODERA_RENDEZVOUS; i++ )); do printf '%s\n' "$(( RENDEZVOUS_EXTRA_BASE + i - 1 ))"; done
+    fi
     for (( i = 0; i < NODERA_WORKERS; i++ )); do
         printf '%s\n%s\n' "$(( WORKER_CONTROL_BASE + i ))" "$(( WORKER_P2P_BASE + i ))"
     done
@@ -543,6 +561,44 @@ nodera_check_ram() {
 # ---------------------------------------------------------------------------
 # Service launchers — the reason no suite starts anything itself
 # ---------------------------------------------------------------------------
+
+# nodera_official_services — point this run at services/official.json instead
+# of spawning local ones (--official, or NODERA_OFFICIAL_SERVICES=1).
+#
+# The whole point of the flag: exercise the deployed production architecture,
+# so a failure here is a failure of the real tracker and the real relay rather
+# than of two processes that only ever talk to themselves over loopback. It is
+# NOT the default and must never become one — a suite that needs the internet
+# is a suite that goes red when somebody else's host reboots, and every one of
+# these runs in CI.
+nodera_official_services() {
+    local list
+    list=$("$NODERA_ROOT/scripts/services.py" --endpoints tracker) \
+        || { echo "e2e: cannot read the official tracker list" >&2; exit 1; }
+    NODERA_TRACKER_ENDPOINT_LIST="$list"
+    list=$("$NODERA_ROOT/scripts/services.py" --endpoints rendezvous) \
+        || { echo "e2e: cannot read the official rendezvous list" >&2; exit 1; }
+    NODERA_RENDEZVOUS_ENDPOINT_LIST="$list"
+    log "using the official services"
+    log "  trackers   $NODERA_TRACKER_ENDPOINT_LIST"
+    log "  rendezvous $NODERA_RENDEZVOUS_ENDPOINT_LIST"
+}
+
+# nodera_toml_array <comma-separated> — ["a", "b"] for a config file.
+#
+# Endpoints reach the game side as TOML arrays and the worker side as a comma
+# list, and these used to be written from different values: the workers got the
+# real list and the client config got a hardcoded "127.0.0.1:$TRACKER_PORT".
+# With one tracker on the default port those agree, which is why nobody noticed
+# that `--trackers 2` told the mod about one of them.
+nodera_toml_array() {
+    local IFS=, entry out=""
+    for entry in $1; do
+        [[ -n "$entry" ]] || continue
+        out="${out:+$out, }\"$entry\""
+    done
+    printf '[%s]' "$out"
+}
 
 nodera_start_trackers() {
     local i port cfg suffix
@@ -648,8 +704,12 @@ nodera_stack_up() {
     declare -F nodera_spark_fetch >/dev/null && nodera_spark_fetch
     mapfile -t ports < <(nodera_all_ports)
     check_ports "${ports[@]}"
-    nodera_start_trackers
-    nodera_start_rendezvous
+    if [[ "${NODERA_OFFICIAL_SERVICES:-0}" -eq 1 ]]; then
+        nodera_official_services
+    else
+        nodera_start_trackers
+        nodera_start_rendezvous
+    fi
     nodera_start_workers
     nodera_probe_workers
 }
@@ -705,9 +765,9 @@ write_client_config() {
 	controlEndpoint = "127.0.0.1:$2"
 	required = true
 [tracker]
-	endpoints = ["127.0.0.1:$TRACKER_PORT"]
+	endpoints = $(nodera_toml_array "$NODERA_TRACKER_ENDPOINT_LIST")
 [rendezvous]
-	endpoints = ["127.0.0.1:$RENDEZVOUS_PORT"]
+	endpoints = $(nodera_toml_array "$NODERA_RENDEZVOUS_ENDPOINT_LIST")
 EOF
 }
 
@@ -887,6 +947,13 @@ nodera_staged_world() {
     # the secure default.
     nodera_set_host_cfg host gamePort "$GAME_PORT"
     nodera_set_host_cfg host onlineAuth false
+    # The host side had NO tracker/rendezvous section at all, so the server fell
+    # back to NoderaConfig's compiled 127.0.0.1:25600 / :25601 — which happen to
+    # be this launcher's defaults, which is why it looked like it worked. Change
+    # TRACKER_PORT, ask for a second tracker, or pass --official, and the host
+    # announced into the void while every other component used the real list.
+    nodera_set_host_cfg tracker endpoints "$(nodera_toml_array "$NODERA_TRACKER_ENDPOINT_LIST")"
+    nodera_set_host_cfg rendezvous endpoints "$(nodera_toml_array "$NODERA_RENDEZVOUS_ENDPOINT_LIST")"
     # No-host region ownership: the validated entity lane assigns every connected
     # player's node its own FOV region set.
     nodera_set_host_cfg entity laneAutoActivate true

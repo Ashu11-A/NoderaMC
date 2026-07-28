@@ -74,6 +74,17 @@ object NoderaWorker {
             // Environment variables cannot be set for our own process from Java, so the properties
             // are what steer it — every path it derives hangs off `user.home`.
             System.setProperty("user.home", home.absolutePath)
+            // Where the app keeps the service list it synchronises. This is the ONLY way the worker
+            // learns about a tracker on Android: it runs inside this process, and a process cannot
+            // set environment variables for itself from Java — so the desktop's
+            // NODERA_TRACKER_ENDPOINTS route does not exist here. Without it every install fell back
+            // to 127.0.0.1:25600, which on a handset is the handset, and every tracker store the
+            // user added stopped at the app. The app writes it to its own data directory, which is
+            // `filesDir` — the same directory Tauri's app_data_dir() resolves to.
+            System.setProperty(
+                "NODERA_SERVICES_FILE",
+                File(context.filesDir, "nodera-services.list").absolutePath,
+            )
             // ART has no console; slf4j-simple writes to stderr, which logcat captures per-process.
             System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "info")
             // …and also to a file, which is what the app's Activity screen shows. Without it the

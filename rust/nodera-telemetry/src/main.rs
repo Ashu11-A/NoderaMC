@@ -42,7 +42,7 @@ use tokio::sync::Mutex;
 
 fn usage() -> &'static str {
     "usage: nodera-telemetry [--config <file>] [--bind <addr>] [--healthcheck <addr>] \
-     [--print-schema] [--version]"
+     [--print-schema] [--print-env] [--version]"
 }
 
 enum Command {
@@ -54,6 +54,9 @@ enum Command {
     /// Print the collection registry as JSON. The answer to "what does NoderaMC collect?" has to
     /// be obtainable from the running binary, not only from a document that could have drifted.
     PrintSchema,
+    /// List every environment variable this service reads, for an operator writing a unit or a
+    /// compose file. Names only — no values are read, so it is safe to run anywhere.
+    PrintEnv,
     Version,
     Usage,
 }
@@ -67,6 +70,7 @@ fn parse_args(args: &[String]) -> Command {
             "--version" | "-V" => return Command::Version,
             "--help" | "-h" => return Command::Usage,
             "--print-schema" => return Command::PrintSchema,
+            "--print-env" => return Command::PrintEnv,
             "--healthcheck" => {
                 return args
                     .get(index + 1)
@@ -113,6 +117,12 @@ async fn main() -> ExitCode {
             println!("{}", schema::schema_json("service"));
             ExitCode::SUCCESS
         }
+        Command::PrintEnv => {
+            for key in Config::env_reference() {
+                println!("{key}");
+            }
+            ExitCode::SUCCESS
+        }
         Command::Healthcheck(addr) => match healthcheck(&addr).await {
             Ok(()) => {
                 println!("nodera-telemetry: {addr} healthy");
@@ -144,10 +154,20 @@ async fn serve(
         Some(path) => Config::load(&path)?,
         None => Config::default(),
     };
+    // The environment layer sits between the file and the flag. Only the variable *names* are
+    // printed: `NODERA_TELEMETRY_SUBJECT_SECRET` is this service's pseudonymisation key, and a
+    // startup log outlives the process that wrote it.
+    let from_env = config.apply_env(&nodera_service::env::SystemEnv)?;
+    if !from_env.applied.is_empty() {
+        println!(
+            "nodera-telemetry: {} setting(s) from the environment: {}",
+            from_env.applied.len(),
+            from_env.applied.join(" ")
+        );
+    }
     if let Some(bind) = bind_override {
         config.bind_addr = bind.parse()?;
     }
-    config.apply_env();
     // Refuses an unset pseudonymisation secret. Starting without one would mean either storing raw
     // install ids or inventing a secret nobody recorded, and both are worse than not starting.
     config.validate()?;

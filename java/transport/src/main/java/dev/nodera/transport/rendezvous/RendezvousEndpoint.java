@@ -34,6 +34,31 @@ public record RendezvousEndpoint(String host, int port) {
      */
     public static RendezvousEndpoint parse(String route) {
         Objects.requireNonNull(route, "route");
+        // The scheme comes off first. `tcp://host:port` is the documented endpoint form everywhere
+        // in this project — the example configs, docker/compose.yml, services/official.json and the
+        // tracker's own `TrackerClient.Endpoint.parse` all use it — and splitting on the last colon
+        // without removing it yields the host "tcp://150.230.84.206", which resolves to nothing.
+        //
+        // Caught live: the worker's STATE reported
+        //   trackers   host="150.230.84.206"        reachable=true
+        //   rendezvous host="tcp://150.230.84.206"  reachable=false
+        // for the same machine, at the same moment, with the relay answering healthchecks. The
+        // tracker half stripped the scheme and this half did not, so a peer pointed at the official
+        // list registered with no relay at all and had no way to say why.
+        String remainder = route.trim();
+        int scheme = remainder.indexOf("://");
+        if (scheme > 0) {
+            String name = remainder.substring(0, scheme);
+            // Only the transports this project speaks. Anything else is a typo worth naming rather
+            // than a host worth resolving.
+            if (!name.equalsIgnoreCase("tcp") && !name.equalsIgnoreCase("udp")) {
+                throw new IllegalArgumentException(
+                        "unknown rendezvous scheme '" + name + "' in " + route
+                                + " (expected tcp:// or udp://)");
+            }
+            remainder = remainder.substring(scheme + 3);
+        }
+        route = remainder;
         int idx = route.lastIndexOf(':');
         if (idx <= 0 || idx == route.length() - 1) {
             throw new IllegalArgumentException("malformed rendezvous endpoint: " + route);

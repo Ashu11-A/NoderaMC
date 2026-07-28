@@ -512,3 +512,52 @@ export async function pickStorageFolder(): Promise<void> {
 export async function pickedFolder(): Promise<PickedFolder> {
   return invoke<PickedFolder>("picked_folder");
 }
+
+/* ------------------------------------------------------------------ tracker stores */
+
+/** One service in a store's index (mirrors `stores::ServiceEntry`). */
+export interface StoreService {
+  kind: "tracker" | "rendezvous";
+  name: string;
+  endpoints: string[];
+  node_id?: string;
+  operator: string;
+  region: string;
+  notes: string;
+}
+
+/** A store this install trusts (mirrors `stores::TrackerStore`). */
+export interface TrackerStore {
+  url: string;
+  name: string;
+  description: string;
+  homepage: string;
+  services: StoreService[];
+  last_refreshed_epoch_millis: number;
+  /** Why the last refresh failed. The services above are the last ones that worked. */
+  last_error: string;
+  /** The store the app shipped with. Deletable like any other. */
+  built_in: boolean;
+}
+
+export const trackerStores = (): Promise<TrackerStore[]> => invoke("get_tracker_stores");
+
+/**
+ * A store URL that arrived by `nodera://tracker-store?url=…` and is waiting to be confirmed.
+ *
+ * Reading it clears it: the dialog owns it from here, and a link that is offered twice because two
+ * components polled would be two dialogs for one intent.
+ */
+export const pendingTrackerStore = (): Promise<string | null> =>
+  invoke("take_pending_tracker_store");
+
+/** Fetch, validate and remember a store. Only ever called after the user has confirmed. */
+export const addTrackerStore = (url: string): Promise<TrackerStore> =>
+  invoke("add_tracker_store", { url });
+
+export const removeTrackerStore = (url: string): Promise<void> =>
+  invoke("remove_tracker_store", { url });
+
+/** Re-read every store. One that fails keeps what it last said, with the error beside it. */
+export const refreshTrackerStores = (): Promise<TrackerStore[]> =>
+  invoke("refresh_tracker_stores");

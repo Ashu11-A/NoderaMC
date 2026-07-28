@@ -133,7 +133,9 @@ fn fresh_seed() -> [u8; 32] {
     let mut source = std::fs::File::open("/dev/urandom")
         // No entropy source is a refusal to proceed, not a reason to invent one: a predictable
         // seed here is an identity anybody could forge.
-        .unwrap_or_else(|e| panic!("no OS entropy source available to create a peer identity: {e}"));
+        .unwrap_or_else(|e| {
+            panic!("no OS entropy source available to create a peer identity: {e}")
+        });
     source
         .read_exact(&mut seed)
         .unwrap_or_else(|e| panic!("could not read 32 bytes of entropy: {e}"));

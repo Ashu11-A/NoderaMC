@@ -374,9 +374,18 @@ mod tests {
             {"world_id":"b","name":"Mine, only seeded here","seeding":true,"owned":true,
              "world_public_key":"MCowBQYDK2VwAyEA"}]}"#;
         let metrics: Metrics = serde_json::from_str(json).expect("parses");
-        assert!(!metrics.connected_worlds[0].owned, "hosting is not authorship");
-        assert!(metrics.connected_worlds[1].owned, "authorship survives not hosting");
-        assert_eq!(metrics.connected_worlds[1].world_public_key, "MCowBQYDK2VwAyEA");
+        assert!(
+            !metrics.connected_worlds[0].owned,
+            "hosting is not authorship"
+        );
+        assert!(
+            metrics.connected_worlds[1].owned,
+            "authorship survives not hosting"
+        );
+        assert_eq!(
+            metrics.connected_worlds[1].world_public_key,
+            "MCowBQYDK2VwAyEA"
+        );
     }
 
     /// A worker too old to report ownership must not have worlds attributed to it: the field

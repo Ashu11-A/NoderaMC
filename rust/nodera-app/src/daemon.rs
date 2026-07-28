@@ -19,8 +19,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Notify;
 
-use crate::logs::LogBuffer;
 use crate::api::store::DashboardStore;
+use crate::logs::LogBuffer;
 use crate::settings::{Settings, SettingsHandle};
 
 /// True when the app should attach to an already-running worker instead of supervising its own.
@@ -79,7 +79,12 @@ pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
 
     // Comma-separated, schemes preserved: `HeadlessPeerMain.parseTrackers` splits on ',' and
     // `TrackerClient.Endpoint.parse` understands `tcp://` / `udp://` / bare `host:port`.
-    let trackers = settings.network.default_trackers.join(",");
+    let trackers = crate::stores::merged(
+        &settings.network.default_trackers,
+        &settings.network.tracker_stores,
+        crate::stores::ServiceKind::Tracker,
+    )
+    .join(",");
     if !trackers.trim().is_empty() {
         env.push(("NODERA_TRACKER_ENDPOINTS".to_owned(), trackers));
     }
@@ -89,10 +94,26 @@ pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
     // environment, so a user's configured relay was silently ignored and the worker fell back to its
     // 127.0.0.1 default. These are *seeds* now rather than the whole list (the worker discovers the
     // rest from its trackers), which is what makes the default harmless instead of isolating.
-    let rendezvous = settings.network.rendezvous_endpoints.join(",");
+    let rendezvous = crate::stores::merged(
+        &settings.network.rendezvous_endpoints,
+        &settings.network.tracker_stores,
+        crate::stores::ServiceKind::Rendezvous,
+    )
+    .join(",");
     if !rendezvous.trim().is_empty() {
         env.push(("NODERA_RENDEZVOUS_ENDPOINTS".to_owned(), rendezvous));
     }
+
+    // Where the worker can read the app's synchronised service list. Redundant on the desktop —
+    // the two variables above already carry it — but it is the ONLY path on Android, where the
+    // worker runs inside this process and a process cannot set its own environment from Java. One
+    // mechanism on both platforms beats two that diverge.
+    env.push((
+        "NODERA_SERVICES_FILE".to_owned(),
+        crate::settings::sync_file_path()
+            .to_string_lossy()
+            .into_owned(),
+    ));
 
     let archive_dir = settings.storage.peer_worlds_dir.trim();
     if !archive_dir.is_empty() {
@@ -162,7 +183,7 @@ pub async fn supervise(
         match spawn {
             Ok(mut child) => {
                 backoff = Duration::from_secs(1); // healthy start resets backoff
-                // Stream the worker's output into the dashboard's log ring.
+                                                  // Stream the worker's output into the dashboard's log ring.
                 if let Some(out) = child.stdout.take() {
                     let sink = Arc::clone(&logs);
                     tauri::async_runtime::spawn(async move {
@@ -204,7 +225,8 @@ pub async fn supervise(
                         // worker happened to be flapping beforehand.
                         backoff = RESTART_SETTLE;
                         logs.push(
-                            "nodera-app: restarting the peer worker to apply new settings".to_owned(),
+                            "nodera-app: restarting the peer worker to apply new settings"
+                                .to_owned(),
                         );
                     }
                 }
@@ -237,10 +259,17 @@ mod tests {
         worker_env(settings).into_iter().collect()
     }
 
+    /// Settings with no stores at all, for the tests that are about the user's own two lists.
+    fn without_stores() -> Settings {
+        let mut settings = Settings::default();
+        settings.network.tracker_stores = vec![];
+        settings
+    }
+
     /// The bug this function exists to fix: the tracker list the user typed must reach the JVM.
     #[test]
     fn the_user_tracker_list_reaches_the_worker_as_a_comma_separated_list() {
-        let mut settings = Settings::default();
+        let mut settings = without_stores();
         settings.network.default_trackers = vec![
             "tcp://a.example:25600".to_owned(),
             "udp://b.example:25601".to_owned(),
@@ -249,6 +278,33 @@ mod tests {
             env_of(&settings)["NODERA_TRACKER_ENDPOINTS"],
             "tcp://a.example:25600,udp://b.example:25601"
         );
+    }
+
+    /// The user's own entries keep their place, and a store adds to them.
+    #[test]
+    fn a_store_adds_endpoints_without_displacing_the_users_own() {
+        let mut settings = Settings::default();
+        settings.network.default_trackers = vec!["tcp://mine.example:25600".to_owned()];
+        let sent = env_of(&settings)["NODERA_TRACKER_ENDPOINTS"].clone();
+        assert!(
+            sent.starts_with("tcp://mine.example:25600,"),
+            "the user's own tracker must come first: {sent}"
+        );
+        assert!(
+            sent.split(',').count() > 1,
+            "the built-in store contributes: {sent}"
+        );
+    }
+
+    /// A fresh install has somewhere to look, which on a handset it previously did not.
+    #[test]
+    fn a_default_install_reaches_the_worker_with_trackers_from_the_built_in_store() {
+        let env = env_of(&Settings::default());
+        assert!(
+            env.contains_key("NODERA_TRACKER_ENDPOINTS"),
+            "a default install must not start the worker with no trackers at all"
+        );
+        assert!(env.contains_key("NODERA_RENDEZVOUS_ENDPOINTS"));
     }
 
     /// An empty archive directory means "the worker's own default", which is said by *omitting* the
@@ -263,9 +319,11 @@ mod tests {
         assert_eq!(env_of(&settings)["NODERA_ARCHIVE_DIR"], "/srv/nodera");
     }
 
+    /// The key is omitted only when there is nothing from *either* source. Sending `""` would read
+    /// as "configured, and empty" rather than "not configured".
     #[test]
     fn an_empty_tracker_list_omits_the_key_too() {
-        let mut settings = Settings::default();
+        let mut settings = without_stores();
         settings.network.default_trackers = vec![];
         assert!(!env_of(&settings).contains_key("NODERA_TRACKER_ENDPOINTS"));
     }
@@ -307,6 +365,7 @@ mod tests {
                     key.as_str(),
                     "NODERA_TRACKER_ENDPOINTS"
                         | "NODERA_RENDEZVOUS_ENDPOINTS"
+                        | "NODERA_SERVICES_FILE"
                         | "NODERA_ARCHIVE_DIR"
                         | "NODERA_P2P_PORT"
                         | "NODERA_P2P_PORT_RANGE"
@@ -321,9 +380,11 @@ mod tests {
         // The bug this asserts against: the setting existed, the UI wrote it, NODERA-CONFIG declared it
         // restart-required, and nothing ever put it in the worker's environment — so a user's
         // configured relay was silently ignored.
-        let mut settings = Settings::default();
-        settings.network.rendezvous_endpoints =
-            vec!["rdv-a.example:25601".to_owned(), "rdv-b.example:25601".to_owned()];
+        let mut settings = without_stores();
+        settings.network.rendezvous_endpoints = vec![
+            "rdv-a.example:25601".to_owned(),
+            "rdv-b.example:25601".to_owned(),
+        ];
         let env = env_of(&settings);
         assert_eq!(
             env["NODERA_RENDEZVOUS_ENDPOINTS"],
@@ -335,7 +396,7 @@ mod tests {
     fn no_rendezvous_configured_sends_no_key_at_all() {
         // An empty setting must not become an empty env var: the worker's own default is a seed, and
         // an empty string would parse to no endpoints and no seeds.
-        let settings = Settings::default();
+        let settings = without_stores();
         assert!(settings.network.rendezvous_endpoints.is_empty());
         assert!(!env_of(&settings).contains_key("NODERA_RENDEZVOUS_ENDPOINTS"));
     }

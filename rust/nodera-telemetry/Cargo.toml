@@ -9,6 +9,10 @@ publish.workspace = true
 
 [dependencies]
 nodera-codec = { workspace = true }
+# For `env` only: one environment-overlay implementation for all three services, so a variable that
+# works on the tracker works the same way here. This crate takes no identity, drain, or update
+# behaviour from it — telemetry is a deployment, never a peer.
+nodera-service = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

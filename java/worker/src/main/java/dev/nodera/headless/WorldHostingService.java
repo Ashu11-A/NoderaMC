@@ -61,7 +61,28 @@ public final class WorldHostingService implements AutoCloseable {
 
     /** Floor on the announce cadence: a tracker cannot ask this node to announce in a tight loop. */
     static final int MINIMUM_REFRESH_SECONDS = 15;
-    private static final int PROBE_TIMEOUT_MILLIS = 400;
+    /**
+     * How long a reachability probe waits for a TCP handshake.
+     *
+     * <p>Tied to {@link dev.nodera.protocol.service.ServiceScore#LATENCY_CEILING_MILLIS}, above
+     * which a service scores zero anyway: a probe that gives up sooner than the scorer would is a
+     * probe that reports a usable service as dead.
+     *
+     * <p>It was 400 ms, which is less than one round trip to most of the planet. Measured on a
+     * handset behind a VPN, reaching the project's own Frankfurt tracker:
+     *
+     * <pre>
+     *   port 6970 (closed)  652 ms   connection refused
+     *   port 22   (open)   1105 ms   handshake completed
+     *   port 6969 (open)   1103 ms   handshake completed
+     * </pre>
+     *
+     * The service was reachable, answering, and reported as "none reachable from this network" —
+     * because 1103 &gt; 400. A developer on the same LAN as their tracker (47 ms) never sees it, and
+     * every user on another continent, a mobile network, or a VPN sees nothing else.
+     */
+    private static final int PROBE_TIMEOUT_MILLIS =
+            dev.nodera.protocol.service.ServiceScore.LATENCY_CEILING_MILLIS + 500;
 
     private final NodeIdentity identity;
     private final NodeCapabilities capabilities;

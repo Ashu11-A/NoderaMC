@@ -6,7 +6,7 @@
      LIMITATIONS.fixed.md with its evidence. Note the §C entry: some properties that LOOK like
      limitations are the trust model working as designed, and must not be "fixed". -->
 
-**Category:** tracker · **Last audit:** 2026-07-27 · Open or retiring rows: **2**
+**Category:** tracker · **Last audit:** 2026-07-27 · Open or retiring rows: **1**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -24,10 +24,9 @@ the trust model, not facts of the platform.
 
 | ID | Gap | Why it is not permanent | Elimination path | Owner | Exit test | Status |
 |---|---|---|---|---|---|---|
-| L-81 | The self-update lane verifies release **integrity, not provenance**: the digest it checks comes from the same release as the binary, so whoever can publish to the release can publish a matching digest | Signing is a release-process change, not an architectural one — the verification seam (`update::stage`) already refuses a mismatch, so a signature check slots in beside it | Sign `SHA256SUMS` in `release-latest.yml`, ship the public key with the binary, and verify the signature before the digest | [5](Task.5.md) | a test that a validly-digested but wrongly-signed manifest is refused by `update::check` | OPEN |
-| L-82 | The updater fetches over a `curl` subprocess, so a host without `curl` on `PATH` cannot self-update | The `Fetcher` trait is the seam; a native HTTPS implementation is a dependency decision, deliberately deferred rather than pulling a TLS stack into a service whose whole point is to be small | Add a `Fetcher` backed by a Rust HTTPS client behind a cargo feature, keeping `CurlFetcher` as the default | [5](Task.5.md) | `update` tests pass with the native fetcher selected, and `CurlFetcher`'s absence message stays asserted | OPEN |
+| L-81 | The self-update lane verifies release **integrity, not provenance**: the digest it checks comes from the same release as the binary, so whoever can publish to the release can publish a matching digest | Signing is a release-process change, not an architectural one — the verification seam (`update::stage`) already refuses a mismatch, so a signature check slots in beside it | Sign `SHA256SUMS` in `release-latest.yml`, ship the public key with the binary, and verify the signature before the digest | [5](Task.5.md) | a test that a validly-digested but wrongly-signed manifest is refused by `update::check` | RETIRING — the mechanism is built and tested. `update::check` now fetches `SHA256SUMS.sig` and verifies it against a pinned Ed25519 key **before** it reads a digest (provenance before integrity: checking the digest first lets a substituted manifest choose the binary before anyone asks whether the manifest is genuine). A missing signature is a refusal, not a fallback, or anyone able to delete one asset turns the check off. `release-latest.yml` signs with OpenSSL and verifies what it just produced. The OpenSSL and `ed25519-dalek` halves were cross-checked against each other by hand. Exit test green: `a_validly_digested_but_wrongly_signed_manifest_is_refused`, plus the accept and missing-signature cases. **What remains is not code:** no signing key exists yet. `DEFAULT_RELEASE_PUBLIC_KEY` is empty, which means the lane still checks integrity only and says so on every check. It retires when a key is generated, its private half stored as the `NODERA_RELEASE_SIGNING_KEY` secret and its public half compiled in — a credential-creating step that belongs to the project owner, not to this branch. |
 
-Both are confined to the update lane: with `update_channel` empty — the default — neither can affect a
+L-81 is confined to the update lane: with `update_channel` empty — the default — it cannot affect a
 running service at all.
 
 Two adjacent gaps are tracked in the categories that own them, not here:

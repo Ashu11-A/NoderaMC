@@ -132,7 +132,10 @@ pub fn merge_directories(outcomes: &[AnnounceOutcome]) -> Vec<ServiceDirectoryEn
 }
 
 async fn exchange(endpoint: &str, frame: &[u8]) -> io::Result<Vec<u8>> {
-    let mut stream = TcpStream::connect(endpoint).await?;
+    // The scheme comes off first. Every documented endpoint form in this project may carry one,
+    // and a resolver handed `tcp://1.2.3.4:6969` reports that the name does not resolve — once, at
+    // boot, after which the service runs perfectly and announces to nobody.
+    let mut stream = TcpStream::connect(crate::endpoint::socket_target(endpoint)).await?;
     stream.set_nodelay(true)?;
     stream
         .write_all(
@@ -264,6 +267,45 @@ mod tests {
         assert!(outcome.accepted);
         assert_eq!(outcome.next_announce_after_seconds, 90);
         assert_eq!(outcome.directory.len(), 1);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_announce_reaches_a_tracker_written_in_the_documented_tcp_form() {
+        // The regression this whole `endpoint` module exists for. Every example config, the compose
+        // file, `services/official.json` and the Java `Endpoint.parse` all use `tcp://host:port`,
+        // and this path used to hand that string straight to the resolver. The service then ran
+        // perfectly and announced to nobody, having said so once at boot.
+        //
+        // The test above passes a bare `host:port` — which is why it never caught this.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut header = [0u8; 4];
+            stream.read_exact(&mut header).await.unwrap();
+            let len = framing::decode_length(header).unwrap();
+            let mut body = vec![0u8; len];
+            stream.read_exact(&mut body).await.unwrap();
+
+            let ack = ServiceMessage::AnnounceAck(ServiceAnnounceAck {
+                accepted: true,
+                next_announce_after_seconds: 90,
+                reason: String::new(),
+                directory: vec![],
+            })
+            .encode();
+            stream
+                .write_all(&framing::frame(&ack).unwrap())
+                .await
+                .unwrap();
+            stream.flush().await.unwrap();
+        });
+
+        let outcome = announce_to(&format!("tcp://{addr}"), &record(9), &[0x11; 64])
+            .await
+            .expect("a tcp:// endpoint is the documented form and must connect");
+        assert!(outcome.accepted);
         server.await.unwrap();
     }
 

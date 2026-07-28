@@ -102,9 +102,19 @@
 #                   swarm below the quorum floor, which is a useful thing to watch degrade.
 #   --no-worker     INFRA mode only: do not run the peer worker (infra services only). The mod
 #                   will refuse to launch unless a worker is running elsewhere.
+#   --official      Use the PRODUCTION trackers and relays from services/official.json instead of
+#                   starting a pair on this machine. Works with every mode: INFRA points the worker
+#                   at them, --play hands the same decision to the e2e launcher, --lan uses them for
+#                   the two unmodified clients, and --install-mod writes config/nodera-*.toml so the
+#                   game does not come up pointed at a tracker on your own laptop.
+#
+#                   This announces to the real network. It is not the default, and must not become
+#                   one: development has to keep working on a train, and a default that needs the
+#                   internet turns somebody else's outage into your broken checkout.
 #   -h, --help      Show this help.
 #
 # Common env overrides (all optional):
+#   NODERA_OFFICIAL_SERVICES=1  (the same as --official)
 #   NODERA_TRACKER_PORT=25600   NODERA_RENDEZVOUS_PORT=25601
 #   NODERA_CONTROL_PORT=25610   NODERA_WORKER_P2P_PORT=25620
 #   NODERA_MC_DIR=~/.minecraft  NODERA_BUILD_DIR=./build  NODERA_LOG_DIR=./run/logs
@@ -142,6 +152,8 @@ WORKER_BIN="$WORKER_DIST/bin/nodera-headless"
 MC_DIR="${NODERA_MC_DIR:-$HOME/.minecraft}"
 
 # --- ports ---------------------------------------------------------------
+OFFICIAL="${NODERA_OFFICIAL_SERVICES:-0}"
+[[ "$OFFICIAL" -eq 1 ]] && export NODERA_OFFICIAL_SERVICES=1
 TRACKER_PORT="${NODERA_TRACKER_PORT:-25600}"
 RENDEZVOUS_PORT="${NODERA_RENDEZVOUS_PORT:-25601}"
 CONTROL_PORT="${NODERA_CONTROL_PORT:-25610}"
@@ -183,6 +195,20 @@ while [[ $# -gt 0 ]]; do
         --spare-peers) [[ $# -ge 2 ]] || die "--spare-peers needs a count"
                        SPARE_PEERS="$2"; shift 2 ;;
         --no-worker)   RUN_WORKER=0; shift ;;
+        # Exported HERE, at parse time, not inside resolve_services. `--play` hands the topology
+        # to scripts/lib/e2e-main.sh and never calls resolve_services, so exporting there meant
+        # `dev.sh --official --play` silently started a LOCAL tracker and wrote a client config
+        # pointing at it — while the workers used the official list. The mod then announced to one
+        # tracker and the joiner's worker queried another, so the joiner never saw the live world
+        # and fell through to re-hosting a stale copy of it.
+        --official)
+            OFFICIAL=1
+            export NODERA_OFFICIAL_SERVICES=1
+            # Relay-only by default with --official: on one machine the two players would find a
+            # direct path and the relay lane would go untested. NODERA_FORCE_RELAY=0 opts out.
+            NODERA_FORCE_RELAY="${NODERA_FORCE_RELAY:-1}"; export NODERA_FORCE_RELAY
+            shift ;;
+        --relay-only)  export NODERA_FORCE_RELAY=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *)             die "unknown option: $1 (see --help)" ;;
     esac
@@ -289,7 +315,31 @@ install_mod() {
     if [[ "$removed" -eq 1 ]]; then
         log "Reset stale Nodera config → regenerates with tracker :$TRACKER_PORT / rendezvous :$RENDEZVOUS_PORT on next launch"
     fi
-    if [[ "$TRACKER_PORT" != "25600" || "$RENDEZVOUS_PORT" != "25601" ]]; then
+
+    resolve_services
+    if [[ "$OFFICIAL" -eq 1 ]]; then
+        # Written rather than left to regenerate: the mod's baked defaults are loopback, so a client
+        # installed with --official would come up pointed at a tracker on the player's own machine
+        # and quietly find nothing. Both files, because the client half and the host half read
+        # different specs (CLIENT_TRACKER_ENDPOINTS vs TRACKER_ENDPOINTS).
+        mkdir -p "$MC_DIR/config"
+        local trackers rendezvous
+        trackers=$(toml_array "$TRACKER_ENDPOINTS")
+        rendezvous=$(toml_array "$RENDEZVOUS_ENDPOINTS")
+        cat > "$MC_DIR/config/nodera-client.toml" <<EOF
+[tracker]
+	endpoints = $trackers
+[rendezvous]
+	endpoints = $rendezvous
+EOF
+        cat > "$MC_DIR/config/nodera-server.toml" <<EOF
+[tracker]
+	endpoints = $trackers
+[rendezvous]
+	endpoints = $rendezvous
+EOF
+        log "Wrote config/nodera-{client,server}.toml pointing at the official services"
+    elif [[ "$TRACKER_PORT" != "25600" || "$RENDEZVOUS_PORT" != "25601" ]]; then
         warn "Custom ports set: the mod's baked defaults are 127.0.0.1:25600 / :25601 — edit the"
         warn "regenerated config/nodera-*.toml to match tracker :$TRACKER_PORT / rendezvous :$RENDEZVOUS_PORT."
     fi
@@ -424,13 +474,61 @@ start_app() { # control-port title app-log worker-log [multi]
     SERVICE_PIDS+=("$!")
 }
 
+# toml_array "a:1,b:2" -> ["a:1", "b:2"] — the form both the mod config and the endpoint plugin want.
+toml_array() {
+    local IFS=, entry out=""
+    for entry in $1; do
+        [[ -n "$entry" ]] || continue
+        out="${out:+$out, }\"$entry\""
+    done
+    printf '[%s]' "$out"
+}
+
+# resolve_services — decide what this run talks to, and whether it has to start it.
+#
+# Two modes, one variable pair. LOCAL (default) starts a tracker and a rendezvous on this machine
+# and points everything at them. OFFICIAL (--official) points everything at
+# services/official.json — the real deployed infrastructure — and starts nothing.
+#
+# `--official` exists because a stack that only ever talks to itself over loopback cannot tell you
+# whether the thing you are about to ship works. It is NOT the default: development must keep
+# working on a train, and a default that needs the internet turns somebody else's outage into your
+# broken checkout.
+resolve_services() {
+    if [[ "$OFFICIAL" -eq 1 ]]; then
+        TRACKER_ENDPOINTS=$("$NODERA_ROOT/scripts/services.py" --endpoints tracker) \
+            || die "cannot read the official tracker list"
+        RENDEZVOUS_ENDPOINTS=$("$NODERA_ROOT/scripts/services.py" --endpoints rendezvous) \
+            || die "cannot read the official rendezvous list"
+    else
+        TRACKER_ENDPOINTS="127.0.0.1:$TRACKER_PORT"
+        RENDEZVOUS_ENDPOINTS="127.0.0.1:$RENDEZVOUS_PORT"
+    fi
+}
+
+# Report which infrastructure this run is using, once, where it cannot be missed. Pointing a
+# development run at production is a thing you should never discover by surprise.
+announce_services() {
+    if [[ "$OFFICIAL" -eq 1 ]]; then
+        warn "USING THE OFFICIAL PRODUCTION SERVICES — this run announces to the real network"
+        warn "  trackers:    $TRACKER_ENDPOINTS"
+        warn "  rendezvous:  $RENDEZVOUS_ENDPOINTS"
+    else
+        log "  tracker:     0.0.0.0:$TRACKER_PORT"
+        log "  rendezvous:  0.0.0.0:$RENDEZVOUS_PORT"
+    fi
+}
+
 start_stack() {
     mkdir -p "$LOG_DIR"
+    resolve_services
 
-    start_service "nodera-tracker" "$TRACKER_BIN" "$LOG_DIR/nodera-tracker.log" \
-        "$TRACKER_PORT" --bind "0.0.0.0:$TRACKER_PORT" || true
-    start_service "nodera-rendezvous" "$RENDEZVOUS_BIN" "$LOG_DIR/nodera-rendezvous.log" \
-        "$RENDEZVOUS_PORT" --bind "0.0.0.0:$RENDEZVOUS_PORT" || true
+    if [[ "$OFFICIAL" -eq 0 ]]; then
+        start_service "nodera-tracker" "$TRACKER_BIN" "$LOG_DIR/nodera-tracker.log" \
+            "$TRACKER_PORT" --bind "0.0.0.0:$TRACKER_PORT" || true
+        start_service "nodera-rendezvous" "$RENDEZVOUS_BIN" "$LOG_DIR/nodera-rendezvous.log" \
+            "$RENDEZVOUS_PORT" --bind "0.0.0.0:$RENDEZVOUS_PORT" || true
+    fi
 
     if [[ "$RUN_WORKER" -eq 1 ]]; then
         start_worker || true
@@ -443,8 +541,7 @@ start_stack() {
     fi
 
     log "Nodera stack running. Ctrl-C to stop."
-    log "  tracker:     0.0.0.0:$TRACKER_PORT"
-    log "  rendezvous:  0.0.0.0:$RENDEZVOUS_PORT"
+    announce_services
     [[ "$RUN_WORKER" -eq 1 ]] && log "  peer worker: control 127.0.0.1:$CONTROL_PORT · p2p 0.0.0.0:$WORKER_P2P_PORT (the mod REQUIRES this)"
     [[ "$WITH_APP" -eq 1 ]]   && log "  companion:   Tauri app (attach mode)"
     log "  Host a world: launch a NeoForge 1.21.1 client with build/neoforge-mod.jar in mods/,"
@@ -663,8 +760,8 @@ start_lan_worker() { # name control-port p2p-port lan-watch
     NODERA_ARCHIVE_DIR="$state/archive" \
     NODERA_STATE_DIR="$state" \
     NODERA_TELEMETRY_DIR="$state" \
-    NODERA_TRACKER_ENDPOINTS="127.0.0.1:$TRACKER_PORT" \
-    NODERA_RENDEZVOUS_ENDPOINTS="127.0.0.1:$RENDEZVOUS_PORT" \
+    NODERA_TRACKER_ENDPOINTS="$TRACKER_ENDPOINTS" \
+    NODERA_RENDEZVOUS_ENDPOINTS="$RENDEZVOUS_ENDPOINTS" \
     NODERA_LAN_WATCH="$lan_watch" \
         "$WORKER_BIN" >"$logfile" 2>&1 &
     local pid=$!
@@ -737,10 +834,14 @@ run_lan() {
     python3 "$VANILLA" prepare --version "$LAN_VERSION" \
         || die "could not prepare Minecraft $LAN_VERSION (see the messages above)"
 
-    start_service "nodera-tracker" "$TRACKER_BIN" "$LAN_LOG_DIR/tracker.log" \
-        "$TRACKER_PORT" --bind "0.0.0.0:$TRACKER_PORT" || true
-    start_service "nodera-rendezvous" "$RENDEZVOUS_BIN" "$LAN_LOG_DIR/rendezvous.log" \
-        "$RENDEZVOUS_PORT" --bind "0.0.0.0:$RENDEZVOUS_PORT" || true
+    resolve_services
+    if [[ "$OFFICIAL" -eq 0 ]]; then
+        start_service "nodera-tracker" "$TRACKER_BIN" "$LAN_LOG_DIR/tracker.log" \
+            "$TRACKER_PORT" --bind "0.0.0.0:$TRACKER_PORT" || true
+        start_service "nodera-rendezvous" "$RENDEZVOUS_BIN" "$LAN_LOG_DIR/rendezvous.log" \
+            "$RENDEZVOUS_PORT" --bind "0.0.0.0:$RENDEZVOUS_PORT" || true
+    fi
+    announce_services
 
     start_lan_worker host   "$LAN_HOST_CONTROL" "$LAN_HOST_P2P" 1 || true
     start_lan_worker joiner "$LAN_JOIN_CONTROL" "$LAN_JOIN_P2P" 1 || true
