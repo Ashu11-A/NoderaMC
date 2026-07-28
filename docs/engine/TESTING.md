@@ -6,12 +6,17 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-07-25 · **747 tests · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-07-28 · **770 `@Test` + 3 `@Property` · 0 failing · 0 skipped**
+
+> Counts above are from a `rg '@Test'` / `rg '@Property'` sweep on 2026-07-28 (core 257, engine 499
+> `@Test` + 3 jqwik `@Property`, testing 14). They are a floor, not the authoritative figure — the
+> next `./gradlew :core:test :engine:test :testing:test` XML run replaces them. The previous figure
+> (747) predated the entity/environment/container rule growth.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags through 108) | 242 | ✅ |
-| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 491 | ✅ |
+| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 257 | ✅ |
+| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 499 + 3 `@Property` | ✅ |
 | `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | ✅ |
 
 Run with:

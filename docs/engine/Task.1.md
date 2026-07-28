@@ -7,7 +7,7 @@
      rust/nodera-codec in the same commit. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** —  (root task; everything in the project builds on it)
 **Consumed by:** every other task in every category
 
@@ -22,8 +22,8 @@ contract after this task**: changing it is a network-breaking change.
 
 ## Status detail
 
-Landed and stable. `java/core` carries 233 tests covering canonical round-trips for every type,
-golden-file encodings, signature verification, and tamper rejection.
+Landed and stable. `java/core` carries 257 `@Test` methods covering canonical round-trips for
+every type, golden-file encodings, signature verification, and tamper rejection.
 
 Extensions landed after the original delivery, each additive and tag-appended:
 
@@ -34,6 +34,10 @@ Extensions landed after the original delivery, each additive and tag-appended:
 - `CertifiedWorldGenesis` (tag 103), `GenesisRecertification` (tag 104), `ContainerEntry` (tag 105),
   `MovePlayerAction` (tag 106), `CommandAction` (tag 108).
 - `WorldRole` and the world-permission tags 92/93 consumed by [`network/Task.3.md`](../network/Task.3.md).
+- The tag registry has since grown well past 108 (world-identity/ownership, service-directory, and
+  archive types through `TypeTags.NEXT = 118` as of this audit). Those later tags are owned by the
+  network/tracker/rendezvous categories; `core` only hosts the constants. The frozen-contract
+  rules (append-only, never renumber; both language sides in one commit) are unchanged.
 
 ## Dependencies
 

@@ -6,7 +6,7 @@
      a fallback flag for worker-less environments. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** worker · **Owns:** — (L-41 retired 2026-07-26) · **Last audit:** 2026-07-26
+**Category:** worker · **Owns:** — (L-41 retired 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [minecraft 5](../minecraft/Task.5.md), [network 4](../network/Task.4.md), [tracker 2](../tracker/Task.2.md), [rendezvous 2](../rendezvous/Task.2.md)
 **Consumed by:** [minecraft 5](../minecraft/Task.5.md), [app 4](../app/Task.4.md)
 
@@ -80,9 +80,10 @@ for a data-availability regression. Superseding happens on re-key, where it is t
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/archive/WorldArchiveService.java`
-- `java/peer/src/main/java/dev/nodera/peer/WorldGrantGossipService.java`
-- `java/peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java`
+- `java/worker/src/main/java/dev/nodera/headless/WorldArchiveService.java`
+- `java/worker/src/main/java/dev/nodera/headless/WorldGrantGossipService.java`
+- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java`
+- `java/worker/src/main/java/dev/nodera/headless/WorldHostingService.java` (the announce + rendezvous-register loop, on the worker's own timer; restored from the registry at construction)
 
 ## Testing
 

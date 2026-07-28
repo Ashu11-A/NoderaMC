@@ -6,7 +6,7 @@
      exists to make impossible. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (headless; live half → [minecraft 2](../minecraft/Task.2.md))
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 3](Task.3.md)
 **Consumed by:** [engine 5](Task.5.md), [engine 6](Task.6.md), [engine 7](Task.7.md), [minecraft 2](../minecraft/Task.2.md)
 

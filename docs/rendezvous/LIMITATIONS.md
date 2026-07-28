@@ -5,7 +5,7 @@
      its evidence. Note §C: several properties that LOOK like limitations are the design working
      correctly (a relayed steady state, an untrusted service). Do not convert them into §B rows. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-27 · Open or retiring rows: **1**
+**Category:** rendezvous · **Last audit:** 2026-07-28 · Open or retiring rows: **1**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).

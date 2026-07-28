@@ -8,7 +8,7 @@
      mechanism. Passwords never reach a log, a toString, or the wire. Keep this header accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-68 · **Last audit:** 2026-07-25
+**Category:** server · **Owns:** L-68 · **Last audit:** 2026-07-28
 **Depends on:** [server 5](Task.5.md), [minecraft 6](../minecraft/Task.6.md), [storage via network 3](../network/Task.3.md)
 **Consumed by:** [server 7](Task.7.md), [server 9](Task.9.md)
 

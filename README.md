@@ -276,14 +276,19 @@ registers. The entry point is [`docs/README.md`](docs/README.md); the single cen
 | Category | Scope | Docs | Tasks | Status |
 |---|---|---|---|---|
 | **Engine** | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | [`docs/engine/`](docs/engine/Task.0.md) | 12 | 🚧 7 done |
-| **Network** | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | [`docs/network/`](docs/network/Task.0.md) | 12 | 🚧 11 done |
-| **Tracker** | Always-on world/peer discovery service + its Java client | [`docs/tracker/`](docs/tracker/Task.0.md) | 4 | 🚧 3 done |
-| **Rendezvous** | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | [`docs/rendezvous/`](docs/rendezvous/Task.0.md) | 4 | 🚧 3 done |
-| **Minecraft** | The NeoForge mod: capture, live lanes, GUI, host lane, world identity, companion gate | [`docs/minecraft/`](docs/minecraft/Task.0.md) | 8 | 🚧 3 done |
-| **Worker** | The required always-on headless peer + its loopback control protocol | [`docs/worker/`](docs/worker/Task.0.md) | 5 | 🚧 4 done |
-| **App** | The Tauri desktop companion that supervises the worker | [`docs/app/`](docs/app/Task.0.md) | 5 | 🚧 2 done |
+| **Network** | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | [`docs/network/`](docs/network/Task.0.md) | 14 | 🚧 11 done |
+| **Tracker** | Always-on world/peer discovery service + its Java client | [`docs/tracker/`](docs/tracker/Task.0.md) | 6 | 🚧 5 done |
+| **Rendezvous** | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | [`docs/rendezvous/`](docs/rendezvous/Task.0.md) | 6 | 🚧 4 done |
+| **Minecraft** | The NeoForge mod: capture, live lanes, GUI, host lane, world identity, companion gate | [`docs/minecraft/`](docs/minecraft/Task.0.md) | 11 | 🚧 5 done |
+| **Worker** | The required always-on headless peer + its loopback control protocol | [`docs/worker/`](docs/worker/Task.0.md) | 8 | 🚧 6 done |
+| **App** | The Tauri desktop companion that supervises the worker | [`docs/app/`](docs/app/Task.0.md) | 10 | 🚧 6 done |
+| **Mobile** | The Android build: the same app and the same Java worker, in one process on a phone | [`docs/mobile/`](docs/mobile/Task.0.md) | 5 | 🚧 4 done |
 | **Telemetry** | Consented, de-identified measurement: the Rust ingest service + the Big Data plane | [`docs/telemetry/`](docs/telemetry/Task.0.md) | 3 | 🚧 1 done |
 | **Server** | The Paper/Folia endpoint plugin ([`Plan.5`](docs/plans/Plan.5.md)) — excluded from the completion figure until it starts | [`docs/server/`](docs/server/Task.0.md) | 10 | ⬜ 0 done |
+
+> Task counts and done-counts above refreshed 2026-07-28 against the tree. The headline completion
+> figure at the top of this README is **not** recomputed on this sweep — its weighting is not raw
+> done/total; see [`docs/ROADMAP.md`](docs/ROADMAP.md) §1.
 
 The **"torrent hosting" feature** (a world becomes a shared, content-addressed, multi-seeder
 resource) is network tasks 4–10 plus the minecraft GUI and host tasks. It is additive to committee

@@ -9,8 +9,8 @@
      ../plans/Plan.5.md — read it before editing any task file here. Keep the task index in agreement
      with ../ROADMAP.md §2. -->
 
-**Category:** `server` · **Status:** ⬜ NOT STARTED (0 of 10 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `server` · **Status:** 🚧 IN PROGRESS (1 of 10 tasks completed) ·
+**Last audit:** 2026-07-28
 
 ---
 
@@ -95,6 +95,13 @@ The Nodera↔Folia region mapping is the load-bearing piece and is specified in
 8×8-chunk Nodera region lies entirely inside exactly one Folia region, so all Minecraft-side work for
 one Nodera region runs on exactly one Folia region thread with no locking.
 
+> **Where the code is today (2026-07-28).** The plugin enables on Paper 1.21.1 and Folia, preflights
+> ALIGN-1, parses `nodera-endpoint.yml`, and links an **external** always-on worker over the worker's
+> own control protocol ([server 2](Task.2.md)). The `NoderaScheduler` seam diagrammed above is not
+> yet built — there is no region-scheduled work to dispatch until [server 3](Task.3.md)–
+> [server 5](Task.5.md) — and the in-process `PeerRuntime` is deferred (see [server 2](Task.2.md) and
+> the retired row L-71 in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
+
 ## 5. Dependencies
 
 **Depends on:** [`network/`](../network/Task.0.md) (the peer runtime it embeds),
@@ -113,30 +120,31 @@ lists like any other).
 
 | Task | Title | Status |
 |---|---|---|
-| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ⬜ NOT STARTED |
-| [2](Task.2.md) | Embedded peer + control plane | ⬜ NOT STARTED |
-| [3](Task.3.md) | Region custody and the ownership bridge | ⬜ NOT STARTED |
+| [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED |
+| [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS |
+| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED |
 | [7](Task.7.md) | Modded clients on an endpoint | ⬜ NOT STARTED |
 | [8](Task.8.md) | Plugin compatibility contract | ⬜ NOT STARTED |
-| [9](Task.9.md) | Live acceptance: mixed-client suites + CI | ⬜ NOT STARTED |
-| [10](Task.10.md) | Endpoint telemetry + the tenant boundary | ⬜ NOT STARTED |
+| [9](Task.9.md) | Live acceptance: mixed-client suites + CI | 🚧 IN PROGRESS |
+| [10](Task.10.md) | Endpoint telemetry + the tenant boundary | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and live suites: [`TESTING.md`](TESTING.md) ·
 architecture reference: [`REFERENCE.md`](REFERENCE.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) ·
-programme plan: [`../plans/Plan.5.md`](../plans/Plan.5.md).
+refactoring register: [`REFACTORING.md`](REFACTORING.md) · programme plan:
+[`../plans/Plan.5.md`](../plans/Plan.5.md).
 
 ## 7. Files
 
 | Path | Contents |
 |---|---|
-| `java/paper-plugin/` | The plugin (Gradle module `:paper-plugin`, artifact `nodera-endpoint`) |
+| `java/paper-plugin/` | The plugin (Gradle module `:paper-plugin`, artifact `nodera-endpoint`). 5 main + 3 test classes today — see [Task.1](Task.1.md) §Files |
 | `java/paper-plugin/src/main/resources/plugin.yml` | `folia-supported: true`, commands, the API version pin |
 | `java/build-logic/src/main/kotlin/nodera.paper-plugin.gradle.kts` | The convention plugin: Paper API, shading, `runPaper`/`runFolia` |
-| `java/core/.../region/ViewOwnershipPlanner.java` | Gains the multi-view overload (server task 3) |
+| `java/core/.../region/RegionAlignment.java` | The ALIGN-1 arithmetic the preflight calls (gained the multi-view overload in [server 3](Task.3.md)) |
 | `scripts/lib/e2e-server.sh` | The Paper/Folia/vanilla-bot half of the live launcher |
 | `scripts/lib/vanilla-bot.py` | The unmodified-client driver (vanilla protocol, offline mode) |
 | `scripts/e2e-endpoint.sh` · `e2e-folia.sh` · `e2e-plugins.sh` | The three live suites |

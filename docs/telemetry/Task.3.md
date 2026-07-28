@@ -7,7 +7,7 @@
      header's status accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** telemetry · **Owns:** L-75 · **Last audit:** 2026-07-25
+**Category:** telemetry · **Owns:** L-75 · **Last audit:** 2026-07-28
 **Depends on:** [telemetry 2](Task.2.md), [worker 5](../worker/Task.5.md)
 **Consumed by:** the engine, network, and rendezvous lanes; the public
 
@@ -23,6 +23,12 @@ bug, and a published transparency report so the people who opted in can see what
 
 Not started. One dashboard (`nodera-overview`) and one Spark job (`divergence_clusters.py`) ship
 with [telemetry 2](Task.2.md) as the working skeleton; everything below is this task.
+
+The receiver is finished and the emitters have landed in their own categories
+([network 12](../network/Task.12.md), [worker 5](../worker/Task.5.md), [minecraft 8](../minecraft/Task.8.md),
+[tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [app 5](../app/Task.5.md)).
+What is missing is not mechanism but a **population that has opted in** — which is why **L-75** stays
+OPEN and this task stays ⬜ until a deployment has real reports to analyse.
 
 ## Dependencies
 
@@ -95,5 +101,6 @@ the honest place to publish the limitation rows in `LIMITATIONS.md`.
 
 ## Limitations
 
-Owns **L-75** — self-selection bias in an opt-in sample cannot be corrected, only stated. See
-[`LIMITATIONS.md`](LIMITATIONS.md).
+Owns **L-75** — nothing has been collected against a real opted-in population yet, so every claim
+about what the pipeline *shows* is untested against real data; the receiver is proven, the
+population is not. See [`LIMITATIONS.md`](LIMITATIONS.md).

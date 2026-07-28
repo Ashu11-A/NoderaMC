@@ -8,7 +8,7 @@
      never be restored from the registry — it describes a running game. Keep this header accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** worker · **Owns:** — · **Last audit:** 2026-07-26
+**Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 2](Task.2.md), [worker 3](Task.3.md), [network 3](../network/Task.3.md)
 **Consumed by:** [app 2](../app/Task.2.md), [minecraft 4](../minecraft/Task.4.md)
 
@@ -115,9 +115,9 @@ refuses to boot serves nothing, and one that boots having forgotten still serves
 ## Files
 
 - `java/storage/src/main/java/dev/nodera/storage/{PersistedWorldKey,WorldOwnership,WorldAdminProof,WorldRegistry}.java`
-- `java/peer/src/main/java/dev/nodera/headless/{WorldKeyStore,WorldRegistryStore,WorldOwnershipService,LocalFiles}.java`
-- `java/peer/src/main/java/dev/nodera/headless/WorldHostingService.java` (restore + write-through + `bindOwnership`)
-- `java/peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (`mintOwnership`, `worldsJson`, `proveAdmin`)
+- `java/worker/src/main/java/dev/nodera/headless/{WorldKeyStore,WorldRegistryStore,WorldOwnershipService,LocalFiles}.java`
+- `java/worker/src/main/java/dev/nodera/headless/WorldHostingService.java` (restore + write-through + `bindOwnership`)
+- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (`mintOwnership`, `worldsJson`, `proveAdmin`)
 - `java/peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlHandler,ControlServer}.java`
 - `java/transport/src/main/java/dev/nodera/protocol/membership/WorldOwnershipGossip.java` (tag 62)
 - `rust/nodera-app/src/metrics.rs`, `rust/nodera-app/ui/src/{ipc.ts,App.tsx,World.tsx}`

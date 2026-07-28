@@ -5,11 +5,11 @@
      the change is wrong, not the test. Any new event or attribute needs a validation test proving
      both its accepted and its rejected forms. Keep counts and Last run current. -->
 
-**Category:** telemetry · **Last run:** 2026-07-25 · **83 Rust tests · 0 failing** (ingest crate), plus the
+**Category:** telemetry · **Last run:** 2026-07-28 · **91 Rust tests · 0 failing** (ingest crate), plus the
 emitter suites in the categories that emit and one end-to-end suite that drives the real binaries
 
 ```bash
-cd rust && cargo test -p nodera-telemetry          # the receiver (83)
+cd rust && cargo test -p nodera-telemetry          # the receiver (91)
 cd rust && cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 ./gradlew :peer:test --tests '*Telemetry*'        # the emitter core + the worker + the verb
 ./gradlew :neoforge-mod:test --tests '*Telemetry*' # the game-side façade
@@ -56,9 +56,11 @@ claim in [`../plans/Plan.6.md`](../plans/Plan.6.md) §2.
 
 ## 3. Coverage by module
 
+Counts grep-verified 2026-07-28 (`#[test]` + `#[tokio::test]` per file). The crate total is **91**.
+
 | Module | Tests | Focus |
 |---|---|---|
-| `schema.rs` | 7 | Registry well-formedness, source admission |
+| `schema.rs` | 8 | Registry well-formedness, source admission |
 | `event.rs` | 14 | Envelope, consent, per-event and per-attribute validation, agent sanitisation |
 | `subject.rs` | 7 | Rotation, namespacing, secret dependence |
 | `geo.rs` | 7 | Longest prefix, IPv4-mapped IPv6, unknown answers unknown, `/0` without overflow |
@@ -66,8 +68,9 @@ claim in [`../plans/Plan.6.md`](../plans/Plan.6.md) §2.
 | `sink.rs` | 7 | Rotation triggers, ordering, directory creation |
 | `service.rs` | 10 | The ingest decision, typed attribute split, honest replies, counters |
 | `wire.rs` | 4 | Framing bounds, clean EOF, **end-to-end over TCP** |
-| `config.rs` | 9 | Defaults, refusals, env secret, bounds conversion |
-| `main.rs` | 5 | CLI parsing, `--print-schema` fidelity |
+| `config.rs` | 11 | Defaults, refusals, env secret + every-key override, bounds conversion |
+| `reporter.rs` | 9 | The shared service-side emitter: queue bounds, envelope, refusal handling, install-id derivation |
+| `main.rs` | 6 | CLI parsing, `--print-schema` fidelity |
 
 ## 4. The end-to-end suite
 
@@ -95,4 +98,4 @@ built binary and a compose smoke test.
 - The app's consent modal has no component test: "neither button is favoured" is held by the markup
   and by review ([app 5](../app/Task.5.md)).
 - No dashboard has answered a real question yet, because nothing has collected a population
-  ([telemetry 3](Task.3.md), and the reason **L-76** is RETIRING rather than retired).
+  ([telemetry 3](Task.3.md), and the reason **L-75** is OPEN rather than retired).

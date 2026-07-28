@@ -7,7 +7,7 @@
      a retired capability regresses, open a bug issue and move a NEW row into LIMITATIONS.md — do not
      edit history here. -->
 
-**Category:** engine · **Last audit:** 2026-07-25 · Retired rows: **19**
+**Category:** engine · **Last audit:** 2026-07-28 · Retired rows: **19**
 
 Rows moved here from [`LIMITATIONS.md`](LIMITATIONS.md) §B when their status reached `RETIRED`.
 

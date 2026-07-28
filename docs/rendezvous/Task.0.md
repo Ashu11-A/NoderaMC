@@ -4,10 +4,16 @@
      must hold on a pure-relay path, and tests must exercise it. The service introduces and forwards;
      it is never trusted. Naming trap: `RendezvousPlacementPolicy` and `RendezvousArchivePolicy`
      elsewhere in the project are rendezvous *hashing* and have nothing to do with this service — do
-     not "unify" them. Keep the task index in agreement with ../ROADMAP.md §2. -->
+     not "unify" them. Keep the task index in agreement with ../ROADMAP.md §2.
+     Context: NAT reach — signed registration/discovery, hole punching, E2E-encrypted relay fallback.
+     Tasks 1,2,4,6 ✅ COMPLETED/DONE; Task 3 ⏳ BLOCKED (live NAT env); Task 5 🚧 IN PROGRESS (owns
+     L-83). Verified 2026-07-28: 71 Rust tests in nodera-rendezvous + 28 Java @Test in
+     dev.nodera.transport.rendezvous. Key entry points: rust/nodera-rendezvous/src/service.rs:192
+     (handle_frame), wire.rs:433 (run / socket surface), main.rs:265 (RendezvousHost lifecycle),
+     java/transport/.../rendezvous/RendezvousPeerTransport.java:50 (the transport). -->
 
-**Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (3 of 5 tasks completed) ·
-**Last audit:** 2026-07-27
+**Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (4 of 6 tasks completed; 1 blocked, 1 in
+progress) · **Last audit:** 2026-07-28
 
 ---
 
@@ -75,9 +81,9 @@ bind that reference to Nodera.
 
 | Path | Contents |
 |---|---|
-| `rust/nodera-rendezvous/src/` | `main`, `config`, `registry`, `register`, `discover`, `observed`, `reservation`, `circuit`, `punch`, `limits` |
-| `rust/nodera-service/src/` | Shared with the tracker: `identity`, `directory`, `drain`, `lifecycle`, `update` |
-| `java/transport/.../transport/rendezvous/` | `RendezvousPeerTransport`, `CandidateDialer`, `RelayCircuitClient`, `HolePunchCoordinator`, `TransportSelector`, `EndToEndCipher` |
+| `rust/nodera-rendezvous/src/` | `main`, `service`, `config`, `registry`, `register`, `discover`, `reservation`, `circuit`, `punch`, `limits`, `wire`, `telemetry`, `test_support` (reflexive-address observation lives inline in `service.rs::on_register`) |
+| `rust/nodera-service/src/` | Shared with the tracker: `identity`, `directory`, `drain`, `lifecycle`, `update`, `env`, `endpoint` |
+| `java/transport/.../transport/rendezvous/` | `RendezvousPeerTransport`, `RendezvousClient`, `CandidateDialer`, `RelayCircuitClient`, `RelayCircuit`, `HolePunchCoordinator`, `TransportSelector`, `EndToEndCipher`, `RendezvousEndpoint`, `package-info` |
 | `java/transport/.../protocol/rendezvous/` | The rendezvous/relay message family |
 
 Package architecture: [`rust/nodera-rendezvous/README.md`](../../rust/nodera-rendezvous/README.md),

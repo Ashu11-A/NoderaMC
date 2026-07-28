@@ -7,7 +7,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** tracker · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md)
 **Consumed by:** [tracker 2](Task.2.md), [worker 3](../worker/Task.3.md), [minecraft 4](../minecraft/Task.4.md)
 
@@ -20,7 +20,9 @@ when every seeder is offline — while being safe to expose on the public intern
 
 ## Status detail
 
-Complete. 60 Rust tests. `TrackerServiceIT` spawns the **real release binary** and drives it from
+Complete. The crate now carries **109 `#[test]`s** (see [`TESTING.md`](TESTING.md)); this task's
+mechanisms — announce lifecycle, TTL sweep, sampling, quotas, health, UDP — are the foundation.
+`TrackerServiceIT` spawns the **real release binary** and drives it from
 Java peers: two peers announce two worlds with per-world isolation; a JDK-signed announce is verified
 inside the service by `ed25519-dalek`; a tampered record is refused with `bad-signature` and never
 reaches the registry; a `STOPPED` announce removes a peer immediately; and — the decisive scenario —
@@ -44,7 +46,7 @@ capped against reflection amplification, and silently drops undecodable datagram
 | 3 | `announce.rs` — started / heartbeat / stopped with Ed25519 verification | ✅ |
 | 4 | `query.rs` — reservoir-sampled responses with a seeder floor | ✅ |
 | 5 | `health.rs` — world health derivation + retention-countdown surface | ✅ |
-| 6 | `expiry.rs` — last-seen sweep (TTL ≈ 2× announce interval) | ✅ |
+| 6 | Last-seen sweep (TTL ≈ 2× announce interval) — `registry.rs::Registry::sweep` | ✅ |
 | 7 | `limits.rs` — per-IP and per-identity quotas, record-size caps, bounded counts | ✅ |
 | 8 | `wire.rs` — u32 framing with a 16 MiB cap; TCP and UDP surfaces | ✅ |
 | 9 | Graceful SIGTERM drain | ✅ |
@@ -81,7 +83,7 @@ wants; the omission is deliberate.
 
 ## Files
 
-- `rust/nodera-tracker/src/{main,config,registry,announce,query,health,expiry,limits,wire}.rs`
+- `rust/nodera-tracker/src/{main,config,registry,announce,query,health,deletion,limits,wire,services,service,telemetry}.rs`
 
 ## Testing
 

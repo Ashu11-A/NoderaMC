@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** ✅ COMPLETED (live wiring → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 6](Task.6.md)
 **Consumed by:** [network 10](Task.10.md), [tracker 1](../tracker/Task.1.md), [app 3](../app/Task.3.md)
 

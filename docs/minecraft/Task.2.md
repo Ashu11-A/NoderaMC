@@ -6,8 +6,8 @@
      second. Every mixin needs a "why an event was not enough" header and a COMPATIBILITY.md note.
      Keep this header's status accurate. -->
 
-**Status:** ⏳ BLOCKED (on [task 1](Task.1.md)'s CI harness for its acceptance evidence)
-**Category:** minecraft · **Owns:** L-50 (live half) · **Last audit:** 2026-07-25
+**Status:** 🚧 IN PROGRESS (capture/mixin lane landed; apply half + repeatable live evidence remain)
+**Category:** minecraft · **Owns:** L-50 (live half), L-80 · **Last audit:** 2026-07-28
 **Depends on:** [task 1](Task.1.md); consumes [engine 3](../engine/Task.3.md)–[engine 7](../engine/Task.7.md) and [network 1](../network/Task.1.md)–[network 10](../network/Task.10.md)
 **Consumed by:** the live acceptance of the engine and network categories
 
@@ -38,8 +38,12 @@ What is still **not** wired is the apply half and everything around it: the thre
 mixins, chunk tickets, the real `WorldMutationApplier` on the main thread, the coordinator live
 adapter, the renderer's lock-map consumption, and the live commit/content/lifecycle adapters.
 
-The lane is blocked less by design than by **evidence**: its acceptance is a set of live scenarios,
-and those need [task 1](Task.1.md)'s CI harness to be repeatable rather than hand-run.
+The lane was previously **blocked** on [task 1](Task.1.md)'s CI harness; that harness is now green
+(`e2e-live` under Xvfb — **L-45** retired), so the lane is **in progress**: its acceptance is a set of
+live scenarios that are now repeatable rather than hand-run. The apply half and everything around it
+is what remains: the three interference mixins, chunk tickets, the real `WorldMutationApplier` on the
+main thread, the coordinator live adapter, the renderer's lock-map consumption, and the live
+commit/content/lifecycle adapters.
 
 ## Dependencies
 

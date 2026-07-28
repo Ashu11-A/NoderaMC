@@ -6,7 +6,7 @@
      Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (headless; NeoForge relay implementation → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** A-4 mechanism · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** A-4 mechanism · **Last audit:** 2026-07-28
 **Depends on:** [engine 1](../engine/Task.1.md)
 **Consumed by:** every network task, both Rust services, the worker, and the mod
 

@@ -7,7 +7,7 @@
      The privacy model is ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** network · **Owns:** L-76 · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** L-76 · **Last audit:** 2026-07-28
 **Depends on:** [network 11](Task.11.md), [telemetry 1](../telemetry/Task.1.md)
 **Consumed by:** [worker 5](../worker/Task.5.md), [minecraft 8](../minecraft/Task.8.md), [server 10](../server/Task.10.md)
 

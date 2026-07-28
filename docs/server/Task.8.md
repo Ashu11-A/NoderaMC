@@ -8,7 +8,7 @@
      API. Keep this header accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-65 · **Last audit:** 2026-07-25
+**Category:** server · **Owns:** L-65 · **Last audit:** 2026-07-28
 **Depends on:** [server 5](Task.5.md), [engine 7](../engine/Task.7.md)
 **Consumed by:** [server 9](Task.9.md)
 

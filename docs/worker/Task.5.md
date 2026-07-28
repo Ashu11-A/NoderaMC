@@ -7,7 +7,7 @@
      ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** worker · **Owns:** L-77 · **Last audit:** 2026-07-25
+**Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 12](../network/Task.12.md), [worker 2](Task.2.md), [telemetry 1](../telemetry/Task.1.md)
 **Consumed by:** [app 5](../app/Task.5.md), [minecraft 8](../minecraft/Task.8.md), [telemetry 3](../telemetry/Task.3.md)
 
@@ -82,9 +82,10 @@ measured, not stopped being uploaded.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/headless/{WorkerTelemetryService,TelemetryConsentStore}.java`
-- `java/peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` (the new verb)
-- `java/peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (state block, verb handling)
+- `java/worker/src/main/java/dev/nodera/headless/WorkerTelemetryService.java`
+- `java/peer/src/main/java/dev/nodera/telemetry/TelemetryConsentStore.java` (the consent record lives beside the worker's identity but in the `:peer` telemetry package)
+- `java/peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` (the `TELEMETRY` verb)
+- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (state block, verb handling)
 
 ## Testing
 

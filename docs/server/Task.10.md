@@ -7,7 +7,7 @@
      model is ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** — (L-79 RETIRED 2026-07-26) · **Last audit:** 2026-07-26
+**Category:** server · **Owns:** — (L-79 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [server 2](Task.2.md), [network 12](../network/Task.12.md), [telemetry 1](../telemetry/Task.1.md)
 **Consumed by:** [telemetry 3](../telemetry/Task.3.md), server operators
 

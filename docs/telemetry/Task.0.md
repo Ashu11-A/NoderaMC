@@ -9,7 +9,7 @@
      agreement with ../ROADMAP.md §2. -->
 
 **Category:** `telemetry` · **Status:** 🚧 IN PROGRESS (1 of 3 tasks completed) ·
-**Last audit:** 2026-07-25
+**Last audit:** 2026-07-28
 
 ---
 
@@ -65,7 +65,7 @@ NoderaEndpoint ─────────────────────�
                                        geolocate    ▼                           ClickHouse
                                                   (row)                     (rollups + TTLs)
                                                                                      │
-                                                                     Grafana ◄───────┴──► Spark
+                                                                       Grafana ◄───────┴──► Spark
 ```
 
 The ingest decision order is "cheapest refusal first": probe → quota → parse + consent → schema
@@ -89,7 +89,7 @@ costs players nothing.
 ## 5. Files
 
 - `rust/nodera-telemetry/` — the ingest service (`schema`, `event`, `subject`, `geo`, `limits`,
-  `sink`, `service`, `wire`, `config`).
+  `sink`, `service`, `wire`, `config`, `reporter`).
 - `docker/telemetry/` — compose stack, warehouse schema, Vector pipeline, Grafana provisioning,
   Spark jobs.
 - Emitter code lives in the emitting categories' modules.

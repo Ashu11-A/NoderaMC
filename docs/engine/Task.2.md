@@ -7,7 +7,7 @@
      version must REFUSE to validate, never silently diverge. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 1](Task.1.md)
 **Consumed by:** [engine 3](Task.3.md)–[engine 12](Task.12.md), [network 4](../network/Task.4.md), [minecraft 2](../minecraft/Task.2.md), [worker 4](../worker/Task.4.md)
 
@@ -23,14 +23,16 @@ envelope.
 
 ## Status detail
 
-Landed and continuously extended. `java/engine` carries 455 tests, including the determinism
-property tests and the ArchUnit forbidden-API ban.
+Landed and continuously extended. `java/engine` carries 499 `@Test` methods plus 3 jqwik
+`@Property` determinism tests, including the determinism property tests and the ArchUnit
+forbidden-API ban.
 
 The rule set has grown well past the MVP palette: containers, redstone (palette v4 including
 pressure plates and sticky pistons), fluids, random ticks, gravity, fire, lighting, observers and
 quasi-connectivity, daylight sensors, mob AI and spawning, combat vitals, movement, portals,
-commands, and the third-party rule-pack SDK. `RULES_VERSION` is **4** and the palette literal is
-`palette.v4`.
+commands, and the third-party rule-pack SDK. `RULES_VERSION` is **6** and the palette literal is
+`palette.v6` (v5 added obsidian for the L-2 fluid-interaction lane; v6 added farmland + wheat for
+the L-1 farm half).
 
 ## Dependencies
 

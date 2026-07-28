@@ -8,7 +8,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-26
+**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [minecraft 1](Task.1.md) (the dev runs and the suite harness)
 **Consumed by:** — (a diagnostic lane; nothing depends on it)
 

@@ -8,7 +8,7 @@
      this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-26
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [app 2](Task.2.md), [worker 2](../worker/Task.2.md), [worker 6](../worker/Task.6.md)
 **Consumed by:** [app 3](Task.3.md), [app 5](Task.5.md)
 

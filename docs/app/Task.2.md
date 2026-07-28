@@ -6,7 +6,7 @@
      be asserted headlessly. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 2](../worker/Task.2.md)
 **Consumed by:** players
 
@@ -29,8 +29,9 @@ Two data paths that used to show placeholder zeros now show real numbers: per-pe
 (previously hardcoded), and the piece map (whose source had **never been called** anywhere until a
 `PIECES` verb, a parser, and a feed were added).
 
-The crate has 56 tests covering bitmap decoding, parsing tolerance, the log ring, system sampling, the
-configuration lane, and the enforcement-badge invariants.
+The crate has **183 tests** (grep-verified 2026-07-28; see [TESTING.md](TESTING.md)) covering bitmap
+decoding, parsing tolerance, the log ring, system sampling, the configuration lane, and the
+enforcement-badge invariants.
 
 ## Dependencies
 

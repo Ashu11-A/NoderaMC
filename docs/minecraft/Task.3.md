@@ -6,7 +6,7 @@
      with the node. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 11](../network/Task.11.md), [task 1](Task.1.md)
 **Consumed by:** players, and every debugging session
 

@@ -7,12 +7,15 @@
      SKIPPED naming the LIMITATIONS.md row that blocks it, and the suite exits 0 — a nightly run must
      read as "not built yet", never as "broken". Update this file whenever a script gains a stage. -->
 
-**Category:** server · **Last run:** 2026-07-26 · **20 unit tests · 0 failing** (module
-`paper-plugin`), plus **3 scripted live suites, all green**: `e2e-endpoint.sh` against a real Paper 1.21.1 (including **E4**: the server JVM is SIGKILLed and the world stays hosted by its worker — L-71's exit),
-`e2e-folia.sh` against a real Folia (ALIGN-1 passes at the platform default and **refuses** at
-grid-exponent 2), and `e2e-plugins.sh` for co-existence with a staged corpus. The register previously
-said all three were committed when only the harness library was; they exist now ([L-61](LIMITATIONS.md)
-retired 2026-07-26).
+**Category:** server · **Last run:** 2026-07-28 · **20 unit tests · 0 failing** (module
+`paper-plugin`: `EndpointConfigTest` 9 · `EndpointPlatformTest` 5 · `EndpointPeerLinkTest` 6),
+plus **3 scripted live suites, green for the built subset**: `e2e-endpoint.sh` against a real Paper
+1.21.1 (including **E4**: the server JVM is SIGKILLed and the world stays hosted by its worker — L-71's
+exit), `e2e-folia.sh` against a real Folia (ALIGN-1 passes at the platform default and **refuses** at
+grid-exponent 2), and `e2e-plugins.sh` for co-existence with a staged corpus. The mixed-client
+headline stages (P2–P8, F2–F6, WorldEdit certification) report `SKIPPED` naming the open row that
+blocks each. The register previously said all three suites were committed when only the harness
+library was; they exist now ([L-61](LIMITATIONS.md) retired 2026-07-26).
 
 ALIGN-1's own arithmetic is tested in `core`, not here: `RegionAlignmentTest` walks every region in a
 ±64 grid across grid exponents 3–6, because whether two threads can write one authority unit is not a
@@ -57,9 +60,9 @@ is present — so a local run and a CI run execute the same code path.
 
 | Suite | What it proves | Duration |
 |---|---|---|
-| `e2e-endpoint.sh` | **An unmodified client and a modded client in the same world** — one joining directly at the endpoint's game port with nothing installed, one joining through the NoderaMC network — with an item passing between them **exactly once** | ~10 min |
-| `e2e-folia.sh` | Two Folia regions ticking and committing **concurrently**; ALIGN-1 holding live; **zero** thread-context violations across the whole run | ~10 min |
-| `e2e-plugins.sh` | The pinned plugin corpus loads; a WorldEdit `//set` in a delegated region is **certified**, not suppressed and not silently reverted; the log audit is clean | ~8 min |
+| `e2e-endpoint.sh` | **An unmodified client and a modded client in the same world** — one joining directly at the endpoint's game port with nothing installed, one joining through the NoderaMC network — with an item passing between them **exactly once**. *Built subset (E1–E4: enable, refuse-to-disable, external worker link, SIGKILL survival) green now; headline P-stages skip on open rows* | ~10 min |
+| `e2e-folia.sh` | Two Folia regions ticking and committing **concurrently**; ALIGN-1 holding live; **zero** thread-context violations across the whole run. *ALIGN-1 stages (F0/F1) green now; parallel-region stages skip on open rows* | ~10 min |
+| `e2e-plugins.sh` | The pinned plugin corpus loads; a WorldEdit `//set` in a delegated region is **certified**, not suppressed and not silently reverted; the log audit is clean. *Co-existence stage green now; WorldEdit-certification stage skips* | ~8 min |
 
 ### 1.2.1 Profiling a server suite
 
@@ -94,12 +97,12 @@ Full documentation: [`../minecraft/spark/`](../minecraft/spark/), and in particu
 
 | Stage | Assertion | Blocked by |
 |---|---|---|
-| P0 | Standard topology + a **Paper** server with `nodera-endpoint` installed | [L-61](LIMITATIONS.md) |
-| P1 | The endpoint boots its peer, publishes/adopts the world, announces it, reports `custody: FULL` | [L-61](LIMITATIONS.md) |
-| P2 | The **modded** client joins **through the network** (tracker-resolved, not a hardcoded address) and is in membership **with its own key** | [L-61](LIMITATIONS.md) |
-| P3 | The **unmodified** client joins **directly at the game port**, with nothing installed | [L-61](LIMITATIONS.md) |
-| P4 | Both in one world: the modded client is a member; the vanilla player is a **tenant** with a stable id and is **not** a member | [L-61](LIMITATIONS.md) |
-| P5 | **The drive:** the tenant drops an item, the modded player picks it up, credited **exactly once** — no vanish, no dupe, across client classes | [L-61](LIMITATIONS.md) |
+| P0 | Standard topology + a **Paper** server with `nodera-endpoint` installed | [L-61](LIMITATIONS.md) *(retired — green)* |
+| P1 | The endpoint boots its peer, publishes/adopts the world, announces it, reports `custody: FULL` | [server 2](Task.2.md) in-process peer |
+| P2 | The **modded** client joins **through the network** (tracker-resolved, not a hardcoded address) and is in membership **with its own key** | [server 2](Task.2.md) / [7](Task.7.md) |
+| P3 | The **unmodified** client joins **directly at the game port**, with nothing installed | [server 6](Task.6.md) |
+| P4 | Both in one world: the modded client is a member; the vanilla player is a **tenant** with a stable id and is **not** a member | [server 6](Task.6.md) |
+| P5 | **The drive:** the tenant drops an item, the modded player picks it up, credited **exactly once** — no vanish, no dupe, across client classes | [server 5](Task.5.md) / [6](Task.6.md) |
 | P6 | A validated item neither despawned nor drifted over the hold window | [L-69](LIMITATIONS.md) |
 | P7 | A wrong world password never reaches the world; no plaintext in any log | [L-68](LIMITATIONS.md) |
 | P8 | A fingerprint-mismatched client is refused, with the offending mod named | [L-70](LIMITATIONS.md) |
@@ -108,12 +111,12 @@ Full documentation: [`../minecraft/spark/`](../minecraft/spark/), and in particu
 
 | Stage | Assertion | Blocked by |
 |---|---|---|
-| F0/F1 | The stack on a **Folia** server; ALIGN-1 preflight passes at `grid-exponent = 4` | [L-61](LIMITATIONS.md), [L-66](LIMITATIONS.md) |
-| F2 | Two tenants ~600 km apart force **two Folia regions**; `/nodera regions --folia` maps every Nodera region to exactly one | [L-61](LIMITATIONS.md) |
-| F3 | Both regions commit **concurrently** — two certificates with overlapping wall-clock windows, which a single-threaded server cannot produce | [L-61](LIMITATIONS.md) |
-| F4 | A `world.save()` on one region appears as a new archive version on another peer | [L-61](LIMITATIONS.md) |
+| F0/F1 | The stack on a **Folia** server; ALIGN-1 preflight passes at `grid-exponent = 4` | *(retired — green)* |
+| F2 | Two tenants ~600 km apart force **two Folia regions**; `/nodera regions --folia` maps every Nodera region to exactly one | [L-61](LIMITATIONS.md) headline scope |
+| F3 | Both regions commit **concurrently** — two certificates with overlapping wall-clock windows, which a single-threaded server cannot produce | [L-61](LIMITATIONS.md) headline scope |
+| F4 | A `world.save()` on one region appears as a new archive version on another peer | [L-61](LIMITATIONS.md) headline scope |
 | F5 | A delegated region under sustained redstone load commits for five minutes with the resync count under threshold | [L-67](LIMITATIONS.md) |
-| F6 | **Zero** thread-context violations in any log: no `May not access .* off-thread`, no `ensureTickThread`, no `Cannot recursively operate in the regioniser` | [L-61](LIMITATIONS.md) |
+| F6 | **Zero** thread-context violations in any log: no `May not access .* off-thread`, no `ensureTickThread`, no `Cannot recursively operate in the regioniser` | [L-61](LIMITATIONS.md) headline scope |
 
 F6 is a grep, not a judgement call — which is the point. On Folia an uncaught exception on a tick
 thread **halts the scheduler and stops the entire server**, so a thread-context violation is both the
@@ -157,51 +160,57 @@ suite drives it identically.
 
 ## 1.7 The skip contract
 
-Until a `nodera-endpoint` jar exists, every suite stops at its preflight:
+A stage that asserts something no node in the topology can yet do reports `SKIPPED` naming the row
+that blocks it and the suite exits **0**:
 
 ```
-[endpoint] SKIPPED: no nodera-endpoint jar (server task 1 — L-61). Nothing was asserted.
+[endpoint] SKIPPED: … (server task <n> — L-NN). Nothing was asserted.
 ```
 
-…and exits **0**. A nightly run must read as "not built yet", never as "broken", and a stage that
-asserts something no node in the topology can do proves nothing. This is the same discipline
-`e2e-mobs.sh` already uses for L-60.
+A nightly run must read as "not built yet", never as "broken". This is the same discipline
+`e2e-mobs.sh` already uses for L-60. As the open rows retire, the skips become assertions in the same
+commit as the capability.
 
 ---
 
 # Part 2 — Unit and integration tests
 
-The module does not exist yet. When it lands, the counts here come from the `./gradlew check` XML
-reports and are a **separate** module total (`:paper-plugin`), not a subset of another module's.
+The module exists: 5 main classes + 3 test classes = **20 unit tests, 0 failing**. Counts come from
+the `./gradlew check` XML reports and are a **separate** module total (`:paper-plugin`), not a subset
+of another module's.
 
 ## 2.1 The testing strategy
 
 | Level | What it proves |
 |---|---|
-| Minecraft-free unit (`:paper-plugin`) | ALIGN-1 arithmetic, custody digests, tenant-id derivation, scheduler dispatch, mod-set policy — none of it needs a server |
-| `core` / `engine` unit | Multi-view ownership planning, min-distance ranking, determinism under N views |
-| ArchUnit over `:paper-plugin` | No `BukkitScheduler` reference; no throwing override of a Bukkit API; every listener and task body self-catches |
-| Adapter parity | Bukkit and NeoForge adapters produce **byte-identical** `PersistedEntityState` for the same entity — the anti-drift test |
-| Plugin ITs on a real Paper server | Enable/disable, event-mirror fidelity, chunk gating, foreign-write certification |
+| Minecraft-free unit (`:paper-plugin`) | platform detection, configuration parsing/validation, the worker control-socket exchange, the background retry link — none of it needs a server |
+| `core` unit | ALIGN-1 arithmetic (`RegionAlignmentTest`), multi-view ownership planning, min-distance ranking, determinism under N views |
+| ArchUnit over `:paper-plugin` *(planned, lands with [3](Task.3.md)–[5](Task.5.md))* | No `BukkitScheduler` reference; no throwing override of a Bukkit API; every listener and task body self-catches |
+| Adapter parity *(planned)* | Bukkit and NeoForge adapters produce **byte-identical** `PersistedEntityState` for the same entity — the anti-drift test |
+| Plugin ITs on a real Paper server *(planned)* | Enable/disable, event-mirror fidelity, chunk gating, foreign-write certification |
 | Scripted live suites | The three above |
 
-## 2.2 Landmark tests (planned)
+## 2.2 Landmark tests
 
-| Test | What it proves | Owner |
-|---|---|---|
-| `RegionGridAlignmentTest` | ALIGN-1 across `gridExponent` 0…6, both signs of each axis, and every boundary case | [1](Task.1.md) |
-| `SchedulerDispatchTest` | Each `NoderaScheduler` method routes to the expected target; `BukkitScheduler` is unreferenced | [1](Task.1.md) |
-| `EndpointControlHandlerTest` | Every `ControlProtocol` v2 verb answers from live state; an unknown verb answers `NODERA-ERR unknown verb` rather than hanging | [2](Task.2.md) |
-| `ViewOwnershipPlannerTest` (extended) | A node with N views; min distance; two peers plan a 20-tenant endpoint identically; custody breaks ties **only** | [3](Task.3.md) |
-| `CustodyAuditIT` | A lying `FULL` claim is caught by a spot-check and downgraded to `VIEW`, world still available | [3](Task.3.md) |
-| `BukkitWorldViewTest` | `MutableWorldView` conformance against the same contract `InMemoryWorldView` satisfies | [4](Task.4.md) |
-| `CrossFoliaRegionCommitIT` | A joint-transfer prepare/commit across two Folia region threads is atomic; a one-sided failure commits neither | [4](Task.4.md) |
-| `BukkitEntityAdaptersTest` | Bukkit and NeoForge adapters emit byte-identical `PersistedEntityState` — the anti-drift test | [5](Task.5.md) |
-| `CaptureFailureContainmentTest` | A throwing runtime drops one entity's capture; the region and the server survive | [5](Task.5.md) |
-| `TenantIdTest` | Determinism across restarts, distinctness across endpoints, never collides with a real `NodeId` | [6](Task.6.md) |
-| `TenantLimboTest` | No world interaction before release; a wrong password throttles then disconnects | [6](Task.6.md) |
-| `EndpointHandshakeTest` | The `nodera:v1` flow; replayed challenge refused; a refusal always names a reason | [7](Task.7.md) |
-| `ForeignWriteBridgeTest` | A foreign write is certified; a raced one is reverted **and** fires `NoderaRegionDeniedEvent` | [8](Task.8.md) |
+| Test | What it proves | Owner | State |
+|---|---|---|---|
+| `EndpointPlatformTest` | Folia is detected by the regionised scheduler class (not a name); legacy Paper config counts; a Folia fork shipping Paper config stays Folia; unknown is never guessed | [1](Task.1.md) | ✅ (5) |
+| `EndpointConfigTest` | The harness's staged file parses exactly; omissions take defaults; contradictions (not omissions) refused with every reason; a hash inside a quoted password survives comment stripping | [1](Task.1.md)/[2](Task.2.md) | ✅ (9) |
+| `EndpointPeerLinkTest` | A real stand-in worker links; only state changes are logged; a wrong answer is not a link; nonsense addresses are refused | [2](Task.2.md) | ✅ (6) |
+| `RegionAlignmentTest` (in `core`) | ALIGN-1 across `gridExponent` 0…6, both signs of each axis, every boundary case | [1](Task.1.md) | ✅ |
+| `RegionGridAlignmentTest` | *(planned name; folded into `RegionAlignmentTest` in `core`)* | [1](Task.1.md) | ✅ |
+| `SchedulerDispatchTest` | Each `NoderaScheduler` method routes to the expected target; `BukkitScheduler` unreferenced | [1](Task.1.md) | ⬜ deferred |
+| `EndpointControlHandlerTest` | Every `ControlProtocol` v2 verb answers from live state; unknown verb → `NODERA-ERR unknown verb` | [2](Task.2.md) | ⬜ |
+| `ViewOwnershipPlannerTest` (extended) | A node with N views; min distance; two peers plan a 20-tenant endpoint identically; custody breaks ties **only** | [3](Task.3.md) | ✅ (L-63 retire) |
+| `CustodyAuditIT` | A lying `FULL` claim is caught by a spot-check and downgraded to `VIEW`, world still available | [3](Task.3.md) | ⬜ |
+| `BukkitWorldViewTest` | `MutableWorldView` conformance against the same contract `InMemoryWorldView` satisfies | [4](Task.4.md) | ⬜ |
+| `CrossFoliaRegionCommitIT` | A joint-transfer prepare/commit across two Folia region threads is atomic; a one-sided failure commits neither | [4](Task.4.md) | ⬜ |
+| `BukkitEntityAdaptersTest` | Bukkit and NeoForge adapters emit byte-identical `PersistedEntityState` — the anti-drift test | [5](Task.5.md) | ⬜ |
+| `CaptureFailureContainmentTest` | A throwing runtime drops one entity's capture; the region and the server survive | [5](Task.5.md) | ⬜ |
+| `TenantIdTest` | Determinism across restarts, distinctness across endpoints, never collides with a real `NodeId` | [6](Task.6.md) | ⬜ |
+| `TenantLimboTest` | No world interaction before release; a wrong password throttles then disconnects | [6](Task.6.md) | ⬜ |
+| `EndpointHandshakeTest` | The `nodera:v1` flow; replayed challenge refused; a refusal always names a reason | [7](Task.7.md) | ⬜ |
+| `ForeignWriteBridgeTest` | A foreign write is certified; a raced one is reverted **and** fires `NoderaRegionDeniedEvent` | [8](Task.8.md) | ⬜ |
 
 ## 2.3 Conventions
 

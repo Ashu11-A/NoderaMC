@@ -6,9 +6,9 @@
      (NODERA-STATUS is exactly that, and its row says so). Never add a row for a verb that does not
      exist yet; that belongs in the owning category's task file, not here. -->
 
-**Status:** 🚧 IN PROGRESS
+**Status:** ✅ COMPLETED
 **Category:** mobile · **Owns:** `rust/nodera-app/src/android/network.rs`, the settings document
-**Last audit:** 2026-07-27
+**Last audit:** 2026-07-28
 **Depends on:** [mobile 2](Task.2.md), [mobile 3](Task.3.md), [app 7](../app/Task.7.md)
 
 ---
@@ -22,6 +22,23 @@ Two things the companion app could not do, and one census.
    bytes as it can, by design. On a phone that is a bill.
 3. **Say what the worker offers that the app never asks for**, so the gap is a decision rather than
    an accident.
+
+## Status detail
+
+Completed at the 2026-07-28 audit. All four §Exit clauses are met and each is pinned by a test in
+`cargo test -p nodera-app`:
+
+* the damaged-file path is preserved as `settings.json.bad` and the first save is refused
+  (`Stored { Document, Absent, Damaged }` replaces the `.ok()` chain);
+* the metered-policy truth table — including the metered-hotspot and unmetered-SIM edge cases — is
+  asserted, and a phone on mobile data reports `transfers_paused` to its worker;
+* the worker-key census is asserted: every key the app sends is one the worker's `applyConfig`
+  recognises (the two replication keys and `network.rendezvous_endpoints` are now settable);
+* no private address appears in `Settings::default()` — asserted by a test, not by review.
+
+§3 remains a **living census**: it documents the verbs the worker exposes that the app does not yet
+call. Those rows are deliberate future work in the owning categories, not incomplete work in this
+task — the deliverable was the *census itself*, and it exists.
 
 ---
 
@@ -109,14 +126,29 @@ Nothing pinned that before, which is how the two replication keys went missing u
 
 ---
 
-## Exit
+## Files
 
-* A settings file that is damaged mid-session is **preserved**, reported, and not overwritten.
-* A phone on mobile data with the default policy reports `transfers_paused` to its worker, and the
-  Node screen says **why**.
-* `cargo test -p nodera-app` covers: the damaged-file path, the post-load recovery, the policy truth
-  table (including the metered-hotspot and unmetered-SIM cases), and the worker-key census.
-* No private address appears in `Settings::default()` — asserted by a test, not by review.
+| Path | Role |
+|---|---|
+| `rust/nodera-app/src/settings.rs` | `Stored`/`SettingsHandle`, damaged-file handling, `default_trackers()` |
+| `rust/nodera-app/src/config.rs` | `WorkerConfig`, `ENFORCEMENT`, the worker-key census test |
+| `rust/nodera-app/src/android/network.rs` | `transfer_network` policy + `NET_CAPABILITY_NOT_METERED` |
+| `scripts/android-apk.sh` | bakes in `NODERA_DEFAULT_TRACKERS`, injects `ACCESS_NETWORK_STATE` |
+
+## Testing
+
+`cargo test -p nodera-app` covers: the damaged-file path, the post-load recovery, the policy truth
+table (including the metered-hotspot and unmetered-SIM cases), and the worker-key census. The
+no-private-address default is asserted there too.
+
+## Acceptance criteria
+
+- [x] A settings file that is damaged mid-session is **preserved**, reported, and not overwritten.
+- [x] A phone on mobile data with the default policy reports `transfers_paused` to its worker, and
+      the Node screen says **why**.
+- [x] `cargo test -p nodera-app` covers: the damaged-file path, the post-load recovery, the policy
+      truth table (including the metered-hotspot and unmetered-SIM cases), and the worker-key census.
+- [x] No private address appears in `Settings::default()` — asserted by a test, not by review.
 
 ## Not done here, and why
 

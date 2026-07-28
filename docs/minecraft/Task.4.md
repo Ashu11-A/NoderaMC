@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** 🚧 IN PROGRESS (built and wired; live GUI acceptance pending)
-**Category:** minecraft · **Owns:** L-43, L-46 · **Last audit:** 2026-07-25
+**Category:** minecraft · **Owns:** L-43, L-46 · **Last audit:** 2026-07-28
 **Depends on:** [task 1](Task.1.md), [tracker 2](../tracker/Task.2.md), [rendezvous 2](../rendezvous/Task.2.md), [worker 2](../worker/Task.2.md)
 **Consumed by:** players
 

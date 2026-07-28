@@ -5,13 +5,19 @@
      MUST use real OS processes and real SIGKILLs; a mocked daemon proves nothing about the property
      this category exists for. Keep counts and Last run current. -->
 
-**Category:** worker · **Last run:** 2026-07-26 · `java/worker` plus the peer-side lanes it drives
+**Category:** worker · **Last run:** 2026-07-28 · `java/worker` plus the peer-side lanes it drives
 (`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/e2e-telemetry.sh`
 
 The worker is now its own Gradle module (`:worker`) — it was a package inside `:peer` until
 2026-07-26, which put the worker executable inside anything depending on the peer library, the mod's
 fat jar included. The control endpoint and the tunnel lane stay in `:peer` because they are library
 code the Paper plugin uses too.
+
+**Test counts (Grep-verified 2026-07-28):** **196** `@Test` methods across the worker category —
+`java/worker/src/test/` (178 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
+plus `java/peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
+`ControlWatchStreamTest`, `WorkerEventStreamTest`). These are a SUBSET of the `:worker` + `:peer`
+module counts and must not be double-counted in totals.
 
 ```bash
 ./gradlew :worker:test
@@ -61,6 +67,14 @@ printf 'NODERA-LAN 2 LIST\n' | nc 127.0.0.1 25610  # what this machine has open 
 | `OwnershipGossipIT` (6) | Over a real mesh: every peer independently verifies who administers a world; a later rival claim does not displace the owner; a tampered claim is refused **and not relayed**; an envelope naming a different world than its claim is dropped |
 | `WorldOwnershipVerbIT` (6) | Over the real control socket: minting a world identity mints its key and claim; `NODERA-PROVE` answers a challenge with a proof verifiable from the world's public key alone; a world this node did not create is refused |
 | `RegionSeedSpoolTest` (7) | The mod hands snapshots over without the commit path touching disk or a socket: throttled per region, bounded backlog that drops rather than grows, every failure contained |
+| `ArchiveFetchOverSocketsIT` (3) | The archive lane over **real `SocketPeerTransport`** on loopback: a joiner pulls a whole archive; an unpublished/silent bystander cannot stall a fetch a real seeder can serve; **a peer never offers a version it holds nothing of** (`#onlyHeldVersionsAreOffered` — the W-REPL-3 exit test). The live topology is reproduced, not the loopback-transport shortcut |
+| `FetchSurvivesSupersessionTest` (2) | A newer version learned mid-fetch does NOT evict the one being downloaded (the W-FETCH-1 exit test); a version nobody is fetching is still superseded, so L-55 stays intact. Verified failing with the guard disabled |
+| `HeldVersionBeatsAnUnreachableNewerOneTest` (2) | A fetch prefers the newest version a seeder is advertised for over the newest merely *known* version, and falls back to the newest complete local copy on a stall — the fix for `0/73 piece(s) after 120s` against a version nobody held |
+| `ArchiveRetentionWindowTest` (6) | The retention window keeps the newest N archive versions; trimming is bounded and idempotent |
+| `ReplicationRepairsEmptyClaimsTest` (4) | A world this node claims but holds nothing of is repaired ahead of placement and bounds (the W-REPL-1 exit test, verified failing without the fix). The sweep's `shouldAdopt(...)` is extracted so it can be driven headlessly at all |
+| `WorldDeletionVerbIT` (4) / `WorldDeletionServiceTest` (11) | Over the real control socket, a tombstone signed by the world key + node identity is applied locally and flooded; receivers re-verify the ownership claim; a non-owner cannot delete; a deleted world cannot come back through host/seed |
+| `WorkerEventStreamTest` (8) | `NODERA-EVENTS` replays from `sinceSeq`, live delivery preserves order, a slow subscriber is dropped not blocked, keepalive carries the sequence |
+| `TelemetryVerbIT` (4) | `NODERA-TELEMETRY GET` before any `SET` reports denied; `SET granted` round-trips through a **new emitter over the same directory**; an unknown argument is refused without changing state |
 
 ## 3. Conventions
 

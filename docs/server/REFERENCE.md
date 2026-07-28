@@ -7,7 +7,7 @@
      its fidelity (exact / equivalent / approximation) and, for an approximation, the limitation row
      that carries it. -->
 
-**Category:** server · **Last audit:** 2026-07-25 · Programme plan:
+**Category:** server · **Last audit:** 2026-07-28 · Programme plan:
 [`../plans/Plan.5.md`](../plans/Plan.5.md)
 
 ---

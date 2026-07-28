@@ -6,7 +6,7 @@
      splits a committee into competing epochs. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (with a live call site since 2026-07-25)
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 5](../engine/Task.5.md), [network 7](Task.7.md)
 **Consumed by:** [minecraft 3](../minecraft/Task.3.md), [worker 4](../worker/Task.4.md)
 

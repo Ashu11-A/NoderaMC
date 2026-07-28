@@ -7,7 +7,7 @@
      shareable from the dashboard card. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-26
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [app 6](Task.6.md), [worker 7](../worker/Task.7.md), [worker 6](../worker/Task.6.md)
 **Consumed by:** [app 3](Task.3.md), [minecraft 7](../minecraft/Task.7.md)
 

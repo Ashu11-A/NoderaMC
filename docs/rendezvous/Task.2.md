@@ -3,10 +3,21 @@
 <!-- AI-AGENT-INSTRUCTION: This transport composes AROUND SocketPeerTransport; it never replaces it.
      It must always advertise a direct (HOST) candidate derived from the direct transport's listen
      route — omitting it makes direct-first structurally unreachable and silently routes every byte
-     through the relay. Keep this header's status accurate. -->
+     through the relay. Keep this header's status accurate.
+     Context: the third PeerTransport — direct-first, punch-upgrade, relay-fallback, behind the seam.
+     Sub-deliverables 1-8 ✅; deliverable 9 (live numbers) → Task.3.md. Key files:
+     RendezvousPeerTransport.java:50 (the transport; :254 dispatch; :415 acceptLoop; :469
+     reserveAnywhere; :501 setEndpoints drain failover; :581 registerSelf), TransportSelector.java:57
+     (select direct>punched>relayed), EndToEndCipher.java:74 (X25519+Ed25519+AES-GCM handshake),
+     CandidateDialer.java:44 (directCandidates), RelayCircuitClient.java:47/:88 (dial + readIncoming
+     drain-notice verify), HolePunchCoordinator.java:40 (buildSync), RelayCircuit.java:19,
+     RendezvousClient.java:45 (register/discover/reserve/openConnect), RendezvousEndpoint.java:35
+     (parse tcp://host:port). 28 Java @Test in dev.nodera.transport.rendezvous (incl. RendezvousRelayIT).
+     Depends on: Task.1.md, ../network/Task.1.md, ../network/Task.2.md. Consumed by: ../network/Task.2.md,
+     ../minecraft/Task.5.md, ../worker/Task.1.md. -->
 
 **Status:** ✅ COMPLETED (live cross-internet numbers → [task 3](Task.3.md))
-**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [rendezvous 1](Task.1.md), [network 1](../network/Task.1.md), [network 2](../network/Task.2.md)
 **Consumed by:** [network 2](../network/Task.2.md), [minecraft 5](../minecraft/Task.5.md), [worker 1](../worker/Task.1.md)
 
@@ -22,7 +33,8 @@ call site anywhere knows which path carried a message.
 Complete. `RendezvousPeerTransport` composes direct-first and relay-fallback behind the seam
 (`SocketPeerTransport` stays the LAN path), with an X25519-ECDH plus Ed25519-authenticated AES-GCM
 `EndToEndCipher` so the relay forwards opaque bytes it can neither read nor forge, and a
-`TransportSelector` that prefers direct over punched over relayed.
+`TransportSelector` that prefers direct over punched over relayed. **28 Java `@Test`** across the
+package (including `RendezvousRelayIT`, which drives the real binary).
 
 An audit found and fixed a structural defect worth recording: the transport advertised **only** a
 RELAY candidate, so `hasDirectCandidate` was false for every discovered peer and the direct path never
@@ -31,6 +43,11 @@ about. It now publishes a HOST candidate from the direct transport's listen rout
 address when a caller addresses by node id alone, and renews its registration at half the TTL instead
 of silently vanishing from discovery after five minutes. The joiner is wrapped in the same transport
 as the host, so relay fallback stopped being one-sided (and therefore useless).
+
+Two later structural fixes live alongside it and have their own pinning tests: a bootstrap dial with
+no node id is sent directly rather than NPE'ing out of the heartbeat scheduler
+(`BootstrapAddressHasNoNodeIdTest`), and a caller-supplied route is treated as a direct path rather
+than routed to a non-existent circuit (`CallerRouteIsDirectTest`, the network L-30 exit).
 
 ## Dependencies
 
@@ -82,8 +99,8 @@ transport handshake regardless of which path delivered the bytes.
 
 ## Files
 
-- `java/transport/src/main/java/dev/nodera/transport/rendezvous/{RendezvousPeerTransport,CandidateDialer,RelayCircuitClient,HolePunchCoordinator,TransportSelector,EndToEndCipher}.java`
-- `java/transport/src/main/java/dev/nodera/protocol/rendezvous/`
+- `java/transport/src/main/java/dev/nodera/transport/rendezvous/{RendezvousPeerTransport,CandidateDialer,RelayCircuitClient,RelayCircuit,HolePunchCoordinator,TransportSelector,EndToEndCipher,RendezvousClient,RendezvousEndpoint,package-info}.java`
+- `java/transport/src/main/java/dev/nodera/protocol/rendezvous/` — the rendezvous/relay message family
 
 ## Testing
 
@@ -91,6 +108,8 @@ transport handshake regardless of which path delivered the bytes.
 - `EndToEndCipher`: loopback round-trip, identity binding, tamper rejection.
 - `CandidateDialer`: ordering; reachable and unreachable dials.
 - `HolePunchCoordinator`: go-signal wait and candidate selection.
+- `RendezvousEndpoint`: `tcp://host:port` scheme stripping, IPv6, malformed refusal.
+- `BootstrapAddressHasNoNodeIdTest` / `CallerRouteIsDirectTest`: the two structural dispatch fixes.
 - `RendezvousRelayIT` — the real binary: two relay-only peers register, discover, and exchange a
   `PeerJoin` plus a keep-alive over the encrypted circuit byte-exact; the byte ceiling tears it down;
   the selector reports direct when one is available.

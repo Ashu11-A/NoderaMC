@@ -6,7 +6,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** mobile · **Owns:** `scripts/e2e-android-mesh.sh`
-**Last audit:** 2026-07-27
+**Last audit:** 2026-07-28
 **Depends on:** [mobile 1](Task.1.md), [worker 3](../worker/Task.3.md), [tracker 2](../tracker/Task.2.md)
 
 ---
@@ -15,6 +15,13 @@
 
 Put the Android peer in a mesh with the peers on this machine and prove, from the phone's own
 counters, that **bytes arrive**.
+
+## Status detail
+
+Done and green. `scripts/e2e-android-mesh.sh` asserts the phone's own `total_received_bytes` moves
+after the join and the membership view is non-empty, observed entirely through `adb` (control socket
++ logcat) so no assertion depends on what the app draws. Both directions checked separately. Last
+run evidence and the byte-exchange log are in [`PROGRESS.md`](PROGRESS.md) (2026-07-27 milestone).
 
 ## Why "connected" is not the claim
 
@@ -63,6 +70,13 @@ The launcher now takes `NODERA_SERVICE_BIND_ADDR` and `NODERA_SERVICE_ADVERTISE_
 loopback so every existing suite is unchanged. This suite sets `0.0.0.0` and the host's LAN address —
 derived from the route to the phone, so a machine with docker bridges advertises the interface the
 phone can actually reach rather than the first one listed.
+
+## Files
+
+| Path | Role |
+|---|---|
+| `scripts/e2e-android-mesh.sh` | the mesh scenario; P0–P5 assertions |
+| `scripts/check-android-bytecode.sh` | CI gate against `invoke-custom` (M-5) |
 
 ## Running it
 

@@ -6,7 +6,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED (headless; live 3-client run → [minecraft 2](../minecraft/Task.2.md))
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 4](Task.4.md)
 **Consumed by:** [engine 6](Task.6.md), [network 10](../network/Task.10.md), [worker 4](../worker/Task.4.md), [minecraft 2](../minecraft/Task.2.md)
 

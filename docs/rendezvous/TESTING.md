@@ -5,14 +5,18 @@
      a direct path does not prove relay correctness and must not be recorded as doing so. Keep counts
      and Last run current. -->
 
-**Category:** rendezvous · **Last run:** 2026-07-27 · **67 Rust tests · 0 failing** (plus the Java
-transport tests, including `RendezvousRelayIT`, on the Java gate)
+**Category:** rendezvous · **Last run:** 2026-07-28 · **71 Rust tests in `nodera-rendezvous` · 0
+failing** (62 `#[test]` + 9 `#[tokio::test]`, the latter the real-socket suite in `wire.rs`) ·
+**28 Java `@Test`** in `dev.nodera.transport.rendezvous` (including `RendezvousRelayIT`).
 
 ```bash
-cd rust && cargo test -p nodera-rendezvous          # the service (67)
+cd rust && cargo test -p nodera-rendezvous          # the service (71)
 cd rust && cargo test -p nodera-service              # identity, announce, drain, update (38)
-./gradlew :transport:test --tests '*endezvous*'     # the transport + the real-binary IT
+./gradlew :transport:test --tests '*endezvous*'     # the transport + the real-binary IT (28)
 ```
+
+Counts above were verified 2026-07-28 by grep against the source (`rg '#\[test\]|#\[tokio::test\]'` and
+`rg '@Test'`), not from memory.
 
 ---
 
@@ -22,8 +26,9 @@ cd rust && cargo test -p nodera-service              # identity, announce, drain
 |---|---|
 | Rust unit tests | Each mechanism in isolation: registration, discovery, reservations, circuits, punching, limits |
 | Cross-language conformance | The full rendezvous family round-trips byte-exactly against Java-emitted fixtures; the tag mirror fails CI if one side appends alone |
-| Java transport tests | Path policy, the cipher, dialling, and punch coordination, headlessly |
+| Java transport tests | Path policy, the cipher, dialling, endpoint parsing, and punch coordination, headlessly |
 | **Real-binary integration** | `RendezvousRelayIT` bridges **relay-only** peers through the actual binary — the only level that proves a pure-relay path works |
+| Real-socket drain suite | The five `wire.rs` `#[tokio::test]`s that hold the migration lane: notice-on-own-channel, in-flight guard, readable refusal, discovery-survives-drain, no-new-circuit-in-grace |
 | Live cross-internet | Real NAT, measured path mix — [`Task.3.md`](Task.3.md), pending |
 
 ## 2. Rust unit coverage
@@ -33,7 +38,7 @@ cd rust && cargo test -p nodera-service              # identity, announce, drain
 - Reservation issue, **stateless** HMAC validation, and expiry.
 - Circuit enforcement: per-direction byte ceiling, duration, idle timeout — each with the correct
   teardown reason code.
-- Punch go-signal ordering.
+- Punch go-signal ordering and the NAT-pair outcome inference (punch-then-relay = failure).
 
 ## 3. Java transport coverage
 
@@ -42,6 +47,9 @@ cd rust && cargo test -p nodera-service              # identity, announce, drain
 - `EndToEndCipher` — loopback round-trip, identity binding, tamper rejection.
 - `CandidateDialer` — candidate ordering; reachable and unreachable dials.
 - `HolePunchCoordinator` — go-signal wait and candidate selection.
+- `RendezvousEndpoint` — `tcp://host:port` scheme stripping, IPv6 literals, malformed refusal.
+- `BootstrapAddressHasNoNodeIdTest` / `CallerRouteIsDirectTest` — the two structural dispatch fixes
+  (NPE out of the heartbeat scheduler; caller route treated as direct).
 
 ## 4. `RendezvousRelayIT` — the decisive scenario
 

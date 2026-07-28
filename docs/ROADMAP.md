@@ -55,14 +55,20 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 |---|---:|---:|---:|---:|---|
 | [Engine](engine/Task.0.md) | 12 | 7 | 5 | 0 | Deterministic simulation + committee validation |
 | [Network](network/Task.0.md) | 14 | 11 | 3 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry |
-| [Tracker](tracker/Task.0.md) | 4 | 3 | 1 | 0 | Always-on discovery service |
-| [Rendezvous](rendezvous/Task.0.md) | 4 | 3 | 0 | 1 | NAT reach: punching + relay fallback |
-| [Minecraft](minecraft/Task.0.md) | 9 | 4 | 4 | 1 | The NeoForge mod — the playable product |
-| [Worker](worker/Task.0.md) | 7 | 6 | 1 | 0 | The always-on headless peer |
-| [App](app/Task.0.md) | 8 | 5 | 2 | 1 | The Tauri companion that supervises the worker |
-| [Mobile](mobile/Task.0.md) | 4 | 3 | 1 | 0 | The Android build — the worker itself, on a phone |
+| [Tracker](tracker/Task.0.md) | 6 | 5 | 1 | 0 | Always-on discovery service |
+| [Rendezvous](rendezvous/Task.0.md) | 6 | 4 | 1 | 1 | NAT reach: punching + relay fallback |
+| [Minecraft](minecraft/Task.0.md) | 11 | 5 | 5 | 0 | The NeoForge mod — the playable product |
+| [Worker](worker/Task.0.md) | 8 | 6 | 2 | 0 | The always-on headless peer |
+| [App](app/Task.0.md) | 10 | 6 | 3 | 1 | The Tauri companion that supervises the worker |
+| [Mobile](mobile/Task.0.md) | 5 | 4 | 1 | 0 | The Android build — the worker itself, on a phone |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
-| **Total** | **64** | **42** | **18** | **3** | |
+| **Total** | **75** | **49** | **22** | **2** | |
+
+Note (2026-07-28 doc sweep): the task totals now reflect every `Task.<n>.md` file on disk (the previous
+table undercounted tracker/rendezvous/minecraft/worker/app/mobile). The completion figure in §1's
+header is **not** recomputed here — its weighting is not derivable from this table, and a raw
+done/total (49/75) would mix not-started tasks into the denominator in a way the historical figure
+never did.
 
 The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
 [`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
@@ -122,7 +128,8 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [2](tracker/Task.2.md) | The Java client: announce family + `TrackerClient` | ✅ | tracker 1, network 5 |
 | [3](tracker/Task.3.md) | Operations hardening | 🚧 | tracker 1 |
 | [4](tracker/Task.4.md) | Service telemetry | ✅ | tracker 1, telemetry 1 |
-| [5](tracker/Task.5.md) | Service directory + scoring plane | 🚧 | tracker 1, tracker 2, network 1 |
+| [5](tracker/Task.5.md) | Service directory + scoring plane | ✅ | tracker 1, tracker 2, network 1 |
+| [6](tracker/Task.6.md) | A published image, and a tracker anyone can run | ✅ | tracker 1, tracker 5 |
 
 ### Rendezvous — [`docs/rendezvous/`](rendezvous/Task.0.md)
 
@@ -133,13 +140,14 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [3](rendezvous/Task.3.md) | Live cross-internet proof | ⏳ | network 2, minecraft 1 |
 | [4](rendezvous/Task.4.md) | Service telemetry + NAT-pair statistics | ✅ | rendezvous 1, telemetry 1 |
 | [5](rendezvous/Task.5.md) | Discoverable, drainable, self-updating | 🚧 | rendezvous 1, rendezvous 2, tracker 5 |
+| [6](rendezvous/Task.6.md) | A published image, and a relay anyone can run | ✅ | rendezvous 1, rendezvous 5 |
 
 ### Minecraft — [`docs/minecraft/`](minecraft/Task.0.md)
 
 | Task | Title | Status | Depends on |
 |---|---|---|---|
-| [1](minecraft/Task.1.md) | Mod skeleton, build conventions, run harness | 🚧 | — |
-| [2](minecraft/Task.2.md) | The live validation lane | ⏳ | minecraft 1; engine 3–7, network 1–10 |
+| [1](minecraft/Task.1.md) | Mod skeleton, build conventions, run harness | ✅ | — |
+| [2](minecraft/Task.2.md) | The live validation lane | 🚧 | minecraft 1; engine 3–7, network 1–10 |
 | [3](minecraft/Task.3.md) | Diagnostics HUD + command tree | ✅ | network 11, minecraft 1 |
 | [4](minecraft/Task.4.md) | Multiplayer + share GUI | 🚧 | minecraft 1, tracker 2, rendezvous 2, worker 2 |
 | [5](minecraft/Task.5.md) | Decentralized host lane | 🚧 | network 3, network 8, rendezvous 2, worker 3 |
@@ -147,6 +155,8 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [7](minecraft/Task.7.md) | Companion presence gate | ✅ | worker 1 |
 | [8](minecraft/Task.8.md) | In-game telemetry + consent mirror | ✅ headless | worker 5, network 12, minecraft 7 |
 | [9](minecraft/Task.9.md) | Profiling lane — the spark profiler | ✅ | minecraft 1 |
+| [10](minecraft/Task.10.md) | A world is shown only when it can be played | 🚧 | minecraft 6, minecraft 7, worker 8 |
+| [11](minecraft/Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ | minecraft 10 |
 
 ### Worker — [`docs/worker/`](worker/Task.0.md)
 
@@ -159,6 +169,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [5](worker/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
 | [6](worker/Task.6.md) | World ownership + durable world registry | ✅ | worker 2, worker 3, network 3 |
 | [7](worker/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
+| [8](worker/Task.8.md) | One world, one identity | 🚧 | worker 3, minecraft 6 |
 
 ### App — [`docs/app/`](app/Task.0.md)
 
@@ -172,6 +183,18 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [6](app/Task.6.md) | Dashboard API + live worker link | ✅ | app 2, worker 2, worker 6 |
 | [7](app/Task.7.md) | The client becomes the way in | ✅ | app 6, worker 7 |
 | [8](app/Task.8.md) | Screen redesign: one subject per screen | ✅ | app 6, app 7 |
+| [9](app/Task.9.md) | Tracker stores | ✅ | app 8, tracker 6, network 13 |
+| [10](app/Task.10.md) | Practical screens, honest numbers | 🚧 | app 8, app 9, worker 2 |
+
+### Mobile — [`docs/mobile/`](mobile/Task.0.md)
+
+| Task | Title | Status | Depends on |
+|---|---|---|---|
+| [1](mobile/Task.1.md) | The Android build: toolchain, APK, dex floor | ✅ | app 1 |
+| [2](mobile/Task.2.md) | The worker on the phone | ✅ | mobile 1, worker 1 |
+| [3](mobile/Task.3.md) | Storage, foreground service, single-ABI | ✅ | mobile 2 |
+| [4](mobile/Task.4.md) | Settings the app can keep; worker verbs it never asks for | ✅ | mobile 2, mobile 3, app 7 |
+| [5](mobile/Task.5.md) | The phone reaches the network it was told to | 🚧 | mobile 3, app 9, worker 2 |
 
 ### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
 
@@ -258,13 +281,14 @@ Every category owns its limitations. A task is only done when its register rows 
 
 | Category | Register | Open/retiring rows |
 |---|---|---|
-| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50 |
-| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33, L-76, L-84, L-85, L-86…L-90 (the last five RETIRING on task 14) |
-| Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | — (announce scheduling tracked in minecraft) |
-| Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | — (live numbers tracked with rendezvous 3) |
-| Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 |
-| Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | — (L-41 retired 2026-07-26) |
-| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56 |
+| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50, **L-51**, **L-52** (L-51/L-52 added 2026-07-28 sweep) |
+| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | OPEN: L-30, L-85 · RETIRING: L-33, L-76, L-84, L-86…L-91 (L-91 renumbered from a duplicate L-84 on 2026-07-28) |
+| Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | L-81 (RETIRING — release signing key outstanding, a credential step not code) |
+| Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
+| Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
+| Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1 · OPEN: W-DUP-1…4 |
+| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, A-9, A-UX-1…5 |
+| Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | M-1…M-5, **M-9** (added 2026-07-28), M-NET-1…4 |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-72, L-73, L-74, L-75 |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players

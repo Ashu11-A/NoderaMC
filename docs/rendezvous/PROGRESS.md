@@ -5,7 +5,8 @@
      note naming the EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old
      note. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-27 · Tasks completed: **3 / 5**
+**Category:** rendezvous · **Last audit:** 2026-07-28 · Tasks completed: **4 / 6** (1 blocked, 1 in
+progress)
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -16,14 +17,40 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | The service binary | ✅ COMPLETED | 55 Rust tests; `RendezvousRelayIT` drives the real binary |
-| [2](Task.2.md) | The Java transport | ✅ COMPLETED | Direct-first repaired 2026-07-24; renewal at half TTL |
-| [3](Task.3.md) | Live cross-internet proof | ⏳ BLOCKED | Needs the live/NAT environment and the migration lane |
-| [4](Task.4.md) | Service telemetry + NAT-pair statistics | ✅ COMPLETED | `PairClass` + `PunchOutcomes`; awaiting a population to measure |
+| [1](Task.1.md) | The service binary | ✅ COMPLETED | 71 Rust tests in the crate; `RendezvousRelayIT` drives the real binary |
+| [2](Task.2.md) | The Java transport | ✅ COMPLETED | Direct-first repaired 2026-07-24; renewal at half TTL; 28 Java `@Test` |
+| [3](Task.3.md) | Live cross-internet proof | ⏳ BLOCKED | Needs the live/NAT environment and the migration lane; instrument (Task 4) in place |
+| [4](Task.4.md) | Service telemetry + NAT-pair statistics | ✅ COMPLETED | `PairClass` + `PunchOutcomes`; D8 (relay volume + median duration) still ⬜; awaiting a population to measure |
+| [5](Task.5.md) | Discoverable, drainable, self-updating | 🚧 IN PROGRESS | Drain lane landed 2026-07-27; owns L-83; live numbers → Task 3 |
+| [6](Task.6.md) | A published image, and a relay anyone can run | ✅ DONE | GHCR image + compose + SELF-HOSTING.md; 60s stop grace |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: status reconciliation, test counts verified
+
+Category-wide documentation audit (no code change). Outcomes:
+
+- **Test counts corrected against the source.** The crate previously documented as 67 Rust tests is in
+  fact **71** (`62 #[test] + 9 #[tokio::test]`, the latter the real-socket suite in `wire.rs`
+  including the five drain tests). The Java rendezvous package carries **28 `@Test`** across
+  `dev.nodera.transport.rendezvous` (including `RendezvousRelayIT`). Counts updated in
+  [`Task.1`](Task.1.md), [`Task.4`](Task.4.md), [`Task.5`](Task.5.md), [`TESTING.md`](TESTING.md).
+- **Task.0 charter reconciled with its own index.** The header counted "3 of 5"; the index lists six
+  tasks, four completed (1, 2, 4, 6), one blocked (3), one in progress (5). Header now reads
+  "4 of 6", and §1 of this ledger now carries rows for Task 5 and Task 6, which it previously omitted.
+- **Task.4 status detail tightened.** The task is ✅ COMPLETED on its binding acceptance (1-4 green;
+  5 defers to Task 3's population), but deliverable 8 (relayed *byte volume* and *median circuit
+  duration*) is genuinely unbuilt — `CircuitMeter` tracks `bytes_transferred` (`circuit.rs:68`) and
+  the bridge logs it at teardown (`wire.rs:419`), but neither reaches the reporter. Named explicitly
+  in [`Task.4`](Task.4.md) §Status detail as the one open sub-item; left out of the limitations
+  register because it is an additive metric, not a correctness gap.
+- **L-83 unchanged.** Its exit test (a circuit live at the deadline that resumes through a
+  replacement relay) still does not exist; the row stays OPEN. No limitations retired, none opened.
+- **Refactoring register created.** [`REFACTORING.md`](REFACTORING.md) records the manual candidates
+  (jscpd flagged zero duplication inside these modules): the `RendezvousPeerTransport` god class, the
+  879-line `wire.rs`, and the mechanical `apply_env` repetition in `config.rs` are the top three.
 
 ### 2026-07-27 — The drain that was only a log line
 
@@ -47,9 +74,9 @@ The service also announces itself to trackers now, so an operator adding a relay
 instead of nobody, and the announce ack hands it its own replacement list — which is what lets a drain
 notice name somewhere to go without a discovery round trip at the worst possible moment.
 
-67 Rust tests, up from 62; the five new ones drive real sockets. **L-83** opened for the honest remainder:
-a grace period can still expire with a circuit live, and the fix is resumable transfers rather than a
-longer wait.
+71 Rust tests in the crate (8 `#[tokio::test]` in `wire.rs`, 5 of them the drain suite). **L-83**
+opened for the honest remainder: a grace period can still expire with a circuit live, and the fix is
+resumable transfers rather than a longer wait.
 
 ### 2026-07-25 — Punch success becomes measurable, and the inference is stated out loud
 

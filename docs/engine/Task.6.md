@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** ✅ COMPLETED (headless; live soak → [minecraft 2](../minecraft/Task.2.md))
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 5](Task.5.md), [engine 7](Task.7.md)
 **Consumed by:** [minecraft 2](../minecraft/Task.2.md), [worker 4](../worker/Task.4.md)
 

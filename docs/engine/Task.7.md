@@ -7,7 +7,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED (headless; mixins/tickets/fake-player detection → [minecraft 2](../minecraft/Task.2.md))
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 4](Task.4.md)
 **Consumed by:** [engine 6](Task.6.md), [engine 8](Task.8.md)–[engine 12](Task.12.md), [minecraft 2](../minecraft/Task.2.md)
 
@@ -32,9 +32,10 @@ Remaining, and delivered by [`minecraft/Task.2.md`](../minecraft/Task.2.md): the
 (`LevelChunkMixin` choke point, random-tick and scheduled-tick suppression), `ChunkTicketService`,
 `FakePlayerDetector`, and live acceptance.
 
-There is a related open row: `MutationGuard.verdictChecked` still has **no live mixin call site**, so
-the documented async-write rejection holds headlessly only — tracked as **L-25** in
-[`LIMITATIONS.md`](LIMITATIONS.md).
+The guard's documented async-write rejection now has its live mixin call site — **L-25 is
+RETIRED** (2026-07-25; see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)). `LevelChunkMixin`
+routes every block write through `BlockWriteGuard`, which reaches `MutationGuard.verdictChecked`
+by thread; the engine-side guard semantics stay pinned headlessly by `MutationGuardTest`.
 
 ## Dependencies
 
@@ -114,5 +115,6 @@ error naming that path — never a silent block. The contract is published in
 
 ## Limitations
 
-- **L-25** (async writes by other mods: the guard has no live call site yet) — see
-  [`LIMITATIONS.md`](LIMITATIONS.md).
+- **L-25** (async writes by other mods under the guard) — **RETIRED 2026-07-25**; see
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). The live mixin call site landed in the
+  minecraft category; the guard's headless semantics remain pinned here by `MutationGuardTest`.

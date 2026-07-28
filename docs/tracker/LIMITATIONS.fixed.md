@@ -4,7 +4,7 @@
      the evidence that retired them. Never delete a row or soften an evidence cell. If a retired
      capability regresses, open a bug issue and add a NEW row to LIMITATIONS.md. -->
 
-**Category:** tracker · **Last audit:** 2026-07-27 · Retired rows: **2**
+**Category:** tracker · **Last audit:** 2026-07-28 · Retired rows: **2**
 
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|
