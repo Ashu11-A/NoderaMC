@@ -6,17 +6,16 @@
      table. If a determinism test is disabled or skipped for any reason, say so explicitly here with
      the reason — a silently skipped determinism test is worse than a failing one. -->
 
-**Category:** engine · **Last run:** 2026-07-28 · **770 `@Test` + 3 `@Property` · 0 failing · 0 skipped**
+**Category:** engine · **Last run:** 2026-07-28 · **773 `@Test` + 8 `@Property` · 0 failing · 0 skipped**
 
-> Counts above are from a `rg '@Test'` / `rg '@Property'` sweep on 2026-07-28 (core 257, engine 499
-> `@Test` + 3 jqwik `@Property`, testing 14). They are a floor, not the authoritative figure — the
-> next `./gradlew :core:test :engine:test :testing:test` XML run replaces them. The previous figure
-> (747) predated the entity/environment/container rule growth.
+> Counts above are confirmed by the XML reports after the 2026-07-28 focused core/engine run and
+> full check: core 263 executions (260 `@Test` + 3 jqwik `@Property`), engine 504 (499 + 5), testing
+> 14; 781 total, 0 failed/skipped.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 257 | ✅ |
-| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 499 + 3 `@Property` | ✅ |
+| `core` | Domain types, canonical encoding, JDK-only crypto, certificates, entity records (type tags hosted through 118; engine-owned tags through 108) | 260 + 3 `@Property` | ✅ |
+| `engine` | Deterministic engine + consensus/shadow/coordinator/committee/fallback | 499 + 5 `@Property` | ✅ |
 | `testing` | Shared test library (`LoopbackTransport`, `FakeRegion`, fixture IO) | 14 | ✅ |
 
 Run with:
@@ -69,6 +68,7 @@ bytecode via `--release 21`, so ArchUnit's bundled ASM parses the classes and th
 | `MobAiRulesTest` (3) | 2400-tick soak: every ghost ends on a walkable cell with replica-identical roots; the despawn horizon fires exactly on time |
 | `SpawnRulesTest` | 2000-tick dark-shelter soak: population ≤ cap, every spawn inside the shelter, replica-identical roots; a lit platform spawns zero |
 | `PressurePlateStickyPistonTest` (7) | The full engine path for both components, including the order-independence root property |
+| `FixedPointTest` / `ChunkKeyTest` / `EntityLaneTypesTest` | L-52: full-range signed Q32.32 arithmetic matches `BigInteger`; packed signed chunk coordinates round-trip; entity motion copies remain byte-identical to direct canonical construction |
 
 ## 3. Conventions
 

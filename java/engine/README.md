@@ -72,11 +72,13 @@ courtesy is not.
   Enforced by ArchUnit.
 - All randomness through `DeterministicRandom`; a rule that draws conditionally must draw a **fixed**
   count per opportunity, or the stream desynchronises across replicas.
+- Signed Q32.32 products use core's `FixedPoint`; entity motion copies use
+  `PersistedEntityState.withMotion`; packed chunk coordinates use `ChunkKey`.
 - No Minecraft types. The live wiring lives in `neoforge-mod` and consumes seams defined here.
 
 ## Tests
 
-455 tests: determinism property tests, negative determinism tests (dropping state from the hash must
+504 tests: determinism property tests, negative determinism tests (dropping state from the hash must
 be detectable), the headless consensus ITs (`ShadowValidationIT`, `CoordinatorIT`, `CommitteeMvpIT`,
 `FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas.
 

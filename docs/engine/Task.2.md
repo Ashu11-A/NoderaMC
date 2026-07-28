@@ -7,7 +7,7 @@
      version must REFUSE to validate, never silently diverge. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
+**Category:** engine · **Owns:** — (L-52 RETIRED) · **Last audit:** 2026-07-28
 **Depends on:** [engine 1](Task.1.md)
 **Consumed by:** [engine 3](Task.3.md)–[engine 12](Task.12.md), [network 4](../network/Task.4.md), [minecraft 2](../minecraft/Task.2.md), [worker 4](../worker/Task.4.md)
 
@@ -23,7 +23,7 @@ envelope.
 
 ## Status detail
 
-Landed and continuously extended. `java/engine` carries 499 `@Test` methods plus 3 jqwik
+Landed and continuously extended. `java/engine` carries 499 `@Test` methods plus 5 jqwik
 `@Property` determinism tests, including the determinism property tests and the ArchUnit
 forbidden-API ban.
 
@@ -33,6 +33,11 @@ quasi-connectivity, daylight sensors, mob AI and spawning, combat vitals, moveme
 commands, and the third-party rule-pack SDK. `RULES_VERSION` is **6** and the palette literal is
 `palette.v6` (v5 added obsidian for the L-2 fluid-interaction lane; v6 added farmland + wheat for
 the L-1 farm half).
+
+L-52 is retired. Signed Q32.32 multiplication now lives once in core's `FixedPoint`; immutable
+entity motion copies live on `PersistedEntityState`; and packed chunk-coordinate keys live once in
+`ChunkKey`. This is behaviour-preserving: no encoding method, field order, tag, version, or rules
+version changed.
 
 ## Dependencies
 
@@ -49,6 +54,7 @@ the L-1 farm half).
 | 5 | `registryFingerprint` + `rulesVersion` guards — refuse, never diverge | ✅ |
 | 6 | ArchUnit forbidden-API ban scoped to `dev.nodera.simulation..` | ✅ |
 | 7 | Rule-pack SDK: `PackRules`, `PackDelegatingRuleSet`, `RulePackRegistry` | ✅ |
+| 8 | Shared deterministic arithmetic, entity-copy, and chunk-key helpers (L-52) | ✅ |
 
 ## Design
 
@@ -79,6 +85,7 @@ branch, or the streams desynchronise. This constraint is load-bearing for tasks 
 - `java/engine/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`
 - `java/engine/src/main/java/dev/nodera/simulation/DeterministicRandom.java`
 - `java/engine/src/main/java/dev/nodera/simulation/rules/`
+- `java/core/src/main/java/dev/nodera/core/state/{FixedPoint,ChunkKey,PersistedEntityState}.java`
 - `java/engine/src/test/java/dev/nodera/simulation/{ForbiddenApiTest,DeterminismPropertyTest}.java`
 
 ## Testing
@@ -91,6 +98,9 @@ branch, or the streams desynchronise. This constraint is load-bearing for tasks 
   to parse the classes; the test is enabled, not skipped).
 - **Negative determinism tests:** drop a piece of state from the hash and prove divergence *is*
   detected — a root that cannot see a difference would certify one.
+- **Shared helpers:** `FixedPointTest` checks 10,000 arbitrary signed products against a
+  full-precision `BigInteger` oracle; `ChunkKeyTest` checks 10,000 signed-coordinate round trips;
+  `EntityLaneTypesTest` byte-compares motion copies with direct pre-refactor construction.
 
 ## Acceptance criteria
 
@@ -103,5 +113,5 @@ branch, or the streams desynchronise. This constraint is load-bearing for tasks 
 
 ## Limitations
 
-None owned directly; the *scope* of the rule set is what tasks 8–12 widen, and their limitation rows
-live with them.
+L-52 is RETIRED in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). The *scope* of the rule set is
+what tasks 8–12 widen, and their limitation rows live with them.

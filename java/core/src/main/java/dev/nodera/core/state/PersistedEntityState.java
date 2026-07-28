@@ -61,6 +61,18 @@ public record PersistedEntityState(
         return new PersistedEntityState(id, kind, typeId, pos, vel, ageTicks + 1, despawnTick, payload);
     }
 
+    /** Replace position and velocity while preserving every other canonical field. */
+    public PersistedEntityState withMotion(FixedVec3 newPosition, FixedVec3 newVelocity) {
+        return withMotionAndAge(newPosition, newVelocity, ageTicks);
+    }
+
+    /** Replace position, velocity, and age while preserving every other canonical field. */
+    public PersistedEntityState withMotionAndAge(
+            FixedVec3 newPosition, FixedVec3 newVelocity, int newAgeTicks) {
+        return new PersistedEntityState(
+                id, kind, typeId, newPosition, newVelocity, newAgeTicks, despawnTick, payload);
+    }
+
     /** True when this entity has reached its despawn age. */
     public boolean shouldDespawn() {
         return despawnTick >= 0 && ageTicks >= despawnTick;

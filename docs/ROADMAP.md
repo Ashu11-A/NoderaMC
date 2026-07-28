@@ -8,7 +8,7 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,055 Java tests · 408 Rust
+**Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,061 Java tests · 408 Rust
 workspace tests · 157 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
 full green `./gradlew check` + `cargo test` on 2026-07-28; `nodera-app` is a separate workspace and
 was not re-run).
@@ -281,7 +281,7 @@ Every category owns its limitations. A task is only done when its register rows 
 
 | Category | Register | Open/retiring rows |
 |---|---|---|
-| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50, **L-51**, **L-52** (L-51/L-52 added 2026-07-28 sweep) |
+| Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50, **L-51** |
 | Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | OPEN: L-30, L-85 · RETIRING: L-33, L-76, L-84, L-86…L-91 (L-91 renumbered from a duplicate L-84 on 2026-07-28) |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | L-81 (RETIRING — release signing key outstanding, a credential step not code) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |

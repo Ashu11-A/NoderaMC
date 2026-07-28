@@ -2,6 +2,7 @@ package dev.nodera.simulation.entity;
 
 import dev.nodera.core.crypto.StableHash;
 import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedPoint;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.PersistedEntityState;
@@ -144,14 +145,13 @@ public final class TntRules {
             if (survivor == null) {
                 continue;
             }
-            long mag = multiplyFixed(KNOCKBACK_BASE, (long) (BLAST_RADIUS_SQ - victimDistSq) << 32);
+            long mag = FixedPoint.multiply(
+                    KNOCKBACK_BASE, (long) (BLAST_RADIUS_SQ - victimDistSq) << 32);
             long nvx = survivor.vel().x() + impulse(ddx, mag);
             long nvy = survivor.vel().y() + impulse(ddy, mag);
             long nvz = survivor.vel().z() + impulse(ddz, mag);
-            state.updateEntity(new PersistedEntityState(
-                    survivor.id(), survivor.kind(), survivor.typeId(), survivor.pos(),
-                    new FixedVec3(nvx, nvy, nvz),
-                    survivor.ageTicks(), survivor.despawnTick(), survivor.payload()));
+            state.updateEntity(survivor.withMotion(
+                    survivor.pos(), new FixedVec3(nvx, nvy, nvz)));
         }
         // Chain ignition: every other TNT within the radius detonates one tick later.
         for (PersistedEntityState other : state.entities()) {
@@ -188,8 +188,4 @@ public final class TntRules {
         return 0L;
     }
 
-    /** Signed Q32.32 product (the sanctioned {@code Math.multiplyHigh} idiom). */
-    private static long multiplyFixed(long value, long multiplier) {
-        return Math.multiplyHigh(value, multiplier) << 32 | (value * multiplier) >>> 32;
-    }
 }
