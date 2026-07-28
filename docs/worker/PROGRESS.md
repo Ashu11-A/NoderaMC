@@ -22,11 +22,43 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
 | [6](Task.6.md) | World ownership + durable registry | ✅ COMPLETED | `WorldHostingPersistenceTest`, `OwnershipGossipIT`, `WorldOwnershipVerbIT`; verified live against the built distribution |
 | [7](Task.7.md) | The LAN lane — playing without a mod | ✅ COMPLETED | `TunnelServiceIT`, `LanSessionServiceTest`, `LanBeaconTest`; verified live: two workers, a real tracker, a vanilla beacon, bytes reaching the host's game |
-| [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS | Pinned world ids, port-free LAN session ids and one key normalisation landed; registry reconciliation and the non-POSIX write path remain |
+| [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS | Pinned world ids, port-free LAN session ids, one key normalisation, and fail-closed non-POSIX-capable state writes landed; registry reconciliation, duplicate repair, and launched non-POSIX boot evidence remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Review correction: secure cleanup landed; W-DUP-3 is RETIRING
+
+Review found two security gaps in the first fallback. A failed write or move could leave the
+secret-bearing temporary file behind, and catching `UnsupportedOperationException` then creating a
+default-permission file did not prove the provider was actually non-POSIX. Both identity and worker
+state now delegate to `AtomicFileWriter.writeOwnerOnly`: same-directory `FileStore` capability picks
+the creation mode, POSIX uses `0600` before bytes, advertised POSIX that rejects the attribute fails
+closed, and all write/move failures attempt deletion with cleanup failures suppressed on the primary
+exception. This also completes the `LocalFiles`/`PersistentIdentityStore` duplication refactor.
+
+Evidence: `AtomicFileWriterTest` (3) and
+`HeadlessPeerMainStateTest#startupStateSurvivesANonPosixFileSystem`. The latter invokes the same
+`HeadlessPeerMain.openLocalState` production seam used by `main`, twice, on zipfs and recovers both
+identity and replaced registry. It is still not a launched worker process: environment paths resolve
+on the default filesystem and cannot name an already-open zipfs. Therefore the prior retirement was
+too strong; **W-DUP-3 moves back to RETIRING** until a non-POSIX mounted/default filesystem drives the
+distribution through boot, registry write, and restart.
+
+### 2026-07-28 — Worker state survives filesystems without POSIX attributes
+
+**W-DUP-3 retired.** Both secure write paths reached before a worker can restore its worlds now catch
+the provider's `UnsupportedOperationException` from POSIX-at-create and retry without that attribute:
+`PersistentIdentityStore` for `worker-identity.bin`, and `LocalFiles` for `worlds.dat`, world keys,
+and tombstones. Ordinary `IOException`s still fail the save; POSIX files still receive `0600` at
+creation before secret bytes are written; replacement still requests `ATOMIC_MOVE` and falls back
+only on `AtomicMoveNotSupportedException`.
+
+Evidence: `WorldRegistryStoreTest#workerStateSurvivesANonPosixFileSystem` uses JDK zipfs, asserts its
+attribute views exclude `posix`, creates and reloads one node identity, then writes and replaces one
+registry and reloads the updated value. Focused `:worker:test` and full `./gradlew check` green under
+the serialized two-worker build gate required by issue #87.
 
 ### 2026-07-28 — Documentation sweep: status reconciliation + refactoring register
 

@@ -34,7 +34,6 @@ listed here on structural grounds (god class / long method).
 | `worker/.../headless/WorldDeletionVerbIT.java` | 235 | 26.8 | `SeedRegionVerbIT` (25), `ConfigVerbIT` (18) | `ControlSocketHarness` |
 | `worker/.../headless/WorldDeletionService.java` | 325 | 25.2 | `WorldOwnershipService` (30), `WorldGrantGossipService` (23) | Same `SignedGossipRelay` |
 | `worker/.../headless/WorldRegistryStore.java` | 200 | 23.5 | `storage/.../WorldShareLink` (11), `peer/.../distribution/WorldArchive` (10), `peer/.../discovery/PersistentIdentityStore` (10) | The canonical encode/save + lower-case-key normalisation; consider a shared `CanonicalStore` helper across the three stores that use it |
-| `worker/.../headless/LocalFiles.java` | 77 | 23.4 | `peer/.../discovery/PersistentIdentityStore` (18) | `PersistentIdentityStore` re-implements the same temp-file + `ATOMIC_MOVE` + `PosixFilePermissions` dance. Promote `LocalFiles` to a shared module (or make `PersistentIdentityStore` call it). Note: W-DUP-3 tracks that this helper throws on non-POSIX FS — fix the helper as part of that row |
 | `peer/.../peer/control/WorkerEvent.java` | 159 | 22.0 | `worker/.../headless/WorkerControlHandler` (23) | The hand-rolled JSON `escape(...)` is copied into `WorkerControlHandler`; extract one `JsonEscape` in the control package |
 | `worker/.../headless/WorldContinuityIT.java` | 392 | 19.1 | `RekeyVerbIT` (22), `CompanionCrashSurvivalIT` (20) | `ControlSocketHarness` + `WorkerDaemonFixture` |
 | `peer/.../peer/control/ControlWatchStreamTest.java` | 205 | 19.0 | `ControlServerTest` (12) | Shared "open control socket, assert reply line" scaffolding |
@@ -68,10 +67,12 @@ The top-5 ordered so each makes the next cheaper:
    `WorldDeletionService` (~150 shared lines across the three). The members-iterate + `send` +
    exclude-self/source + log-and-continue loop is identical; one extraction serves all three and the
    replication sweep (audit `WorldReplicationService` at the same time).
-5. **Promote `LocalFiles` and call it from `peer`'s `PersistentIdentityStore`.** Removes the 18-line
-   dup AND is the natural place to fix **W-DUP-3** (the non-POSIX `UnsupportedOperationException`
-   that currently escapes the `catch (IOException)`). Land as part of Task 8 deliverable 8.
+5. **COMPLETED — promote owner-only writes to `storage.io.AtomicFileWriter`.** `LocalFiles` and
+   `PersistentIdentityStore` now delegate to one implementation with fail-closed POSIX creation and
+   failure cleanup. See §3.
 
 ## 3. Completed
 
-_None yet._
+| Refactor | Evidence | Completed |
+|---|---|---|
+| Promote `LocalFiles`/`PersistentIdentityStore` atomic owner-only writes | `AtomicFileWriter.writeOwnerOnly`; `AtomicFileWriterTest` (3); both former copies are wrappers only | 2026-07-28 |

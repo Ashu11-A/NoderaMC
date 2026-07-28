@@ -11,7 +11,7 @@
 memory".**
 
 - **Depends on:** `core`.
-- **Depended on by:** `peer`, `neoforge-mod`.
+- **Depended on by:** `peer`, `worker`, `neoforge-mod`.
 - **Docs:** [`docs/network/Task.3.md`](../../docs/network/Task.3.md)
 
 ---
@@ -22,7 +22,8 @@ memory".**
 dev.nodera.storage            the WorldStore seam + ContentId/Checkpoint/GenesisManifest,
 │                             CertifiedWorldGenesis, WorldIdentity/WorldPermissionGrant/
 │                             WorldPermissions/WorldRole, EventChainGuard, RegionOrder
-├── io/                       atomic file primitives
+├── io/                       `AtomicFileWriter`: atomic replacement, owner-only secure mode,
+│                             temp cleanup with suppressed cleanup failures
 ├── event/                    in-memory event-sourced impl, EventReplayer, PeerSyncFlow
 ├── rocksdb/                  RocksWorldStore over WAL-backed column families
 │                             (events / checkpoints / certificates / regions / meta)
@@ -48,7 +49,10 @@ already present at a destination during a move is provably a duplicate rather th
 is what makes relocating an archive directory safe rather than destructive.
 
 **Atomic temp-and-move.** The rename is the commit point. A half-written blob under its final name
-would be indistinguishable from a valid one until something hashed it.
+would be indistinguishable from a valid one until something hashed it. Owner-only state checks the
+same-directory `FileStore`: POSIX creates the temp as `0600` before content; non-POSIX creates
+without an inapplicable attribute; a provider advertising POSIX but rejecting that mode fails
+closed. Every failed write/move attempts temp deletion, preserving cleanup errors as suppressed.
 
 **Three tiers, one seam.** An archival peer wants RocksDB, a player's client wants a byte budget, and
 a test wants memory. Writing consumers once against `WorldStore` means the durability tests run
@@ -61,10 +65,11 @@ eviction signals repair so redundancy is restored elsewhere.
 
 ## Tests
 
-102 tests: durable seam parity across close and reopen (including head-recovery-fed validation),
+157 tests: durable seam parity across close and reopen (including head-recovery-fed validation),
 checkpoint ordering, content-addressed certificate idempotency, corrupt-blob read rejection, the
 forced-kill `RocksCrashRecoveryIT`, certified forward sync with an uncertified tail refused, and
-`FsContentStoreRelocationTest` (blobs survive relocation and a **reopened** store finds them).
+`FsContentStoreRelocationTest` (blobs survive relocation and a **reopened** store finds them), plus
+`AtomicFileWriterTest` owner-only creation and failure cleanup.
 
 ```bash
 ./gradlew :storage:test

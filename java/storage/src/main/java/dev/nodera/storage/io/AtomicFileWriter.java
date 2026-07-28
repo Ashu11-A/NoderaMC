@@ -2,16 +2,21 @@ package dev.nodera.storage.io;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
 
 /**
  * The one atomic file-write primitive (same-directory temp file + {@code ATOMIC_MOVE}, falling
- * back to {@code REPLACE_EXISTING} on filesystems without atomic moves). A crashed write can
- * never leave a torn file under a valid name — readers see the old bytes or the new bytes,
- * nothing in between. Extracted from the four independent copies that grew in FsContentStore,
- * PersistentIdentityStore, CachedPeerStore, and NoderaWorldStore.
+ * back to {@code REPLACE_EXISTING} on filesystems without atomic moves). Content is complete in
+ * the temporary file before any replacement begins; atomic-capable providers expose either the old
+ * bytes or the new bytes. Extracted from the independent copies that grew in FsContentStore,
+ * PersistentIdentityStore, CachedPeerStore, LocalFiles, and NoderaWorldStore.
  *
  * @Thread-context any thread; callers serialize writes to the same target themselves.
  */
@@ -27,6 +32,21 @@ public final class AtomicFileWriter {
      * @throws IOException when the write or move fails; the temp file is best-effort removed
      */
     public static void write(Path target, byte[] bytes) throws IOException {
+        write(target, bytes, false);
+    }
+
+    /**
+     * Atomically replace {@code target}, creating it owner-readable and owner-writable only on
+     * POSIX filesystems. A provider that advertises POSIX but rejects creation-time permissions
+     * fails closed before any content is written.
+     *
+     * @throws IOException when permissions cannot be secured, or the write or move fails
+     */
+    public static void writeOwnerOnly(Path target, byte[] bytes) throws IOException {
+        write(target, bytes, true);
+    }
+
+    private static void write(Path target, byte[] bytes, boolean ownerOnly) throws IOException {
         if (target == null) {
             throw new IllegalArgumentException("target must not be null");
         }
@@ -35,7 +55,7 @@ public final class AtomicFileWriter {
         }
         Path dir = target.toAbsolutePath().getParent();
         Files.createDirectories(dir);
-        Path temp = Files.createTempFile(dir, target.getFileName().toString(), ".tmp");
+        Path temp = createTempFile(dir, target.getFileName().toString(), ownerOnly);
         try {
             Files.write(temp, bytes);
             try {
@@ -44,13 +64,45 @@ public final class AtomicFileWriter {
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
             }
-        } catch (IOException e) {
-            try {
-                Files.deleteIfExists(temp);
-            } catch (IOException suppressed) {
-                e.addSuppressed(suppressed);
-            }
-            throw e;
+        } catch (IOException | RuntimeException failure) {
+            deleteTempAfterFailure(temp, failure);
+            throw failure;
+        }
+    }
+
+    private static Path createTempFile(Path dir, String prefix, boolean ownerOnly) throws IOException {
+        if (!ownerOnly) {
+            return Files.createTempFile(dir, prefix, ".tmp");
+        }
+
+        FileStore store = Files.getFileStore(dir);
+        boolean supportsPosix;
+        try {
+            supportsPosix = store.supportsFileAttributeView(PosixFileAttributeView.class)
+                    || store.supportsFileAttributeView("posix");
+        } catch (UnsupportedOperationException cannotInspect) {
+            throw new IOException("cannot determine file permissions for " + dir, cannotInspect);
+        }
+        if (!supportsPosix) {
+            return Files.createTempFile(dir, prefix, ".tmp");
+        }
+
+        Set<PosixFilePermission> permissions = Set.of(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+        try {
+            return Files.createTempFile(dir, prefix, ".tmp",
+                    PosixFilePermissions.asFileAttribute(permissions));
+        } catch (UnsupportedOperationException permissionsRejected) {
+            throw new IOException("POSIX file store rejected owner-only permissions for " + dir,
+                    permissionsRejected);
+        }
+    }
+
+    static void deleteTempAfterFailure(Path temp, Throwable failure) {
+        try {
+            Files.deleteIfExists(temp);
+        } catch (IOException | RuntimeException cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
         }
     }
 }

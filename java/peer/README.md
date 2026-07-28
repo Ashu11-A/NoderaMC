@@ -1,17 +1,17 @@
 # `java/peer`
 
-<!-- AI-AGENT-INSTRUCTION: This is the largest module and it hosts FOUR distinct concerns (runtime,
-     distribution, diagnostics, headless worker). Two rules govern all of them: (1) every cache keyed
+<!-- AI-AGENT-INSTRUCTION: This is the largest library module and hosts runtime, distribution, and
+     diagnostics concerns. Two rules govern all of them: (1) every cache keyed
      by remote input is BOUNDED — that is a security property, not tidiness; (2) trackers and
-     rendezvous are HINTS, never authority: peers verify everything by hash and signature. The worker
-     runs the tested Java peer; do NOT create a second region engine in any language. Update this
+     rendezvous are HINTS, never authority: peers verify everything by hash and signature. `:worker`
+     composes this tested Java peer; do NOT create a second region engine in any language. Update this
      file when a package is added or its responsibility changes. -->
 
-**The node itself:** the peer runtime, the torrent data plane, telemetry, and the always-on headless
-worker.
+**The node libraries:** peer runtime, torrent data plane, validation and diagnostics. The runnable
+worker lives in `java/worker`.
 
-- **Depends on:** `core`, `transport`, `storage`.
-- **Depended on by:** `neoforge-mod`; run as a process by the companion app.
+- **Depends on:** `core`, `engine`, `transport`, `storage`.
+- **Depended on by:** `worker`, `neoforge-mod`, `paper-plugin`.
 - **Docs:** [`docs/network/`](../../docs/network/Task.0.md) ·
   [`docs/worker/`](../../docs/worker/Task.0.md) ·
   [`docs/tracker/Task.2.md`](../../docs/tracker/Task.2.md)
@@ -47,9 +47,6 @@ dev.nodera.diagnostics        TelemetrySnapshot, TrafficMeter, RateWindow, Messa
 ├── metric/ classify/ model/  PeerTrafficMeter, TickSkewMeter/TpsMeter, ZoneClassifier
 ├── source/ state/            and the Minecraft-free GUI view models the mod renders
 └── view/
-
-dev.nodera.headless           HeadlessPeerMain, WorkerControlHandler, WorkerState
-                              — the always-on worker process (installDist: `nodera-headless`)
 ```
 
 ## Why it is shaped this way
@@ -78,9 +75,11 @@ trusting the write, is the lesson taken from prior art.
 **Seeders hold what they cannot read.** Encrypting before content addressing means the hash covers the
 ciphertext, so a stranger can help keep a world alive without being able to look at it.
 
-**The worker is the node.** Once identity and the announce loop live in a long-lived process, closing
-Minecraft is a *player-session* leave rather than a *node* leave — which is what makes player-hosted
-worlds survive their host.
+**The worker composes the node.** Once `java/worker` keeps this runtime and announce loop in a
+long-lived process, closing Minecraft is a *player-session* leave rather than a *node* leave.
+
+**Private identity writes share one storage primitive.** `PersistentIdentityStore` delegates to
+`storage.io.AtomicFileWriter.writeOwnerOnly`; it does not carry a second permissions/move policy.
 
 ## Rules
 
@@ -92,10 +91,9 @@ worlds survive their host.
 
 ## Tests
 
-449 tests, including the landmark ITs: `SessionContinuityIT`, `DistributionIT`, `MultiBootstrapIT`,
-`ArchiveRepairIT`, `EncryptedDistributionIT`, `CrashRecoveryIT`, `WorldContinuityIT`,
-`WorkerQuorumValidationIT`, `ResidentQuorumIT`, `ByzantineMeshIT`, `GrantGossipIT`, `ConfigVerbIT`,
-`RekeyVerbIT`, and the real-binary `TrackerServiceIT`.
+595 Gradle test cases, including `SessionContinuityIT`, `DistributionIT`, `MultiBootstrapIT`,
+`ArchiveRepairIT`, `EncryptedDistributionIT`, `CrashRecoveryIT`, `ResidentQuorumIT`,
+`ByzantineMeshIT`, and real-binary `TrackerServiceIT`.
 
 ```bash
 ./gradlew :peer:test
