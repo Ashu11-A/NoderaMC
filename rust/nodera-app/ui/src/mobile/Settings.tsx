@@ -144,7 +144,9 @@ export function SettingsScreen(props: {
           </button>
         }
       />
-      <div className="flex-1 overflow-y-auto px-4 pb-6">
+      {/* Keyed by page: each sub-screen starts at its own top, not at the offset the previous one
+          was left on. */}
+      <div key={page} className="flex-1 overflow-y-auto px-4 pb-6">
         {page === "appearance" && (
           <Appearance
             source={props.source}

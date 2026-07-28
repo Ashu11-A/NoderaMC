@@ -277,6 +277,15 @@ public final class WorkerControlHandler implements ControlHandler {
                 totalPieces += report.pieceCount();
                 totalHeldPieces += report.heldCount();
             }
+            // Who else holds this world, asked SEPARATELY from the piece report.
+            //
+            // `pieceReport` returns null for a world this node has no manifest of, and the holder
+            // count used to be read off that report — so a world this node knows about but has not
+            // downloaded reported "0 peers holding it" and "0 of 1 full copy · 100% chance nobody
+            // has it", about a world two other peers were serving in full. The one state where a
+            // player most needs to see that help exists is the one where the report is null, so
+            // the question has to be asked of the tracker directly.
+            int holders = archive == null ? 0 : archive.holdersFor(world.worldIdHex()).size();
             worldJson.add("{\"world_id\":\"" + escape(world.worldIdHex()) + "\",\"name\":\""
                     + escape(world.name()) + "\",\"players\":" + world.players()
                     + ",\"mc_route\":\"" + (mc == null ? "" : escape(mc)) + "\""
@@ -288,8 +297,28 @@ public final class WorkerControlHandler implements ControlHandler {
                     + ",\"version\":" + (report == null ? 0 : report.version())
                     + ",\"piece_count\":" + (report == null ? 0 : report.pieceCount())
                     + ",\"pieces_held\":" + (report == null ? 0 : report.heldCount())
-                    + ",\"seeders\":" + (report == null ? 0 : report.holders().size())
+                    + ",\"seeders\":" + holders
+                    // The backup picture, as arithmetic rather than as a feeling. `copies` counts
+                    // this node's own full copy plus every peer known to hold pieces; `wanted` is
+                    // what ReplicationTarget asks of a network this size — capped by that size, so
+                    // a small swarm is told to put a full copy on every peer; and the risk is
+                    // (1-availability)^copies, which is what makes the target arguable on screen
+                    // instead of asserted.
+                    + ",\"backup_copies\":" + backupCopies(report, holders)
+                    + ",\"backup_copies_wanted\":" + BACKUP_TARGET.replicasFor(holders + 1)
+                    + ",\"loss_risk_permille\":"
+                    + BACKUP_TARGET.lossRiskPermille(backupCopies(report, holders))
+                    // Whether any tracker actually took this world's last announce. A world can be
+                    // hosted, seeded and complete here and still be invisible to everyone else;
+                    // without these two numbers the app can only report what this node INTENDED.
+                    + ",\"listed_on_trackers\":" + world.listedOnTrackers()
+                    + ",\"announced_to_trackers\":" + world.announcedToTrackers()
                     + ",\"seeding\":" + world.seeding()
+                    // The third, independent fact: is somebody on THIS machine playing in it right
+                    // now. Neither "seeding" nor "owned" can answer that — a player joins worlds
+                    // they neither run nor authored, which is the ordinary case and was the one the
+                    // companion app had no way to show.
+                    + ",\"connected\":" + world.connected()
                     // Ownership. "seeding" says what this node DOES with the world; "owned" says
                     // whether it may speak for it. They are independent: a node can host a world it
                     // did not create (it fetched and re-shared it), and can administer a world it is
@@ -601,8 +630,34 @@ public final class WorkerControlHandler implements ControlHandler {
         return null;
     }
 
+    /** The durability model the backup figures in {@code NODERA-STATE} are derived from. */
+    private static final dev.nodera.peer.archival.ReplicationTarget BACKUP_TARGET =
+            dev.nodera.peer.archival.ReplicationTarget.standard();
+
+    /**
+     * Full copies of a world believed to exist, including this node's own when it has one.
+     *
+     * <p>A partial copy is not a backup: it cannot serve the world on its own, and counting it
+     * would let a swarm of half-downloads report itself safe. This node contributes 1 only when
+     * every piece is verified present here.
+     */
+    private static int backupCopies(WorldArchiveService.PieceReport report, int holders) {
+        boolean complete = report != null && report.pieceCount() > 0
+                && report.heldCount() == report.pieceCount();
+        return holders + (complete ? 1 : 0);
+    }
+
+    /**
+     * How long one {@code NODERA-JOIN} vouches for "a player here is in this world".
+     *
+     * <p>Three times the mod's renewal cadence, so a single dropped renewal — a stalled tick, a
+     * busy control socket — does not make a live session blink out of the companion app.
+     */
+    private static final long JOIN_LEASE_SECONDS = 90;
+
     @Override
-    public String join(String worldId) {
+    public String join(String worldId, String worldNameB64, String leaseSeconds,
+                       String playersInWorld) {
         if (worldId == null || worldId.isBlank()) {
             return "missing worldId";
         }
@@ -622,12 +677,63 @@ public final class WorkerControlHandler implements ControlHandler {
         //
         // (This verb used to accept and do nothing — reporting success for a join that never
         // happened, which is worse than an error because nothing upstream could tell.)
-        String error = hosting.seed(id.toHex(), "");
+        //
+        // The name rides along because this is often the FIRST thing this node learns about the
+        // world: a joiner had no row for it at all, so its companion app showed "Nothing is on the
+        // network until you share it" to a player who was standing in the world at the time. A row
+        // keyed by a 64-character id would have been only a smaller version of the same problem.
+        String error = hosting.seed(id.toHex(), decodeB64(worldNameB64));
         if (error != null) {
             return error;
         }
+        // Renewed on every call, not set on the first: this is a lease, and the game repeating the
+        // verb is what keeps it true. See ControlProtocol.JOIN.
+        long lease = JOIN_LEASE_SECONDS;
+        if (leaseSeconds != null && !leaseSeconds.isBlank()) {
+            try {
+                lease = Long.parseLong(leaseSeconds.trim());
+            } catch (NumberFormatException ignored) {
+                // An unreadable lease is not a reason to refuse the join — the world still belongs
+                // in the sweep set. Fall back to the default rather than dropping the whole verb.
+                lease = JOIN_LEASE_SECONDS;
+            }
+        }
+        hosting.markConnected(id.toHex(), lease);
+        // The caller is IN the world, so its game can see who else is — and that is the only place
+        // this number can honestly come from. A peer that merely holds the world's bytes never
+        // reaches here, which is what stops it publishing the zero it can see.
+        //
+        // Tied to the same lease as the connection: a count is only as good as the session that
+        // observed it, and a game that stops renewing stops vouching for either.
+        hosting.markPlayers(id.toHex(), parsePlayerCount(playersInWorld), lease);
         discovery.sweepNow();
+        // Start PULLING the world, not just announcing interest in it. Joining is the moment this
+        // node most obviously needs the content — the player is standing in it — and without this
+        // the only thing that would ever fetch it is the background replication sweep, minutes
+        // later. Live symptom: a peer's world row read "Supporting for the network · v0 · 0 B, no
+        // manifest yet" for as long as anybody watched it.
+        if (config != null && config.replication != null) {
+            config.replication.sweepNow();
+        }
         return null;
+    }
+
+    /**
+     * Read a reported player count, or {@link WorldHostingService#PLAYERS_UNKNOWN}.
+     *
+     * <p>Everything unreadable maps to unknown rather than to zero, because the two were the same
+     * value for the whole life of this field and that is exactly why a world with people in it
+     * reported nobody on every node except the one hosting the game.
+     */
+    private static long parsePlayerCount(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return WorldHostingService.PLAYERS_UNKNOWN;
+        }
+        try {
+            return Math.max(WorldHostingService.PLAYERS_UNKNOWN, Long.parseLong(raw.trim()));
+        } catch (NumberFormatException notANumber) {
+            return WorldHostingService.PLAYERS_UNKNOWN;
+        }
     }
 
     @Override
@@ -713,11 +819,21 @@ public final class WorkerControlHandler implements ControlHandler {
 
     @Override
     public String mintWorldIdentity(String genesisRootB64, long createdAtEpoch, boolean shared,
-                                    boolean listed, boolean encrypted, String manifestRefB64) {
+                                    boolean listed, boolean encrypted, String manifestRefB64,
+                                    String pinnedWorldIdHex) {
         Bytes genesisRoot = decodeBytes(genesisRootB64);
         Bytes manifestRef = decodeBytes(manifestRefB64);
-        WorldIdentity id = WorldIdentity.create(identity, genesisRoot, createdAtEpoch, shared, listed,
-                encrypted, manifestRef);
+        // A world id the save already carries wins over deriving a new one. Deriving binds the
+        // genesis root, and that root is not as stable as the derivation assumes: it is
+        // re-certified from whichever chunks happen to be loaded when the genesis file is missing.
+        // Every drift used to mint a second id, and both ids stayed announced — one world, two
+        // entries on the network, two administrator keys.
+        Bytes pinned = parseWorldId(pinnedWorldIdHex);
+        WorldIdentity id = pinned != null
+                ? WorldIdentity.createPinned(identity, pinned, createdAtEpoch, shared, listed,
+                        encrypted, manifestRef)
+                : WorldIdentity.create(identity, genesisRoot, createdAtEpoch, shared, listed,
+                        encrypted, manifestRef);
         // Minting a world identity IS the moment of authorship — the derivation binds this node's
         // public key into the world id, and no other node can produce the same one. So this is
         // exactly where the world's own key pair is created: the peer that authored the world takes
@@ -730,6 +846,28 @@ public final class WorkerControlHandler implements ControlHandler {
         CanonicalWriter w = new CanonicalWriter();
         id.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+    }
+
+    /**
+     * Read a pinned world id off the wire, or {@code null} when there is none to honour.
+     *
+     * <p>Anything that is not exactly 32 bytes of hex is treated as absent rather than as an error:
+     * the argument is optional and additive, so a caller that sends nothing, sends a placeholder, or
+     * sends something malformed all mean the same thing — derive the id as before.
+     */
+    private static Bytes parseWorldId(String hex) {
+        if (hex == null) {
+            return null;
+        }
+        String trimmed = hex.trim();
+        if (trimmed.length() != 64) {
+            return null;
+        }
+        try {
+            return Bytes.fromHex(trimmed);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -1041,7 +1179,11 @@ public final class WorkerControlHandler implements ControlHandler {
             // real case, and hiding your own worlds from the browser would look like a bug.
             rows.add("{\"session_id\":\"" + escape(worldId) + "\","
                     + "\"name\":\"" + escape(entry.worldName()) + "\","
-                    + "\"players\":" + entry.worldPlayerCount() + ","
+                    // The tracker counts live ANNOUNCING PEERS for a swarm; it never learns who
+                    // is inside a world. Sent under its real name so no screen can render it as a
+                    // player count again — which is what "3 players" over three seeders of an empty
+                    // world was.
+                    + "\"peers\":" + entry.worldPlayerCount() + ","
                     + "\"pieces\":" + entry.storedChunks() + ","
                     + "\"health\":\"" + entry.health().name().toLowerCase(java.util.Locale.ROOT) + "\","
                     + "\"mine\":" + hosting.hostedWorlds().stream()
@@ -1304,14 +1446,16 @@ public final class WorkerControlHandler implements ControlHandler {
                 if (config.content == null) {
                     return "this worker has no content plane";
                 }
-                config.content.setServeBounds(config.content.serveMaxInflight(), asLong(raw));
+                config.content.setServeBounds(config.content.serveMaxInflight(),
+                        unlimitedIfZero(asLong(raw)));
                 return null;
             }
             case K_SERVE_INFLIGHT -> {
                 if (config.content == null) {
                     return "this worker has no content plane";
                 }
-                config.content.setServeBounds((int) asLong(raw),
+                config.content.setServeBounds(
+                        (int) Math.min(Integer.MAX_VALUE, unlimitedIfZero(asLong(raw))),
                         config.content.serveBandwidthBudget());
                 return null;
             }
@@ -1354,14 +1498,25 @@ public final class WorkerControlHandler implements ControlHandler {
                 if (config.replication == null) {
                     return "this worker has no replication lane";
                 }
-                config.replication.reconfigure(asLong(raw), config.replication.sweepSeconds());
+                // 0 is the app's "use the worker's default", documented as such in
+                // `rust/nodera-app/src/settings.rs` and shipped as the DEFAULT value. The
+                // replication lane reads 0 as "hold nothing for anybody" and refuses to schedule a
+                // sweep at all — so every worker running under the app silently stopped adopting
+                // worlds, and a peer supporting a world never received a single piece of it. Same
+                // shape of disagreement as the upload cap; same translation.
+                long budget = asLong(raw);
+                config.replication.reconfigure(
+                        budget <= 0 ? WorldReplicationService.DEFAULT_BUDGET_BYTES : budget,
+                        config.replication.sweepSeconds());
                 return null;
             }
             case K_REPL_SWEEP -> {
                 if (config.replication == null) {
                     return "this worker has no replication lane";
                 }
-                config.replication.reconfigure(config.replication.budgetBytes(), (int) asLong(raw));
+                long sweep = asLong(raw);
+                config.replication.reconfigure(config.replication.budgetBytes(),
+                        sweep <= 0 ? WorldReplicationService.DEFAULT_SWEEP_SECONDS : (int) sweep);
                 return null;
             }
             case K_ARCHIVE_DIR -> {
@@ -1395,9 +1550,11 @@ public final class WorkerControlHandler implements ControlHandler {
         // actually enforces, or the settings screen becomes a second facade over the first.
         List<String> fields = new ArrayList<>();
         if (config.content != null) {
-            fields.add("\"" + K_UPLOAD + "\":" + config.content.serveBandwidthBudget());
+            fields.add("\"" + K_UPLOAD + "\":" + zeroIfUnlimited(
+                    config.content.serveBandwidthBudget(), Long.MAX_VALUE));
             fields.add("\"" + K_DOWNLOAD + "\":" + config.content.downloadBandwidthBudget());
-            fields.add("\"" + K_SERVE_INFLIGHT + "\":" + config.content.serveMaxInflight());
+            fields.add("\"" + K_SERVE_INFLIGHT + "\":" + zeroIfUnlimited(
+                    config.content.serveMaxInflight(), Integer.MAX_VALUE));
             fields.add("\"" + K_PAUSED + "\":" + config.content.transfersPaused());
         }
         if (config.transport != null) {
@@ -1416,6 +1573,49 @@ public final class WorkerControlHandler implements ControlHandler {
             fields.add("\"" + K_TRACKERS + "\":[" + String.join(",", routes) + "]");
         }
         return "{" + String.join(",", fields) + "}";
+    }
+
+    /**
+     * Translate the app's {@code 0 = unlimited} into the bound the content plane enforces.
+     *
+     * <p>The two sides disagreed about what zero means, and the disagreement was silent and total.
+     * {@code rust/nodera-app/src/settings.rs} documents "0 means unlimited, for every field below"
+     * and ships {@code max_upload_bytes_per_sec: 0} as the DEFAULT, pushed to the worker the moment
+     * the companion app connects. {@code ContentTransferService.setServeBounds} reads zero as
+     * "serve nothing" — a legitimate internal state, since that is how an upload cap dragged to
+     * zero is expressed. So every worker running under the app stopped answering piece requests
+     * entirely, while still announcing the world, answering manifest queries and looking healthy.
+     *
+     * <p>What that cost, live: a joiner whose host closed its game sat on "Migrating world…" and
+     * failed with {@code archive fetch stalled at 0/75 piece(s) after 120s with no progress, from
+     * 2 seeder(s)} — from two seeders that held every piece and were refusing to serve any of them
+     * because the app had told them to. Silence is the wire's only answer to an unserved request,
+     * so nothing at either end said what was wrong.
+     *
+     * <p>{@code K_MAX_CONNECTIONS} already carried this translation. It belongs on every capped
+     * field the app owns, which is what this makes explicit.
+     *
+     * @param value the app's value.
+     * @return the same value, or {@link Long#MAX_VALUE} when it asked for "no limit".
+     */
+    private static long unlimitedIfZero(long value) {
+        return value <= 0 ? Long.MAX_VALUE : value;
+    }
+
+    /**
+     * The inverse, so a read-back speaks the app's dialect rather than the enforcer's.
+     *
+     * <p>The sentinel is passed in rather than assumed, because the two bounds saturate at
+     * different values — a {@code long} budget at {@link Long#MAX_VALUE}, an {@code int} slot count
+     * at {@link Integer#MAX_VALUE} — and treating the smaller one as "unlimited" for both would
+     * report a real 2 GB/s upload cap as "no cap".
+     *
+     * @param enforced the bound the content plane actually enforces.
+     * @param unlimited the value that means "no bound" for this field.
+     * @return {@code 0} when unbounded, else the bound itself.
+     */
+    private static long zeroIfUnlimited(long enforced, long unlimited) {
+        return enforced == unlimited ? 0 : enforced;
     }
 
     /** Render the outcome the app badges its settings from. Empty collections are still emitted. */

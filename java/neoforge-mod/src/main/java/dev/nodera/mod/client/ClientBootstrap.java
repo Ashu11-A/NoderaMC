@@ -154,6 +154,9 @@ public final class ClientBootstrap {
      */
     private static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
         dev.nodera.mod.common.NoderaHost.setClientPlayerReady(true);
+        // Being here means the gate, if there was one, let us through. Clearing the marker is what
+        // keeps a later, genuine host loss from being mistaken for a password refusal.
+        dev.nodera.mod.client.multiplayer.ClientJoinPasswords.passedGate();
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {

@@ -130,7 +130,12 @@ public record WorldRegistry(List<Entry> entries) implements Encodable {
             return worldId.toHex();
         }
 
-        /** @return whether this node holds this world's private key and administers it. */
+        /**
+         * @return whether a claim is stored for this world at all.
+         *         <p><b>Not</b> "this node administers it": the claim names its owner, and a peer
+         *         stores claims for worlds it merely keeps available so it can say who runs them.
+         *         Ask {@link #ownership()} and compare {@code isOwner(self)} for administration.
+         */
         public boolean owned() {
             return !ownershipRecord.isEmpty();
         }

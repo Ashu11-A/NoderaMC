@@ -217,6 +217,15 @@ pub struct TrackerAnnounce {
     pub retention_deadline_epoch_millis: u64,
     /// Self-reported reliability in basis points.
     pub reliability_bps: u32,
+    /// Players this peer can see in the world, or `-1` when it cannot see.
+    ///
+    /// Every seeder is in the second case: it holds the world's bytes and has no game in it.
+    /// Carried here because it cannot be derived anywhere else — a tracker only ever observes who
+    /// is *announcing* a swarm, and reporting that as a population credited three always-on
+    /// seeders of an empty world with three players. Self-reported and unverifiable in the same
+    /// weak sense as `world_name`: a peer can lie about its own population, which misleads a UI
+    /// and nothing more.
+    pub world_player_count: i64,
     /// The peer's wall-clock at announce time — a freshness bound only.
     pub announce_epoch_millis: u64,
     /// Ed25519 over the signed portion.
@@ -249,6 +258,10 @@ impl TrackerAnnounce {
         w.write_string(&self.world_name);
         w.write_u64(self.retention_deadline_epoch_millis);
         w.write_u32(self.reliability_bps);
+        // Offset by one so the "unknown" sentinel survives an unsigned field: -1 travels as 0, a
+        // real count of n travels as n+1. Must match TrackerAnnounce.writeSignedPortion in Java,
+        // byte for byte — this range is what the signature covers.
+        w.write_u64((self.world_player_count + 1) as u64);
         w.write_u64(self.announce_epoch_millis);
     }
 
@@ -452,6 +465,8 @@ impl DiscoveryMessage {
                 let world_name = r.read_string()?;
                 let retention_deadline_epoch_millis = r.read_u64()?;
                 let reliability_bps = r.read_u32()?;
+                // See `write_signed_portion`: 0 is "unknown", n+1 is a real count of n.
+                let world_player_count = r.read_u64()? as i64 - 1;
                 let announce_epoch_millis = r.read_u64()?;
                 let signature = r.read_bytes_vec()?;
                 Self::TrackerAnnounce(TrackerAnnounce {
@@ -465,6 +480,7 @@ impl DiscoveryMessage {
                     world_name,
                     retention_deadline_epoch_millis,
                     reliability_bps,
+                    world_player_count,
                     announce_epoch_millis,
                     signature,
                 })
@@ -577,6 +593,7 @@ mod tests {
             world_name: "nodera-overworld".to_owned(),
             retention_deadline_epoch_millis: 0,
             reliability_bps: 9_400,
+            world_player_count: 2,
             announce_epoch_millis: 1_700_000_000_000,
             signature: vec![0x77; 64],
         }

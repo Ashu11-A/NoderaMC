@@ -38,6 +38,8 @@ app talks to it over `127.0.0.1:25610` with the same code the desktop uses.
 | [1](Task.1.md) | The Android build, and the worker inside it | ✅ COMPLETED |
 | [2](Task.2.md) | The interface: Material You, and what a phone may be asked | ✅ COMPLETED |
 | [3](Task.3.md) | The phone in the mesh: proving it receives from the Linux peers | ✅ COMPLETED |
+| [4](Task.4.md) | The settings the app can keep, and the verbs it never asks for | ✅ COMPLETED |
+| [5](Task.5.md) | The phone reaches the network it was told to | 🚧 IN PROGRESS |
 
 Operational guide — building, Wi-Fi debugging, the scripts, the test procedures:
 [`TESTING.md`](TESTING.md).

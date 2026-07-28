@@ -26,6 +26,16 @@ public final class CompanionClient implements CompanionProbe {
     private static final int CONNECT_TIMEOUT_MS = 1500;
     private static final int READ_TIMEOUT_MS = 1500;
 
+    /**
+     * The read budget for verbs that perform work rather than answer a question.
+     *
+     * <p>The 1.5 s default is a probe budget — right for "are you there?", wrong for anything that
+     * announces to every tracker and writes the registry while the worker may also be hashing an
+     * archive. Ten seconds is still short enough that a genuinely dead worker fails the share
+     * quickly.
+     */
+    private static final int HOST_TIMEOUT_MS = 10_000;
+
     private final String host;
     private final int port;
 
@@ -175,8 +185,16 @@ public final class CompanionClient implements CompanionProbe {
     public Optional<String> host(String worldId, String worldName, String optionsJson) {
         String nameB64 = java.util.Base64.getEncoder().encodeToString(
                 worldName.getBytes(StandardCharsets.UTF_8));
+        // Not the 1.5 s probe budget. HOST is not a question, it is work: a registry write, a
+        // tracker announce to every endpoint and a rendezvous registration, on a worker that may be
+        // busy chunking a multi-megabyte archive on the same control connection. Observed live —
+        // "Nodera worker refused HOST for 'Asd': worker did not answer (is the peer worker
+        // running?)" logged by the mod at the same second the worker logged "Now hosting world
+        // 'Asd'". The verb had succeeded; only the wait had not. A read timeout is not a refusal,
+        // and treating it as one left the game and its own worker disagreeing about whether the
+        // world was hosted.
         return errorOf(exchange(CompanionProtocol.HOST + " " + CompanionProtocol.PROTOCOL_VERSION
-                + " " + worldId + " " + nameB64 + " " + optionsJson));
+                + " " + worldId + " " + nameB64 + " " + optionsJson, HOST_TIMEOUT_MS));
     }
 
     /**
@@ -244,6 +262,54 @@ public final class CompanionClient implements CompanionProbe {
      */
     public record DeleteOutcome(boolean deleted, int peersNotified, String error) {}
 
+    /**
+     * Tell this machine's worker that a player here is in {@code worldId}, and renew that claim.
+     *
+     * <p>Two jobs in one verb, both of which were simply not being done: the world enters the
+     * worker's sweep set — so a joiner supports the world it plays in instead of only taking from
+     * it — and the companion app gains a row for it. Before this, a player standing in somebody
+     * else's world saw an app that said "Nothing is on the network until you share it", because
+     * nothing had ever told the worker the world existed.
+     *
+     * <p>Repeat it while the session lasts. The worker treats each call as a lease renewal, so a
+     * game that dies without saying goodbye stops claiming to be connected on its own.
+     *
+     * @param worldId   hex world id.
+     * @param worldName display name, or empty when unknown.
+     * @return empty on success, else the error message.
+     */
+    public Optional<String> joinWorld(String worldId, String worldName) {
+        return joinWorld(worldId, worldName, "", -1);
+    }
+
+    /**
+     * As above, also reporting how many players this client can see in that world.
+     *
+     * @param playersInWorld the client's own online-player count, or negative for "cannot tell".
+     */
+    public Optional<String> joinWorld(String worldId, String worldName, int playersInWorld) {
+        return joinWorld(worldId, worldName, "", playersInWorld);
+    }
+
+    /**
+     * Tell the worker the player has left {@code worldId}.
+     *
+     * <p>A courtesy, not a requirement: the same verb with a zero lease. The world stays supported
+     * — leaving a world is not abandoning the people still in it — only the "playing right now"
+     * claim ends.
+     */
+    public Optional<String> leaveWorld(String worldId) {
+        return joinWorld(worldId, "", "0", -1);
+    }
+
+    private Optional<String> joinWorld(String worldId, String worldName, String leaseSeconds,
+                                       int playersInWorld) {
+        String nameB64 = java.util.Base64.getEncoder().encodeToString(
+                (worldName == null ? "" : worldName).getBytes(StandardCharsets.UTF_8));
+        return errorOf(exchange(CompanionProtocol.JOIN + " " + CompanionProtocol.PROTOCOL_VERSION
+                + " " + worldId + " " + nameB64 + " " + leaseSeconds + " " + playersInWorld));
+    }
+
     /** Ask the worker to stop hosting a world. @return empty on success, else the error message. */
     public Optional<String> stop(String worldId) {
         return errorOf(exchange(CompanionProtocol.STOP + " " + CompanionProtocol.PROTOCOL_VERSION
@@ -301,11 +367,34 @@ public final class CompanionClient implements CompanionProbe {
      */
     public Optional<String> fetchArchive(String worldId, java.nio.file.Path destPath,
                                          long timeoutSeconds) {
+        return fetchArchive(worldId, destPath, timeoutSeconds, new StringBuilder());
+    }
+
+    /**
+     * As {@link #fetchArchive}, reporting <em>why</em> a failure failed.
+     *
+     * <p>The reason used to be thrown away here and re-invented by the caller, which produced a
+     * screen telling a player their world was password protected when it was not encrypted at all.
+     * The worker knows the answer — no reachable seeder, a stalled transfer and how far it got, a
+     * refused world — and it is the only thing in the system that does.
+     *
+     * @param reason receives the worker's own message when the call fails; untouched on success.
+     */
+    public Optional<String> fetchArchive(String worldId, java.nio.file.Path destPath,
+                                         long timeoutSeconds, StringBuilder reason) {
         long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
         String reply = exchange(CompanionProtocol.ARCHIVE + " " + CompanionProtocol.PROTOCOL_VERSION
                         + " " + worldId + " " + b64Path(destPath) + " " + seconds,
                 (int) Math.min(Integer.MAX_VALUE, (seconds + 10) * 1000));
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        if (reply == null) {
+            reason.append("the peer worker did not answer");
+            return Optional.empty();
+        }
+        if (!reply.startsWith(CompanionProtocol.OK + " ")) {
+            String text = reply.startsWith(CompanionProtocol.ERR)
+                    ? reply.substring(CompanionProtocol.ERR.length()).trim()
+                    : reply.trim();
+            reason.append(text.isEmpty() ? "the peer worker refused the fetch" : text);
             return Optional.empty();
         }
         return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
@@ -319,14 +408,22 @@ public final class CompanionClient implements CompanionProbe {
     /**
      * Ask the worker (the world author) to mint + sign a {@link dev.nodera.storage.WorldIdentity}.
      *
+     * @param pinnedWorldId the id this save already carries, or {@code null}/empty for a world being
+     *        shared for the first time. Passing it is what stops a re-share from becoming a second
+     *        world on the network: the id is derived from the genesis root, and that root is
+     *        re-certified — to a different value — whenever the genesis file is missing.
      * @return the signed identity's canonical bytes, or empty if the worker is unavailable.
      */
     public Optional<Bytes> mintWorldIdentity(Bytes genesisRoot, long createdAtEpoch, boolean shared,
-                                             boolean listed, boolean encrypted, Bytes manifestRef) {
+                                             boolean listed, boolean encrypted, Bytes manifestRef,
+                                             Bytes pinnedWorldId) {
+        // `-` rather than an empty token: the verb is split on whitespace, so an empty argument in
+        // the middle of a line would shift every following one.
+        String pinned = pinnedWorldId == null || pinnedWorldId.isEmpty() ? "-" : pinnedWorldId.toHex();
         String req = CompanionProtocol.WORLDID + " " + CompanionProtocol.PROTOCOL_VERSION
                 + " " + b64(genesisRoot) + " " + createdAtEpoch
                 + " " + (shared ? 1 : 0) + " " + (listed ? 1 : 0) + " " + (encrypted ? 1 : 0)
-                + " " + b64(manifestRef);
+                + " " + b64(manifestRef) + " " + pinned;
         String reply = exchange(req);
         if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
             return Optional.empty();

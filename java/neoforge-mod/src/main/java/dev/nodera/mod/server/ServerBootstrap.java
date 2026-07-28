@@ -211,7 +211,10 @@ public final class ServerBootstrap {
         }
         if (event.getEntity() instanceof ServerPlayer player) {
             MinecraftServer server = player.serverLevel().getServer();
-            NoderaHost.refreshWorkerPresence(server);
+            // `player` is passed because vanilla has not removed them yet: PlayerList.remove fires
+            // this event as its FIRST statement and calls players.remove sixteen lines later, so a
+            // naive count here is one too high — permanently, since nothing later corrects it.
+            NoderaHost.refreshWorkerPresence(server, player);
             // Drop any op the bridge granted this player so it never lingers past their session.
             OperatorBridge.get().onLogout(server, player);
             // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
@@ -238,6 +241,16 @@ public final class ServerBootstrap {
         // Complete a parked integrated-server publish once the host player is fully in the world
         // (a world shared before login — every auto-re-share — parks it). Cheap flag check when idle.
         NoderaHost.tickGamePublish(event.getServer());
+        // Re-report the player count on a cadence. The worker holds it under a lease and forgets it
+        // when nobody refreshes — that is what stops a dead game vouching for a stale number — so a
+        // live game has to keep saying it. Login/logout alone are not enough: a busy world nobody
+        // joins or leaves for an hour would go quiet and read as unknown for that hour.
+        try {
+            NoderaHost.tickWorkerPresence(event.getServer());
+        } catch (RuntimeException e) {
+            org.slf4j.LoggerFactory.getLogger("NoderaHost")
+                    .warn("Nodera: presence refresh failed: {}", e.toString());
+        }
         // Issue #43 continuous streaming: while hosting, re-seed the world archive on the
         // configured cadence so the network copy is never more than one interval behind — a
         // crash/exit can no longer revert the world past the last interval.

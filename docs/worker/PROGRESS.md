@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-26 · Tasks completed: **6 / 7**
+**Category:** worker · **Last audit:** 2026-07-27 · Tasks completed: **6 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -22,10 +22,175 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
 | [6](Task.6.md) | World ownership + durable registry | ✅ COMPLETED | `WorldHostingPersistenceTest`, `OwnershipGossipIT`, `WorldOwnershipVerbIT`; verified live against the built distribution |
 | [7](Task.7.md) | The LAN lane — playing without a mod | ✅ COMPLETED | `TunnelServiceIT`, `LanSessionServiceTest`, `LanBeaconTest`; verified live: two workers, a real tracker, a vanilla beacon, bytes reaching the host's game |
+| [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS | Pinned world ids, port-free LAN session ids and one key normalisation landed; registry reconciliation and the non-POSIX write path remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — Every peer offering a version none of them had
+
+Root cause of the stalled recovery, found by reproducing the live topology over **real sockets**
+(`ArchiveFetchOverSocketsIT`) instead of a loopback transport. The first socket test passed at
+once — the lane moves a 4 MB archive over TCP fine — so the fault had to be in *what* was being
+asked for. The second test reproduced the failure exactly and named it.
+
+The chain:
+
+1. A host archives v1, v2, v3 and closes its game.
+2. Every peer learns v3 exists through the manifest exchange. None of them holds it.
+3. `supersedeOlderVersions` fires on each of them and **destroys the copies they were serving**.
+4. `answerManifestQuery` then offers v3 to anyone who asks, because the node knows of it.
+5. The asker requests v3's pieces. `ContentTransferService.serve` looks up the root, finds
+   nothing, and `return`s — **no reply, no log, no counter**.
+6. `0/73 piece(s)` until the deadline, on every peer, forever.
+
+Three fixes, each closing one link:
+
+- **Eviction is scoped to encrypted versions.** L-55 exists to revoke a password; a plaintext
+  archive has none, so evicting it buys no security and costs the world. The L-55 tests documented
+  themselves as the re-key case while using plaintext fixtures — that mismatch is how the rule came
+  to be applied where it protects nothing. Fixtures are now encrypted, matching their own stated
+  intent, and the security property is unchanged for the case it was written for.
+- **A peer only offers versions it holds pieces of.** An answer's purpose is to let the asker fetch
+  *from this peer*; a manifest for content we do not have serves the opposite.
+- **`requestsForUnknownContent` counter.** A request for a root this node lacks is answered with
+  silence by design (there is no "I don't have that" on the wire), which is defensible — being
+  invisible from the serving side too is not. This single missing counter is why the failure took
+  four live rounds to locate.
+
+An earlier attempt to keep the last complete copy unconditionally was reverted: it broke the L-55
+tests, and those tests were right. Scoping by encryption resolves the same conflict without
+weakening anything.
+
+1,970 Java tests green.
+
+### 2026-07-27 — Asking for a version nobody had
+
+The stall deadline and the wrapped failure text turned the symptom into a sentence:
+
+```
+Recovery failed: archive fetch stalled at 0/73 piece(s) after 120s with no progress,
+from 2 seeder(s)
+```
+
+Two seeders attached, routing healthy, requests going out — and **zero** pieces back. Not slow:
+none. Manifests flowed in both directions the whole time, so the lane was alive.
+
+The fetch was asking for a version nobody online held. `requestManifest` chose
+`max by version` over the manifests peers answered with, and a manifest answer proves a peer has
+*heard of* a version, not that it *holds* one. A host archives every couple of minutes and then
+closes its game: the newest version is then known to everyone and held by nobody, and every peer
+aims at it and downloads nothing.
+
+The tracker already carries the right signal and it was being ignored — `TrackerResponse.seeders()`
+is manifest-root → peers that hold pieces of it. The fetch now prefers the newest version a seeder
+is advertised for, falling back to the newest answered version only when the tracker vouches for
+nothing (its rows can lag a fresh seed).
+
+Also fixed alongside: the early return asked whether the *newest known* version was complete
+locally, not whether *any* version was, so a node holding two complete copies still went to the
+network. And a stall now falls back to the newest complete local copy — a world one archive
+interval behind that opens beats a current one that does not.
+
+**Not fixed, and deliberately left as a decision:** learning of a newer version evicts complete
+older copies (L-55). That rule is correct on its own terms — a superseded ciphertext still opens
+under the old password — but it currently pays for that with the world itself. A first attempt to
+keep the last complete copy was reverted when it broke `SupersededManifestEvictionTest` and
+`FetchSurvivesSupersessionTest`: those tests are right, and quietly weakening a security rule to
+make a symptom go away is not a fix. Recorded as W-REPL-2 with the shape of the real answer — the
+content store needs to separate "stop serving" from "destroy".
+
+Evidence: `HeldVersionBeatsAnUnreachableNewerOneTest` (2). 1,968 Java tests green.
+
+### 2026-07-27 — The claim that prevented its own repair
+
+"Why aren't the network peers downloading the pieces?" — because one of them had been told it
+already had them.
+
+The companion showed a node hosting `MMM` at **0.0% (0 of 73 pieces)** while three other peers held
+all 73, and it stayed there. The replication sweep's skip read:
+
+```java
+if (holdsCompletely(worldIdHex) || hosts(worldIdHex)) {
+    continue; // already this node's problem, one way or the other
+}
+```
+
+`hosts()` asks the **registry** what this node claims, not the content store what it has, and
+`restoreFromRegistry` reloads every row as hosted at boot whether or not a byte survived. So the
+state that most needed repairing — a node advertising a world it cannot serve — was the exact state
+that disqualified it from repair, and the claim is what caused the skip, so it could never resolve
+itself.
+
+`holdsCompletely` already covers a host that genuinely holds its world, so the second clause only
+ever fired for an empty claim. It is gone: the skip is about content, and a claim with nothing
+behind it is now repaired ahead of both the placement policy and the replica bounds — neither may
+excuse a broken advertisement, because no other node can fix this one's.
+
+The sweep's decision was extracted into a pure `shouldAdopt(...)` so it could be tested at all;
+`TrackerClient` is final and concrete, so the sweep itself cannot be driven headlessly.
+`ReplicationRepairsEmptyClaimsTest` (4), verified failing with the fix disabled.
+
+This is the same root as W-DUP-1: registry rows are restored as authoritative claims and never
+reconciled against what the node can actually serve.
+
+### 2026-07-27 — The download the retention policy kept deleting
+
+Second live reproduction of "endless Migrating world…", and a different cause from the first. The
+logs name it in two lines from two different workers:
+
+```
+peer1 (host):   Seeding world archive 014003ed712c v1 — 106 piece(s), root c8e1d31a6250…
+peer1 (host):   Seeding world archive 014003ed712c v2 — 106 piece(s), root fb023eebc673…
+peer2 (joiner): Evicted world archive 014003ed712c v1 (root c8e1d31a6250…) — superseded
+```
+
+The joiner was downloading v1 of a 27 MB archive. The host's game was open, so it streamed v2. The
+joiner's worker learned of v2 through the ordinary manifest exchange and applied L-55 — "only the
+newest version is maintained" — which unpinned the blob and unpublished the manifest root its own
+`PieceDownloader` was writing into. The dashboard showed the result exactly: **913 KiB downloaded,
+0 pieces stored.**
+
+`supersedeOlderVersions` already refuses to run from `seedArchive` for this precise reason, and
+says so in a comment about not trading a security fix for a data-availability regression. The same
+hazard arrives through the learning path, which that comment did not cover: a rule written for
+"this node re-archived" met the case "somebody else did".
+
+Fixed by making a root that is being downloaded outrank the retention policy for the duration, and
+applying the deferred policy once the fetch ends. The guard is deliberately narrow — with no fetch
+in flight L-55 still evicts in full, which `aVersionNobodyIsFetchingIsStillSuperseded` pins.
+
+The fetch deliberately does **not** re-target the newest version. The copy being downloaded is a
+complete, valid world; the joiner opens it and catches up live. Chasing a head that moves faster
+than the transfer would never converge.
+
+Evidence: `FetchSurvivesSupersessionTest` (2). Verified to fail with the guard disabled — a test
+that cannot fail proves nothing.
+
+Found in the same logs and also fixed: `Nodera worker refused HOST for 'Asd': worker did not answer`
+logged by the mod in the same second the worker logged `Now hosting world 'Asd'`. HOST was being
+given the 1.5 s *probe* budget while it announces to every tracker and writes the registry on a
+worker that may be hashing a multi-megabyte archive. A read timeout is not a refusal; it now gets
+10 s.
+
+### 2026-07-27 — One save, one world on the network
+
+An audit of `~/.nodera/worlds.dat` on the author's node found **ten rows for four saves** — `world`
+four times under four ids, three minted inside eleven minutes, each with its own `.worldkey`. Five
+mechanisms produced them; three are closed.
+
+The structural one: `worldId = SHA256(genesisRoot ‖ authorPublicKey ‖ createdAtEpoch)` was
+re-derived on **every** share, and `genesisRoot` is not stable — it is re-certified from whichever
+chunks are loaded when `nodera-genesis.dat` is missing. `NODERA-WORLDID` now takes an optional
+pinned world id and `WorldIdentity.createPinned` signs it, so a save that has been named keeps that
+name for life. The LAN lane mixed the **ephemeral** LAN port into its session id, so every re-open
+was a new world; the port is gone from the derivation and a close beacon no longer withdraws a world
+that is open again elsewhere. `WorldHostingService` now normalises world-id keys in one place, so a
+padded or upper-cased id can no longer create an entry that `stop` cannot remove.
+
+Evidence: see [`Task.8.md`](Task.8.md) §Testing. Not yet closed: registry rows are still immortal,
+and existing duplicate registries are not repaired.
 
 ### 2026-07-26 — Two people can play together with nothing installed in Minecraft
 

@@ -128,6 +128,15 @@ public final class ContentTransferService implements MessageHandler {
     private long servedBytesThisWindow;
     private long servedPieces;
     private long throttledRequests;
+
+    /**
+     * Requests received for a manifest root this node holds nothing of.
+     *
+     * <p>Its own counter rather than a share of {@link #throttledRequests}, because the two mean
+     * opposite things to an operator: throttling says "ask me more slowly", this says "you are
+     * asking the wrong peer, and I have no way to tell you".
+     */
+    private long requestsForUnknownContent;
     private long requestedBytesThisWindow;
     private long pacedRequests;
 
@@ -549,6 +558,16 @@ public final class ContentTransferService implements MessageHandler {
         }
         LocalContent content = local.get(request.manifestRoot());
         if (content == null) {
+            // Counted, not merely ignored. A request for content this node does not have is answered
+            // with silence — there is no "I don't have that" on the wire — so from the requester's
+            // side it is indistinguishable from a lost packet, and it retries until its deadline.
+            // Un-counted, it was also invisible from THIS side: a swarm in which every peer asks
+            // every other peer for a version nobody holds produced no log line anywhere, and took
+            // four rounds of live debugging to find. The counter is the cheapest possible fix for
+            // that, and it costs one field.
+            synchronized (this) {
+                requestsForUnknownContent++;
+            }
             return;
         }
         int answered = 0;
@@ -641,6 +660,11 @@ public final class ContentTransferService implements MessageHandler {
     /** @return how many requests were cut short by the inflight or bandwidth bound. */
     public synchronized long throttledRequests() {
         return throttledRequests;
+    }
+
+    /** @return how many requests arrived for content this node does not hold. */
+    public synchronized long requestsForUnknownContent() {
+        return requestsForUnknownContent;
     }
 
 }

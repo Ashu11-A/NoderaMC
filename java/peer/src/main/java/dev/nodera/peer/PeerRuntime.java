@@ -603,6 +603,24 @@ public final class PeerRuntime implements DiagnosticsSource {
     }
 
     private void onHeartbeatTick() {
+        // Ordered by consequence, and each step isolated from the next. The keep-alive at the bottom
+        // is the one thing this method exists to guarantee — a node that skips it is dropped by
+        // every peer that can see it — so nothing above it may be able to prevent it from running.
+        try {
+            reannounceToBootstrap();
+        } catch (RuntimeException ignored) {
+            // A bootstrap that will not take a frame is the situation the keep-alive has to survive,
+            // not a reason to skip it.
+        }
+        keepAliveSeqCounter++;
+        List<RegionProgress> progress = tickSync == null
+                ? List.of()
+                : tickSync.localProgress();
+        broadcast(new SessionKeepAlive(selfId, keepAliveSeqCounter, progress));
+        pruneSilentMembers();
+    }
+
+    private void reannounceToBootstrap() {
         if (bootstrapAddress != null && members.size() == 1) {
             // The startup PeerJoin is a single message over a possibly-not-yet-listening socket
             // (sendTo swallows transport failures by design). If it was lost, this runtime would
@@ -617,12 +635,10 @@ public final class PeerRuntime implements DiagnosticsSource {
             // so a converged mesh just refreshes routes.
             broadcast(snapshotUpdate());
         }
-        keepAliveSeqCounter++;
-        List<RegionProgress> progress = tickSync == null
-                ? List.of()
-                : tickSync.localProgress();
-        broadcast(new SessionKeepAlive(selfId, keepAliveSeqCounter, progress));
-        // Prune members we have an established link with but have not heard from within the window.
+    }
+
+    /** Prune members we have an established link with but have not heard from within the window. */
+    private void pruneSilentMembers() {
         long now = System.nanoTime();
         long timeoutNanos = config.failureTimeout().toNanos();
         List<NodeId> lost = new ArrayList<>();
@@ -792,6 +808,15 @@ public final class PeerRuntime implements DiagnosticsSource {
             transport.send(to, MessageCodec.encode(msg));
         } catch (TransportException e) {
             // Send failed (peer unreachable / down). Liveness is handled by onPeerDown / timeout.
+        } catch (RuntimeException e) {
+            // Also swallowed, and the distinction matters more than it looks. This method's contract
+            // is "a send that fails is not the caller's problem" — but it honoured that only for the
+            // checked type, so an unchecked failure from a transport escaped into whatever was
+            // driving the send. Observed live: a joiner's bootstrap address has no node id, the
+            // rendezvous transport threw NPE on it, and the exception unwound `onHeartbeatTick` at
+            // its FIRST statement — so the `SessionKeepAlive` broadcast at the end of that method
+            // never ran, on any tick. Every other peer then timed the node out while it sat there
+            // believing it was connected.
         }
     }
 

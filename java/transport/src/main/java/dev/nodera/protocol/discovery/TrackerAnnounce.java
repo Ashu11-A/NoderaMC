@@ -57,6 +57,17 @@ import java.util.Objects;
  *                           {@code 0} when no countdown is running. The tracker only displays it —
  *                           the peers' {@code RetentionPolicy} still owns the actual drop.
  * @param reliabilityBps     the peer's reliability in basis points (0..10000).
+ * @param worldPlayerCount   players this peer can see in the world, or {@code -1} when it cannot
+ *                           see — it holds the world's bytes but has no game in it.
+ *                           <p>Carried here because it cannot be derived anywhere else. A tracker
+ *                           only ever observes who is <em>announcing</em> a swarm, and reporting
+ *                           that as a population credited three always-on seeders of an empty
+ *                           world with three players. Only a node with a game in the world can
+ *                           count, and the announce is the one message such a node already sends
+ *                           to everybody who needs the answer.
+ *                           <p>Unsigned-authoritative in the same weak sense as {@code worldName}:
+ *                           a peer can lie about its own population, which misleads a UI and
+ *                           nothing more. Nothing downstream makes a decision on it.
  * @param announceEpochMillis the peer's wall-clock at announce time — a freshness bound, never a
  *                           consensus input.
  * @param signature          Ed25519 over {@link #signedPortion()}.
@@ -73,9 +84,18 @@ public record TrackerAnnounce(
         String worldName,
         long retentionDeadlineEpochMillis,
         int reliabilityBps,
+        long worldPlayerCount,
         long announceEpochMillis,
         Bytes signature
 ) implements NoderaMessage {
+
+    /**
+     * {@link #worldPlayerCount} for a peer that cannot see into the world it is announcing.
+     *
+     * <p>Every seeder is in this state: it holds a world's bytes and has no game in it. Reporting
+     * zero instead would be a peer with no way to look asserting that nobody is there.
+     */
+    public static final long UNKNOWN_PLAYER_COUNT = -1;
 
     /**
      * Compact constructor: validates and defensive-copies the lists.
@@ -106,6 +126,11 @@ public record TrackerAnnounce(
         }
         if (announceEpochMillis < 0) {
             throw new IllegalArgumentException("announceEpochMillis must be non-negative");
+        }
+        // Anything below -1 collapses to -1: there is one way to say "I cannot see", and letting
+        // several through would put arbitrary negatives in front of a sum on the tracker.
+        if (worldPlayerCount < 0) {
+            worldPlayerCount = UNKNOWN_PLAYER_COUNT;
         }
         routes = List.copyOf(routes);
         holdings = List.copyOf(holdings);
@@ -150,6 +175,10 @@ public record TrackerAnnounce(
         w.writeString(worldName);
         w.writeU64(retentionDeadlineEpochMillis);
         w.writeU32(Integer.toUnsignedLong(reliabilityBps));
+        // Written as an offset by one so the "unknown" sentinel survives an unsigned field: -1
+        // travels as 0, a real count of n travels as n+1. A bare writeU64(-1) would arrive as
+        // 18446744073709551615 and be summed into a population.
+        w.writeU64(worldPlayerCount + 1);
         w.writeU64(announceEpochMillis);
     }
 }

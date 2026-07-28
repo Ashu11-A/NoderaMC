@@ -270,6 +270,90 @@ final class PieceDownloaderTest {
         assertThat(sent.get(0).holder()).isNotEqualTo(first.holder());
     }
 
+    /**
+     * The live wedge: a swarm of two where one peer answers and the other never does.
+     *
+     * <p>Selection is deterministic, so the silent peer owns the same pieces on every pass. Before
+     * the retry round carried that silence forward, {@code retryPending()} re-issued exactly the
+     * same requests to exactly the same peer, those requests kept the whole in-flight budget, and
+     * every piece queued behind them was never asked for at all — a download stopped at 22 of 150
+     * pieces with a complete copy one hop away. The recovery has to be a *rotation*, not a repeat.
+     */
+    @Test
+    void aSilentHolderCannotWedgeTheDownloadWhenAnotherPeerHasTheWorld() {
+        RegionSnapshotSplitter.Layout layout = layout();
+        List<Sent> sent = new ArrayList<>();
+        PieceDownloader d = new PieceDownloader(layout.manifest(), null,
+                (holder, req) -> req.pieceIndexes().forEach(i -> sent.add(new Sent(holder, i))),
+                4, 1);
+
+        NodeId silent = DistFixtures.node(1);
+        NodeId responsive = DistFixtures.node(2);
+        // Both claim everything, which is what a fetch does when the tracker names no holder.
+        d.addHolder(silent, allPieces(layout.manifest()));
+        d.addHolder(responsive, allPieces(layout.manifest()));
+        CompletableFuture<Bytes> done = d.start();
+
+        for (int round = 0; round < 200 && !done.isDone(); round++) {
+            List<Sent> batch = new ArrayList<>(sent);
+            sent.clear();
+            boolean answered = false;
+            for (Sent s : batch) {
+                if (s.holder().equals(silent)) {
+                    continue; // the whole point: no reply, no error, no signal of any kind
+                }
+                d.onChunk(new ContentChunk(layout.manifest().manifestRoot(), s.index(),
+                        pieceBytes(layout, s.index())));
+                answered = true;
+            }
+            if (!answered) {
+                d.retryPending(); // the caller's stall nudge, exactly as WorldArchiveService does
+            }
+        }
+
+        assertThat(done).as("a peer that holds the world can always finish the download")
+                .isCompleted();
+        assertThat(done.join()).isEqualTo(layout.blob());
+    }
+
+    /**
+     * A send that failed is back-pressure, not perjury.
+     *
+     * <p>A transport error used to exclude the holder for that piece permanently. In a two-peer
+     * swarm behind a relay that costs the download its only real source on the first hiccup, and no
+     * amount of retrying brings it back.
+     */
+    @Test
+    void aTransportFailureDoesNotBanTheHolderForever() {
+        RegionSnapshotSplitter.Layout layout = layout();
+        List<Sent> sent = new ArrayList<>();
+        PieceDownloader d = new PieceDownloader(layout.manifest(), null,
+                (holder, req) -> req.pieceIndexes().forEach(i -> sent.add(new Sent(holder, i))),
+                1, 1);
+
+        NodeId only = DistFixtures.node(1);
+        d.addHolder(only, allPieces(layout.manifest()));
+        CompletableFuture<Bytes> done = d.start();
+
+        // Every send fails once — the relay circuit was down — and then the peer is fine.
+        Sent first = sent.remove(0);
+        d.onRequestFailed(first.holder(), first.index());
+
+        for (int round = 0; round < 500 && !done.isDone(); round++) {
+            List<Sent> batch = new ArrayList<>(sent);
+            sent.clear();
+            for (Sent s : batch) {
+                d.onChunk(new ContentChunk(layout.manifest().manifestRoot(), s.index(),
+                        pieceBytes(layout, s.index())));
+            }
+            if (batch.isEmpty()) {
+                d.retryPending();
+            }
+        }
+
+        assertThat(done).as("the swarm's only holder is not lost to one failed send").isCompleted();
+    }
+
     @Test
     void requestsCarryTheManifestRootSoAHolderCanAnswerFromContentAddressAlone() {
         RegionSnapshotSplitter.Layout layout = layout();

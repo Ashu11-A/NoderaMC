@@ -30,6 +30,7 @@ import {
   Stat,
   STAT_GRID,
   cx,
+  resetScrollport,
 } from "./components";
 import {
   UNKNOWN,
@@ -37,6 +38,7 @@ import {
   formatDate,
   formatPercent,
   formatSource,
+  heldBytes,
   proveWorldAdmin,
   shortId,
   show,
@@ -77,9 +79,11 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
             {describeRole(world)} · v{world.version} · {formatBytes(world.total_bytes)}
           </p>
         </div>
+        {world.connected && <Pill tone="up">You are playing here</Pill>}
         {world.administered && <Pill tone="up">You administer this</Pill>}
-        <Pill tone={world.game_endpoint ? "up" : "muted"}>
-          {world.game_endpoint ? "Joinable now" : "Game closed"}
+        {world.discoverable === false && <Pill tone="down">On no tracker — nobody can find it</Pill>}
+        <Pill tone={joinable(world) ? "up" : "muted"}>
+          {joinable(world) ? "Joinable now" : world.game_endpoint ? "Open, but unlisted" : "Game closed"}
         </Pill>
       </header>
 
@@ -95,7 +99,10 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
                 ? "border-b-brand-2 text-text"
                 : "border-b-transparent text-dim hover:text-text",
             )}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id);
+              resetScrollport();
+            }}
           >
             {t.icon}
             {t.label}
@@ -115,10 +122,34 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
   );
 }
 
-/** The four states a world can be in here, said in words rather than in two booleans. */
+/**
+ * Whether another player could actually arrive here.
+ *
+ * Two conditions, not one: the host's game has to be open **and** some tracker has to list the
+ * world. Reporting only the first is what made a world announce "Joinable now" on the machine
+ * running it while every other peer's lookup came back with no seeder — the game was open and no
+ * directory on the network had ever heard of it.
+ */
+function joinable(w: World): boolean {
+  return Boolean(w.game_endpoint) && w.discoverable !== false;
+}
+
+/**
+ * The states a world can be in here, said in words rather than in three booleans.
+ *
+ * "Playing" is reported alongside the other two rather than instead of them, because a player in
+ * somebody else's world is doing both things at once and the screen that hides the second one is
+ * the screen that makes this network look like a download client.
+ */
 function describeRole(w: World): string {
-  if (w.administered) return w.hosting ? "Yours — hosted here" : "Yours — kept available here";
-  return w.hosting ? "Hosting for another peer" : "Supporting for the network";
+  const standing = w.administered
+    ? w.hosting
+      ? "Yours — hosted here"
+      : "Yours — kept available here"
+    : w.hosting
+      ? "Hosting for another peer"
+      : "Supporting for the network";
+  return w.connected ? `You are playing here · ${standing}` : standing;
 }
 
 /* --------------------------------------------------------------------------------------- info */
@@ -128,7 +159,12 @@ function InfoTab(props: { world: World }) {
   return (
     <>
       <div className={STAT_GRID}>
-        <Stat label="Players online" value={String(w.players)} sub="in this world" icon={<FiUsers />} />
+        <Stat
+          label="Players online"
+          value={show(w.players, String)}
+          sub={w.players === null ? "nothing here can see into it" : "in this world"}
+          icon={<FiUsers />}
+        />
         <Stat label="Peers holding it" value={String(w.seeders)} sub="besides this node" icon={<FiActivity />} />
         <Stat
           label="Complete"
@@ -141,6 +177,8 @@ function InfoTab(props: { world: World }) {
         />
         <Stat label="Size" value={formatBytes(w.total_bytes)} sub={`v${w.version}`} />
       </div>
+
+      <ContributionCard world={w} />
 
       <Card title="World">
         <dl>
@@ -164,6 +202,127 @@ function InfoTab(props: { world: World }) {
       </Card>
 
     </>
+  );
+}
+
+/* ------------------------------------------------------------------------------- contribution */
+
+/**
+ * What THIS node is doing for THIS world.
+ *
+ * Separate from the "World" card immediately below it on purpose: that one describes the world, and
+ * would describe it identically on every peer that has it. This one is the only part of the screen
+ * whose answers change depending on whose machine you are reading it on, and it is the question the
+ * feature was asked for — "what am I contributing?" — which the app previously answered nowhere.
+ *
+ * Nothing here is estimated except `heldBytes`, which is prorated from the piece counts and says so
+ * in its own doc. In particular there is no "uploaded to this world" figure: the node meters bytes
+ * per peer, not per world, and inventing a per-world number by division would be a plausible lie on
+ * the one screen whose whole job is to be checkable.
+ */
+function ContributionCard(props: { world: World }) {
+  const w = props.world;
+  const held = heldBytes(w);
+  const complete = w.completeness_permille !== null && w.completeness_permille >= 1000;
+  // The claim worth making, and the only one the data supports: with this node's copy complete, the
+  // world survives its owner going offline. Partial copies still help — pieces are fungible — but
+  // they are not a guarantee, and the wording keeps that distinction.
+  const survives = complete && w.seeders > 0;
+
+  return (
+    <Card
+      title="Your part in this world"
+      hint="What this machine does for it, as distinct from what the world is."
+      right={
+        <Pill tone={w.connected ? "up" : complete ? "up" : "muted"}>
+          {w.connected ? "Playing now" : complete ? "Full copy held" : "Partial copy"}
+        </Pill>
+      }
+    >
+      <div className="flex flex-col gap-1 py-2">
+        <div className="flex items-baseline justify-between gap-3 text-xs">
+          <span className="text-dim">
+            {w.completeness_permille === null
+              ? "No manifest yet — nothing to measure against"
+              : `${w.pieces_held} of ${w.piece_count} pieces verified here`}
+          </span>
+          <span className={cx(MONO, complete ? "text-up" : "text-warn")}>
+            {show(w.completeness_permille, formatPercent)}
+          </span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+          <div
+            className={cx("h-full rounded-full", complete ? "bg-up" : "bg-brand-2")}
+            style={{ width: `${(w.completeness_permille ?? 0) / 10}%` }}
+          />
+        </div>
+      </div>
+
+      <dl>
+        <KeyValue label="What you are to it" value={describeRole(w)} />
+        <KeyValue
+          label="Data you can serve"
+          value={`${formatBytes(held)} of ${formatBytes(w.total_bytes)}`}
+          title="Prorated from the pieces this node has verified. Pieces are what peers request, so this is what you can actually answer with."
+        />
+        <KeyValue
+          label="Other peers holding it"
+          value={
+            w.seeders === 0
+              ? "none besides this node"
+              : `${w.seeders} besides this node`
+          }
+        />
+        <KeyValue
+          label="If its owner goes offline"
+          value={
+            survives
+              ? "This node alone can serve the whole world"
+              : complete
+                ? "This node holds a full copy; nobody else is known to"
+                : "This node holds part of it — the rest has to come from other peers"
+          }
+        />
+        <KeyValue
+          label="Backup copies"
+          value={<BackupCopies world={w} />}
+          title="A full copy is one peer that can serve the whole world alone. Partial copies help, but are not a backup."
+        />
+      </dl>
+    </Card>
+  );
+}
+
+/**
+ * How well backed up a world is, in the two numbers that decide it.
+ *
+ * The target is not a constant somebody picked: peers here are home machines, assumed reachable
+ * about a third of the time, and a world with R independent copies is unreachable with probability
+ * (1 - availability)^R. Requiring that to stay under 0.01% is what asks for ~22 copies. The target
+ * is then capped by the peers that exist, so **a small network wants a full copy on every peer** —
+ * which is why a two-peer swarm reads "2 of 2" and is genuinely finished, not 9% of the way to
+ * something.
+ *
+ * The risk is shown beside the count because a bare "3 of 22" invites the reading "mostly there",
+ * and three copies of a world whose holders are online a third of the time is a 27% chance that
+ * nobody has it at this moment.
+ */
+function BackupCopies(props: { world: World }) {
+  const w = props.world;
+  const safe = w.backup_copies_wanted > 0 && w.backup_copies >= w.backup_copies_wanted;
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className={cx("tabular-nums", safe ? "text-up" : "text-warn")}>
+        {w.backup_copies} of {w.backup_copies_wanted} full {w.backup_copies_wanted === 1 ? "copy" : "copies"}
+      </span>
+      <span className="text-xs text-faint">
+        {safe
+          ? "as many as this network can hold"
+          : w.loss_risk_permille === null
+            ? "more copies wanted"
+            : `${formatPercent(w.loss_risk_permille)} chance nobody has it right now`}
+      </span>
+    </span>
   );
 }
 

@@ -74,3 +74,8 @@ java/build-logic/.kotlin/
 # Python bytecode (the Spark jobs are sources, never build output).
 __pycache__/
 *.pyc
+
+# Service node identities. A locally started tracker or rendezvous writes its Ed25519 secret key
+# next to the working directory it was launched from, so these appear wherever a service was run.
+# They are private keys: committing one hands over the identity of that node permanently.
+*-identity.bin

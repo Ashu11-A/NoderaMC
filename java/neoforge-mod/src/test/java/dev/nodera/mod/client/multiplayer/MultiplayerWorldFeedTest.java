@@ -43,6 +43,10 @@ final class MultiplayerWorldFeedTest {
 
         assertThat(entries).singleElement().satisfies(e -> {
             assertThat(e.name()).isEqualTo("Ashu's SMP");
+            // A real population: the count now rides each host's tracker announce, and the tracker
+            // reports the maximum across the peers that could see rather than counting announcing
+            // peers. It used to be the peer count under a player's name.
+            assertThat(e.playersKnown()).isTrue();
             assertThat(e.playerCount()).isEqualTo(4);
             assertThat(e.worldIdHex()).isEqualTo("cafebabe");
             assertThat(e.mcRoute()).isEmpty();

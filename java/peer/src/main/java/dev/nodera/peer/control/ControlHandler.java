@@ -38,8 +38,19 @@ public interface ControlHandler {
         return "unsupported";
     }
 
-    /** Resolve + join a world. @return null on success, else an error message. */
-    default String join(String worldId) {
+    /**
+     * Resolve + join a world, and renew this node's "connected to it" lease.
+     *
+     * @param worldId      hex world id.
+     * @param worldNameB64 display name, base64-encoded; empty when the caller has none.
+     * @param leaseSeconds how long the "a player here is in this world" claim stays true without
+     *                     another call; blank for the worker's default, {@code "0"} to end it.
+     * @param playersInWorld players the caller's own game can see in that world; blank or negative
+     *                     when the caller cannot tell, which is <b>not</b> the same as none.
+     * @return {@code null} on success, else an error message.
+     */
+    default String join(String worldId, String worldNameB64, String leaseSeconds,
+                        String playersInWorld) {
         return "unsupported";
     }
 
@@ -123,11 +134,16 @@ public interface ControlHandler {
      * @param listed         whether it is listed on the tracker.
      * @param encrypted      whether it is password-encrypted.
      * @param manifestRefB64 base64 of the content manifest reference (may be empty).
+     * @param pinnedWorldIdHex the world id this save already carries, or empty to derive a new one.
+     *        Supplying it is how a re-share keeps its identity: derivation binds the genesis root,
+     *        and a root that drifted would otherwise mint a second id for the same world and put it
+     *        on the network twice.
      * @return base64 of the signed {@code WorldIdentity} canonical bytes, or {@code null} if
      *         unsupported.
      */
     default String mintWorldIdentity(String genesisRootB64, long createdAtEpoch, boolean shared,
-                                     boolean listed, boolean encrypted, String manifestRefB64) {
+                                     boolean listed, boolean encrypted, String manifestRefB64,
+                                     String pinnedWorldIdHex) {
         return null;
     }
 

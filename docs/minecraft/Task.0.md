@@ -80,6 +80,8 @@ here.
 | [7](Task.7.md) | Companion presence gate | ✅ COMPLETED |
 | [8](Task.8.md) | In-game telemetry + consent mirror | ✅ COMPLETED (headless) |
 | [9](Task.9.md) | Profiling lane — the spark profiler | ✅ COMPLETED |
+| [10](Task.10.md) | A world is shown only when it can be played | ⬜ NOT STARTED |
+| [11](Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ NOT STARTED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and the live suites:
 [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
