@@ -424,6 +424,29 @@ final class ConfigVerbIT {
         assertEquals(30, replication.sweepSeconds());
     }
 
+    /**
+     * A sweep interval too large for an {@code int} saturates instead of truncating.
+     *
+     * <p>The guard that rejects a non-positive interval reads the value as a {@code long}, so a
+     * narrowing cast after it handed back exactly what the guard had just refused: 2^32 truncates to
+     * {@code 0} and 2^31 to {@link Integer#MIN_VALUE}. Nothing crashed, because
+     * {@link WorldReplicationService#reconfigure} floors the interval at 30 s — which is what made
+     * this worth a test rather than a one-line note. The corruption is silent and it *inverts* the
+     * request: an operator asking for the longest sweep the field can express got the shortest one
+     * the lane allows, and every read-back agreed with them that it had been applied.
+     */
+    @Test
+    void aSweepIntervalBeyondAnIntSaturatesRatherThanTruncatingToTheFloor() throws Exception {
+        worker();
+
+        for (long huge : new long[] {1L << 31, 1L << 32, Long.MAX_VALUE}) {
+            String reply = config("{\"storage.replication_sweep_seconds\":" + huge + "}");
+            assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+            assertEquals(Integer.MAX_VALUE, replication.sweepSeconds(),
+                    huge + " must saturate, not wrap round to the 30 s floor");
+        }
+    }
+
     @Test
     void malformedBase64IsAnErrorRatherThanAnEmptyConfig() throws Exception {
         worker();
