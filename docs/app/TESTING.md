@@ -6,7 +6,7 @@
      no logic in the UI worth testing beyond parsing. Keep counts and Last run current. -->
 
 **Category:** app · **Last run:** 2026-07-28 · **Last audit:** 2026-07-28 ·
-**188 tests** (187 Rust + 1 frontend), all re-run
+**193 tests** (187 Rust + 6 frontend), all re-run
 
 ```bash
 cd rust/nodera-app && cargo test        # REQUIRED — the workspace gate does not cover this crate
@@ -48,9 +48,12 @@ The app is deliberately the thinnest layer in the project, and its test strategy
 ### Test counts (run 2026-07-28)
 
 A count of `#[test]` / `#[tokio::test]` attributes in `rust/nodera-app/src/`, plus the frontend's
-Node test, re-run after the Android port lane additions (desktop/property parity, control isolation,
-property-file replacement across changed settings, and both possible context/setup startup orders):
-**188 total.**
+Node tests, re-run after the UX honesty bundle (issue #98). The Rust total is unchanged at 187: two
+tests for deleted code went with it (`the_unenforced_shim_lists_exactly_the_non_live_keys` and the
+invitation-file round trip, whose reader half was an uncalled command), one direct assertion on the
+writer replaced them, and the notifications enforcement test is new. The frontend gained five exit
+tests for A-UX-1/2/3/5, including one that walks all 47 registered Tauri commands and fails on any
+without a caller: **193 total.**
 
 | Module | Tests |
 |---|---:|
@@ -68,7 +71,7 @@ property-file replacement across changed settings, and both possible context/set
 | `android::worker` | 2 |
 | `telemetry` | 7 |
 | `api::modinstall` | 6 |
-| `api::network` | 6 |
+| `api::network` | 5 |
 | `api::events` | 5 |
 | `control` | 5 |
 | `peer::identity` | 5 |
@@ -79,7 +82,8 @@ property-file replacement across changed settings, and both possible context/set
 | `logs` | 2 |
 | `system` | 2 |
 | `ui/tests/tracker-stores-style.test.mjs` | 1 |
-| **Total** | **188** |
+| `ui/tests/ux-honesty.test.mjs` | 5 |
+| **Total** | **193** |
 
 ## 3. Manual smoke, per increment
 
