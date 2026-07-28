@@ -24,11 +24,36 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED | LAN modal + Join a world + invitations + mod installer; 107 crate tests |
 | [8](Task.8.md) | Screen redesign: one subject per screen | ✅ COMPLETED | 8 screens, each owning one subject; worker events drive the LAN prompt; generated licence manifest; 116 crate tests |
 | [9](Task.9.md) | Tracker stores | ✅ COMPLETED | Trust lists added by URL or deep link; built-in store is deletable; the services sync file is the Android worker's only channel; verified on a physical device 2026-07-27 |
-| [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll and a single dashboard subscription landed; the content pass and the settings-honesty pass remain |
+| [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll, one dashboard subscription, and A-UX-4's desktop/Material role repair landed; content and settings-honesty work remains |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Tracker stores follows both shells, proven from the bundle
+
+Review found that replacing undefined desktop utilities was not enough: the same component is
+rendered inside the Material 3 mobile shell, where desktop `--text`, `--surface`, and `--brand-*`
+roles bypassed the user's dynamic source colour. The shared component now consumes semantic custom
+properties selected at its root. Desktop resolves them to the app palette; mobile resolves controls,
+cards, errors, inputs, dialog surfaces, and scrim to generated `--md-sys-color-*` roles.
+
+The prior test only scanned literal `className` strings, which could pass while Tailwind emitted no
+selector. It now runs after the production Vite build and verifies actual CSS rules for every desktop
+and mobile role mapping, every consumed surface/control role, and both shell padding selectors.
+Evidence: `built tracker-store CSS resolves desktop and mobile shell roles`, 183 app Rust tests, 408
+Rust workspace tests, and the full Gradle gate. A-UX-4 remains retired on stronger evidence.
+
+### 2026-07-28 — Tracker stores uses the generated palette and the right frame
+
+The tracker-store screen's obsolete `text-fg*`, `*-accent*`, and `text-warning` utilities were
+replaced with colours exported by `styles.css`. Desktop now wraps the route in the same
+`max-w-[1100px] px-[26px] pt-5 pb-10` frame used by its peer screens. Padding stays outside the
+shared component, so mobile retains its existing `px-4` frame without receiving desktop padding.
+
+Evidence: `tracker stores uses generated colours and layout-specific page padding` passed inside
+the production `bun run build`; all 183 app Rust tests and the full Gradle gate also passed. A-UX-4
+moved to `LIMITATIONS.fixed.md`; Task 10 remains in progress.
 
 ### 2026-07-28 — Documentation sweep: statuses, test count, refactoring register
 

@@ -6,7 +6,7 @@
      removing an unsupportable setting would silently drop values users already saved AND hide that
      the limitation is known. -->
 
-**Category:** app · **Last audit:** 2026-07-28 · Open or retiring rows: **7**
+**Category:** app · **Last audit:** 2026-07-28 · Open or retiring rows: **6**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -30,7 +30,6 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 | A-UX-1 | When the link to the worker is down, only the top bar changes: every screen keeps rendering its numbers unmarked, because they all gate on `link.has_data`, which stays true. Keeping the last picture is deliberate; failing to say it is the last picture is not | [10](Task.10.md) | With the worker stopped, every screen marks its figures as last-known rather than current | OPEN |
 | A-UX-2 | `appearance.notifications` reports itself as in force and has no read site — no consumer, no `tauri-plugin-notification`, no capability entry. `Enforcement::Local` resolves to `Live` unconditionally | [10](Task.10.md) | The setting either raises a notification or is declared unenforced | OPEN |
 | A-UX-3 | Saving a restart-scoped setting tells the user to restart the worker themselves, while the app already owns the restart signal | [10](Task.10.md) | The banner restarts the worker, or explains why it cannot in this mode | OPEN |
-| A-UX-4 | The tracker-stores screen uses Tailwind colour tokens that are not generated (`text-fg`, `bg-accent`, `text-warning`, …) and has no page padding, so it renders unstyled and flush to the window edge | [10](Task.10.md) | The screen uses defined tokens and matches the padding of every other screen | OPEN |
 | A-UX-5 | Six registered commands have no desktop caller: `settings_fault`, `pause_reason`, `dashboard_world`, `open_share_file`, `get_unenforced_settings`, and the `nodera://pause` event | [10](Task.10.md) | Each has a caller or is deleted | OPEN |
 
 ---

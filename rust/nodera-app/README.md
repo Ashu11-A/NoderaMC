@@ -99,6 +99,7 @@ the frontend, and `cargo install tauri-cli --version '^2'`.
 ```bash
 cd rust/nodera-app
 npm --prefix ui install       # first time
+npm --prefix ui test          # type-check + bundle + emitted-CSS contracts
 cargo tauri dev               # window + tray + supervisor + control monitor
 cargo tauri build             # release bundle (autostart + tray)
 cargo test                    # REQUIRED — the workspace gate does not cover this crate
@@ -120,7 +121,9 @@ distribution copied in at bundle time (build it with the worker's `installDist` 
 
 ## Tests
 
-56 tests: bitmap decoding and its edge cases, additive-field tolerance, control-socket error
-surfacing and timeouts, the settings golden JSON (the cross-language key contract),
-worker-environment spawn pairs, a power-state truth table, the log ring, system sampling, and the
-badge-enforcement invariants.
+184 tests: 183 Rust tests covering bitmap decoding and its edge cases, additive-field tolerance,
+control-socket error surfacing and timeouts, the settings golden JSON (the cross-language key
+contract), worker-environment spawn pairs, a power-state truth table, the log ring, system sampling,
+and badge-enforcement invariants; plus one post-build frontend test pinning emitted tracker-store
+desktop roles, dynamic Material 3 mobile roles, and padding ownership. The frontend test runs after
+every production UI build, so a utility Tailwind silently omitted cannot satisfy it.

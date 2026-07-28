@@ -5,12 +5,14 @@
      dashboard's data path is asserted on the JAVA gate (the worker's STATE verb) — keep it that way:
      no logic in the UI worth testing beyond parsing. Keep counts and Last run current. -->
 
-**Category:** app · **Last run:** 2026-07-26 · **Last audit:** 2026-07-28 ·
-**183 test functions** (grep-verified from source; the crate was **not** re-run on 2026-07-28)
+**Category:** app · **Last run:** 2026-07-28 · **Last audit:** 2026-07-28 ·
+**184 tests** (183 Rust + 1 frontend), all re-run
 
 ```bash
 cd rust/nodera-app && cargo test        # REQUIRED — the workspace gate does not cover this crate
 cd rust && cargo test                   # does NOT include nodera-app
+cd rust/nodera-app/ui && bun run test   # type-check + bundle + emitted-CSS contracts
+cd rust/nodera-app/ui && bun run build  # same production gate used by CI
 ```
 
 ---
@@ -26,6 +28,7 @@ The app is deliberately the thinnest layer in the project, and its test strategy
 | **Supervisor lifecycle** | Here | Spawn, attach, stop — including the rule that quitting never kills a worker the app did not spawn |
 | **Packaging and install** | CI ([`Task.3.md`](Task.3.md)) | Only a clean-checkout build catches gitignored build inputs |
 | **The product claim** | CI ([`Task.4.md`](Task.4.md)) | Install → gate both ways → host → close Minecraft → still joinable |
+| **Generated UI roles and shell padding** | Post-build Node regression over Vite's emitted CSS | Tailwind silently omits unknown utilities; mobile must resolve through dynamic Material 3 roles; desktop and mobile intentionally frame the shared component differently |
 
 ## 2. Crate coverage
 
@@ -42,11 +45,10 @@ The app is deliberately the thinnest layer in the project, and its test strategy
   holds — a control may not be shown as enforced unless the worker confirmed it.
 - **Log ring** and **system sampling**.
 
-### Test counts (grep-verified 2026-07-28)
+### Test counts (run 2026-07-28)
 
-A count of `#[test]` / `#[tokio::test]` attributes in `rust/nodera-app/src/`, **not** a re-run. The
-last actual `cargo test` was 2026-07-26; the figure was carried there as "63" long after tasks 6–10
-landed their suites, which is why this table exists. **183 total.**
+A count of `#[test]` / `#[tokio::test]` attributes in `rust/nodera-app/src/`, plus the frontend's
+Node test. Both commands were re-run: **184 total.**
 
 | Module | Tests |
 |---|---:|
@@ -73,7 +75,8 @@ landed their suites, which is why this table exists. **183 total.**
 | `api::commands` | 2 |
 | `logs` | 2 |
 | `system` | 2 |
-| **Total** | **183** |
+| `ui/tests/tracker-stores-style.test.mjs` | 1 |
+| **Total** | **184** |
 
 ## 3. Manual smoke, per increment
 

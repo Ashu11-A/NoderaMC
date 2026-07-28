@@ -47,6 +47,10 @@ regardless only because `network.default_trackers` also arrives over `NODERA-CON
 
 Landed so far: the Kotlin side now derives the path the same way the Rust side does
 (`NoderaWorker.kt:92-95` sets `NODERA_SERVICES_FILE` to `dataDir/nodera/nodera-services.list`).
+The shared tracker-store screen also selects a Material 3 semantic-role mapping on mobile, so its
+controls, cards, errors, inputs, and dialogs follow the generated source colour instead of forcing
+desktop palette variables through the mobile shell. This advances deliverable 7; physical touch
+acceptance of both reused screens remains open.
 
 **2026-07-28 re-audit.** Deliverable 1 stays green; deliverables 2–7 remain open and each maps to a
 verified limitation:
@@ -117,6 +121,8 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 | `rust/nodera-app/src/daemon.rs` | `supervise` — the desktop-only restart consumer (M-NET-3) |
 | `rust/nodera-app/gen/android/app/build.gradle.kts:22` | `minSdk = 24` (M-NET-4) |
 | `scripts/android-apk.sh:156` | `--min-api 26` dex floor (M-NET-4) |
+| `rust/nodera-app/ui/src/TrackerStores.tsx` | shared desktop/mobile semantic roles |
+| `rust/nodera-app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
 
 ## Testing
 
@@ -125,6 +131,7 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 | `scripts/android-e2e.sh` with a LAN tracker and **no** `NODERA_DEFAULT_TRACKERS` baked in | deliverable 1 — the phone can only reach the tracker through the services file |
 | `adb shell run-as dev.nodera.app ls nodera/` | the file is where both sides agree |
 | A store added in the app, then `logcat` showing the endpoint in use | deliverable 2 (M-NET-1 — not yet green) |
+| `built tracker-store CSS resolves desktop and mobile shell roles` | generated Material 3 roles reach the reused tracker-store controls, cards, inputs, and dialogs |
 
 ## Acceptance criteria
 
