@@ -202,7 +202,8 @@ of another module's.
 | `SchedulerDispatchTest` | Each `NoderaScheduler` method routes to the expected target; `BukkitScheduler` unreferenced | [1](Task.1.md) | ⬜ deferred |
 | `EndpointControlHandlerTest` | Every `ControlProtocol` v2 verb answers from live state; unknown verb → `NODERA-ERR unknown verb` | [2](Task.2.md) | ⬜ |
 | `ViewOwnershipPlannerTest` (extended) | A node with N views; min distance; two peers plan a 20-tenant endpoint identically; custody breaks ties **only** | [3](Task.3.md) | ✅ (L-63 retire) |
-| `CustodyAuditIT` | A lying `FULL` claim is caught by a spot-check and downgraded to `VIEW`, world still available | [3](Task.3.md) | ⬜ |
+| `CustodyAuditIT` | A lying `FULL` claim is caught by a spot-check and downgraded to `VIEW`, world still available | [3](Task.3.md) | ✅ (5, L-62 retire) |
+| `CustodyDigestTest` | Canonical `RegionOrder` leaves; equal state → equal root; one changed or missing head changes it; inclusion proofs verify at sizes 1…100 | [3](Task.3.md) | ✅ (8) |
 | `BukkitWorldViewTest` | `MutableWorldView` conformance against the same contract `InMemoryWorldView` satisfies | [4](Task.4.md) | ⬜ |
 | `CrossFoliaRegionCommitIT` | A joint-transfer prepare/commit across two Folia region threads is atomic; a one-sided failure commits neither | [4](Task.4.md) | ⬜ |
 | `BukkitEntityAdaptersTest` | Bukkit and NeoForge adapters emit byte-identical `PersistedEntityState` — the anti-drift test | [5](Task.5.md) | ⬜ |

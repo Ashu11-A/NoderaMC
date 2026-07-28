@@ -1,5 +1,7 @@
 package dev.nodera.endpoint;
 
+import dev.nodera.core.region.CustodyClass;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -29,7 +31,7 @@ public record EndpointConfig(
         int p2pPort,
         String p2pAdvertise,
         String worldId,
-        Custody custody,
+        CustodyClass custody,
         boolean listed,
         List<String> trackers,
         List<String> rendezvous,
@@ -43,14 +45,6 @@ public record EndpointConfig(
         EMBEDDED,
         /** A separate always-on worker process reached over the control socket. */
         EXTERNAL
-    }
-
-    /** How much of the world this endpoint claims to hold. */
-    public enum Custody {
-        /** Every region: this endpoint can serve the whole world. */
-        FULL,
-        /** Only what its players view. */
-        VIEW
     }
 
     /** Defaults chosen so an operator who writes nothing gets a working, honest node. */
@@ -87,7 +81,7 @@ public record EndpointConfig(
                             + ") — the control socket is loopback-only and the p2p socket is not,"
                             + " so one port cannot be both"));
         }
-        if (custody == Custody.FULL && listed && worldId.isBlank()) {
+        if (custody == CustodyClass.FULL && listed && worldId.isBlank()) {
             // FULL custody with no world id is NOT a contradiction on its own: an endpoint is
             // routinely configured before its world has an id, which the host flow assigns from the
             // certified genesis. It only becomes one when the world is also to be ANNOUNCED —
@@ -123,7 +117,7 @@ public record EndpointConfig(
                 values.number("peer.p2p.port", DEFAULT_P2P_PORT),
                 values.text("peer.p2p.advertise", ""),
                 values.text("world.id", ""),
-                custody(values.text("world.custody", "view")),
+                CustodyClass.parse(values.text("world.custody", "view")),
                 values.flag("world.listed", false),
                 values.list("discovery.trackers"),
                 values.list("discovery.rendezvous"),
@@ -134,10 +128,6 @@ public record EndpointConfig(
     private static PeerMode mode(String raw) {
         return "external".equals(raw.trim().toLowerCase(Locale.ROOT))
                 ? PeerMode.EXTERNAL : PeerMode.EMBEDDED;
-    }
-
-    private static Custody custody(String raw) {
-        return "full".equals(raw.trim().toLowerCase(Locale.ROOT)) ? Custody.FULL : Custody.VIEW;
     }
 
     /**
