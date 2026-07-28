@@ -44,8 +44,10 @@ services:
       - ./ingest/geo.csv:/etc/nodera/geo.csv:ro
       - spool:/var/lib/nodera/spool
     ports:
-      # Plaintext. Publish this only on a private network — terminate TLS at `edge` for anything
-      # reachable from the internet (docs/telemetry/LIMITATIONS.md L-T2).
+      # Plaintext, and bound to loopback so it is not reachable from outside the host: TLS is
+      # terminated at `edge`. An operator who does publish this port must set `public_endpoint` in
+      # ingest/nodera-telemetry.toml, which makes the service refuse anything that did not come
+      # through the declared TLS front instead of serving it in the clear (telemetry L-73).
       - "127.0.0.1:25620:25620"
     healthcheck:
       test: ["CMD", "nodera-telemetry", "--healthcheck", "127.0.0.1:25620"]

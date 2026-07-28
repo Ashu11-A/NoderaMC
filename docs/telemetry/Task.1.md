@@ -7,7 +7,7 @@
      added at all. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** telemetry · **Owns:** L-72, L-73 · **Last audit:** 2026-07-28
+**Category:** telemetry · **Owns:** L-72 (L-73 retired) · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md) (framing)
 **Consumed by:** [telemetry 2](Task.2.md), [network 12](../network/Task.12.md), [tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [worker 5](../worker/Task.5.md)
 
@@ -134,6 +134,11 @@ The privacy-decisive tests, by name:
 
 ## Limitations
 
-Owns **L-72** (the operator holds the pseudonymisation secret and can re-link a *current* period)
-and **L-73** (the listener is plaintext; TLS is terminated by a separate proxy). Both are in
-[`LIMITATIONS.md`](LIMITATIONS.md) with elimination paths and exit tests.
+Owns **L-72** (the operator holds the pseudonymisation secret and can re-link a *current* period),
+in [`LIMITATIONS.md`](LIMITATIONS.md) with its elimination path and exit test.
+
+**L-73 is retired** (2026-07-28, [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)): the plaintext
+listener is no longer merely *documented* as needing a TLS proxy in front of it. A deployment that
+declares itself public (`public_endpoint`) must name the ranges its terminator dials from, and a
+connection from anywhere else is closed before its first frame is read —
+`wire::tests::a_direct_plaintext_client_is_refused_once_the_endpoint_is_declared_public`.

@@ -53,6 +53,99 @@ pub struct Config {
     pub per_ip_event_quota: u32,
     /// How often the operator counter line is printed.
     pub report_interval_seconds: u64,
+    /// **The deployment declares itself public** (telemetry L-73).
+    ///
+    /// The listener speaks plaintext and always will: TLS is terminated by the `edge` proxy the
+    /// compose stack ships. That arrangement is only worth anything if nothing *else* can reach the
+    /// plaintext port, and until now nothing checked. Setting this to `true` says "this service is
+    /// published to the internet", and from that moment a connection that did not come through the
+    /// declared TLS front is refused rather than served — see [`Config::trusted_proxy_cidrs`].
+    ///
+    /// The default is `false`, which is the private/single-host case and behaves exactly as before.
+    pub public_endpoint: bool,
+    /// The address ranges the TLS terminator dials from, as `a.b.c.d/len`.
+    ///
+    /// Required once [`Config::public_endpoint`] is set, because "public, and everyone may connect
+    /// in the clear" is the very condition being closed. Loopback is always admitted regardless, so
+    /// a container healthcheck does not need an entry.
+    pub trusted_proxy_cidrs: Vec<String>,
+}
+
+/// Whether a connection may be served, given what the deployment declared about itself.
+///
+/// Split out of [`Config`] so the decision is a value that can be tested directly, rather than a
+/// condition buried in the accept loop where the only way to observe it is to run a server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admission {
+    public: bool,
+    trusted: Vec<(u128, u32, bool)>,
+}
+
+impl Admission {
+    /// The policy that admits everything — a private deployment, and the historical behaviour.
+    pub fn open() -> Self {
+        Self {
+            public: false,
+            trusted: Vec::new(),
+        }
+    }
+
+    /// Build from a validated configuration.
+    pub fn from_config(config: &Config) -> Result<Self, ConfigError> {
+        let mut trusted = Vec::new();
+        for raw in &config.trusted_proxy_cidrs {
+            trusted.push(parse_cidr(raw).ok_or(ConfigError::BadProxyCidr(raw.clone()))?);
+        }
+        Ok(Self {
+            public: config.public_endpoint,
+            trusted,
+        })
+    }
+
+    /// May this source address be served?
+    ///
+    /// A private deployment admits everything. A public one admits loopback (healthchecks) and the
+    /// declared TLS front, and nothing else: a direct plaintext client on the public endpoint is
+    /// refused at accept, before a byte of its frame is read.
+    pub fn admits(&self, ip: std::net::IpAddr) -> bool {
+        if !self.public {
+            return true;
+        }
+        if ip.is_loopback() {
+            return true;
+        }
+        let (value, v4) = normalise(ip);
+        self.trusted.iter().any(|&(net, prefix, net_v4)| {
+            net_v4 == v4 && (prefix == 0 || value >> (128 - prefix) == net >> (128 - prefix))
+        })
+    }
+}
+
+/// `a.b.c.d/len` or an IPv6 equivalent → (network as u128, prefix, is-v4).
+fn parse_cidr(raw: &str) -> Option<(u128, u32, bool)> {
+    let (addr, prefix) = raw.trim().split_once('/')?;
+    let ip: std::net::IpAddr = addr.trim().parse().ok()?;
+    let prefix: u32 = prefix.trim().parse().ok()?;
+    let (value, v4) = normalise(ip);
+    let width = if v4 { 32 } else { 128 };
+    if prefix > width {
+        return None;
+    }
+    // Shift into the 128-bit space the comparison uses.
+    let prefix = prefix + if v4 { 96 } else { 0 };
+    Some((value, prefix, v4))
+}
+
+/// An address as a `u128` plus its family, with IPv4-mapped IPv6 folded onto IPv4 — the same
+/// normalisation [`crate::geo`] uses, so one address never matches under two families.
+fn normalise(ip: std::net::IpAddr) -> (u128, bool) {
+    match ip {
+        std::net::IpAddr::V4(v4) => (u32::from(v4) as u128, true),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => (u32::from(v4) as u128, true),
+            None => (u128::from(v6), false),
+        },
+    }
 }
 
 impl Default for Config {
@@ -74,6 +167,8 @@ impl Default for Config {
             per_ip_batch_quota: 30,
             per_ip_event_quota: 5_000,
             report_interval_seconds: 60,
+            public_endpoint: false,
+            trusted_proxy_cidrs: Vec::new(),
         }
     }
 }
@@ -92,6 +187,14 @@ pub enum ConfigError {
     WeakSecret,
     #[error("{0} must be greater than zero")]
     MustBePositive(&'static str),
+    #[error(
+        "public_endpoint is set but trusted_proxy_cidrs is empty: this service speaks plaintext, \
+         so declaring it public without naming the TLS terminator that fronts it would publish an \
+         unencrypted listener to the internet"
+    )]
+    PublicWithoutTlsFront,
+    #[error("trusted_proxy_cidrs entry {0:?} is not an address/prefix")]
+    BadProxyCidr(String),
     /// An environment variable was unusable, or named nothing this service has.
     #[error("invalid environment configuration: {0}")]
     Env(#[from] nodera_service::env::EnvError),
@@ -146,6 +249,8 @@ impl Config {
         overlay.set("per_ip_batch_quota", &mut self.per_ip_batch_quota);
         overlay.set("per_ip_event_quota", &mut self.per_ip_event_quota);
         overlay.set("report_interval_seconds", &mut self.report_interval_seconds);
+        overlay.set("public_endpoint", &mut self.public_endpoint);
+        overlay.set_list("trusted_proxy_cidrs", &mut self.trusted_proxy_cidrs);
         overlay.finish().map_err(ConfigError::Env)
     }
 
@@ -181,6 +286,12 @@ impl Config {
         if self.max_attrs_per_event == 0 {
             return Err(ConfigError::MustBePositive("max_attrs_per_event"));
         }
+        // L-73: a public declaration is only meaningful if it is enforceable, and it is only
+        // enforceable if the operator says which front-end may reach the plaintext port.
+        if self.public_endpoint && self.trusted_proxy_cidrs.is_empty() {
+            return Err(ConfigError::PublicWithoutTlsFront);
+        }
+        Admission::from_config(self)?;
         Ok(())
     }
 
@@ -325,6 +436,67 @@ mod tests {
         assert!(config
             .apply_env(&MapEnv::empty().with("NODERA_TELEMETRY_SPOOL_MAX_BYTE", "1"))
             .is_err());
+    }
+
+    /// L-73: declaring the endpoint public without naming a TLS front is refused at boot.
+    ///
+    /// The failure this closes is not exotic — it is copying the example config onto a public host
+    /// and getting an unencrypted listener that serves anyone who finds the port.
+    #[test]
+    fn declaring_the_endpoint_public_without_a_tls_front_refuses_the_start() {
+        let config = Config {
+            public_endpoint: true,
+            ..valid()
+        };
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigError::PublicWithoutTlsFront
+        );
+    }
+
+    #[test]
+    fn an_unparseable_trusted_range_is_refused_rather_than_ignored() {
+        let config = Config {
+            public_endpoint: true,
+            trusted_proxy_cidrs: vec!["203.0.113.0".to_owned()], // no prefix
+            ..valid()
+        };
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigError::BadProxyCidr("203.0.113.0".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_public_endpoint_admits_only_the_tls_front_and_loopback() {
+        let config = Config {
+            public_endpoint: true,
+            trusted_proxy_cidrs: vec!["203.0.113.0/24".to_owned(), "2001:db8::/32".to_owned()],
+            ..valid()
+        };
+        config.validate().unwrap();
+        let admission = Admission::from_config(&config).unwrap();
+
+        assert!(admission.admits("203.0.113.7".parse().unwrap()), "the front");
+        assert!(admission.admits("127.0.0.1".parse().unwrap()), "healthcheck");
+        assert!(admission.admits("2001:db8::5".parse().unwrap()), "v6 front");
+        assert!(
+            !admission.admits("198.51.100.9".parse().unwrap()),
+            "a direct plaintext client must not be served on a public endpoint"
+        );
+        assert!(
+            !admission.admits("203.0.114.7".parse().unwrap()),
+            "one range off is still off"
+        );
+        // A v4 address must not match a v6 range that happens to share a numeric prefix.
+        assert!(!admission.admits("2001:dba::5".parse().unwrap()));
+    }
+
+    #[test]
+    fn a_private_deployment_is_unchanged_and_admits_everything() {
+        let admission = Admission::from_config(&valid()).unwrap();
+        assert!(admission.admits("198.51.100.9".parse().unwrap()));
+        assert_eq!(admission, Admission::open());
     }
 
     #[test]

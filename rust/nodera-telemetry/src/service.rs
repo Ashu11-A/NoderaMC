@@ -45,6 +45,9 @@ pub struct Counters {
     pub events_refused: u64,
     pub bytes_in: u64,
     pub write_errors: u64,
+    /// Connections refused before a byte was read, because the deployment declares itself public
+    /// and the source is not the TLS front (telemetry L-73).
+    pub connections_refused: u64,
     /// Per-reason refusal counts, batch-level and event-level in one map.
     pub reasons: BTreeMap<String, u64>,
 }
@@ -57,6 +60,7 @@ pub struct Ingest {
     pseudonymiser: Pseudonymiser,
     sink: Box<dyn EventSink>,
     counters: Counters,
+    admission: crate::config::Admission,
 }
 
 impl Ingest {
@@ -68,7 +72,13 @@ impl Ingest {
         );
         let pseudonymiser =
             Pseudonymiser::new(&config.subject_secret, config.subject_rotation_days);
+        // `validate()` has already refused an unparseable CIDR, and `serve` refuses to start on a
+        // config that does not validate — so reaching this with a bad range is a programming error
+        // and must be loud rather than silently open.
+        let admission = crate::config::Admission::from_config(&config)
+            .expect("configuration was validated before the service was constructed");
         Self {
+            admission,
             config,
             quota,
             geo,
@@ -84,6 +94,25 @@ impl Ingest {
 
     pub fn counters(&self) -> &Counters {
         &self.counters
+    }
+
+    /// May a connection from `source` be served at all?
+    ///
+    /// This is the plaintext-listener gate (telemetry L-73). A private deployment admits
+    /// everything; a deployment that has declared itself public admits only loopback and the
+    /// declared TLS terminator, so a client dialling the public endpoint in the clear is refused
+    /// rather than served.
+    pub fn admits_connection(&mut self, source: IpAddr) -> bool {
+        if self.admission.admits(source) {
+            return true;
+        }
+        self.counters.connections_refused += 1;
+        *self
+            .counters
+            .reasons
+            .entry("plaintext_not_via_tls_front".to_owned())
+            .or_insert(0) += 1;
+        false
     }
 
     /// Expire idle quota counters.

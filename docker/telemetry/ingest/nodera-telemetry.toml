@@ -31,3 +31,14 @@ per_ip_batch_quota = 30
 per_ip_event_quota = 5000
 
 report_interval_seconds = 60
+
+# Is this deployment published to the internet? (telemetry L-73)
+#
+# The listener speaks plaintext; TLS is terminated by `edge`. Setting this makes that arrangement
+# enforced rather than assumed — the plaintext port then serves only the ranges named below (plus
+# loopback, for the healthcheck), so a client that finds the port and dials it in the clear is
+# disconnected before it is read. Leave it false on a private single-host deployment.
+#
+# 172.16.0.0/12 is Docker's default bridge space, which is where `edge` dials from in this stack.
+public_endpoint = false
+trusted_proxy_cidrs = ["172.16.0.0/12"]
