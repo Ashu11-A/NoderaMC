@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-25 · Tasks completed: **11 / 12**
+**Category:** network · **Last audit:** 2026-07-27 · Tasks completed: **11 / 13**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -28,10 +28,35 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [10](Task.10.md) | Tick-lag + low-TPS handoff | ✅ COMPLETED | Gained a live call site 2026-07-25 |
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
+| [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-84) |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — A peer stops being told where its relays are
+
+The rendezvous list was a configuration string, and three things followed from that: adding a rendezvous
+to the network reached nobody, losing one was an outage for everyone configured to use it, and no peer
+could prefer the relay that actually worked for it. `RendezvousDirectory` replaces it — ask the trackers,
+verify every row, probe the candidates, keep the best few, report what was measured.
+
+Two properties are worth naming. **A peer scores what it measured**, because a relay with excellent global
+availability that *this* peer cannot reach is useless to this peer; the tracker's aggregate is the
+evidence a joining peer has and the tie-break when a peer's own probes cannot separate two relays. And
+**several endpoints are selected, all of them used**: registering with several and querying only the first
+converts redundancy into a silent single point of failure.
+
+Two sentinels had to be made explicit, and a test rather than review caught the second: `Reachability`
+reports `-1` for unreachable, and a score with no reporters carries `rttP95 == 0`. Read naively, both make
+an unusable relay the fastest-scoring thing in the directory.
+
+**A real defect fixed on the way through.** `RendezvousPeerTransport`'s accept loop slept 500 ms after a
+failed re-reservation and then *returned*, ending the peer's inbound relay path until the process
+restarted — so a rendezvous restart was a permanent, invisible outage for anybody who had reserved there.
+It now retries across every endpoint with capped backoff, forever. A second one on the app side:
+`worker_env` never passed `NODERA_RENDEZVOUS_ENDPOINTS`, so a user's configured relay was silently
+ignored; `the_configured_rendezvous_endpoints_reach_the_worker` pins it.
 
 ### 2026-07-26 — The node remembers who behaved
 

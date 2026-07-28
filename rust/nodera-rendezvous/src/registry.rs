@@ -110,6 +110,17 @@ impl Registry {
         self.namespaces.len()
     }
 
+    /// How many records are held across every namespace.
+    ///
+    /// This is the number the service publishes as its own `active_sessions`: a peer choosing between
+    /// rendezvous points cares how loaded each one is, and registrations are what a rendezvous holds.
+    pub fn record_count(&self) -> usize {
+        self.namespaces
+            .values()
+            .map(|entry| entry.records.len())
+            .sum()
+    }
+
     /// Look up a namespace.
     pub fn namespace(&self, ns: &Namespace) -> Option<&NamespaceEntry> {
         self.namespaces.get(ns)

@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 /// The full service configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -52,6 +53,34 @@ pub struct Config {
     pub telemetry_endpoint: String,
     /// How often a window event is emitted.
     pub telemetry_interval_seconds: u64,
+
+    // --- service directory + drain + update (rendezvous Task 5) ---
+    /// Trackers to announce this rendezvous to, so peers discover it instead of being configured
+    /// with it. **This is the key that makes the whole discovery lane work** — a rendezvous that
+    /// announces to no tracker is reachable only by peers that already have its address.
+    pub tracker_endpoints: Vec<String>,
+    /// Routes to advertise. Empty falls back to `bind_addr`, which is wrong behind NAT: an operator
+    /// on a public host must state the public name here.
+    pub advertised_routes: Vec<String>,
+    /// Where the service signing identity is kept. Created on first start and then preserved: a
+    /// regenerated identity looks like a brand-new, unmeasured rendezvous to every peer.
+    pub identity_file: PathBuf,
+    /// How long a drain may wait for in-flight circuits before the restart proceeds anyway.
+    ///
+    /// The number that decides whether an update cuts a world transfer. Long enough to let a normal
+    /// circuit finish; bounded so a stuck one cannot hang the process forever.
+    pub drain_grace_seconds: u64,
+    /// The soft ceiling on concurrent circuits this relay advertises. 0 means unstated.
+    ///
+    /// Advertised, not enforced here — the enforcement is the reservation limits. Publishing it lets
+    /// a peer prefer a relay with headroom over one that is saturated.
+    pub max_concurrent_circuits: u32,
+    /// Release channel to update from. **Empty by default, and that means off.**
+    pub update_channel: String,
+    /// Base URL the release assets are fetched from.
+    pub update_feed_base_url: String,
+    /// How often to check for a newer published build.
+    pub update_check_interval_seconds: u64,
 }
 
 impl Default for Config {
@@ -73,6 +102,14 @@ impl Default for Config {
             per_ip_request_quota: 120,
             max_frame_bytes: 256 * 1024,
             reservation_hmac_key_hex: String::new(),
+            tracker_endpoints: Vec::new(),
+            advertised_routes: Vec::new(),
+            identity_file: PathBuf::from("nodera-rendezvous-identity.bin"),
+            drain_grace_seconds: 30,
+            max_concurrent_circuits: 0,
+            update_channel: String::new(),
+            update_feed_base_url: nodera_service::update::DEFAULT_FEED_BASE_URL.to_owned(),
+            update_check_interval_seconds: 3_600,
         }
     }
 }
@@ -169,7 +206,58 @@ impl Config {
                 "reservation_hmac_key_hex must be valid, even-length hex".to_owned(),
             ));
         }
+        if self.drain_grace_seconds == 0 {
+            // A zero grace makes every restart a hard cut, which is the behaviour this whole lane
+            // exists to remove; an operator wanting that can stop the process outright.
+            return Err(ConfigError::Invalid(
+                "drain_grace_seconds must be positive".to_owned(),
+            ));
+        }
+        if !self.update_channel.trim().is_empty() {
+            if self.update_check_interval_seconds == 0 {
+                return Err(ConfigError::Invalid(
+                    "update_check_interval_seconds must be positive when update_channel is set"
+                        .to_owned(),
+                ));
+            }
+            if !self.update_feed_base_url.starts_with("https://") {
+                // The published digest is the only integrity check there is; over plaintext, whoever
+                // is on the path chooses both the binary and the digest it is checked against.
+                return Err(ConfigError::Invalid(
+                    "update_feed_base_url must be https://".to_owned(),
+                ));
+            }
+            if self.tracker_endpoints.is_empty() {
+                // Updating without announcing means restarting without telling anyone where to go:
+                // the drain notice reaches the peers holding circuits, but a peer that arrives during
+                // the restart has no way to learn about the replacement.
+                return Err(ConfigError::Invalid(
+                    "update_channel requires tracker_endpoints, so a drain can publish replacements"
+                        .to_owned(),
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// The update lane's configuration for this binary.
+    pub fn update_config(&self) -> nodera_service::update::UpdateConfig {
+        nodera_service::update::UpdateConfig {
+            channel: self.update_channel.clone(),
+            feed_base_url: self.update_feed_base_url.clone(),
+            asset_name: "nodera-rendezvous".to_owned(),
+            check_interval_seconds: self.update_check_interval_seconds,
+            drain_grace_seconds: self.drain_grace_seconds,
+        }
+    }
+
+    /// The routes this rendezvous advertises, falling back to its bind address.
+    pub fn routes(&self) -> Vec<String> {
+        if self.advertised_routes.is_empty() {
+            vec![self.bind_addr.to_string()]
+        } else {
+            self.advertised_routes.clone()
+        }
     }
 
     /// Registration TTL in milliseconds (the unit the registry works in).

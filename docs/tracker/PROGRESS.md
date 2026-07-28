@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** tracker · **Last audit:** 2026-07-25 · Tasks completed: **3 / 4**
+**Category:** tracker · **Last audit:** 2026-07-27 · Tasks completed: **3 / 5**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -19,10 +19,35 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [2](Task.2.md) | The Java client | ✅ COMPLETED | Announce loop moves into the worker; GUI rows ride the live pass |
 | [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS | `STATS`, listing policy, deployment docs remain |
 | [4](Task.4.md) | Service telemetry | ✅ COMPLETED | Off unless configured; counters only, proven on the rendered JSON |
+| [5](Task.5.md) | Service directory + scoring | 🚧 IN PROGRESS | 102 Rust tests; operator docs for the new keys remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — The tracker learns a second question, and still answers neither with authority
+
+A tracker knew *which worlds exist and who seeds them*. It now also answers *which rendezvous points
+exist and which ones work* — the missing half of "a peer can reach the network knowing one address".
+`src/services.rs` holds signed `ServiceRecord`s, aggregates the measurements peers report about them,
+and answers a directory query best-first. 102 Rust tests, up from 72.
+
+The interesting decisions are all about not becoming authority. The composite score is published **and**
+recomputed by the peer from the components (`ServiceScore::composite`, byte-identical in Java and
+asserted across the language boundary by the golden fixture), so a tracker that inflates a favourite's
+number changes nothing about where traffic goes. Peers send **counters**, never verdicts, so the service
+aggregates evidence instead of trusting one peer's arithmetic. Per-reporter influence is capped at 100
+probes and RTT is a **median** across reporters — without both, scoring would have been the cheapest
+denial-of-service in the system: report every rival relay as dead and take over routing.
+
+One convention did change, deliberately. A service now holds a signing key and signs exactly one thing:
+its own address record. A drain notice is an eviction primitive, and unsigned it is a cheap way to herd a
+target's traffic onto a relay the attacker runs. The invariant that still holds absolutely is the one
+that matters — **nothing a service signs is authority over world state.**
+
+Two rows opened with the update lane rather than being papered over: **L-81** (the release digest proves
+integrity, not provenance) and **L-82** (the fetcher shells out to `curl`). Both are inert while
+`update_channel` is empty, which is the default.
 
 ### 2026-07-25 — Service telemetry, and the type that makes the privacy claim structural
 

@@ -5,7 +5,7 @@
      note naming the EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old
      note. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-25 · Tasks completed: **3 / 4**
+**Category:** rendezvous · **Last audit:** 2026-07-27 · Tasks completed: **3 / 5**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -24,6 +24,32 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — The drain that was only a log line
+
+The service printed `draining on shutdown signal`, broke its accept loop, and returned from `main`.
+Dropping the tokio runtime then killed every bridged circuit mid-frame, because the circuits were
+detached `tokio::spawn` tasks nobody awaited. The word was in the log and nowhere in the behaviour.
+
+A drain is now four obligations in a fixed order: refuse new work (a reservation granted after the stop
+decision is a promise already broken), tell the peers already committed **on the control channels they
+are holding**, tell the trackers, then wait for in-flight circuits inside `drain_grace_seconds`. The
+in-flight guard in `run_reserved` is what makes the wait mean anything, and
+`a_live_circuit_registers_as_in_flight_work` is what stops it regressing.
+
+Two smaller decisions carry more weight than their size. A draining relay refuses a reservation with the
+readable reason `draining` rather than closing the socket — the peer side treats a reason as "re-reserve
+elsewhere now" and a close as "retry here", which is the difference between a migration and a stall. And
+a draining relay keeps answering registration and discovery, because those are precisely the peers who
+need to find each other in order to move.
+
+The service also announces itself to trackers now, so an operator adding a relay reaches every peer
+instead of nobody, and the announce ack hands it its own replacement list — which is what lets a drain
+notice name somewhere to go without a discovery round trip at the worst possible moment.
+
+67 Rust tests, up from 62; the five new ones drive real sockets. **L-83** opened for the honest remainder:
+a grace period can still expire with a circuit live, and the fix is resumable transfers rather than a
+longer wait.
 
 ### 2026-07-25 — Punch success becomes measurable, and the inference is stated out loud
 

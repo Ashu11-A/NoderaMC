@@ -50,7 +50,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class RendezvousPeerTransport implements PeerTransport {
 
     private final NodeIdentity identity;
-    private final List<RendezvousEndpoint> endpoints;
+
+    /**
+     * The rendezvous points in use, best first. <b>Volatile and replaceable</b>: the set is now
+     * discovered from trackers and re-scored on a cadence, so losing one relay or gaining a better one
+     * must reach the accept and refresh loops without a restart.
+     */
+    private volatile List<RendezvousEndpoint> endpoints;
     private final UUID networkId;
     private final Bytes genesisHash;
     private final NodeCapabilities capabilities;
@@ -63,6 +69,9 @@ public final class RendezvousPeerTransport implements PeerTransport {
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<NodeId, RelayCircuit> circuits = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Thread> threads = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<java.util.function.Consumer<
+            dev.nodera.protocol.service.ServiceDrainNotice>> drainHandlers =
+            new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean();
 
     /** Priority of this peer's own direct (host) candidate — dialed before the relay. */
@@ -71,6 +80,16 @@ public final class RendezvousPeerTransport implements PeerTransport {
     private static final int RELAY_CANDIDATE_PRIORITY = 1;
     /** Registration lease; the refresh thread renews at half this interval. */
     private static final Duration REGISTRATION_TTL = Duration.ofMinutes(5);
+
+    /** First backoff after a failed reservation attempt across every endpoint. */
+    static final long RESERVE_BACKOFF_MIN_MILLIS = 500;
+    /**
+     * Backoff ceiling. The accept loop <b>never gives up</b> — it used to sleep 500 ms once and then
+     * return, which silently removed this peer's inbound relay path until the process restarted, so a
+     * rendezvous restart was a permanent outage for anybody relying on it. Retrying forever with a
+     * bounded delay costs one sleeping thread and restores the path the moment a relay comes back.
+     */
+    static final long RESERVE_BACKOFF_MAX_MILLIS = 30_000;
 
     private volatile MessageHandler handler;
     private volatile String relayRoute;
@@ -168,8 +187,13 @@ public final class RendezvousPeerTransport implements PeerTransport {
                 directTransport.start();
             }
             // Reserve first so the record can advertise the relay candidate; the accept loop takes
-            // over that reservation and re-reserves after each accepted circuit.
-            RendezvousClient.Reserved reserved = client.reserve(endpoints.get(0), networkId, genesisHash);
+            // over that reservation and re-reserves after each accepted circuit. Tried across every
+            // endpoint rather than only the first: a deployment with three relays configured and one
+            // in use has redundancy on paper and a single point of failure in practice.
+            RendezvousClient.Reserved reserved = reserveAnywhere();
+            if (reserved == null) {
+                throw new IOException("no rendezvous endpoint granted a reservation");
+            }
             relayRoute = reserved.reservation().relayRoute();
             registerSelf();
             Thread acceptor = new Thread(() -> acceptLoop(reserved), "rendezvous-accept-" + nodeId());
@@ -294,18 +318,37 @@ public final class RendezvousPeerTransport implements PeerTransport {
         if (key == null) {
             throw new IOException("peer " + peer + " has not been discovered/learned");
         }
-        var socket = client.openConnect(endpoints.get(0), networkId, genesisHash, peer);
+        var socket = openConnectAnywhere(peer);
         RelayCircuit circuit = RelayCircuitClient.dial(socket, identity, key);
         circuits.put(peer, circuit);
         startReader(peer, circuit);
         return circuit;
     }
 
+    /**
+     * Open a relay circuit to {@code peer} through whichever endpoint bridges it.
+     *
+     * <p>The target reserved somewhere, and after a drain that somewhere is not necessarily where it
+     * was last time. Trying every endpoint costs a connect attempt per relay and is the difference
+     * between "the peer moved" and "the peer is gone".
+     */
+    private java.net.Socket openConnectAnywhere(NodeId peer) throws IOException {
+        IOException last = null;
+        for (RendezvousEndpoint endpoint : endpoints) {
+            try {
+                return client.openConnect(endpoint, networkId, genesisHash, peer);
+            } catch (IOException e) {
+                last = e;
+            }
+        }
+        throw last != null ? last : new IOException("no rendezvous endpoint bridged to " + peer);
+    }
+
     private void acceptLoop(RendezvousClient.Reserved firstReservation) {
         RendezvousClient.Reserved reserved = firstReservation;
         while (running.get()) {
             try {
-                RelayIncoming incoming = RelayCircuitClient.readIncoming(reserved);
+                RelayIncoming incoming = RelayCircuitClient.readIncoming(reserved, this::onDrain);
                 Bytes key = knownKeys.get(incoming.source());
                 if (key == null) {
                     // We were connected by a peer we have not discovered: we cannot authenticate it,
@@ -326,20 +369,114 @@ public final class RendezvousPeerTransport implements PeerTransport {
                 return;
             }
             // One reservation carries one circuit (matching the service); reserve again for the next.
-            try {
-                reserved = client.reserve(endpoints.get(0), networkId, genesisHash);
-            } catch (IOException e) {
-                if (running.get()) {
-                    // Back off briefly rather than hot-looping if the service is unreachable.
-                    sleepQuietly(500);
+            //
+            // This loop is the difference between a rendezvous restart being a blip and being an
+            // outage. It re-reserves across *every* endpoint, and when none of them will have it, it
+            // backs off and tries again instead of returning — the old code slept 500 ms once and then
+            // ended, leaving the peer with no inbound relay path and no way to notice.
+            long backoff = RESERVE_BACKOFF_MIN_MILLIS;
+            reserved = null;
+            while (running.get() && reserved == null) {
+                reserved = reserveAnywhere();
+                if (reserved == null) {
+                    sleepQuietly(backoff);
+                    backoff = Math.min(backoff * 2, RESERVE_BACKOFF_MAX_MILLIS);
                 }
-                if (!running.get()) {
-                    return;
-                }
-                reserved = null;
             }
             if (reserved == null) {
-                return;
+                return; // stopped while backing off
+            }
+            relayRoute = reserved.reservation().relayRoute();
+        }
+    }
+
+    /**
+     * Reserve at the best endpoint that will have us, or {@code null} when none will.
+     *
+     * <p>A relay that answers with {@code draining} is skipped for this attempt rather than retried:
+     * it has told us, in a reply we can read, that a slot it granted would break within its grace
+     * period. Treating that refusal as an ordinary failure — which a closed socket would look like —
+     * is what turns a planned restart into a stall.
+     */
+    private RendezvousClient.Reserved reserveAnywhere() {
+        List<RendezvousEndpoint> candidates = endpoints;
+        for (RendezvousEndpoint endpoint : candidates) {
+            try {
+                RendezvousClient.Reserved reserved =
+                        client.reserve(endpoint, networkId, genesisHash);
+                if (reserved.reservation().accepted()) {
+                    return reserved;
+                }
+                lastRegistrationError =
+                        endpoint + " refused a reservation: " + reserved.reservation().reason();
+                closeQuietly(reserved);
+            } catch (IOException e) {
+                lastRegistrationError = endpoint + ": " + e.getMessage();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Replace the rendezvous endpoints in use and re-register immediately.
+     *
+     * <p>Called when the directory re-scores, and when a drain notice removes a relay. Re-registering
+     * here rather than waiting for the refresh tick is the point: after a drain the peer has up to
+     * half a TTL of invisibility to lose, and the new relays hold no record of it at all until it says
+     * so.
+     *
+     * @param newEndpoints the endpoints to use from now on, best first; an empty list is ignored,
+     *                     because having no relay at all is worse than keeping a stale one.
+     * @throws IllegalArgumentException if {@code newEndpoints} is null.
+     * @Thread-context any thread.
+     */
+    public void setEndpoints(List<RendezvousEndpoint> newEndpoints) {
+        Objects.requireNonNull(newEndpoints, "endpoints");
+        if (newEndpoints.isEmpty() || newEndpoints.equals(endpoints)) {
+            return;
+        }
+        this.endpoints = List.copyOf(newEndpoints);
+        if (!running.get()) {
+            return;
+        }
+        try {
+            registerSelf();
+        } catch (IOException e) {
+            // Not fatal: the refresh loop will try again on its own tick, and the existing circuits
+            // keep carrying traffic in the meantime.
+            lastRegistrationError = "re-register after an endpoint change failed: " + e.getMessage();
+        }
+    }
+
+    /** @return the rendezvous endpoints in use, best first. @Thread-context any thread. */
+    public List<RendezvousEndpoint> endpoints() {
+        return endpoints;
+    }
+
+    /**
+     * Register a handler for verified drain notices arriving on this peer's relay control channel.
+     *
+     * <p>The directory is the intended listener: it drops the departing relay, folds in the
+     * replacements the notice named, and pushes a new endpoint list back through
+     * {@link #setEndpoints}. That loop is what makes a relay restart a migration.
+     *
+     * @param handler called with each verified notice.
+     * @throws IllegalArgumentException if {@code handler} is null.
+     * @Thread-context any thread.
+     */
+    public void onDrainNotice(java.util.function.Consumer<
+            dev.nodera.protocol.service.ServiceDrainNotice> handler) {
+        drainHandlers.add(Objects.requireNonNull(handler, "handler"));
+    }
+
+    private void onDrain(dev.nodera.protocol.service.ServiceDrainNotice notice) {
+        for (var handler : drainHandlers) {
+            try {
+                handler.accept(notice);
+            } catch (RuntimeException e) {
+                // The accept thread is this peer's only inbound relay path: a listener that throws
+                // must not take it down with it.
+                lastRegistrationError = "drain-notice handler failed: " + e;
             }
         }
     }

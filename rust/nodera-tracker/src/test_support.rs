@@ -88,6 +88,11 @@ impl TestSigner {
         self.key.verifying_key().to_bytes().to_vec()
     }
 
+    /// The X.509-wrapped public key — the form a service publishes so Java can verify it.
+    pub fn x509_public_key(&self) -> Vec<u8> {
+        nodera_codec::sig::x509_public_key(&self.key.verifying_key().to_bytes())
+    }
+
     /// Fill in `public_key` and `signature` so the announce verifies.
     pub fn sign_announce(&self, announce: &mut TrackerAnnounce) {
         use ed25519_dalek::Signer;
@@ -95,4 +100,41 @@ impl TestSigner {
         let portion = announce.signed_portion();
         announce.signature = self.key.sign(&portion).to_bytes().to_vec();
     }
+
+    /// Sign arbitrary canonical bytes.
+    pub fn sign(&self, message: &[u8]) -> Vec<u8> {
+        use ed25519_dalek::Signer;
+        self.key.sign(message).to_bytes().to_vec()
+    }
+}
+
+/// A signed service record for service number `n`, mutable before signing.
+pub fn service_record(
+    signer: &TestSigner,
+    n: u64,
+    now_millis: u64,
+    mutate: impl FnOnce(&mut nodera_codec::service::ServiceRecord),
+) -> (nodera_codec::service::ServiceRecord, Vec<u8>) {
+    use nodera_codec::service::{ServiceKind, ServiceLifecycle, ServiceRecord};
+    use nodera_codec::types::NetworkId;
+    let mut record = ServiceRecord {
+        service: NodeId::new(n, n),
+        public_key: signer.x509_public_key(),
+        kind: ServiceKind::Rendezvous,
+        lifecycle: ServiceLifecycle::Serving,
+        network_id: NetworkId::new(0, 0),
+        routes: vec![format!("198.51.100.{n}:25601")],
+        version: "0.1.0".to_owned(),
+        active_sessions: 4,
+        max_sessions: 1_000,
+        active_circuits: 1,
+        max_circuits: 64,
+        rejected_last_window: 0,
+        issued_at_epoch_millis: now_millis,
+        expires_at_epoch_millis: now_millis + 300_000,
+        drain_deadline_epoch_millis: 0,
+    };
+    mutate(&mut record);
+    let signature = signer.sign(&record.signed_bytes());
+    (record, signature)
 }

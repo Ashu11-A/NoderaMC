@@ -7,6 +7,7 @@
 
 use nodera_codec::messages::DiscoveryMessage;
 use nodera_codec::rendezvous::RendezvousMessage;
+use nodera_codec::service::ServiceMessage;
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::WorldDeletionGossip;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,25 @@ fn round_trip(golden: &[u8]) -> Result<Vec<u8>, String> {
         RendezvousMessage::decode(golden)
             .map(|m| m.encode())
             .map_err(|e| e.to_string())
+    } else if (message_tags::SERVICE_ANNOUNCE..=message_tags::SERVICE_DRAIN_NOTICE).contains(&tag) {
+        // Byte identity is necessary but not sufficient here either. A service record is signed on
+        // the Rust side and verified on the Java side — the opposite direction from every other
+        // signed message in this corpus — so the score's composite is also asserted to be what Java
+        // computed. A divergence there would silently reorder every peer's failover list.
+        let message = ServiceMessage::decode(golden).map_err(|e| e.to_string())?;
+        if let ServiceMessage::DirectoryResponse(response) = &message {
+            for entry in &response.entries {
+                if entry.score.composite_permille != entry.score.recomputed_composite() {
+                    return Err(format!(
+                        "Java wrote composite {} where Rust computes {} — the score function has \
+                         drifted between the implementations",
+                        entry.score.composite_permille,
+                        entry.score.recomputed_composite()
+                    ));
+                }
+            }
+        }
+        Ok(message.encode())
     } else {
         DiscoveryMessage::decode(golden)
             .map(|m| m.encode())

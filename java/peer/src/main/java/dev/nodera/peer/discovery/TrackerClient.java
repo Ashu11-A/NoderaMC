@@ -1,7 +1,9 @@
 package dev.nodera.peer.discovery;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.SignatureService;
 import dev.nodera.core.identity.NodeCapabilities;
+import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.PeerRole;
 import dev.nodera.protocol.NoderaMessage;
@@ -13,6 +15,13 @@ import dev.nodera.protocol.discovery.TrackerAnnounceAck;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.protocol.membership.PeerEntry;
+import dev.nodera.protocol.service.ServiceAnnounceAck;
+import dev.nodera.protocol.service.ServiceDirectoryEntry;
+import dev.nodera.protocol.service.ServiceDirectoryQuery;
+import dev.nodera.protocol.service.ServiceDirectoryResponse;
+import dev.nodera.protocol.service.ServiceKind;
+import dev.nodera.protocol.service.ServiceObservation;
+import dev.nodera.protocol.service.ServiceScoreReport;
 import dev.nodera.transport.Frames;
 
 import java.io.IOException;
@@ -25,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -187,6 +197,19 @@ public final class TrackerClient implements AutoCloseable {
      * an in-flight sweep iterates a consistent list.
      */
     private volatile List<Endpoint> endpoints;
+
+    /** Verification only; the signing key never leaves {@link #identity}. */
+    private static final SignatureService SIGNATURES = new SignatureService();
+
+    /**
+     * Directory ordering: best recomputed composite first, then by service id so two peers with the
+     * same evidence build the same failover list.
+     */
+    private static final java.util.Comparator<ServiceDirectoryEntry> SERVICE_ENTRY_ORDER =
+            java.util.Comparator
+                    .comparingInt((ServiceDirectoryEntry e) -> -e.score().recomputedComposite())
+                    .thenComparing(e -> e.record().service().value());
+
     private final NodeIdentity identity;
     private final Duration connectTimeout;
     private final Duration readTimeout;
@@ -508,6 +531,107 @@ public final class TrackerClient implements AutoCloseable {
      */
     public static boolean isWorldHost(NodeCapabilities capabilities) {
         return capabilities.hasRole(PeerRole.FULL_ARCHIVE);
+    }
+
+    /**
+     * Ask every tracker which services of a kind it knows, and merge the answers.
+     *
+     * <p>This is the query that ends the hand-written rendezvous list. Merging is a <b>union with a
+     * best-evidence tie-break</b>, never an arbitration: a service listed by three trackers appears
+     * once, carrying the highest score any of them reported, because a tracker that has heard from
+     * more peers has more evidence — not more authority.
+     *
+     * <p>Every row's signature is verified here, and every composite is recomputed from its
+     * components. A tracker can therefore omit an honest rendezvous or list one that does not answer
+     * — the powers it already has over worlds — but it cannot forge a service's identity, invent a
+     * drain deadline, or inflate a score to steer this peer's traffic.
+     *
+     * @param kind      which kind of service to list.
+     * @param networkId the network this peer serves.
+     * @param limit     maximum rows per tracker; 0 lets each tracker choose its page size.
+     * @return the merged, verified rows, best composite first.
+     * @throws IllegalArgumentException if a reference argument is null.
+     * @Thread-context any thread; each endpoint is contacted sequentially.
+     */
+    public List<ServiceDirectoryEntry> serviceDirectory(ServiceKind kind, UUID networkId,
+            int limit) {
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(networkId, "networkId");
+        ServiceDirectoryQuery request = new ServiceDirectoryQuery(kind, networkId, limit);
+        Map<NodeId, ServiceDirectoryEntry> merged = new LinkedHashMap<>();
+        for (Endpoint endpoint : endpoints) {
+            Optional<NoderaMessage> reply = exchange(endpoint, request);
+            if (reply.isEmpty() || !(reply.get() instanceof ServiceDirectoryResponse response)) {
+                continue;
+            }
+            for (ServiceDirectoryEntry entry : response.entries()) {
+                if (!verifyServiceEntry(entry)) {
+                    continue;
+                }
+                ServiceDirectoryEntry held = merged.get(entry.record().service());
+                if (held == null
+                        || entry.score().recomputedComposite()
+                                > held.score().recomputedComposite()) {
+                    merged.put(entry.record().service(), entry);
+                }
+            }
+        }
+        List<ServiceDirectoryEntry> rows = new ArrayList<>(merged.values());
+        // Recomputed, never the transmitted composite: a tracker that inflated a favourite's number
+        // must not be able to reorder this peer's failover list.
+        rows.sort(SERVICE_ENTRY_ORDER);
+        return List.copyOf(rows);
+    }
+
+    /**
+     * Verify one directory row end to end: the signature over the record's own canonical bytes.
+     *
+     * @param entry the row to check.
+     * @return true when the row is the service's own signed record.
+     * @Thread-context any thread.
+     */
+    public static boolean verifyServiceEntry(ServiceDirectoryEntry entry) {
+        Objects.requireNonNull(entry, "entry");
+        return SIGNATURES.verify(entry.record().publicKey(), entry.record().signedBytes(),
+                entry.signature());
+    }
+
+    /**
+     * Publish measured observations to every tracker.
+     *
+     * <p>Signed with this peer's identity so a tracker can attribute the report and cap how much one
+     * identity may move a score. Unattributed reports would make scoring the cheapest attack in the
+     * system: claim every rival rendezvous is dead and take over routing for the whole network.
+     *
+     * @param networkId    the network the measurements were taken in.
+     * @param observations one row per measured service; an empty list is a no-op.
+     * @param nowEpochMillis the current wall clock — trackers check it against their freshness window.
+     * @return how many trackers accepted the report.
+     * @throws IllegalArgumentException if a reference argument is null.
+     * @Thread-context any thread.
+     */
+    public int reportServiceScores(UUID networkId, List<ServiceObservation> observations,
+            long nowEpochMillis) {
+        Objects.requireNonNull(networkId, "networkId");
+        Objects.requireNonNull(observations, "observations");
+        if (observations.isEmpty() || endpoints.isEmpty()) {
+            return 0;
+        }
+        // The signature covers everything but itself, so this placeholder is never signed over.
+        ServiceScoreReport unsigned = new ServiceScoreReport(identity.nodeId(),
+                identity.publicKeyBytes(), networkId, observations, nowEpochMillis, Bytes.empty());
+        ServiceScoreReport report = new ServiceScoreReport(identity.nodeId(),
+                identity.publicKeyBytes(), networkId, observations, nowEpochMillis,
+                identity.sign(unsigned.signedPortion()));
+        int accepted = 0;
+        for (Endpoint endpoint : endpoints) {
+            Optional<NoderaMessage> reply = exchange(endpoint, report);
+            if (reply.isPresent() && reply.get() instanceof ServiceAnnounceAck ack
+                    && ack.accepted()) {
+                accepted++;
+            }
+        }
+        return accepted;
     }
 
     /**

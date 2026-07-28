@@ -5,13 +5,18 @@
 //! path — signatures, freshness, quotas, expiry, health transitions — unit-testable without
 //! spawning a listener or sleeping.
 
-use crate::announce::{self, IdentityBindings, Rejection};
+use crate::announce::{self, within_window, IdentityBindings, Rejection};
 use crate::config::Config;
 use crate::deletion::DeletedWorlds;
 use crate::limits::AnnounceQuota;
 use crate::query;
 use crate::registry::{AnnounceOutcome, Registry};
+use crate::services::{ServiceDirectory, ServiceRejection};
 use nodera_codec::messages::{AnnounceEvent, DiscoveryMessage, TrackerAnnounceAck};
+use nodera_codec::service::{
+    ServiceAnnounceAck, ServiceDirectoryEntry, ServiceDirectoryResponse, ServiceKind,
+    ServiceMessage,
+};
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::WorldDeletionGossip;
 use std::net::IpAddr;
@@ -33,6 +38,11 @@ pub struct Tracker {
     bindings: IdentityBindings,
     deleted: DeletedWorlds,
     quota: AnnounceQuota,
+    /// Score reports get their own quota: they are cheap to send and expensive to aggregate, and
+    /// sharing the announce budget would let a report flood starve the announces the world list
+    /// depends on.
+    report_quota: AnnounceQuota,
+    directory: ServiceDirectory,
     announces_accepted: u64,
     announces_rejected: u64,
     queries_answered: u64,
@@ -46,12 +56,18 @@ impl Tracker {
             u64::from(config.announce_interval_seconds) * 1_000,
             config.per_ip_announce_quota,
         );
+        let report_quota = AnnounceQuota::new(
+            u64::from(config.announce_interval_seconds) * 1_000,
+            config.per_ip_report_quota,
+        );
         Self {
             config,
             registry: Registry::new(),
             bindings: IdentityBindings::new(),
             deleted: DeletedWorlds::new(config_persist_dir.map(|dir| dir.join("deleted-worlds"))),
             quota,
+            report_quota,
+            directory: ServiceDirectory::new(),
             announces_accepted: 0,
             announces_rejected: 0,
             queries_answered: 0,
@@ -132,6 +148,15 @@ impl Tracker {
             && u16::from_be_bytes([frame[0], frame[1]]) == message_tags::WORLD_DELETION_GOSSIP
         {
             return self.handle_deletion(frame);
+        }
+        // The service-directory family is likewise its own codec: the discovery decoder does not know
+        // tags 67–72 and would reject them as unsupported.
+        if frame.len() >= 2 {
+            let tag = u16::from_be_bytes([frame[0], frame[1]]);
+            if (message_tags::SERVICE_ANNOUNCE..=message_tags::SERVICE_DRAIN_NOTICE).contains(&tag)
+            {
+                return self.handle_service_frame(frame, source, now_millis);
+            }
         }
         let message = match DiscoveryMessage::decode(frame) {
             Ok(message) => message,
@@ -234,6 +259,179 @@ impl Tracker {
         }
     }
 
+    /// Handle a service-directory frame (tags 67–72).
+    ///
+    /// Three of the six are inbound here. `ANNOUNCE_ACK` and `DIRECTORY_RESPONSE` are answers this
+    /// service produces, and a `DRAIN_NOTICE` is pushed by a service to the peers holding its control
+    /// channels — a tracker holds none, so receiving one means somebody is talking to the wrong port.
+    fn handle_service_frame(
+        &mut self,
+        frame: &[u8],
+        source: Option<IpAddr>,
+        now_millis: u64,
+    ) -> Handled {
+        let message = match ServiceMessage::decode(frame) {
+            Ok(message) => message,
+            Err(e) => return Handled::Unsupported(e.to_string()),
+        };
+        match message {
+            ServiceMessage::Announce(announce) => {
+                if let Some(ip) = source {
+                    if !self.quota.admit(ip, now_millis) {
+                        return self.refuse_service("quota");
+                    }
+                }
+                // Against the bytes as they arrived: the record's own signed range, extracted from
+                // this frame rather than re-encoded from the decoded value.
+                let signed_bytes = announce.record.signed_bytes();
+                match self.directory.admit(
+                    &announce.record,
+                    &announce.signature,
+                    &signed_bytes,
+                    now_millis,
+                    self.config.clock_skew_millis(),
+                    self.config.max_services,
+                ) {
+                    Ok(outcome) => {
+                        self.announces_accepted += 1;
+                        // The ack carries the announcer's siblings, so a draining service gets its
+                        // replacement list in the same round trip it uses to say it is draining —
+                        // the round trip it is least able to make twice.
+                        let directory = self.sibling_directory(
+                            announce.record.kind,
+                            announce.record.network_id,
+                            &announce.record.service,
+                            now_millis,
+                        );
+                        let _ = outcome;
+                        Handled::Reply(
+                            ServiceMessage::AnnounceAck(ServiceAnnounceAck {
+                                accepted: true,
+                                next_announce_after_seconds: self.config.announce_interval_seconds,
+                                reason: String::new(),
+                                directory,
+                            })
+                            .encode(),
+                        )
+                    }
+                    Err(rejection) => self.refuse_service(rejection.code()),
+                }
+            }
+            ServiceMessage::DirectoryQuery(query) => {
+                self.queries_answered += 1;
+                let limit = if query.limit == 0 {
+                    self.config.service_directory_page_limit
+                } else {
+                    (query.limit as usize).min(self.config.service_directory_page_limit)
+                };
+                let entries = self.directory.directory(
+                    query.kind,
+                    query.network_id,
+                    limit,
+                    now_millis,
+                    self.config.service_report_max_age_millis(),
+                );
+                Handled::Reply(
+                    ServiceMessage::DirectoryResponse(ServiceDirectoryResponse { entries })
+                        .encode(),
+                )
+            }
+            ServiceMessage::ScoreReport(_) => {
+                if let Some(ip) = source {
+                    if !self.report_quota.admit(ip, now_millis) {
+                        return self.refuse_service("quota");
+                    }
+                }
+                let (signed_bytes, signature) = match ServiceMessage::split_report_signature(frame)
+                {
+                    Ok(split) => split,
+                    Err(e) => return Handled::Unsupported(e.to_string()),
+                };
+                let report = match ServiceMessage::decode(frame) {
+                    Ok(ServiceMessage::ScoreReport(report)) => report,
+                    _ => return Handled::Unsupported("not a score report".to_owned()),
+                };
+                if !within_window(
+                    report.report_epoch_millis,
+                    now_millis,
+                    self.config.clock_skew_millis(),
+                ) {
+                    return self.refuse_service(ServiceRejection::Stale.code());
+                }
+                if nodera_codec::sig::verify(&report.public_key, signed_bytes, signature).is_err() {
+                    return self.refuse_service(ServiceRejection::BadSignature.code());
+                }
+                // Attributed to one identity, so influence stays bounded per reporter.
+                self.directory.record_observations(
+                    report.reporter,
+                    &report.observations,
+                    self.config.service_report_max_reporters,
+                );
+                Handled::Reply(
+                    ServiceMessage::AnnounceAck(ServiceAnnounceAck {
+                        accepted: true,
+                        next_announce_after_seconds: self.config.announce_interval_seconds,
+                        reason: String::new(),
+                        directory: Vec::new(),
+                    })
+                    .encode(),
+                )
+            }
+            other => Handled::Unsupported(format!("tag {} is not served here", other.tag())),
+        }
+    }
+
+    /// The directory of a kind, excluding one service — what an announcer needs and it alone.
+    fn sibling_directory(
+        &self,
+        kind: ServiceKind,
+        network_id: nodera_codec::types::NetworkId,
+        exclude: &nodera_codec::types::NodeId,
+        now_millis: u64,
+    ) -> Vec<ServiceDirectoryEntry> {
+        self.directory
+            .directory(
+                kind,
+                network_id,
+                self.config.service_directory_page_limit,
+                now_millis,
+                self.config.service_report_max_age_millis(),
+            )
+            .into_iter()
+            .filter(|entry| &entry.record.service != exclude)
+            .collect()
+    }
+
+    /// How many services are listed, and how many of each kind are draining.
+    ///
+    /// Draining counts belong in the operator log line: a rollout in progress is the state in which a
+    /// surprised operator most needs to know that peers are moving on purpose.
+    pub fn service_counts(&self) -> (usize, usize, usize) {
+        (
+            self.directory.len(),
+            self.directory.draining_count(ServiceKind::Rendezvous),
+            self.directory.draining_count(ServiceKind::Tracker),
+        )
+    }
+
+    /// Accepted and rejected score reports.
+    pub fn report_counts(&self) -> (u64, u64) {
+        self.directory.report_counts()
+    }
+
+    fn refuse_service(&mut self, reason: &str) -> Handled {
+        self.announces_rejected += 1;
+        Handled::Reply(
+            ServiceMessage::AnnounceAck(ServiceAnnounceAck {
+                accepted: false,
+                next_announce_after_seconds: self.config.announce_interval_seconds,
+                reason: reason.to_owned(),
+                directory: Vec::new(),
+            })
+            .encode(),
+        )
+    }
+
     /// Handle a world-deletion request (tag 66).
     ///
     /// The tracker verifies exactly what a peer verifies and has no extra authority: it cannot
@@ -277,10 +475,14 @@ impl Tracker {
         );
     }
 
-    /// Expire silent peers, idle quota counters, and deletions past the retention window.
+    /// Expire silent peers, idle quota counters, deletions past the retention window, and services
+    /// whose records lapsed.
     pub fn sweep(&mut self, now_millis: u64) -> usize {
         self.quota.sweep(now_millis);
+        self.report_quota.sweep(now_millis);
         self.deleted.prune(now_millis);
+        self.directory
+            .sweep(now_millis, self.config.service_report_max_age_millis());
         self.registry
             .sweep(now_millis, self.config.peer_ttl_millis())
     }
@@ -713,5 +915,448 @@ mod tests {
         let r = response(tracker.handle_frame(&query_frame(b"nobody-here"), None, None, 0));
         assert_eq!(r.genesis_hash, b"nobody-here".to_vec());
         assert!(r.peers.is_empty());
+    }
+
+    // --- the service directory, driven through the real dispatch path ---
+
+    const SERVICE_NOW: u64 = 1_700_000_000_000;
+
+    fn service_ack(handled: Handled) -> ServiceAnnounceAck {
+        match handled {
+            Handled::Reply(bytes) => match ServiceMessage::decode(&bytes).expect("decodable ack") {
+                ServiceMessage::AnnounceAck(ack) => ack,
+                other => panic!("expected an announce ack, got tag {}", other.tag()),
+            },
+            Handled::Unsupported(reason) => panic!("unsupported: {reason}"),
+        }
+    }
+
+    fn service_directory(handled: Handled) -> Vec<ServiceDirectoryEntry> {
+        match handled {
+            Handled::Reply(bytes) => {
+                match ServiceMessage::decode(&bytes).expect("decodable answer") {
+                    ServiceMessage::DirectoryResponse(response) => response.entries,
+                    other => panic!("expected a directory response, got tag {}", other.tag()),
+                }
+            }
+            Handled::Unsupported(reason) => panic!("unsupported: {reason}"),
+        }
+    }
+
+    fn announce_service_frame(
+        record: &nodera_codec::service::ServiceRecord,
+        signature: &[u8],
+    ) -> Vec<u8> {
+        ServiceMessage::Announce(nodera_codec::service::ServiceAnnounce {
+            record: record.clone(),
+            signature: signature.to_vec(),
+        })
+        .encode()
+    }
+
+    fn directory_query_frame(kind: ServiceKind) -> Vec<u8> {
+        ServiceMessage::DirectoryQuery(nodera_codec::service::ServiceDirectoryQuery {
+            kind,
+            network_id: nodera_codec::types::NetworkId::new(0, 0),
+            limit: 0,
+        })
+        .encode()
+    }
+
+    fn signed_report(
+        signer: &crate::test_support::TestSigner,
+        service: u64,
+        probes: u32,
+        successes: u32,
+        rtt_p95: u32,
+        now_millis: u64,
+    ) -> Vec<u8> {
+        use nodera_codec::service::{ServiceObservation, ServiceScoreReport};
+        let mut report = ServiceScoreReport {
+            reporter: nodera_codec::types::NodeId::new(900, service),
+            public_key: signer.x509_public_key(),
+            network_id: nodera_codec::types::NetworkId::new(0, 0),
+            observations: vec![ServiceObservation {
+                service: nodera_codec::types::NodeId::new(service, service),
+                kind: ServiceKind::Rendezvous,
+                probes,
+                successes,
+                rtt_p50_millis: rtt_p95 / 2,
+                rtt_p95_millis: rtt_p95,
+                observed_at_epoch_millis: now_millis,
+            }],
+            report_epoch_millis: now_millis,
+            signature: Vec::new(),
+        };
+        report.signature = signer.sign(&report.signed_portion());
+        ServiceMessage::ScoreReport(report).encode()
+    }
+
+    #[test]
+    fn a_rendezvous_announces_itself_and_peers_can_then_discover_it() {
+        // The whole point of the lane: a peer with nothing configured but this tracker can find a
+        // rendezvous it was never told about.
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(7);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        let ack = service_ack(tracker.handle_frame(
+            &announce_service_frame(&record, &signature),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert!(ack.accepted, "reason: {}", ack.reason);
+        assert!(
+            ack.next_announce_after_seconds > 0,
+            "the ack must pace the announcer"
+        );
+
+        let listed = service_directory(tracker.handle_frame(
+            &directory_query_frame(ServiceKind::Rendezvous),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].record.routes, record.routes);
+        // Verifiable without trusting this tracker.
+        nodera_codec::sig::verify(
+            &listed[0].record.public_key,
+            &listed[0].record.signed_bytes(),
+            &listed[0].signature,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_tampered_service_record_is_refused_and_never_listed() {
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(7);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        let moved = nodera_codec::service::ServiceRecord {
+            routes: vec!["attacker.example:25601".to_owned()],
+            ..record
+        };
+        let ack = service_ack(tracker.handle_frame(
+            &announce_service_frame(&moved, &signature),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert!(!ack.accepted);
+        assert_eq!(ack.reason, "bad-signature");
+        assert!(service_directory(tracker.handle_frame(
+            &directory_query_frame(ServiceKind::Rendezvous),
+            None,
+            None,
+            SERVICE_NOW
+        ))
+        .is_empty());
+    }
+
+    #[test]
+    fn an_announcing_service_is_told_about_its_siblings_but_not_itself() {
+        // This is what lets a draining rendezvous name replacements without a second round trip.
+        let mut tracker = Tracker::new(config());
+        for (seed, id) in [(1u8, 11u64), (2, 12), (3, 13)] {
+            let signer = crate::test_support::TestSigner::new(seed);
+            let (record, signature) =
+                crate::test_support::service_record(&signer, id, SERVICE_NOW, |_| {});
+            let ack = service_ack(tracker.handle_frame(
+                &announce_service_frame(&record, &signature),
+                None,
+                None,
+                SERVICE_NOW,
+            ));
+            assert!(ack.accepted);
+            assert!(
+                ack.directory
+                    .iter()
+                    .all(|entry| entry.record.service != record.service),
+                "a service does not need to be told about itself"
+            );
+        }
+        // The third announcer sees the two that came before it.
+        let signer = crate::test_support::TestSigner::new(3);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 13, SERVICE_NOW, |_| {});
+        let ack = service_ack(tracker.handle_frame(
+            &announce_service_frame(&record, &signature),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert_eq!(ack.directory.len(), 2);
+    }
+
+    #[test]
+    fn a_signed_score_report_moves_the_published_ordering() {
+        let mut tracker = Tracker::new(config());
+        for (seed, id) in [(1u8, 11u64), (2, 12)] {
+            let signer = crate::test_support::TestSigner::new(seed);
+            let (record, signature) =
+                crate::test_support::service_record(&signer, id, SERVICE_NOW, |_| {});
+            assert!(
+                service_ack(tracker.handle_frame(
+                    &announce_service_frame(&record, &signature),
+                    None,
+                    None,
+                    SERVICE_NOW
+                ))
+                .accepted
+            );
+        }
+        let reporter = crate::test_support::TestSigner::new(9);
+        assert!(
+            service_ack(tracker.handle_frame(
+                &signed_report(&reporter, 11, 20, 2, 40, SERVICE_NOW),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+        assert!(
+            service_ack(tracker.handle_frame(
+                &signed_report(&reporter, 12, 20, 20, 40, SERVICE_NOW),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+
+        let listed = service_directory(tracker.handle_frame(
+            &directory_query_frame(ServiceKind::Rendezvous),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert_eq!(
+            listed[0].record.service,
+            nodera_codec::types::NodeId::new(12, 12),
+            "the rendezvous peers could actually reach ranks first"
+        );
+        assert_eq!(listed[0].score.availability_permille, 1_000);
+        assert_eq!(listed[1].score.availability_permille, 100);
+        assert_eq!(tracker.report_counts(), (2, 0));
+    }
+
+    #[test]
+    fn an_unsigned_score_report_is_refused() {
+        // Otherwise scoring is the cheapest attack in the system: report every rival relay as dead.
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(1);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&record, &signature),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+
+        let reporter = crate::test_support::TestSigner::new(9);
+        let mut frame = signed_report(&reporter, 11, 20, 0, 40, SERVICE_NOW);
+        // Corrupt the last signature byte: the frame still decodes, so only verification can catch it.
+        let last = frame.len() - 1;
+        frame[last] ^= 0xFF;
+        let ack = service_ack(tracker.handle_frame(&frame, None, None, SERVICE_NOW));
+        assert!(!ack.accepted);
+        assert_eq!(ack.reason, "bad-signature");
+        let listed = service_directory(tracker.handle_frame(
+            &directory_query_frame(ServiceKind::Rendezvous),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert_eq!(
+            listed[0].score.reporter_count, 0,
+            "a refused report must not reach the aggregate"
+        );
+    }
+
+    #[test]
+    fn a_stale_score_report_is_refused() {
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(1);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&record, &signature),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+        let reporter = crate::test_support::TestSigner::new(9);
+        let old = SERVICE_NOW - tracker.config().clock_skew_millis() - 1;
+        let ack = service_ack(tracker.handle_frame(
+            &signed_report(&reporter, 11, 20, 0, 40, old),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert!(!ack.accepted);
+        assert_eq!(ack.reason, "stale-record");
+    }
+
+    #[test]
+    fn a_drain_announcement_is_visible_to_a_querying_peer_with_its_deadline() {
+        // A peer that lost its rendezvous can see why and when, instead of watching it vanish.
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(4);
+        let (serving, serving_sig) =
+            crate::test_support::service_record(&signer, 21, SERVICE_NOW, |_| {});
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&serving, &serving_sig),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+        let (draining, draining_sig) =
+            crate::test_support::service_record(&signer, 21, SERVICE_NOW, |r| {
+                r.lifecycle = nodera_codec::service::ServiceLifecycle::Draining;
+                r.drain_deadline_epoch_millis = SERVICE_NOW + 30_000;
+            });
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&draining, &draining_sig),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+
+        let listed = service_directory(tracker.handle_frame(
+            &directory_query_frame(ServiceKind::Rendezvous),
+            None,
+            None,
+            SERVICE_NOW,
+        ));
+        assert_eq!(
+            listed[0].record.lifecycle,
+            nodera_codec::service::ServiceLifecycle::Draining
+        );
+        assert_eq!(
+            listed[0].record.drain_deadline_epoch_millis,
+            SERVICE_NOW + 30_000
+        );
+        assert_eq!(tracker.service_counts(), (1, 1, 0));
+    }
+
+    #[test]
+    fn a_report_flood_cannot_starve_the_announce_budget() {
+        // Separate quotas: reports are cheap to send and expensive to aggregate, so sharing the
+        // announce budget would let a flood push the world list off the air.
+        let mut tracker = Tracker::new(Config {
+            per_ip_announce_quota: 2,
+            per_ip_report_quota: 1,
+            ..config()
+        });
+        let signer = crate::test_support::TestSigner::new(1);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        let ip: IpAddr = "198.51.100.9".parse().unwrap();
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&record, &signature),
+                Some(ip),
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+
+        let reporter = crate::test_support::TestSigner::new(9);
+        assert!(
+            service_ack(tracker.handle_frame(
+                &signed_report(&reporter, 11, 5, 5, 20, SERVICE_NOW),
+                Some(ip),
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+        let flooded = service_ack(tracker.handle_frame(
+            &signed_report(&reporter, 11, 5, 5, 20, SERVICE_NOW),
+            Some(ip),
+            None,
+            SERVICE_NOW,
+        ));
+        assert!(!flooded.accepted);
+        assert_eq!(flooded.reason, "quota");
+        // The announce budget is untouched by the report flood.
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&record, &signature),
+                Some(ip),
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+    }
+
+    #[test]
+    fn a_drain_notice_sent_to_a_tracker_is_not_served() {
+        // A tracker holds no peer control channels, so receiving one means somebody is talking to the
+        // wrong port — answered as unsupported rather than silently absorbed.
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(1);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |r| {
+                r.lifecycle = nodera_codec::service::ServiceLifecycle::Draining;
+                r.drain_deadline_epoch_millis = SERVICE_NOW + 1_000;
+            });
+        let frame = ServiceMessage::DrainNotice(nodera_codec::service::ServiceDrainNotice {
+            record,
+            signature,
+            replacements: Vec::new(),
+            reason: "update".to_owned(),
+        })
+        .encode();
+        assert!(matches!(
+            tracker.handle_frame(&frame, None, None, SERVICE_NOW),
+            Handled::Unsupported(_)
+        ));
+    }
+
+    #[test]
+    fn an_expired_service_record_stops_being_answered() {
+        let mut tracker = Tracker::new(config());
+        let signer = crate::test_support::TestSigner::new(1);
+        let (record, signature) =
+            crate::test_support::service_record(&signer, 11, SERVICE_NOW, |_| {});
+        assert!(
+            service_ack(tracker.handle_frame(
+                &announce_service_frame(&record, &signature),
+                None,
+                None,
+                SERVICE_NOW
+            ))
+            .accepted
+        );
+        let later = SERVICE_NOW + 300_001;
+        assert!(service_directory(tracker.handle_frame(
+            &directory_query_frame(ServiceKind::Rendezvous),
+            None,
+            None,
+            later
+        ))
+        .is_empty());
+        tracker.sweep(later);
+        assert_eq!(tracker.service_counts(), (0, 0, 0));
     }
 }
