@@ -42,6 +42,33 @@ replacement fallback, and failed-write/move temp cleanup for both `PersistentIde
 worker's `LocalFiles`. `AtomicFileWriterTest` (3) proves owner-only output, temp deletion, and
 suppressed cleanup errors. Task 3 remains completed; storage report count is 157.
 
+### 2026-07-28 — L-85 gets a headless proof; the live-gated rows are re-checked and stay
+
+**A seam, not a rewrite.** L-85's status line said the row had no headless proof because
+`TrackerClient` is final and concrete. That is now false: `TrackerLookup` (`:peer`) is the read
+half of a tracker — `endpoints`, `query`, `routes` — which `TrackerClient` implements and
+`WorldArchiveService` depends on instead of the class. Announcing is deliberately *not* on the
+interface: it is a write with a cadence and an identity behind it, and no content lane needs it.
+
+**What that buys.** `SeederRouteSurvivesTheTrackerAnswerTest` (3, `:worker`) can now hand in a
+tracker that answers the seeder query and **not** the routes query — the exact live shape behind
+`no routable seeder for world d454b2264b84`. It asserts the entry's own route is kept, that the
+routes query still supplements an entry that carried none, and that an `mc/` claim is rejected
+from both sources. The first case was **verified failing** with the fix line reverted, so it is
+testing the fix and not the fixture. `WorldArchiveService.routeOf` is public for the same reason
+the bug existed: "known" and "routable" have to be readable apart.
+
+L-85 stays **OPEN** regardless — its exit test is a live join, and that is unchanged.
+
+**Nothing else could be retired, and the register now says why per row.** Each remaining row was
+re-checked against its exit-test column. The notable finding is for L-87, L-88 and L-90: their
+exit-test columns name only headless tests, all green here under `--rerun-tasks --no-build-cache`
+(`NegotiationTest` 10, `WireEnumRulesTest` 9, `CrossVersionIT` 5, 0 failures), but `Task.14.md`
+holds an explicit unticked acceptance criterion — a live mixed-release run of two real processes
+from different builds. The CI job meant to automate half of that (`cross-version.yml`
+`previous-release`) is currently a **no-op**, because it skips unless a release tag other than the
+moving `latest` exists and none does. So the gate is real and cannot be cleared from here.
+
 ### 2026-07-28 — Documentation sweep: audit, register hygiene, refactoring register
 
 Category-wide status reconciliation against the tree. No status changed: tasks 1, 3–12 stay
