@@ -1,8 +1,8 @@
 package dev.nodera.headless;
 
 import dev.nodera.core.Bytes;
-import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.crypto.CanonicalWriter;
+import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.storage.PersistedWorldKey;
 import dev.nodera.storage.WorldOwnership;
 import dev.nodera.storage.WorldRegistry;

@@ -60,6 +60,17 @@ public final class HeadlessPeerMain {
     private HeadlessPeerMain() {
     }
 
+    static LocalState openLocalState(Path identityFile, Path worldsFile, Path worldKeysDir) {
+        return new LocalState(
+                new PersistentIdentityStore(identityFile).loadOrGenerate(),
+                new WorldRegistryStore(worldsFile),
+                new WorldKeyStore(worldKeysDir));
+    }
+
+    record LocalState(NodeIdentity identity, WorldRegistryStore worldRegistry,
+                      WorldKeyStore worldKeys) {
+    }
+
     public static void main(String[] args) throws Exception {
         long startedAtMillis = System.currentTimeMillis();
         String controlHost = env("NODERA_CONTROL_HOST", "127.0.0.1");
@@ -74,8 +85,13 @@ public final class HeadlessPeerMain {
         String advertise = resolveHost(env("NODERA_P2P_ADVERTISE", "auto"));
         Path identityFile = Path.of(env("NODERA_IDENTITY_FILE",
                 System.getProperty("user.home") + "/.nodera/worker-identity.bin"));
+        Path stateDir = Path.of(env("NODERA_STATE_DIR", System.getProperty("user.home") + "/.nodera"));
+        LocalState localState = openLocalState(
+                identityFile,
+                Path.of(env("NODERA_WORLDS_FILE", stateDir.resolve("worlds.dat").toString())),
+                Path.of(env("NODERA_WORLD_KEYS_DIR", stateDir.resolve("world-keys").toString())));
 
-        NodeIdentity identity = new PersistentIdentityStore(identityFile).loadOrGenerate();
+        NodeIdentity identity = localState.identity();
         NodeCapabilities caps = NodeCapabilities.initial().withRoles(
                 EnumSet.of(PeerRole.FULL_ARCHIVE, PeerRole.BOOTSTRAP, PeerRole.REGION_VALIDATOR));
 
@@ -149,15 +165,11 @@ public final class HeadlessPeerMain {
         // worker forgot every hosted and seeded world on every restart: it stopped announcing them,
         // stopped advertising the pieces it still held, and reported an empty world list to the
         // companion app — the app looked broken and the worker was the one that had lost the state.
-        Path stateDir = Path.of(env("NODERA_STATE_DIR", System.getProperty("user.home") + "/.nodera"));
-        WorldRegistryStore worldRegistry =
-                new WorldRegistryStore(Path.of(env("NODERA_WORLDS_FILE",
-                        stateDir.resolve("worlds.dat").toString())));
+        WorldRegistryStore worldRegistry = localState.worldRegistry();
         // The private key of every world this player created. Its presence is what makes this node
         // that world's provable administrator; it is generated locally and never accepted from the
         // network.
-        WorldKeyStore worldKeys = new WorldKeyStore(Path.of(env("NODERA_WORLD_KEYS_DIR",
-                stateDir.resolve("world-keys").toString())));
+        WorldKeyStore worldKeys = localState.worldKeys();
 
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
                 tracker, rendezvousEndpoints, archive::holdingsFor, worldRegistry);

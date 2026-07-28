@@ -1,9 +1,9 @@
 # Worker — Testing
 
-<!-- AI-AGENT-INSTRUCTION: The worker has no module of its own — its code lives in `java/peer`, so its
-     counts are a SUBSET of that module's and must not be double-counted in totals. Crash tests here
-     MUST use real OS processes and real SIGKILLs; a mocked daemon proves nothing about the property
-     this category exists for. Keep counts and Last run current. -->
+<!-- AI-AGENT-INSTRUCTION: The worker has its own `java/worker` module; control and tunnel library
+     tests remain in `java/peer`, so category counts span both modules and must not be double-counted
+     in totals. Crash tests here MUST use real OS processes and real SIGKILLs; a mocked daemon proves
+     nothing about the property this category exists for. Keep counts and Last run current. -->
 
 **Category:** worker · **Last run:** 2026-07-28 · `java/worker` plus the peer-side lanes it drives
 (`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/e2e-telemetry.sh`
@@ -13,8 +13,8 @@ The worker is now its own Gradle module (`:worker`) — it was a package inside 
 fat jar included. The control endpoint and the tunnel lane stay in `:peer` because they are library
 code the Paper plugin uses too.
 
-**Test counts (Grep-verified 2026-07-28):** **196** `@Test` methods across the worker category —
-`java/worker/src/test/` (178 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
+**Test counts (Grep-verified 2026-07-28):** **197** `@Test` methods across the worker category —
+`java/worker/src/test/` (169 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
 plus `java/peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
 `ControlWatchStreamTest`, `WorkerEventStreamTest`). These are a SUBSET of the `:worker` + `:peer`
 module counts and must not be double-counted in totals.
@@ -62,7 +62,9 @@ printf 'NODERA-LAN 2 LIST\n' | nc 127.0.0.1 25610  # what this machine has open 
 | `CompanionProtocolContractTest` (3) | The mod and the worker spell every verb identically — a drift alarm in a test rather than a compile-time coupling between two separately-installed artifacts |
 | `ControlWatchStreamTest` (6) | The one verb the worker **writes**: a change is pushed unasked, an unchanged node is not re-sent at the sampling interval, the interval is clamped, an abandoned watcher never disturbs the endpoint, ordinary verbs keep working while a watch is open, and a throwing state renderer ends one stream rather than the node |
 | `WorldHostingPersistenceTest` (8) | A **second** hosting service over the same registry file finds the world the first one shared — the restart defect that made the companion app look broken. Pins the negative too: liveness is never restored, so a restored world does not advertise itself as joinable |
-| `WorldRegistryStoreTest` (11) | Durability across the process, hosting never demoted by a later seed, ownership not erased by a routine re-share, a corrupt file starting empty rather than stopping the node, owner-only permissions |
+| `WorldRegistryStoreTest` (12) | Durability across the process, hosting never demoted by a later seed, ownership not erased by a routine re-share, a corrupt file starting empty rather than stopping the node, owner-only permissions |
+| `HeadlessPeerMainStateTest` (1) | Closest production proof for W-DUP-3: `HeadlessPeerMain.openLocalState` starts twice on zipfs after both provider and `FileStore` report no POSIX view; identity and replaced registry survive. Not a launched worker process, so W-DUP-3 remains RETIRING |
+| `AtomicFileWriterTest` (3, `:storage`) | Shared writer creates POSIX files owner-only, deletes a secret-bearing temp after failed replacement, and suppresses cleanup failure on the primary exception |
 | `WorldKeyStoreTest` (9) | One key per world, stable across restarts, owner-only, a non-hex world id never becoming a path, a corrupt key file reported and never overwritten |
 | `OwnershipGossipIT` (6) | Over a real mesh: every peer independently verifies who administers a world; a later rival claim does not displace the owner; a tampered claim is refused **and not relayed**; an envelope naming a different world than its claim is dropped |
 | `WorldOwnershipVerbIT` (6) | Over the real control socket: minting a world identity mints its key and claim; `NODERA-PROVE` answers a challenge with a proof verifiable from the world's public key alone; a world this node did not create is refused |

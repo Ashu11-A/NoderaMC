@@ -7,7 +7,8 @@
      as a key. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** worker · **Owns:** W-DUP-1…4, W-FETCH-1, W-REPL-1 (W-REPL-2 and W-REPL-3 retired 2026-07-28) · **Last audit:** 2026-07-28
+**Category:** worker · **Owns:** W-DUP-1…4, W-FETCH-1, W-REPL-1 (W-REPL-2 and W-REPL-3 retired
+2026-07-28) · **Last audit:** 2026-07-28
 **Depends on:** [worker 3](Task.3.md), [minecraft 6](../minecraft/Task.6.md)
 **Consumed by:** [app 10](../app/Task.10.md), [minecraft 10](../minecraft/Task.10.md)
 
@@ -39,6 +40,12 @@ Landed so far:
 - `LanSessionService.sessionId` no longer mixes in the port, and a close beacon for a world that is
   open again elsewhere no longer withdraws the live session.
 - `WorldHostingService` normalises every world-id map key through one `key(String)` helper.
+- Worker identity, registry, key and tombstone writes share
+  `storage.io.AtomicFileWriter.writeOwnerOnly`: it checks the destination directory's `FileStore`,
+  creates POSIX temporary files as `0600` before content, fails closed if advertised POSIX
+  permissions are rejected, and uses default creation only when the store has no POSIX view. Failed
+  writes and moves remove the secret-bearing temporary file; cleanup failures are suppressed on the
+  primary exception.
 
 ## Dependencies
 
@@ -58,7 +65,7 @@ Landed so far:
 | 5 | One normalisation for world-id keys across `host` / `seed` / `stop` / `administers` | ✅ |
 | 6 | Registry reconciliation: a row this node can no longer serve stops being announced | ⬜ |
 | 7 | Ownership is not lost across `stop` → `seed` (re-bind from `WorldKeyStore` at boot) | ⬜ |
-| 8 | `LocalFiles.writeAtomically` survives a non-POSIX filesystem | ⬜ |
+| 8 | Worker identity and `LocalFiles.writeAtomically` survive a non-POSIX filesystem | 🚧 closest production startup seam green; launched-process exit pending |
 | 9 | A one-shot merge tool for registries that already hold duplicates | ⬜ |
 | 10 | An in-flight archive download is immune to the retention policy | ✅ |
 | 11 | `HOST` gets a work-sized control timeout, so a slow worker is not read as a refusal | ✅ |
@@ -127,6 +134,10 @@ cryptographic.
 | `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` | pin honoured on mint |
 | `java/worker/src/main/java/dev/nodera/headless/WorldHostingService.java` | key normalisation |
 | `java/worker/src/main/java/dev/nodera/headless/LanSessionService.java` | port-free session id |
+| `java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java` | shared owner-only creation, atomic replacement and failure cleanup |
+| `java/worker/src/main/java/dev/nodera/headless/LocalFiles.java` | worker-state wrapper over the shared writer |
+| `java/peer/src/main/java/dev/nodera/peer/discovery/PersistentIdentityStore.java` | worker identity wrapper over the shared writer |
+| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | production `openLocalState` startup seam |
 | `java/neoforge-mod/src/main/java/dev/nodera/mod/common/NoderaHost.java` | pin sent, persisted-id fallback |
 | `java/neoforge-mod/src/main/java/dev/nodera/mod/common/CompanionClient.java` | pin on the wire |
 
@@ -140,13 +151,15 @@ cryptographic.
 | `LanSessionServiceTest#aSharedWorldFollowsItsPort` | ✅ green | deliverable 4 — the close beacon does not withdraw a world open elsewhere, and the route follows |
 | `WorldHostingServiceTest#aPaddedUpperCaseWorldIdCanStillBeStopped` | ✅ green | deliverable 5 |
 | `WorldHostingServiceTest#oneWorldIsOneEntryHoweverItIsSpelled` | ✅ green | deliverable 5 |
+| `HeadlessPeerMainStateTest#startupStateSurvivesANonPosixFileSystem` | ✅ green (closest production seam) | deliverable 8 mechanism — `HeadlessPeerMain.openLocalState` runs on zipfs with no POSIX `FileStore` view; identity reload and registry replacement succeed |
+| `AtomicFileWriterTest` (3) | ✅ green | owner-only POSIX result, failed-move temp deletion, cleanup error suppression |
 | `FetchSurvivesSupersessionTest#aNewerVersionLearnedMidFetchDoesNotEvictTheOneBeingDownloaded` | ✅ green (verified failing without the guard) | deliverable 10 |
 | `FetchSurvivesSupersessionTest#aVersionNobodyIsFetchingIsStillSuperseded` | ✅ green | deliverable 10 keeps L-55 intact |
 | A control-socket round trip of `NODERA-WORLDID` with and without the 8th argument | ⬜ not written | the verb stayed backward compatible |
 | A live re-share with `nodera-genesis.dat` deleted | ⬜ not written | deliverable 1, end to end |
 
-Counts after this pass: **1,947 Java** (worker 148, all green) · **179 `nodera-app`** · **387 Rust
-workspace**.
+Gate after this pass: **2,059 Java** (`:worker` 173, `:storage` 157, all green). Rust workspaces were
+unaffected and not re-run for this Java-only fix.
 
 ## Acceptance criteria
 
@@ -164,7 +177,7 @@ workspace**.
 |---|---|---|
 | W-DUP-1 | Registry rows are immortal: nothing reconciles a row against the world still existing | deliverable 6 |
 | W-DUP-2 | `stop` → `seed` loses the ownership record, so an owned world reads as merely supported | deliverable 7 |
-| W-DUP-3 | `LocalFiles.writeAtomically` throws `UnsupportedOperationException` on a non-POSIX filesystem, so no worker-owned file is ever written there | deliverable 8 |
+| W-DUP-3 | Component and production startup-seam proofs are green, but no launched worker process has used non-POSIX state storage | Launch the worker distribution with identity and registry on a non-POSIX default/mounted filesystem, execute a registry-writing host operation, restart, and recover both records |
 | W-DUP-4 | Registries that already contain duplicates are not repaired by the fix, only stopped from growing | deliverable 9 |
 | W-FETCH-1 | An archive download could be evicted mid-transfer by the retention policy (fixed; live re-run is the exit) | deliverable 10 |
 | W-REPL-1 | A world this node claimed but held nothing of was never repaired (fixed; live 0%→100% is the exit) | [`LIMITATIONS.md`](LIMITATIONS.md) |
@@ -172,3 +185,8 @@ workspace**.
 **Retired on 2026-07-28** (headless exit tests confirmed green): **W-REPL-2** (supersede-eviction
 destroyed the only servable plaintext copy) and **W-REPL-3** (peers offered manifests for content
 they held nothing of) — moved to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+
+**W-DUP-3 is RETIRING:** `HeadlessPeerMainStateTest` proves the actual startup-state constructor on
+zipfs, but zipfs is an in-process provider and the worker's environment paths resolve on the process
+default filesystem. That is not a launched worker boot, so the exact exit remains open in
+[`LIMITATIONS.md`](LIMITATIONS.md).

@@ -10,9 +10,9 @@
 
 Last documentation reorganization: **2026-07-28** (ten-agent full-sweep: every category's tasks,
 limitations, progress, testing refreshed against the tree; a new `REFACTORING.md` added per
-category) · Overall system completion: **91.3%** (figure not recomputed this sweep — its weighting
-is not raw done/total; see [`ROADMAP.md`](ROADMAP.md) §1 note) · Tests: **2,065 Java · 408 Rust
-workspace · 61 `nodera-app`** (2,534 total).
+category) · Overall system completion: **90.4%** (figure not recomputed this sweep — its weighting
+is not raw done/total; see [`ROADMAP.md`](ROADMAP.md) §1 note) · Tests: **2,068 Java · 408 Rust
+workspace · 157 `nodera-app`** (2,633 total).
 
 ---
 
@@ -147,7 +147,7 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 | [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `rust/nodera-tracker`, `dev.nodera.peer.discovery` | 6 |
 | [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rust/nodera-rendezvous`, `dev.nodera.transport.rendezvous` | 6 |
 | [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 11 |
-| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `dev.nodera.headless`, `dev.nodera.peer.control` | 8 |
+| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `java/worker` (`dev.nodera.headless`), `dev.nodera.peer.control` | 8 |
 | [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 10 |
 | [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `rust/nodera-app/android`, `scripts/android-*.sh` | 5 |
 | [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | (unwritten) | 10 |
@@ -164,8 +164,8 @@ and every package carries its own `README.md` describing its architecture
 
 ### 4.1 Layout — polyglot monorepo
 
-- `java/<module>/` — exactly seven Gradle modules plus build logic: `core` · `engine` ·
-  `transport` · `storage` · `peer` · `testing` · `neoforge-mod` (+ `build-logic`).
+- `java/<module>/` — nine Gradle modules plus build logic: `core` · `engine` · `transport` ·
+  `storage` · `peer` · `worker` · `testing` · `neoforge-mod` · `paper-plugin` (+ `build-logic`).
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding conformance), `nodera-tracker`,
   `nodera-rendezvous`, `nodera-telemetry`, and `nodera-app` (workspace-**excluded**: Tauri native
   deps).
@@ -182,8 +182,8 @@ mirror) hold the two canonical-encoding implementations to the same contract.
 ### 4.3 Layering
 
 1. `core` depends on nothing but the JDK.
-2. `engine`, `transport`, `storage` depend on `core`. `peer` depends on `core` + `transport` +
-   `storage`. `testing` depends on `core` + `engine` + `transport`.
+2. `engine`, `transport`, `storage` depend on `core`. `peer` depends on those four; `worker` depends
+   on `peer` and the libraries it composes. `testing` depends on `core` + `engine` + `transport`.
 3. **No Minecraft/NeoForge types outside `neoforge-mod`.** Where a Minecraft concept is needed,
    `core` defines its own representation (`NBlockState` int id, `NBlockPos` record) and the mod owns
    the mapping.

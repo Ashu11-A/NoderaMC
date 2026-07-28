@@ -35,6 +35,13 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — One secure atomic writer for identity and worker state
+
+`AtomicFileWriter.writeOwnerOnly` now owns POSIX-at-create, non-POSIX capability selection, atomic
+replacement fallback, and failed-write/move temp cleanup for both `PersistentIdentityStore` and the
+worker's `LocalFiles`. `AtomicFileWriterTest` (3) proves owner-only output, temp deletion, and
+suppressed cleanup errors. Task 3 remains completed; storage report count is 157.
+
 ### 2026-07-28 — Documentation sweep: audit, register hygiene, refactoring register
 
 Category-wide status reconciliation against the tree. No status changed: tasks 1, 3–12 stay
