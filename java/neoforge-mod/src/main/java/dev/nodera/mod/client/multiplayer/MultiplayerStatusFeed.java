@@ -3,6 +3,7 @@ package dev.nodera.mod.client.multiplayer;
 import dev.nodera.diagnostics.view.RendezvousStatusView.PathKind;
 import dev.nodera.diagnostics.view.RendezvousStatusView.RendezvousEndpointStatus;
 import dev.nodera.diagnostics.view.TrackerStatusView.TrackerEndpointStatus;
+import dev.nodera.transport.rendezvous.RendezvousEndpoint;
 import dev.nodera.mod.common.NoderaConfig;
 
 import java.util.ArrayList;
@@ -25,7 +26,16 @@ import java.util.concurrent.TimeUnit;
  */
 public final class MultiplayerStatusFeed {
 
-    private static final int PROBE_TIMEOUT_MS = 800;
+    /**
+     * How long the status screen waits for a handshake before calling an endpoint offline.
+     *
+     * <p>800 ms was under one round trip to a tracker on another continent, so this screen —
+     * the one a player consults to find out whether the network is up — reported healthy,
+     * answering services as offline. Matched to the other two probes and to the scoring
+     * ceiling above which a service is worth zero anyway.
+     */
+    private static final int PROBE_TIMEOUT_MS =
+            dev.nodera.protocol.service.ServiceScore.LATENCY_CEILING_MILLIS + 500;
 
     private static volatile List<TrackerEndpointStatus> trackers = List.of();
     private static volatile List<RendezvousEndpointStatus> rendezvous = List.of();
@@ -86,16 +96,25 @@ public final class MultiplayerStatusFeed {
     }
 
     /** A cheap liveness check: can we open a TCP connection to {@code host:port}? */
+    /**
+     * Probe one configured route.
+     *
+     * <p>Parsed with {@link RendezvousEndpoint#parse}, not by splitting on the last colon. This
+     * method used to do its own splitting, which made {@code tcp://150.230.84.206:6969} — the
+     * documented form, and the one {@code services/official.json} uses — probe the host
+     * "tcp://150.230.84.206". Every official endpoint rendered red on this screen while the
+     * service answered protocol healthchecks from the same machine, so the one screen a player
+     * consults to find out whether the network is up told them it was down.
+     *
+     * <p>Third place in this project to get this wrong, after the Rust announce path and
+     * {@code RendezvousEndpoint} itself. Reusing the tested parser rather than adding a fourth
+     * splitter is the actual fix.
+     */
     private static boolean reachable(String endpoint) {
-        int colon = endpoint.lastIndexOf(':');
-        if (colon <= 0 || colon == endpoint.length() - 1) {
-            return false;
-        }
         try {
-            String host = endpoint.substring(0, colon);
-            int port = Integer.parseInt(endpoint.substring(colon + 1));
+            RendezvousEndpoint parsed = RendezvousEndpoint.parse(endpoint);
             return dev.nodera.transport.Reachability.probe(
-                    host, port, java.time.Duration.ofMillis(PROBE_TIMEOUT_MS));
+                    parsed.host(), parsed.port(), java.time.Duration.ofMillis(PROBE_TIMEOUT_MS));
         } catch (Exception e) {
             return false;
         }

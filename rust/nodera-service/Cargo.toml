@@ -14,6 +14,10 @@ tokio = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 sha2 = { workspace = true }
+# The update lane's HTTPS fetch. `default-features = false` drops gzip; `rustls` brings bundled
+# webpki roots, so a statically linked musl binary verifies certificates with no CA files on the
+# host and no OpenSSL to link against. Blocking on purpose — see `update::Fetcher`.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }

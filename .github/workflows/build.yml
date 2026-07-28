@@ -58,6 +58,12 @@ jobs:
         run: cd rust/nodera-app/ui && bun install --frozen-lockfile && bun run build
       - name: Build the companion app
         run: cd rust/nodera-app && cargo build --release
+      # The app's own tests have never run in CI, which is how the settings model, the
+      # NODERA-CONFIG golden string and the worker's spawn environment were all covered by tests
+      # that only ever ran on somebody's laptop. `nodera-app` is outside the cargo workspace, so
+      # the `rust` job's `cargo test` does not reach it.
+      - name: Test the companion app
+        run: cd rust/nodera-app && cargo test
       - name: Gate both ways (worker present => start, absent => actionable abort)
         run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
@@ -80,6 +86,25 @@ jobs:
       # Includes the cross-language conformance tests: the tag-registry mirror is asserted against
       # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
       - run: cargo test
+
+  # `services/official.json` is data maintained by pull request from outside the project, so the
+  # gate has to be something a contributor can run before opening one — and the failure has to name
+  # the offending line rather than being "the app did not start". Pure stdlib Python: a validation
+  # job that needs its own dependency install is a job that breaks for reasons unrelated to the file
+  # it validates.
+  services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the official service index
+        run: scripts/services.py --validate
+      # Proves the file is usable, not merely well-formed: a list that parses and yields no
+      # endpoints would pass a schema check and leave every peer with nothing to contact.
+      - name: The index yields endpoints of both kinds
+        run: |
+          set -euo pipefail
+          scripts/services.py --endpoints tracker
+          scripts/services.py --endpoints rendezvous
 
   release-artifacts:
     # Service binaries are published per tag: operators run `nodera-tracker` / `nodera-rendezvous`

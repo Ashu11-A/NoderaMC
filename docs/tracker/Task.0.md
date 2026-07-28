@@ -65,6 +65,7 @@ Minecraft closed), [`app/Task.2.md`](../app/Task.2.md) (the dashboard's trackers
 | [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS |
 | [4](Task.4.md) | Service telemetry | ✅ COMPLETED |
 | [5](Task.5.md) | The service directory and the scoring plane | 🚧 IN PROGRESS |
+| [6](Task.6.md) | A published image, and a tracker anyone can run | ✅ DONE |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

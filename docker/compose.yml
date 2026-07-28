@@ -1,0 +1,65 @@
+# Running a Nodera tracker and rendezvous from the published images.
+#
+#   cp .env.example .env && $EDITOR .env
+#   docker compose -f docker/compose.yml up -d
+#
+# <!-- AI-AGENT-INSTRUCTION: This file is what a self-hoster copies. It must stay runnable with no
+#      edits beyond .env, and it must never require the repository — it pulls images, it does not
+#      build them. Do not add a `build:` key here; docker/telemetry/docker-compose.yml is the
+#      development stack and is a separate thing. -->
+#
+# Two independent services. Neither depends on the other to function: a tracker with no rendezvous
+# still answers queries, and a rendezvous with no tracker still relays for peers that know its
+# address (it is only undiscoverable). Run one, the other, or both.
+
+name: nodera
+
+services:
+  tracker:
+    image: ghcr.io/ashu11-a/noderamc:tracker-${NODERA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # SIGTERM starts a drain: refuse new work, tell the peers, tell the trackers, wait for in-flight
+    # work. The drain grace is 30 seconds by default and Docker's stop timeout is 10, so without
+    # this every deploy kills the service mid-drain.
+    stop_grace_period: 45s
+    ports:
+      # UDP costs one round trip instead of a TCP handshake, which matters for a peer sweeping many
+      # trackers. Dropping the UDP line works; peers just fall back to TCP.
+      - "${NODERA_TRACKER_PORT:-6969}:6969/tcp"
+      - "${NODERA_TRACKER_PORT:-6969}:6969/udp"
+    environment:
+      # The address peers should reach this tracker at. Empty falls back to the bind address, which
+      # is `0.0.0.0:6969` inside a container and therefore useless to anybody outside it — this is
+      # the one variable a public deployment cannot leave unset.
+      NODERA_TRACKER_ADVERTISED_ROUTES: "${NODERA_TRACKER_ADVERTISED_ROUTES:?set this to the public host:port peers should use}"
+      NODERA_TRACKER_MAX_SERVICES: "${NODERA_TRACKER_MAX_SERVICES:-256}"
+      NODERA_TRACKER_PER_IP_ANNOUNCE_QUOTA: "${NODERA_TRACKER_PER_IP_ANNOUNCE_QUOTA:-60}"
+    volumes:
+      # The service identity lives here. Losing it means presenting to the network as a brand-new,
+      # unmeasured tracker — the availability score this host has earned is attached to the key.
+      - tracker-state:/var/lib/nodera
+
+  rendezvous:
+    image: ghcr.io/ashu11-a/noderamc:rendezvous-${NODERA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # Longer than the tracker's: a drain here waits for bridged circuits carrying real transfers,
+    # and cutting one costs a peer its download rather than a query it will retry.
+    stop_grace_period: 60s
+    ports:
+      - "${NODERA_RENDEZVOUS_PORT:-7500}:7500/tcp"
+    environment:
+      # Without at least one tracker this relay is undiscoverable: peers can only reach it if they
+      # were configured with its address by hand.
+      NODERA_RENDEZVOUS_TRACKER_ENDPOINTS: "${NODERA_RENDEZVOUS_TRACKER_ENDPOINTS:?set this to the tracker(s) this relay should announce itself to}"
+      NODERA_RENDEZVOUS_ADVERTISED_ROUTES: "${NODERA_RENDEZVOUS_ADVERTISED_ROUTES:?set this to the public host:port peers should use}"
+      # Keeps reservation proofs valid across a restart. Empty mints an ephemeral key at boot, which
+      # is correct but invalidates every outstanding reservation on every restart.
+      NODERA_RENDEZVOUS_RESERVATION_HMAC_KEY_HEX: "${NODERA_RENDEZVOUS_RESERVATION_HMAC_KEY_HEX:-}"
+      NODERA_RENDEZVOUS_MAX_CONCURRENT_CIRCUITS: "${NODERA_RENDEZVOUS_MAX_CONCURRENT_CIRCUITS:-0}"
+      NODERA_RENDEZVOUS_DRAIN_GRACE_SECONDS: "${NODERA_RENDEZVOUS_DRAIN_GRACE_SECONDS:-30}"
+    volumes:
+      - rendezvous-state:/var/lib/nodera
+
+volumes:
+  tracker-state:
+  rendezvous-state:

@@ -451,6 +451,7 @@ mod tests {
                 asset_name: "nodera-rendezvous".to_owned(),
                 check_interval_seconds: 3_600,
                 drain_grace_seconds: 1,
+                release_public_key: String::new(),
             },
         }
     }
@@ -542,7 +543,7 @@ mod tests {
                     lifecycle,
                     identity(),
                     config(),
-                    Arc::new(update::CurlFetcher::default()),
+                    Arc::new(update::HttpsFetcher::default()),
                     async move {
                         let _ = rx.await;
                     },

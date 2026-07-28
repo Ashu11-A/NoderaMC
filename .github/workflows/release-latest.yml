@@ -48,6 +48,36 @@ jobs:
           sha256sum nodera-tracker nodera-rendezvous neoforge-mod.jar > SHA256SUMS
           cat SHA256SUMS
 
+      # Provenance, not just integrity (L-81). The digest above proves a download was not corrupted;
+      # it proves nothing about who wrote the manifest, because whoever can publish to this release
+      # can publish a self-consistent pair. A detached Ed25519 signature over SHA256SUMS is what the
+      # updater checks BEFORE it reads a digest.
+      #
+      # Skipped, loudly, when no signing key is configured. A release that silently ships unsigned is
+      # exactly the state this step exists to end, so it warns rather than passing quietly. OpenSSL
+      # signs Ed25519 natively and is already on the runner; the key is a PEM private key in the
+      # NODERA_RELEASE_SIGNING_KEY secret, and its public half is compiled into the services as
+      # `update::DEFAULT_RELEASE_PUBLIC_KEY`.
+      - name: Sign the digest manifest
+        working-directory: build
+        env:
+          SIGNING_KEY: ${{ secrets.NODERA_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${SIGNING_KEY:-}" ]]; then
+            echo "::warning::NODERA_RELEASE_SIGNING_KEY is not set - this release is UNSIGNED and the update lane can only verify integrity (L-81)."
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$SIGNING_KEY" > signing.pem
+          openssl pkeyutl -sign -rawin -inkey signing.pem -in SHA256SUMS -out SHA256SUMS.sig
+          # Verify what was just produced. A signature nobody checked is a signature that can be
+          # malformed for a whole release cycle before anyone notices.
+          openssl pkey -in signing.pem -pubout -out signing.pub
+          openssl pkeyutl -verify -rawin -pubin -inkey signing.pub -in SHA256SUMS -sigfile SHA256SUMS.sig
+          rm -f signing.pem signing.pub
+          ls -l SHA256SUMS.sig
+
       # Roll the `latest` prerelease to this commit. Delete-then-create keeps a single latest tag
       # that always points at the newest build; `|| true` covers the first run when none exists.
       - name: Publish rolling latest prerelease
@@ -61,6 +91,7 @@ jobs:
             build/nodera-rendezvous \
             build/neoforge-mod.jar \
             build/SHA256SUMS \
+            $( [ -f build/SHA256SUMS.sig ] && echo build/SHA256SUMS.sig ) \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "latest ($short)" \

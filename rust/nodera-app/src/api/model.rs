@@ -178,7 +178,6 @@ impl World {
             },
         }
     }
-
 }
 
 /// One peer this node is exchanging data with.
@@ -527,7 +526,10 @@ mod tests {
             }],
             ..Metrics::default()
         };
-        assert_eq!(Dashboard::of(&metrics, Rates::default()).worlds[0].game_endpoint, None);
+        assert_eq!(
+            Dashboard::of(&metrics, Rates::default()).worlds[0].game_endpoint,
+            None
+        );
     }
 
     #[test]
@@ -571,8 +573,14 @@ mod tests {
         let dash = Dashboard::of(&metrics, Rates::default());
 
         assert!(dash.lan.supported);
-        assert!(dash.lan.sessions[0].awaiting_answer(), "offered is what raises the modal");
-        assert!(!dash.lan.sessions[1].awaiting_answer(), "already answered, do not ask again");
+        assert!(
+            dash.lan.sessions[0].awaiting_answer(),
+            "offered is what raises the modal"
+        );
+        assert!(
+            !dash.lan.sessions[1].awaiting_answer(),
+            "already answered, do not ask again"
+        );
     }
 
     #[test]

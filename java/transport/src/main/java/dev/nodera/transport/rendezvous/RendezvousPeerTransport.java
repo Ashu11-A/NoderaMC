@@ -298,10 +298,39 @@ public final class RendezvousPeerTransport implements PeerTransport {
         // was 127.0.0.1:25620 → relay send failed". Loopback, on the same machine, unreachable
         // because nobody would dial it (network L-30).
         boolean callerGaveARoute = to != null && to.route() != null && !to.route().isBlank();
-        if (directTransport != null && (callerGaveARoute || hasDirectCandidate(peer))) {
+        if (!RELAY_ONLY && directTransport != null && (callerGaveARoute || hasDirectCandidate(peer))) {
             available.add(TransportSelector.Path.DIRECT);
         }
         return available;
+    }
+
+    /**
+     * Refuse the direct path entirely, so every peer-to-peer byte crosses a rendezvous relay.
+     *
+     * <p>A testing knob, and only that. Two players on one LAN will always find a direct path and
+     * take it — which is correct, and which means an end-to-end run on one machine exercises none of
+     * the relay lane it is supposed to be proving. Setting this forces the traffic through the
+     * network the test is about.
+     *
+     * <p>It is NOT a privacy feature and must not be described as one: the relay cannot read what it
+     * carries (circuits are end-to-end encrypted), but it does see who is talking to whom, and a
+     * peer's own address still reaches the tracker it announces to.
+     *
+     * <p>Read once, from the environment or a system property, because a transport that could change
+     * paths mid-session would make a failure impossible to attribute to either mode.
+     */
+    private static final boolean RELAY_ONLY = relayOnly();
+
+    private static boolean relayOnly() {
+        String value = System.getenv("NODERA_FORCE_RELAY");
+        if (value == null || value.isBlank()) {
+            value = System.getProperty("NODERA_FORCE_RELAY");
+        }
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        String v = value.trim().toLowerCase(java.util.Locale.ROOT);
+        return !(v.equals("0") || v.equals("false") || v.equals("no"));
     }
 
     private boolean hasDirectCandidate(NodeId peer) {

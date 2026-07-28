@@ -156,7 +156,9 @@ fn rates_between(previous: Sample, metrics: &Metrics, now: Instant) -> Option<Ra
     }
     let seconds = elapsed.as_secs_f64();
     let up = metrics.total_sent_bytes.saturating_sub(previous.sent);
-    let down = metrics.total_received_bytes.saturating_sub(previous.received);
+    let down = metrics
+        .total_received_bytes
+        .saturating_sub(previous.received);
     Some(Rates {
         up: Some((up as f64 / seconds).round() as u64),
         down: Some((down as f64 / seconds).round() as u64),
@@ -208,7 +210,10 @@ mod tests {
         std::thread::sleep(Duration::from_millis(60));
         let dash = store.accept(&metrics(6_000, 0), "stream");
 
-        let up = dash.traffic.up_bytes_per_sec.expect("two samples make a rate");
+        let up = dash
+            .traffic
+            .up_bytes_per_sec
+            .expect("two samples make a rate");
         // ~6000 bytes over ~60 ms is ~100 KB/s. Loose bounds: the assertion is that it is measured
         // against elapsed time, not that the test machine has a real-time scheduler.
         assert!(up > 20_000 && up < 400_000, "unexpected rate {up}");

@@ -5,6 +5,7 @@
 // you go. And the explanations belonged in documentation, not on a phone screen — a settings row
 // needs a name and, at most, its current value.
 import { useCallback, useEffect, useState } from "react";
+import TrackerStoresScreen from "../TrackerStores";
 import {
   FiBatteryCharging,
   FiChevronLeft,
@@ -13,6 +14,7 @@ import {
   FiHardDrive,
   FiInfo,
   FiShield,
+  FiTag,
   FiWifi,
 } from "react-icons/fi";
 import { Button, Card, ListItem, Switch, TopAppBar, cx } from "../m3/components";
@@ -40,12 +42,21 @@ import {
   type Theme,
 } from "../ipc";
 
-export type Page = "root" | "appearance" | "storage" | "network" | "battery" | "privacy" | "about";
+export type Page =
+  | "root"
+  | "appearance"
+  | "storage"
+  | "network"
+  | "stores"
+  | "battery"
+  | "privacy"
+  | "about";
 
 const ROWS: { id: Page; icon: JSX.Element; title: string }[] = [
   { id: "appearance", icon: <FiDroplet />, title: "Appearance" },
   { id: "storage", icon: <FiHardDrive />, title: "Storage" },
   { id: "network", icon: <FiWifi />, title: "Network" },
+  { id: "stores", icon: <FiTag />, title: "Tracker stores" },
   { id: "battery", icon: <FiBatteryCharging />, title: "Battery" },
   { id: "privacy", icon: <FiShield />, title: "Privacy" },
   { id: "about", icon: <FiInfo />, title: "About" },
@@ -144,6 +155,7 @@ export function SettingsScreen(props: {
         )}
         {page === "storage" && <StoragePicker info={storage} onChanged={setStorage} />}
         {page === "network" && <NetworkPage settings={settings} onSaved={setSettings} />}
+        {page === "stores" && <TrackerStoresScreen />}
         {page === "battery" && <BatteryPage />}
         {page === "privacy" && <PrivacyPage />}
         {page === "about" && <AboutScreen />}

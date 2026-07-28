@@ -235,8 +235,8 @@ world:
   password: "${NODERA_SHARE_PASSWORD:-}"
   listed: true
 discovery:
-  trackers: ["127.0.0.1:$TRACKER_PORT"]
-  rendezvous: ["127.0.0.1:$RENDEZVOUS_PORT"]
+  trackers: $(nodera_toml_array "$NODERA_TRACKER_ENDPOINT_LIST")
+  rendezvous: $(nodera_toml_array "$NODERA_RENDEZVOUS_ENDPOINT_LIST")
 lane:
   entity-capture: true
   mob-capture-dimensions: ["minecraft:overworld"]

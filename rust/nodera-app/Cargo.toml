@@ -39,12 +39,22 @@ nodera-telemetry = { path = "../nodera-telemetry" }
 tauri = { version = "2", features = ["tray-icon"] }
 # The native save dialog behind "Save logs" — the OS picker, not a path typed into the app.
 tauri-plugin-dialog = "2"
+# `nodera://tracker-store?url=…` — the link a website's "add this store" button opens, mirroring
+# Mihon's `mihon://extension-store?url=…`. Registers the scheme with the OS on desktop and delivers
+# the Android VIEW intent; the app never acts on a link, it only shows it and waits.
+tauri-plugin-deep-link = "2"
 # Diagnostics that must be readable on a device with no terminal; the Android build routes this
 # into logcat, the desktop build into stderr.
 log = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "process", "signal"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The tracker-store fetch, and nothing else. `default-features = false` drops gzip; `rustls` brings
+# bundled webpki roots, so certificate verification works the same on desktop and on Android with no
+# platform CA plumbing and no OpenSSL. Blocking, used from spawn_blocking — every other network path
+# in this app is a hand-framed TCP socket, and an async HTTP stack to serve one user-initiated
+# request would be the larger dependency.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 thiserror = "1.0"
 # The worker sends a world's piece bitmap base64-encoded; the Pieces grid decodes it.
 base64 = "0.22"

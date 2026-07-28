@@ -28,16 +28,17 @@ mod metrics;
 mod peer;
 mod power;
 mod settings;
+mod stores;
 mod system;
 mod telemetry;
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use api::store::DashboardStore;
 use config::{ConfigPusher, ConfigStatusHandle, PushSignal};
 use daemon::RestartSignal;
 use logs::LogBuffer;
-use api::store::DashboardStore;
 use power::PauseHandle;
 use system::SystemHandle;
 #[cfg(desktop)]
@@ -96,6 +97,196 @@ fn get_worker_logs(state: tauri::State<Arc<LogBuffer>>) -> Vec<String> {
 #[tauri::command]
 fn get_settings(state: tauri::State<Arc<settings::SettingsHandle>>) -> settings::Settings {
     state.snapshot()
+}
+
+/// Tauri command: the tracker stores this install trusts.
+#[tauri::command]
+fn get_tracker_stores(
+    state: tauri::State<Arc<settings::SettingsHandle>>,
+) -> Vec<stores::TrackerStore> {
+    state.snapshot().network.tracker_stores
+}
+
+/// Tauri command: a store URL that arrived by deep link and is waiting for the user to confirm it.
+///
+/// The link does **not** add the store. A page on any website can send the user here, so the app
+/// holds the URL, shows it, and waits — the same shape Mihon uses, and for the same reason: the
+/// decision being made is "I trust this publisher", and it has to be made by the person, with the
+/// URL in front of them.
+#[tauri::command]
+fn take_pending_tracker_store(state: tauri::State<Arc<PendingStore>>) -> Option<String> {
+    state.take()
+}
+
+/// Tauri command: fetch a store index, validate it, and remember it.
+///
+/// Called only after the user has confirmed. Fetching happens on a blocking pool because this is a
+/// synchronous HTTPS client; holding a Tauri command thread on a network round trip would freeze
+/// the window that is showing the dialog.
+#[tauri::command]
+async fn add_tracker_store(
+    state: tauri::State<'_, Arc<settings::SettingsHandle>>,
+    push: tauri::State<'_, Arc<PushSignal>>,
+    url: String,
+) -> Result<stores::TrackerStore, String> {
+    let target = url.trim().to_owned();
+    stores::check_url(&target).map_err(|e| e.to_string())?;
+
+    let fetch_url = target.clone();
+    let body = tokio::task::spawn_blocking(move || stores::fetch_index(&fetch_url))
+        .await
+        .map_err(|e| format!("the fetch task failed: {e}"))?
+        .map_err(|e| e.to_string())?;
+    let index = stores::parse_index(&body).map_err(|e| e.to_string())?;
+    let store = stores::store_from(&target, index, now_millis(), false);
+
+    let mut settings = state.snapshot();
+    // One entry per URL. Re-adding a store is how a user refreshes one by hand, so it replaces
+    // rather than duplicating — two rows for one URL would double every endpoint it contributes.
+    settings
+        .network
+        .tracker_stores
+        .retain(|held| held.url != store.url);
+    settings.network.tracker_stores.push(store.clone());
+    state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
+    push.request();
+    Ok(store)
+}
+
+/// Tauri command: forget a store, and everything it contributed.
+#[tauri::command]
+fn remove_tracker_store(
+    state: tauri::State<Arc<settings::SettingsHandle>>,
+    push: tauri::State<Arc<PushSignal>>,
+    url: String,
+) -> Result<(), String> {
+    let mut settings = state.snapshot();
+    let before = settings.network.tracker_stores.len();
+    settings
+        .network
+        .tracker_stores
+        .retain(|held| held.url != url);
+    if settings.network.tracker_stores.len() == before {
+        return Err(format!("no store here is served from {url}"));
+    }
+    state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
+    push.request();
+    Ok(())
+}
+
+/// Tauri command: re-read every store.
+///
+/// A store that fails to refresh keeps the services it last reported and records why. Dropping them
+/// would mean a web server having a bad minute costs the user every tracker they had, which is a
+/// far worse outcome than a slightly stale list.
+#[tauri::command]
+async fn refresh_tracker_stores(
+    state: tauri::State<'_, Arc<settings::SettingsHandle>>,
+    push: tauri::State<'_, Arc<PushSignal>>,
+) -> Result<Vec<stores::TrackerStore>, String> {
+    let mut settings = state.snapshot();
+    for store in &mut settings.network.tracker_stores {
+        let url = store.url.clone();
+        let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&url))
+            .await
+            .map_err(|e| format!("the fetch task failed: {e}"))?;
+        match fetched.and_then(|body| stores::parse_index(&body)) {
+            Ok(index) => {
+                let built_in = store.built_in;
+                *store = stores::store_from(&store.url, index, now_millis(), built_in);
+            }
+            Err(e) => store.last_error = e.to_string(),
+        }
+    }
+    let refreshed = settings.network.tracker_stores.clone();
+    state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
+    push.request();
+    Ok(refreshed)
+}
+
+/// How often the stores are re-read in the background.
+///
+/// Six hours. A service list changes when somebody opens a pull request against it, which is not an
+/// hourly event; polling harder loads somebody's web server for no benefit, and the manual Refresh
+/// button covers the case where a user knows something changed.
+const STORE_SYNC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Keep the tracker stores, and the file the worker reads, up to date.
+///
+/// Runs for the life of the app: once at startup, then on the interval. This is the
+/// "synchronisation" half of the store model — the subscriptions are settings the user owns, and
+/// the content behind them is refreshed without anybody having to remember to.
+///
+/// A failed sync is not an error. `refresh` keeps the services a store last reported and puts the
+/// reason beside them, so an outage costs freshness and never the endpoints this node is using.
+async fn sync_stores_forever(settings: Arc<settings::SettingsHandle>, push: Arc<PushSignal>) {
+    loop {
+        let mut document = settings.snapshot();
+        if document.network.tracker_stores.is_empty() {
+            // Nothing subscribed. Still write the file: the user's own typed endpoints belong in it
+            // too, and an absent file reads as "never synced".
+            settings::write_sync_file(&document);
+        } else {
+            let mut changed = false;
+            for store in &mut document.network.tracker_stores {
+                let url = store.url.clone();
+                let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&url)).await;
+                match fetched {
+                    Ok(Ok(body)) => match stores::parse_index(&body) {
+                        Ok(index) => {
+                            let built_in = store.built_in;
+                            *store = stores::store_from(&store.url, index, now_millis(), built_in);
+                            changed = true;
+                        }
+                        Err(e) => store.last_error = e.to_string(),
+                    },
+                    Ok(Err(e)) => store.last_error = e.to_string(),
+                    Err(e) => store.last_error = format!("the fetch task failed: {e}"),
+                }
+            }
+            if settings.save(document.clone()).is_ok() {
+                settings::write_sync_file(&document);
+                if changed {
+                    // A store that gained a tracker should reach a running worker rather than wait
+                    // for a restart — `network.default_trackers` is a live key.
+                    push.request();
+                }
+            }
+        }
+        tokio::time::sleep(STORE_SYNC_INTERVAL).await;
+    }
+}
+
+/// Wall-clock millis, for "when did this store last answer".
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A store URL delivered by deep link, held until the user answers the dialog.
+///
+/// One slot, not a queue: the second link supersedes the first, because a stack of dialogs is a
+/// stack of things to dismiss and the user asked for the most recent one.
+#[derive(Default)]
+pub struct PendingStore(std::sync::Mutex<Option<String>>);
+
+impl PendingStore {
+    /// Record a URL from a link.
+    pub fn offer(&self, url: String) {
+        if let Ok(mut held) = self.0.lock() {
+            *held = Some(url);
+        }
+    }
+
+    /// Read and clear it.
+    pub fn take(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|mut held| held.take())
+    }
 }
 
 /// Tauri command: every setting's honest status — live, restart-required, unsupported by this
@@ -174,7 +365,10 @@ fn restart_worker(restart: tauri::State<Arc<RestartSignal>>) -> Result<(), Strin
 /// Tauri command: toggle the manual "pause seeding" flag, mirroring the tray item. Returns the new
 /// effective pause state (which the battery rules can also be holding on).
 #[tauri::command]
-fn toggle_pause(pause: tauri::State<Arc<PauseHandle>>, push: tauri::State<Arc<PushSignal>>) -> bool {
+fn toggle_pause(
+    pause: tauri::State<Arc<PauseHandle>>,
+    push: tauri::State<Arc<PushSignal>>,
+) -> bool {
     let paused = pause.toggle_manual();
     push.request();
     paused
@@ -195,6 +389,9 @@ fn save_settings(
 ) -> Result<(), String> {
     let auto_start = next.behavior.auto_start;
     state.save(next)?;
+    // Kept in step with the document, because on Android this file is the only way the worker ever
+    // learns about a tracker (see `stores::sync_file_body`).
+    settings::write_sync_file(&state.snapshot());
     push.request();
     // Auto-start is applied here rather than merely stored, because the OS — not the worker — is
     // what enforces it. A plugin error is reported, never swallowed: silently failing to register a
@@ -277,11 +474,21 @@ async fn world_share_link(world_id: String) -> api::network::Outcome {
 fn save_share_file(name: String, uri: String) -> Result<String, String> {
     let safe: String = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let file = share_dir().join(format!(
         "{}.nodera",
-        if safe.trim_matches('-').is_empty() { "world".to_owned() } else { safe }
+        if safe.trim_matches('-').is_empty() {
+            "world".to_owned()
+        } else {
+            safe
+        }
     ));
     api::network::write_share_file(&file, &uri)?;
     Ok(file.display().to_string())
@@ -441,7 +648,9 @@ async fn save_worker_logs(
         .save_file(move |chosen| {
             let _ = tx.send(chosen);
         });
-    let Some(chosen) = rx.await.map_err(|_| "the save dialog closed unexpectedly".to_owned())?
+    let Some(chosen) = rx
+        .await
+        .map_err(|_| "the save dialog closed unexpectedly".to_owned())?
     else {
         return Ok(None);
     };
@@ -458,7 +667,10 @@ fn storage_info(
     app: tauri::AppHandle,
     settings: tauri::State<Arc<settings::SettingsHandle>>,
 ) -> api::storage::StorageInfo {
-    api::storage::storage_info(&settings.snapshot().storage.peer_worlds_dir, &app_data_dir(&app))
+    api::storage::storage_info(
+        &settings.snapshot().storage.peer_worlds_dir,
+        &app_data_dir(&app),
+    )
 }
 
 /// This app's private directory, whatever the platform calls it.
@@ -588,6 +800,9 @@ pub fn run() {
     // `Context`, so a read would panic (caught, but noisy) and be discarded ten seconds later
     // anyway. The sampler fills it in.
     let network_cache = Arc::new(std::sync::Mutex::new(android::network::pending()));
+    // One slot for a store URL that arrived by deep link. Created here so the setup hook and the
+    // command that reads it are looking at the same one.
+    let pending_store = Arc::new(PendingStore::default());
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
@@ -613,6 +828,7 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(Arc::clone(&dashboard))
         .manage(Arc::clone(&system_stats))
         .manage(Arc::clone(&worker_logs))
@@ -622,7 +838,13 @@ pub fn run() {
         .manage(Arc::clone(&push_signal))
         .manage(Arc::clone(&restart_signal))
         .manage(Arc::clone(&network_cache))
+        .manage(Arc::clone(&pending_store))
         .invoke_handler(tauri::generate_handler![
+            get_tracker_stores,
+            take_pending_tracker_store,
+            add_tracker_store,
+            remove_tracker_store,
+            refresh_tracker_stores,
             api::commands::dashboard,
             api::commands::dashboard_world,
             prove_world_admin,
@@ -670,6 +892,26 @@ pub fn run() {
             get_collected_schema
         ])
         .setup(move |app| {
+            // An incoming `nodera://tracker-store?url=…` link. It records the URL and does nothing
+            // else: a page on any website can send a user here, so the app shows the URL and waits
+            // for them to answer. Acting on the link itself would let a link change whose
+            // infrastructure this node talks to, which is a decision that belongs to the person.
+            //
+            // Registered before the window exists so a cold start — the app launched *by* the link —
+            // still has the URL waiting when the frontend asks for it.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt as _;
+                let pending = Arc::clone(&pending_store);
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        if let Some(store) = stores::store_url_from_deep_link(url.as_str()) {
+                            log::info!("deep link: a tracker store was offered");
+                            pending.offer(store);
+                        }
+                    }
+                });
+            }
+
             // Android first: nothing below may touch the filesystem until the app knows which
             // directory it is allowed to write to.
             #[cfg(target_os = "android")]
@@ -766,6 +1008,15 @@ pub fn run() {
             let events_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 api::events::run(control_addr(), events_app).await;
+            });
+
+            // Keep the tracker stores fresh, and the worker's synchronisation file with them.
+            // Started before the pusher so a first-run install has written the file — the only
+            // channel to an Android worker — by the time the worker looks for it.
+            let sync_settings = Arc::clone(&user_settings);
+            let sync_push = Arc::clone(&push_signal);
+            tauri::async_runtime::spawn(async move {
+                sync_stores_forever(sync_settings, sync_push).await;
             });
 
             // Coalesce configuration pushes: one per settle window, however many saves arrive.

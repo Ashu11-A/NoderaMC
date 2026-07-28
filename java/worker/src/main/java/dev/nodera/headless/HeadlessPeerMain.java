@@ -98,10 +98,13 @@ public final class HeadlessPeerMain {
         // Discovery services this worker announces hosted worlds to (Task 32 live lane). Defaults
         // match the mod's DEFAULT_TRACKER/RENDEZVOUS_ENDPOINTS so a fresh install is functional; the
         // Tauri supervisor (or scripts/dev.sh) can override with the two env vars below.
+        // The companion app's synchronised list, when there is one. Consulted only where the
+        // environment is silent, so anything explicitly configured still wins.
+        SyncedServices synced = SyncedServices.load(setting("NODERA_SERVICES_FILE"));
         List<TrackerClient.Endpoint> trackerEndpoints = parseTrackers(
-                env("NODERA_TRACKER_ENDPOINTS", "127.0.0.1:25600"));
+                env("NODERA_TRACKER_ENDPOINTS", synced.trackersOr("127.0.0.1:25600")));
         List<RendezvousEndpoint> rendezvousEndpoints = parseRendezvous(
-                env("NODERA_RENDEZVOUS_ENDPOINTS", "127.0.0.1:25601"));
+                env("NODERA_RENDEZVOUS_ENDPOINTS", synced.rendezvousOr("127.0.0.1:25601")));
 
         // ONE tracker client for the whole node. The archive lane, the hosting/announce lane, peer
         // discovery and replication each used to hold their own — four announce cadences and four
@@ -293,6 +296,21 @@ public final class HeadlessPeerMain {
                     t.setDaemon(true);
                     return t;
                 });
+        // Presence in the commons namespace, so a node holding no world is still findable.
+        //
+        // Without this a world-less peer — every phone, and any desktop before its first share —
+        // announces nothing, appears in no tracker answer, and cannot ask what worlds exist,
+        // because the tracker deliberately has no full-scrape endpoint. It is reachable, healthy,
+        // and invisible: observed on a handset that reported its tracker up at 67 ms while the
+        // world its three desktop peers shared reported `peers 3`, none of them the phone.
+        //
+        // Announced unconditionally rather than only when world-less. A node that hosts something
+        // is discoverable through that world, but it is also the node a phone most wants to find,
+        // and dropping out of the commons the moment you share would make the swarm hardest to join
+        // exactly when there is finally something in it.
+        dev.nodera.peer.discovery.CommonsPresence commons =
+                new dev.nodera.peer.discovery.CommonsPresence(tracker, identity.nodeId(), caps);
+
         directoryScheduler.scheduleWithFixedDelay(() -> {
             try {
                 rendezvousDirectory.sweep(System.currentTimeMillis());
@@ -300,6 +318,27 @@ public final class HeadlessPeerMain {
                 // A sweep failure degrades discovery and nothing else; killing the scheduler thread
                 // would silently freeze the endpoint set at whatever it last was.
                 LOG.warn("rendezvous-directory sweep failed: {}", e.getMessage());
+            }
+            // Guarded separately: a task that throws out of scheduleWithFixedDelay is silently
+            // never run again, and the sweep above must not be taken down by the newer half.
+            try {
+                List<dev.nodera.protocol.membership.PeerEntry> present =
+                        commons.round(runtime.selfRoute(), System.currentTimeMillis());
+                for (dev.nodera.protocol.membership.PeerEntry peer : present) {
+                    // Dial what the commons offered, by node id and route — the same call the
+                    // mesh lane uses, so a peer met here is a peer in every other sense.
+                    try {
+                        runtime.joinSession(dev.nodera.transport.PeerAddress.of(
+                                peer.nodeId(), peer.route()));
+                    } catch (RuntimeException dial) {
+                        LOG.debug("commons: {} did not answer ({})", peer.route(), dial.toString());
+                    }
+                }
+                if (!present.isEmpty()) {
+                    LOG.info("commons: {} peer(s) present", present.size());
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("commons round failed: {}", e.getMessage());
             }
         }, 5, directorySweepSeconds, java.util.concurrent.TimeUnit.SECONDS);
 
@@ -477,6 +516,81 @@ public final class HeadlessPeerMain {
      * @param key the {@code NODERA_*} name.
      * @return the configured value, or null when neither source has one.
      */
+    /**
+     * The endpoint list the companion app keeps in sync, read from a file.
+     *
+     * <p><b>Why a file.</b> On the desktop the app spawns this worker and hands it environment
+     * variables. On Android it cannot: the worker is loaded into the app's own process, and a
+     * process cannot set environment variables for itself from Java. So an Android install had no
+     * way to tell its worker about a tracker at all — it fell back to {@code 127.0.0.1:25600},
+     * which on a handset is the handset, and every tracker store the user added stopped at the app.
+     *
+     * <p>The format is one {@code <kind> <route>} pair per line, with {@code #} comments. Not JSON:
+     * this runs before anything else, and a malformed line must cost one endpoint rather than the
+     * worker's ability to start. Every parse failure is a skipped line.
+     */
+    record SyncedServices(List<String> trackers, List<String> rendezvous) {
+
+        static SyncedServices empty() {
+            return new SyncedServices(List.of(), List.of());
+        }
+
+        /**
+         * Read the file, or return nothing for any reason at all.
+         *
+         * @param path the configured path, or {@code null} to look in the default location.
+         */
+        static SyncedServices load(String path) {
+            java.nio.file.Path file;
+            if (path != null && !path.isBlank()) {
+                file = java.nio.file.Path.of(path.trim());
+            } else {
+                // The directory the worker derives everything else from, so a desktop install that
+                // never sets the variable still finds a file the app wrote.
+                file = java.nio.file.Path.of(
+                        System.getProperty("user.home", "."), ".nodera", "nodera-services.list");
+            }
+            if (!java.nio.file.Files.isReadable(file)) {
+                return empty();
+            }
+            List<String> trackers = new ArrayList<>();
+            List<String> rendezvous = new ArrayList<>();
+            try {
+                for (String line : java.nio.file.Files.readAllLines(file)) {
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                        continue;
+                    }
+                    String[] parts = trimmed.split("\\s+", 2);
+                    if (parts.length != 2 || parts[1].isBlank()) {
+                        continue;
+                    }
+                    switch (parts[0]) {
+                        case "tracker" -> trackers.add(parts[1].trim());
+                        case "rendezvous" -> rendezvous.add(parts[1].trim());
+                        default -> { /* a kind this build does not know; skip it */ }
+                    }
+                }
+            } catch (java.io.IOException | RuntimeException e) {
+                // A worker that refuses to start because a cache file is malformed is worse than one
+                // that starts on its defaults and says so.
+                LOG.warn("Nodera: could not read the synced service list {}: {}", file, e.toString());
+                return empty();
+            }
+            LOG.info("Nodera: synced services from {} ({} tracker(s), {} relay(s))",
+                    file, trackers.size(), rendezvous.size());
+            return new SyncedServices(List.copyOf(trackers), List.copyOf(rendezvous));
+        }
+
+        String trackersOr(String fallback) {
+            return trackers.isEmpty() ? fallback : String.join(",", trackers);
+        }
+
+        String rendezvousOr(String fallback) {
+            return rendezvous.isEmpty() ? fallback : String.join(",", rendezvous);
+        }
+    }
+
     private static String setting(String key) {
         String value = System.getenv(key);
         if (value == null || value.isBlank()) {

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "name": "NoderaMC Official",
+  "description": "Trackers and rendezvous services run by the NoderaMC project and by contributors who have opened a pull request to be listed here.",
+  "homepage": "https://noderamc.org",
+  "updated": "2026-07-27",
+  "services": [
+    {
+      "kind": "tracker",
+      "name": "noderamc.org",
+      "endpoints": [
+        "tcp://150.230.84.206:6969"
+      ],
+      "node_id": "17324454ccfaa3398210b81910392675",
+      "operator": "Ashu11-A",
+      "region": "eu-frankfurt",
+      "notes": "The project's own tracker, listed by address. The hostname is deliberately absent: noderamc.org is proxied and does not carry raw TCP on this port, so a name that never resolves here would be a permanently failing row on every user's screen."
+    },
+    {
+      "kind": "rendezvous",
+      "name": "noderamc.org",
+      "endpoints": [
+        "tcp://150.230.84.206:7500"
+      ],
+      "node_id": "5f0a3f4f661b30fbd6f7c5f79059ee2b",
+      "operator": "Ashu11-A",
+      "region": "eu-frankfurt",
+      "notes": "The project's own relay, listed by address, for the same reason as the tracker above. It announces itself to that tracker, so peers normally discover it rather than reading it from here."
+    }
+  ]
+}

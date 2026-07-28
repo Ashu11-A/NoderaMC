@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import {
   FiCompass,
+  FiTag,
   FiGlobe,
   FiHome,
   FiInfo,
@@ -22,6 +23,7 @@ import { SettingsScreen } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
 import { OverviewScreen } from "./Overview";
 import { WorldsScreen } from "./Worlds";
+import TrackerStoresScreen from "./TrackerStores";
 import { NetworkScreen } from "./Network";
 import { PeersScreen } from "./Peers";
 import { ConsoleScreen } from "./Console";
@@ -57,6 +59,7 @@ type Screen =
   | { name: "worlds" }
   | { name: "world"; id: string }
   | { name: "network" }
+  | { name: "stores" }
   | { name: "peers" }
   | { name: "console" }
   | { name: "mod" }
@@ -68,6 +71,7 @@ const NODE_SCREENS = [
   { name: "overview", label: "Overview", icon: <FiHome /> },
   { name: "worlds", label: "Worlds", icon: <FiGlobe /> },
   { name: "network", label: "Join a world", icon: <FiCompass /> },
+  { name: "stores", label: "Tracker stores", icon: <FiTag /> },
   { name: "peers", label: "Peers", icon: <FiUsers /> },
   { name: "console", label: "Peer console", icon: <FiTerminal /> },
   { name: "mod", label: "Minecraft mod", icon: <FiPackage /> },
@@ -189,6 +193,8 @@ function DesktopApp(props: {
             <AboutScreen />
           ) : screen.name === "network" ? (
             <NetworkScreen />
+          ) : screen.name === "stores" ? (
+            <TrackerStoresScreen />
           ) : screen.name === "peers" ? (
             <PeersScreen d={d} />
           ) : screen.name === "console" ? (
@@ -210,6 +216,8 @@ function DesktopApp(props: {
 
 function titleOf(screen: Screen, worldName?: string): string {
   switch (screen.name) {
+    case "stores":
+      return "Tracker stores";
     case "overview":
       return "Overview";
     case "worlds":

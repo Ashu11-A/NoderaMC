@@ -46,6 +46,21 @@ pub const DEFAULT_FEED_BASE_URL: &str =
 /// The digest manifest published alongside the binaries.
 pub const CHECKSUM_ASSET: &str = "SHA256SUMS";
 
+/// The detached Ed25519 signature over [`CHECKSUM_ASSET`].
+pub const CHECKSUM_SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
+
+/// The release signing key this build trusts, as 64 hex characters, or empty.
+///
+/// **Empty means integrity without provenance** — the digest still has to match, but it came from
+/// the same release as the binary, so whoever can publish to the release can publish a matching
+/// digest. That is L-81, and it is stated rather than papered over: a build with no pinned key logs
+/// the fact at every check rather than implying a guarantee it cannot make.
+///
+/// Compiled in rather than configured because a trust root an attacker can set in a config file is
+/// not a trust root. `update_release_public_key` exists for forks and for private mirrors, and
+/// setting it is a deliberate act of trusting somebody else's releases instead of ours.
+pub const DEFAULT_RELEASE_PUBLIC_KEY: &str = "";
+
 /// How the update lane is configured. Empty `channel` means the whole lane is inert.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateConfig {
@@ -59,6 +74,10 @@ pub struct UpdateConfig {
     pub check_interval_seconds: u64,
     /// How long in-flight work may hold up the restart.
     pub drain_grace_seconds: u64,
+    /// The Ed25519 key releases must be signed with, 64 hex characters. Empty disables the check.
+    ///
+    /// See [`DEFAULT_RELEASE_PUBLIC_KEY`] for why empty is not the same as safe.
+    pub release_public_key: String,
 }
 
 impl UpdateConfig {
@@ -73,26 +92,111 @@ impl UpdateConfig {
     }
 }
 
+/// The largest response the update lane will hold in memory.
+///
+/// A release binary is single-digit megabytes and the digest manifest is a few hundred bytes. This
+/// ceiling exists so a feed that answers with an endless stream — a misconfigured proxy, a hostile
+/// mirror — costs a bounded allocation and an error instead of the service's memory.
+pub const MAX_RESPONSE_BYTES: u64 = 128 * 1024 * 1024;
+
 /// Fetches bytes over HTTPS.
 ///
-/// A trait, and blocking, for two reasons: the default implementation is a `curl` subprocess (no TLS
-/// stack is pulled into a service whose whole point is to be small), and a test needs to drive the
-/// whole decision path — digest mismatch, missing manifest, unreachable feed — without a network.
+/// A trait, and blocking, for two reasons: this path runs once every few hours and has no business
+/// holding an async runtime's attention, and a test needs to drive the whole decision path — digest
+/// mismatch, missing manifest, unreachable feed — without a network.
 pub trait Fetcher: Send + Sync {
     /// Fetch `url`, or fail.
     fn get(&self, url: &str) -> io::Result<Vec<u8>>;
 }
 
-/// The default fetcher: `curl -fsSL`.
+/// The default fetcher: an in-process HTTPS client.
 ///
-/// `curl` rather than a Rust HTTP client because the alternative is a TLS stack, a certificate store,
-/// and an async runtime dependency in a code path that runs once every few hours. The cost is a
-/// runtime dependency on a binary that is present on every host that could install a release in the
-/// first place — checked once, with a clear message, instead of failing obscurely.
-#[derive(Debug, Clone, Default)]
+/// This replaced a `curl` subprocess (L-82). The original reasoning for `curl` was that the
+/// alternative pulls a TLS stack into a service whose whole point is to be small, and that curl is
+/// present on every host that could install a release in the first place. The second half turned
+/// out to be false in the deployment that matters most: the published container images are
+/// `alpine` with one static binary in them, and `curl` is exactly the kind of thing they do not
+/// have. Shipping it to satisfy an update path would have added a package, a package manager's
+/// worth of attack surface, and a second TLS configuration to keep correct.
+///
+/// What the in-process client buys beyond removing that dependency: the timeout, the redirect
+/// limit and the response ceiling are all values this code sets and a test can assert, rather than
+/// flags on a subprocess whose absence, version and proxy configuration are the host's business.
+#[derive(Debug, Clone)]
+pub struct HttpsFetcher {
+    /// Whole-request timeout in seconds, redirects included. 0 means the default.
+    pub timeout_seconds: u64,
+    /// Largest response accepted.
+    pub max_bytes: u64,
+}
+
+impl Default for HttpsFetcher {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 0,
+            max_bytes: MAX_RESPONSE_BYTES,
+        }
+    }
+}
+
+impl HttpsFetcher {
+    /// Seconds allowed for one whole request.
+    fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.timeout_seconds == 0 {
+            60
+        } else {
+            self.timeout_seconds
+        })
+    }
+}
+
+impl Fetcher for HttpsFetcher {
+    fn get(&self, url: &str) -> io::Result<Vec<u8>> {
+        // Redirects are followed because a GitHub release asset URL is one: the release page hands
+        // out a redirect to object storage. Bounded, though — an unbounded chain is a way to make
+        // this request last as long as an attacker likes despite the timeout.
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(self.timeout()))
+            .max_redirects(5)
+            .build()
+            .into();
+        let mut response = agent
+            .get(url)
+            .call()
+            .map_err(|e| io::Error::other(format!("fetch failed for {url}: {e}")))?;
+        response
+            .body_mut()
+            .with_config()
+            .limit(self.max_bytes)
+            .read_to_vec()
+            .map_err(|e| io::Error::other(format!("reading {url} failed: {e}")))
+    }
+}
+
+/// The previous fetcher: `curl -fsSL`.
+///
+/// Kept, and kept working, for the host where curl is the right answer — one already configured
+/// with a proxy, a corporate CA bundle, or a `.curlrc` that the operator maintains and this code
+/// has no business duplicating. It is no longer the default; see [`HttpsFetcher`].
+#[derive(Debug, Clone)]
 pub struct CurlFetcher {
     /// Per-request timeout in seconds.
     pub timeout_seconds: u64,
+    /// The program to run. `curl` unless an operator has a reason to name a specific one.
+    ///
+    /// A field rather than a literal so the missing-program path is reachable from a test: that
+    /// error message is the only thing standing between an operator and an update lane that fails
+    /// for a reason nobody can guess from the outside.
+    pub program: String,
+}
+
+impl Default for CurlFetcher {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 0,
+            program: "curl".to_owned(),
+        }
+    }
 }
 
 impl Fetcher for CurlFetcher {
@@ -102,7 +206,7 @@ impl Fetcher for CurlFetcher {
         } else {
             self.timeout_seconds
         };
-        let output = std::process::Command::new("curl")
+        let output = std::process::Command::new(&self.program)
             .arg("--fail")
             .arg("--silent")
             .arg("--show-error")
@@ -165,6 +269,61 @@ pub fn digest_for_asset(manifest: &str, asset: &str) -> Option<String> {
     None
 }
 
+/// Refuse a digest manifest that is not signed by the key this build trusts.
+///
+/// A no-op when no key is pinned, which is L-81's state and is logged rather than assumed.
+fn verify_manifest_signature(
+    config: &UpdateConfig,
+    fetcher: &dyn Fetcher,
+    manifest: &[u8],
+) -> io::Result<()> {
+    let key_hex = config.release_public_key.trim();
+    if key_hex.is_empty() {
+        // Said out loud on every check. An update lane that verifies less than the operator thinks
+        // it does is worse than one that verifies nothing and says so.
+        eprintln!(
+            "nodera-service: no release signing key is pinned — the update lane is checking \
+             integrity, not provenance (L-81)"
+        );
+        return Ok(());
+    }
+    let key = decode_hex(key_hex).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "update_release_public_key is not 64 hex characters".to_owned(),
+        )
+    })?;
+
+    // A missing signature is a refusal, not a fallback. Treating "the .sig is absent" as "unsigned
+    // release, carry on" would let anyone who can delete one asset turn the check off.
+    let signature = fetcher
+        .get(&config.asset_url(CHECKSUM_SIGNATURE_ASSET))
+        .map_err(|e| {
+            io::Error::other(format!(
+                "this build requires a signed release manifest and {CHECKSUM_SIGNATURE_ASSET} \
+                 could not be fetched ({e})"
+            ))
+        })?;
+
+    nodera_codec::sig::verify(&key, manifest, &signature).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("the release manifest is not signed by the expected key: {e}"),
+        )
+    })
+}
+
+/// Decode 64 hex characters into 32 bytes.
+fn decode_hex(hex: &str) -> Option<Vec<u8>> {
+    if hex.len() != 64 {
+        return None;
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .collect()
+}
+
 /// Whether a newer build is published, and its digest.
 ///
 /// `Ok(None)` means "already current" — the common case, and deliberately not an error.
@@ -177,6 +336,13 @@ pub fn check(
         return Ok(None);
     }
     let manifest = fetcher.get(&config.asset_url(CHECKSUM_ASSET))?;
+
+    // Provenance BEFORE integrity, and the order is the whole point. The digest says "these bytes
+    // are the bytes the manifest names"; the signature says "this manifest is ours". Checking the
+    // digest first would mean a substituted manifest gets a vote on which binary we install before
+    // anyone asks whether the manifest is genuine.
+    verify_manifest_signature(config, fetcher, &manifest)?;
+
     let manifest = String::from_utf8_lossy(&manifest);
     let published = digest_for_asset(&manifest, &config.asset_name).ok_or_else(|| {
         io::Error::new(
@@ -350,6 +516,7 @@ mod tests {
             asset_name: "nodera-rendezvous".to_owned(),
             check_interval_seconds: 3_600,
             drain_grace_seconds: 30,
+            release_public_key: String::new(),
         }
     }
 
@@ -558,5 +725,216 @@ mod tests {
             trailing.asset_url("SHA256SUMS"),
             "https://example.invalid/latest/SHA256SUMS"
         );
+    }
+
+    #[test]
+    fn a_missing_curl_still_says_what_to_do_about_it() {
+        // `CurlFetcher` is no longer the default (L-82) but it is still reachable, and the value of
+        // it was always this message: an update lane that fails because a program is absent must
+        // say so, and say how to turn the lane off, rather than reporting a bare ENOENT.
+        let fetcher = CurlFetcher {
+            program: "nodera-no-such-program".to_owned(),
+            ..CurlFetcher::default()
+        };
+        let error = fetcher
+            .get("https://example.invalid/whatever")
+            .expect_err("a program that does not exist cannot fetch");
+        let rendered = error.to_string();
+
+        assert!(rendered.contains("cannot run curl"), "{rendered}");
+        assert!(rendered.contains("update_channel"), "{rendered}");
+    }
+
+    #[test]
+    fn the_default_fetcher_caps_what_it_will_hold_in_memory() {
+        // A feed that answers with an endless stream must cost a bounded allocation, not the
+        // service. The ceiling is the code's, not the transport's.
+        assert_eq!(HttpsFetcher::default().max_bytes, MAX_RESPONSE_BYTES);
+        assert_eq!(
+            HttpsFetcher::default().timeout(),
+            std::time::Duration::from_secs(60)
+        );
+    }
+
+    #[test]
+    fn a_response_larger_than_the_ceiling_is_refused_rather_than_allocated() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut discard = [0u8; 1024];
+            let _ = stream.read(&mut discard);
+            // Declares more than the ceiling allows, then sends what it can before the client hangs
+            // up. `Content-Length` alone is not trusted — the read itself is what is bounded.
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 1048576\r\nConnection: close\r\n\r\n",
+            );
+            let chunk = vec![b'x'; 4096];
+            for _ in 0..256 {
+                if stream.write_all(&chunk).is_err() {
+                    return;
+                }
+            }
+        });
+
+        let fetcher = HttpsFetcher {
+            timeout_seconds: 10,
+            max_bytes: 1024,
+        };
+        let result = fetcher.get(&format!("http://{addr}/big"));
+        let _ = server.join();
+
+        assert!(
+            result.is_err(),
+            "a body past the ceiling must fail, not truncate silently: {:?}",
+            result.map(|b| b.len())
+        );
+    }
+
+    #[test]
+    fn the_default_fetcher_reads_a_body_it_is_allowed_to_read() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut discard = [0u8; 1024];
+            let _ = stream.read(&mut discard);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\nhello world",
+            );
+        });
+
+        let body = HttpsFetcher::default()
+            .get(&format!("http://{addr}/small"))
+            .expect("a small body is fetched");
+        let _ = server.join();
+
+        assert_eq!(body, b"hello world");
+    }
+
+    /// L-81's exit test: a manifest whose digests are perfectly correct but whose signature is not
+    /// ours must be refused *before* any digest is read.
+    ///
+    /// This is the attack the digest alone cannot see. The digest says "the binary matches what the
+    /// manifest names" — it says nothing about who wrote the manifest, so whoever can publish to the
+    /// release can publish a self-consistent pair.
+    #[test]
+    fn a_validly_digested_but_wrongly_signed_manifest_is_refused() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let ours = SigningKey::from_bytes(&[7u8; 32]);
+        let theirs = SigningKey::from_bytes(&[9u8; 32]);
+
+        let dir = temp_dir("wrong-sig");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"the build that is running").unwrap();
+        // A digest that is genuinely correct for a *different* build, so nothing but the signature
+        // can be what refuses this.
+        let manifest = format!(
+            "{}  nodera-rendezvous\n",
+            hex(&Sha256::digest(b"a newer build"))
+        );
+
+        let feed = FakeFeed::new();
+        feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
+        feed.serve(
+            CHECKSUM_SIGNATURE_ASSET,
+            &theirs.sign(manifest.as_bytes()).to_bytes(),
+        );
+
+        let config = UpdateConfig {
+            release_public_key: hex(ours.verifying_key().as_bytes()),
+            ..config()
+        };
+        let error = check(&config, &feed, &running).expect_err("a foreign signature must refuse");
+        assert!(
+            error.to_string().contains("not signed by the expected key"),
+            "{error}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_manifest_signed_by_the_expected_key_is_accepted() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let ours = SigningKey::from_bytes(&[7u8; 32]);
+        let dir = temp_dir("right-sig");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"the build that is running").unwrap();
+        let published = hex(&Sha256::digest(b"a newer build"));
+        let manifest = format!("{published}  nodera-rendezvous\n");
+
+        let feed = FakeFeed::new();
+        feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
+        feed.serve(
+            CHECKSUM_SIGNATURE_ASSET,
+            &ours.sign(manifest.as_bytes()).to_bytes(),
+        );
+
+        let config = UpdateConfig {
+            release_public_key: hex(ours.verifying_key().as_bytes()),
+            ..config()
+        };
+        assert_eq!(check(&config, &feed, &running).unwrap(), Some(published));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_signature_is_a_refusal_not_a_fallback() {
+        use ed25519_dalek::SigningKey;
+
+        // Otherwise anyone who can delete one asset from a release turns the check off.
+        let ours = SigningKey::from_bytes(&[7u8; 32]);
+        let dir = temp_dir("no-sig");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"the build that is running").unwrap();
+        let manifest = format!("{}  nodera-rendezvous\n", hex(&Sha256::digest(b"newer")));
+
+        let feed = FakeFeed::new();
+        feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
+        // No CHECKSUM_SIGNATURE_ASSET served at all.
+
+        let config = UpdateConfig {
+            release_public_key: hex(ours.verifying_key().as_bytes()),
+            ..config()
+        };
+        assert!(check(&config, &feed, &running).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn no_pinned_key_still_checks_the_digest_and_says_what_it_is_not_checking() {
+        // L-81's actual state until a signing key exists. The lane must keep working — refusing to
+        // update at all would be a worse outcome than the gap it is documenting — but it must not
+        // imply a guarantee it cannot make.
+        let dir = temp_dir("unpinned");
+        let running = dir.join("nodera-rendezvous");
+        std::fs::write(&running, b"running").unwrap();
+        let published = hex(&Sha256::digest(b"newer"));
+
+        let feed = FakeFeed::new();
+        feed.serve(
+            CHECKSUM_ASSET,
+            format!("{published}  nodera-rendezvous\n").as_bytes(),
+        );
+
+        assert_eq!(check(&config(), &feed, &running).unwrap(), Some(published));
+        assert!(DEFAULT_RELEASE_PUBLIC_KEY.is_empty(), "L-81 is still open");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
