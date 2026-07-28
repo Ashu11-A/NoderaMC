@@ -3,6 +3,7 @@ package dev.nodera.diagnostics.view;
 import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.diagnostics.state.Semantic;
 import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -28,7 +29,12 @@ final class TorrentWorldListViewTest {
         List<Cell> cells = panel.rows().get(0).cells();
         assertThat(cells.get(0).text()).isEqualTo("SkyBlock");
         assertThat(cells.get(0).bold()).isTrue();
-        assertThat(cells.get(1).text()).isEqualTo("7 players");
+        assertThat(cells.get(1).text()).isEqualTo("7 online");
+
+        // "7 online", not "7 players", because this cell and the second line of the in-game world
+        // row are the same fact and used to word it two different ways — which is how one of them
+        // ended up printing the unknown sentinel as "-1 online" while the other guarded against it.
+        // Both go through TorrentWorldListView.playersLabel now.
         assertThat(cells.get(2).text()).isEqualTo("12345 chunks");
         assertThat(cells.get(3).text()).isEqualTo("97.5%");
         assertThat(cells.get(4).text()).isEqualTo("HEALTHY");
@@ -69,11 +75,31 @@ final class TorrentWorldListViewTest {
         List<Cell> cells = panel.rows().get(0).cells();
         assertThat(cells.get(0).text()).isEqualTo("MyWorld");
         assertThat(cells.get(1).text()).isEqualTo("by Steve"); // owner cell inserted right after name
-        assertThat(cells.get(2).text()).isEqualTo("2 players");
+        assertThat(cells.get(2).text()).isEqualTo("2 online");
         // A blank host inserts no owner cell (indices stay as the other tests assume).
         Panel noHost = TorrentWorldListView.panel(List.of(
                 new TorrentWorldEntry("MyWorld", 2, 100, 9750, WorldHealth.HEALTHY, -1, "")), "");
-        assertThat(noHost.rows().get(0).cells().get(1).text()).isEqualTo("2 players");
+        assertThat(noHost.rows().get(0).cells().get(1).text()).isEqualTo("2 online");
+    }
+
+    @Test
+    @DisplayName("a world nobody could count reads as unknown, never as a negative population")
+    void anUnknownPlayerCountIsNeverRenderedAsANumber() {
+        // The live screenshot this comes from: a row reading "-1 online · 100% reliable", next to
+        // rows reading "0 online". The sentinel for "nothing that can see into this world has
+        // reported" had reached the screen as a population, and a player comparing the two had no
+        // way to tell which was a measurement.
+        TorrentWorldEntry unknown =
+                new TorrentWorldEntry("Unknown", -1, 4, 10_000, WorldHealth.HEALTHY, -1, "");
+
+        assertThat(unknown.playersKnown()).isFalse();
+        assertThat(unknown.playersLabel()).isEqualTo("players unknown");
+        assertThat(TorrentWorldListView.panel(List.of(unknown), "").rows().get(0).cells())
+                .extracting(Cell::text)
+                .doesNotContain("-1 online", "-1 players");
+
+        // A node in the world reporting an empty world is a different, real answer.
+        assertThat(TorrentWorldListView.playersLabel(0)).isEqualTo("0 online");
     }
 
     @Test

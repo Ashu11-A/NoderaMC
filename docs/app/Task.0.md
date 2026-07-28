@@ -73,6 +73,7 @@ externally started worker untouched: the app must never kill a process it did no
 | [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED |
 | [8](Task.8.md) | One subject per screen | ✅ COMPLETED |
 | [9](Task.9.md) | Tracker stores | ✅ DONE |
+| [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

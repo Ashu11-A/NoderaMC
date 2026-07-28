@@ -252,7 +252,7 @@ public final class WorldHostingService implements AutoCloseable {
             world.seeding = entry.supporting();
             // Liveness is NOT restored: mcRoute stays null and players stays 0 until a running game
             // says otherwise. A restored world is "shared, game closed", which is the truth.
-            world.ownershipRecord = entry.ownershipRecord();
+            bindOwnershipRecord(world, entry.ownershipRecord());
             worlds.put(entry.worldIdHex(), world);
         }
         if (worlds.isEmpty()) {
@@ -277,17 +277,18 @@ public final class WorldHostingService implements AutoCloseable {
         if (worldIdHex == null || worldIdHex.isBlank()) {
             return "missing worldId";
         }
-        if (deleted.test(worldIdHex.trim())) {
+        String id = key(worldIdHex);
+        if (deleted.test(id)) {
             return "this world was deleted by its owner";
         }
         Bytes worldId;
         try {
-            worldId = Bytes.fromHex(worldIdHex.trim());
+            worldId = Bytes.fromHex(id);
         } catch (RuntimeException e) {
             return "malformed worldId";
         }
-        String name = worldName == null || worldName.isBlank() ? worldIdHex : worldName;
-        HostedWorld world = worlds.compute(worldIdHex, (key, existing) -> {
+        String name = worldName == null || worldName.isBlank() ? id : worldName;
+        HostedWorld world = worlds.compute(id, (key, existing) -> {
             if (existing == null) {
                 return new HostedWorld(key, worldId, name, UUID.nameUUIDFromBytes(worldId.toArray()));
             }
@@ -300,7 +301,10 @@ public final class WorldHostingService implements AutoCloseable {
         // hosting player's game is open, absent once it closes) and the live player count. The
         // next announce/heartbeat carries the change to every tracker.
         world.mcRoute = jsonStringField(optionsJson, "mc");
-        world.players = jsonLongField(optionsJson, "players");
+        // Through the lease, not straight onto the field: a HOST is an observation by a node that
+        // has the game open, and it stops being credible when that game stops refreshing it. The
+        // hosting mod re-sends this on a cadence for exactly that reason.
+        markPlayers(id, jsonLongField(optionsJson, "players"), PLAYERS_LEASE_SECONDS);
         record(world);
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
@@ -329,17 +333,19 @@ public final class WorldHostingService implements AutoCloseable {
         if (worldIdHex == null || worldIdHex.isBlank()) {
             return "missing worldId";
         }
-        if (deleted.test(worldIdHex.trim())) {
+        String id = key(worldIdHex);
+        if (deleted.test(id)) {
             return "this world was deleted by its owner";
         }
         Bytes worldId;
         try {
-            worldId = Bytes.fromHex(worldIdHex.trim());
+            worldId = Bytes.fromHex(id);
         } catch (RuntimeException e) {
             return "malformed worldId";
         }
-        String name = worldName == null || worldName.isBlank() ? worldIdHex : worldName;
-        HostedWorld world = worlds.compute(worldIdHex, (key, existing) -> {
+        boolean nameless = worldName == null || worldName.isBlank();
+        String name = nameless ? id : worldName;
+        HostedWorld world = worlds.compute(id, (key, existing) -> {
             if (existing == null) {
                 HostedWorld created = new HostedWorld(key, worldId, name,
                         UUID.nameUUIDFromBytes(worldId.toArray()));
@@ -348,14 +354,21 @@ public final class WorldHostingService implements AutoCloseable {
             }
             // A world we already HOST is never demoted to a seeder by this call: hosting is the
             // stronger claim and carries the game endpoint.
-            existing.name = name;
+            //
+            // A caller with no name to offer does not get to erase the one we have. `name` falls
+            // back to the world id when blank, so assigning it unconditionally renamed a world to
+            // its own 64-character id — which is exactly what every nameless call did, and this
+            // verb is now repeated on a cadence by every joined game.
+            if (!nameless) {
+                existing.name = name;
+            }
             return existing;
         });
         record(world);
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
         LOG.info("Seeding world '{}' ({}) for the network on {} tracker(s)",
-                name, shortId(worldIdHex), tracker.endpoints().size());
+                world.name, shortId(worldIdHex), tracker.endpoints().size());
         return null;
     }
 
@@ -369,11 +382,11 @@ public final class WorldHostingService implements AutoCloseable {
         if (worldIdHex == null) {
             return "missing worldId";
         }
-        HostedWorld world = worlds.remove(worldIdHex.trim());
+        HostedWorld world = worlds.remove(key(worldIdHex));
         if (registry != null) {
             // Removed from the registry too: a stop the player asked for must not come back at the
             // next worker start. The world's KEY is kept — see WorldRegistryStore.remove.
-            registry.remove(worldIdHex.trim());
+            registry.remove(key(worldIdHex));
         }
         if (world == null) {
             return null;
@@ -424,7 +437,7 @@ public final class WorldHostingService implements AutoCloseable {
                 || ownershipRecord == null || ownershipRecord.isEmpty()) {
             return;
         }
-        String key = worldIdHex.trim();
+        String key = key(worldIdHex);
         // computeIfAbsent, not get: a world can be authored (and therefore keyed) before it is ever
         // opened to the network, and dropping it here would leave the claim visible only after the
         // next restart — the live world list would disagree with the file behind it.
@@ -436,23 +449,111 @@ public final class WorldHostingService implements AutoCloseable {
             created.seeding = true;
             return created;
         });
-        world.ownershipRecord = ownershipRecord;
+        bindOwnershipRecord(world, ownershipRecord);
         if (registry != null) {
             registry.put(key, world.name, world.seeding, ownershipRecord);
         }
     }
 
     /**
+     * The value {@link HostedWorld#players()} returns when nobody in the world has reported.
+     *
+     * <p>Negative rather than zero, and carried as such all the way to the screen, because every
+     * surface downstream had been treating "I cannot see" as "nobody is there".
+     */
+    public static final long PLAYERS_UNKNOWN = -1;
+
+    /**
+     * How long one player-count report stays credible without a refresh.
+     *
+     * <p>Three refresh cadences (the mod refreshes every 30 s from both the hosting server and each
+     * joined client), so one missed report does not blank a live number, and a game that dies
+     * silently stops vouching for its count within the window.
+     */
+    public static final long PLAYERS_LEASE_SECONDS = 90;
+
+    /**
+     * Record a player-count observation for a world, from a node that is <b>in</b> that world.
+     *
+     * <p>Only such a node may call this. A seeder has no game and therefore no opinion; letting it
+     * report the zero it can see is precisely the bug this replaces — the supporting peers of a
+     * busy world all reported "0 players" with total confidence.
+     *
+     * @param worldIdHex   the world.
+     * @param players      players the caller can see in-world; negative is ignored rather than
+     *                     stored, so an unsure caller cannot blank a good number.
+     * @param leaseSeconds how long the observation stands without a refresh.
+     * @Thread-context any thread.
+     */
+    public void markPlayers(String worldIdHex, long players, long leaseSeconds) {
+        HostedWorld world = worldIdHex == null ? null : worlds.get(key(worldIdHex));
+        if (world == null || players < 0) {
+            return;
+        }
+        world.players = players;
+        world.playersObservedUntilEpochMillis = leaseSeconds <= 0
+                ? 0
+                : System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(leaseSeconds);
+    }
+
+    /**
+     * Renew this machine's "a player here is in that world" lease.
+     *
+     * <p>Called by {@code NODERA-JOIN}, which a joined game repeats on a cadence. Deliberately a
+     * no-op for a world this node does not know: the lease describes a world in the list, and a
+     * lease on nothing would be a row the UI could not render.
+     *
+     * @param worldIdHex   the world.
+     * @param leaseSeconds how long the claim stays true without another renewal; {@code <= 0}
+     *                     ends it now (a clean "I have left").
+     * @Thread-context any thread.
+     */
+    public void markConnected(String worldIdHex, long leaseSeconds) {
+        HostedWorld world = worldIdHex == null ? null : worlds.get(key(worldIdHex));
+        if (world == null) {
+            return;
+        }
+        world.connectedUntilEpochMillis = leaseSeconds <= 0
+                ? 0
+                : System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(leaseSeconds);
+    }
+
+    /**
+     * Attach an ownership claim to a world and decide, once, whether it names this node.
+     *
+     * <p>The single place either half is written, so the flag and the bytes can never disagree —
+     * and the single place the "does this claim name me?" question is asked, which is the question
+     * "do I administer this world?" actually is. Storing the claim is how a peer can tell a player
+     * who runs a world it merely keeps alive; that is not the same as running it.
+     */
+    private void bindOwnershipRecord(HostedWorld world, Bytes ownershipRecord) {
+        world.ownershipRecord = ownershipRecord == null ? Bytes.empty() : ownershipRecord;
+        world.administeredHere = administeredBySelf(world.ownershipRecord);
+    }
+
+    /**
+     * @param ownershipRecord a canonical claim, possibly empty.
+     * @return whether it verifies <b>and</b> names this node as the world's administrator.
+     */
+    private boolean administeredBySelf(Bytes ownershipRecord) {
+        return WorldOwnershipService.decodeQuietly(ownershipRecord)
+                .filter(dev.nodera.storage.WorldOwnership::verify)
+                .map(claim -> claim.isOwner(identity.nodeId()))
+                .orElse(false);
+    }
+
+    /**
      * @param worldIdHex the world.
-     * @return whether this node holds an ownership claim for it.
+     * @return whether this node administers it — holds a claim that verifies and names this node.
      */
     public boolean administers(String worldIdHex) {
-        HostedWorld world = worldIdHex == null ? null : worlds.get(worldIdHex.trim());
+        HostedWorld world = worldIdHex == null ? null : worlds.get(key(worldIdHex));
         if (world != null && world.owned()) {
             return true;
         }
         return registry != null && worldIdHex != null
-                && registry.find(worldIdHex.trim()).map(e -> e.owned()).orElse(false);
+                && registry.find(key(worldIdHex))
+                        .map(e -> administeredBySelf(e.ownershipRecord())).orElse(false);
     }
 
     /** Write one world through to the persisted registry (no-op without one). */
@@ -495,7 +596,7 @@ public final class WorldHostingService implements AutoCloseable {
      * @Thread-context any thread (the announce runs on the hosting scheduler).
      */
     public void refreshNow(String worldIdHex) {
-        HostedWorld world = worlds.get(worldIdHex);
+        HostedWorld world = worldIdHex == null ? null : worlds.get(key(worldIdHex));
         if (world == null) {
             return;
         }
@@ -582,9 +683,42 @@ public final class WorldHostingService implements AutoCloseable {
                     // MONITORED (a live seeder exists), the earliest-deadline while counting down,
                     // so every tracker/UI surfaces the same network-visible deadline.
                     retention.state(world.worldId).deadlineEpochMillis(), 10_000,
+                    // The population this node can actually see, which for a seeder is "I cannot".
+                    // Carrying it on the announce is the only way a peer that is not in the world
+                    // — or a tracker directory — ever learns a real player count: the tracker's own
+                    // number counts announcing peers, not people.
+                    world.players(),
                     System.currentTimeMillis());
-            int acks = tracker.announce(announce).size();
-            LOG.debug("tracker announce {} '{}' → {} ack(s)", event, world.name, acks);
+            var acks = tracker.announce(announce);
+            int asked = tracker.endpoints().size();
+            int accepted = 0;
+            List<String> refusals = new ArrayList<>(2);
+            for (var ack : acks.entrySet()) {
+                if (ack.getValue().accepted()) {
+                    accepted++;
+                } else {
+                    refusals.add(ack.getKey() + ": " + ack.getValue().reason());
+                }
+            }
+            world.listedOnTrackers = accepted;
+            world.announcedToTrackers = asked;
+            // A refusal, and silence, both used to log the same "N ack(s)" line at DEBUG as a
+            // success. They are the two ways a world goes undiscoverable while this node believes
+            // it is hosting, so they are the two things worth a warning: no other symptom appears
+            // on this side at all — the failure surfaces on somebody else's screen, as a join that
+            // cannot find a seeder.
+            if (accepted == 0) {
+                LOG.warn("world '{}' is on NO tracker — {} of {} answered{}; nobody can find it",
+                        world.name, acks.size(), asked,
+                        refusals.isEmpty() ? "" : ", refused: " + String.join(", ", refusals));
+            } else {
+                if (!refusals.isEmpty()) {
+                    LOG.warn("tracker announce {} '{}' refused by {}",
+                            event, world.name, String.join(", ", refusals));
+                }
+                LOG.debug("tracker announce {} '{}' → {} of {} tracker(s) listed it",
+                        event, world.name, accepted, asked);
+            }
         } catch (RuntimeException e) {
             LOG.warn("tracker announce {} for '{}' failed: {}", event, world.name, e.getMessage());
         }
@@ -661,6 +795,19 @@ public final class WorldHostingService implements AutoCloseable {
         return host + ":" + port;
     }
 
+    /**
+     * The one spelling of a world id used as a map key.
+     *
+     * <p>{@code host} and {@code seed} keyed the live map on the caller's exact string while
+     * {@code stop} trimmed it and {@link WorldRegistryStore} lower-cased it. A world id that arrived
+     * padded or upper-cased therefore created an entry that {@code stop} could not remove and that
+     * kept announcing until the process died — a duplicate that outlived the thing that made it. Hex
+     * has no meaningful case, so normalising costs nothing.
+     */
+    private static String key(String worldIdHex) {
+        return worldIdHex.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
     private static String shortId(String hex) {
         return hex.length() <= 12 ? hex : hex.substring(0, 12);
     }
@@ -674,8 +821,23 @@ public final class WorldHostingService implements AutoCloseable {
         /** The host's Minecraft game endpoint ({@code host:port}), or {@code null} while the
          *  hosting player's game is closed. Updated by every re-HOST. */
         volatile String mcRoute;
-        /** Players currently online in-world, as last reported by the mod. */
+        /**
+         * Players in-world, as last reported by a node that is actually in it.
+         *
+         * <p>Meaningless without {@link #playersObservedUntilEpochMillis} — see {@link #players()}.
+         */
         volatile long players;
+        /**
+         * When the player count above stops being a claim anybody stands behind (epoch millis).
+         *
+         * <p>A count is an <b>observation</b>, not a property of the world, and only a node with a
+         * game in that world can make one. Every other node has to say "I do not know", which the
+         * old {@code long players = 0} could not: a peer supporting somebody else's world reported
+         * zero players for a world with people in it, and so did the joiner standing in it, because
+         * zero was also the value for "nothing has ever told me". Expiring the claim also repairs
+         * the count when the reporting game dies without a final word.
+         */
+        volatile long playersObservedUntilEpochMillis;
         /**
          * When this world first entered the Nodera network from this node (the "Date added").
          *
@@ -691,11 +853,49 @@ public final class WorldHostingService implements AutoCloseable {
         /** {@code true} when this node only holds the world's bytes; {@code false} when it hosts it. */
         volatile boolean seeding;
         /**
-         * The canonical {@code WorldOwnership} bytes when this node administers the world, or
-         * {@link Bytes#empty()} when it does not. Held encoded because this class only ever moves
-         * it around; whoever needs the claim decodes and verifies it.
+         * When this machine's claim to be <i>playing in</i> this world runs out (epoch millis).
+         *
+         * <p>A lease rather than a boolean, and renewed by every {@code NODERA-JOIN}. A flag set on
+         * join and cleared on leave is correct exactly until one "leave" goes missing — a crash, a
+         * killed game, a lost control socket — and then reads "connected" forever, on the screen a
+         * player uses to decide whether their node is doing anything. An expiring claim is wrong
+         * for at most one lease and then repairs itself with no message at all.
+         */
+        volatile long connectedUntilEpochMillis;
+        /**
+         * The canonical {@code WorldOwnership} bytes for this world, or {@link Bytes#empty()} when
+         * none is known. Held encoded because this class only ever moves it around; whoever needs
+         * the claim decodes and verifies it.
+         *
+         * <p><b>Holding a claim is not administering the world.</b> A claim names its owner, and
+         * that owner is very often somebody else — the registry persists the claim for every world
+         * this node keeps available, precisely so the node can tell a player who runs it.
          */
         volatile Bytes ownershipRecord = Bytes.empty();
+        /**
+         * Whether the claim above names <b>this</b> node.
+         *
+         * <p>Computed once, where the record is bound, rather than derived from "is the record
+         * non-empty" at every read — which is what it used to be, and which made every peer that
+         * merely knew who administered a world report that it administered the world itself. Both
+         * players in a two-player session saw "You administer this" on the same world, and both
+         * were offered the administrator-only actions.
+         */
+        volatile boolean administeredHere;
+        /**
+         * How many trackers accepted this world's last announce, and how many were asked.
+         *
+         * <p>Held because <b>an announce that was sent is not an announce that was registered</b>,
+         * and until this existed nothing on this node could tell the two apart. A tracker refuses
+         * (quota, a stale clock, an announce body it cannot decode) or simply hangs up, and the
+         * peer went on describing the world as hosted and joinable while no tracker had ever
+         * listed it — so every other peer's seeder lookup answered "0 seeders" and every join
+         * ended in "no routable seeder". This is the fact the UI needs to stop claiming reach it
+         * does not have.
+         */
+        volatile int listedOnTrackers;
+        /** Trackers asked at that last announce. {@code -1} means "never announced". */
+        volatile int announcedToTrackers = -1;
 
         HostedWorld(String worldIdHex, Bytes worldId, String name, UUID networkId) {
             this(worldIdHex, worldId, name, networkId, System.currentTimeMillis(),
@@ -714,10 +914,20 @@ public final class WorldHostingService implements AutoCloseable {
 
         /** @return whether this node holds this world's private key and administers it. */
         public boolean owned() {
-            return !ownershipRecord.isEmpty();
+            return administeredHere;
         }
 
-        /** @return the canonical ownership-claim bytes, empty when this node does not administer it. */
+        /**
+         * @return whether a player on this machine is in this world right now — an unexpired
+         *         {@code NODERA-JOIN} lease. Independent of {@link #owned()} and {@link #seeding}:
+         *         you can be playing in a world you administer, in one you merely support, or in
+         *         one you have only just started downloading.
+         */
+        public boolean connected() {
+            return System.currentTimeMillis() < connectedUntilEpochMillis;
+        }
+
+        /** @return the canonical ownership-claim bytes, empty when no claim is known here. */
         public Bytes ownershipRecord() {
             return ownershipRecord;
         }
@@ -761,9 +971,33 @@ public final class WorldHostingService implements AutoCloseable {
             return mcRoute;
         }
 
-        /** @return players currently online in-world, as last reported by the mod. */
+        /**
+         * @return how many trackers accepted this world's most recent announce. {@code 0} with a
+         *         positive {@link #announcedToTrackers()} means the world is <b>not discoverable</b>
+         *         however healthy this node looks: nobody can look it up.
+         */
+        public int listedOnTrackers() {
+            return listedOnTrackers;
+        }
+
+        /**
+         * @return how many trackers were asked at the most recent announce, or {@code -1} when this
+         *         world has never been announced (no trackers configured, or not yet hosted).
+         */
+        public int announcedToTrackers() {
+            return announcedToTrackers;
+        }
+
+        /**
+         * @return players in-world, or {@link #PLAYERS_UNKNOWN} when no node currently in the world
+         *         has reported recently. <b>Never conflate the two:</b> "nobody is playing" and
+         *         "nothing here can see who is playing" are different answers, and rendering the
+         *         second as {@code 0} is what made this number wrong on every peer but the host.
+         */
         public long players() {
-            return players;
+            return System.currentTimeMillis() < playersObservedUntilEpochMillis
+                    ? players
+                    : PLAYERS_UNKNOWN;
         }
     }
 

@@ -54,9 +54,7 @@ pub fn answer(
         world_name: swarm.world_name.clone(),
         peers: sampled,
         seeders,
-        // The player count is the whole live swarm, not the sample: the UI is asking how busy the
-        // world is, and answering with the page size would under-report every large world.
-        world_player_count: live.len() as u64,
+        world_player_count: players_in_world(&live),
         stored_chunks,
         reliability_bps,
         health: health::classify(
@@ -92,6 +90,31 @@ fn empty_response(
         ),
         retention_deadline_epoch_millis,
     }
+}
+
+/// How many players are in a world, from the peers that can actually see.
+///
+/// **The maximum of the reported counts, not their sum and not the peer count.**
+///
+/// - Not the peer count, which is what this used to be: `live.len()` counts who is *announcing* a
+///   swarm, so three always-on seeders of a world nobody was playing reported "3 players", and two
+///   players sharing one machine reported one. It was a peer count wearing a player's name.
+/// - Not a sum, because every node in a world sees the *same* roster — the host and each joiner all
+///   report the whole population — so adding them would multiply the world's players by the number
+///   of machines that looked.
+/// - The maximum, because reports arrive at different moments and a peer whose game just closed
+///   still has a live record for one TTL. Taking the largest recent claim lags a player leaving by
+///   at most that TTL; taking the smallest would hide a player who joined.
+///
+/// Peers that reported "I cannot see" (`-1`, every seeder) are excluded rather than counted as
+/// zero. A world nobody can see into returns 0, which is the honest floor: the tracker has no
+/// report, and the field cannot express that.
+fn players_in_world(live: &[(&NodeId, &PeerRecord)]) -> u64 {
+    live.iter()
+        .map(|(_, record)| record.world_player_count)
+        .filter(|count| *count >= 0)
+        .max()
+        .unwrap_or(0) as u64
 }
 
 /// Mean of the announced basis points, in pure integer math.
@@ -182,7 +205,7 @@ pub fn catalog(
         worlds.push(TrackerCatalogEntry {
             genesis_hash: hash.clone(),
             world_name: swarm.world_name.clone(),
-            world_player_count: live.len() as u64,
+            world_player_count: players_in_world(&live),
             stored_chunks: stored_piece_count(&live),
             reliability_bps: mean_reliability_bps(&live),
             health: health::classify(
@@ -344,7 +367,10 @@ mod tests {
     fn counts_health_and_reliability_come_from_live_peers() {
         let registry = registry_with(&[(1, true), (2, true), (3, false)], 1_000);
         let response = answer(&registry, b"world", &config(), 1_000);
-        assert_eq!(response.world_player_count, 3);
+        // Three peers, none of which reported a population — the fixture announce says "I cannot
+        // see", which is what every seeder says. This used to answer `3`, the peer count wearing a
+        // player's name.
+        assert_eq!(response.world_player_count, 0);
         assert_eq!(response.reliability_bps, 9_000);
         assert_eq!(
             response.health,
@@ -388,8 +414,8 @@ mod tests {
             .collect();
         assert_eq!(seeder_ids, vec![5, 6], "both seeders are in the page");
         assert_eq!(
-            response.world_player_count, 6,
-            "the count reports the swarm, not the page"
+            response.world_player_count, 0,
+            "six peers, none of which can see into the world, is not six players"
         );
     }
 
@@ -435,6 +461,57 @@ mod tests {
         assert_eq!(dead.world_name, "w", "metadata survives an empty swarm");
     }
 
+    /// A population comes from the peers that can see, and it is the maximum, not the sum.
+    ///
+    /// The old rule was `live.len()` — the number of peers announcing the swarm. Three always-on
+    /// seeders of a world nobody was playing reported "3 players"; two players sharing one machine
+    /// reported one. Now only nodes with a game in the world report at all, and because every one
+    /// of them sees the *same* roster, their claims are maxed rather than added — summing would
+    /// multiply a world's players by the number of machines that looked.
+    #[test]
+    fn the_population_comes_from_peers_that_can_see_and_is_not_summed() {
+        let mut registry = Registry::new();
+        // Two nodes IN the world, each seeing the same two players, plus a seeder that cannot see.
+        for (n, seeder, players) in [(1u64, false, 2i64), (2, false, 2), (3, true, -1)] {
+            let mut a = announce(
+                n,
+                b"world",
+                AnnounceEvent::Started,
+                if seeder { seeder_caps() } else { caps() },
+            );
+            a.world_player_count = players;
+            assert_eq!(
+                registry.apply_announce(&a, None, 1_000, 100, 100, 300_000),
+                AnnounceOutcome::Registered
+            );
+        }
+
+        let response = answer(&registry, b"world", &config(), 1_000);
+        assert_eq!(
+            response.world_player_count, 2,
+            "two observers of the same two players is two players, not four"
+        );
+        assert_eq!(response.peers.len(), 3, "all three peers are still peers");
+    }
+
+    /// A world every observer has left reads as empty, not as its seeder count.
+    #[test]
+    fn a_world_with_only_seeders_reports_no_players() {
+        let mut registry = Registry::new();
+        for n in 1..=3u64 {
+            let mut a = announce(n, b"world", AnnounceEvent::Started, seeder_caps());
+            a.world_player_count = -1;
+            assert_eq!(
+                registry.apply_announce(&a, None, 1_000, 100, 100, 300_000),
+                AnnounceOutcome::Registered
+            );
+        }
+        assert_eq!(
+            answer(&registry, b"world", &config(), 1_000).world_player_count,
+            0
+        );
+    }
+
     #[test]
     fn the_catalog_lists_every_world_sorted_and_bounded() {
         let mut registry = Registry::new();
@@ -451,7 +528,10 @@ mod tests {
         assert_eq!(listing.worlds.len(), 2);
         assert_eq!(listing.worlds[0].world_name, "Alpha", "sorted by name");
         assert_eq!(listing.worlds[1].world_name, "Beta");
-        assert_eq!(listing.worlds[0].world_player_count, 1);
+        assert_eq!(
+            listing.worlds[0].world_player_count, 0,
+            "one announcing peer that cannot see into the world is not one player"
+        );
 
         let one = catalog(&registry, 1, &config(), 1_000);
         assert_eq!(one.worlds.len(), 1, "limit bounds the page");

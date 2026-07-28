@@ -160,6 +160,14 @@ impl Tracker {
         }
         let message = match DiscoveryMessage::decode(frame) {
             Ok(message) => message,
+            // An announce whose *body* this build cannot read is answered with a refusal, not a
+            // hang-up. The tag is legible even when the fields behind it are not, so the tracker
+            // can always say "I did not register you" — and that is the one thing the announcer
+            // cannot work out for itself. Every other undecodable frame is still dropped.
+            Err(e) if is_announce(frame) => {
+                eprintln!("nodera-tracker: undecodable announce: {e}");
+                return self.reject(Rejection::Undecodable);
+            }
             Err(e) => return Handled::Unsupported(e.to_string()),
         };
 
@@ -502,6 +510,14 @@ impl Tracker {
     }
 }
 
+/// Whether a frame claims to be a tracker announce, read from the tag alone.
+///
+/// The tag is the first two bytes of every canonical frame and does not move between encoding
+/// versions, so it stays legible when the body does not.
+fn is_announce(frame: &[u8]) -> bool {
+    frame.len() >= 2 && u16::from_be_bytes([frame[0], frame[1]]) == message_tags::TRACKER_ANNOUNCE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -690,6 +706,36 @@ mod tests {
         }
     }
 
+    /// A peer speaking a newer announce body must be *told*, not hung up on.
+    ///
+    /// This is the live failure that made the whole network look empty: the announce grew a field,
+    /// the deployed trackers could not decode it, and they closed the connection without a word.
+    /// Every peer went on believing it was listed, every query answered "0 peers", and every join
+    /// ended in "no routable seeder" — with nothing anywhere saying why. A refusal carrying a code
+    /// costs one frame and turns a silent network-wide outage into a log line.
+    #[test]
+    fn an_announce_this_build_cannot_decode_is_refused_rather_than_dropped() {
+        let mut tracker = Tracker::new(config());
+        let signer = TestSigner::new(1);
+        let mut frame = signed_frame(&signer, 1, AnnounceEvent::Started, false, 10_000);
+        // A body this build cannot read: the tag stays legible, the fields behind it do not.
+        frame.truncate(frame.len() - 8);
+
+        let refusal = ack(tracker.handle_frame(&frame, None, None, 10_000));
+
+        assert!(!refusal.accepted);
+        assert_eq!(refusal.reason, "undecodable-announce");
+        assert!(
+            refusal.next_announce_after_seconds > 0,
+            "a refused peer is still paced, not invited to hot-loop"
+        );
+        // Frames that are not announces keep being dropped: there is no useful answer to give.
+        assert!(matches!(
+            tracker.handle_frame(&[0xff, 0xff, 0x00], None, None, 10_000),
+            Handled::Unsupported(_)
+        ));
+    }
+
     #[test]
     fn announce_then_query_returns_the_peer() {
         let mut tracker = Tracker::new(config());
@@ -705,7 +751,9 @@ mod tests {
 
         let r = response(tracker.handle_frame(&query_frame(b"world"), None, None, 10_000));
         assert_eq!(r.peers.len(), 1);
-        assert_eq!(r.world_player_count, 1);
+        // The announcing peer reported no population (the fixture is a seeder), so the world has
+        // none to report. This asserted `1` — the peer count under a player's name.
+        assert_eq!(r.world_player_count, 0);
         assert_eq!(r.health, WorldHealth::Healthy);
         assert_eq!(r.stored_chunks, 8);
     }

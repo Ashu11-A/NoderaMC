@@ -92,7 +92,9 @@ public final class NoderaWorldList extends ObjectSelectionList<NoderaWorldList.R
             }
 
             // Second line: population + storage + reliability.
-            String stats = entry.playerCount() + " online"
+            // Through the shared formatter: this row printed "-1 online" for every world nothing
+            // had reported on, which is the sentinel for "unknown" rendered as a population.
+            String stats = entry.playersLabel()
                     + (entry.storedChunks() > 0 ? " · " + entry.storedChunks() + " chunks" : "")
                     + " · " + (entry.reliabilityBps() / 100) + "% reliable";
             graphics.drawString(font, stats, left + 14, top + 18, 0x9C9CA8);

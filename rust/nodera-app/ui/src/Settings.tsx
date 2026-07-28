@@ -27,6 +27,7 @@ import {
   Disclosure,
   StatusBadge,
   cx,
+  resetScrollport,
 } from "./components";
 import {
   saveSettings,
@@ -218,7 +219,10 @@ export function SettingsScreen(props: {
                 ? "border-b-brand-2 font-semibold text-text"
                 : "border-b-transparent text-dim hover:text-text",
             )}
-            onClick={() => setSection(sec.id)}
+            onClick={() => {
+              setSection(sec.id);
+              resetScrollport();
+            }}
           >
             {sec.icon}
             {sec.label}

@@ -788,7 +788,9 @@ pub fn run() {
         }));
     }
 
-    let dashboard = Arc::new(DashboardStore::new());
+    // `restored`, not `new`: the traffic totals are the node's, not this process's, and they read
+    // back from disk so neither a worker restart nor closing the app sends them to zero.
+    let dashboard = Arc::new(DashboardStore::restored());
     let system_stats = Arc::new(SystemHandle::new());
     let worker_logs = Arc::new(LogBuffer::new());
     let user_settings = Arc::new(settings::SettingsHandle::load());

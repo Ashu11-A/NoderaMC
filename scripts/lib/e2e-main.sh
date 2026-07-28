@@ -645,13 +645,22 @@ EOF
 }
 
 # start_worker <name> <control-port> <p2p-port> — one headless peer with its
-# own identity file and archive dir under $LOG_DIR.
+# own identity file, archive dir and STATE dir under $LOG_DIR.
+#
+# NODERA_STATE_DIR is the one that took a live debugging session to notice. Without it every
+# simulated peer defaults to ~/.nodera and therefore shares ONE worlds.dat and ONE world-keys
+# directory with every other peer AND with the operator's real installation. What that produced:
+# three separate peers each logging "Restored 11 world(s) ... 8 administered by this node" at
+# startup, for worlds none of them had ever seen, keyed by an identity (the real ~/.nodera worker)
+# that was not even running. Every ownership and continuity assertion in a suite was then being
+# made against the union of every run ever performed on the machine.
 start_worker() {
     NODERA_CONTROL_PORT="$2" NODERA_P2P_PORT="$3" \
     NODERA_P2P_BIND="$NODERA_P2P_BIND_ADDR" \
     NODERA_P2P_ADVERTISE="$NODERA_P2P_ADVERTISE_ADDR" \
     NODERA_IDENTITY_FILE="$LOG_DIR/$1-identity.bin" \
     NODERA_ARCHIVE_DIR="$LOG_DIR/$1-archive" \
+    NODERA_STATE_DIR="$LOG_DIR/$1-state" \
     NODERA_TRACKER_ENDPOINTS="$NODERA_TRACKER_ENDPOINT_LIST" \
     NODERA_RENDEZVOUS_ENDPOINTS="$NODERA_RENDEZVOUS_ENDPOINT_LIST" \
         setsid "$WORKER_DIST" >"$LOG_DIR/worker-$1.log" 2>&1 9>&- &

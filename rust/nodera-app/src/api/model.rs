@@ -130,8 +130,17 @@ pub struct World {
     /// `true` when this node hosts the world rather than only keeping its bytes. Answers "what am
     /// I doing with it". Neither implies the other.
     pub hosting: bool,
+    /// `true` when somebody on this machine is in the world right now. Answers "am I playing it",
+    /// which the other two flags cannot: the ordinary case is a world you neither run nor authored.
+    pub connected: bool,
     pub world_public_key: String,
-    pub players: u32,
+    /// Players in-world, or `None` when no node that is *in* the world has reported recently.
+    ///
+    /// Only a node with a game in the world can count its players. Every other peer — a seeder, a
+    /// worker whose game has closed, this app before the first report lands — has to say it does
+    /// not know, and the UI renders that as an em dash. Collapsing it to `0` is what made the count
+    /// wrong everywhere except on the machine hosting the game.
+    pub players: Option<u32>,
     /// The host's Minecraft endpoint while its game runs; `None` once it closes.
     pub game_endpoint: Option<String>,
     pub added_at: u64,
@@ -142,20 +151,52 @@ pub struct World {
     pub piece_count: u64,
     pub pieces_held: u64,
     pub seeders: u64,
+    /// Full copies of this world believed to exist, this node's included when it holds one.
+    pub backup_copies: u64,
+    /// Copies a network this size should keep, capped by the number of peers that exist — so a
+    /// small network wants a full copy on every peer and this equals `backup_copies` when reached.
+    pub backup_copies_wanted: u64,
+    /// Chance nobody is holding this world at a given moment, in permille. `None` once there are
+    /// enough copies for the risk to round to nothing, so the UI stops reporting "0.0%" as news.
+    pub loss_risk_permille: Option<u64>,
     /// Verified-present pieces as a permille of the manifest. `None` until the manifest is known —
     /// a world whose pieces have not been counted is not 0% complete, it is unmeasured.
     pub completeness_permille: Option<u64>,
+    /// Whether any tracker has accepted this world's announce, or `None` when it has never been
+    /// announced (nothing has been asked, so nothing has refused).
+    ///
+    /// `Some(false)` is the state the app had no way to show: the world is hosted here, complete
+    /// here, its game endpoint is open — and no directory on the network lists it, so no other peer
+    /// can find it at all. Every "joinable" label is a claim about reach, and this is the only field
+    /// that knows whether the reach exists.
+    pub discoverable: Option<bool>,
 }
 
 impl World {
+    /// Bytes of this world verified present on this node.
+    ///
+    /// Prorated from the piece counts rather than measured, because the worker reports the manifest
+    /// and the held count, not a byte total per world — and prorating is exact for every piece but
+    /// the last one, which is the only short piece a fixed splitter produces. Zero pieces means zero
+    /// bytes, never "the whole world": a node that holds nothing contributes nothing.
+    pub fn held_bytes(&self) -> u64 {
+        if self.piece_count == 0 {
+            return 0;
+        }
+        ((self.total_bytes as u128 * self.pieces_held as u128) / self.piece_count as u128) as u64
+    }
+
     fn of(row: &WorldRow) -> Self {
         Self {
             world_id: row.world_id.clone(),
             name: row.name.clone(),
             administered: row.owned,
             hosting: !row.seeding,
+            connected: row.connected,
             world_public_key: row.world_public_key.clone(),
-            players: row.players,
+            // Negative is the worker's "nobody in that world has reported"; it must not survive as
+            // a number the UI could format.
+            players: u32::try_from(row.players).ok(),
             // The worker sends an empty string for "the game is closed". An Option says that once,
             // here, instead of every call site remembering that "" is not an endpoint.
             game_endpoint: if row.mc_route.is_empty() {
@@ -171,10 +212,22 @@ impl World {
             piece_count: row.piece_count,
             pieces_held: row.pieces_held,
             seeders: row.seeders,
+            backup_copies: row.backup_copies,
+            backup_copies_wanted: row.backup_copies_wanted,
+            loss_risk_permille: if row.loss_risk_permille == 0 {
+                None
+            } else {
+                Some(row.loss_risk_permille)
+            },
             completeness_permille: if row.piece_count == 0 {
                 None
             } else {
                 Some(row.pieces_held.saturating_mul(1000) / row.piece_count)
+            },
+            discoverable: if row.announced_to_trackers < 0 {
+                None
+            } else {
+                Some(row.listed_on_trackers > 0)
             },
         }
     }
@@ -282,6 +335,17 @@ pub struct Lan {
 pub struct Counts {
     pub administered_worlds: usize,
     pub supported_worlds: usize,
+    /// Worlds somebody on this machine is in right now.
+    pub connected_worlds: usize,
+    /// Worlds this node keeps alive for other people — supported and *not* being played here.
+    ///
+    /// Counted separately from `supported_worlds` because the Worlds screen lists them separately:
+    /// a world you are playing in belongs under "you are here", not under "you are helping out",
+    /// even though the node is doing the same work for both.
+    pub shared_for_others: usize,
+    /// Content bytes verified present on this node across every world it does not administer — the
+    /// honest answer to "how much am I contributing", as distinct from how much exists.
+    pub shared_bytes: u64,
     pub players: u32,
     pub peers: usize,
 }
@@ -314,13 +378,29 @@ impl Dashboard {
         let counts = Counts {
             administered_worlds: worlds.iter().filter(|w| w.administered).count(),
             supported_worlds: worlds.iter().filter(|w| !w.administered).count(),
-            // Players are counted across the worlds this peer administers: a supported world's
-            // player count belongs to whoever runs it, and adding it here would report other
-            // people's players as yours.
+            connected_worlds: worlds.iter().filter(|w| w.connected).count(),
+            shared_for_others: worlds
+                .iter()
+                .filter(|w| !w.administered && !w.connected)
+                .count(),
+            // Held, not total: a world half-downloaded contributes half a world, and reporting its
+            // full size as "shared" would credit this node for bytes it cannot serve.
+            shared_bytes: worlds
+                .iter()
+                .filter(|w| !w.administered)
+                .map(|w| w.held_bytes())
+                .sum(),
+            // Players across the worlds this node is answerable for: the ones it administers and
+            // the ones somebody here is playing in. A supported world nobody here has joined is
+            // excluded, because its players belong to whoever runs it.
+            //
+            // Only *known* counts are summed. A world whose count nothing has reported contributes
+            // nothing rather than a zero, so the headline stops silently averaging in worlds this
+            // node cannot see into.
             players: worlds
                 .iter()
-                .filter(|w| w.administered)
-                .map(|w| w.players)
+                .filter(|w| w.administered || w.connected)
+                .filter_map(|w| w.players)
                 .sum(),
             peers: peers.len(),
         };
@@ -402,7 +482,8 @@ pub struct Rates {
 mod tests {
     use super::*;
 
-    fn world(id: &str, owned: bool, seeding: bool, players: u32) -> WorldRow {
+    /// A world row with a *reported* player count. Pass a negative count for "nobody has reported".
+    fn world(id: &str, owned: bool, seeding: bool, players: i64) -> WorldRow {
         WorldRow {
             world_id: id.to_owned(),
             name: id.to_owned(),
@@ -432,6 +513,108 @@ mod tests {
         // A world this node hosts for somebody else is theirs, and its players are not ours.
         assert_eq!(dash.counts.players, 2);
         assert!(dash.worlds[2].hosting && !dash.worlds[2].administered);
+    }
+
+    /// "Nobody is in this world" and "nothing here can see who is" are different answers.
+    ///
+    /// They shared the value `0` for the whole life of this field, which is why every peer but the
+    /// one hosting the game reported a confident zero for a world with people standing in it.
+    #[test]
+    fn an_unreported_player_count_is_unknown_rather_than_none_present() {
+        let metrics = Metrics {
+            connected_worlds: vec![
+                // Nothing has reported: this node holds the bytes and has no game in the world.
+                world("supported-cannot-see", false, true, -1),
+                // A node IN the world reported that it is empty. A real, different answer.
+                world("reported-empty", true, false, 0),
+                // Playing in somebody else's busy world.
+                WorldRow {
+                    connected: true,
+                    ..world("theirs-busy", false, true, 3)
+                },
+            ],
+            ..Metrics::default()
+        };
+
+        let dash = Dashboard::of(&metrics, Rates::default());
+
+        assert_eq!(dash.worlds[0].players, None);
+        assert_eq!(dash.worlds[1].players, Some(0));
+        assert_eq!(dash.worlds[2].players, Some(3));
+        // The headline counts the worlds this node is answerable for — its own, plus the one it is
+        // playing in — and skips the unknown entirely rather than adding a zero for it.
+        assert_eq!(dash.counts.players, 3);
+    }
+
+    /// The three flags are three questions, and the screen groups worlds by the answers.
+    ///
+    /// Written because the app had only two of them and therefore no row at all for the ordinary
+    /// case: a player inside somebody else's world. That peer's Worlds screen read "Nothing is on
+    /// the network until you share it" while the player was standing in the world.
+    #[test]
+    fn a_world_being_played_here_is_counted_apart_from_one_merely_supported() {
+        let metrics = Metrics {
+            connected_worlds: vec![
+                // Playing in somebody else's world — supported, and where the player is.
+                WorldRow {
+                    seeding: true,
+                    connected: true,
+                    piece_count: 100,
+                    pieces_held: 100,
+                    total_bytes: 1000,
+                    ..world("theirs-im-in", false, true, 3)
+                },
+                // Carried for other people, nobody here is in it.
+                WorldRow {
+                    piece_count: 100,
+                    pieces_held: 25,
+                    total_bytes: 1000,
+                    ..world("theirs-i-carry", false, true, 0)
+                },
+                // Own world, not being played.
+                world("mine", true, false, 0),
+            ],
+            ..Metrics::default()
+        };
+
+        let dash = Dashboard::of(&metrics, Rates::default());
+
+        assert_eq!(dash.counts.connected_worlds, 1);
+        // Still supported — playing in a world does not stop you carrying it…
+        assert_eq!(dash.counts.supported_worlds, 2);
+        // …but the "helping out with" list is the other one, so the two are not the same number.
+        assert_eq!(dash.counts.shared_for_others, 1);
+        // Held, not total: 1000 + 250 across the two worlds this node does not administer.
+        assert_eq!(dash.counts.shared_bytes, 1250);
+    }
+
+    /// Held bytes are prorated from the pieces, and a node holding nothing holds nothing.
+    #[test]
+    fn held_bytes_never_credits_a_world_whose_pieces_are_absent() {
+        let none = World::of(&WorldRow {
+            piece_count: 10,
+            pieces_held: 0,
+            total_bytes: 5000,
+            ..world("empty", false, true, 0)
+        });
+        assert_eq!(none.held_bytes(), 0);
+
+        // No manifest at all is not "complete", and must not be reported as the full size either.
+        let unmeasured = World::of(&WorldRow {
+            piece_count: 0,
+            total_bytes: 5000,
+            ..world("unmeasured", false, true, 0)
+        });
+        assert_eq!(unmeasured.held_bytes(), 0);
+        assert_eq!(unmeasured.completeness_permille, None);
+
+        let half = World::of(&WorldRow {
+            piece_count: 4,
+            pieces_held: 2,
+            total_bytes: 999,
+            ..world("half", false, true, 0)
+        });
+        assert_eq!(half.held_bytes(), 499);
     }
 
     #[test]
@@ -529,6 +712,38 @@ mod tests {
         assert_eq!(
             Dashboard::of(&metrics, Rates::default()).worlds[0].game_endpoint,
             None
+        );
+    }
+
+    /// "Announced" and "listed" are different facts, and the third state is "neither has happened".
+    ///
+    /// A world hosted with an open game and no tracker that will take its announce is unreachable,
+    /// and nothing else on the screen says so — the piece count, the completeness and the game
+    /// endpoint are all healthy while no peer in the world can find it.
+    #[test]
+    fn a_world_no_tracker_accepted_is_not_discoverable() {
+        let world = |listed: i64, asked: i64| Metrics {
+            connected_worlds: vec![WorldRow {
+                world_id: "w".into(),
+                mc_route: "10.0.0.1:25565".into(),
+                listed_on_trackers: listed,
+                announced_to_trackers: asked,
+                ..WorldRow::default()
+            }],
+            ..Metrics::default()
+        };
+        let of = |m: Metrics| Dashboard::of(&m, Rates::default()).worlds[0].discoverable;
+
+        assert_eq!(of(world(0, 3)), Some(false), "asked three, listed by none");
+        assert_eq!(
+            of(world(1, 3)),
+            Some(true),
+            "one tracker is enough to be found"
+        );
+        assert_eq!(
+            of(world(0, -1)),
+            None,
+            "never announced is not the same claim as refused everywhere"
         );
     }
 

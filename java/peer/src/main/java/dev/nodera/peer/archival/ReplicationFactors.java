@@ -23,6 +23,27 @@ public record ReplicationFactors(int snapshot, int recentLog, int compacted) {
     public static final ReplicationFactors SPEC = new ReplicationFactors(5, 4, 3);
 
     /**
+     * Factors sized for a <b>world archive</b> rather than for the simulation lanes.
+     *
+     * <p>The constants above are a spec statement about replicated simulation state, and they are
+     * the wrong shape for a player's save: five copies of a world whose holders are home machines
+     * online about a third of the time is a 12% chance that nobody has it at a given moment.
+     * {@link ReplicationTarget} derives the count from that availability instead of asserting it,
+     * and {@link #factor} then caps it at the network size — which is what makes a small network
+     * keep <b>a full copy on every peer</b> rather than holding back copies it could have made.
+     *
+     * <p>Only the snapshot factor moves. The other two describe objects this reasoning does not
+     * apply to, and changing them here would quietly re-tune the repair lane.
+     *
+     * @param target the durability model; {@link ReplicationTarget#standard()} for the defaults.
+     * @return factors whose SNAPSHOT class follows {@code target}.
+     */
+    public static ReplicationFactors forWorldArchives(ReplicationTarget target) {
+        Objects.requireNonNull(target, "target");
+        return new ReplicationFactors(target.idealReplicas(), SPEC.recentLog(), SPEC.compacted());
+    }
+
+    /**
      * Compact constructor.
      *
      * @throws IllegalArgumentException if any factor is not positive.

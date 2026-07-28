@@ -284,7 +284,10 @@ public final class NoderaCommand {
         for (var entry : catalog) {
             out.append("\n  ").append(entry.worldName().isBlank()
                             ? entry.genesisHash().toHex().substring(0, 12) : entry.worldName())
-                    .append(" — ").append(entry.worldPlayerCount()).append(" online, ")
+                    // PEERS, not players: this is the tracker catalog, and a tracker only ever
+                    // sees who is announcing a swarm. Saying "online" here credited three seeders
+                    // of an empty world with three players.
+                    .append(" — ").append(entry.worldPlayerCount()).append(" peer(s), ")
                     .append(entry.health().name().toLowerCase(java.util.Locale.ROOT));
         }
         String text = out.toString();

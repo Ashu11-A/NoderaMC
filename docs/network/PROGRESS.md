@@ -34,6 +34,85 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-27 — The route the tracker had already sent
+
+The instrumentation added in the previous pass paid for itself on the first run. The recovery
+screen stopped saying "Migrating world…" for two minutes and said, in two seconds:
+
+```
+Recovery failed: no routable seeder for world d454b2264b84
+```
+
+That is a routing failure, not a throughput one — which settles a question two earlier passes had
+guessed at and got wrong. `ArchiveFetchThroughputTest` had already shown the lane moves 18 MB in
+1.9 s in-process; the pieces were never slow, they were never requested.
+
+`resolveSeeders` asks the tracker twice: a seeder query, then a routes query. The seeder query's
+answer carries `PeerEntry`, and a `PeerEntry` **has a `route`** — which this code dropped on the
+floor, keeping only the node id, and then depended on the second query to supply the very thing it
+had just discarded. Any tracker that does not answer the routes query — an older build, a dropped
+datagram — leaves every seeder known and unreachable. The host had announced to that same tracker
+three seconds earlier.
+
+Fixed: the route on the entry is kept, both sources go through one `rememberRoute` that rejects
+`mc/` game-endpoint claims, and the lookup logs what it found
+(`N seeder(s), M routable, over K tracker(s)`) so the next failure of this shape names itself.
+
+Also in this pass, from the same screenshot — both defects mine, introduced two passes earlier:
+
+- the failure text asserted "this world is password protected" for a world shared with
+  `encryption=false`. `CompanionClient.fetchArchive` now returns the worker's own reason instead of
+  discarding it, and continuity prints that verbatim. A cause the client cannot observe is a cause
+  it must not name — this was the second wrong guess printed in that exact spot;
+- the message was drawn with `drawCenteredString`, which does not wrap, so it ran off both edges
+  with its first and last words cut off. It now wraps to `width - 80`. This is MC-GUI-2, written
+  into new code after being catalogued.
+
+And the fetch deadline is now a **stall** deadline rather than a wall clock. A flat budget asks
+"has this taken too long?", which is wrong in both directions: it kills a large world that is
+transferring perfectly well, and it lets a download that is receiving nothing look busy for two
+minutes. Progress is the question; a fetch that keeps moving keeps going.
+
+### 2026-07-27 — The joiner that could not speak to the peer it was joining
+
+Third live reproduction of a stuck "Migrating world…", and the first one whose cause is in the
+transport rather than the archive lane. The host quit to the title screen — the ordinary continuity
+case — and the other player's client sat on the recovery screen while both workers were online and
+the seeder held every piece (208 pieces / 51.4 MiB on the dashboard).
+
+The joiner's log carried this sixteen times:
+
+```
+Exception in thread "nodera-peer-state-4cf0c965" java.lang.NullPointerException:
+    rendezvous transport requires a nodeId
+  at RendezvousPeerTransport.dispatch(RendezvousPeerTransport.java:255)
+  at PeerRuntime.sendTo(PeerRuntime.java:792)
+  at PeerRuntime.onHeartbeatTick(PeerRuntime.java:610)
+```
+
+The address is the **bootstrap**: a route with nobody's name on it, because a joiner dials an
+address before it can know who is listening — learning that is what the `PeerJoin` it is trying to
+send is for. `dispatch` rejected it at line one, above the code that has honoured a caller-supplied
+route since L-30. So the joiner could never announce itself, its membership stayed `{self}`, and
+the download had no mesh behind it.
+
+Three fixes, at three layers, because one alone would have left the shape intact:
+
+- an unnamed address with a dialable route goes over the direct transport, and one without a route
+  fails as a `TransportException` — the type every caller is written to tolerate, never an unchecked
+  throw that unwinds a scheduler thread;
+- `PeerRuntime.sendTo` absorbs unchecked failures as well as checked ones, honouring the contract it
+  already documented;
+- `onHeartbeatTick` isolates the bootstrap re-announce, so the `SessionKeepAlive` broadcast at the
+  bottom cannot be skipped by anything above it.
+
+Evidence: `BootstrapAddressHasNoNodeIdTest` (3) and `HeartbeatSurvivesABadBootstrapTest`, both
+verified failing with the fixes disabled.
+
+Measured in passing, because the same run looked like a throughput problem and was not:
+`ArchiveFetchThroughputTest` moves an 18 MB archive between two services in **1.9 s (~9.8 MB/s)**.
+The lane's own pacing is not slow; what was slow was a joiner with no mesh.
+
 ### 2026-07-27 — A peer stops being told where its relays are
 
 The rendezvous list was a configuration string, and three things followed from that: adding a rendezvous

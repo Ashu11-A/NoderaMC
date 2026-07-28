@@ -1542,11 +1542,14 @@ public final class MessageCodec {
                 String worldName = r.readString();
                 long retentionDeadline = r.readU64();
                 int reliabilityBps = r.readU32AsInt();
+                // Offset by one on the wire so "unknown" (-1) survives an unsigned field; 0 is the
+                // sentinel, n+1 is a real count of n. See TrackerAnnounce.worldPlayerCount.
+                long worldPlayerCount = r.readU64() - 1;
                 long announceEpochMillis = r.readU64();
                 Bytes signature = r.readBytesValue();
                 yield new TrackerAnnounce(genesisHash, peer, publicKey, event, routes, capabilities,
-                        holdings, worldName, retentionDeadline, reliabilityBps, announceEpochMillis,
-                        signature);
+                        holdings, worldName, retentionDeadline, reliabilityBps, worldPlayerCount,
+                        announceEpochMillis, signature);
             }
             case TAG_TRACKER_ANNOUNCE_ACK -> {
                 boolean accepted = r.readBoolean();

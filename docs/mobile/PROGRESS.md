@@ -5,7 +5,7 @@
      EVIDENCE (a test, a log line, a control-socket answer), then reconcile ../ROADMAP.md §2.
      Never rewrite an old note. -->
 
-**Category:** mobile · **Last audit:** 2026-07-27 · Tasks completed: **6 / 6**
+**Category:** mobile · **Last audit:** 2026-07-27 · Tasks completed: **7 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -23,8 +23,23 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | 5 | First-run setup + storage + battery | ✅ COMPLETED | SAF picker returns `/storage/emulated/0/Documents`, write-probed; battery dialog names the vendor |
 | 6 | Native navigation | ✅ COMPLETED | System back walks the WebView history; navigation bar hides in sub-screens |
 | 7 | The phone in the mesh, tested | ✅ COMPLETED | `scripts/e2e-android-mesh.sh` — asserts the phone's own `total_received_bytes` moves after joining the Linux mesh |
+| [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Kotlin now derives the path from `dataDir/nodera`, matching `settings::sync_file_path()`; live re-read, `envInt`, restart and the foreground service remain |
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — The services file the phone was told to read
+
+The design names the synchronised services list as "the ONLY way the worker learns about a tracker
+on Android". It had never once been read on a device: the Rust side writes
+`/data/user/0/<pkg>/nodera/nodera-services.list` and `NoderaWorker.kt` pointed the worker at
+`/data/user/0/<pkg>/files/nodera-services.list` — `filesDir` is one level below `app_data_dir()`,
+and `config_dir()` appends `nodera/`. `api/storage.rs` already documents that exact trap for
+`storage-pick.json`; the services list had no equivalent workaround. The network came up anyway
+only because `network.default_trackers` also arrives over the live `NODERA-CONFIG` push.
+
+The Kotlin side now derives the path the same way the Rust side does. Opened as
+[`Task.5.md`](Task.5.md); the read-once behaviour, the `envInt` property gap, the no-op restart
+button and the missing foreground service remain.
 
 ### 2026-07-27 — The phone exchanges real data with the Linux peers, and what stood in the way
 
