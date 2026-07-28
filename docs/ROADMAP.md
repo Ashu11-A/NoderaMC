@@ -9,7 +9,7 @@
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
 **Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,068 Java tests · 408 Rust
-workspace tests · 157 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
+workspace tests · 184 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
 full green `./gradlew check` + `cargo test` on 2026-07-28; `nodera-app` is a separate workspace and
 was not re-run).
 

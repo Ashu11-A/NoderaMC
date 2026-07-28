@@ -24,13 +24,24 @@ register: [`REFACTORING.md`](REFACTORING.md).
 | 5 | First-run setup + storage + battery | ✅ COMPLETED | SAF picker returns `/storage/emulated/0/Documents`, write-probed; battery dialog names the vendor |
 | 6 | Native navigation | ✅ COMPLETED | System back walks the WebView history; navigation bar hides in sub-screens |
 | 7 | The phone in the mesh, tested | ✅ COMPLETED | `scripts/e2e-android-mesh.sh` — asserts the phone's own `total_received_bytes` moves after joining the Linux mesh |
-| [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Kotlin now derives the path from `dataDir/nodera`, matching `settings::sync_file_path()`; live re-read, `envInt`, restart and the foreground service remain |
+| [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Kotlin path agrees with Rust; tracker stores now follows dynamic Material 3 roles; live re-read, `envInt`, restart, foreground service, and touch acceptance remain |
 
 Task-file mapping: the eight rows above are the category's sub-deliverables. The deliverable task
 files are [`Task.1`](Task.1.md) ✅ · [`Task.2`](Task.2.md) ✅ · [`Task.3`](Task.3.md) ✅ ·
 [`Task.4`](Task.4.md) ✅ (2026-07-28) · [`Task.5`](Task.5.md) 🚧 (owns M-NET-1 … M-NET-4).
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Reused tracker stores follows Material You
+
+The shared tracker-store screen no longer carries desktop `--text`, `--surface`, and `--brand-*`
+roles into the phone layout. `mobile/Settings.tsx` selects a mobile semantic map backed by generated
+Material 3 roles, including primary controls, surface-container cards and dialogs, outline variants,
+error containers, and scrim. Changing source colour now reaches the whole screen.
+
+Evidence is host-side and bundle-level: `built tracker-store CSS resolves desktop and mobile shell
+roles` verifies Vite's emitted selectors, not source strings. Task 5 deliverable 7 remains open until
+both reused desktop screens receive physical touch acceptance.
 
 ### 2026-07-28 — Documentation sweep: Task 4 closed, Task 5 re-audited, M-9 filed
 
