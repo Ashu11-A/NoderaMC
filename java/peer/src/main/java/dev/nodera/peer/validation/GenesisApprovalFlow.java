@@ -6,6 +6,7 @@ import dev.nodera.core.crypto.SignatureService;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.GenesisApprovalGrant;
 import dev.nodera.protocol.simulationmsg.GenesisApprovalRequest;
 import dev.nodera.storage.GenesisRecertification;
@@ -151,7 +152,7 @@ public final class GenesisApprovalFlow {
 
     private void send(PeerAddress to, NoderaMessage msg) {
         try {
-            transport.send(to, MessageCodec.encode(msg));
+            transport.send(to, WireCodec.encode(msg));
         } catch (TransportException unreachable) {
             // An unreachable founder is an absent approval; the quorum tolerates a minority.
         }

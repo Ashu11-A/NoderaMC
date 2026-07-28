@@ -74,22 +74,38 @@ Two planes must be kept apart when reading the code:
 |---|---|---|
 | Framing (TCP) | `u32` big-endian length + body, hard cap 16 MiB | `java/transport/.../transport/Frames.java:25`, `rust/nodera-codec/src/framing.rs:12` |
 | Framing (UDP) | the datagram *is* the frame, no length prefix | `rust/nodera-tracker/src/wire.rs:127` |
-| Message frame | `u16 typeTag` + `u16 version` + body; big-endian fixed-width primitives, no varints, no floats in hashed state | `java/transport/.../protocol/codec/MessageCodec.java:151` |
-| Tag registry | frozen, append-only; tags 1–60 assigned, `NEXT_TAG = 60` | `MessageCodec.java` constants; `rust/nodera-codec/src/tags.rs:74` |
-| Nested values | `TypeTags` (1–107) for `Encodable` values inside bodies | `java/core/.../crypto/TypeTags.java`; `rust/nodera-codec/src/tags.rs:11` |
-| Cross-language parity | a test parses the Java sources and fails the build if either registry gains a tag the other lacks | `rust/nodera-codec/tests/tag_mirror.rs` |
+| Message frame | `magic:u32 'NDR2'` + `epoch:u16` + `kind:u16` + `flags:u16` + `correlationId:u64` + `len:u32` + body | `java/transport/.../protocol/wire/NoderaFrame.java`, `rust/nodera-codec/src/frame.rs` |
+| Infrastructure body | canonical TLV: `fieldId:u16` `wireType:u8` `len:u32` `value`, ascending ids, each at most once | `.../wire/{TlvWriter,TlvReader}.java`, `rust/nodera-codec/src/tlv.rs` |
+| Consensus body | one opaque `BYTES` field holding the strict canonical encoding, untouched | `.../wire/WireCodec.java` |
+| Canonical encoding | `u16 typeTag` + `u16 version` + positional body; big-endian fixed-width, no varints, no floats in hashed state. Still what is hashed and signed — no longer what crosses a socket | `java/transport/.../protocol/codec/MessageCodec.java` |
+| Kind registry | frozen, append-only; kinds 1–75 assigned, `NEXT_KIND = 75`. **One declarative row each**, and everything else is derived or generated from it | `java/transport/.../protocol/wire/WireRegistry.java`; generated into `rust/nodera-codec/src/kinds.rs` |
+| Nested values | `TypeTags` (1–118) for `Encodable` values inside consensus bodies | `java/core/.../crypto/TypeTags.java`; `rust/nodera-codec/src/tags.rs:11` |
+| Cross-language parity | a test **parses the Java schema** and compares it with the generated Rust table, totally and both ways, plus uniqueness and contiguity | `rust/nodera-codec/tests/tag_mirror.rs` |
 
 One encoding serves wire transport, hashing, and signing alike, which is what makes a signature
 verifiable against *received* bytes rather than a re-encoding — the tracker explicitly verifies the
 byte range it received (`rust/nodera-tracker/src/service.rs:114`).
 
-Rust decodes only the discovery subset (18 tags, `rust/nodera-codec/src/tags.rs:149`). Game, consensus,
-and storage logic never crosses into the Rust services by design.
+Rust *decodes* only the discovery, rendezvous, and service subset (24 kinds,
+`rust/nodera-codec/src/tags.rs`, `SUPPORTED_MESSAGE_TAGS`) but now *knows* all 75, because the kind
+table is generated. Game, consensus, and storage logic never crosses into the Rust services by
+design.
+
+> **Replaced 2026-07-28** by [`../plans/Plan.7.md`](../plans/Plan.7.md) / [task 14](Task.14.md).
+> The frame above is the current one. Its predecessor opened straight in on a `u16` tag, so a peer
+> from a different generation did not fail — it misparsed. Those frames are retained under
+> `fixtures/wire/v1-rejected/` and both implementations assert they are now **refused at the magic**.
+>
+> The practical difference: a field appended to an infrastructure message is skipped by a peer that
+> does not know it, kept, and re-emitted verbatim if that peer relays the message on. Under the old
+> frame there was no such thing as a compatible change.
 
 Message families on the frozen registry:
 
+* **73–75** session control (`Nack`, `Hello`, `HelloAck`) — the negotiated handshake and the coded
+  answer to a kind this build does not know. These are what 1–4 were supposed to be.
 * **1–4** legacy master↔worker handshake (`ClientHello`, `ServerHello`, `ChallengeResponse`,
-  `WorkerActivation`) — decoders only, see §11.
+  `WorkerActivation`) — superseded by 74/75; kept because assigning a kind is permanent.
 * **5–7** region assignment (`RegionAssigned`, `RegionRevoked`, `LeaseRenewal`).
 * **8–14** simulation/consensus (`SnapshotAnnounce`, `StreamChunk`, `ActionBatchMsg`,
   `RegionProposal`, `ValidationVote`, `CommitAnnounce`, `ResyncRequest`).
@@ -103,7 +119,11 @@ Message families on the frozen registry:
   punch sync, observed address).
 * **46–48, 53–59** entity transfer, action forwarding, event sync, halo/group border lane, genesis
   approval.
-* **60** `WorldGrantGossip` (permission relay).
+* **60–62** gossip lanes (`WorldGrantGossip` permission relay, `RegionRefusal`,
+  `WorldOwnershipGossip`).
+* **63–66** the LAN tunnel (`TunnelOpen`, `TunnelData`, `TunnelClose`) and `WorldDeletionGossip`.
+* **67–72** the service directory (`ServiceAnnounce`/`Ack`, `ServiceDirectoryQuery`/`Response`,
+  `ServiceScoreReport`, `ServiceDrainNotice`).
 
 ---
 

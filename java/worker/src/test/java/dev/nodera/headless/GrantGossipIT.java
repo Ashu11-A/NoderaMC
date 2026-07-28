@@ -7,6 +7,7 @@ import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.WorldRole;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.storage.WorldPermissionGrant;
 import dev.nodera.storage.WorldPermissions;
@@ -67,7 +68,7 @@ final class GrantGossipIT {
                 public void onMessage(PeerAddress from, byte[] frame) {
                     NoderaMessage message;
                     try {
-                        message = MessageCodec.decode(frame);
+                        message = WireCodec.decode(frame);
                     } catch (RuntimeException notOurs) {
                         return;
                     }
@@ -192,7 +193,7 @@ final class GrantGossipIT {
         dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
         forged.encode(w);
         attacker.transport.send(PeerAddress.of(coHost.identity.nodeId(), "loopback"),
-                MessageCodec.encode(new dev.nodera.protocol.membership.WorldGrantGossip(
+                WireCodec.encode(new dev.nodera.protocol.membership.WorldGrantGossip(
                         worldId, w.toBytes())));
         Thread.sleep(300);
 

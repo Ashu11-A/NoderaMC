@@ -107,9 +107,20 @@ impl<'a> CanonicalReader<'a> {
         Ok(self.read_u64()? as i64)
     }
 
-    /// Read a `u8` boolean / optional-presence marker.
+    /// Read a `u8` boolean / optional-presence marker: exactly `0` or `1`.
+    ///
+    /// Any other byte is rejected. "Nonzero means true" would give one value 256 spellings on the
+    /// wire, and canonical means a value has exactly one — two peers that hashed two spellings of
+    /// the same message disagree about a root while agreeing about the state. Java's
+    /// `CanonicalReader` enforces the same bound, and `tests/mutation.rs` holds both to it.
     pub fn read_bool(&mut self) -> Result<bool> {
-        Ok(self.read_u8()? != 0)
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            other => Err(CodecError::Malformed(format!(
+                "canonical boolean must be 0 or 1, got {other}"
+            ))),
+        }
     }
 
     /// Read the `u16 tag; u16 version` frame header of a nested `Encodable` and validate both.

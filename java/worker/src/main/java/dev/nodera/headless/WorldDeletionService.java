@@ -8,6 +8,7 @@ import dev.nodera.peer.control.WorkerEvent;
 import dev.nodera.peer.control.WorkerEventBus;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.membership.WorldDeletionGossip;
 import dev.nodera.storage.WorldTombstone;
@@ -286,7 +287,7 @@ public final class WorldDeletionService {
         CanonicalWriter w = new CanonicalWriter();
         tombstone.encode(w);
         WorldDeletionGossip gossip = new WorldDeletionGossip(tombstone.worldId(), w.toBytes());
-        byte[] frame = MessageCodec.encode(gossip);
+        byte[] frame = WireCodec.encode(gossip);
         dev.nodera.peer.discovery.TrackerClient discovery = trackers;
         if (discovery != null) {
             try {

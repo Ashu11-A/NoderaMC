@@ -146,8 +146,19 @@ impl NodeCapabilities {
         let reliability_bits = r.read_u64()?;
         let max_primary_regions = r.read_u32()?;
         let max_validator_regions = r.read_u32()?;
-        let accepts_worker = r.read_u8()? != 0;
+        let accepts_worker = r.read_bool()?;
         let roles = r.read_list(|rr| PeerRole::from_ordinal(rr.read_u8()?))?;
+        // Roles are a SET: the encoder emits ascending ordinals, so a frame carrying them out of
+        // order or twice is a second spelling of a value that already has one. Java's
+        // `NodeCapabilities.decode` enforces the same order.
+        for pair in roles.windows(2) {
+            if (pair[1] as u8) <= (pair[0] as u8) {
+                return Err(CodecError::Malformed(format!(
+                    "PeerRole set must be encoded in ascending ordinal order; got {:?} then {:?}",
+                    pair[0], pair[1]
+                )));
+            }
+        }
         Ok(Self {
             logical_cores,
             memory_bytes,
@@ -214,6 +225,14 @@ pub struct PeerEntry {
     pub capabilities: NodeCapabilities,
     /// Whether the peer serves as a bootstrap entry point.
     pub bootstrap: bool,
+    /// The peer's X.509 Ed25519 public key, empty when the source did not carry one.
+    ///
+    /// There used to be two layouts of this structure — a short one for discovery and a long one
+    /// for membership — because a positional body has no way to say "this field is absent". With
+    /// per-field lengths the distinction evaporates: this is simply a field, present when known.
+    pub public_key: Vec<u8>,
+    /// What software the peer is running; diagnostics only, never a compatibility input.
+    pub client_version: String,
 }
 
 impl PeerEntry {
@@ -236,6 +255,10 @@ impl PeerEntry {
             route,
             capabilities,
             bootstrap,
+            // The legacy positional layout could not carry these, which is exactly why they were
+            // split across two shapes of the same structure.
+            public_key: Vec::new(),
+            client_version: String::new(),
         })
     }
 }
@@ -544,6 +567,8 @@ mod tests {
             route: "203.0.113.7:25599".to_owned(),
             capabilities: caps(),
             bootstrap: true,
+            public_key: Vec::new(),
+            client_version: String::new(),
         };
         let mut w = CanonicalWriter::new();
         entry.encode(&mut w);

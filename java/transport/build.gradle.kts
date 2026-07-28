@@ -24,10 +24,11 @@ dependencies {
     implementation(libs.zstd.jni)
 }
 
-// Golden wire fixtures: the regeneration escape hatch documented on WireFixtureTest only works
-// if the flag reaches the test JVM. Forwarded explicitly — Gradle does not pass -D through.
+// Golden wire fixtures and generated schema artefacts: the regeneration escape hatches documented
+// on WireFixtureTest and WireSchemaGeneratorTest only work if the flag reaches the test JVM.
+// Forwarded explicitly — Gradle does not pass -D through.
 tasks.withType<Test>().configureEach {
-    System.getProperty("nodera.fixtures.regenerate")?.let {
-        systemProperty("nodera.fixtures.regenerate", it)
+    for (flag in listOf("nodera.fixtures.regenerate", "nodera.wire.regenerate")) {
+        System.getProperty(flag)?.let { systemProperty(flag, it) }
     }
 }

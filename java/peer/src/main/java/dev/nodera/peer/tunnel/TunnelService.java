@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.tunnel.TunnelClose;
 import dev.nodera.protocol.tunnel.TunnelData;
 import dev.nodera.protocol.tunnel.TunnelOpen;
@@ -299,7 +300,7 @@ public final class TunnelService implements AutoCloseable {
 
     private void send(PeerAddress to, NoderaMessage message) {
         try {
-            transport.send(to, MessageCodec.encode(message));
+            transport.send(to, WireCodec.encode(message));
         } catch (TransportException e) {
             throw new IllegalStateException(e.getMessage(), e);
         }

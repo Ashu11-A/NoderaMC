@@ -12,13 +12,17 @@
 //! Scope discipline (Task 0 §4 rule 7): this crate — and the services built on it — carry no game,
 //! consensus, or storage logic. They decode, verify signatures, and forward.
 
+pub mod frame;
 pub mod framing;
+pub mod kinds;
 pub mod messages;
 pub mod reader;
 pub mod rendezvous;
 pub mod service;
 pub mod sig;
 pub mod tags;
+pub mod tlv;
+pub mod wire;
 pub mod tombstone;
 pub mod types;
 pub mod writer;

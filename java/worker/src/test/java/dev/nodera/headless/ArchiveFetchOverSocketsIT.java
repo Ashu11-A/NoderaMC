@@ -1,5 +1,6 @@
 package dev.nodera.headless;
 
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeIdentity;
@@ -55,7 +56,7 @@ final class ArchiveFetchOverSocketsIT {
             @Override
             public void onMessage(PeerAddress from, byte[] frame) {
                 try {
-                    service.onMessage(from, dev.nodera.protocol.codec.MessageCodec.decode(frame));
+                    service.onMessage(from, dev.nodera.protocol.wire.WireCodec.decode(frame));
                 } catch (RuntimeException ignored) {
                     // Not this lane's frame; the real mux fans out the same way.
                 }

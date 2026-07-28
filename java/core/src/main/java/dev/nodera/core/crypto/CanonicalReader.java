@@ -6,6 +6,9 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -84,8 +87,25 @@ public final class CanonicalReader {
         }
     }
 
+    /**
+     * Read a canonical boolean: exactly {@code 0} or {@code 1}.
+     *
+     * <p>Any other byte is rejected. Accepting "nonzero means true" would give a single value two
+     * hundred and fifty-six spellings on the wire, and the canonical contract is that a value has
+     * exactly one — two peers that hashed two spellings of the same message would disagree about a
+     * root while agreeing about the state. Rust's reader has always been strict here; this is the
+     * side that was lenient.
+     *
+     * @return the decoded boolean.
+     * @throws IllegalStateException if the marker byte is neither 0 nor 1.
+     */
     public boolean readBoolean() {
-        return readU8() != 0;
+        int marker = readU8();
+        if (marker > 1) {
+            throw new IllegalStateException(
+                    "canonical boolean must be 0 or 1, got " + marker);
+        }
+        return marker == 1;
     }
 
     /**
@@ -137,9 +157,29 @@ public final class CanonicalReader {
         return Bytes.unsafeWrap(readBytes());
     }
 
+    /**
+     * Read a length-prefixed UTF-8 string, rejecting malformed input.
+     *
+     * <p>{@code new String(bytes, UTF_8)} substitutes U+FFFD for anything it cannot decode, which
+     * makes malformed bytes decode "successfully" into a value that re-encodes to <i>different</i>
+     * bytes — a second wire spelling of the same message, and a hash divergence against Rust, whose
+     * reader rejects malformed UTF-8 outright. Strict decoding here costs nothing for valid frames:
+     * every string this codec emits is well-formed by construction.
+     *
+     * @return the decoded string.
+     * @throws IllegalStateException if the bytes are not well-formed UTF-8.
+     */
     public String readString() {
         byte[] u = readBytes();
-        return new String(u, StandardCharsets.UTF_8);
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(u))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            throw new IllegalStateException("canonical string is not well-formed UTF-8", e);
+        }
     }
 
     /** Read a list: u32 count + each element decoded by {@code elementReader}. */

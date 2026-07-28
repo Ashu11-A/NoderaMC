@@ -3,6 +3,7 @@ package dev.nodera.testkit;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.codec.ChunkedStreams;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
@@ -222,7 +223,7 @@ public final class LoopbackTransport implements PeerTransport {
         Objects.requireNonNull(payload, "payload");
         List<StreamChunk> chunks = ChunkedStreams.split(streamId, payload);
         for (StreamChunk chunk : chunks) {
-            send(to, MessageCodec.encode(chunk));
+            send(to, WireCodec.encode(chunk));
         }
     }
 

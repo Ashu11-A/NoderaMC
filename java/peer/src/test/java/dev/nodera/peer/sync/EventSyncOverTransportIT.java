@@ -7,6 +7,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.consensuscert.QuorumCertificate;
 import dev.nodera.core.consensuscert.SignedVote;
 import dev.nodera.core.consensuscert.VoteDecision;
@@ -102,13 +103,13 @@ final class EventSyncOverTransportIT {
             java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
             serverTx.setHandler(new dev.nodera.transport.MessageHandler() {
                 @Override public void onMessage(PeerAddress from, byte[] frame) {
-                    serverSync.onMessage(from, MessageCodec.decode(frame));
+                    serverSync.onMessage(from, WireCodec.decode(frame));
                 }
                 @Override public void onPeerDown(PeerAddress peer) { }
             });
             clientTx.setHandler(new dev.nodera.transport.MessageHandler() {
                 @Override public void onMessage(PeerAddress from, byte[] frame) {
-                    var message = MessageCodec.decode(frame);
+                    var message = WireCodec.decode(frame);
                     if (message instanceof dev.nodera.protocol.simulationmsg.EventSyncAnswer a) {
                         outcome.set(clientSync.ingest(a));
                         done.countDown();

@@ -6,6 +6,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerJoin;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.transport.MessageHandler;
@@ -107,12 +108,12 @@ final class RendezvousRelayIT {
         // A committee-shaped exchange over the relay: A → B a PeerJoin, B → A a keep-alive.
         NoderaMessage join = new PeerJoin(
                 idA.nodeId(), "relay", NodeCapabilities.initial(), false);
-        a.send(PeerAddress.of(idB.nodeId(), "relay"), MessageCodec.encode(join));
+        a.send(PeerAddress.of(idB.nodeId(), "relay"), WireCodec.encode(join));
         NoderaMessage delivered = handlerB.take();
         assertThat(delivered).isEqualTo(join);
 
         NoderaMessage keepAlive = new SessionKeepAlive(idB.nodeId(), 7L);
-        b.send(PeerAddress.of(idA.nodeId(), "relay"), MessageCodec.encode(keepAlive));
+        b.send(PeerAddress.of(idA.nodeId(), "relay"), WireCodec.encode(keepAlive));
         assertThat(handlerA.take()).isEqualTo(keepAlive);
 
         // The selector reports the direct path when one is available — the punch-upgrade policy that
@@ -213,7 +214,7 @@ final class RendezvousRelayIT {
 
         @Override
         public void onMessage(PeerAddress from, byte[] frame) {
-            received.add(MessageCodec.decode(frame));
+            received.add(WireCodec.decode(frame));
         }
 
         @Override

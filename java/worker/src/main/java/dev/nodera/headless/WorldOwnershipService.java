@@ -6,6 +6,7 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.membership.WorldOwnershipGossip;
 import dev.nodera.storage.WorldOwnership;
@@ -172,7 +173,7 @@ public final class WorldOwnershipService {
     private void relay(WorldOwnership claim, NodeId excluding) {
         CanonicalWriter w = new CanonicalWriter();
         claim.encode(w);
-        byte[] frame = MessageCodec.encode(new WorldOwnershipGossip(claim.worldId(), w.toBytes()));
+        byte[] frame = WireCodec.encode(new WorldOwnershipGossip(claim.worldId(), w.toBytes()));
         for (PeerEntry member : members.get()) {
             NodeId id = member.nodeId();
             if (id.equals(self) || id.equals(excluding)) {

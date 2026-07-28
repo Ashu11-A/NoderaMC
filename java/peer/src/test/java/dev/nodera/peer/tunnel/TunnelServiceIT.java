@@ -4,6 +4,7 @@ import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.testkit.LoopbackTransport;
 import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
 import dev.nodera.transport.MessageHandler;
@@ -124,7 +125,7 @@ final class TunnelServiceIT {
                 public void onMessage(PeerAddress from, byte[] frame) {
                     NoderaMessage message;
                     try {
-                        message = MessageCodec.decode(frame);
+                        message = WireCodec.decode(frame);
                     } catch (RuntimeException notOurs) {
                         return;
                     }

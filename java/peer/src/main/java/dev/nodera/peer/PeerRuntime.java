@@ -11,6 +11,7 @@ import dev.nodera.diagnostics.source.DiagnosticsSource;
 import dev.nodera.diagnostics.source.SnapshotBuilder;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.GatewayClaim;
 import dev.nodera.protocol.membership.MembershipUpdate;
 import dev.nodera.protocol.membership.PeerEntry;
@@ -417,7 +418,7 @@ public final class PeerRuntime implements DiagnosticsSource {
         public void onMessage(PeerAddress from, byte[] frame) {
             final NoderaMessage msg;
             try {
-                msg = MessageCodec.decode(frame);
+                msg = WireCodec.decode(frame);
             } catch (RuntimeException e) {
                 return; // drop malformed frame
             }
@@ -805,7 +806,7 @@ public final class PeerRuntime implements DiagnosticsSource {
             if (messageCounters != null) {
                 messageCounters.recordTx(MessageCodec.typeName(MessageCodec.typeTagOf(msg)));
             }
-            transport.send(to, MessageCodec.encode(msg));
+            transport.send(to, WireCodec.encode(msg));
         } catch (TransportException e) {
             // Send failed (peer unreachable / down). Liveness is handled by onPeerDown / timeout.
         } catch (RuntimeException e) {

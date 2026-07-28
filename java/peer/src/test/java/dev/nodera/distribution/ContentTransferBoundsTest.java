@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.transport.MessageHandler;
@@ -48,7 +49,7 @@ final class ContentTransferBoundsTest {
 
         @Override
         public void send(PeerAddress to, byte[] frame) {
-            sent.add(MessageCodec.decode(frame));
+            sent.add(WireCodec.decode(frame));
         }
 
         @Override
@@ -106,13 +107,13 @@ final class ContentTransferBoundsTest {
 
         content.setServeBounds(8, 0);
         content.onMessage(PEER_ADDRESS,
-                MessageCodec.encode(ContentRequest.of(manifest.manifestRoot(), 0)));
+                WireCodec.encode(ContentRequest.of(manifest.manifestRoot(), 0)));
         assertThat(transport.of(ContentChunk.class)).isEmpty();
         assertThat(content.throttledRequests()).isPositive();
 
         content.setServeBounds(8, 1024L * 1024L);
         content.onMessage(PEER_ADDRESS,
-                MessageCodec.encode(ContentRequest.of(manifest.manifestRoot(), 0)));
+                WireCodec.encode(ContentRequest.of(manifest.manifestRoot(), 0)));
         assertThat(transport.of(ContentChunk.class)).hasSize(1);
     }
 
@@ -130,7 +131,7 @@ final class ContentTransferBoundsTest {
 
         // Upload half: no chunk leaves.
         content.onMessage(PEER_ADDRESS,
-                MessageCodec.encode(ContentRequest.of(manifest.manifestRoot(), 0)));
+                WireCodec.encode(ContentRequest.of(manifest.manifestRoot(), 0)));
         assertThat(transport.of(ContentChunk.class)).isEmpty();
 
         // Download half: a paused node asks for nothing either. A pause that only stopped uploads

@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-27 · Tasks completed: **11 / 13**
+**Category:** network · **Last audit:** 2026-07-28 · Tasks completed: **11 / 14**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -29,10 +29,86 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 | [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-84) |
+| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86…L-90 RETIRING pending a live mixed-release run |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — the wire was rebuilt, and a peer from another release can now stay on the network
+
+Task 14, all eight phases. The frame is `NDR2` — magic, epoch, kind, flags, correlation, length —
+and infrastructure bodies are canonical TLV. The consequence is the one the programme exists for: a
+field a peer has never heard of is skipped rather than destroying the rest of the message, so there
+is finally such a thing as a compatible change.
+
+**Evidence.** `ForwardCompatibilityTest` (10), `NegotiationTest` (11), `MessageRouterTest` (11),
+`WireEnumRulesTest` (9), `CrossVersionIT` (5), `WireSchemaGeneratorTest` (6), plus the Rust
+`tag_mirror` (5), `fixtures` (4), `mutation` (1) and the `tlv`/`frame` unit tests. Full gate green:
+`./gradlew check` and `cd rust && cargo test`.
+
+**The flag day happened.** Every Java transport and every Rust service speaks the new frame;
+`MessageCodec` is now the canonical encoder for hashing, signing and the consensus plane and is no
+longer what crosses a socket. The old corpus is retained under `fixtures/wire/v1-rejected/`, where
+both languages assert it is **refused at the magic** rather than misparsed. The deployed tracker and
+rendezvous need redeploying with this, not after it.
+
+**Two things the work found that the audit had not.**
+
+- The first TLV decoder was *lossy in both directions*: an unknown field was skipped and then
+  dropped on re-encode, and an absent known field was re-emitted with a default. Either way a peer
+  relaying between two newer peers silently rewrote the message. `TlvOverlay` fixes both, at every
+  nesting depth.
+- The ArchUnit no-`ordinal()` rule was **vacuous**. `callMethod(Enum.class, "ordinal")` matches
+  nothing, because the call site's bytecode owner is the concrete enum. Found by planting an
+  `ordinal()` call and watching the rule stay green.
+
+**Why the rows are RETIRING and not RETIRED.** Every exit test passes headless. None of it has run
+as two real processes from different builds on one network, and until it does the register does not
+get to claim it.
+
+
+### 2026-07-28 — The harness first, and what it found
+
+[`plans/Plan.7.md`](../plans/Plan.7.md) opened the cross-version wire programme, and its phase 0 —
+the conformance harness, no production code — landed green on both gates. The ordering was
+deliberate: every later phase is verified against this corpus, and a harness that measures the wrong
+thing is worse than none.
+
+It was measuring the wrong thing. The golden corpus asserted **five** tags of 72 and wrote a missing
+fixture silently instead of failing, so a message could reach production with bytes nobody had ever
+reviewed — the file appeared in the working tree as a side effect of a green run. The dispatch test
+covered 25 of 72 types from a hand-maintained class list. `TypeTagsTest` had silently dropped
+`CONTAINER_ACTION = 29`, a tag live on the wire. The Rust truncation test called the decoder and
+discarded the result, so a decoder that accepted a half-frame would have passed it, and its append
+test routed every fixture to `DiscoveryMessage`, which meant rendezvous fixtures were rejected as
+*unknown tag* rather than proving trailing bytes are detected. The tag mirror checked a hand-written
+list of constants plus a watermark, which cannot see a renumbering below the watermark.
+
+All of that is now total and driven off one registry (`MessageSamples`, 72 samples, 25 + 52
+fixtures), and the mirror was falsified before being trusted — perturbing `TRACKER_QUERY` to 26 fails
+with the intended message.
+
+Then the new mutation fuzz — same invariant, both languages, same corpus — reported **999
+canonical-encoding violations across 30 message types**, all pre-existing:
+
+- **Malformed UTF-8 was replacement-decoded on the Java side and rejected on the Rust side.** Java
+  substituted U+FFFD and re-encoded different bytes: a live Java/Rust hash divergence.
+- **Booleans accepted any nonzero byte in *both* implementations** — one value with 256 wire
+  spellings. `NodeCapabilities` bypassed the shared boolean reader with `!= 0` in each language
+  independently. These two together took the Java count from 999 to 51.
+- **Decode-time normalization** gave several messages two valid spellings: `ContentRequest`,
+  `ArchiveReplicaAssignment`, and `ArchiveReplicaAck` sorted and de-duplicated their piece indexes,
+  and role sets absorbed duplicates and any order.
+
+All fixed on both sides; the count is 0. No valid frame changed — encoders already emitted the
+canonical form, so the fixture corpus regenerated byte-identically. Two exceptions remain, each named
+in the test with the phase that removes it: `RegionRefusal`'s unknown-reason collapse (phase 6) and
+`PeerJoin`'s optional-tail truncation ambiguity (phase 3, and it *is* L-86).
+
+Evidence: `MessageSamples.assertTotal`, `WireFixtureTest` (5), `MessageCodecTypeTagTest` (72/72),
+`CanonicalMutationFuzzTest` (3), `TypeTagsTest`, `tag_mirror.rs` (5), `fixtures.rs` (3),
+`mutation.rs` (1). `./gradlew check` and `cargo test` both green.
 
 ### 2026-07-27 — The route the tracker had already sent
 

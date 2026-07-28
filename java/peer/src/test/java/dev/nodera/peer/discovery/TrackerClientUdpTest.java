@@ -6,6 +6,7 @@ import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.peer.discovery.TrackerClient.Endpoint;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.discovery.TrackerQuery;
 import dev.nodera.protocol.discovery.TrackerResponse;
 import dev.nodera.transport.Frames;
@@ -58,7 +59,7 @@ final class TrackerClientUdpTest {
                         if (!answer) {
                             continue; // the "answer would amplify past the bound" case
                         }
-                        byte[] reply = MessageCodec.encode(response(worldName));
+                        byte[] reply = WireCodec.encode(response(worldName));
                         socket.send(new DatagramPacket(reply, reply.length,
                                 in.getAddress(), in.getPort()));
                     } catch (IOException e) {
@@ -99,7 +100,7 @@ final class TrackerClientUdpTest {
                         }
                         requests.incrementAndGet();
                         Frames.write(client.getOutputStream(),
-                                MessageCodec.encode(response(worldName)));
+                                WireCodec.encode(response(worldName)));
                     } catch (IOException e) {
                         return;
                     }

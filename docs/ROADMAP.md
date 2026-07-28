@@ -8,8 +8,10 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-27** · Overall system completion **90.4%** · 1,549 Java tests · 351 Rust
-workspace tests · 157 `nodera-app` tests · 0 failing.
+**Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,055 Java tests · 408 Rust
+workspace tests · 157 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
+full green `./gradlew check` + `cargo test` on 2026-07-28; `nodera-app` is a separate workspace and
+was not re-run).
 
 The figure moved 93.1 → 85.7 → 91.3 → **90.4 %**, and every move was real. The **telemetry
 programme** ([`plans/Plan.6.md`](plans/Plan.6.md)) first added ten tasks across seven categories, then
@@ -18,6 +20,15 @@ delivered seven of them. The drop to 90.4 % is the **service-directory lane** ad
 [network 13](network/Task.13.md)) of which none is finished yet, against a body of work that is
 otherwise green. A percentage that only ever rises is a percentage measured against a scope that
 quietly moves.
+
+The **wire programme** ([`plans/Plan.7.md`](plans/Plan.7.md)) opened and landed on 2026-07-28:
+[network 14](network/Task.14.md), the cross-version protocol refactor. All eight phases are done and
+the whole gate is green — the frame is now `NDR2` with canonical TLV infrastructure bodies, in both
+languages, and the five root-cause rows L-86…L-90 are RETIRING. They are not RETIRED, because none
+of it has yet run as two real processes from different builds on one network.
+
+The completion figure above is **not** recomputed for it — the weighting behind that number is not
+derivable from this table, and inventing one would be worse than a stale figure that says so.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
 
@@ -43,7 +54,7 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | Category | Tasks | Done | In progress | Blocked | Charter |
 |---|---:|---:|---:|---:|---|
 | [Engine](engine/Task.0.md) | 12 | 7 | 5 | 0 | Deterministic simulation + committee validation |
-| [Network](network/Task.0.md) | 12 | 11 | 1 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry |
+| [Network](network/Task.0.md) | 14 | 11 | 3 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry |
 | [Tracker](tracker/Task.0.md) | 4 | 3 | 1 | 0 | Always-on discovery service |
 | [Rendezvous](rendezvous/Task.0.md) | 4 | 3 | 0 | 1 | NAT reach: punching + relay fallback |
 | [Minecraft](minecraft/Task.0.md) | 9 | 4 | 4 | 1 | The NeoForge mod — the playable product |
@@ -51,7 +62,7 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | [App](app/Task.0.md) | 8 | 5 | 2 | 1 | The Tauri companion that supervises the worker |
 | [Mobile](mobile/Task.0.md) | 4 | 3 | 1 | 0 | The Android build — the worker itself, on a phone |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
-| **Total** | **62** | **42** | **16** | **3** | |
+| **Total** | **64** | **42** | **18** | **3** | |
 
 The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
 [`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion
@@ -84,6 +95,8 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 
 ### Network — [`docs/network/`](network/Task.0.md)
 
+Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
+
 | Task | Title | Status | Depends on |
 |---|---|---|---|
 | [1](network/Task.1.md) | Wire protocol, transport seam, chunked streams, handshake | ✅ | engine 1 |
@@ -99,6 +112,7 @@ Status values are exactly those in each task file's header: ✅ COMPLETED · �
 | [11](network/Task.11.md) | Telemetry core | ✅ | network 1 |
 | [12](network/Task.12.md) | Telemetry emitter core | ✅ | network 11, telemetry 1 |
 | [13](network/Task.13.md) | Measured service selection on the peer | 🚧 | tracker 5, rendezvous 5, network 2 |
+| [14](network/Task.14.md) | Cross-version wire protocol ([`plans/Plan.7.md`](plans/Plan.7.md)) | 🚧 | network 1, network 2, tracker 5, rendezvous 5 |
 
 ### Tracker — [`docs/tracker/`](tracker/Task.0.md)
 
@@ -245,7 +259,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Category | Register | Open/retiring rows |
 |---|---|---|
 | Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50 |
-| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33, L-76 |
+| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | L-30, L-33, L-76, L-84, L-85, L-86…L-90 (the last five RETIRING on task 14) |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | — (announce scheduling tracked in minecraft) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | — (live numbers tracked with rendezvous 3) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 |

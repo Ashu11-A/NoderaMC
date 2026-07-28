@@ -8,7 +8,7 @@
 
 use crate::tags::message_tags;
 use crate::types::{NetworkId, NodeId, PeerCandidate, SignedPeerRecord};
-use crate::{CanonicalReader, CanonicalWriter, CodecError, Result, ENCODING_VERSION};
+use crate::{CanonicalReader, CanonicalWriter, Result};
 
 /// A signed record as it travels inside a register request or a discovery page: the canonical
 /// [`SignedPeerRecord`] plus the Ed25519 signature over its [`SignedPeerRecord::signed_bytes`].
@@ -21,12 +21,15 @@ pub struct SignedRecord {
 }
 
 impl SignedRecord {
-    fn encode(&self, w: &mut CanonicalWriter) {
+    /// The legacy positional encoding, kept because the record's signature covers exactly these
+    /// bytes; the TLV plane carries the result as one opaque field rather than re-spelling it.
+    pub fn encode(&self, w: &mut CanonicalWriter) {
         self.record.encode(w);
         w.write_bytes(&self.signature);
     }
 
-    fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+    /// Inverse of [`SignedRecord::encode`].
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
         let record = SignedPeerRecord::decode(r)?;
         let signature = r.read_bytes_vec()?;
         Ok(Self { record, signature })
@@ -185,135 +188,46 @@ impl RendezvousMessage {
         }
     }
 
-    /// Encode a complete frame (`tag + version + body`).
+    /// Encode a complete `NDR2` frame carrying this message as an unsolicited event.
     pub fn encode(&self) -> Vec<u8> {
-        let mut w = CanonicalWriter::new();
-        self.encode_into(&mut w);
-        w.into_vec()
+        self.encode_frame(crate::frame::flags::EVENT, 0)
     }
 
-    /// Encode into an existing writer.
-    pub fn encode_into(&self, w: &mut CanonicalWriter) {
-        w.write_frame_header(self.tag(), ENCODING_VERSION);
-        match self {
-            Self::Register(m) => m.signed.encode(w),
-            Self::Discover(m) => {
-                m.network_id.encode(w);
-                w.write_bytes(&m.genesis_hash);
-                w.write_u32(m.cursor);
-                w.write_u32(m.limit);
-            }
-            Self::Peers(m) => {
-                w.write_u32(m.next_cursor);
-                w.write_list(&m.records, |ww, rec| rec.encode(ww));
-            }
-            Self::Reserve(m) => {
-                m.network_id.encode(w);
-                w.write_bytes(&m.genesis_hash);
-                m.peer.encode(w);
-            }
-            Self::Reservation(m) => {
-                w.write_bool(m.accepted);
-                w.write_string(&m.relay_route);
-                w.write_u64(m.expires_at_epoch_millis);
-                w.write_u64(m.max_bytes);
-                w.write_u64(m.max_duration_millis);
-                w.write_bytes(&m.proof);
-                w.write_string(&m.reason);
-            }
-            Self::Connect(m) => {
-                m.network_id.encode(w);
-                w.write_bytes(&m.genesis_hash);
-                m.source.encode(w);
-                m.target.encode(w);
-            }
-            Self::Incoming(m) => {
-                m.network_id.encode(w);
-                w.write_bytes(&m.genesis_hash);
-                m.source.encode(w);
-                m.target.encode(w);
-                w.write_bytes(&m.proof);
-            }
-            Self::PunchSync(m) => {
-                m.network_id.encode(w);
-                w.write_bytes(&m.genesis_hash);
-                m.source.encode(w);
-                m.target.encode(w);
-                w.write_list(&m.observed_candidates, |ww, c| c.encode(ww));
-                w.write_u64(m.go_signal_epoch_millis);
-            }
-            Self::ObservedAddress(m) => {
-                m.peer.encode(w);
-                w.write_string(&m.observed_route);
-            }
+    /// Encode a complete `NDR2` frame with explicit routing metadata.
+    pub fn encode_frame(&self, flags: u16, correlation_id: u64) -> Vec<u8> {
+        crate::frame::NoderaFrame {
+            epoch: crate::frame::WIRE_EPOCH,
+            kind: self.tag(),
+            flags,
+            correlation_id,
+            body: crate::wire::encode_rendezvous_body(self),
         }
+        .encode()
     }
 
-    /// Decode a complete frame, rejecting trailing bytes.
+    /// Decode a complete `NDR2` frame.
     pub fn decode(frame: &[u8]) -> Result<Self> {
-        let mut r = CanonicalReader::new(frame);
-        let tag = r.read_u16()?;
-        let version = r.read_u16()?;
-        if version != ENCODING_VERSION {
-            return Err(CodecError::UnsupportedVersion { tag, version });
+        Self::decode_with_overlay(frame).map(|(m, _)| m)
+    }
+
+    /// Decode a frame together with the overlay describing how its field set differed from this
+    /// build's — what a forwarding peer needs in order to re-emit what it was given rather than
+    /// its own idea of it.
+    pub fn decode_with_overlay(frame: &[u8]) -> Result<(Self, crate::tlv::TlvOverlay)> {
+        let parsed = crate::frame::NoderaFrame::decode(frame)?;
+        crate::wire::decode_rendezvous_body_with_overlay(parsed.kind, &parsed.body)
+    }
+
+    /// Encode a frame, re-emitting fields this build did not understand when it was decoded.
+    pub fn encode_with_overlay(&self, overlay: &crate::tlv::TlvOverlay) -> Result<Vec<u8>> {
+        Ok(crate::frame::NoderaFrame {
+            epoch: crate::frame::WIRE_EPOCH,
+            kind: self.tag(),
+            flags: crate::frame::flags::EVENT,
+            correlation_id: 0,
+            body: overlay.apply_to(&crate::wire::encode_rendezvous_body(self))?,
         }
-        let msg = match tag {
-            message_tags::RENDEZVOUS_REGISTER => Self::Register(RendezvousRegister {
-                signed: SignedRecord::decode(&mut r)?,
-            }),
-            message_tags::RENDEZVOUS_DISCOVER => Self::Discover(RendezvousDiscover {
-                network_id: NetworkId::decode(&mut r)?,
-                genesis_hash: r.read_bytes_vec()?,
-                cursor: r.read_u32()?,
-                limit: r.read_u32()?,
-            }),
-            message_tags::RENDEZVOUS_PEERS => Self::Peers(RendezvousPeers {
-                next_cursor: r.read_u32()?,
-                records: r.read_list(SignedRecord::decode)?,
-            }),
-            message_tags::RELAY_RESERVE => Self::Reserve(RelayReserve {
-                network_id: NetworkId::decode(&mut r)?,
-                genesis_hash: r.read_bytes_vec()?,
-                peer: NodeId::decode(&mut r)?,
-            }),
-            message_tags::RELAY_RESERVATION => Self::Reservation(RelayReservation {
-                accepted: r.read_bool()?,
-                relay_route: r.read_string()?,
-                expires_at_epoch_millis: r.read_u64()?,
-                max_bytes: r.read_u64()?,
-                max_duration_millis: r.read_u64()?,
-                proof: r.read_bytes_vec()?,
-                reason: r.read_string()?,
-            }),
-            message_tags::RELAY_CONNECT => Self::Connect(RelayConnect {
-                network_id: NetworkId::decode(&mut r)?,
-                genesis_hash: r.read_bytes_vec()?,
-                source: NodeId::decode(&mut r)?,
-                target: NodeId::decode(&mut r)?,
-            }),
-            message_tags::RELAY_INCOMING => Self::Incoming(RelayIncoming {
-                network_id: NetworkId::decode(&mut r)?,
-                genesis_hash: r.read_bytes_vec()?,
-                source: NodeId::decode(&mut r)?,
-                target: NodeId::decode(&mut r)?,
-                proof: r.read_bytes_vec()?,
-            }),
-            message_tags::PUNCH_SYNC => Self::PunchSync(PunchSync {
-                network_id: NetworkId::decode(&mut r)?,
-                genesis_hash: r.read_bytes_vec()?,
-                source: NodeId::decode(&mut r)?,
-                target: NodeId::decode(&mut r)?,
-                observed_candidates: r.read_list(PeerCandidate::decode)?,
-                go_signal_epoch_millis: r.read_u64()?,
-            }),
-            message_tags::OBSERVED_ADDRESS => Self::ObservedAddress(ObservedAddress {
-                peer: NodeId::decode(&mut r)?,
-                observed_route: r.read_string()?,
-            }),
-            other => return Err(CodecError::UnknownTag(other)),
-        };
-        r.expect_end()?;
-        Ok(msg)
+        .encode())
     }
 }
 
@@ -432,12 +346,11 @@ mod tests {
 
     #[test]
     fn trailing_bytes_reject_the_frame() {
+        // The frame declares its own body length, so an extra byte is caught at the header rather
+        // than after a body has already been interpreted.
         let mut bytes = samples()[0].encode();
         bytes.push(0);
-        assert!(matches!(
-            RendezvousMessage::decode(&bytes),
-            Err(CodecError::TrailingBytes(1))
-        ));
+        assert!(RendezvousMessage::decode(&bytes).is_err());
     }
 
     #[test]
@@ -470,12 +383,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_tag_is_rejected() {
-        let mut w = CanonicalWriter::new();
-        w.write_frame_header(9_999, ENCODING_VERSION);
+    fn an_unknown_kind_is_named_rather_than_guessed_at() {
+        let frame = crate::frame::NoderaFrame::event(9_999, Vec::new()).encode();
         assert!(matches!(
-            RendezvousMessage::decode(w.as_slice()),
-            Err(CodecError::UnknownTag(9_999))
+            RendezvousMessage::decode(&frame),
+            Err(crate::CodecError::UnknownTag(9_999))
         ));
     }
 }

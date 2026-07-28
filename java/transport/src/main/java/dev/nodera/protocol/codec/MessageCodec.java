@@ -67,6 +67,8 @@ import dev.nodera.protocol.simulationmsg.ResyncRequest;
 import dev.nodera.protocol.simulationmsg.SnapshotAnnounce;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
 import dev.nodera.protocol.simulationmsg.ValidationVote;
+import dev.nodera.protocol.wire.WireKind;
+import dev.nodera.protocol.wire.WireRegistry;
 
 import java.util.UUID;
 
@@ -290,44 +292,29 @@ public final class MessageCodec {
     /** {@link dev.nodera.protocol.service.ServiceDrainNotice} — "I am going away; go here". */
     public static final int TAG_SERVICE_DRAIN_NOTICE = 72;
 
-    /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Update when appending. */
-    public static final int NEXT_TAG = 72;
+    /** {@link dev.nodera.protocol.session.Nack} tag (Task 14 / Plan.7 D4). */
+    public static final int TAG_NACK = 73;
+    /** {@link dev.nodera.protocol.session.Hello} tag (Task 14 / Plan.7 §4.3). */
+    public static final int TAG_HELLO = 74;
+    /** {@link dev.nodera.protocol.session.HelloAck} tag (Task 14 / Plan.7 §4.3). */
+    public static final int TAG_HELLO_ACK = 75;
+
+    /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Derived from the schema. */
+    public static final int NEXT_TAG = WireRegistry.NEXT_KIND;
 
     /**
-     * The known type tags in ascending order (Task 18 telemetry). Append-only like the tag
-     * constants: a new message type appends its tag here too. Used by diagnostics to enumerate
+     * The known type tags in ascending order (Task 18 telemetry), used by diagnostics to enumerate
      * the per-type traffic breakdown so a type with zero traffic still appears in the table.
+     *
+     * <p><b>Derived, not maintained</b> (Task 14). This used to be a hand-written list appended in
+     * parallel with the tag constants, the {@link #typeName} switch, and the Rust mirror — four
+     * places to remember and four places to forget. It is now a view over
+     * {@link WireRegistry#kinds()}, so a kind that exists is in it by construction.
      *
      * @Thread-context any thread; immutable list.
      */
-    public static final java.util.List<Integer> KNOWN_TAGS = java.util.List.of(
-            TAG_CLIENT_HELLO, TAG_SERVER_HELLO, TAG_CHALLENGE_RESPONSE, TAG_WORKER_ACTIVATION,
-            TAG_REGION_ASSIGNED, TAG_REGION_REVOKED, TAG_LEASE_RENEWAL, TAG_SNAPSHOT_ANNOUNCE,
-            TAG_STREAM_CHUNK, TAG_ACTION_BATCH_MSG, TAG_REGION_PROPOSAL, TAG_VALIDATION_VOTE,
-            TAG_COMMIT_ANNOUNCE, TAG_RESYNC_REQUEST, TAG_HEARTBEAT, TAG_WORKER_LOAD,
-            TAG_ECHO_TEST, TAG_RELAY_ENVELOPE, TAG_PEER_JOIN, TAG_MEMBERSHIP_UPDATE,
-            TAG_PEER_GOODBYE, TAG_GATEWAY_CLAIM, TAG_SESSION_KEEP_ALIVE,
-            TAG_CONTENT_REQUEST, TAG_CONTENT_CHUNK, TAG_CONTENT_AVAILABILITY,
-            TAG_TRACKER_QUERY, TAG_TRACKER_RESPONSE, TAG_INVENTORY_ADVERTISEMENT,
-            TAG_ARCHIVE_REPLICA_ASSIGNMENT, TAG_ARCHIVE_REPLICA_ACK, TAG_EXTERNAL_DELTA,
-            TAG_TRACKER_ANNOUNCE, TAG_TRACKER_ANNOUNCE_ACK,
-            TAG_RENDEZVOUS_REGISTER, TAG_RENDEZVOUS_DISCOVER, TAG_RENDEZVOUS_PEERS,
-            TAG_RELAY_RESERVE, TAG_RELAY_RESERVATION, TAG_RELAY_CONNECT, TAG_RELAY_INCOMING,
-            TAG_PUNCH_SYNC, TAG_OBSERVED_ADDRESS,
-            TAG_TRACKER_CATALOG_QUERY, TAG_TRACKER_CATALOG_RESPONSE,
-            TAG_ENTITY_TRANSFER_PREPARE, TAG_ENTITY_TRANSFER_ACCEPT,
-            TAG_ENTITY_TRANSFER_COMMIT,
-            TAG_TRACKER_ROUTES_QUERY, TAG_TRACKER_ROUTES_RESPONSE,
-            TAG_WORLD_MANIFEST_QUERY, TAG_WORLD_MANIFEST_ANSWER, TAG_ACTION_FORWARD,
-            TAG_EVENT_SYNC_QUERY, TAG_EVENT_SYNC_ANSWER,
-            TAG_HALO_UPDATE, TAG_GROUP_MIGRATION,
-            TAG_GENESIS_APPROVAL_REQUEST, TAG_GENESIS_APPROVAL_GRANT,
-            TAG_WORLD_GRANT_GOSSIP, TAG_REGION_REFUSAL, TAG_WORLD_OWNERSHIP_GOSSIP,
-            TAG_TUNNEL_OPEN, TAG_TUNNEL_DATA, TAG_TUNNEL_CLOSE,
-            TAG_WORLD_DELETION_GOSSIP,
-            TAG_SERVICE_ANNOUNCE, TAG_SERVICE_ANNOUNCE_ACK,
-            TAG_SERVICE_DIRECTORY_QUERY, TAG_SERVICE_DIRECTORY_RESPONSE,
-            TAG_SERVICE_SCORE_REPORT, TAG_SERVICE_DRAIN_NOTICE);
+    public static final java.util.List<Integer> KNOWN_TAGS =
+            WireRegistry.kinds().stream().map(WireKind::kind).toList();
 
     /**
      * The stable display name of a message type tag (Task 18 telemetry) — the simple name of the
@@ -340,81 +327,7 @@ public final class MessageCodec {
      * @Thread-context any thread.
      */
     public static String typeName(int tag) {
-        return switch (tag) {
-            case TAG_CLIENT_HELLO -> "ClientHello";
-            case TAG_SERVER_HELLO -> "ServerHello";
-            case TAG_CHALLENGE_RESPONSE -> "ChallengeResponse";
-            case TAG_WORKER_ACTIVATION -> "WorkerActivation";
-            case TAG_REGION_ASSIGNED -> "RegionAssigned";
-            case TAG_REGION_REVOKED -> "RegionRevoked";
-            case TAG_LEASE_RENEWAL -> "LeaseRenewal";
-            case TAG_SNAPSHOT_ANNOUNCE -> "SnapshotAnnounce";
-            case TAG_STREAM_CHUNK -> "StreamChunk";
-            case TAG_ACTION_BATCH_MSG -> "ActionBatchMsg";
-            case TAG_REGION_PROPOSAL -> "RegionProposal";
-            case TAG_VALIDATION_VOTE -> "ValidationVote";
-            case TAG_COMMIT_ANNOUNCE -> "CommitAnnounce";
-            case TAG_RESYNC_REQUEST -> "ResyncRequest";
-            case TAG_HEARTBEAT -> "Heartbeat";
-            case TAG_WORKER_LOAD -> "WorkerLoad";
-            case TAG_ECHO_TEST -> "EchoTest";
-            case TAG_RELAY_ENVELOPE -> "RelayEnvelope";
-            case TAG_PEER_JOIN -> "PeerJoin";
-            case TAG_MEMBERSHIP_UPDATE -> "MembershipUpdate";
-            case TAG_PEER_GOODBYE -> "PeerGoodbye";
-            case TAG_GATEWAY_CLAIM -> "GatewayClaim";
-            case TAG_SESSION_KEEP_ALIVE -> "SessionKeepAlive";
-            case TAG_CONTENT_REQUEST -> "ContentRequest";
-            case TAG_CONTENT_CHUNK -> "ContentChunk";
-            case TAG_CONTENT_AVAILABILITY -> "ContentAvailability";
-            case TAG_TRACKER_QUERY -> "TrackerQuery";
-            case TAG_TRACKER_RESPONSE -> "TrackerResponse";
-            case TAG_INVENTORY_ADVERTISEMENT -> "InventoryAdvertisement";
-            case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> "ArchiveReplicaAssignment";
-            case TAG_ARCHIVE_REPLICA_ACK -> "ArchiveReplicaAck";
-            case TAG_EXTERNAL_DELTA -> "ExternalDelta";
-            case TAG_TRACKER_ANNOUNCE -> "TrackerAnnounce";
-            case TAG_TRACKER_ANNOUNCE_ACK -> "TrackerAnnounceAck";
-            case TAG_RENDEZVOUS_REGISTER -> "RendezvousRegister";
-            case TAG_RENDEZVOUS_DISCOVER -> "RendezvousDiscover";
-            case TAG_RENDEZVOUS_PEERS -> "RendezvousPeers";
-            case TAG_RELAY_RESERVE -> "RelayReserve";
-            case TAG_RELAY_RESERVATION -> "RelayReservation";
-            case TAG_RELAY_CONNECT -> "RelayConnect";
-            case TAG_RELAY_INCOMING -> "RelayIncoming";
-            case TAG_PUNCH_SYNC -> "PunchSync";
-            case TAG_OBSERVED_ADDRESS -> "ObservedAddress";
-            case TAG_TRACKER_CATALOG_QUERY -> "TrackerCatalogQuery";
-            case TAG_TRACKER_CATALOG_RESPONSE -> "TrackerCatalogResponse";
-            case TAG_ENTITY_TRANSFER_PREPARE -> "EntityTransferPrepare";
-            case TAG_ENTITY_TRANSFER_ACCEPT -> "EntityTransferAccept";
-            case TAG_ENTITY_TRANSFER_COMMIT -> "EntityTransferCommit";
-            case TAG_TRACKER_ROUTES_QUERY -> "TrackerRoutesQuery";
-            case TAG_TRACKER_ROUTES_RESPONSE -> "TrackerRoutesResponse";
-            case TAG_WORLD_MANIFEST_QUERY -> "WorldManifestQuery";
-            case TAG_WORLD_MANIFEST_ANSWER -> "WorldManifestAnswer";
-            case TAG_ACTION_FORWARD -> "ActionForward";
-            case TAG_REGION_REFUSAL -> "RegionRefusal";
-            case TAG_EVENT_SYNC_QUERY -> "EventSyncQuery";
-            case TAG_EVENT_SYNC_ANSWER -> "EventSyncAnswer";
-            case TAG_HALO_UPDATE -> "HaloUpdate";
-            case TAG_GROUP_MIGRATION -> "GroupMigration";
-            case TAG_GENESIS_APPROVAL_REQUEST -> "GenesisApprovalRequest";
-            case TAG_GENESIS_APPROVAL_GRANT -> "GenesisApprovalGrant";
-            case TAG_WORLD_GRANT_GOSSIP -> "WorldGrantGossip";
-            case TAG_WORLD_OWNERSHIP_GOSSIP -> "WorldOwnershipGossip";
-            case TAG_TUNNEL_OPEN -> "TunnelOpen";
-            case TAG_TUNNEL_DATA -> "TunnelData";
-            case TAG_TUNNEL_CLOSE -> "TunnelClose";
-            case TAG_WORLD_DELETION_GOSSIP -> "WorldDeletionGossip";
-            case TAG_SERVICE_ANNOUNCE -> "ServiceAnnounce";
-            case TAG_SERVICE_ANNOUNCE_ACK -> "ServiceAnnounceAck";
-            case TAG_SERVICE_DIRECTORY_QUERY -> "ServiceDirectoryQuery";
-            case TAG_SERVICE_DIRECTORY_RESPONSE -> "ServiceDirectoryResponse";
-            case TAG_SERVICE_SCORE_REPORT -> "ServiceScoreReport";
-            case TAG_SERVICE_DRAIN_NOTICE -> "ServiceDrainNotice";
-            default -> throw new IllegalArgumentException("unknown message type tag: " + tag);
-        };
+        return WireRegistry.nameOf(tag);
     }
 
     /**
@@ -509,96 +422,7 @@ public final class MessageCodec {
      * @Thread-context any thread.
      */
     public static int typeTagOf(NoderaMessage msg) {
-        // Not an exhaustive sealed switch (see NoderaMessage Javadoc): the type is non-sealed
-        // because its permitted records live in sibling subpackages of an unnamed module.
-        // Exhaustiveness is enforced structurally by MessageCodecTypeTagTest instead.
-        if (msg instanceof ClientHello) return TAG_CLIENT_HELLO;
-        if (msg instanceof ServerHello) return TAG_SERVER_HELLO;
-        if (msg instanceof ChallengeResponse) return TAG_CHALLENGE_RESPONSE;
-        if (msg instanceof WorkerActivation) return TAG_WORKER_ACTIVATION;
-        if (msg instanceof RegionAssigned) return TAG_REGION_ASSIGNED;
-        if (msg instanceof RegionRevoked) return TAG_REGION_REVOKED;
-        if (msg instanceof LeaseRenewal) return TAG_LEASE_RENEWAL;
-        if (msg instanceof SnapshotAnnounce) return TAG_SNAPSHOT_ANNOUNCE;
-        if (msg instanceof StreamChunk) return TAG_STREAM_CHUNK;
-        if (msg instanceof ActionBatchMsg) return TAG_ACTION_BATCH_MSG;
-        if (msg instanceof RegionProposal) return TAG_REGION_PROPOSAL;
-        if (msg instanceof ValidationVote) return TAG_VALIDATION_VOTE;
-        if (msg instanceof CommitAnnounce) return TAG_COMMIT_ANNOUNCE;
-        if (msg instanceof ResyncRequest) return TAG_RESYNC_REQUEST;
-        if (msg instanceof Heartbeat) return TAG_HEARTBEAT;
-        if (msg instanceof WorkerLoad) return TAG_WORKER_LOAD;
-        if (msg instanceof EchoTest) return TAG_ECHO_TEST;
-        if (msg instanceof RelayEnvelope) return TAG_RELAY_ENVELOPE;
-        if (msg instanceof PeerJoin) return TAG_PEER_JOIN;
-        if (msg instanceof MembershipUpdate) return TAG_MEMBERSHIP_UPDATE;
-        if (msg instanceof PeerGoodbye) return TAG_PEER_GOODBYE;
-        if (msg instanceof GatewayClaim) return TAG_GATEWAY_CLAIM;
-        if (msg instanceof SessionKeepAlive) return TAG_SESSION_KEEP_ALIVE;
-        if (msg instanceof ContentRequest) return TAG_CONTENT_REQUEST;
-        if (msg instanceof ContentChunk) return TAG_CONTENT_CHUNK;
-        if (msg instanceof ContentAvailability) return TAG_CONTENT_AVAILABILITY;
-        if (msg instanceof TrackerQuery) return TAG_TRACKER_QUERY;
-        if (msg instanceof TrackerResponse) return TAG_TRACKER_RESPONSE;
-        if (msg instanceof InventoryAdvertisement) return TAG_INVENTORY_ADVERTISEMENT;
-        if (msg instanceof ArchiveReplicaAssignment) return TAG_ARCHIVE_REPLICA_ASSIGNMENT;
-        if (msg instanceof ArchiveReplicaAck) return TAG_ARCHIVE_REPLICA_ACK;
-        if (msg instanceof ExternalDelta) return TAG_EXTERNAL_DELTA;
-        if (msg instanceof TrackerAnnounce) return TAG_TRACKER_ANNOUNCE;
-        if (msg instanceof TrackerAnnounceAck) return TAG_TRACKER_ANNOUNCE_ACK;
-        if (msg instanceof RendezvousRegister) return TAG_RENDEZVOUS_REGISTER;
-        if (msg instanceof RendezvousDiscover) return TAG_RENDEZVOUS_DISCOVER;
-        if (msg instanceof RendezvousPeers) return TAG_RENDEZVOUS_PEERS;
-        if (msg instanceof RelayReserve) return TAG_RELAY_RESERVE;
-        if (msg instanceof RelayReservation) return TAG_RELAY_RESERVATION;
-        if (msg instanceof RelayConnect) return TAG_RELAY_CONNECT;
-        if (msg instanceof RelayIncoming) return TAG_RELAY_INCOMING;
-        if (msg instanceof PunchSync) return TAG_PUNCH_SYNC;
-        if (msg instanceof ObservedAddress) return TAG_OBSERVED_ADDRESS;
-        if (msg instanceof TrackerCatalogQuery) return TAG_TRACKER_CATALOG_QUERY;
-        if (msg instanceof TrackerCatalogResponse) return TAG_TRACKER_CATALOG_RESPONSE;
-        if (msg instanceof EntityTransferPrepare) return TAG_ENTITY_TRANSFER_PREPARE;
-        if (msg instanceof EntityTransferAccept) return TAG_ENTITY_TRANSFER_ACCEPT;
-        if (msg instanceof EntityTransferCommit) return TAG_ENTITY_TRANSFER_COMMIT;
-        if (msg instanceof TrackerRoutesQuery) return TAG_TRACKER_ROUTES_QUERY;
-        if (msg instanceof TrackerRoutesResponse) return TAG_TRACKER_ROUTES_RESPONSE;
-        if (msg instanceof WorldManifestQuery) return TAG_WORLD_MANIFEST_QUERY;
-        if (msg instanceof WorldManifestAnswer) return TAG_WORLD_MANIFEST_ANSWER;
-        if (msg instanceof ActionForward) return TAG_ACTION_FORWARD;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.RegionRefusal) return TAG_REGION_REFUSAL;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncQuery) return TAG_EVENT_SYNC_QUERY;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.EventSyncAnswer) return TAG_EVENT_SYNC_ANSWER;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.HaloUpdate) return TAG_HALO_UPDATE;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.GroupMigration) return TAG_GROUP_MIGRATION;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalRequest) return TAG_GENESIS_APPROVAL_REQUEST;
-        if (msg instanceof dev.nodera.protocol.simulationmsg.GenesisApprovalGrant) return TAG_GENESIS_APPROVAL_GRANT;
-        if (msg instanceof dev.nodera.protocol.membership.WorldGrantGossip) return TAG_WORLD_GRANT_GOSSIP;
-        if (msg instanceof dev.nodera.protocol.membership.WorldOwnershipGossip) {
-            return TAG_WORLD_OWNERSHIP_GOSSIP;
-        }
-        if (msg instanceof dev.nodera.protocol.tunnel.TunnelOpen) return TAG_TUNNEL_OPEN;
-        if (msg instanceof dev.nodera.protocol.tunnel.TunnelData) return TAG_TUNNEL_DATA;
-        if (msg instanceof dev.nodera.protocol.tunnel.TunnelClose) return TAG_TUNNEL_CLOSE;
-        if (msg instanceof dev.nodera.protocol.membership.WorldDeletionGossip) {
-            return TAG_WORLD_DELETION_GOSSIP;
-        }
-        if (msg instanceof dev.nodera.protocol.service.ServiceAnnounce) return TAG_SERVICE_ANNOUNCE;
-        if (msg instanceof dev.nodera.protocol.service.ServiceAnnounceAck) {
-            return TAG_SERVICE_ANNOUNCE_ACK;
-        }
-        if (msg instanceof dev.nodera.protocol.service.ServiceDirectoryQuery) {
-            return TAG_SERVICE_DIRECTORY_QUERY;
-        }
-        if (msg instanceof dev.nodera.protocol.service.ServiceDirectoryResponse) {
-            return TAG_SERVICE_DIRECTORY_RESPONSE;
-        }
-        if (msg instanceof dev.nodera.protocol.service.ServiceScoreReport) {
-            return TAG_SERVICE_SCORE_REPORT;
-        }
-        if (msg instanceof dev.nodera.protocol.service.ServiceDrainNotice) {
-            return TAG_SERVICE_DRAIN_NOTICE;
-        }
-        throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass());
+        return WireRegistry.kindOf(msg);
     }
 
     private static void encodeInto(CanonicalWriter w, NoderaMessage msg) {
@@ -998,6 +822,25 @@ public final class MessageCodec {
                 w.writeU16(TAG_OBSERVED_ADDRESS).writeU16(ENCODING_VERSION);
                 m.peer().encode(w);
                 w.writeString(m.observedRoute());
+        } else if (msg instanceof dev.nodera.protocol.session.Nack m) {
+                w.writeU16(TAG_NACK).writeU16(ENCODING_VERSION);
+                w.writeU16(m.kind());
+                w.writeU16(m.reasonCode());
+                w.writeU64(m.correlationId());
+                w.writeString(m.detail());
+        } else if (msg instanceof dev.nodera.protocol.session.Hello m) {
+                // The record owns the signed-portion layout so the codec and the signer cannot
+                // disagree about where the signature starts.
+                m.writeSignedPortion(w);
+                w.writeBytes(m.signature());
+        } else if (msg instanceof dev.nodera.protocol.session.HelloAck m) {
+                w.writeU16(TAG_HELLO_ACK).writeU16(ENCODING_VERSION);
+                w.writeU16(m.wireEpoch());
+                w.writeList(m.selectedFeatures(), (ww, c) -> ww.writeU32(Integer.toUnsignedLong(c)));
+                w.writeU16(m.roleCode());
+                writeUuid(w, m.networkId());
+                w.writeU16(m.rejectCode());
+                w.writeString(m.detail());
         } else { throw new IllegalStateException("unknown NoderaMessage subtype: " + msg.getClass()); }
     }
 
@@ -1032,6 +875,32 @@ public final class MessageCodec {
     }
 
     /** Inverse of {@link #writePeerEntry}; yields an entry with no public key. */
+    /**
+     * Read a piece-index list and require it to already be in canonical form: ascending, with no
+     * duplicates.
+     *
+     * <p>The record constructors sort and de-duplicate what they are given, which is right for
+     * callers and wrong for the wire — it means {@code [3,0,3]} and {@code [0,3]} are two byte
+     * strings that decode to the same value, contradicting the one-encoding-per-message contract
+     * this codec's own Javadoc states. Encoders always emit the canonical order, so requiring it
+     * costs valid traffic nothing.
+     *
+     * @param r the reader, positioned at the list count.
+     * @return the decoded indexes, in the order they appeared.
+     * @throws IllegalStateException if the list is not strictly ascending.
+     */
+    private static java.util.List<Integer> readCanonicalIndexes(CanonicalReader r) {
+        java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
+        for (int i = 1; i < indexes.size(); i++) {
+            if (indexes.get(i) <= indexes.get(i - 1)) {
+                throw new IllegalStateException(
+                        "piece indexes must be strictly ascending; got " + indexes.get(i - 1)
+                                + " then " + indexes.get(i));
+            }
+        }
+        return indexes;
+    }
+
     private static PeerEntry readPeerEntry(CanonicalReader r) {
         dev.nodera.core.identity.NodeId nodeId = dev.nodera.core.identity.NodeId.decode(r);
         String route = r.readString();
@@ -1309,7 +1178,7 @@ public final class MessageCodec {
             }
             case TAG_CONTENT_REQUEST -> {
                 Bytes manifestRoot = r.readBytesValue();
-                java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
+                java.util.List<Integer> indexes = readCanonicalIndexes(r);
                 yield new ContentRequest(manifestRoot, indexes);
             }
             case TAG_CONTENT_CHUNK -> {
@@ -1356,8 +1225,9 @@ public final class MessageCodec {
             }
             case TAG_REGION_REFUSAL -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
-                yield new dev.nodera.protocol.simulationmsg.RegionRefusal(region,
-                        dev.nodera.protocol.simulationmsg.RegionRefusal.reasonOf(r.readU16()));
+                // The raw code, not a resolved constant: a reason this build has never heard of
+                // must re-encode as itself rather than as UNKNOWN's own number.
+                yield new dev.nodera.protocol.simulationmsg.RegionRefusal(region, r.readU16());
             }
             case TAG_EVENT_SYNC_QUERY -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
@@ -1507,13 +1377,13 @@ public final class MessageCodec {
             case TAG_ARCHIVE_REPLICA_ASSIGNMENT -> {
                 Bytes manifestRoot = r.readBytesValue();
                 dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
-                java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
+                java.util.List<Integer> indexes = readCanonicalIndexes(r);
                 yield new ArchiveReplicaAssignment(manifestRoot, assignee, indexes);
             }
             case TAG_ARCHIVE_REPLICA_ACK -> {
                 Bytes manifestRoot = r.readBytesValue();
                 dev.nodera.core.identity.NodeId assignee = dev.nodera.core.identity.NodeId.decode(r);
-                java.util.List<Integer> indexes = r.readList(rr -> rr.readU32AsInt());
+                java.util.List<Integer> indexes = readCanonicalIndexes(r);
                 yield new ArchiveReplicaAck(manifestRoot, assignee, indexes);
             }
             case TAG_EXTERNAL_DELTA -> {
@@ -1615,6 +1485,35 @@ public final class MessageCodec {
                 dev.nodera.core.identity.NodeId peer = dev.nodera.core.identity.NodeId.decode(r);
                 String observedRoute = r.readString();
                 yield new ObservedAddress(peer, observedRoute);
+            }
+            case TAG_NACK -> new dev.nodera.protocol.session.Nack(r.readU16(), r.readU16(),
+                    r.readU64(), r.readString());
+            case TAG_HELLO -> {
+                int wireEpoch = r.readU16();
+                String productVersion = r.readString();
+                // Strictly ascending on the wire, like every other set here: the encoder emits a
+                // sorted set, so a frame in any other order is a second spelling of one value.
+                java.util.Set<Integer> features =
+                        new java.util.LinkedHashSet<>(readCanonicalIndexes(r));
+                int rulesVersion = r.readU32AsInt();
+                long fingerprint = r.readU64();
+                UUID networkId = readUuid(r);
+                dev.nodera.core.identity.NodeId nodeId = dev.nodera.core.identity.NodeId.decode(r);
+                Bytes publicKey = r.readBytesValue();
+                dev.nodera.core.identity.NodeCapabilities capabilities =
+                        dev.nodera.core.identity.NodeCapabilities.decode(r);
+                yield new dev.nodera.protocol.session.Hello(wireEpoch, productVersion, features,
+                        rulesVersion, fingerprint, networkId, nodeId, publicKey, capabilities,
+                        r.readBytesValue());
+            }
+            case TAG_HELLO_ACK -> {
+                int wireEpoch = r.readU16();
+                java.util.Set<Integer> selected =
+                        new java.util.LinkedHashSet<>(readCanonicalIndexes(r));
+                int roleCode = r.readU16();
+                UUID networkId = readUuid(r);
+                yield new dev.nodera.protocol.session.HelloAck(wireEpoch, selected, roleCode,
+                        networkId, r.readU16(), r.readString());
             }
             default -> throw new IllegalStateException("unknown NoderaMessage typeTag: " + tag);
         };
