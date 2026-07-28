@@ -1,6 +1,6 @@
 [versions]
 junit             = "5.11.0"
-assertj           = "3.26.3"
+assertj           = "3.27.7"
 jqwik             = "1.9.0"
 mockito           = "5.14.2"
 mockitoJupiter    = "5.14.2"
@@ -11,7 +11,7 @@ fastutil          = "8.5.12" # strictly-pinned by minecraft-dependencies 1.21.1 
 archunit          = "1.3.0"
 jmh               = "0.7.2"
 jetbrainsAnnotations = "26.0.1"
-bouncycastle      = "1.78.1"
+bouncycastle      = "1.84"
 rocksdb           = "9.7.3"
 # Paper API for the endpoint plugin (server task 1). Matches the Minecraft version the mod pins.
 paperApi            = "1.21.1-R0.1-SNAPSHOT"
