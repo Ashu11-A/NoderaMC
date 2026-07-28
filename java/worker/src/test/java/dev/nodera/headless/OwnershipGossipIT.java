@@ -7,6 +7,7 @@ import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.membership.WorldOwnershipGossip;
 import dev.nodera.storage.PersistedWorldKey;
@@ -63,7 +64,7 @@ final class OwnershipGossipIT {
                 public void onMessage(PeerAddress from, byte[] frame) {
                     NoderaMessage message;
                     try {
-                        message = MessageCodec.decode(frame);
+                        message = WireCodec.decode(frame);
                     } catch (RuntimeException notOurs) {
                         return;
                     }
@@ -85,7 +86,7 @@ final class OwnershipGossipIT {
 
         private void send(Node to, NoderaMessage message) {
             transport.send(PeerAddress.of(to.identity.nodeId(), "loopback"),
-                    MessageCodec.encode(message));
+                    WireCodec.encode(message));
         }
     }
 

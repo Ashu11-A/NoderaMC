@@ -6,6 +6,7 @@ import dev.nodera.protocol.EchoTest;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.ChunkedStreams;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
@@ -88,12 +89,12 @@ final class LoopbackTransportTest {
         RecordingHandler hb = new RecordingHandler(1, 0);
         tb.setHandler(hb);
         EchoTest echo = new EchoTest(Bytes.fromHex("cafe"));
-        byte[] frame = MessageCodec.encode(echo);
+        byte[] frame = WireCodec.encode(echo);
 
         ta.send(PeerAddress.of(b, "loopback"), frame);
 
         assertThat(hb.awaitMessages(AWAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
-        NoderaMessage decoded = MessageCodec.decode(hb.messages.get(0).frame().toArray());
+        NoderaMessage decoded = WireCodec.decode(hb.messages.get(0).frame().toArray());
         assertThat(decoded).isEqualTo(new EchoTest(Bytes.fromHex("cafe")));
     }
 
@@ -140,7 +141,7 @@ final class LoopbackTransportTest {
         }
         List<StreamChunk> received = new ArrayList<>();
         for (RecordingHandler.Received rcv : snapshot) {
-            NoderaMessage msg = MessageCodec.decode(rcv.frame().toArray());
+            NoderaMessage msg = WireCodec.decode(rcv.frame().toArray());
             assertThat(msg).isInstanceOf(StreamChunk.class);
             received.add((StreamChunk) msg);
         }

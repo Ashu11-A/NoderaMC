@@ -5,6 +5,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.service.ServiceDrainNotice;
 import dev.nodera.protocol.rendezvous.RelayIncoming;
 
@@ -92,7 +93,7 @@ public final class RelayCircuitClient {
         while (true) {
             byte[] frame = Frames.read(reserved.socket().getInputStream()).orElseThrow(
                     () -> new IOException("control socket closed before a circuit arrived"));
-            message = MessageCodec.decode(frame);
+            message = WireCodec.decode(frame);
             if (message instanceof ServiceDrainNotice notice) {
                 if (SIGNATURES.verify(notice.record().publicKey(),
                         notice.record().signedBytes(), notice.signature())) {

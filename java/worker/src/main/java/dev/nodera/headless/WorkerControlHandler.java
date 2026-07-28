@@ -561,17 +561,30 @@ public final class WorkerControlHandler implements ControlHandler {
     }
 
     /**
-     * Every activated region's head root, keyed by region (L-30). The counters above say validation
-     * happened; only the roots say the peers agree about WHAT happened — which is the claim a live
-     * mesh has to support, and the one thing no reply carried before.
+     * Every activated region's head root <b>and the version it is the root of</b>, keyed by region
+     * (L-30). The counters above say validation happened; only the roots say the peers agree about
+     * WHAT happened — which is the claim a live mesh has to support.
      *
-     * @return the {@code "region":"roothex"} pairs, comma separated (possibly empty).
+     * <p><b>The version is not decoration.</b> A root without one cannot support the claim it is
+     * meant to: two peers holding the same region at different points in the same history report
+     * different roots and are in perfect agreement, while two peers at the <em>same</em> version
+     * reporting different roots have forked. Emitting the root alone makes those two cases
+     * indistinguishable, so a reader either calls a normal mid-commit skew a divergence or has to
+     * ignore real ones. Anything comparing these must pair them by version first.
+     *
+     * @return the {@code "region":{"root":"hex","version":n}} pairs, comma separated (possibly
+     *         empty).
      */
     private String regionRootsJson() {
         List<String> rows = new ArrayList<>();
         for (dev.nodera.core.region.RegionId region : validation.activeRegionIds()) {
-            validation.headRoot(region).ifPresent(root -> rows.add(
-                    "\"" + escape(regionKey(region)) + "\":\"" + root.hash().toHex() + "\""));
+            validation.headRoot(region).ifPresent(root -> {
+                long version = validation.currentSnapshot(region)
+                        .map(snapshot -> snapshot.version().value())
+                        .orElse(-1L);
+                rows.add("\"" + escape(regionKey(region)) + "\":{\"root\":\""
+                        + root.hash().toHex() + "\",\"version\":" + version + "}");
+            });
         }
         return String.join(",", rows);
     }

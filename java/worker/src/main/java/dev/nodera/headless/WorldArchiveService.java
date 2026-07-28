@@ -13,6 +13,7 @@ import dev.nodera.distribution.WorldArchive;
 import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ManifestHolding;
 import dev.nodera.protocol.content.PieceBitmap;
 import dev.nodera.protocol.content.WorldManifestAnswer;
@@ -904,9 +905,9 @@ public final class WorldArchiveService implements AutoCloseable {
         } else if (message instanceof WorldManifestAnswer a) { onManifestAnswer(from, a);
             // Re-encoding to feed the piece plane's frame-level handler costs one copy on content
             // traffic only; every other application message is not ours and is not re-encoded.;
-        } else if (message instanceof dev.nodera.protocol.content.ContentRequest m) { content.onMessage(from, MessageCodec.encode(m));
-        } else if (message instanceof dev.nodera.protocol.content.ContentChunk m) { content.onMessage(from, MessageCodec.encode(m));
-        } else if (message instanceof dev.nodera.protocol.content.ContentAvailability m) { content.onMessage(from, MessageCodec.encode(m));
+        } else if (message instanceof dev.nodera.protocol.content.ContentRequest m) { content.onMessage(from, WireCodec.encode(m));
+        } else if (message instanceof dev.nodera.protocol.content.ContentChunk m) { content.onMessage(from, WireCodec.encode(m));
+        } else if (message instanceof dev.nodera.protocol.content.ContentAvailability m) { content.onMessage(from, WireCodec.encode(m));
         } else {
                 // another service's message
             }
@@ -941,7 +942,7 @@ public final class WorldArchiveService implements AutoCloseable {
             newestRegionManifest(worldIdHex, region).ifPresent(m -> encoded.add(encodeManifest(m)));
         }
         try {
-            transport.send(from, MessageCodec.encode(
+            transport.send(from, WireCodec.encode(
                     new WorldManifestAnswer(query.worldId(), encoded)));
         } catch (TransportException e) {
             LOG.debug("manifest answer to {} failed: {}", from, e.getMessage());
@@ -1263,7 +1264,7 @@ public final class WorldArchiveService implements AutoCloseable {
         CompletableFuture<List<PieceManifest>> pending =
                 pendingManifests.computeIfAbsent(worldIdHex, k -> new CompletableFuture<>());
         try {
-            byte[] query = MessageCodec.encode(new WorldManifestQuery(worldId));
+            byte[] query = WireCodec.encode(new WorldManifestQuery(worldId));
             int asked = 0;
             for (NodeId seeder : seeders) {
                 PeerAddress address = routes.get(seeder);

@@ -2,6 +2,7 @@ package dev.nodera.peer.validation;
 
 import dev.nodera.core.region.RegionId;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.simulationmsg.RegionRefusal;
 import dev.nodera.transport.PeerAddress;
@@ -80,7 +81,7 @@ public final class ObserverRefusals {
         if (region == null || reason == null || !refused.add(region)) {
             return false;
         }
-        byte[] frame = MessageCodec.encode(new RegionRefusal(region, reason));
+        byte[] frame = WireCodec.encode(new RegionRefusal(region, reason));
         int told = 0;
         for (PeerEntry member : members.get()) {
             if (member == null || member.route().isEmpty()) {

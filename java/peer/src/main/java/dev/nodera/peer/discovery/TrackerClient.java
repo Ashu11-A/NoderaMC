@@ -8,6 +8,7 @@ import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.PeerRole;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ManifestHolding;
 import dev.nodera.protocol.discovery.AnnounceEvent;
 import dev.nodera.protocol.discovery.TrackerAnnounce;
@@ -665,7 +666,7 @@ public final class TrackerClient implements AutoCloseable {
         if (closed.get()) {
             return Optional.empty();
         }
-        byte[] frame = MessageCodec.encode(request);
+        byte[] frame = WireCodec.encode(request);
         if (endpoint.transport() == Transport.UDP) {
             Optional<NoderaMessage> answered = exchangeUdp(endpoint, frame);
             if (answered.isPresent()) {
@@ -684,7 +685,7 @@ public final class TrackerClient implements AutoCloseable {
             // Frames caps the reply length: a hostile or broken tracker must not be able to make
             // a peer allocate a gigabyte.
             Frames.write(socket.getOutputStream(), frame);
-            return Frames.read(socket.getInputStream()).map(MessageCodec::decode);
+            return Frames.read(socket.getInputStream()).map(WireCodec::decode);
         } catch (IOException | RuntimeException e) {
             // Unreachable, slow, or misbehaving trackers are an expected steady state, not an
             // error to propagate: discovery degrades, the peer keeps playing.
@@ -726,7 +727,7 @@ public final class TrackerClient implements AutoCloseable {
                     }
                     byte[] body = java.util.Arrays.copyOfRange(reply.getData(), reply.getOffset(),
                             reply.getOffset() + reply.getLength());
-                    return Optional.of(MessageCodec.decode(body));
+                    return Optional.of(WireCodec.decode(body));
                 } catch (java.net.SocketTimeoutException retry) {
                     // Lost datagram; try again within the overall read budget.
                 } catch (RuntimeException undecodable) {

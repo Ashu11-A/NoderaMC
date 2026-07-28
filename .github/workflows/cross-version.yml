@@ -1,0 +1,140 @@
+# Cross-version interoperability (network task 14, phase 7).
+#
+# The programme's headline claim is that two builds from different releases stay on one network. A
+# claim like that decays the moment nobody checks it, so it is checked here on every push — twice,
+# because there are two different things to be sure of.
+#
+#   * `matrix` runs the in-repo mixed-release suite: a peer advertising an older feature set and a
+#     different rule set, negotiating with the current build and then exchanging discovery, content
+#     and tunnel traffic with it. This runs on every commit and needs no second checkout.
+#
+#   * `previous-release` checks out the last released tag, builds its wire fixtures, and runs the
+#     current build against them. What it asserts depends on which side of the NDR2 flag day that
+#     release sits on, and the job says which — see the step comments. Silence is not the same as
+#     compatibility, so the job fails if it cannot tell.
+name: cross-version
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Weekly, so a release that ages out of compatibility is noticed before somebody reports it.
+    - cron: '0 6 * * 1'
+
+jobs:
+  matrix:
+    name: mixed-release peers on one network
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Negotiation and mixed-release traffic
+        run: >
+          ./gradlew :transport:test --stacktrace
+          --tests '*CrossVersionIT'
+          --tests '*NegotiationTest'
+          --tests '*ForwardCompatibilityTest'
+          --tests '*MessageRouterTest'
+
+      # The conformance harness is what every claim above is measured against, so it runs here too:
+      # a weakened harness would make this whole job pass for the wrong reason.
+      - name: Conformance harness
+        run: >
+          ./gradlew :transport:test :core:test --stacktrace
+          --tests '*CanonicalMutationFuzzTest'
+          --tests '*WireFixtureTest'
+          --tests '*WireSchemaGeneratorTest'
+          --tests '*MessageCodecTypeTagTest'
+          --tests '*TypeTagsTest'
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Rust half of the differential pair
+        working-directory: rust
+        run: cargo test -p nodera-codec
+
+      # A fixture mutated by the run means the encoder drifted and something silently accepted it.
+      - name: Golden fixtures unchanged
+        run: git diff --exit-code -- fixtures/
+
+  previous-release:
+    name: current build vs the previous release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Find the previous release
+        id: previous
+        run: |
+          set -euo pipefail
+          # The most recent tag that is not the moving `latest` pointer.
+          tag="$(git tag --sort=-creatordate | grep -v '^latest$' | head -1 || true)"
+          if [ -z "$tag" ]; then
+            echo "no previous release tag yet; the interop assertion has nothing to run against"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "previous release: $tag"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the previous release's wire corpus
+        if: steps.previous.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          git worktree add ../previous "${{ steps.previous.outputs.tag }}"
+          cd ../previous
+          # Regenerating is safe here: it writes into the WORKTREE's fixtures, not this checkout's.
+          ./gradlew :transport:test --tests '*WireFixtureTest' \
+            -Dnodera.fixtures.regenerate=true || true
+          mkdir -p "$GITHUB_WORKSPACE/build/previous-corpus"
+          cp fixtures/wire/*.bin "$GITHUB_WORKSPACE/build/previous-corpus/" || true
+
+      # Which assertion is correct depends on the epoch the previous release speaks.
+      #
+      #   epoch 1 (pre-NDR2): its frames MUST be refused, loudly and at the magic. That is the flag
+      #     day, and a silent misparse is the outcome the magic number exists to prevent.
+      #   epoch 2 or later:   its frames MUST decode, because TLV absorbs additive change and a
+      #     genuinely incompatible change allocates a new kind rather than a new epoch.
+      #
+      # The step reads the epoch out of the bytes rather than being told, so it cannot assert the
+      # wrong thing after the next release.
+      - name: Interoperate with, or cleanly refuse, the previous release
+        if: steps.previous.outputs.tag != ''
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          corpus=(build/previous-corpus/*.bin)
+          if [ ${#corpus[@]} -eq 0 ]; then
+            echo "::error::the previous release produced no fixtures; this job cannot tell whether \
+          the two builds interoperate, and passing on that basis would be a lie"
+            exit 1
+          fi
+          magic="$(head -c 4 "${corpus[0]}" | xxd -p)"
+          if [ "$magic" = "4e445232" ]; then
+            echo "the previous release speaks NDR2; asserting the current build decodes it"
+            ./gradlew :transport:test --tests '*WireFixtureTest' --stacktrace \
+              -Dnodera.wire.previousCorpus="$GITHUB_WORKSPACE/build/previous-corpus"
+          else
+            echo "the previous release predates NDR2; asserting its frames are refused, not misparsed"
+            ./gradlew :transport:test --tests '*ForwardCompatibilityTest' --stacktrace
+          fi
+
+      - name: Report when there is nothing to compare against
+        if: steps.previous.outputs.tag == ''
+        run: |
+          echo "::notice::no previous release tag exists yet, so there is nothing to interoperate \
+          with. The in-repo mixed-release suite in the `matrix` job still ran."

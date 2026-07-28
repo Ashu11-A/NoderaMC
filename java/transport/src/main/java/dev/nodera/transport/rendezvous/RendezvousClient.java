@@ -7,6 +7,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.rendezvous.ObservedAddress;
 import dev.nodera.protocol.rendezvous.PeerCandidate;
 import dev.nodera.protocol.rendezvous.RegistrationEvent;
@@ -149,10 +150,10 @@ public final class RendezvousClient {
         Socket socket = connect(endpoint);
         try {
             Frames.write(socket.getOutputStream(),
-                    MessageCodec.encode(new RelayReserve(networkId, genesisHash, identity.nodeId())));
+                    WireCodec.encode(new RelayReserve(networkId, genesisHash, identity.nodeId())));
             byte[] frame = Frames.read(socket.getInputStream())
                     .orElseThrow(() -> new IOException("service closed before the reservation"));
-            NoderaMessage reply = MessageCodec.decode(frame);
+            NoderaMessage reply = WireCodec.decode(frame);
             if (reply instanceof RelayReservation reservation && reservation.accepted()) {
                 // The reservation is long-lived: leave the socket open and the read timeout off, so
                 // the reserver can block on an inbound circuit for as long as its reservation lasts.
@@ -183,7 +184,7 @@ public final class RendezvousClient {
             throws IOException {
         Socket socket = connect(endpoint);
         try {
-            Frames.write(socket.getOutputStream(), MessageCodec.encode(
+            Frames.write(socket.getOutputStream(), WireCodec.encode(
                     new RelayConnect(networkId, genesisHash, identity.nodeId(), target)));
             socket.setSoTimeout(0);
             return socket;
@@ -196,10 +197,10 @@ public final class RendezvousClient {
     private NoderaMessage exchange(RendezvousEndpoint endpoint, NoderaMessage request)
             throws IOException {
         try (Socket socket = connect(endpoint)) {
-            Frames.write(socket.getOutputStream(), MessageCodec.encode(request));
+            Frames.write(socket.getOutputStream(), WireCodec.encode(request));
             byte[] frame = Frames.read(socket.getInputStream())
                     .orElseThrow(() -> new IOException("service closed before replying"));
-            return MessageCodec.decode(frame);
+            return WireCodec.decode(frame);
         }
     }
 

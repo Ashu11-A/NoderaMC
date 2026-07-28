@@ -7,6 +7,7 @@ import dev.nodera.core.event.CommittedEventEnvelope;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.EventSyncAnswer;
 import dev.nodera.protocol.simulationmsg.EventSyncQuery;
 import dev.nodera.storage.WorldStore;
@@ -119,7 +120,7 @@ public final class EventSyncService {
 
     private void send(PeerAddress to, NoderaMessage message) {
         try {
-            transport.send(to, MessageCodec.encode(message));
+            transport.send(to, WireCodec.encode(message));
         } catch (TransportException unreachable) {
             // Best-effort: sync re-requests on the next cycle; an unreachable peer is not an error.
         }

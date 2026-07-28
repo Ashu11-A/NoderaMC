@@ -142,21 +142,22 @@ impl Tracker {
         if frame.len() > self.config.max_frame_bytes {
             return self.reject(Rejection::TooLarge);
         }
+        // The kind is legible from the header alone, so routing never depends on decoding a body.
+        // That is the property that lets a service answer for a kind it cannot read rather than
+        // hanging up on it.
+        let kind = match nodera_codec::frame::NoderaFrame::peek_kind(frame) {
+            Ok(kind) => kind,
+            Err(e) => return Handled::Unsupported(e.to_string()),
+        };
         // Deletions are their own family and are handled before the discovery decode, because the
-        // discovery codec does not know tag 66 and would reject the frame as unsupported.
-        if frame.len() >= 2
-            && u16::from_be_bytes([frame[0], frame[1]]) == message_tags::WORLD_DELETION_GOSSIP
-        {
+        // discovery codec does not know kind 66 and would reject the frame as unsupported.
+        if kind == message_tags::WORLD_DELETION_GOSSIP {
             return self.handle_deletion(frame);
         }
-        // The service-directory family is likewise its own codec: the discovery decoder does not know
-        // tags 67–72 and would reject them as unsupported.
-        if frame.len() >= 2 {
-            let tag = u16::from_be_bytes([frame[0], frame[1]]);
-            if (message_tags::SERVICE_ANNOUNCE..=message_tags::SERVICE_DRAIN_NOTICE).contains(&tag)
-            {
-                return self.handle_service_frame(frame, source, now_millis);
-            }
+        // The service-directory family is likewise its own codec: the discovery decoder does not
+        // know kinds 67–72 and would reject them as unsupported.
+        if (message_tags::SERVICE_ANNOUNCE..=message_tags::SERVICE_DRAIN_NOTICE).contains(&kind) {
+            return self.handle_service_frame(frame, source, now_millis);
         }
         let message = match DiscoveryMessage::decode(frame) {
             Ok(message) => message,
@@ -447,7 +448,13 @@ impl Tracker {
     /// declining to serve, which is not a power over anyone else's copy. A record that does not
     /// verify is dropped and nothing changes.
     fn handle_deletion(&mut self, frame: &[u8]) -> Handled {
-        let gossip = match WorldDeletionGossip::decode(frame) {
+        // A consensus kind: its strict canonical bytes cross the tolerant plane inside one opaque
+        // field, and those are the bytes the owner signed.
+        let payload = match nodera_codec::wire::consensus_payload(frame) {
+            Ok(payload) => payload,
+            Err(e) => return Handled::Unsupported(e.to_string()),
+        };
+        let gossip = match WorldDeletionGossip::decode(payload) {
             Ok(gossip) => gossip,
             Err(e) => return Handled::Unsupported(e.to_string()),
         };
@@ -460,7 +467,12 @@ impl Tracker {
         // Echoed back, not merely acknowledged: the sender may be a relay rather than the owner,
         // and returning the record keeps the reply verifiable instead of asking anyone to take
         // this tracker's word for what happened.
-        Handled::Reply(gossip.encode())
+        Handled::Reply(nodera_codec::wire::encode_consensus_frame(
+            message_tags::WORLD_DELETION_GOSSIP,
+            &gossip.encode(),
+            nodera_codec::frame::flags::RESPONSE,
+            0,
+        ))
     }
 
     /// Register host-supplied world metadata directly.
@@ -515,7 +527,8 @@ impl Tracker {
 /// The tag is the first two bytes of every canonical frame and does not move between encoding
 /// versions, so it stays legible when the body does not.
 fn is_announce(frame: &[u8]) -> bool {
-    frame.len() >= 2 && u16::from_be_bytes([frame[0], frame[1]]) == message_tags::TRACKER_ANNOUNCE
+    nodera_codec::frame::NoderaFrame::peek_kind(frame)
+        .is_ok_and(|kind| kind == message_tags::TRACKER_ANNOUNCE)
 }
 
 #[cfg(test)]
@@ -569,8 +582,16 @@ mod tests {
         std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
     }
 
+    /// The deletion's strict canonical payload — a consensus kind crosses the tolerant plane as
+    /// one opaque field, so the frame is unwrapped before the record is read.
+    fn deletion_payload() -> Vec<u8> {
+        nodera_codec::wire::consensus_payload(&deletion_frame())
+            .expect("opaque consensus payload")
+            .to_vec()
+    }
+
     fn deleted_world_id() -> Vec<u8> {
-        WorldDeletionGossip::decode(&deletion_frame())
+        WorldDeletionGossip::decode(&deletion_payload())
             .expect("decode")
             .world_id
     }
@@ -597,10 +618,12 @@ mod tests {
         assert!(tracker.is_world_deleted(&deleted_world_id()));
         // The reply is the owner's record, not this tracker's say-so.
         match handled {
-            Handled::Reply(frame) => assert!(WorldDeletionGossip::decode(&frame)
-                .expect("decode")
-                .verified()
-                .is_some()),
+            Handled::Reply(frame) => assert!(WorldDeletionGossip::decode(
+                nodera_codec::wire::consensus_payload(&frame).expect("opaque payload")
+            )
+            .expect("decode")
+            .verified()
+            .is_some()),
             other => panic!("expected the record echoed back, got {other:?}"),
         }
     }
@@ -651,7 +674,7 @@ mod tests {
     #[test]
     fn a_deletion_is_forgotten_after_the_retention_window() {
         let mut tracker = Tracker::new(config());
-        let issued = WorldDeletionGossip::decode(&deletion_frame())
+        let issued = WorldDeletionGossip::decode(&deletion_payload())
             .expect("decode")
             .verified()
             .expect("verify")

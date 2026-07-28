@@ -5,6 +5,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ContentAvailability;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
@@ -453,7 +454,7 @@ public final class ContentTransferService implements MessageHandler {
         PeerAddress address = router.addressOf(holder);
         if (address != null) {
             try {
-                transport.send(address, MessageCodec.encode(request));
+                transport.send(address, WireCodec.encode(request));
                 return;
             } catch (TransportException e) {
                 // The holder disappeared between selection and send. Fall through to the same
@@ -519,7 +520,7 @@ public final class ContentTransferService implements MessageHandler {
     @Override
     public void onMessage(PeerAddress from, byte[] frame) {
         Objects.requireNonNull(frame, "frame");
-        NoderaMessage msg = MessageCodec.decode(frame);
+        NoderaMessage msg = WireCodec.decode(frame);
         if (msg instanceof ContentRequest request) {
             serve(from, request);
         } else if (msg instanceof ContentChunk chunk) {
@@ -592,7 +593,7 @@ public final class ContentTransferService implements MessageHandler {
                 servedPieces++;
             }
             try {
-                transport.send(to, MessageCodec.encode(
+                transport.send(to, WireCodec.encode(
                         new ContentChunk(request.manifestRoot(), index, bytes)));
             } catch (TransportException e) {
                 // The requester went away mid-serve. Stop answering it; its own downloader will

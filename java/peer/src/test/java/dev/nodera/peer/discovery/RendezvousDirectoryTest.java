@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.service.ServiceAnnounceAck;
 import dev.nodera.protocol.service.ServiceDirectoryEntry;
 import dev.nodera.protocol.service.ServiceDirectoryQuery;
@@ -90,7 +91,7 @@ final class RendezvousDirectoryTest {
                     if (frame.isEmpty()) {
                         continue;
                     }
-                    NoderaMessage request = MessageCodec.decode(frame.get());
+                    NoderaMessage request = WireCodec.decode(frame.get());
                     NoderaMessage reply;
                     if (request instanceof ServiceDirectoryQuery query) {
                         queries.add(query);
@@ -101,7 +102,7 @@ final class RendezvousDirectoryTest {
                     } else {
                         reply = new ServiceAnnounceAck(false, 120, "unexpected", List.of());
                     }
-                    Frames.write(socket.getOutputStream(), MessageCodec.encode(reply));
+                    Frames.write(socket.getOutputStream(), WireCodec.encode(reply));
                     socket.getOutputStream().flush();
                 } catch (IOException | RuntimeException e) {
                     if (running.get()) {

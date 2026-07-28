@@ -159,8 +159,8 @@ final class SessionKeepAliveCodecTest {
         assertThat(MessageCodec.TAG_SESSION_KEEP_ALIVE).isEqualTo(23);
         // The watermark moves only when a tag is appended; existing tags never move, which is what
         // this assertion is really guarding.
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(72);
-        assertThat(MessageCodec.KNOWN_TAGS).hasSize(72).doesNotHaveDuplicates();
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(75);
+        assertThat(MessageCodec.KNOWN_TAGS).hasSize(75).doesNotHaveDuplicates();
     }
 
     private static RegionProgress progress(

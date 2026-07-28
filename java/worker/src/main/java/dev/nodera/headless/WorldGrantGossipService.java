@@ -6,6 +6,7 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.PeerEntry;
 import dev.nodera.protocol.membership.WorldGrantGossip;
 import dev.nodera.storage.WorldPermissionGrant;
@@ -172,7 +173,7 @@ public final class WorldGrantGossipService {
     private void relay(String worldIdHex, WorldPermissionGrant grant, NodeId excluding) {
         CanonicalWriter w = new CanonicalWriter();
         grant.encode(w);
-        byte[] frame = MessageCodec.encode(
+        byte[] frame = WireCodec.encode(
                 new WorldGrantGossip(Bytes.fromHex(worldIdHex), w.toBytes()));
         for (PeerEntry member : members.get()) {
             NodeId id = member.nodeId();

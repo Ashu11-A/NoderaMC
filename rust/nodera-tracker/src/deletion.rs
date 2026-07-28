@@ -207,7 +207,12 @@ mod tests {
             .and_then(Path::parent)
             .expect("repo root")
             .join("fixtures/wire/world-deletion-gossip.bin");
-        std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        let frame =
+            std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        // A consensus kind: unwrap the opaque payload the tolerant plane carries it in.
+        nodera_codec::wire::consensus_payload(&frame)
+            .expect("the golden frame carries an opaque consensus payload")
+            .to_vec()
     }
 
     fn tombstone() -> WorldTombstone {

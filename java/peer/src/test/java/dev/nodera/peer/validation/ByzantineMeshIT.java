@@ -19,6 +19,7 @@ import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.RegionProposal;
 import dev.nodera.protocol.simulationmsg.ValidationVote;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
@@ -209,7 +210,7 @@ final class ByzantineMeshIT {
                 public void onMessage(PeerAddress from, byte[] frame) {
                     NoderaMessage message;
                     try {
-                        message = MessageCodec.decode(frame);
+                        message = WireCodec.decode(frame);
                     } catch (RuntimeException notForUs) {
                         return;
                     }
@@ -242,7 +243,7 @@ final class ByzantineMeshIT {
                     proposal.epoch(), proposal.baseVersion(), proposal.batchRoot(),
                     root, root, VoteDecision.ACCEPT, identity.sign(unsigned.signedPortion()));
             votesSent.add(root);
-            transport.send(to, MessageCodec.encode(new ValidationVote(
+            transport.send(to, WireCodec.encode(new ValidationVote(
                     proposal.region(), proposal.epoch(), proposal.baseVersion(), vote)));
         }
     }

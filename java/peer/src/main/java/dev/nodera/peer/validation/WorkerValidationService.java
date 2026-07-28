@@ -52,6 +52,7 @@ import dev.nodera.fallback.RoutingDecision;
 import dev.nodera.fallback.SoakMetrics;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.EntityTransferAccept;
@@ -593,7 +594,7 @@ public final class WorkerValidationService {
         if (first) {
             RegionRefusal announcement = new RegionRefusal(region, reason);
             for (PeerAddress address : peers.values()) {
-                transport.send(address, MessageCodec.encode(announcement));
+                transport.send(address, WireCodec.encode(announcement));
             }
         }
         return first;
@@ -725,8 +726,8 @@ public final class WorkerValidationService {
             PeerAddress addr = peers.get(validator);
             if (addr != null) {
                 try {
-                    transport.send(addr, MessageCodec.encode(proposal));
-                    transport.send(addr, MessageCodec.encode(new ActionBatchMsg(batch)));
+                    transport.send(addr, WireCodec.encode(proposal));
+                    transport.send(addr, WireCodec.encode(new ActionBatchMsg(batch)));
                 } catch (dev.nodera.transport.TransportException unreachable) {
                     // A dead validator is an absent vote, not a failed proposal: quorum is a
                     // strict majority of the committee, so the round proceeds with whoever is
@@ -787,7 +788,7 @@ public final class WorkerValidationService {
             PeerAddress addr = peers.get(validator);
             if (addr != null) {
                 try {
-                    transport.send(addr, MessageCodec.encode(announce));
+                    transport.send(addr, WireCodec.encode(announce));
                 } catch (dev.nodera.transport.TransportException unreachable) {
                     // The certificate is already durable; an unreachable member resyncs later.
                 }
@@ -916,7 +917,7 @@ public final class WorkerValidationService {
         }
         CanonicalWriter w = new CanonicalWriter();
         envelope.encode(w);
-        transport.send(address, MessageCodec.encode(
+        transport.send(address, WireCodec.encode(
                 new dev.nodera.protocol.simulationmsg.ActionForward(envelope.region(), w.toBytes())));
         relayMetrics.recordLocalSubmitted();
         relayMetrics.recordForwardedTo(primary);
@@ -1004,7 +1005,7 @@ public final class WorkerValidationService {
         replica.pendingBatch = batch;
         replica.pendingTickTo = batch.tickTo();
         votesCast.incrementAndGet();
-        transport.send(from, MessageCodec.encode(
+        transport.send(from, WireCodec.encode(
                 new ValidationVote(batch.region(), batch.epoch(), batch.baseVersion(),
                         ballot.vote())));
     }
@@ -1217,7 +1218,7 @@ public final class WorkerValidationService {
             RegionId side) {
         SignedVote vote = signTransferVote(descriptor, side);
         votesCast.incrementAndGet();
-        transport.send(primary, MessageCodec.encode(
+        transport.send(primary, WireCodec.encode(
                 new EntityTransferAccept(descriptor.transferId(), side, vote)));
     }
 
@@ -1612,7 +1613,7 @@ public final class WorkerValidationService {
         PeerAddress address = peers.get(peer);
         if (address != null) {
             try {
-                transport.send(address, MessageCodec.encode(message));
+                transport.send(address, WireCodec.encode(message));
             } catch (dev.nodera.transport.TransportException unreachable) {
                 // Best-effort fan-out: an unreachable member is an absent recipient, and every
                 // certified path re-converges via resync rather than by aborting the sender.
@@ -1684,7 +1685,7 @@ public final class WorkerValidationService {
             if (proposal.resultingRoot().equals(pendingBallot.root())
                     && proposal.encodedDelta().equals(pendingDelta.toBytes())
                     && proposal.batchRoot().equals(pendingBallot.vote().batchRoot())) {
-                transport.send(from, MessageCodec.encode(new ValidationVote(
+                transport.send(from, WireCodec.encode(new ValidationVote(
                         proposal.region(), proposal.epoch(), proposal.baseVersion(),
                         pendingBallot.vote())));
             }
@@ -1809,7 +1810,7 @@ public final class WorkerValidationService {
         var assigned = new dev.nodera.protocol.assignment.RegionAssigned(
                 lease.region(), lease.epoch(), dev.nodera.core.region.RegionReplicaRole.VALIDATOR,
                 replicas.get(lease.region()).snapshot.version(), lease.expiresAtTick(), committee);
-        byte[] frame = MessageCodec.encode(assigned);
+        byte[] frame = WireCodec.encode(assigned);
         for (NodeId member : committee) {
             if (identity.nodeId().equals(member)) {
                 continue;

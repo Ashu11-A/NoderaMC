@@ -244,7 +244,7 @@ impl TrackerAnnounce {
         w.into_vec()
     }
 
-    fn write_signed_portion(&self, w: &mut CanonicalWriter) {
+    pub fn write_signed_portion(&self, w: &mut CanonicalWriter) {
         w.write_frame_header(message_tags::TRACKER_ANNOUNCE, ENCODING_VERSION);
         w.write_bytes(&self.genesis_hash);
         self.peer.encode(w);
@@ -329,188 +329,76 @@ impl DiscoveryMessage {
         }
     }
 
-    /// Encode a complete frame (`tag + version + body`).
+    /// Encode a complete `NDR2` frame carrying this message as an unsolicited event.
+    ///
+    /// The body is canonical TLV, so a field a peer has never heard of is skipped instead of
+    /// desynchronising everything after it.
     pub fn encode(&self) -> Vec<u8> {
-        let mut w = CanonicalWriter::new();
-        self.encode_into(&mut w);
-        w.into_vec()
+        self.encode_frame(crate::frame::flags::EVENT, 0)
+    }
+
+    /// Encode a complete `NDR2` frame with explicit routing metadata.
+    pub fn encode_frame(&self, flags: u16, correlation_id: u64) -> Vec<u8> {
+        crate::frame::NoderaFrame {
+            epoch: crate::frame::WIRE_EPOCH,
+            kind: self.tag(),
+            flags,
+            correlation_id,
+            body: crate::wire::encode_discovery_body(self),
+        }
+        .encode()
+    }
+
+    /// Decode a complete `NDR2` frame.
+    pub fn decode(frame: &[u8]) -> Result<Self> {
+        Self::decode_with_overlay(frame).map(|(m, _)| m)
+    }
+
+    /// Decode a frame together with the overlay describing how its field set differed from this
+    /// build's — what a forwarding peer needs in order to re-emit what it was given rather than
+    /// its own idea of it.
+    pub fn decode_with_overlay(frame: &[u8]) -> Result<(Self, crate::tlv::TlvOverlay)> {
+        let parsed = crate::frame::NoderaFrame::decode(frame)?;
+        crate::wire::decode_discovery_body_with_overlay(parsed.kind, &parsed.body)
+    }
+
+    /// Encode a frame, re-emitting fields this build did not understand when it was decoded.
+    pub fn encode_with_overlay(&self, overlay: &crate::tlv::TlvOverlay) -> Result<Vec<u8>> {
+        Ok(crate::frame::NoderaFrame {
+            epoch: crate::frame::WIRE_EPOCH,
+            kind: self.tag(),
+            flags: crate::frame::flags::EVENT,
+            correlation_id: 0,
+            body: overlay.apply_to(&crate::wire::encode_discovery_body(self))?,
+        }
+        .encode())
     }
 
     /// The exact byte range of a received announce frame that its signature covers.
     ///
     /// Verification uses the bytes as they arrived, never a re-encoding of the decoded value: a
     /// re-encoding would check this implementation against itself and quietly accept an announce
-    /// whose canonical form differs from what the peer actually signed.
+    /// whose canonical form differs from what the peer actually signed. The announce crosses the
+    /// tolerant plane whole and opaque, so the span lives inside field 1 of the TLV body.
     pub fn split_announce_signature(frame: &[u8]) -> Result<(&[u8], &[u8])> {
-        let announce = match Self::decode(frame)? {
-            Self::TrackerAnnounce(a) => a,
-            other => {
-                return Err(CodecError::UnknownTag(other.tag()));
-            }
-        };
-        let sig_len = announce.signature.len();
-        let trailer = sig_len
+        let kind = crate::frame::NoderaFrame::peek_kind(frame)?;
+        if kind != message_tags::TRACKER_ANNOUNCE {
+            return Err(CodecError::UnknownTag(kind));
+        }
+        let body = crate::wire::validated_body(frame)?;
+        let opaque = crate::tlv::field_slice(body, 1)?.ok_or_else(|| {
+            CodecError::Malformed("announce frame carries no opaque payload".to_owned())
+        })?;
+        let announce = crate::wire::decode_legacy_announce(opaque)?;
+        let trailer = announce
+            .signature
+            .len()
             .checked_add(4)
             .ok_or_else(|| CodecError::Malformed("signature length overflow".to_owned()))?;
-        let split = frame.len().checked_sub(trailer).ok_or_else(|| {
+        let split = opaque.len().checked_sub(trailer).ok_or_else(|| {
             CodecError::Malformed("announce shorter than its signature".to_owned())
         })?;
-        Ok((&frame[..split], &frame[split + 4..]))
-    }
-
-    /// Encode into an existing writer.
-    pub fn encode_into(&self, w: &mut CanonicalWriter) {
-        if let Self::TrackerAnnounce(m) = self {
-            // The signed portion owns the frame header, so signer and codec cannot disagree about
-            // where the signature starts.
-            m.write_signed_portion(w);
-            w.write_bytes(&m.signature);
-            return;
-        }
-        w.write_frame_header(self.tag(), ENCODING_VERSION);
-        match self {
-            Self::TrackerQuery(m) => {
-                w.write_bytes(&m.genesis_hash);
-            }
-            Self::TrackerResponse(m) => {
-                w.write_bytes(&m.genesis_hash);
-                w.write_string(&m.world_name);
-                w.write_list(&m.peers, |ww, p| p.encode(ww));
-                w.write_list(&m.seeders, |ww, s| s.encode(ww));
-                w.write_u64(m.world_player_count);
-                w.write_u64(m.stored_chunks);
-                w.write_u32(m.reliability_bps);
-                m.health.encode(w);
-                w.write_u64(m.retention_deadline_epoch_millis);
-            }
-            Self::InventoryAdvertisement(m) => {
-                w.write_bytes(&m.genesis_hash);
-                m.holder.encode(w);
-                w.write_list(&m.holdings, |ww, h| h.encode(ww));
-            }
-            Self::TrackerAnnounce(_) => unreachable!("handled above: signed-portion layout"),
-            Self::TrackerAnnounceAck(m) => {
-                w.write_bool(m.accepted);
-                w.write_u32(m.next_announce_after_seconds);
-                w.write_string(&m.reason);
-            }
-            Self::TrackerCatalogQuery(m) => {
-                w.write_u32(m.limit);
-            }
-            Self::TrackerCatalogResponse(m) => {
-                w.write_list(&m.worlds, |ww, e| e.encode(ww));
-            }
-            Self::TrackerRoutesQuery(m) => {
-                w.write_bytes(&m.genesis_hash);
-            }
-            Self::TrackerRoutesResponse(m) => {
-                w.write_bytes(&m.genesis_hash);
-                w.write_list(&m.peers, |ww, p| p.encode(ww));
-            }
-        }
-    }
-
-    /// Decode a complete frame, rejecting trailing bytes.
-    pub fn decode(frame: &[u8]) -> Result<Self> {
-        let mut r = CanonicalReader::new(frame);
-        let tag = r.read_u16()?;
-        let version = r.read_u16()?;
-        if version != ENCODING_VERSION {
-            return Err(CodecError::UnsupportedVersion { tag, version });
-        }
-        let msg = match tag {
-            message_tags::TRACKER_QUERY => Self::TrackerQuery(TrackerQuery {
-                genesis_hash: r.read_bytes_vec()?,
-            }),
-            message_tags::TRACKER_RESPONSE => {
-                let genesis_hash = r.read_bytes_vec()?;
-                let world_name = r.read_string()?;
-                let peers = r.read_list(PeerEntry::decode)?;
-                let seeders = r.read_list(ManifestSeeders::decode)?;
-                let world_player_count = r.read_u64()?;
-                let stored_chunks = r.read_u64()?;
-                let reliability_bps = r.read_u32()?;
-                let health = WorldHealth::decode(&mut r)?;
-                let retention_deadline_epoch_millis = r.read_u64()?;
-                Self::TrackerResponse(TrackerResponse {
-                    genesis_hash,
-                    world_name,
-                    peers,
-                    seeders,
-                    world_player_count,
-                    stored_chunks,
-                    reliability_bps,
-                    health,
-                    retention_deadline_epoch_millis,
-                })
-            }
-            message_tags::INVENTORY_ADVERTISEMENT => {
-                let genesis_hash = r.read_bytes_vec()?;
-                let holder = NodeId::decode(&mut r)?;
-                let holdings = r.read_list(ManifestHolding::decode)?;
-                Self::InventoryAdvertisement(InventoryAdvertisement {
-                    genesis_hash,
-                    holder,
-                    holdings,
-                })
-            }
-            message_tags::TRACKER_ANNOUNCE => {
-                let genesis_hash = r.read_bytes_vec()?;
-                let peer = NodeId::decode(&mut r)?;
-                let public_key = r.read_bytes_vec()?;
-                let event = AnnounceEvent::from_ordinal(r.read_u8()?)?;
-                let routes = r.read_list(|rr| rr.read_string())?;
-                let capabilities = NodeCapabilities::decode(&mut r)?;
-                let holdings = r.read_list(ManifestHolding::decode)?;
-                let world_name = r.read_string()?;
-                let retention_deadline_epoch_millis = r.read_u64()?;
-                let reliability_bps = r.read_u32()?;
-                // See `write_signed_portion`: 0 is "unknown", n+1 is a real count of n.
-                let world_player_count = r.read_u64()? as i64 - 1;
-                let announce_epoch_millis = r.read_u64()?;
-                let signature = r.read_bytes_vec()?;
-                Self::TrackerAnnounce(TrackerAnnounce {
-                    genesis_hash,
-                    peer,
-                    public_key,
-                    event,
-                    routes,
-                    capabilities,
-                    holdings,
-                    world_name,
-                    retention_deadline_epoch_millis,
-                    reliability_bps,
-                    world_player_count,
-                    announce_epoch_millis,
-                    signature,
-                })
-            }
-            message_tags::TRACKER_ANNOUNCE_ACK => Self::TrackerAnnounceAck(TrackerAnnounceAck {
-                accepted: r.read_bool()?,
-                next_announce_after_seconds: r.read_u32()?,
-                reason: r.read_string()?,
-            }),
-            message_tags::TRACKER_CATALOG_QUERY => Self::TrackerCatalogQuery(TrackerCatalogQuery {
-                limit: r.read_u32()?,
-            }),
-            message_tags::TRACKER_CATALOG_RESPONSE => {
-                Self::TrackerCatalogResponse(TrackerCatalogResponse {
-                    worlds: r.read_list(TrackerCatalogEntry::decode)?,
-                })
-            }
-            message_tags::TRACKER_ROUTES_QUERY => Self::TrackerRoutesQuery(TrackerRoutesQuery {
-                genesis_hash: r.read_bytes_vec()?,
-            }),
-            message_tags::TRACKER_ROUTES_RESPONSE => {
-                Self::TrackerRoutesResponse(TrackerRoutesResponse {
-                    genesis_hash: r.read_bytes_vec()?,
-                    peers: r.read_list(PeerRoutes::decode)?,
-                })
-            }
-            other => return Err(CodecError::UnknownTag(other)),
-        };
-        r.expect_end()?;
-        Ok(msg)
+        Ok((&opaque[..split], &opaque[split + 4..]))
     }
 }
 
@@ -537,6 +425,8 @@ mod tests {
                     roles: vec![PeerRole::WorldSeeder],
                 },
                 bootstrap: false,
+                public_key: Vec::new(),
+                client_version: String::new(),
             }],
             seeders: vec![ManifestSeeders {
                 manifest_root: vec![0x22; 32],
@@ -561,12 +451,11 @@ mod tests {
 
     #[test]
     fn trailing_bytes_reject_the_frame() {
+        // The frame declares its own body length, so an extra byte is caught at the header
+        // rather than after a body has already been interpreted.
         let mut bytes = sample_response().encode();
         bytes.push(0);
-        assert!(matches!(
-            DiscoveryMessage::decode(&bytes),
-            Err(CodecError::TrailingBytes(1))
-        ));
+        assert!(DiscoveryMessage::decode(&bytes).is_err());
     }
 
     fn sample_announce() -> TrackerAnnounce {
@@ -609,7 +498,9 @@ mod tests {
         assert_eq!(signature, &[0x77; 64]);
         // The range taken from the received bytes must equal what a signer would have produced.
         assert_eq!(signed, sample_announce().signed_portion().as_slice());
-        assert!(frame.starts_with(signed));
+        // It is a prefix of the OPAQUE payload, not of the whole frame: the announce crosses the
+        // tolerant plane whole and untouched inside one TLV field.
+        assert!(frame.windows(signed.len()).any(|w| w == signed));
     }
 
     #[test]
@@ -627,11 +518,10 @@ mod tests {
     }
 
     #[test]
-    fn unknown_tag_is_rejected() {
-        let mut w = CanonicalWriter::new();
-        w.write_frame_header(9_999, ENCODING_VERSION);
+    fn an_unknown_kind_is_named_rather_than_guessed_at() {
+        let frame = crate::frame::NoderaFrame::event(9_999, Vec::new()).encode();
         assert!(matches!(
-            DiscoveryMessage::decode(w.as_slice()),
+            DiscoveryMessage::decode(&frame),
             Err(CodecError::UnknownTag(9_999))
         ));
     }

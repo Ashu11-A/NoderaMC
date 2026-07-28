@@ -22,10 +22,17 @@ import java.util.Objects;
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *
- * @param region the region that cannot be validated.
- * @param reason why, as a stable code — see {@link Reason}.
+ * <p><b>The reason is stored as its wire code, not as an enum constant</b> (Task 14 phase 6). A
+ * peer newer than this one may refuse for a cause that had not been defined when this build
+ * shipped; resolving that to {@link Reason#UNKNOWN} and then re-encoding the stand-in would forward
+ * a <em>different</em> refusal from the one that arrived. Keeping the number makes a relayed refusal
+ * faithful and removes the last exception the canonical-encoding fuzz had to allow — a frame that
+ * decoded but re-encoded to different bytes.
+ *
+ * @param region     the region that cannot be validated.
+ * @param reasonCode why, as the permanent wire code — see {@link Reason}.
  */
-public record RegionRefusal(RegionId region, Reason reason) implements NoderaMessage {
+public record RegionRefusal(RegionId region, int reasonCode) implements NoderaMessage {
 
     /**
      * Why a region is being refused. Ordinals are wire values; <b>append only</b>, and always
@@ -76,16 +83,47 @@ public record RegionRefusal(RegionId region, Reason reason) implements NoderaMes
 
     public RegionRefusal {
         Objects.requireNonNull(region, "region");
-        Objects.requireNonNull(reason, "reason");
+        if (reasonCode < 0 || reasonCode > 0xFFFF) {
+            throw new IllegalArgumentException("a refusal reason code is a u16, got " + reasonCode);
+        }
     }
 
     /**
-     * @return the reason's wire ordinal.
-     * @throws IllegalStateException if the reason is {@link Reason#UNKNOWN} — re-encoding a reason
-     *                               this build could not understand would forward a claim it
-     *                               cannot check, under an ordinal that means something else here.
+     * Build a refusal from a reason this build knows.
+     *
+     * @param region the region.
+     * @param reason the reason; must not be {@link Reason#UNKNOWN}, which is the absence of a
+     *               reason rather than one, and is never emitted.
      */
-    public int reasonCode() {
+    public RegionRefusal(RegionId region, Reason reason) {
+        this(region, codeOf(reason));
+    }
+
+    /**
+     * @return the reason, or {@link Reason#UNKNOWN} for a code this build does not define — an
+     *         unknown refusal is never silently treated as a known one, and {@link #reasonCode()}
+     *         keeps what actually arrived.
+     */
+    public Reason reason() {
+        return reasonOf(reasonCode);
+    }
+
+    /** @return {@code true} if this build understands {@link #reasonCode()}. */
+    public boolean reasonRecognised() {
+        return reason() != Reason.UNKNOWN;
+    }
+
+    /**
+     * The permanent wire code of a reason.
+     *
+     * @param reason the reason.
+     * @return its code.
+     * @throws IllegalStateException if the reason is {@link Reason#UNKNOWN} — emitting a reason
+     *                               this build could not understand would forward a claim it cannot
+     *                               check, under a number that means something else here.
+     */
+    public static int codeOf(Reason reason) {
+        Objects.requireNonNull(reason, "reason");
         if (reason == Reason.UNKNOWN) {
             throw new IllegalStateException("an unknown refusal reason is never re-encoded");
         }
@@ -93,10 +131,8 @@ public record RegionRefusal(RegionId region, Reason reason) implements NoderaMes
     }
 
     /**
-     * @param code the wire ordinal.
-     * @return the reason it names, or {@link Reason#UNKNOWN} for a code this build does not define
-     *         — an unknown refusal is never silently treated as a known one, and is no longer an
-     *         exception in the decode path of a peer older than the sender.
+     * @param code the wire code.
+     * @return the reason it names, or {@link Reason#UNKNOWN} for a code this build does not define.
      */
     public static Reason reasonOf(int code) {
         Reason[] values = Reason.values();
@@ -108,6 +144,6 @@ public record RegionRefusal(RegionId region, Reason reason) implements NoderaMes
 
     @Override
     public String toString() {
-        return "RegionRefusal[" + region + ", " + reason + "]";
+        return "RegionRefusal[" + region + ", " + reason() + " (" + reasonCode + ")]";
     }
 }

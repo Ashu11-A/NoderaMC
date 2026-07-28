@@ -167,7 +167,11 @@ public record NodeCapabilities(
         double rel = Double.longBitsToDouble(r.readU64());
         int maxPrimary = r.readU32AsInt();
         int maxVal = r.readU32AsInt();
-        boolean accepts = r.readU8() != 0;
+        boolean accepts = r.readBoolean();
+        // Roles are a SET on the wire: the encoder emits ascending ordinals, so a frame carrying
+        // them out of order or twice is a second spelling of a value that already has one. The
+        // EnumSet below would silently absorb both, which is how a message ends up with two valid
+        // encodings and two different hashes.
         List<PeerRole> decodedRoles = r.readList(rr -> {
             int ord = rr.readU8();
             PeerRole[] all = PeerRole.values();
@@ -176,6 +180,13 @@ public record NodeCapabilities(
             }
             return all[ord];
         });
+        for (int i = 1; i < decodedRoles.size(); i++) {
+            if (decodedRoles.get(i).ordinal() <= decodedRoles.get(i - 1).ordinal()) {
+                throw new IllegalStateException(
+                        "PeerRole set must be encoded in ascending ordinal order; got "
+                                + decodedRoles.get(i - 1) + " then " + decodedRoles.get(i));
+            }
+        }
         Set<PeerRole> roleSet = decodedRoles.isEmpty() ? Set.of() : EnumSet.copyOf(decodedRoles);
         return new NodeCapabilities(cores, mem, latency, rel, maxPrimary, maxVal, accepts, roleSet);
     }
