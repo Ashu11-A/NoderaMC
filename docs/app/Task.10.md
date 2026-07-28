@@ -37,8 +37,15 @@ Landed so far:
 - **One dashboard subscription.** `useDashboard` was called twice — once in `App`, once in
   `DesktopApp` — giving two `nodera://dashboard` listeners and two initial fetches, and re-rendering
   both components on every push.
+- **Tracker stores now resolves semantic roles through its shell.** Desktop maps the shared roles to
+  the generated app palette; mobile maps them to Material 3 `primary`, `surface-container-*`,
+  `outline-*`, `error-*`, and `scrim` roles, so changing the Material You source colour repaints
+  controls, cards, errors, inputs, and dialogs. Desktop supplies the established
+  `max-w-[1100px] px-[26px] pt-5 pb-10` frame while mobile keeps only its existing `px-4` frame. The
+  regression runs after Vite and verifies the emitted CSS rules for both mappings and both padding
+  selectors.
 
-Remaining: the content pass (deliverables 4–7) and the settings-honesty pass (deliverable 8).
+Remaining: the content pass (deliverables 5–6) and the settings-honesty pass (deliverables 8–9).
 
 ## Dependencies
 
@@ -55,7 +62,7 @@ Remaining: the content pass (deliverables 4–7) and the settings-honesty pass (
 | 4 | Single dashboard subscription | ✅ |
 | 5 | Explanatory prose deleted from screens; labels state the fact | ⬜ |
 | 6 | Every screen distinguishes *live* from *last known* when the link is down | ⬜ |
-| 7 | `TrackerStores` uses colour tokens that exist, and has page padding | ⬜ |
+| 7 | `TrackerStores` uses colour tokens that exist, and has page padding | ✅ |
 | 8 | `appearance.notifications` is either implemented or declared unenforced | ⬜ |
 | 9 | Restart-scoped settings offer to restart the worker instead of asking the user to | ⬜ |
 
@@ -110,6 +117,9 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
 | `rust/nodera-app/src/api/store.rs` | banked totals, rate window |
 | `rust/nodera-app/src/lib.rs` | `DashboardStore::restored()` |
 | `rust/nodera-app/ui/src/App.tsx` | scrollport key, single subscription |
+| `rust/nodera-app/ui/src/TrackerStores.tsx` | shared shell-semantic colour roles |
+| `rust/nodera-app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
+| `rust/nodera-app/ui/tests/tracker-stores-style.test.mjs` | emitted desktop/mobile CSS and padding contract |
 | `rust/nodera-app/ui/src/components.tsx` | `SCROLLPORT_ID`, `resetScrollport` |
 | `rust/nodera-app/ui/src/{Settings,World}.tsx` | tab-change scroll reset |
 | `rust/nodera-app/ui/src/mobile/{MobileApp,Settings}.tsx` | same, mobile shell |
@@ -123,6 +133,7 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
 | `api::store::tests::totals_survive_the_application_itself` | deliverable 1 |
 | `api::store::tests::attaching_to_the_worker_that_was_already_running_banks_nothing` | no double count |
 | `api::store::tests::a_rate_is_held_between_windows_instead_of_flickering_to_zero` | deliverable 2 |
+| `built tracker-store CSS resolves desktop and mobile shell roles` | deliverable 7; A-UX-4 exit |
 | `tsc --noEmit` over `ui/` | the shell changes type-check |
 
 ## Acceptance criteria
@@ -142,5 +153,5 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
 | A-UX-1 | Screens render stale numbers unmarked when the link is down; only the top bar changes | deliverable 6 |
 | A-UX-2 | `appearance.notifications` reports as live and has no consumer | deliverable 8 |
 | A-UX-3 | Restart-scoped settings ask the user to restart the worker by hand | deliverable 9 |
-| A-UX-4 | `TrackerStores` uses undefined colour tokens and renders unstyled | deliverable 7 |
+| A-UX-4 | **RETIRED 2026-07-28:** `TrackerStores` used undefined desktop tokens, ignored Material 3 roles on mobile, and rendered without desktop padding | deliverable 7; post-build desktop/mobile CSS and padding regression green |
 | A-UX-5 | Six registered commands have no desktop caller (`settings_fault`, `pause_reason`, `dashboard_world`, `open_share_file`, `get_unenforced_settings`, `nodera://pause`) | a caller or a deletion for each |

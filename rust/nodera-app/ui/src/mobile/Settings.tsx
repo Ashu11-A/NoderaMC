@@ -157,7 +157,7 @@ export function SettingsScreen(props: {
         )}
         {page === "storage" && <StoragePicker info={storage} onChanged={setStorage} />}
         {page === "network" && <NetworkPage settings={settings} onSaved={setSettings} />}
-        {page === "stores" && <TrackerStoresScreen />}
+        {page === "stores" && <TrackerStoresScreen shell="mobile" />}
         {page === "battery" && <BatteryPage />}
         {page === "privacy" && <PrivacyPage />}
         {page === "about" && <AboutScreen />}

@@ -206,7 +206,9 @@ function DesktopApp(props: {
           ) : screen.name === "network" ? (
             <NetworkScreen />
           ) : screen.name === "stores" ? (
-            <TrackerStoresScreen />
+            <div className="max-w-[1100px] px-[26px] pt-5 pb-10">
+              <TrackerStoresScreen />
+            </div>
           ) : screen.name === "peers" ? (
             <PeersScreen d={d} />
           ) : screen.name === "console" ? (

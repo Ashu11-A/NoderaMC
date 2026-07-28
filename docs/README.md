@@ -12,7 +12,7 @@ Last documentation reorganization: **2026-07-28** (ten-agent full-sweep: every c
 limitations, progress, testing refreshed against the tree; a new `REFACTORING.md` added per
 category) · Overall system completion: **90.4%** (figure not recomputed this sweep — its weighting
 is not raw done/total; see [`ROADMAP.md`](ROADMAP.md) §1 note) · Tests: **2,068 Java · 408 Rust
-workspace · 157 `nodera-app`** (2,633 total).
+workspace · 184 `nodera-app`** (2,660 total).
 
 ---
 

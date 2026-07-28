@@ -29,6 +29,49 @@ import {
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
 
+type Shell = "desktop" | "mobile";
+
+/**
+ * Shared semantic roles, resolved by the shell rather than by this screen.
+ *
+ * Every child, including the fixed dialog, inherits these custom properties. Changing the mobile
+ * Material You source colour therefore repaints this whole screen without duplicating its markup.
+ */
+const SHELL_COLOURS: Record<Shell, string> = {
+  desktop: [
+    "[--tracker-store-on-surface:var(--text)]",
+    "[--tracker-store-on-surface-variant:var(--text-dim)]",
+    "[--tracker-store-muted:var(--text-faint)]",
+    "[--tracker-store-surface:var(--surface)]",
+    "[--tracker-store-surface-container:var(--surface-2)]",
+    "[--tracker-store-outline:var(--line)]",
+    "[--tracker-store-primary:var(--brand-2)]",
+    "[--tracker-store-primary-fill:var(--brand-gradient)]",
+    "[--tracker-store-on-primary:var(--color-white)]",
+    "[--tracker-store-error:var(--danger)]",
+    "[--tracker-store-error-container:var(--surface-2)]",
+    "[--tracker-store-on-error-container:var(--danger)]",
+    "[--tracker-store-warning:var(--warn)]",
+    "[--tracker-store-scrim:var(--color-black)]",
+  ].join(" "),
+  mobile: [
+    "[--tracker-store-on-surface:var(--md-sys-color-on-surface)]",
+    "[--tracker-store-on-surface-variant:var(--md-sys-color-on-surface-variant)]",
+    "[--tracker-store-muted:var(--md-sys-color-on-surface-variant)]",
+    "[--tracker-store-surface:var(--md-sys-color-surface-container-high)]",
+    "[--tracker-store-surface-container:var(--md-sys-color-surface-container-highest)]",
+    "[--tracker-store-outline:var(--md-sys-color-outline-variant)]",
+    "[--tracker-store-primary:var(--md-sys-color-primary)]",
+    "[--tracker-store-primary-fill:var(--md-sys-color-primary)]",
+    "[--tracker-store-on-primary:var(--md-sys-color-on-primary)]",
+    "[--tracker-store-error:var(--md-sys-color-error)]",
+    "[--tracker-store-error-container:var(--md-sys-color-error-container)]",
+    "[--tracker-store-on-error-container:var(--md-sys-color-on-error-container)]",
+    "[--tracker-store-warning:var(--md-sys-color-error)]",
+    "[--tracker-store-scrim:var(--md-sys-color-scrim)]",
+  ].join(" "),
+};
+
 function counts(store: TrackerStore): string {
   const trackers = store.services.filter((s) => s.kind === "tracker").length;
   const relays = store.services.filter((s) => s.kind === "rendezvous").length;
@@ -43,7 +86,8 @@ function refreshedAt(store: TrackerStore): string {
   return `refreshed ${new Date(store.last_refreshed_epoch_millis).toLocaleString()}`;
 }
 
-export default function TrackerStores() {
+export default function TrackerStores(props: { shell?: Shell }) {
+  const shell = props.shell ?? "desktop";
   const [stores, setStores] = useState<TrackerStore[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -117,11 +161,16 @@ export default function TrackerStores() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className={`tracker-stores flex flex-col gap-4 ${SHELL_COLOURS[shell]}`}
+      data-shell={shell}
+    >
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-fg">Tracker stores</h2>
-          <p className="mt-1 max-w-2xl text-sm text-fg-muted">
+          <h2 className="text-lg font-semibold text-[var(--tracker-store-on-surface)]">
+            Tracker stores
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--tracker-store-on-surface-variant)]">
             Lists of trackers and relays you choose to trust. A store only says{" "}
             <em>where to look</em> — every service found through one still proves its own identity
             before this node will use it, and none of them can affect a world.
@@ -132,14 +181,14 @@ export default function TrackerStores() {
             type="button"
             onClick={refresh}
             disabled={busy || stores.length === 0}
-            className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm text-fg hover:bg-surface-2 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg border border-[var(--tracker-store-outline)] px-3 py-2 text-sm text-[var(--tracker-store-on-surface)] hover:bg-[var(--tracker-store-surface-container)] disabled:opacity-50"
           >
             <FiRefreshCw className={busy ? "animate-spin" : ""} /> Refresh
           </button>
           <button
             type="button"
             onClick={() => setTyped("")}
-            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-fg hover:opacity-90"
+            className="flex items-center gap-2 rounded-lg [background:var(--tracker-store-primary-fill)] px-3 py-2 text-sm font-medium text-[var(--tracker-store-on-primary)] hover:opacity-90"
           >
             <FiPlus /> Add
           </button>
@@ -147,45 +196,56 @@ export default function TrackerStores() {
       </header>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+        <div className="flex items-start gap-2 rounded-lg border border-[var(--tracker-store-error)] bg-[var(--tracker-store-error-container)] p-3 text-sm text-[var(--tracker-store-on-error-container)]">
           <FiAlertTriangle className="mt-0.5 shrink-0" />
           <span className="break-words">{error}</span>
         </div>
       )}
 
       {stores.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line p-10 text-center">
-          <p className="text-sm text-fg-muted">You have not added a tracker store yet.</p>
-          <p className="mt-1 text-xs text-fg-subtle">
+        <div className="rounded-xl border border-dashed border-[var(--tracker-store-outline)] p-10 text-center">
+          <p className="text-sm text-[var(--tracker-store-on-surface-variant)]">
+            You have not added a tracker store yet.
+          </p>
+          <p className="mt-1 text-xs text-[var(--tracker-store-muted)]">
             Without one, this node only uses the trackers and relays you have typed in yourself.
           </p>
         </div>
       ) : (
         <ul className="flex flex-col gap-3">
           {stores.map((store) => (
-            <li key={store.url} className="rounded-xl border border-line bg-surface p-4">
+            <li
+              key={store.url}
+              className="rounded-xl border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface)] p-4"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <FiTag className="shrink-0 text-fg-muted" />
-                    <span className="truncate font-medium text-fg">{store.name}</span>
+                    <FiTag className="shrink-0 text-[var(--tracker-store-on-surface-variant)]" />
+                    <span className="truncate font-medium text-[var(--tracker-store-on-surface)]">
+                      {store.name}
+                    </span>
                     {store.built_in && (
-                      <span className="rounded border border-line px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-fg-subtle">
+                      <span className="rounded border border-[var(--tracker-store-outline)] px-1.5 py-0.5 text-[10px] tracking-wide text-[var(--tracker-store-muted)] uppercase">
                         built in
                       </span>
                     )}
                   </div>
                   {store.description && (
-                    <p className="mt-1 text-sm text-fg-muted">{store.description}</p>
+                    <p className="mt-1 text-sm text-[var(--tracker-store-on-surface-variant)]">
+                      {store.description}
+                    </p>
                   )}
-                  <p className="mt-1 break-all text-xs text-fg-subtle">{store.url}</p>
-                  <p className="mt-1 text-xs text-fg-subtle">
+                  <p className="mt-1 break-all text-xs text-[var(--tracker-store-muted)]">
+                    {store.url}
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--tracker-store-muted)]">
                     {counts(store)} · {refreshedAt(store)}
                   </p>
                   {store.last_error && (
                     // Beside the services, not instead of them: the list above is the last one
                     // that worked, and it is still in use.
-                    <p className="mt-1 text-xs text-warning">
+                    <p className="mt-1 text-xs text-[var(--tracker-store-warning)]">
                       last refresh failed ({store.last_error}) — still using what it said before
                     </p>
                   )}
@@ -197,7 +257,7 @@ export default function TrackerStores() {
                       target="_blank"
                       rel="noreferrer"
                       title="Open the store's homepage"
-                      className="rounded p-2 text-fg-muted hover:bg-surface-2 hover:text-fg"
+                      className="rounded p-2 text-[var(--tracker-store-on-surface-variant)] hover:bg-[var(--tracker-store-surface-container)] hover:text-[var(--tracker-store-on-surface)]"
                     >
                       <FiExternalLink />
                     </a>
@@ -206,7 +266,7 @@ export default function TrackerStores() {
                     type="button"
                     title="Copy the store URL"
                     onClick={() => navigator.clipboard?.writeText(store.url)}
-                    className="rounded p-2 text-fg-muted hover:bg-surface-2 hover:text-fg"
+                    className="rounded p-2 text-[var(--tracker-store-on-surface-variant)] hover:bg-[var(--tracker-store-surface-container)] hover:text-[var(--tracker-store-on-surface)]"
                   >
                     <FiCopy />
                   </button>
@@ -214,7 +274,7 @@ export default function TrackerStores() {
                     type="button"
                     title="Remove this store"
                     onClick={() => remove(store.url)}
-                    className="rounded p-2 text-fg-muted hover:bg-surface-2 hover:text-danger"
+                    className="rounded p-2 text-[var(--tracker-store-on-surface-variant)] hover:bg-[var(--tracker-store-surface-container)] hover:text-[var(--tracker-store-error)]"
                   >
                     <FiTrash2 />
                   </button>
@@ -234,7 +294,10 @@ export default function TrackerStores() {
           onConfirm={() => add(typed)}
           confirmDisabled={typed.trim().length === 0}
         >
-          <label className="block text-sm text-fg-muted" htmlFor="store-url">
+          <label
+            className="block text-sm text-[var(--tracker-store-on-surface-variant)]"
+            htmlFor="store-url"
+          >
             Store index URL
           </label>
           <input
@@ -243,9 +306,9 @@ export default function TrackerStores() {
             value={typed}
             onChange={(e) => setTyped(e.target.value)}
             placeholder="https://example.org/index.json"
-            className="mt-2 w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-fg outline-none focus:border-accent"
+            className="mt-2 w-full rounded-lg border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface-container)] px-3 py-2 text-sm text-[var(--tracker-store-on-surface)] outline-none focus:border-[var(--tracker-store-primary)]"
           />
-          <p className="mt-2 text-xs text-fg-subtle">Must be https.</p>
+          <p className="mt-2 text-xs text-[var(--tracker-store-muted)]">Must be https.</p>
         </Dialog>
       )}
 
@@ -260,8 +323,10 @@ export default function TrackerStores() {
           onCancel={() => setOffered(null)}
           onConfirm={() => add(offered)}
         >
-          <p className="text-sm text-fg">Do you wish to add the tracker store below?</p>
-          <p className="mt-3 break-all rounded-lg border border-line bg-surface-2 p-3 text-sm text-fg">
+          <p className="text-sm text-[var(--tracker-store-on-surface)]">
+            Do you wish to add the tracker store below?
+          </p>
+          <p className="mt-3 break-all rounded-lg border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface-container)] p-3 text-sm text-[var(--tracker-store-on-surface)]">
             {offered}
           </p>
         </Dialog>
@@ -280,15 +345,21 @@ function Dialog(props: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-5 shadow-xl">
-        <h3 className="text-base font-semibold text-fg">{props.title}</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-[var(--tracker-store-scrim)] opacity-50"
+      />
+      <div className="relative w-full max-w-md rounded-2xl border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface)] p-5 shadow-xl">
+        <h3 className="text-base font-semibold text-[var(--tracker-store-on-surface)]">
+          {props.title}
+        </h3>
         <div className="mt-4">{props.children}</div>
         <div className="mt-6 flex justify-end gap-2">
           <button
             type="button"
             onClick={props.onCancel}
-            className="rounded-lg px-4 py-2 text-sm text-accent hover:bg-surface-2"
+            className="rounded-lg px-4 py-2 text-sm text-[var(--tracker-store-primary)] hover:bg-[var(--tracker-store-surface-container)]"
           >
             Cancel
           </button>
@@ -296,7 +367,7 @@ function Dialog(props: {
             type="button"
             onClick={props.onConfirm}
             disabled={props.busy || props.confirmDisabled}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-accent hover:bg-surface-2 disabled:opacity-40"
+            className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--tracker-store-primary)] hover:bg-[var(--tracker-store-surface-container)] disabled:opacity-40"
           >
             {props.confirmLabel}
           </button>
