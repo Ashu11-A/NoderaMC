@@ -167,7 +167,9 @@ impl NoderaFrame {
             });
         }
         if u32::from_be_bytes([raw[0], raw[1], raw[2], raw[3]]) != MAGIC {
-            return Err(CodecError::Malformed("not a Nodera frame: bad magic".into()));
+            return Err(CodecError::Malformed(
+                "not a Nodera frame: bad magic".into(),
+            ));
         }
         Ok(u16::from_be_bytes([raw[6], raw[7]]))
     }

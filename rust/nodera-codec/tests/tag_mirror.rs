@@ -101,7 +101,10 @@ fn java_constants(source: &str) -> BTreeMap<String, u16> {
             out.insert(name.trim().to_string(), value);
         }
     }
-    assert!(!out.is_empty(), "no constants parsed out of the Java source");
+    assert!(
+        !out.is_empty(),
+        "no constants parsed out of the Java source"
+    );
     out
 }
 

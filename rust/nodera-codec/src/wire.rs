@@ -23,8 +23,8 @@ use crate::service::{
 use crate::tags::message_tags;
 use crate::tlv::{TlvBody, TlvWriter};
 use crate::types::{
-    CandidateKind, ManifestHolding, ManifestSeeders, NetworkId, NodeCapabilities, NodeId, PeerEntry,
-    PeerRole, PeerCandidate, SignedPeerRecord, WorldHealth,
+    CandidateKind, ManifestHolding, ManifestSeeders, NetworkId, NodeCapabilities, NodeId,
+    PeerCandidate, PeerEntry, PeerRole, SignedPeerRecord, WorldHealth,
 };
 use crate::{CanonicalReader, CanonicalWriter, CodecError, Result};
 
@@ -70,7 +70,7 @@ fn world_health_code(health: WorldHealth) -> u16 {
 }
 
 fn world_health_from_code_at(b: &TlvBody, id: u16, code: u16) -> WorldHealth {
-    if !matches!(code, 1 | 2 | 3) {
+    if !matches!(code, 1..=3) {
         b.mark_verbatim(id);
     }
     world_health_from_code(code)
@@ -160,7 +160,11 @@ fn write_capabilities(w: &mut TlvWriter, c: &NodeCapabilities) {
         .u32(5, c.max_primary_regions)
         .u32(6, c.max_validator_regions)
         .bool(7, c.accepts_worker);
-    let mut codes: Vec<u32> = c.roles.iter().map(|r| u32::from(peer_role_code(*r))).collect();
+    let mut codes: Vec<u32> = c
+        .roles
+        .iter()
+        .map(|r| u32::from(peer_role_code(*r)))
+        .collect();
     codes.sort_unstable();
     codes.dedup();
     w.u32_array(8, &codes);
@@ -228,10 +232,9 @@ fn read_holding(b: &TlvBody) -> Result<ManifestHolding> {
 }
 
 fn write_seeders(w: &mut TlvWriter, s: &ManifestSeeders) {
-    w.bytes(1, &s.manifest_root)
-        .list(2, &s.seeders, |e, id| {
-            e.uuid(1, id.msb, id.lsb);
-        });
+    w.bytes(1, &s.manifest_root).list(2, &s.seeders, |e, id| {
+        e.uuid(1, id.msb, id.lsb);
+    });
 }
 
 fn read_seeders(b: &TlvBody) -> Result<ManifestSeeders> {
@@ -342,7 +345,12 @@ pub const CONSENSUS_PAYLOAD_FIELD: u16 = 1;
 ///
 /// The tolerant plane never re-spells a signed payload: its bytes are its identity, hashed and
 /// compared by peers that must agree on a state root. This layer routes it and nothing more.
-pub fn encode_consensus_frame(kind: u16, payload: &[u8], flags: u16, correlation_id: u64) -> Vec<u8> {
+pub fn encode_consensus_frame(
+    kind: u16,
+    payload: &[u8],
+    flags: u16,
+    correlation_id: u64,
+) -> Vec<u8> {
     let mut w = TlvWriter::new();
     w.bytes(CONSENSUS_PAYLOAD_FIELD, payload);
     crate::frame::NoderaFrame {
@@ -383,8 +391,9 @@ pub fn validated_body(frame: &[u8]) -> Result<&[u8]> {
 /// Borrow the opaque canonical payload out of a received consensus frame.
 pub fn consensus_payload(frame: &[u8]) -> Result<&[u8]> {
     let body = validated_body(frame)?;
-    crate::tlv::field_slice(body, CONSENSUS_PAYLOAD_FIELD)?
-        .ok_or_else(|| CodecError::Malformed("consensus frame carries no opaque payload".to_owned()))
+    crate::tlv::field_slice(body, CONSENSUS_PAYLOAD_FIELD)?.ok_or_else(|| {
+        CodecError::Malformed("consensus frame carries no opaque payload".to_owned())
+    })
 }
 
 // ---------------------------------------------------------------- discovery bodies
@@ -431,13 +440,12 @@ pub fn encode_discovery_body(msg: &DiscoveryMessage) -> Vec<u8> {
             w.bytes(1, &m.genesis_hash);
         }
         DiscoveryMessage::TrackerRoutesResponse(m) => {
-            w.bytes(1, &m.genesis_hash)
-                .list(2, &m.peers, |e, p| {
-                    e.uuid(1, p.peer.msb, p.peer.lsb)
-                        .list(2, &p.routes, |s, route| {
-                            s.str(1, route);
-                        });
-                });
+            w.bytes(1, &m.genesis_hash).list(2, &m.peers, |e, p| {
+                e.uuid(1, p.peer.msb, p.peer.lsb)
+                    .list(2, &p.routes, |s, route| {
+                        s.str(1, route);
+                    });
+            });
         }
     }
     w.finish()
@@ -504,7 +512,9 @@ fn decode_discovery_fields(kind: u16, b: &TlvBody) -> Result<DiscoveryMessage> {
             })
         }
         message_tags::TRACKER_CATALOG_QUERY => {
-            DiscoveryMessage::TrackerCatalogQuery(TrackerCatalogQuery { limit: b.u32(1, 0)? })
+            DiscoveryMessage::TrackerCatalogQuery(TrackerCatalogQuery {
+                limit: b.u32(1, 0)?,
+            })
         }
         message_tags::TRACKER_CATALOG_RESPONSE => {
             DiscoveryMessage::TrackerCatalogResponse(TrackerCatalogResponse {
@@ -690,17 +700,15 @@ fn decode_rendezvous_fields(kind: u16, b: &TlvBody) -> Result<RendezvousMessage>
             genesis_hash: b.bytes(2)?,
             peer: node_id(b, 3)?,
         }),
-        message_tags::RELAY_RESERVATION => {
-            RendezvousMessage::Reservation(RelayReservation {
-                accepted: b.bool(1, false)?,
-                relay_route: b.str(2)?,
-                expires_at_epoch_millis: b.u64(3, 0)?,
-                max_bytes: b.u64(4, 0)?,
-                max_duration_millis: b.u64(5, 0)?,
-                proof: b.bytes(6)?,
-                reason: b.str(7)?,
-            })
-        }
+        message_tags::RELAY_RESERVATION => RendezvousMessage::Reservation(RelayReservation {
+            accepted: b.bool(1, false)?,
+            relay_route: b.str(2)?,
+            expires_at_epoch_millis: b.u64(3, 0)?,
+            max_bytes: b.u64(4, 0)?,
+            max_duration_millis: b.u64(5, 0)?,
+            proof: b.bytes(6)?,
+            reason: b.str(7)?,
+        }),
         message_tags::RELAY_CONNECT => RendezvousMessage::Connect(RelayConnect {
             network_id: network_id(b, 1)?,
             genesis_hash: b.bytes(2)?,

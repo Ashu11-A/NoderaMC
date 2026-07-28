@@ -22,9 +22,9 @@ pub mod service;
 pub mod sig;
 pub mod tags;
 pub mod tlv;
-pub mod wire;
 pub mod tombstone;
 pub mod types;
+pub mod wire;
 pub mod writer;
 
 pub use reader::CanonicalReader;

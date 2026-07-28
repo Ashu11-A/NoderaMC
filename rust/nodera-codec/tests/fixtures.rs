@@ -166,8 +166,8 @@ fn every_retired_v1_frame_is_refused_rather_than_misparsed() {
     // to emit; a peer still speaking it must be told so at the first four bytes, because the
     // alternative is what the old frame actually did — begin parsing and report nonsense.
     let dir = fixtures_dir().join("v1-rejected");
-    let entries = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()));
     let mut seen = 0usize;
     for entry in entries {
         let path = entry.expect("dir entry").path();

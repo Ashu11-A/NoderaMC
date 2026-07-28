@@ -619,10 +619,11 @@ mod tests {
         // The reply is the owner's record, not this tracker's say-so.
         match handled {
             Handled::Reply(frame) => assert!(WorldDeletionGossip::decode(
-                nodera_codec::wire::consensus_payload(&frame).expect("opaque payload"))
-                .expect("decode")
-                .verified()
-                .is_some()),
+                nodera_codec::wire::consensus_payload(&frame).expect("opaque payload")
+            )
+            .expect("decode")
+            .verified()
+            .is_some()),
             other => panic!("expected the record echoed back, got {other:?}"),
         }
     }

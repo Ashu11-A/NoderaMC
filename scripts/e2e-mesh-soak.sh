@@ -110,25 +110,55 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "state-*.json"))):
         v = json.load(open(path)).get("validation") or {}
     except Exception:
         continue
-    for region, root in (v.get("region_roots") or {}).items():
-        roots[region][worker] = root
+    for region, entry in (v.get("region_roots") or {}).items():
+        # `{"root": ..., "version": n}` since the version was added; a bare string is the older
+        # shape and carries no version, which is exactly what made this stage unable to tell a
+        # fork from a peer that is simply one commit behind.
+        if isinstance(entry, dict):
+            roots[region][worker] = (entry.get("version"), entry.get("root"))
+        else:
+            roots[region][worker] = (None, entry)
 
-shared = {r: w for r, w in roots.items() if len(w) > 1}
-print(f"regions reported: {len(roots)}; reported by more than one peer: {len(shared)}")
-for region, per_worker in sorted(shared.items()):
-    if len(set(per_worker.values())) != 1:
-        print(f"{region} diverged across peers: {per_worker}")
-        raise SystemExit(1)
-if not shared:
+# Compare roots ONLY between peers reporting the SAME version of a region.
+#
+# Two peers holding the same region at different points in the same history report different roots
+# and are in perfect agreement — under sustained load that is the normal state, not a fork. The
+# comparison that means something is: same region, same version, same root. Comparing across
+# versions makes the stage fail on ordinary commit skew, which is what it did.
+comparable = 0
+diverged = []
+skew = 0
+for region, per_worker in sorted(roots.items()):
+    by_version = collections.defaultdict(dict)
+    for worker, (version, root) in per_worker.items():
+        by_version[version][worker] = root
+    paired = {v: w for v, w in by_version.items() if len(w) > 1}
+    if not paired:
+        if len(per_worker) > 1:
+            skew += 1
+        continue
+    for version, per in sorted(paired.items(), key=lambda kv: (kv[0] is None, kv[0])):
+        comparable += 1
+        if len(set(per.values())) != 1:
+            diverged.append((region, version, per))
+
+print(f"regions reported: {len(roots)}; "
+      f"region/version pairs held by more than one peer: {comparable}; "
+      f"regions where the peers are at different versions (not comparable): {skew}")
+for region, version, per in diverged:
+    print(f"{region} @ version {version} diverged across peers: {per}")
+if diverged:
+    raise SystemExit(1)
+if not comparable:
     raise SystemExit(3)
 PYEOF
     s3_rc=$?
     if [[ $s3_rc -eq 3 ]]; then
-        fail "S3: workers hold replicas, but no region is held by MORE THAN ONE peer — so there is still nothing to compare. NOT a divergence: the committees are seating one holder per region, so no two independently-computed roots exist for the same region (L-30)"
+        fail "S3: workers hold replicas, but no region is held at the SAME VERSION by more than one peer — so there is still nothing to compare. NOT a divergence: either the committees are seating one holder per region, or the holders are at different points in the same history (L-30)"
     elif [[ $s3_rc -ne 0 ]]; then
         fail "S3: peers disagree about a region root — the mesh diverged"
     fi
-    pass "S3: every shared region root is identical across the peers that report it"
+    pass "S3: every region held at the same version by more than one peer has the same root"
 else
     # The honest state of the world, not a green tick over an assertion nobody can make here.
     transcript "=== S3 skipped: no worker holds a region replica (L-60 / L-30)"

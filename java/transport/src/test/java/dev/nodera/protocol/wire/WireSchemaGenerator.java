@@ -109,11 +109,15 @@ final class WireSchemaGenerator {
                 pub const KINDS: &[KindRow] = &[
                 """);
         for (WireKind k : WireRegistry.kinds()) {
-            out.append("    KindRow { kind: ").append(k.kind())
-                    .append(", name: \"").append(k.name())
-                    .append("\", plane: Plane::")
+            // Emitted in the shape `cargo fmt` produces. A generated file still has to pass the
+            // same format gate as a hand-written one, and a renderer that fights rustfmt turns
+            // every regeneration into a red build.
+            out.append("    KindRow {\n")
+                    .append("        kind: ").append(k.kind()).append(",\n")
+                    .append("        name: \"").append(k.name()).append("\",\n")
+                    .append("        plane: Plane::")
                     .append(k.plane() == MessagePlane.CONSENSUS ? "Consensus" : "Infrastructure")
-                    .append(" },\n");
+                    .append(",\n    },\n");
         }
         out.append("];\n");
 

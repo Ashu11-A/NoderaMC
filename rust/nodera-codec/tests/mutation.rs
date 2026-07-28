@@ -58,10 +58,8 @@ fn round_trip_as(tag: u16, bytes: &[u8]) -> Result<Vec<u8>, String> {
         // A consensus kind: strict canonical bytes inside one opaque field.
         let payload = nodera_codec::wire::consensus_payload(bytes).map_err(|e| e.to_string())?;
         let gossip = WorldDeletionGossip::decode(payload).map_err(|e| e.to_string())?;
-        let body = nodera_codec::tlv::TlvBody::parse(
-            &bytes[nodera_codec::frame::HEADER_BYTES..],
-        )
-        .map_err(|e| e.to_string())?;
+        let body = nodera_codec::tlv::TlvBody::parse(&bytes[nodera_codec::frame::HEADER_BYTES..])
+            .map_err(|e| e.to_string())?;
         let _ = body.bytes(nodera_codec::wire::CONSENSUS_PAYLOAD_FIELD);
         let overlay = body.overlay();
         let mut w = nodera_codec::tlv::TlvWriter::new();
@@ -73,13 +71,15 @@ fn round_trip_as(tag: u16, bytes: &[u8]) -> Result<Vec<u8>, String> {
         return Ok(nodera_codec::frame::NoderaFrame::event(tag, rebuilt).encode());
     }
     if (message_tags::RENDEZVOUS_REGISTER..=message_tags::OBSERVED_ADDRESS).contains(&tag) {
-        let (m, overlay) = RendezvousMessage::decode_with_overlay(bytes).map_err(|e| e.to_string())?;
+        let (m, overlay) =
+            RendezvousMessage::decode_with_overlay(bytes).map_err(|e| e.to_string())?;
         m.encode_with_overlay(&overlay).map_err(|e| e.to_string())
     } else if (message_tags::SERVICE_ANNOUNCE..=message_tags::SERVICE_DRAIN_NOTICE).contains(&tag) {
         let (m, overlay) = ServiceMessage::decode_with_overlay(bytes).map_err(|e| e.to_string())?;
         m.encode_with_overlay(&overlay).map_err(|e| e.to_string())
     } else {
-        let (m, overlay) = DiscoveryMessage::decode_with_overlay(bytes).map_err(|e| e.to_string())?;
+        let (m, overlay) =
+            DiscoveryMessage::decode_with_overlay(bytes).map_err(|e| e.to_string())?;
         m.encode_with_overlay(&overlay).map_err(|e| e.to_string())
     }
 }

@@ -322,7 +322,7 @@ pub struct TlvBody {
 ///
 /// # Errors
 /// Propagates any grammar error from the walk.
-pub fn field_slice<'a>(body: &'a [u8], id: u16) -> Result<Option<&'a [u8]>> {
+pub fn field_slice(body: &[u8], id: u16) -> Result<Option<&[u8]>> {
     let mut pos = 0usize;
     while pos < body.len() {
         if body.len() - pos < 7 {
@@ -459,7 +459,9 @@ impl TlvBody {
 
     /// Read a `u8`, or `fallback` when absent.
     pub fn u8(&self, id: u16, fallback: u8) -> Result<u8> {
-        Ok(self.typed(id, WireType::U8)?.map_or(fallback, |f| f.value[0]))
+        Ok(self
+            .typed(id, WireType::U8)?
+            .map_or(fallback, |f| f.value[0]))
     }
 
     /// Read a `u16`, or `fallback` when absent.
@@ -623,8 +625,8 @@ impl TlvBody {
                     "TLV list {id} is truncated at element {index}"
                 )));
             }
-            let len =
-                u32::from_be_bytes([body[pos], body[pos + 1], body[pos + 2], body[pos + 3]]) as usize;
+            let len = u32::from_be_bytes([body[pos], body[pos + 1], body[pos + 2], body[pos + 3]])
+                as usize;
             pos += 4;
             if len > body.len() - pos {
                 return Err(CodecError::LengthOverrun {
