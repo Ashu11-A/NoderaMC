@@ -330,6 +330,9 @@ function NetworkPage(props: {
   // and the success text was never cleared at all — so "Saved" sat next to an edited, unsaved box.
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [connection, setConnection] = useState<NetworkState>(EMPTY_NETWORK_STATE);
+  const [portStart, setPortStart] = useState("");
+  const [portEnd, setPortEnd] = useState("");
+  const [portResult, setPortResult] = useState<{ ok: boolean; text: string } | null>(null);
   // Pushed by the backend on a transition, so this page learns a tracker came back without
   // polling for it. `null` means nobody has said yet — deliberately not rendered as "none".
   const discovery = useDiscovery();
@@ -337,6 +340,12 @@ function NetworkPage(props: {
   useEffect(() => {
     if (settings && draft === null) setDraft(settings.network.default_trackers.join("\n"));
   }, [settings, draft]);
+
+  useEffect(() => {
+    if (!settings) return;
+    setPortStart(String(settings.network.port_range_start));
+    setPortEnd(String(settings.network.port_range_end));
+  }, [settings?.network.port_range_start, settings?.network.port_range_end]);
 
   useEffect(() => {
     let alive = true;
@@ -363,6 +372,15 @@ function NetworkPage(props: {
         setResult({ ok: true, text: message });
       })
       .catch((e: unknown) => setResult({ ok: false, text: String(e) }));
+  };
+
+  const savePorts = (next: SettingsDoc, message: string) => {
+    saveSettings(next)
+      .then(() => {
+        props.onSaved(next);
+        setPortResult({ ok: true, text: message });
+      })
+      .catch((e: unknown) => setPortResult({ ok: false, text: String(e) }));
   };
 
   const trackers = (draft ?? "")
@@ -418,6 +436,122 @@ function NetworkPage(props: {
             }
           />
         ))}
+      </Card>
+
+      <div className="h-3" />
+
+      <Card>
+        <ListItem
+          headline="Use random port"
+          supporting="Let Android choose the P2P listening port. Turn off to use a router-forwarded range after fully relaunching Nodera."
+          trailing={
+            <Switch
+              checked={settings.network.use_random_port}
+              label="Use random P2P port"
+              onChange={(useRandom) =>
+                savePorts(
+                  {
+                    ...settings,
+                    network: { ...settings.network, use_random_port: useRandom },
+                  },
+                  "Saved · fully relaunch Nodera to apply",
+                )
+              }
+            />
+          }
+        />
+        {!settings.network.use_random_port && (
+          <div className="border-t border-[var(--md-sys-color-outline-variant)] px-4 pt-4 pb-2">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-[13px] text-[var(--md-sys-color-on-surface-variant)]">
+                Range start
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={portStart}
+                  onChange={(event) => {
+                    setPortStart(event.currentTarget.value);
+                    setPortResult(null);
+                  }}
+                  className="mt-1 w-full rounded-[8px] border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-highest)] px-3 py-2 text-[var(--md-sys-color-on-surface)]"
+                />
+              </label>
+              <label className="text-[13px] text-[var(--md-sys-color-on-surface-variant)]">
+                Range end
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={portEnd}
+                  onChange={(event) => {
+                    setPortEnd(event.currentTarget.value);
+                    setPortResult(null);
+                  }}
+                  className="mt-1 w-full rounded-[8px] border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-highest)] px-3 py-2 text-[var(--md-sys-color-on-surface)]"
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <Button
+                onClick={() => {
+                  const start = Number(portStart);
+                  const end = Number(portEnd);
+                  if (
+                    !Number.isInteger(start) ||
+                    !Number.isInteger(end) ||
+                    start < 1 ||
+                    end > 65535 ||
+                    start > end
+                  ) {
+                    setPortResult({
+                      ok: false,
+                      text: "Use ports 1–65535, with start no higher than end.",
+                    });
+                    return;
+                  }
+                  savePorts(
+                    {
+                      ...settings,
+                      network: {
+                        ...settings.network,
+                        port_range_start: start,
+                        port_range_end: end,
+                      },
+                    },
+                    "Saved · fully relaunch Nodera to apply",
+                  );
+                }}
+              >
+                Save range
+              </Button>
+              {portResult && (
+                <span
+                  className={cx(
+                    "text-[13px]",
+                    portResult.ok
+                      ? "text-[var(--md-sys-color-on-surface-variant)]"
+                      : "text-[var(--md-sys-color-error)]",
+                  )}
+                >
+                  {portResult.text}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+        {settings.network.use_random_port && portResult && (
+          <p
+            className={cx(
+              "px-4 pb-3 text-[13px]",
+              portResult.ok
+                ? "text-[var(--md-sys-color-on-surface-variant)]"
+                : "text-[var(--md-sys-color-error)]",
+            )}
+          >
+            {portResult.text}
+          </p>
+        )}
       </Card>
 
       <div className="h-3" />

@@ -9,7 +9,7 @@
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
 **Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,068 Java tests · 408 Rust
-workspace tests · 184 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
+workspace tests · 188 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
 full green `./gradlew check` + `cargo test` on 2026-07-28; `nodera-app` is a separate workspace and
 was not re-run).
 
@@ -288,7 +288,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
 | Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
 | App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, A-9, A-UX-1…5 |
-| Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | M-1…M-5, **M-9** (added 2026-07-28), M-NET-1…4 |
+| Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | OPEN: M-1…M-5, M-9, M-NET-1, M-NET-3…4 · RETIRING: M-NET-2 (headless property/self-route proof green; physical phone pending) |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-72, L-73, L-74, L-75 |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players

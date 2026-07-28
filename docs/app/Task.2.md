@@ -29,7 +29,7 @@ Two data paths that used to show placeholder zeros now show real numbers: per-pe
 (previously hardcoded), and the piece map (whose source had **never been called** anywhere until a
 `PIECES` verb, a parser, and a feed were added).
 
-The crate has **183 tests** (grep-verified 2026-07-28; see [TESTING.md](TESTING.md)) covering bitmap
+The crate has **188 tests** (green 2026-07-28; see [TESTING.md](TESTING.md)) covering bitmap
 decoding, parsing tolerance, the log ring, system sampling, the configuration lane, and the
 enforcement-badge invariants.
 

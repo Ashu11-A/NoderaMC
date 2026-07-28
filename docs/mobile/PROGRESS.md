@@ -24,13 +24,34 @@ register: [`REFACTORING.md`](REFACTORING.md).
 | 5 | First-run setup + storage + battery | ✅ COMPLETED | SAF picker returns `/storage/emulated/0/Documents`, write-probed; battery dialog names the vendor |
 | 6 | Native navigation | ✅ COMPLETED | System back walks the WebView history; navigation bar hides in sub-screens |
 | 7 | The phone in the mesh, tested | ✅ COMPLETED | `scripts/e2e-android-mesh.sh` — asserts the phone's own `total_received_bytes` moves after joining the Linux mesh |
-| [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Kotlin path agrees with Rust; tracker stores now follows dynamic Material 3 roles; live re-read, `envInt`, restart, foreground service, and touch acceptance remain |
+| [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Service-file path aligned; tracker stores follows dynamic Material 3 roles; P2P app-property handoff headless-green and M-NET-2 RETIRING; live re-read, Android restart, foreground service, and touch acceptance remain |
 
 Task-file mapping: the eight rows above are the category's sub-deliverables. The deliverable task
 files are [`Task.1`](Task.1.md) ✅ · [`Task.2`](Task.2.md) ✅ · [`Task.3`](Task.3.md) ✅ ·
 [`Task.4`](Task.4.md) ✅ (2026-07-28) · [`Task.5`](Task.5.md) 🚧 (owns M-NET-1 … M-NET-4).
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Mobile port controls and deterministic worker boot
+
+Issue #86 review hardening adds the missing mobile Network controls for random P2P assignment or a
+validated fixed range, persisted through the same settings command that refreshes Android's private
+property file. Worker startup no longer assumes `MainActivity.onCreate` runs after Rust setup: a
+one-shot gate waits for both context and successful property handoff in either order, with a retained
+JNI bridge class safe to invoke from the setup thread. Evidence: **188** app tests, Android-target
+`cargo check`, `bun run build`, `./gradlew check`, and `scripts/android-apk.sh --debug` all green; the
+signed debug APK is 185 MiB. `adb devices` is empty, so M-NET-2 remains RETIRING.
+
+### 2026-07-28 — Android-selected P2P ports reach worker state (headless proof)
+
+Issue #86 closes the code gap without pretending the physical exit ran. Rust derives desktop env and
+Android property bytes from one encoder; Kotlin applies only `NODERA_P2P_PORT` and
+`NODERA_P2P_PORT_RANGE` after Tauri reloads persisted settings; Java keeps environment precedence and
+uses the property fallback only for P2P. Control remains outside the handoff, so app and worker stay
+on the same endpoint. `AndroidPortPropertyTest` starts the real worker with a property-only P2P port
+and reads that port back from `NODERA-STATE.self_route`; `nodera-app`'s 188 tests include two
+desktop/property parity guards. `scripts/android-e2e.sh --expect-p2p-port` carries the device-side
+assertion. M-NET-2 moves OPEN → RETIRING because no physical phone result was produced.
 
 ### 2026-07-28 — Reused tracker stores follows Material You
 

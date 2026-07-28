@@ -5,11 +5,13 @@
      `/data/user/0/<pkg>`, and `settings::config_dir()` joins `nodera` to it. Any path shared
      between the Kotlin side and the Rust side must be derived from the same one of those, and a
      comment claiming they are equal is wrong. Keep this header's status accurate.
-     2026-07-28 audit: deliverable 1 is green (path fix landed in NoderaWorker.kt:92-95).
-     Deliverables 2-7 remain OPEN and are the four limitations M-NET-1..M-NET-4 — each still
-     verified against the code: SyncedServices.load is boot-only (HeadlessPeerMain.java:103);
-     envInt reads getenv only (HeadlessPeerMain.java:630); restart_worker is desktop-cfg-only;
-     minSdk 24 (gen build.gradle.kts:22) vs --min-api 26 (scripts/android-apk.sh:156). -->
+     2026-07-28 audit: deliverable 1 is green (path fix landed in NoderaWorker.kt). Deliverable 3's
+     code and headless proof are green: the mobile Network screen persists P2P settings, Rust writes
+     an allowlisted property file, a two-signal gate starts Kotlin only after context and setup are
+     ready, and AndroidPortPropertyTest observes the selected port in self_route.
+     M-NET-2 stays RETIRING until that exact assertion passes on a physical phone. Deliverables 2,
+     4-7 remain OPEN: SyncedServices.load is boot-only; restart_worker has no Android consumer;
+     minSdk 24 still disagrees with --min-api 26. -->
 
 **Status:** 🚧 IN PROGRESS
 **Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-07-28
@@ -52,13 +54,22 @@ controls, cards, errors, inputs, and dialogs follow the generated source colour 
 desktop palette variables through the mobile shell. This advances deliverable 7; physical touch
 acceptance of both reused screens remains open.
 
-**2026-07-28 re-audit.** Deliverable 1 stays green; deliverables 2–7 remain open and each maps to a
-verified limitation:
+**2026-07-28 re-audit.** Deliverable 1 stays green; deliverable 3 is headless-green with its physical
+exit pending; deliverables 2 and 4–7 remain open. The network limitations are:
 
 * **D2 / M-NET-1** — `SyncedServices.load` still runs once at `HeadlessPeerMain.java:103`; no
   re-read path exists.
-* **D3 / M-NET-2** — `envInt` (`HeadlessPeerMain.java:630`) still reads `System.getenv` only, while
-  every sibling (`setting`, `env`, `envLong`, `envBool`) falls back to `System.getProperty`.
+* **D3 / M-NET-2 — RETIRING.** The app now serialises the same validated P2P port pair used by the
+  desktop spawn environment into `dataDir/nodera/nodera-worker.properties`; Kotlin allowlists only
+  `NODERA_P2P_PORT` and `NODERA_P2P_PORT_RANGE`, and the worker reads the integer through the existing
+  environment-first/property-second setting seam. Control deliberately stays environment-only:
+  Android's Rust client and Java worker therefore remain together on `25610`, while a desktop
+  `NODERA_CONTROL_PORT` still reaches both through their shared environment. `AndroidPortPropertyTest`
+  starts a real worker JVM with only `-DNODERA_P2P_PORT=...` and observes that exact value in
+  `NODERA-STATE.self_route`. Mobile Settings now exposes the random-port toggle and validated range.
+  Rust tests pin identical desktop/property encoding, prohibit a control key, replace changed
+  property files, and prove either Activity/setup order starts once. The physical-phone exit has not
+  run, so the row is not retired.
 * **D4 / M-NET-3** — `restart_worker`'s only consumer (`daemon::supervise`) is still `#[cfg(desktop)]`.
 * **D6 / M-NET-4** — `gen/android/app/build.gradle.kts:22` is still `minSdk = 24` while
   `scripts/android-apk.sh:156` dexes at `--min-api 26`.
@@ -74,7 +85,7 @@ verified limitation:
 |---|---|---|
 | 1 | The worker reads the services list the app writes | ✅ |
 | 2 | The services list is re-read without a process restart | ⬜ (M-NET-1) |
-| 3 | `envInt` honours system properties, so Android can set its ports | ⬜ (M-NET-2) |
+| 3 | Android applies the app's P2P port through a system property without moving control | 🚧 headless green; physical exit pending (M-NET-2) |
 | 4 | Restart-scoped settings either apply on Android or are hidden there | ⬜ (M-NET-3) |
 | 5 | A foreground service, so the node survives the app leaving the screen | ⬜ (M-2) |
 | 6 | `minSdk` and the dex `--min-api` agree | ⬜ (M-NET-4) |
@@ -94,14 +105,25 @@ system where a second path happens to cover for it.
 ### Why the restart button does nothing here
 
 `restart_worker` notifies a `RestartSignal` whose only consumer, `daemon::supervise`, is inside
-`#[cfg(desktop)]`. On a phone the worker is a daemon thread in the Activity's process, so
-`network.rendezvous_endpoints`, `network.p2p_port` and `network.port_range` — all in
-`RESTART_REQUIRED_KEYS` — can never be applied. The honest options are deliverable 3 + 4: make the
-values reachable live where possible, and stop offering the ones that are not.
+`#[cfg(desktop)]`. On a phone the worker is a daemon thread in the Activity's process. The P2P range
+now applies on a full app-process stop and relaunch because Rust rewrites the handoff on save and at
+startup; the in-app Restart button still cannot cycle that thread. Rendezvous has the same process
+restart requirement. Deliverable 4 must either implement an honest Android restart or stop offering
+that button there.
 
-`envInt` is a second instance of the same class of bug as the path: it reads `System.getenv` only,
-while every other reader falls back to `System.getProperty`, and Android configures the worker
-exclusively through properties.
+### Why worker boot has two signals
+
+`MainActivity.onCreate` and Tauri's Rust setup hook are independent lifecycle paths; returning from
+`super.onCreate` does not prove persisted settings were loaded and written. Rust now gates startup on
+both the JNI-bound application context and setup's successful property write, then signals only as
+the setup hook's final action. The bridge class captured on the Java thread is retained globally, so
+the setup-first order does not ask Android's bootstrap class loader to resolve an app class from a
+Rust-created thread.
+
+The integer bug was the same class as the path bug: the P2P integer used `System.getenv` only while
+the range already used the property-aware reader. The fix is deliberately asymmetric. P2P is an
+allowlisted Android property; control is not, because the Rust control client has no Java-property
+channel and configuring only one end would strand the app from its worker.
 
 ### Not a blocker, despite appearances
 
@@ -114,9 +136,14 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 
 | Path | Role |
 |---|---|
-| `rust/nodera-app/android/kotlin/NoderaWorker.kt:92-95` | services-list path (`NODERA_SERVICES_FILE`), worker boot |
+| `rust/nodera-app/android/kotlin/NoderaWorker.kt` | services-list path, P2P-property allowlist, worker boot |
 | `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:103` | `SyncedServices.load` (boot-only — M-NET-1) |
-| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:629-640` | `envInt` (getenv-only — M-NET-2) |
+| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | environment-first P2P integer/property fallback; environment-only control integer |
+| `java/worker/src/test/java/dev/nodera/headless/AndroidPortPropertyTest.java` | real worker process reports the property-selected port in `self_route` |
+| `rust/nodera-app/src/daemon.rs` | one port encoder for desktop env and Android property handoff |
+| `rust/nodera-app/src/android/worker.rs` | one-shot context/setup startup gate |
+| `rust/nodera-app/android/kotlin/MainActivity.kt` | binds context; never infers setup completion |
+| `rust/nodera-app/ui/src/mobile/Settings.tsx` | random-port and validated fixed-range controls |
 | `rust/nodera-app/src/settings.rs` | `config_dir`, `sync_file_path`, `ANDROID_DATA_DIR` |
 | `rust/nodera-app/src/daemon.rs` | `supervise` — the desktop-only restart consumer (M-NET-3) |
 | `rust/nodera-app/gen/android/app/build.gradle.kts:22` | `minSdk = 24` (M-NET-4) |
@@ -132,6 +159,12 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 | `adb shell run-as dev.nodera.app ls nodera/` | the file is where both sides agree |
 | A store added in the app, then `logcat` showing the endpoint in use | deliverable 2 (M-NET-1 — not yet green) |
 | `built tracker-store CSS resolves desktop and mobile shell roles` | generated Material 3 roles reach the reused tracker-store controls, cards, inputs, and dialogs |
+| `AndroidPortPropertyTest.p2pSystemPropertyAppearsInWorkerStateSelfRoute` | property-only worker boot selects and reports the requested P2P port |
+| `daemon::tests::{android_properties_match_the_fixed_port_settings_sent_on_desktop,android_properties_cannot_move_the_control_endpoint}` | desktop env compatibility and control-port agreement |
+| `daemon::tests::first_launch_and_changed_settings_replace_the_android_property_handoff` | first-launch write and later setting changes replace stale bytes |
+| `android::worker::tests::*first_launch*` | Activity-first and setup-first orders wait for both signals and start once |
+| `scripts/android-apk.sh --debug` | frontend, Android Rust target, Kotlin bridge and APK packaging compile together |
+| `scripts/android-e2e.sh --expect-p2p-port PORT` after selecting a one-port range and fully relaunching | exact M-NET-2 physical exit (not yet run) |
 
 ## Acceptance criteria
 
@@ -146,6 +179,6 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 | Id | Statement | Exit test |
 |---|---|---|
 | M-NET-1 | The services list is read once at worker boot | deliverable 2 |
-| M-NET-2 | `NODERA_CONTROL_PORT` / `NODERA_P2P_PORT` cannot be set on Android (`envInt` ignores properties) | deliverable 3 |
+| M-NET-2 | Android P2P property path is headless-green; physical selected-port proof remains | deliverable 3 |
 | M-NET-3 | `restart_worker` is a silent no-op on Android | deliverable 4 |
 | M-NET-4 | `minSdk = 24` but the worker is dexed at `--min-api 26` | deliverable 6 |

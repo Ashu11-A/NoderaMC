@@ -200,9 +200,13 @@ It answers the only question worth asking — *is that thing a node, or a screen
 | 3 | The device has a peer identity | its own log line, out of logcat |
 | 4 | A tracker accepted its announce | the app's log line, with the tracker and the latency |
 | 5 | **The tracker returns this phone to somebody else** | `nodera-query`, run **from the laptop** |
+| 6 (optional, M-NET-2) | Worker selected the one-port range saved in Settings after a full relaunch | `NODERA-STATE.self_route`, read on-device by `--expect-p2p-port` |
 
 Row 5 is the one the app cannot fake. Last run: **5 passed, 0 failed**, the tracker returning
 `b24dc714-…` at `10.0.0.104:48570`.
+
+Row 6 was added for issue #86 and has not run on a physical phone yet. Until it passes, M-NET-2 is
+RETIRING rather than RETIRED.
 
 ### 4.2 The mesh test — does the phone receive data from the Linux peers?
 
@@ -285,6 +289,13 @@ cd rust && cargo test --workspace             # codec, tracker, rendezvous, tele
 ./gradlew :worker:test
 ```
 
+Last app run on 2026-07-28: **188 passed**, including Android property/desktop environment parity,
+control isolation, changed-property-file replacement, and both context/setup startup orders. Java's
+`AndroidPortPropertyTest` separately launches a real worker with a property-only P2P port and proves
+that exact port appears in `NODERA-STATE.self_route`. `scripts/android-apk.sh --debug` also built and
+verified a signed 185 MiB APK, compiling the frontend, Android-only Rust JNI path and Kotlin bridge.
+No device was connected, so the physical selected-port exit did not run.
+
 `ThreadsTest` is the one to watch: it asserts that a started thread **runs its body**, which is the
 property ART broke and which a construction-only test would have missed entirely.
 
@@ -314,7 +325,7 @@ and a stray tap lands in whatever app happens to be in front. Prefer tapping the
 |---|---|---|
 | `scripts/android-toolchain.sh` | Install/verify the SDK, NDK and Rust targets | `--check`, `--env` |
 | `scripts/android-apk.sh` | Build → dex the worker → sign → `build/` | `--debug`, `--install`, `--skip-worker`, `--target` |
-| `scripts/android-e2e.sh` | Install, launch, and prove the node is on the network | `--no-install`, `--tracker`, `--apk` |
+| `scripts/android-e2e.sh` | Install, launch, prove the node, optionally assert its selected P2P port from state | `--no-install`, `--tracker`, `--apk`, `--expect-p2p-port` |
 | `scripts/e2e-android-mesh.sh` | The phone in the mesh with the Linux peers, receiving bytes | `--no-game`, `--no-apk`, `--no-build`, `--serial` |
 | `rust/target/release/nodera-query` | Ask a tracker who it knows, from another machine | `<host:port> [worldIdHex]` |
 | `rust/target/release/nodera-tracker` | The tracker itself; binds `0.0.0.0:25600` TCP+UDP | env-configured |
@@ -329,6 +340,7 @@ Environment variables the scripts read:
 | `NODERA_ANDROID_TARGET` | `aarch64` | ABI |
 | `NODERA_ANDROID_KEYSTORE` | `~/.nodera/android-release.jks` | Signing key |
 | `NODERA_TRACKER` | `10.0.0.101:25600` | Tracker the e2e test checks |
+| `NODERA_ANDROID_EXPECT_P2P_PORT` | — | Exact port `self_route` must report; same as `--expect-p2p-port` |
 | `NODERA_SERVICE_BIND_ADDR` | `127.0.0.1` | Where the tracker and rendezvous bind; `0.0.0.0` for an off-box peer |
 | `NODERA_SERVICE_ADVERTISE_ADDR` | `127.0.0.1` | The address peers are told to reach them on |
 

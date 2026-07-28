@@ -23,6 +23,10 @@ use crate::api::store::DashboardStore;
 use crate::logs::LogBuffer;
 use crate::settings::{Settings, SettingsHandle};
 
+/// Private Android handoff read by `NoderaWorker.kt` before it starts the in-process JVM worker.
+#[cfg(any(target_os = "android", all(test, unix)))]
+const WORKER_PROPERTIES_FILE: &str = "nodera-worker.properties";
+
 /// True when the app should attach to an already-running worker instead of supervising its own.
 pub fn attach_mode() -> bool {
     std::env::var("NODERA_APP_ATTACH")
@@ -120,16 +124,24 @@ pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
         env.push(("NODERA_ARCHIVE_DIR".to_owned(), archive_dir.to_owned()));
     }
 
+    env.extend(worker_port_settings(settings));
+
+    env
+}
+
+/// Bind-time port settings shared by desktop process environment and Android Java properties.
+fn worker_port_settings(settings: &Settings) -> Vec<(String, String)> {
+    let mut settings_out = Vec::new();
     if settings.network.use_random_port {
         // Port 0 = let the OS assign. The advertised route comes from the bound socket, so this is
         // the only value that is correct without knowing anything about the machine's free ports.
-        env.push(("NODERA_P2P_PORT".to_owned(), "0".to_owned()));
+        settings_out.push(("NODERA_P2P_PORT".to_owned(), "0".to_owned()));
     } else {
-        env.push((
+        settings_out.push((
             "NODERA_P2P_PORT".to_owned(),
             settings.network.port_range_start.to_string(),
         ));
-        env.push((
+        settings_out.push((
             "NODERA_P2P_PORT_RANGE".to_owned(),
             format!(
                 "{}-{}",
@@ -137,8 +149,32 @@ pub fn worker_env(settings: &Settings) -> Vec<(String, String)> {
             ),
         ));
     }
+    settings_out
+}
 
-    env
+/// Write Android's allowlisted Java-property handoff from the same settings desktop spawns with.
+#[cfg(target_os = "android")]
+pub(crate) fn write_worker_properties(settings: &Settings) -> Result<(), String> {
+    let path = crate::settings::config_dir().join(WORKER_PROPERTIES_FILE);
+    write_worker_properties_to(&path, settings)
+}
+
+#[cfg(any(target_os = "android", all(test, unix)))]
+fn write_worker_properties_to(path: &std::path::Path, settings: &Settings) -> Result<(), String> {
+    std::fs::create_dir_all(path.parent().expect("worker properties have a parent"))
+        .map_err(|e| format!("could not create worker properties directory: {e}"))?;
+    let temp = path.with_extension("properties.tmp");
+    std::fs::write(&temp, worker_properties_body(settings))
+        .map_err(|e| format!("could not write worker properties: {e}"))?;
+    std::fs::rename(&temp, &path).map_err(|e| format!("could not install worker properties: {e}"))
+}
+
+#[cfg(any(target_os = "android", test))]
+fn worker_properties_body(settings: &Settings) -> String {
+    worker_port_settings(settings)
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}\n"))
+        .collect()
 }
 
 /// Locate the worker launcher: `NODERA_WORKER_BIN`, else the bundled installDist under resources.
@@ -349,6 +385,64 @@ mod tests {
         let env = env_of(&settings);
         assert_eq!(env["NODERA_P2P_PORT"], "37000");
         assert_eq!(env["NODERA_P2P_PORT_RANGE"], "37000-37009");
+    }
+
+    #[test]
+    fn android_properties_match_the_fixed_port_settings_sent_on_desktop() {
+        let mut settings = Settings::default();
+        settings.network.use_random_port = false;
+        settings.network.port_range_start = 42186;
+        settings.network.port_range_end = 42190;
+
+        assert_eq!(
+            worker_properties_body(&settings),
+            "NODERA_P2P_PORT=42186\nNODERA_P2P_PORT_RANGE=42186-42190\n"
+        );
+    }
+
+    #[test]
+    fn android_properties_cannot_move_the_control_endpoint() {
+        let body = worker_properties_body(&Settings::default());
+        assert_eq!(body, "NODERA_P2P_PORT=0\n");
+        assert!(!body.contains("NODERA_CONTROL"));
+        assert!(!body.contains("NODERA_P2P_PORT_RANGE"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_launch_and_changed_settings_replace_the_android_property_handoff() {
+        let dir = std::env::temp_dir().join(format!(
+            "nodera-worker-properties-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = dir.join(WORKER_PROPERTIES_FILE);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let defaults = Settings::default();
+        write_worker_properties_to(&path, &defaults).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "NODERA_P2P_PORT=0\n"
+        );
+
+        let mut fixed = defaults.clone();
+        fixed.network.use_random_port = false;
+        fixed.network.port_range_start = 42186;
+        fixed.network.port_range_end = 42190;
+        write_worker_properties_to(&path, &fixed).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "NODERA_P2P_PORT=42186\nNODERA_P2P_PORT_RANGE=42186-42190\n"
+        );
+
+        write_worker_properties_to(&path, &defaults).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "NODERA_P2P_PORT=0\n"
+        );
+        assert!(!path.with_extension("properties.tmp").exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Nothing else may creep in: every key here is one the worker actually reads, and an unread

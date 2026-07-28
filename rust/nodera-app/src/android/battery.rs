@@ -353,13 +353,16 @@ mod platform {
 #[no_mangle]
 pub extern "system" fn Java_dev_nodera_app_NoderaBridge_initialise(
     env: jni::JNIEnv,
-    _class: jni::objects::JClass,
+    class: jni::objects::JClass,
     context: jni::objects::JObject,
 ) {
     // Nothing here may panic across the JNI boundary, so every step is checked and the failure path
     // is a log line.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let vm = env.get_java_vm().map_err(|e| e.to_string())?;
+        // Preserve the class supplied by Java. Resolving app classes by name from a Rust-created
+        // thread uses Android's bootstrap class loader and can fail even though the class exists.
+        let bridge = env.new_global_ref(&class).map_err(|e| e.to_string())?;
         let global = env.new_global_ref(&context).map_err(|e| e.to_string())?;
         // Deliberately leaked: the context must live as long as the process, and dropping the
         // global ref would invalidate the pointer handed to `ndk_context`.
@@ -370,10 +373,13 @@ pub extern "system" fn Java_dev_nodera_app_NoderaBridge_initialise(
                 global.as_obj().as_raw().cast(),
             );
         }
-        Ok::<(), String>(())
+        Ok::<jni::objects::GlobalRef, String>(bridge)
     }));
     match result {
-        Ok(Ok(())) => log::info!("android: context bound for battery checks"),
+        Ok(Ok(bridge)) => {
+            log::info!("android: context bound for battery checks");
+            crate::android::worker::context_ready(bridge);
+        }
         Ok(Err(reason)) => log::error!("android: could not bind the context: {reason}"),
         Err(_) => log::error!("android: binding the context panicked"),
     }
