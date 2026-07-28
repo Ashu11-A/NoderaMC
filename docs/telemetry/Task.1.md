@@ -7,7 +7,7 @@
      added at all. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** telemetry · **Owns:** L-72, L-73 · **Last audit:** 2026-07-28
+**Category:** telemetry · **Owns:** L-73 · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md) (framing)
 **Consumed by:** [telemetry 2](Task.2.md), [network 12](../network/Task.12.md), [tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [worker 5](../worker/Task.5.md)
 
@@ -22,17 +22,19 @@ in one sitting.
 
 ## Status detail
 
-Complete and green: **91 tests** (`cargo test -p nodera-telemetry`), clippy clean at `-D warnings`.
+Complete and green: **93 tests** (`cargo test -p nodera-telemetry`), clippy clean at `-D warnings`.
 
 The crate is a **library as well as a binary**: `reporter.rs` — the service-side emitter used by
 `nodera-tracker` and `nodera-rendezvous` — lives here so the thing that builds events and the thing
 that validates them cannot drift the way two hand-maintained copies would.
 
 Landed: the event registry with closed value domains; batch parsing with a hard consent gate;
-per-event rejection and per-attribute dropping with counted reasons; rotating HMAC pseudonymisation;
+per-event rejection and per-attribute dropping with counted reasons; **forward-secret rotating
+pseudonymisation** (per-period CSPRNG key, memory-only, wiped on rotation — L-72 retired);
 longest-prefix country/ASN lookup with the address discarded; per-source batch and event quotas;
 rotating NDJSON spool; the framed TCP surface with a probe frame; `--print-schema`, `--healthcheck`,
-`--print-env`, `--version`; configuration that **refuses to start** without a pseudonymisation secret.
+`--print-env`, `--version`; configuration whose only privacy knob is the rotation period, because the
+pseudonymisation key is no longer an operator-supplied secret.
 
 The decisive test is `wire::tests::a_batch_submitted_over_tcp_is_answered_and_written` — framing,
 service, and sink only agree in practice if a real frame produces a real reply and a real row.
@@ -48,7 +50,7 @@ service, and sink only agree in practice if a real frame produces a real reply a
 |---|---|---|
 | 1 | Event registry (`schema.rs`) — closed value domains, no free text representable | ✅ |
 | 2 | Batch envelope + consent gate + validation (`event.rs`) | ✅ |
-| 3 | Rotating HMAC pseudonymisation (`subject.rs`) | ✅ |
+| 3 | Forward-secret rotating pseudonymisation (`subject.rs`) | ✅ |
 | 4 | Coarse geolocation, address discarded (`geo.rs`) | ✅ |
 | 5 | Per-source batch/event quotas (`limits.rs`) | ✅ |
 | 6 | Rotating NDJSON spool (`sink.rs`) | ✅ |
@@ -79,9 +81,14 @@ key the network knows that peer by — the exact linkage the programme exists to
 treating telemetry as aggregate-only evidence. Since telemetry has no authority (D2), a poisoned
 aggregate costs a wrong graph, never a wrong world.
 
-**The install id is never stored.** `HMAC(secret ‖ period, source ‖ install)[..8]` rotates daily and
-the secret never enters the warehouse, so a warehouse dump cannot be walked back to installations,
-and no subject can be followed across periods by the people who legitimately query it.
+**The install id is never stored, and the key that links it back does not survive rotation.**
+`HMAC(period_key, period ‖ source ‖ install)[..8]` rotates every period, where `period_key` is minted
+fresh from the OS CSPRNG the first time a period is observed and held only in process memory, wiped
+the moment the period rolls. The configuration carries no key material at all, so a warehouse dump
+plus the operator's full config cannot walk a stored subject back to its install id, and no subject
+can be followed across periods by anyone — including the analysts who legitimately query it. This is
+forward secrecy across rotation; it retired L-72 (see
+[`../plans/Plan.6.md`](../plans/Plan.6.md) §10).
 
 **The service writes files, not Kafka.** A broker outage must never block ingest or drop a consented
 report, and a Kafka client would drag a heavyweight native dependency into a workspace that
@@ -104,7 +111,7 @@ if liveness checks spent the same budget as real clients, a healthy service woul
 ## Testing
 
 ```bash
-cd rust && cargo test -p nodera-telemetry     # 91 tests
+cd rust && cargo test -p nodera-telemetry     # 93 tests
 cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 ```
 
@@ -116,11 +123,11 @@ The privacy-decisive tests, by name:
 | `a_batch_without_consent_writes_nothing_and_says_why` | Consent is a gate, not a recorded preference |
 | `a_row_carries_the_country_and_never_the_address` | The source address does not survive into a row |
 | `the_install_identifier_is_replaced_by_a_rotating_subject` | Pseudonymisation happens before the sink |
+| `after_rotation_and_restart_a_previous_period_subject_is_not_reproducible_from_configuration` | **L-72 exit**: past periods are unrecoverable even with identical config, once process memory is gone |
 | `an_undeclared_attribute_is_dropped_without_losing_the_event` | Forward compatibility without storing the stowaway |
 | `an_out_of_range_integer_is_rejected_rather_than_clamped` | Aggregates are not quietly biased |
 | `a_peer_may_not_report_service_level_events` | A peer cannot forge operator-facing rows |
 | `the_agent_string_is_reduced_to_a_bounded_identifier` | A home directory cannot ride in on the agent field |
-| `the_default_configuration_refuses_to_start` | No deployment runs with a guessable subject secret |
 | `the_printed_schema_is_json_and_lists_every_declared_event` | The published notice cannot drift from the enforcement |
 
 ## Acceptance criteria
@@ -129,11 +136,13 @@ The privacy-decisive tests, by name:
 2. ✅ A batch without explicit consent writes nothing.
 3. ✅ No stored row contains an address, an install id, a node id, or free text.
 4. ✅ Refusals are counted per reason and reported back to the sender.
-5. ✅ The service refuses to start without a pseudonymisation secret.
+5. ✅ The pseudonymisation key is memory-only and wiped on rotation — a previous period's subjects
+   cannot be reproduced from configuration alone (the L-72 exit test).
 6. ✅ The running binary can print exactly what it accepts.
 
 ## Limitations
 
-Owns **L-72** (the operator holds the pseudonymisation secret and can re-link a *current* period)
-and **L-73** (the listener is plaintext; TLS is terminated by a separate proxy). Both are in
-[`LIMITATIONS.md`](LIMITATIONS.md) with elimination paths and exit tests.
+Owns **L-73** (the listener is plaintext; TLS is terminated by a separate proxy). **L-72** (the
+operator held the pseudonymisation secret) is **retired** — see
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). Both are in [`LIMITATIONS.md`](LIMITATIONS.md) with
+elimination paths and exit tests.

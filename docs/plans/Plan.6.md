@@ -93,10 +93,15 @@ name, a chat line, a file path, or a stack-trace message is *not representable*.
 re-bounded at ingest. A byte-exact world size or a millisecond-exact session length is a
 fingerprint; a bucket index is a statistic.
 
-**D7 — Identifiers rotate; addresses are discarded.** The install id becomes
-`HMAC(secret ‖ period, source ‖ install)[..8]`, rotating daily, and the secret never enters the
-warehouse. The source IP is used for the quota and for a country/ASN lookup, then dropped — there is
-no column for it, which is stronger than a policy about not filling one in.
+**D7 — Identifiers rotate; addresses are discarded.** The install id becomes a pseudonymous
+subject `HMAC(period_key, period ‖ source ‖ install)[..8]` that rotates every period, and neither
+the key nor the source address ever enters the warehouse. The `period_key` is minted fresh from the
+OS CSPRNG the first time a period is observed and held **only in process memory**, wiped the instant
+the period rolls, so a past period's subjects cannot be recomputed by anyone — including the
+operator, whose configuration carries no key material at all. The source IP is used for the quota
+and for a country/ASN lookup, then dropped — there is no column for it, which is stronger than a
+policy about not filling one in. *(Forward secrecy across rotation landed with the L-72 retirement;
+see §10, 2026-07-28.)*
 
 **D8 — Retention is a table property.** 30 days for raw rows, 400 for aggregates that contain no
 subject. A deletion policy that lives in a cron job is one that silently stops running.
@@ -221,7 +226,7 @@ Dependency order: telemetry 1 → network 12 → worker 5 → {app 5, minecraft 
 | **Scope creep in the registry** | Every added field is a privacy claim to re-justify | D4 + a review rule: a registry change is a documentation change in the same commit |
 | **Sampling bias** | Only players who opt in are measured, and they are not a random sample | Stated in every report; never used to claim absolute population size |
 | **The stack becoming load-bearing** | A dashboard nobody can lose becomes a dependency nobody can remove | D10 + `TelemetryOutageIT` |
-| **Operator-held secret** | The pseudonymisation secret can re-link a current period | Stated openly in `../telemetry/LIMITATIONS.md` (L-72) with rotation as the elimination path |
+| ~~**Operator-held secret**~~ — retired | ~~The pseudonymisation secret can re-link a current period~~ | **Retired** (L-72, 2026-07-28): the derivation moved to a per-period CSPRNG key held only in process memory and wiped on rotation, so past periods are unrecoverable even to the operator. Evidence in [`../telemetry/LIMITATIONS.fixed.md`](../telemetry/LIMITATIONS.fixed.md) |
 
 ---
 
@@ -237,5 +242,31 @@ same measurements, a different consumer, and a hard privacy boundary between the
 
 ## 10. Re-opened decisions
 
-None. When a locked decision in §2 is re-opened, record the date, the reason, and the replacement
-here rather than editing the original in place.
+### 2026-07-28 — D7 re-opened: forward secrecy for the pseudonymisation key
+
+**Re-opened:** the *form* of D7's identifier rotation, not its intent. The intent (a stored subject
+cannot be followed across periods, and the key never enters the warehouse) was always locked; what
+changed is the *where* of the key.
+
+**Why.** Under the original D7 a single persistent `subject_secret` derived every period's subjects
+via `HMAC(secret ‖ period, …)`. The secret never entered the warehouse, but the **operator held it
+in configuration**, so during any *current* rotation period the operator could recompute the
+install-id→subject mapping for that period — and, worse, for any past period whose secret had not
+been rotated. That was recorded openly as limitation **L-72** with "move the key into memory" as the
+elimination path.
+
+**Replacement.** The pseudonymiser now mints a fresh 32-byte key from `/dev/urandom` the first time
+a period is observed, caches it for the period, and wipes it (zero-then-drop) the moment the period
+rolls — eagerly from the ingest sweep, lazily from the next batch. The configuration carries no key
+material whatsoever; a restart mints a brand-new key for whatever period it boots into. Past periods
+are unrecoverable even to the operator, because the key that derived them no longer exists anywhere.
+
+**Cost, stated plainly.** Subjects are no longer stable across a process restart *within* a period —
+a restart mints a new key and the same install id maps to a new subject for the rest of that period.
+That is the intended trade for forward secrecy and is strictly stronger than the persistent-secret
+design. Cohort/retention analysis within a single uninterrupted period is unaffected.
+
+**Evidence.** `subject::tests::after_rotation_and_restart_a_previous_period_subject_is_not_reproducible_from_configuration`
+and `service::tests::a_previous_period_subject_in_a_written_row_is_not_reproducible_after_restart`
+(the L-72 exit test, driven through the real ingest write path with deterministic fake entropy/clock).
+L-72 moved to [`../telemetry/LIMITATIONS.fixed.md`](../telemetry/LIMITATIONS.fixed.md).

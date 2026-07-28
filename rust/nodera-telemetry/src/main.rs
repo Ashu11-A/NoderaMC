@@ -155,7 +155,7 @@ async fn serve(
         None => Config::default(),
     };
     // The environment layer sits between the file and the flag. Only the variable *names* are
-    // printed: `NODERA_TELEMETRY_SUBJECT_SECRET` is this service's pseudonymisation key, and a
+    // printed: one of them could be a secret for an adjacent service on the same host, and a
     // startup log outlives the process that wrote it.
     let from_env = config.apply_env(&nodera_service::env::SystemEnv)?;
     if !from_env.applied.is_empty() {
@@ -168,8 +168,9 @@ async fn serve(
     if let Some(bind) = bind_override {
         config.bind_addr = bind.parse()?;
     }
-    // Refuses an unset pseudonymisation secret. Starting without one would mean either storing raw
-    // install ids or inventing a secret nobody recorded, and both are worse than not starting.
+    // Validate the bounds. There is no pseudonymisation secret to refuse on any more: the
+    // per-period key is minted in memory from the OS CSPRNG (see `subject.rs`), so the operator's
+    // configuration carries no key material and a default config is a valid one.
     config.validate()?;
 
     let geo = match &config.geo_table_path {

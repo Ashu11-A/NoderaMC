@@ -35,8 +35,8 @@ RUN apk add --no-cache ca-certificates \
 COPY --from=build /usr/local/bin/nodera-telemetry /usr/local/bin/nodera-telemetry
 
 # Every setting is an environment variable — `NODERA_TELEMETRY_` plus the TOML key, uppercased —
-# so the config file below is optional. `NODERA_TELEMETRY_SUBJECT_SECRET` has no default and the
-# service refuses to start without it; that is the point, not an oversight.
+# so the config file below is optional. The pseudonymisation key is not among them: it is minted
+# in memory from the OS CSPRNG each rotation period and never read from config or disk.
 ENV NODERA_TELEMETRY_BIND_ADDR=0.0.0.0:25620 \
     NODERA_TELEMETRY_SPOOL_DIR=/var/lib/nodera/spool
 
@@ -49,6 +49,6 @@ WORKDIR /var/lib/nodera
 EXPOSE 25620
 
 # The config path is still passed because the telemetry deployment mounts a reviewable file for the
-# policy settings and supplies only the secret from the environment. Both layers work; the file wins
-# over the defaults and the environment wins over the file.
+# policy settings. Both layers work; the file wins over the defaults and the environment wins over
+# the file. No pseudonymisation secret is supplied at either layer — it is minted in memory.
 ENTRYPOINT ["nodera-telemetry", "--config", "/etc/nodera/nodera-telemetry.toml"]
