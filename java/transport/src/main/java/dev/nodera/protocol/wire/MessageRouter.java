@@ -138,11 +138,18 @@ public final class MessageRouter {
      * @Thread-context any thread.
      */
     public static Optional<byte[]> answerFor(Outcome outcome) {
-        Nack nack = switch (outcome) {
-            case Outcome.UnknownKind u -> u.nack();
-            case Outcome.Refused r -> r.nack();
-            default -> null;
-        };
+        // An `instanceof` chain, not a type-pattern switch: those compile to an invokedynamic on
+        // java.lang.runtime.SwitchBootstraps, which ART does not implement and D8 can neither run
+        // nor desugar — so on Android the first encode through this path throws. See
+        // docs/mobile/LIMITATIONS.md M-5 and docs/mobile/LIMITATIONS.fixed.md M-8.
+        Nack nack;
+        if (outcome instanceof Outcome.UnknownKind u) {
+            nack = u.nack();
+        } else if (outcome instanceof Outcome.Refused r) {
+            nack = r.nack();
+        } else {
+            nack = null;
+        }
         if (nack == null) {
             return Optional.empty();
         }
