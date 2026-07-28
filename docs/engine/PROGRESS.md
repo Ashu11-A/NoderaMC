@@ -18,7 +18,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Domain types, crypto, canonical encoding | ✅ COMPLETED | Frozen contract; extended additively through type tag 108 |
-| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 6, palette literal `palette.v6` (obsidian L-2, farmland + wheat L-1) |
+| [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 7, palette literal `palette.v6` (v7 fixes dense-halo fluid seeding; palette unchanged) |
 | [3](Task.3.md) | Shadow validation | ✅ COMPLETED (headless) | Live capture soak → [minecraft 2](../minecraft/Task.2.md) |
 | [4](Task.4.md) | Coordinator | ✅ COMPLETED (headless) | Live `ServerLevel` applier → [minecraft 2](../minecraft/Task.2.md) |
 | [5](Task.5.md) | Committee validation — MVP gate | ✅ COMPLETED (headless) | Also running out of game via [worker 4](../worker/Task.4.md) |
@@ -48,6 +48,37 @@ signed-coordinate round trips plus exact layouts), and
 `EntityLaneTypesTest.motionUpdateMatchesDirectConstructionCanonicalBytesAndRoundTrips`. Focused
 core/engine XML is 767/767 green with no skips; full `./gradlew check` is 2,061 tests with no failures
 or errors.
+
+### 2026-07-28 — L-51 scan hardened after review
+
+Review found three correctness/performance gaps in the first retirement patch. A uniform section
+still sampled one adjacent target, so a wall at that point hid open cells elsewhere on the face; a
+dense section visited all four faces even though only one can touch ownership; and duplicate checks
+copied and sorted the scheduled queue once per fluid candidate. The scan now classifies columns
+against `RegionBounds`, skips diagonals, visits one complete 16×16 ownership-facing side per relevant
+section in canonical column/section/y/offset order, and indexes scheduled positions once in a
+membership-only `HashSet`. Standard 8×8×24 dense work falls from at most 884,736 helper probes to
+196,608 candidates.
+
+Cadence now comes from `desiredAt`'s actual winner: a west-halo lava candidate visited before a
+north-halo water candidate still schedules at water's 5-tick cadence. `CrossRegionFluidTest` grew
+6→9 with blocked-first uniform, side-only/diagonal dense, and mixed-fluid regressions. Focused class
+and full `./gradlew check` are green. `RULES_VERSION` remains 7: main is v6 and all issue #84 work is
+one unreleased semantic increment; assigning v8 to review corrections would imply a shipped v7
+compatibility boundary that does not exist.
+
+### 2026-07-28 — Dense halo fluid reaches its exact border cell (L-51)
+
+`FluidRules.seedBorderInflow` now handles the representation real extracted chunks use: uniform
+sections keep their compact path, while every dense section scans its four boundary faces in fixed
+section/y/offset/face order. `ChunkColumnState` already sorts dense sections and pins their uniform
+palette slot to air, so the paths neither overlap nor depend on input-list order.
+
+`CrossRegionFluidTest.denseHaloFluidOffCornerSeedsAdjacentOwnedCellOnEveryReplica` builds supported
+water at dense-section local `(15,1,7)`, away from `(0,0,0)`, and asserts that both replicas produce
+exactly the adjacent owned-cell tick and an identical resulting root. The focused test and full
+`./gradlew check` passed. L-51 is RETIRED. `RULES_VERSION` moved 6→7 because this valid execution
+input now produces different hashed scheduled state; `palette.v6` remains unchanged.
 
 ### 2026-07-28 — Documentation sweep: status reconciliation + refactoring register
 

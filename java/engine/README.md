@@ -48,6 +48,11 @@ clock, performs no IO, and returns a delta plus a root. Everything that looks li
 scheduled ticks, pending fluid updates, spawns — is **state in the root**, which is what lets a delta
 boundary or a failover resume without losing behaviour.
 
+**Halo fluid reads use fixed, bounded traversal.** Cross-region inflow scans only the one 16×16 face
+of each side-adjacent halo column that touches ownership; diagonal columns are skipped. Uniform and
+dense sections share canonical column/section/y/offset order, existing scheduled positions are
+indexed once, and cadence comes from the desired winning fluid rather than scan order.
+
 **A halo write is a crash, not a warning.** The halo is the read-only ring around a region. A fail-fast
 ownership violation is debuggable; a silently tolerated one produces a divergence hours later in an
 unrelated region.
@@ -78,7 +83,7 @@ courtesy is not.
 
 ## Tests
 
-504 tests: determinism property tests, negative determinism tests (dropping state from the hash must
+508 XML-reported tests: determinism property tests, negative determinism tests (dropping state from the hash must
 be detectable), the headless consensus ITs (`ShadowValidationIT`, `CoordinatorIT`, `CommitteeMvpIT`,
 `FallbackRoutingIT`), and multi-thousand-tick soaks with three replicas.
 

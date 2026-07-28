@@ -7,6 +7,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.RegionSnapshot;
+import dev.nodera.core.state.ScheduledTickEntry;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.simulation.RegionExecutionContext;
 import dev.nodera.simulation.RegionExecutionRequest;
@@ -14,6 +15,7 @@ import dev.nodera.simulation.RegionExecutionResult;
 import dev.nodera.simulation.TestFixtures;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.simulation.rules.FlatWorldRules;
+import dev.nodera.simulation.rules.FluidRules;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -64,6 +66,21 @@ final class CrossRegionFluidTest {
         return new RegionSnapshot(region, SnapshotVersion.INITIAL, 0, chunks);
     }
 
+    private static RegionSnapshot withBlock(RegionSnapshot snapshot, NBlockPos pos, int id) {
+        List<ChunkColumnState> chunks = new ArrayList<>(snapshot.chunks().size());
+        for (ChunkColumnState column : snapshot.chunks()) {
+            if (column.chunkX() == Math.floorDiv(pos.x(), 16)
+                    && column.chunkZ() == Math.floorDiv(pos.z(), 16)) {
+                int section = Math.floorDiv(pos.y() - column.minY(), 16);
+                column = column.withBlock(section, Math.floorMod(pos.x(), 16),
+                        Math.floorMod(pos.y() - column.minY(), 16), Math.floorMod(pos.z(), 16), id);
+            }
+            chunks.add(column);
+        }
+        return new RegionSnapshot(
+                snapshot.region(), snapshot.version(), snapshot.tick(), chunks);
+    }
+
     /** One halo column of {@code source}, uniform {@code id} through the air section. */
     private static RegionHalo.Slice waterEdge(RegionId source, int chunkX, int chunkZ, int id) {
         int[] sections = new int[SECTIONS];
@@ -71,6 +88,39 @@ final class CrossRegionFluidTest {
         sections[AIR_SECTION - 1] = FlatWorldRules.STONE;
         return new RegionHalo.Slice(source, new SnapshotVersion(3),
                 List.of(new ChunkColumnState(chunkX, chunkZ, sections, MIN_Y, SECTIONS)));
+    }
+
+    private static ChunkColumnState denseFluidColumn(
+            int chunkX, int chunkZ, int localX, int localY, int localZ, int fluidId) {
+        int[] sections = new int[SECTIONS];
+        sections[AIR_SECTION - 1] = FlatWorldRules.STONE;
+        int[] blocks = new int[ChunkColumnState.SECTION_VOLUME];
+        if (localY > 0) {
+            blocks[((localY - 1) << 8) | (localZ << 4) | localX] = FlatWorldRules.STONE;
+        }
+        blocks[(localY << 8) | (localZ << 4) | localX] = fluidId;
+        return new ChunkColumnState(chunkX, chunkZ, sections, MIN_Y, SECTIONS,
+                List.of(new ChunkColumnState.DenseSection(AIR_SECTION, blocks)));
+    }
+
+    /** One dense halo section with supported water away from section-local (0,0,0). */
+    private static RegionHalo.Slice denseWaterEdge(RegionId source, int chunkX, int chunkZ) {
+        return new RegionHalo.Slice(source, new SnapshotVersion(3), List.of(
+                denseFluidColumn(chunkX, chunkZ, 15, 1, 7, FlatWorldRules.WATER_SOURCE)));
+    }
+
+    private static ChunkColumnState denseFluidFaces(int chunkX, int chunkZ) {
+        int[] sections = new int[SECTIONS];
+        sections[AIR_SECTION - 1] = FlatWorldRules.STONE;
+        int[] blocks = new int[ChunkColumnState.SECTION_VOLUME];
+        for (int offset = 0; offset < 16; offset++) {
+            blocks[(offset << 4) | 15] = FlatWorldRules.WATER_SOURCE;
+            blocks[offset << 4] = FlatWorldRules.WATER_SOURCE;
+            blocks[(15 << 4) | offset] = FlatWorldRules.WATER_SOURCE;
+            blocks[offset] = FlatWorldRules.WATER_SOURCE;
+        }
+        return new ChunkColumnState(chunkX, chunkZ, sections, MIN_Y, SECTIONS,
+                List.of(new ChunkColumnState.DenseSection(AIR_SECTION, blocks)));
     }
 
     /** Execute, then apply the delta so assertions read the post-state world. */
@@ -167,6 +217,80 @@ final class CrossRegionFluidTest {
         RegionExecutionResult b = run(floored(EAST), new RegionHalo(EAST, List.of(slice)), 40);
 
         assertThat(a.resultingRoot()).isEqualTo(b.resultingRoot());
+    }
+
+    @Test
+    @DisplayName("uniform halo scan continues when its first owned target is blocked")
+    void uniformHaloScanFindsOpenCellsAfterABlockedFirstTarget() {
+        NBlockPos blocked = new NBlockPos(EAST.originChunkX() * 16, Y, 0);
+        RegionSnapshot base = withBlock(floored(EAST), blocked, FlatWorldRules.STONE);
+        RegionExecutionResult result = run(base, new RegionHalo(EAST, List.of(
+                waterEdge(ORIGIN, EAST.originChunkX() - 1, 0,
+                        FlatWorldRules.WATER_SOURCE))), 0);
+
+        assertThat(result.delta().scheduledTicks()).hasSize(15);
+        assertThat(result.delta().scheduledTicks())
+                .extracting(ScheduledTickEntry::pos)
+                .contains(new NBlockPos(EAST.originChunkX() * 16, Y, 1))
+                .doesNotContain(blocked);
+    }
+
+    @Test
+    @DisplayName("dense halo fluid off-corner schedules its adjacent owned cell identically")
+    void denseHaloFluidOffCornerSeedsAdjacentOwnedCellOnEveryReplica() {
+        NBlockPos target = new NBlockPos(EAST.originChunkX() * 16, Y + 1, 7);
+        RegionHalo.Slice slice = denseWaterEdge(ORIGIN, EAST.originChunkX() - 1, 0);
+        RegionExecutionResult first = run(
+                floored(EAST), new RegionHalo(EAST, List.of(slice)), 0);
+        RegionExecutionResult replica = run(
+                floored(EAST), new RegionHalo(EAST, List.of(slice)), 0);
+
+        ScheduledTickEntry expected = new ScheduledTickEntry(
+                target, FlatWorldRules.AIR, FluidRules.WATER_DELAY, 0, 0);
+        assertThat(first.delta().scheduledTicks()).containsExactly(expected);
+        assertThat(replica.delta().scheduledTicks()).containsExactly(expected);
+        assertThat(replica.resultingRoot()).isEqualTo(first.resultingRoot());
+    }
+
+    @Test
+    @DisplayName("dense scans use only the ownership-facing side and ignore diagonal columns")
+    void denseScanIsBoundedToTheOwnershipFacingSide() {
+        int westChunk = EAST.originChunkX() - 1;
+        RegionHalo.Slice diagonal = new RegionHalo.Slice(
+                TestFixtures.region(0, -1), new SnapshotVersion(3),
+                List.of(denseFluidFaces(westChunk, EAST.originChunkZ() - 1)));
+        RegionHalo.Slice side = new RegionHalo.Slice(
+                ORIGIN, new SnapshotVersion(3),
+                List.of(denseFluidFaces(westChunk, EAST.originChunkZ())));
+
+        RegionExecutionResult result = run(
+                floored(EAST), new RegionHalo(EAST, List.of(diagonal, side)), 0);
+
+        List<ScheduledTickEntry> expected = new ArrayList<>();
+        for (int z = 0; z < 16; z++) {
+            expected.add(new ScheduledTickEntry(
+                    new NBlockPos(EAST.originChunkX() * 16, Y, z), FlatWorldRules.AIR,
+                    FluidRules.WATER_DELAY, 0, z));
+        }
+        assertThat(result.delta().scheduledTicks()).containsExactlyElementsOf(expected);
+    }
+
+    @Test
+    @DisplayName("the desired winning fluid determines cross-border cadence")
+    void winningFluidDeterminesBorderTickCadence() {
+        NBlockPos target = new NBlockPos(EAST.originChunkX() * 16, Y, 0);
+        RegionHalo.Slice lava = new RegionHalo.Slice(
+                ORIGIN, new SnapshotVersion(3), List.of(denseFluidColumn(
+                EAST.originChunkX() - 1, 0, 15, 0, 0, FlatWorldRules.LAVA_SOURCE)));
+        RegionHalo.Slice water = new RegionHalo.Slice(
+                TestFixtures.region(1, -1), new SnapshotVersion(3), List.of(denseFluidColumn(
+                EAST.originChunkX(), -1, 0, 0, 15, FlatWorldRules.WATER_SOURCE)));
+
+        RegionExecutionResult result = run(
+                floored(EAST), new RegionHalo(EAST, List.of(lava, water)), 0);
+
+        assertThat(result.delta().scheduledTicks()).containsExactly(new ScheduledTickEntry(
+                target, FlatWorldRules.AIR, FluidRules.WATER_DELAY, 0, 0));
     }
 
     @Test
