@@ -1515,8 +1515,15 @@ public final class WorkerControlHandler implements ControlHandler {
                     return "this worker has no replication lane";
                 }
                 long sweep = asLong(raw);
+                // Clamped, not cast. The `<= 0` guard reads the long, so a bare `(int)` afterwards
+                // let a value the guard had just approved come out the other side as zero or
+                // negative: 2^31 truncates to Integer.MIN_VALUE, 2^32 to 0. Either one reaches
+                // `scheduleWithFixedDelay` as a non-positive period. Same idiom as the two caps
+                // above — saturate at Integer.MAX_VALUE and let the lane's own bounds take it from
+                // there.
                 config.replication.reconfigure(config.replication.budgetBytes(),
-                        sweep <= 0 ? WorldReplicationService.DEFAULT_SWEEP_SECONDS : (int) sweep);
+                        sweep <= 0 ? WorldReplicationService.DEFAULT_SWEEP_SECONDS
+                                : (int) Math.min(Integer.MAX_VALUE, sweep));
                 return null;
             }
             case K_ARCHIVE_DIR -> {
