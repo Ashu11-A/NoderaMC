@@ -4,7 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.membership.WorldDeletionGossip;
 import dev.nodera.storage.PersistedWorldKey;
 import dev.nodera.storage.WorldOwnership;
@@ -74,7 +74,9 @@ final class WorldDeletionFixtureTest {
                 "the owner asked the network to forget this world", ISSUED_AT);
         CanonicalWriter w = new CanonicalWriter();
         tombstone.encode(w);
-        return MessageCodec.encode(new WorldDeletionGossip(WORLD_ID, w.toBytes()));
+        // A consensus kind: the tolerant plane routes it, and its strict canonical bytes cross
+        // inside one opaque field, untouched. What the Rust side verifies is that payload.
+        return WireCodec.encode(new WorldDeletionGossip(WORLD_ID, w.toBytes()));
     }
 
     private static Path fixture() {
@@ -95,7 +97,7 @@ final class WorldDeletionFixtureTest {
         // Deterministic: two independent builds of the same inputs are the same bytes. Without this
         // the fixture would churn on every run and stop being evidence of anything.
         assertThat(goldenFrame()).isEqualTo(frame);
-        WorldDeletionGossip decoded = (WorldDeletionGossip) MessageCodec.decode(frame);
+        WorldDeletionGossip decoded = (WorldDeletionGossip) WireCodec.decode(frame);
         assertThat(WorldTombstone.decode(
                 new dev.nodera.core.crypto.CanonicalReader(decoded.encodedTombstone())).verify())
                 .isTrue();

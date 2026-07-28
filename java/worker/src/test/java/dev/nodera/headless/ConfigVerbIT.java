@@ -13,6 +13,7 @@ import dev.nodera.peer.control.ControlServer;
 import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ContentChunk;
 import dev.nodera.protocol.content.ContentRequest;
 import dev.nodera.storage.event.InMemoryContentStore;
@@ -500,7 +501,7 @@ final class ConfigVerbIT {
 
         @Override
         public void send(PeerAddress to, byte[] frame) {
-            sent.add(MessageCodec.decode(frame));
+            sent.add(WireCodec.decode(frame));
         }
 
         @Override

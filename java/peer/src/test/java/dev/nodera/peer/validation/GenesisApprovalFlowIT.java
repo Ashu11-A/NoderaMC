@@ -9,6 +9,7 @@ import dev.nodera.storage.GenesisRecertification;
 import dev.nodera.testkit.LoopbackTransport;
 import dev.nodera.testkit.LoopbackTransport.LoopbackNetwork;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.transport.PeerAddress;
 import org.junit.jupiter.api.Test;
 
@@ -125,7 +126,7 @@ final class GenesisApprovalFlowIT {
         return new dev.nodera.transport.MessageHandler() {
             @Override
             public void onMessage(PeerAddress from, byte[] frame) {
-                flow.onMessage(from, MessageCodec.decode(frame));
+                flow.onMessage(from, WireCodec.decode(frame));
             }
 
             @Override

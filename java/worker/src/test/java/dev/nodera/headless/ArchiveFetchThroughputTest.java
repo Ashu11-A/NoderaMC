@@ -1,5 +1,6 @@
 package dev.nodera.headless;
 
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeIdentity;
@@ -59,7 +60,7 @@ final class ArchiveFetchThroughputTest {
             public void onMessage(PeerAddress from, byte[] frame) {
                 try {
                     service.onMessage(from,
-                            dev.nodera.protocol.codec.MessageCodec.decode(frame));
+                            dev.nodera.protocol.wire.WireCodec.decode(frame));
                 } catch (RuntimeException ignored) {
                     // Frames this lane does not own are the mux's business, not the test's.
                 }

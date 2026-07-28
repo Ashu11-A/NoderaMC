@@ -9,7 +9,7 @@
      `<!-- AI-AGENT-INSTRUCTION: ... -->` comment intact when editing a document. -->
 
 Last documentation reorganization: **2026-07-25** · Overall system completion: **91.3%** ·
-Tests: **1,519 Java · 248 Rust workspace · 61 `nodera-app`** (1,828 total).
+Tests: **2,055 Java · 408 Rust workspace · 61 `nodera-app`** (2,524 total).
 
 ---
 
@@ -47,7 +47,7 @@ The tree follows a **component-per-folder** layout with a **fixed file contract*
 docs/
 ├── README.md              ← you are here: entry point, format, conventions
 ├── ROADMAP.md             ← the single central roadmap across every category
-├── plans/                 ← historical/active programme plans (Plan.0 … Plan.6)
+├── plans/                 ← historical/active programme plans (Plan.0 … Plan.7)
 ├── engine/                ← category: deterministic engine & committee validation
 ├── network/               ← category: P2P network (wire, transports, runtime, storage, torrent)
 ├── tracker/               ← category: standalone tracker service + its client

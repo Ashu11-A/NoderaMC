@@ -4,6 +4,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.protocol.codec.ChunkedStreams;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.StreamChunk;
 import dev.nodera.transport.MessageHandler;
 import dev.nodera.transport.PeerAddress;
@@ -328,7 +329,7 @@ public final class SocketPeerTransport implements PeerTransport {
         // transports without changing its reassembly path.
         List<StreamChunk> chunks = ChunkedStreams.split(streamId, payload);
         for (StreamChunk chunk : chunks) {
-            send(to, MessageCodec.encode(chunk));
+            send(to, WireCodec.encode(chunk));
         }
     }
 

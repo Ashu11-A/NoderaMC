@@ -514,7 +514,7 @@ impl ServiceScoreReport {
         w.into_vec()
     }
 
-    fn write_signed_portion(&self, w: &mut CanonicalWriter) {
+    pub fn write_signed_portion(&self, w: &mut CanonicalWriter) {
         w.write_frame_header(message_tags::SERVICE_SCORE_REPORT, ENCODING_VERSION);
         self.reporter.encode(w);
         w.write_bytes(&self.public_key);
@@ -581,118 +581,72 @@ impl ServiceMessage {
         }
     }
 
-    /// Encode a complete frame (`tag + version + body`).
+    /// Encode a complete `NDR2` frame carrying this message as an unsolicited event.
     pub fn encode(&self) -> Vec<u8> {
-        let mut w = CanonicalWriter::new();
-        self.encode_into(&mut w);
-        w.into_vec()
+        self.encode_frame(crate::frame::flags::EVENT, 0)
     }
 
-    /// Encode into an existing writer.
-    pub fn encode_into(&self, w: &mut CanonicalWriter) {
-        if let Self::ScoreReport(m) = self {
-            // The signed portion owns the frame header, so signer and codec cannot disagree about
-            // where the signature starts.
-            m.write_signed_portion(w);
-            w.write_bytes(&m.signature);
-            return;
+    /// Encode a complete `NDR2` frame with explicit routing metadata.
+    pub fn encode_frame(&self, flags: u16, correlation_id: u64) -> Vec<u8> {
+        crate::frame::NoderaFrame {
+            epoch: crate::frame::WIRE_EPOCH,
+            kind: self.tag(),
+            flags,
+            correlation_id,
+            body: crate::wire::encode_service_body(self),
         }
-        w.write_frame_header(self.tag(), ENCODING_VERSION);
-        match self {
-            Self::Announce(m) => {
-                m.record.encode(w);
-                w.write_bytes(&m.signature);
-            }
-            Self::AnnounceAck(m) => {
-                w.write_bool(m.accepted);
-                w.write_u32(m.next_announce_after_seconds);
-                w.write_string(&m.reason);
-                w.write_list(&m.directory, |ww, e| e.encode(ww));
-            }
-            Self::DirectoryQuery(m) => {
-                w.write_u8(m.kind as u8);
-                m.network_id.encode(w);
-                w.write_u32(m.limit);
-            }
-            Self::DirectoryResponse(m) => {
-                w.write_list(&m.entries, |ww, e| e.encode(ww));
-            }
-            Self::DrainNotice(m) => {
-                m.record.encode(w);
-                w.write_bytes(&m.signature);
-                w.write_list(&m.replacements, |ww, e| e.encode(ww));
-                w.write_string(&m.reason);
-            }
-            Self::ScoreReport(_) => unreachable!("handled above"),
-        }
+        .encode()
     }
 
-    /// Decode a complete frame, rejecting trailing bytes.
+    /// Decode a complete `NDR2` frame.
     pub fn decode(frame: &[u8]) -> Result<Self> {
-        let mut r = CanonicalReader::new(frame);
-        let tag = r.read_u16()?;
-        let version = r.read_u16()?;
-        if version != ENCODING_VERSION {
-            return Err(CodecError::UnsupportedVersion { tag, version });
+        Self::decode_with_overlay(frame).map(|(m, _)| m)
+    }
+
+    /// Decode a frame together with the overlay describing how its field set differed from this
+    /// build's — what a forwarding peer needs in order to re-emit what it was given rather than
+    /// its own idea of it.
+    pub fn decode_with_overlay(frame: &[u8]) -> Result<(Self, crate::tlv::TlvOverlay)> {
+        let parsed = crate::frame::NoderaFrame::decode(frame)?;
+        crate::wire::decode_service_body_with_overlay(parsed.kind, &parsed.body)
+    }
+
+    /// Encode a frame, re-emitting fields this build did not understand when it was decoded.
+    pub fn encode_with_overlay(&self, overlay: &crate::tlv::TlvOverlay) -> Result<Vec<u8>> {
+        Ok(crate::frame::NoderaFrame {
+            epoch: crate::frame::WIRE_EPOCH,
+            kind: self.tag(),
+            flags: crate::frame::flags::EVENT,
+            correlation_id: 0,
+            body: overlay.apply_to(&crate::wire::encode_service_body(self))?,
         }
-        let msg = match tag {
-            message_tags::SERVICE_ANNOUNCE => Self::Announce(ServiceAnnounce {
-                record: ServiceRecord::decode(&mut r)?,
-                signature: r.read_bytes_vec()?,
-            }),
-            message_tags::SERVICE_ANNOUNCE_ACK => Self::AnnounceAck(ServiceAnnounceAck {
-                accepted: r.read_bool()?,
-                next_announce_after_seconds: r.read_u32()?,
-                reason: r.read_string()?,
-                directory: r.read_list(ServiceDirectoryEntry::decode)?,
-            }),
-            message_tags::SERVICE_DIRECTORY_QUERY => Self::DirectoryQuery(ServiceDirectoryQuery {
-                kind: ServiceKind::from_ordinal(r.read_u8()?)?,
-                network_id: NetworkId::decode(&mut r)?,
-                limit: r.read_u32()?,
-            }),
-            message_tags::SERVICE_DIRECTORY_RESPONSE => {
-                Self::DirectoryResponse(ServiceDirectoryResponse {
-                    entries: r.read_list(ServiceDirectoryEntry::decode)?,
-                })
-            }
-            message_tags::SERVICE_SCORE_REPORT => Self::ScoreReport(ServiceScoreReport {
-                reporter: NodeId::decode(&mut r)?,
-                public_key: r.read_bytes_vec()?,
-                network_id: NetworkId::decode(&mut r)?,
-                observations: r.read_list(ServiceObservation::decode)?,
-                report_epoch_millis: r.read_u64()?,
-                signature: r.read_bytes_vec()?,
-            }),
-            message_tags::SERVICE_DRAIN_NOTICE => Self::DrainNotice(ServiceDrainNotice {
-                record: ServiceRecord::decode(&mut r)?,
-                signature: r.read_bytes_vec()?,
-                replacements: r.read_list(ServiceDirectoryEntry::decode)?,
-                reason: r.read_string()?,
-            }),
-            other => return Err(CodecError::UnknownTag(other)),
-        };
-        r.expect_end()?;
-        Ok(msg)
+        .encode())
     }
 
     /// The exact byte range of a received score-report frame that its signature covers.
     ///
     /// Verification uses the bytes as they arrived, never a re-encoding of the decoded value — the
-    /// same rule `split_announce_signature` follows, for the same reason.
+    /// same rule `split_announce_signature` follows, for the same reason. The report crosses the
+    /// tolerant plane whole and opaque, so the span lives inside field 1 of the TLV body.
     pub fn split_report_signature(frame: &[u8]) -> Result<(&[u8], &[u8])> {
-        let report = match Self::decode(frame)? {
-            Self::ScoreReport(r) => r,
-            other => return Err(CodecError::UnknownTag(other.tag())),
-        };
-        let sig_len = report.signature.len();
-        let trailer = sig_len
+        let kind = crate::frame::NoderaFrame::peek_kind(frame)?;
+        if kind != message_tags::SERVICE_SCORE_REPORT {
+            return Err(CodecError::UnknownTag(kind));
+        }
+        let body = crate::wire::validated_body(frame)?;
+        let opaque = crate::tlv::field_slice(body, 1)?.ok_or_else(|| {
+            CodecError::Malformed("score report carries no opaque payload".to_owned())
+        })?;
+        let report = crate::wire::decode_legacy_score_report(opaque)?;
+        let trailer = report
+            .signature
+            .len()
             .checked_add(4)
             .ok_or_else(|| CodecError::Malformed("signature length overflow".to_owned()))?;
-        let split = frame.len().checked_sub(trailer).ok_or_else(|| {
+        let split = opaque.len().checked_sub(trailer).ok_or_else(|| {
             CodecError::Malformed("score report shorter than its signature".to_owned())
         })?;
-        Ok((&frame[..split], &frame[split + 4..]))
+        Ok((&opaque[..split], &opaque[split + 4..]))
     }
 }
 
@@ -805,20 +759,18 @@ mod tests {
 
     #[test]
     fn trailing_bytes_reject_the_frame() {
+        // The frame declares its own body length, so an extra byte is caught at the header
+        // rather than after a body has already been interpreted.
         let mut bytes = samples()[0].encode();
         bytes.push(0);
-        assert!(matches!(
-            ServiceMessage::decode(&bytes),
-            Err(CodecError::TrailingBytes(1))
-        ));
+        assert!(ServiceMessage::decode(&bytes).is_err());
     }
 
     #[test]
-    fn unknown_tag_is_rejected() {
-        let mut w = CanonicalWriter::new();
-        w.write_frame_header(9_999, ENCODING_VERSION);
+    fn an_unknown_kind_is_named_rather_than_guessed_at() {
+        let frame = crate::frame::NoderaFrame::event(9_999, Vec::new()).encode();
         assert!(matches!(
-            ServiceMessage::decode(w.as_slice()),
+            ServiceMessage::decode(&frame),
             Err(CodecError::UnknownTag(9_999))
         ));
     }

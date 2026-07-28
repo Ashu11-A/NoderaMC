@@ -6,6 +6,7 @@ import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.PeerRole;
 import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.content.ManifestHolding;
 import dev.nodera.protocol.discovery.AnnounceEvent;
 import dev.nodera.protocol.discovery.InventoryAdvertisement;
@@ -44,6 +45,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -299,46 +302,144 @@ class WireFixtureTest {
         return dir;
     }
 
-    @Test
-    void goldenFixturesMatchTheCommittedBytes() throws IOException {
-        Path dir = repoRoot().resolve("fixtures").resolve("wire");
-        Files.createDirectories(dir);
-        boolean regenerate = Boolean.getBoolean(REGENERATE_PROPERTY);
+    /**
+     * The Java-only half of the corpus: a golden frame for every registry tag the cross-language
+     * corpus does not carry.
+     *
+     * <p>These live in {@code fixtures/wire/java-only/} because Rust deliberately implements only
+     * the discovery, rendezvous, and service families — the game and consensus messages have no
+     * second implementation to agree with. They are still pinned here: byte stability is what makes
+     * "the wire did not change" a checkable claim rather than a review opinion, and it is what a
+     * later generated codec will be verified against.
+     *
+     * @return file name → message, for every tag not in {@link #corpus()}.
+     */
+    private static Map<String, NoderaMessage> javaOnlyCorpus() {
+        Set<Integer> crossLanguage = new java.util.TreeSet<>();
+        for (NoderaMessage msg : corpus().values()) {
+            crossLanguage.add(MessageCodec.typeTagOf(msg));
+        }
+        Map<String, NoderaMessage> out = new LinkedHashMap<>();
+        for (Map.Entry<Integer, NoderaMessage> entry : MessageSamples.byTag().entrySet()) {
+            if (!crossLanguage.contains(entry.getKey())) {
+                out.put(MessageSamples.fixtureName(entry.getKey()), entry.getValue());
+            }
+        }
+        return out;
+    }
 
-        for (Map.Entry<String, NoderaMessage> entry : corpus().entrySet()) {
-            byte[] encoded = MessageCodec.encode(entry.getValue());
+    /**
+     * Compare one corpus against its committed files.
+     *
+     * <p>A missing fixture <b>fails</b>. It used to be written silently, which meant a new message
+     * could reach production with a fixture nobody had ever reviewed — the file appeared in the
+     * working tree as a side effect of a green test run, and a side effect is not a decision.
+     */
+    private static void checkCorpus(Path dir, Map<String, NoderaMessage> corpus) throws IOException {
+        boolean regenerate = Boolean.getBoolean(REGENERATE_PROPERTY);
+        if (regenerate) {
+            Files.createDirectories(dir);
+        }
+        for (Map.Entry<String, NoderaMessage> entry : corpus.entrySet()) {
+            // The corpus pins the CURRENT wire: NDR2 frames with TLV infrastructure bodies. The
+            // frames these files used to hold are kept under `v1-rejected/`, where they are asserted
+            // to be refused rather than misparsed.
+            byte[] encoded = WireCodec.encode(entry.getValue());
             Path file = dir.resolve(entry.getKey());
 
-            if (Files.exists(file) && !regenerate) {
-                byte[] golden = Files.readAllBytes(file);
-                assertArrayEquals(golden, encoded,
-                        entry.getKey() + ": encoded bytes differ from the committed fixture. This is a "
-                                + "wire-contract change — review it, then re-run with -D"
-                                + REGENERATE_PROPERTY + "=true to accept.");
-            } else {
+            if (regenerate) {
                 Files.write(file, encoded);
+                continue;
+            }
+            assertTrue(Files.exists(file),
+                    entry.getKey() + ": no committed fixture. A new message needs golden bytes — "
+                            + "re-run with -D" + REGENERATE_PROPERTY + "=true, then review and "
+                            + "commit the file it emits.");
+            byte[] golden = Files.readAllBytes(file);
+            assertArrayEquals(golden, encoded,
+                    entry.getKey() + ": encoded bytes differ from the committed fixture. This is a "
+                            + "wire-contract change — review it, then re-run with -D"
+                            + REGENERATE_PROPERTY + "=true to accept.");
+        }
+    }
+
+    @Test
+    void goldenFixturesMatchTheCommittedBytes() throws IOException {
+        checkCorpus(repoRoot().resolve("fixtures").resolve("wire"), corpus());
+    }
+
+    @Test
+    void javaOnlyGoldenFixturesMatchTheCommittedBytes() throws IOException {
+        checkCorpus(repoRoot().resolve("fixtures").resolve("wire").resolve("java-only"),
+                javaOnlyCorpus());
+    }
+
+    @Test
+    void everyFixtureRoundTripsThroughTheJavaCodec() {
+        Map<String, NoderaMessage> all = new LinkedHashMap<>(corpus());
+        all.putAll(javaOnlyCorpus());
+        for (Map.Entry<String, NoderaMessage> entry : all.entrySet()) {
+            byte[] encoded = WireCodec.encode(entry.getValue());
+            NoderaMessage decoded = WireCodec.decode(encoded);
+            assertEquals(entry.getValue(), decoded, entry.getKey());
+            assertArrayEquals(encoded, WireCodec.encode(decoded), entry.getKey());
+
+            // The strict canonical encoding is still the one that is hashed and signed, so it is
+            // held to the same round trip — it is simply no longer what crosses the wire.
+            byte[] canonical = MessageCodec.encode(entry.getValue());
+            assertEquals(entry.getValue(), MessageCodec.decode(canonical), entry.getKey());
+        }
+    }
+
+    /**
+     * The flag day, asserted rather than assumed.
+     *
+     * <p>Every one of these files is a frame this project really used to emit. A peer that still
+     * speaks it must be told so — loudly, at the first four bytes — because the alternative is what
+     * the old frame actually did: begin parsing, produce nonsense, and report the nonsense.
+     */
+    @Test
+    void everyRetiredV1FrameIsRefusedRatherThanMisparsed() throws IOException {
+        Path dir = repoRoot().resolve("fixtures").resolve("wire").resolve("v1-rejected");
+        assertTrue(Files.isDirectory(dir), "the retired v1 corpus must stay committed: " + dir);
+        try (var files = Files.list(dir)) {
+            List<Path> retired = files.filter(f -> f.toString().endsWith(".bin")).sorted().toList();
+            assertFalse(retired.isEmpty(), "the v1 rejection set is empty");
+            for (Path file : retired) {
+                byte[] v1 = Files.readAllBytes(file);
+                assertThrows(IllegalStateException.class, () -> WireCodec.decodeFrame(v1),
+                        file.getFileName() + ": a pre-NDR2 frame must be refused, not interpreted");
             }
         }
     }
 
     @Test
-    void everyFixtureRoundTripsThroughTheJavaCodec() {
-        for (Map.Entry<String, NoderaMessage> entry : corpus().entrySet()) {
-            byte[] encoded = MessageCodec.encode(entry.getValue());
-            NoderaMessage decoded = MessageCodec.decode(encoded);
-            assertEquals(entry.getValue(), decoded, entry.getKey());
-            assertArrayEquals(encoded, MessageCodec.encode(decoded), entry.getKey());
+    void corpusCoversEveryRegistryTag() {
+        MessageSamples.assertTotal();
+
+        Set<Integer> covered = new java.util.TreeSet<>();
+        for (NoderaMessage msg : corpus().values()) {
+            covered.add(MessageCodec.typeTagOf(msg));
         }
+        for (NoderaMessage msg : javaOnlyCorpus().values()) {
+            covered.add(MessageCodec.typeTagOf(msg));
+        }
+        Set<Integer> missing = new java.util.TreeSet<>(MessageCodec.KNOWN_TAGS);
+        missing.removeAll(covered);
+        assertTrue(missing.isEmpty(),
+                "every registry tag needs golden bytes; missing " + missing);
     }
 
     @Test
-    void corpusCoversTheDiscoveryTagsTheRustServicesSpeak() {
+    void crossLanguageCorpusCoversTheTagsTheRustServicesSpeak() {
         Set<Integer> covered = new java.util.TreeSet<>();
         for (NoderaMessage msg : corpus().values()) {
             covered.add(MessageCodec.typeTagOf(msg));
         }
         // Tags 27–29 are the frozen discovery family the Rust tracker answers; 33/34 are the
-        // announce family Task 28 appended for the out-of-process tracker.
+        // announce family Task 28 appended for the out-of-process tracker. These specifically must
+        // stay in the shared directory — the Rust conformance test reads that directory, so moving
+        // one of them to java-only would drop it from cross-language coverage silently.
         assertTrue(covered.containsAll(List.of(
                         MessageCodec.TAG_TRACKER_QUERY,
                         MessageCodec.TAG_TRACKER_RESPONSE,

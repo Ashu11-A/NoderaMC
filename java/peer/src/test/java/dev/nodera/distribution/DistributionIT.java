@@ -1,5 +1,6 @@
 package dev.nodera.distribution;
 
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
@@ -309,7 +310,7 @@ final class DistributionIT {
             seeder.publish(layout.manifest(), layout.blob());
 
             seeder.onMessage(PeerAddress.of(client.id, "loopback"),
-                    dev.nodera.protocol.codec.MessageCodec.encode(
+                    dev.nodera.protocol.wire.WireCodec.encode(
                             new dev.nodera.protocol.content.ContentRequest(
                                     layout.manifest().manifestRoot(), List.of(0, 1, 2, 3))));
 
@@ -326,7 +327,7 @@ final class DistributionIT {
             // A new window restores the budget, so the same piece is served again — throttling
             // delays a seeder, it does not blacklist a requester.
             seeder.onMessage(PeerAddress.of(client.id, "loopback"),
-                    dev.nodera.protocol.codec.MessageCodec.encode(
+                    dev.nodera.protocol.wire.WireCodec.encode(
                             new dev.nodera.protocol.content.ContentRequest(
                                     layout.manifest().manifestRoot(), List.of(0))));
             assertThat(seeder.servedPieces()).isEqualTo(2);

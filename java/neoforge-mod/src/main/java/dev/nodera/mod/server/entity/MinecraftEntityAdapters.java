@@ -19,7 +19,14 @@ import net.minecraft.world.entity.item.ItemEntity;
 /** Stateless Minecraft-to-canonical adapters used by the live entity bridge. */
 public final class MinecraftEntityAdapters {
 
-    private static final int GHOST_PAYLOAD_VERSION = 1;
+    /**
+     * Bumped to 2 when the pose stopped being an upstream ordinal (Task 14 phase 6).
+     *
+     * <p>The bytes genuinely changed, so the version has to: a payload written before the change
+     * means a different pose from one written after it, and a reader that could not tell them apart
+     * would silently mis-hash old state.
+     */
+    private static final int GHOST_PAYLOAD_VERSION = 2;
 
     private MinecraftEntityAdapters() {
     }
@@ -71,7 +78,11 @@ public final class MinecraftEntityAdapters {
     private static Bytes ghostPayload(Entity entity) {
         CanonicalWriter writer = new CanonicalWriter();
         writer.writeU16(GHOST_PAYLOAD_VERSION);
-        writer.writeU32(Integer.toUnsignedLong(entity.getPose().ordinal()));
+        // Nodera's own code, not Minecraft's ordinal. Ghost state is hashed, so an ordinal made the
+        // declaration order of an upstream enum part of our consensus contract: Mojang reordering
+        // two poses would have changed every state root with an entity in it, with nothing here
+        // changing and no test failing. See PoseCodes.
+        writer.writeU32(Integer.toUnsignedLong(PoseCodes.codeOf(entity.getPose())));
         int healthMillis = entity instanceof LivingEntity living
                 ? Math.max(0, Math.round(living.getHealth() * 1_000.0f)) : 0;
         writer.writeU32(Integer.toUnsignedLong(healthMillis));

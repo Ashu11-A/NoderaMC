@@ -12,6 +12,7 @@ import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.codec.MessageCodec;
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.simulation.rules.FlatWorldRules;
 import org.junit.jupiter.api.Test;
 
@@ -114,9 +115,9 @@ final class FakeRegionTest {
         assertThat(batch.actions()).containsExactly(place, brk);
 
         ActionBatchMsg wire = new ActionBatchMsg(batch);
-        byte[] frame = MessageCodec.encode(wire);
+        byte[] frame = WireCodec.encode(wire);
 
-        ActionBatchMsg decoded = (ActionBatchMsg) MessageCodec.decode(frame);
+        ActionBatchMsg decoded = (ActionBatchMsg) WireCodec.decode(frame);
         assertThat(decoded.batch()).isEqualTo(batch);
     }
 

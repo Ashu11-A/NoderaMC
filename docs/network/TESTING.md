@@ -6,15 +6,16 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-27 · **727 Java tests + 35 Rust (`nodera-codec`) ·
-0 failing · 0 skipped** — the Java figure includes the telemetry emitter core (task 12)
+**Category:** network · **Last run:** 2026-07-28 · **933 Java tests + 73 Rust (`nodera-codec`) ·
+0 failing · 0 skipped** — the Java figure is the sum of the module table below (184 + 154 + 595);
+the `NDR2` wire (task 14) added 58 of them
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `transport` | Wire plane + socket/rendezvous carriers; tags through 61; authenticated handshake; bind-failure invariants | 94 | ✅ |
-| `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores | 112 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, headless worker, validation lane, durable coordinator state, the endpoint tenant boundary, the L-16 prediction feed | 521 | 🚧 |
-| `rust/nodera-codec` | Byte-exact canonical encoding port, Ed25519 verify, tag mirror, framing, fixture conformance | 35 | ✅ |
+| `transport` | The `NDR2` wire and both planes: all 75 kinds sampled, fixtured and dispatch-tested; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz | 184 | ✅ |
+| `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores | 154 | ✅ |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, headless worker, validation lane, durable coordinator state, the endpoint tenant boundary, the L-16 prediction feed | 595 | 🚧 |
+| `rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 73 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything
 fails.
@@ -22,6 +23,13 @@ fails.
 ```bash
 ./gradlew :transport:test :storage:test :peer:test
 cd rust && cargo test -p nodera-codec
+
+# Task 14: accept a deliberate wire change after reviewing the bytes it emits.
+./gradlew :transport:test --tests '*WireFixtureTest' -Dnodera.fixtures.regenerate=true
+
+# Task 14: re-render the artefacts generated from the schema (the Rust kind table, the
+# fixture manifest) after appending a kind to WireRegistry.
+./gradlew :transport:test --tests '*WireSchemaGeneratorTest' -Dnodera.wire.regenerate=true
 ```
 
 ---
@@ -59,6 +67,19 @@ cd rust && cargo test -p nodera-codec
 | `ConfigVerbIT` | A pushed setting actually changes worker behaviour, over the real control socket |
 | `GrantGossipIT` (6) | Grants converge across co-hosts; a non-author's signed grant is refused everywhere and not even relayed |
 | `TrafficDirectionSplitTest` | Upload and download never share a field |
+| `MessageSamples.assertTotal` (task 14) | Every one of the 75 registry kinds has a deterministic sample; appending one without a sample fails the build at the commit that adds it |
+| `WireFixtureTest` (5) | Every tag's golden bytes are committed and unchanged, across the 25-file cross-language corpus and the 52-file Java-only corpus. A **missing** fixture fails — it used to be written silently, which meant bytes nobody had reviewed |
+| `MessageCodecTypeTagTest` (75/75) | Every kind dispatches to its own type and round-trips by value; the registry is unique and contiguous. Coverage was 25 of 72 before task 14 |
+| `CanonicalMutationFuzzTest` + `mutation.rs` | The same invariant in both languages on the same corpus: a mutated frame either fails to decode or re-encodes to exactly its own bytes. Found 999 pre-existing canonical violations across 30 message types, now 0 — **and the documented-exception list is now empty**, where it used to hold `RegionRefusal` and `PeerJoin` |
+| `ForwardCompatibilityTest` (10) | A field a newer peer appended is skipped — at the top level and inside a nested `NodeCapabilities` — and a field an older peer omitted takes its default. Consensus payloads cross as one opaque field. The two exit conditions of L-86 and L-89 |
+| `NegotiationTest` (11) | A rules-version mismatch yields OBSERVER with a coded reason instead of an engine throw; a peer cannot name itself; the emitted feature set is the intersection. L-87 and L-88 |
+| `MessageRouterTest` (11) | A peer cannot speak in another peer's name; an answer nobody asked for matches nothing; an EXCLUSIVE kind refuses a second handler rather than replacing the first |
+| `WireEnumRulesTest` (9) | Every boundary enum has a total, pinned code table, and no class in the wire package calls `ordinal()`. The ArchUnit rule was **falsified before being trusted** — the obvious spelling matches nothing |
+| `CrossVersionIT` (5) | Two builds from different releases mesh, seed and tunnel; an unknown kind costs one frame rather than the connection; a field from a later release survives being relayed through a peer that cannot read it |
+| `WireSchemaGeneratorTest` (6) | The generated Rust kind table and fixture manifest match the schema they are rendered from; a stale one fails |
+| `WireFixtureTest.everyRetiredV1FrameIsRefusedRatherThanMisparsed` | Every pre-`NDR2` frame this project used to emit is refused at the magic, in both languages. The flag day, asserted rather than assumed |
+| `tag_mirror.rs` (5) | The **generated** Rust kind table is compared against a fresh parse of `WireRegistry.java`, totally and in both directions — which is what makes "generated" mean something: a stale file fails, and so does a kind that exists on one side only |
+| `fixtures.rs` (3) | Rust re-encodes every shared fixture byte-exactly; truncation is asserted to be rejected, and appending is routed to the family that owns the tag |
 
 ## 3. Conventions
 

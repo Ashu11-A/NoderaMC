@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.crypto.HashService;
@@ -783,7 +784,7 @@ public final class NoderaHost {
                 try {
                     host.transport().send(
                             dev.nodera.transport.PeerAddress.of(entry.nodeId(), entry.route()),
-                            dev.nodera.protocol.codec.MessageCodec.encode(
+                            dev.nodera.protocol.wire.WireCodec.encode(
                                     new dev.nodera.protocol.assignment.RegionAssigned(
                                             planned.region(), planned.lease().epoch(),
                                             dev.nodera.core.region.RegionReplicaRole.VALIDATOR,

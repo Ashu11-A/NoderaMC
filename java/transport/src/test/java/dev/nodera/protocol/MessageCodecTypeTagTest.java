@@ -2,39 +2,11 @@ package dev.nodera.protocol;
 
 import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
-import dev.nodera.protocol.assignment.LeaseRenewal;
-import dev.nodera.protocol.assignment.RegionRevoked;
 import dev.nodera.protocol.codec.MessageCodec;
-import dev.nodera.protocol.content.ArchiveReplicaAck;
-import dev.nodera.protocol.content.ArchiveReplicaAssignment;
-import dev.nodera.protocol.content.ContentAvailability;
-import dev.nodera.protocol.content.ContentChunk;
-import dev.nodera.protocol.content.ContentRequest;
-import dev.nodera.protocol.content.ManifestHolding;
-import dev.nodera.protocol.content.PieceBitmap;
-import dev.nodera.protocol.discovery.InventoryAdvertisement;
-import dev.nodera.protocol.discovery.ManifestSeeders;
-import dev.nodera.protocol.discovery.TrackerQuery;
-import dev.nodera.protocol.discovery.TrackerResponse;
-import dev.nodera.protocol.handshake.ChallengeResponse;
-import dev.nodera.protocol.handshake.WorkerActivation;
-import dev.nodera.protocol.health.Heartbeat;
-import dev.nodera.protocol.health.WorkerLoad;
-import dev.nodera.protocol.membership.GatewayClaim;
-import dev.nodera.protocol.membership.MembershipUpdate;
-import dev.nodera.protocol.membership.PeerEntry;
-import dev.nodera.protocol.membership.PeerGoodbye;
-import dev.nodera.protocol.membership.PeerJoin;
-import dev.nodera.protocol.membership.SessionKeepAlive;
-import dev.nodera.core.identity.NodeCapabilities;
-import dev.nodera.core.identity.WorldHealth;
-import dev.nodera.protocol.simulationmsg.CommitAnnounce;
 import dev.nodera.protocol.simulationmsg.ExternalDelta;
-import dev.nodera.protocol.simulationmsg.ResyncRequest;
-import dev.nodera.protocol.simulationmsg.StreamChunk;
 import org.junit.jupiter.api.Test;
 
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -140,42 +112,19 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_SERVICE_DIRECTORY_RESPONSE).isEqualTo(70);
         assertThat(MessageCodec.TAG_SERVICE_SCORE_REPORT).isEqualTo(71);
         assertThat(MessageCodec.TAG_SERVICE_DRAIN_NOTICE).isEqualTo(72);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(72);
+        assertThat(MessageCodec.TAG_NACK).isEqualTo(73);
+        assertThat(MessageCodec.TAG_HELLO).isEqualTo(74);
+        assertThat(MessageCodec.TAG_HELLO_ACK).isEqualTo(75);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(75);
     }
 
     @Test
-    void typeTagOfMatchesConstantForEveryMessageType() {
-        Map<Class<?>, Integer> expected = new LinkedHashMap<>();
-        expected.put(ChallengeResponse.class, MessageCodec.TAG_CHALLENGE_RESPONSE);
-        expected.put(WorkerActivation.class, MessageCodec.TAG_WORKER_ACTIVATION);
-        expected.put(Heartbeat.class, MessageCodec.TAG_HEARTBEAT);
-        expected.put(WorkerLoad.class, MessageCodec.TAG_WORKER_LOAD);
-        expected.put(LeaseRenewal.class, MessageCodec.TAG_LEASE_RENEWAL);
-        expected.put(RegionRevoked.class, MessageCodec.TAG_REGION_REVOKED);
-        expected.put(ResyncRequest.class, MessageCodec.TAG_RESYNC_REQUEST);
-        expected.put(CommitAnnounce.class, MessageCodec.TAG_COMMIT_ANNOUNCE);
-        expected.put(StreamChunk.class, MessageCodec.TAG_STREAM_CHUNK);
-        expected.put(RelayEnvelope.class, MessageCodec.TAG_RELAY_ENVELOPE);
-        expected.put(EchoTest.class, MessageCodec.TAG_ECHO_TEST);
-        expected.put(PeerJoin.class, MessageCodec.TAG_PEER_JOIN);
-        expected.put(MembershipUpdate.class, MessageCodec.TAG_MEMBERSHIP_UPDATE);
-        expected.put(PeerGoodbye.class, MessageCodec.TAG_PEER_GOODBYE);
-        expected.put(GatewayClaim.class, MessageCodec.TAG_GATEWAY_CLAIM);
-        expected.put(SessionKeepAlive.class, MessageCodec.TAG_SESSION_KEEP_ALIVE);
-        expected.put(ContentRequest.class, MessageCodec.TAG_CONTENT_REQUEST);
-        expected.put(ContentChunk.class, MessageCodec.TAG_CONTENT_CHUNK);
-        expected.put(ContentAvailability.class, MessageCodec.TAG_CONTENT_AVAILABILITY);
-        expected.put(TrackerQuery.class, MessageCodec.TAG_TRACKER_QUERY);
-        expected.put(TrackerResponse.class, MessageCodec.TAG_TRACKER_RESPONSE);
-        expected.put(InventoryAdvertisement.class, MessageCodec.TAG_INVENTORY_ADVERTISEMENT);
-        expected.put(ArchiveReplicaAssignment.class, MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT);
-        expected.put(ArchiveReplicaAck.class, MessageCodec.TAG_ARCHIVE_REPLICA_ACK);
-        expected.put(ExternalDelta.class, MessageCodec.TAG_EXTERNAL_DELTA);
-
-        for (Map.Entry<Class<?>, Integer> e : expected.entrySet()) {
-            assertThat(MessageCodec.typeTagOf(sampleOf(e.getKey())))
-                    .as("typeTagOf for %s", e.getKey().getSimpleName())
-                    .isEqualTo(e.getValue());
+    void typeTagOfMatchesItsRegistryTagForEveryMessageType() {
+        MessageSamples.assertTotal();
+        for (Map.Entry<Integer, NoderaMessage> entry : MessageSamples.byTag().entrySet()) {
+            assertThat(MessageCodec.typeTagOf(entry.getValue()))
+                    .as("typeTagOf for %s", MessageCodec.typeName(entry.getKey()))
+                    .isEqualTo(entry.getKey());
         }
     }
 
@@ -228,39 +177,19 @@ final class MessageCodecTypeTagTest {
 
     @Test
     void encodeThenDecodeReturnsSameClassForEveryMessageType() {
-        Class<?>[] classes = {
-                ChallengeResponse.class,
-                WorkerActivation.class,
-                Heartbeat.class,
-                WorkerLoad.class,
-                LeaseRenewal.class,
-                RegionRevoked.class,
-                ResyncRequest.class,
-                CommitAnnounce.class,
-                StreamChunk.class,
-                RelayEnvelope.class,
-                EchoTest.class,
-                PeerJoin.class,
-                MembershipUpdate.class,
-                PeerGoodbye.class,
-                GatewayClaim.class,
-                SessionKeepAlive.class,
-                ContentRequest.class,
-                ContentChunk.class,
-                ContentAvailability.class,
-                TrackerQuery.class,
-                TrackerResponse.class,
-                InventoryAdvertisement.class,
-                ArchiveReplicaAssignment.class,
-                ArchiveReplicaAck.class,
-                ExternalDelta.class,
-        };
-        for (Class<?> cls : classes) {
-            NoderaMessage original = sampleOf(cls);
+        // Every tag, not a hand-maintained subset: this test used to list 25 classes, which is how
+        // a message reached production without its dispatch arm ever being exercised.
+        MessageSamples.assertTotal();
+        for (Map.Entry<Integer, NoderaMessage> entry : MessageSamples.byTag().entrySet()) {
+            NoderaMessage original = entry.getValue();
             NoderaMessage decoded = MessageCodec.decode(MessageCodec.encode(original));
             assertThat(decoded.getClass())
-                    .as("decode of encode(%s) must yield same class", cls.getSimpleName())
-                    .isEqualTo(cls);
+                    .as("decode of encode(%s) must yield same class",
+                            MessageCodec.typeName(entry.getKey()))
+                    .isEqualTo(original.getClass());
+            assertThat(decoded)
+                    .as("%s must round-trip by value", MessageCodec.typeName(entry.getKey()))
+                    .isEqualTo(original);
         }
     }
 
@@ -283,155 +212,19 @@ final class MessageCodecTypeTagTest {
 
     @Test
     void externalDeltaRoundTripsAllFields() {
-        ExternalDelta original = (ExternalDelta) sampleOf(ExternalDelta.class);
+        ExternalDelta original =
+                (ExternalDelta) MessageSamples.byTag().get(MessageCodec.TAG_EXTERNAL_DELTA);
         ExternalDelta decoded = (ExternalDelta) MessageCodec.decode(MessageCodec.encode(original));
         assertThat(decoded).isEqualTo(original);
     }
 
     @Test
-    void allTagsAreDistinct() {
-        int[] tags = {
-                MessageCodec.TAG_CLIENT_HELLO,
-                MessageCodec.TAG_SERVER_HELLO,
-                MessageCodec.TAG_CHALLENGE_RESPONSE,
-                MessageCodec.TAG_WORKER_ACTIVATION,
-                MessageCodec.TAG_REGION_ASSIGNED,
-                MessageCodec.TAG_REGION_REVOKED,
-                MessageCodec.TAG_LEASE_RENEWAL,
-                MessageCodec.TAG_SNAPSHOT_ANNOUNCE,
-                MessageCodec.TAG_STREAM_CHUNK,
-                MessageCodec.TAG_ACTION_BATCH_MSG,
-                MessageCodec.TAG_REGION_PROPOSAL,
-                MessageCodec.TAG_VALIDATION_VOTE,
-                MessageCodec.TAG_COMMIT_ANNOUNCE,
-                MessageCodec.TAG_RESYNC_REQUEST,
-                MessageCodec.TAG_HEARTBEAT,
-                MessageCodec.TAG_WORKER_LOAD,
-                MessageCodec.TAG_ECHO_TEST,
-                MessageCodec.TAG_RELAY_ENVELOPE,
-                MessageCodec.TAG_PEER_JOIN,
-                MessageCodec.TAG_MEMBERSHIP_UPDATE,
-                MessageCodec.TAG_PEER_GOODBYE,
-                MessageCodec.TAG_GATEWAY_CLAIM,
-                MessageCodec.TAG_SESSION_KEEP_ALIVE,
-                MessageCodec.TAG_CONTENT_REQUEST,
-                MessageCodec.TAG_CONTENT_CHUNK,
-                MessageCodec.TAG_CONTENT_AVAILABILITY,
-                MessageCodec.TAG_TRACKER_QUERY,
-                MessageCodec.TAG_TRACKER_RESPONSE,
-                MessageCodec.TAG_INVENTORY_ADVERTISEMENT,
-                MessageCodec.TAG_ARCHIVE_REPLICA_ASSIGNMENT,
-                MessageCodec.TAG_ARCHIVE_REPLICA_ACK,
-                MessageCodec.TAG_EXTERNAL_DELTA,
-        };
-        long distinct = java.util.Arrays.stream(tags).distinct().count();
-        assertThat(distinct).isEqualTo(tags.length);
-    }
-
-    private static NoderaMessage sampleOf(Class<?> cls) {
-        NodeId nodeId = new NodeId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
-        if (cls == ChallengeResponse.class) {
-            return new ChallengeResponse(Bytes.fromHex("aabb"));
+    void everyRegistryTagIsDistinctAndContiguous() {
+        List<Integer> tags = new ArrayList<>(MessageCodec.KNOWN_TAGS);
+        assertThat(tags).doesNotHaveDuplicates();
+        assertThat(tags).hasSize(MessageCodec.NEXT_TAG);
+        for (int expected = 1; expected <= MessageCodec.NEXT_TAG; expected++) {
+            assertThat(tags).as("tag %d must be assigned", expected).contains(expected);
         }
-        if (cls == WorkerActivation.class) {
-            return new WorkerActivation(UUID.fromString("00000000-0000-0000-0000-000000000011"),
-                    1, 2, 20L);
-        }
-        if (cls == Heartbeat.class) {
-            return new Heartbeat(5L, new WorkerLoad(0, 0L, 0L));
-        }
-        if (cls == WorkerLoad.class) {
-            return new WorkerLoad(7, 99L, 123L);
-        }
-        if (cls == LeaseRenewal.class) {
-            return new LeaseRenewal(
-                    new dev.nodera.core.region.RegionId(
-                            dev.nodera.core.region.DimensionKey.overworld(), 0, 0),
-                    dev.nodera.core.region.RegionEpoch.INITIAL, 200L);
-        }
-        if (cls == RegionRevoked.class) {
-            return new RegionRevoked(
-                    new dev.nodera.core.region.RegionId(
-                            dev.nodera.core.region.DimensionKey.overworld(), 0, 0),
-                    dev.nodera.core.region.RegionEpoch.INITIAL, "test");
-        }
-        if (cls == ResyncRequest.class) {
-            return new ResyncRequest(
-                    new dev.nodera.core.region.RegionId(
-                            dev.nodera.core.region.DimensionKey.overworld(), 0, 0),
-                    new dev.nodera.core.state.SnapshotVersion(0L));
-        }
-        if (cls == CommitAnnounce.class) {
-            return new CommitAnnounce(
-                    new dev.nodera.core.region.RegionId(
-                            dev.nodera.core.region.DimensionKey.overworld(), 0, 0),
-                    new dev.nodera.core.state.SnapshotVersion(1L),
-                    dev.nodera.core.state.StateRoot.zero(),
-                    Bytes.fromHex("00"));
-        }
-        if (cls == StreamChunk.class) {
-            return new StreamChunk(42L, 0, 1, Bytes.fromHex("0102"));
-        }
-        if (cls == RelayEnvelope.class) {
-            return new RelayEnvelope(nodeId, Bytes.fromHex("090a"));
-        }
-        if (cls == EchoTest.class) {
-            return new EchoTest(Bytes.fromHex("deadbeef"));
-        }
-        if (cls == PeerJoin.class) {
-            return new PeerJoin(nodeId, "127.0.0.1:25566", NodeCapabilities.initial(), true);
-        }
-        if (cls == MembershipUpdate.class) {
-            return new MembershipUpdate(3L, nodeId, java.util.List.of(
-                    new PeerEntry(nodeId, "127.0.0.1:25566", NodeCapabilities.initial(), true)));
-        }
-        if (cls == PeerGoodbye.class) {
-            return new PeerGoodbye(nodeId, 4L, "transport-down");
-        }
-        if (cls == GatewayClaim.class) {
-            return new GatewayClaim(nodeId, 5L);
-        }
-        if (cls == SessionKeepAlive.class) {
-            return new SessionKeepAlive(nodeId, 9L);
-        }
-        if (cls == ContentRequest.class) {
-            return new ContentRequest(Bytes.fromHex("0badc0de"), java.util.List.of(3, 0, 7));
-        }
-        if (cls == ContentChunk.class) {
-            return new ContentChunk(Bytes.fromHex("0badc0de"), 2, Bytes.fromHex("cafebabe"));
-        }
-        if (cls == ContentAvailability.class) {
-            return new ContentAvailability(nodeId, java.util.List.of(
-                    new ManifestHolding(Bytes.fromHex("0badc0de"),
-                            PieceBitmap.of(java.util.List.of(0, 3, 9)))));
-        }
-        if (cls == TrackerQuery.class) {
-            return new TrackerQuery(Bytes.fromHex("cafe"));
-        }
-        if (cls == TrackerResponse.class) {
-            return new TrackerResponse(Bytes.fromHex("cafe"), "world",
-                    List.of(new PeerEntry(nodeId, "127.0.0.1:25566", NodeCapabilities.initial(), true)),
-                    List.of(new ManifestSeeders(Bytes.fromHex("0badc0de"), List.of(nodeId))),
-                    1L, 42L, 9500, WorldHealth.HEALTHY, 0L);
-        }
-        if (cls == InventoryAdvertisement.class) {
-            return new InventoryAdvertisement(Bytes.fromHex("cafe"), nodeId, java.util.List.of(
-                    new ManifestHolding(Bytes.fromHex("0badc0de"),
-                            PieceBitmap.of(java.util.List.of(0, 1)))));
-        }
-        if (cls == ArchiveReplicaAssignment.class) {
-            return new ArchiveReplicaAssignment(Bytes.fromHex("f00d"), nodeId, List.of(2, 0));
-        }
-        if (cls == ArchiveReplicaAck.class) {
-            return new ArchiveReplicaAck(Bytes.fromHex("f00d"), nodeId, List.of(0, 2));
-        }
-        if (cls == ExternalDelta.class) {
-            return new ExternalDelta(
-                    new dev.nodera.core.region.RegionId(
-                            dev.nodera.core.region.DimensionKey.overworld(), 0, 0),
-                    new dev.nodera.core.state.SnapshotVersion(6L),
-                    Bytes.fromHex("0011"), Bytes.fromHex("2233"));
-        }
-        throw new IllegalArgumentException("no sample for " + cls);
     }
 }

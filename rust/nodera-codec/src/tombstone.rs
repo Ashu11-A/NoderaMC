@@ -252,14 +252,22 @@ impl WorldDeletionGossip {
 mod tests {
     use super::*;
 
-    /// The Java-emitted golden deletion — the same bytes a peer would receive from the network.
-    fn golden() -> Vec<u8> {
+    /// The Java-emitted golden deletion, as a peer would receive it: an `NDR2` frame.
+    fn golden_frame() -> Vec<u8> {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(std::path::Path::parent)
             .expect("repo root")
             .join("fixtures/wire/world-deletion-gossip.bin");
         std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    }
+
+    /// The strict canonical payload inside that frame — a deletion is a CONSENSUS kind, so the
+    /// tolerant plane carries it opaque and untouched.
+    fn golden() -> Vec<u8> {
+        crate::wire::consensus_payload(&golden_frame())
+            .expect("the golden frame carries an opaque consensus payload")
+            .to_vec()
     }
 
     #[test]

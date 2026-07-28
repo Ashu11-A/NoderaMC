@@ -312,6 +312,11 @@ fn entry_of(id: &NodeId, record: &PeerRecord) -> PeerEntry {
             .capabilities
             .roles
             .contains(&nodera_codec::types::PeerRole::Bootstrap),
+        // With TLV there is no longer a short discovery layout and a long membership one, only
+        // fields that are present or absent. The tracker does not hold a peer's key — a discovery
+        // record says where a peer is, not what it may sign for — so these stay empty here.
+        public_key: Vec::new(),
+        client_version: String::new(),
     }
 }
 

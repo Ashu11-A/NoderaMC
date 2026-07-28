@@ -1,7 +1,8 @@
 //! Read-only mirror of the two frozen tag registries.
 //!
 //! * [`type_tags`] mirrors `core/crypto/TypeTags.java` — the tags nested `Encodable` values carry.
-//! * [`message_tags`] mirrors `protocol/codec/MessageCodec.java` — the outer message frame tags.
+//! * [`message_tags`] re-exports the generated [`crate::kinds::message_tags`], rendered from
+//!   `protocol/wire/WireRegistry.java` — the outer message frame kinds.
 //!
 //! Both registries are **append-only**: assigning a number is permanent and renumbering is a
 //! network-breaking change. `tests/tag_mirror.rs` parses the Java sources and fails the build if
@@ -96,107 +97,13 @@ pub mod type_tags {
     pub const NEXT: u16 = 118;
 }
 
-/// Message frame tags (`dev.nodera.protocol.codec.MessageCodec`).
-pub mod message_tags {
-    /// `TrackerQuery` (Task 20).
-    pub const TRACKER_QUERY: u16 = 27;
-    /// `TrackerResponse` (Task 20).
-    pub const TRACKER_RESPONSE: u16 = 28;
-    /// `InventoryAdvertisement` (Task 20).
-    pub const INVENTORY_ADVERTISEMENT: u16 = 29;
-    /// `TrackerAnnounce` (Task 28).
-    pub const TRACKER_ANNOUNCE: u16 = 33;
-    /// `TrackerAnnounceAck` (Task 28).
-    pub const TRACKER_ANNOUNCE_ACK: u16 = 34;
-
-    // --- rendezvous / relay (Task 29) ---
-    /// `RendezvousRegister` — a signed self-registration in a `(network, world)` namespace.
-    pub const RENDEZVOUS_REGISTER: u16 = 35;
-    /// `RendezvousDiscover` — a namespace query with a cursor + page limit.
-    pub const RENDEZVOUS_DISCOVER: u16 = 36;
-    /// `RendezvousPeers` — a page of signed peer records.
-    pub const RENDEZVOUS_PEERS: u16 = 37;
-    /// `RelayReserve` — a peer reserves an inbound relay slot.
-    pub const RELAY_RESERVE: u16 = 38;
-    /// `RelayReservation` — the relay's answer: route, expiry, limits, HMAC proof.
-    pub const RELAY_RESERVATION: u16 = 39;
-    /// `RelayConnect` — a peer asks to be bridged to a target's reserved slot.
-    pub const RELAY_CONNECT: u16 = 40;
-    /// `RelayIncoming` — the relay tells the reserver a circuit is inbound.
-    pub const RELAY_INCOMING: u16 = 41;
-    /// `PunchSync` — relayed observed-address exchange + a synchronized go-signal.
-    pub const PUNCH_SYNC: u16 = 42;
-    /// `ObservedAddress` — the relay reports a caller's reflexive address (STUN-ish).
-    pub const OBSERVED_ADDRESS: u16 = 43;
-    /// `TrackerCatalogQuery` — list every listed world (tracker directory / browse).
-    pub const TRACKER_CATALOG_QUERY: u16 = 44;
-    /// `TrackerCatalogResponse` — the directory listing answer.
-    pub const TRACKER_CATALOG_RESPONSE: u16 = 45;
-    /// `EntityTransferPrepare` — Java committee transfer prepare.
-    pub const ENTITY_TRANSFER_PREPARE: u16 = 46;
-    /// `EntityTransferAccept` — Java committee transfer acceptance.
-    pub const ENTITY_TRANSFER_ACCEPT: u16 = 47;
-    /// `EntityTransferCommit` — Java paired transfer commit.
-    pub const ENTITY_TRANSFER_COMMIT: u16 = 48;
-    /// `TrackerRoutesQuery` — full claimed dial-route lists of a world's live peers (join flow).
-    pub const TRACKER_ROUTES_QUERY: u16 = 49;
-    /// `TrackerRoutesResponse` — the per-peer route-list answer.
-    pub const TRACKER_ROUTES_RESPONSE: u16 = 50;
-    /// `WorldManifestQuery` — Java peer↔peer manifest fetch (world-continuity lane).
-    pub const WORLD_MANIFEST_QUERY: u16 = 51;
-    /// `WorldManifestAnswer` — the seeder's manifest list (world-continuity lane).
-    pub const WORLD_MANIFEST_ANSWER: u16 = 52;
-    /// `ActionForward` — Java no-host submission: route an action to its region's primary.
-    pub const ACTION_FORWARD: u16 = 53;
-    /// `EventSyncQuery` — Java forward event-sync request (Task 9 / L-30).
-    pub const EVENT_SYNC_QUERY: u16 = 54;
-    /// `EventSyncAnswer` — the serving peer's certified events since the requested id.
-    pub const EVENT_SYNC_ANSWER: u16 = 55;
-    /// `HaloUpdate` — Java neighbor-edge slice refresh (Task 13 border lane).
-    pub const HALO_UPDATE: u16 = 56;
-    /// `GroupMigration` — Java contraption-group migration order (Task 13 border lane).
-    pub const GROUP_MIGRATION: u16 = 57;
-    /// `GenesisApprovalRequest` — Java founding-peer genesis endorsement request (Task 16 / L-20).
-    pub const GENESIS_APPROVAL_REQUEST: u16 = 58;
-    /// `GenesisApprovalGrant` — one founder's signature over the genesis signed portion.
-    pub const GENESIS_APPROVAL_GRANT: u16 = 59;
-    /// `WorldGrantGossip` — one world-permission grant relayed to co-hosting peers (L-54).
-    pub const WORLD_GRANT_GOSSIP: u16 = 60;
-    /// `RegionRefusal` — a region no node can validate, announced by a node that owns none of
-    /// it (L-60). Java-side only: refusals are consensus traffic, never discovery.
-    pub const REGION_REFUSAL: u16 = 61;
-
-    /// `WorldOwnershipGossip` — a world's ownership claim relayed to the peers that serve it.
-    pub const WORLD_OWNERSHIP_GOSSIP: u16 = 62;
-    /// `TunnelOpen` — a request to open a tunnelled stream to a published LAN session.
-    pub const TUNNEL_OPEN: u16 = 63;
-    /// `TunnelData` — one chunk of tunnelled game traffic.
-    pub const TUNNEL_DATA: u16 = 64;
-    /// `TunnelClose` — the end of a tunnelled stream.
-    pub const TUNNEL_CLOSE: u16 = 65;
-    /// `WorldDeletionGossip` — a world's owner asking the network to forget it, carrying the
-    /// self-verifying `WorldTombstone` that proves the request is theirs.
-    pub const WORLD_DELETION_GOSSIP: u16 = 66;
-
-    // --- service directory: peers discover rendezvous points through trackers, and a service
-    // announces its own departure before it stops answering ---
-    /// `ServiceAnnounce` — a rendezvous or tracker self-announces a signed `ServiceRecord`.
-    pub const SERVICE_ANNOUNCE: u16 = 67;
-    /// `ServiceAnnounceAck` — admitted or refused, plus the announcer's own sibling directory.
-    pub const SERVICE_ANNOUNCE_ACK: u16 = 68;
-    /// `ServiceDirectoryQuery` — a peer asks a tracker which services of a kind it knows.
-    pub const SERVICE_DIRECTORY_QUERY: u16 = 69;
-    /// `ServiceDirectoryResponse` — the directory answer, best score first.
-    pub const SERVICE_DIRECTORY_RESPONSE: u16 = 70;
-    /// `ServiceScoreReport` — a peer's signed probe counters and RTT percentiles.
-    pub const SERVICE_SCORE_REPORT: u16 = 71;
-    /// `ServiceDrainNotice` — a service tells its connected peers directly that it is going away,
-    /// naming replacements, so a restart is a migration rather than an outage.
-    pub const SERVICE_DRAIN_NOTICE: u16 = 72;
-
-    /// Highest tag assigned on the Java side; new tags start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 72;
-}
+/// Message frame kinds — re-exported from the generated schema.
+///
+/// This module used to be a hand-copied subset of the Java registry, which is how it could hold 24
+/// of the 72 kinds and still look complete: nothing in the file said what was missing. It is now
+/// [`crate::kinds::message_tags`], rendered from `WireRegistry.java`, so the two registries agree
+/// by construction rather than by anyone remembering.
+pub use crate::kinds::message_tags;
 
 /// The message tags this crate can decode today.
 ///
