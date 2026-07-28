@@ -6,8 +6,8 @@
      let the tracker's answer affect world state, it is wrong. Keep the task index in agreement with
      ../ROADMAP.md §2. -->
 
-**Category:** `tracker` · **Status:** 🚧 IN PROGRESS (3 of 4 tasks completed) ·
-**Last audit:** 2026-07-25
+**Category:** `tracker` · **Status:** 🚧 IN PROGRESS (3 of 5 tasks completed) ·
+**Last audit:** 2026-07-27
 
 ---
 
@@ -64,6 +64,7 @@ Minecraft closed), [`app/Task.2.md`](../app/Task.2.md) (the dashboard's trackers
 | [2](Task.2.md) | The Java client: announce family + `TrackerClient` | ✅ COMPLETED |
 | [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS |
 | [4](Task.4.md) | Service telemetry | ✅ COMPLETED |
+| [5](Task.5.md) | The service directory and the scoring plane | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
@@ -75,7 +76,8 @@ expiry, sampling, and abuse defences. The task files bind that reference to Node
 
 | Path | Contents |
 |---|---|
-| `rust/nodera-tracker/src/` | The service: `main`, `config`, `registry`, `announce`, `query`, `health`, `expiry`, `limits`, `wire` |
+| `rust/nodera-tracker/src/` | The service: `main`, `config`, `registry`, `announce`, `query`, `health`, `expiry`, `limits`, `wire`, `services` (the service directory) |
+| `rust/nodera-service/src/` | Shared with the rendezvous: `identity`, `directory`, `drain`, `lifecycle`, `update` |
 | `java/transport/.../protocol/discovery/` | `TrackerAnnounce`, `TrackerAnnounceAck` and the query family |
 | `java/peer/.../discovery/TrackerClient.java` | Announce loop, query API, scheme-aware endpoints |
 | `java/peer/src/test/.../TrackerServiceIT.java` | Drives the **real** release binary from Java |
@@ -86,8 +88,11 @@ Package architecture: [`rust/nodera-tracker/README.md`](../../rust/nodera-tracke
 
 - **The peers' native canonical encoding *is* the protocol.** No HTTP, no second serialization. A new
   message means a Java record, a tag, a golden fixture, and the Rust mirror — in one commit.
-- **The service holds no signing keys.** It verifies (`ed25519-dalek`) and never signs.
-  Self-registration only.
+- **The service holds no signing keys over anything but its own address.** It verifies
+  (`ed25519-dalek`) peer and service records, and signs exactly one kind of value: its own
+  `ServiceRecord`, so a drain notice cannot be forged and a peer can pin the trackers that worked
+  ([`Task.5.md`](Task.5.md) §Design). Nothing it signs is authority over world state. Self-registration
+  only, for peers and services alike.
 - **Never let the tracker become authority.** Degradation paths are tested: tracker down ⇒ discovery
   degrades, mesh and state unaffected.
 - **Abuse controls are structural**, not configuration afterthoughts: per-IP and per-identity quotas,

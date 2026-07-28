@@ -195,11 +195,15 @@ pub async fn run(
                 let expired = guard.sweep(now_millis());
                 let (accepted, rejected, queries, worlds) = guard.stats();
                 let deleted = guard.deleted_world_count();
+                let (services, draining_rdv, draining_trk) = guard.service_counts();
+                let (reports_ok, reports_bad) = guard.report_counts();
                 if expired > 0 || accepted > 0 || queries > 0 {
                     println!(
                         "nodera-tracker: worlds={worlds} announces_accepted={accepted} \
                          announces_rejected={rejected} queries={queries} expired_now={expired} \
-                         deleted_worlds={deleted}"
+                         deleted_worlds={deleted} services={services} \
+                         draining={draining_rdv}rdv/{draining_trk}trk \
+                         reports={reports_ok}/{reports_bad}"
                     );
                 }
             }

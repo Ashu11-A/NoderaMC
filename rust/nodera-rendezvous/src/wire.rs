@@ -32,7 +32,7 @@ pub fn now_millis() -> u64 {
 }
 
 /// Something delivered to a reserved peer's control channel.
-enum ControlEvent {
+pub enum ControlEvent {
     /// An inbound circuit: the connecting peer's socket, moved in for the reserver to bridge.
     Circuit {
         source_stream: TcpStream,
@@ -43,7 +43,58 @@ enum ControlEvent {
 }
 
 /// The live control channels of reserved peers, keyed by `(namespace, peer)`.
-type ControlChannels = Arc<Mutex<HashMap<(Namespace, NodeId), mpsc::Sender<ControlEvent>>>>;
+///
+/// A **std** mutex, not tokio's, and that is deliberate: every operation on this map is a hash lookup
+/// or an insert, and it has to be callable from a *synchronous* context — the shared lifecycle's
+/// `notify_peers` broadcasts a drain notice from a non-async trait method. The senders are cloned out
+/// from under the lock before anything is awaited, so nothing is ever held across a suspend point.
+pub type ControlChannels =
+    Arc<std::sync::Mutex<HashMap<(Namespace, NodeId), mpsc::Sender<ControlEvent>>>>;
+
+/// A new, empty control-channel map.
+pub fn control_channels() -> ControlChannels {
+    Arc::new(std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Clone out the sender for one key, releasing the lock before the caller awaits anything.
+fn channel_for(
+    channels: &ControlChannels,
+    key: &(Namespace, NodeId),
+) -> Option<mpsc::Sender<ControlEvent>> {
+    channels.lock().ok()?.get(key).cloned()
+}
+
+fn insert_channel(
+    channels: &ControlChannels,
+    key: (Namespace, NodeId),
+    tx: mpsc::Sender<ControlEvent>,
+) {
+    if let Ok(mut held) = channels.lock() {
+        held.insert(key, tx);
+    }
+}
+
+fn remove_channel(channels: &ControlChannels, key: &(Namespace, NodeId)) {
+    if let Ok(mut held) = channels.lock() {
+        held.remove(key);
+    }
+}
+
+/// Push one frame to every reserved peer, returning how many accepted it.
+///
+/// `try_send` rather than `send`: this runs on the drain path, and a peer whose control channel is
+/// backed up must not be able to hold up telling the other forty. The frame is small and the queue is
+/// eight deep, so a full queue means that peer is already not reading.
+pub fn broadcast_frame(channels: &ControlChannels, frame: &[u8]) -> usize {
+    let senders: Vec<mpsc::Sender<ControlEvent>> = match channels.lock() {
+        Ok(held) => held.values().cloned().collect(),
+        Err(_) => return 0,
+    };
+    senders
+        .into_iter()
+        .filter(|tx| tx.try_send(ControlEvent::Frame(frame.to_vec())).is_ok())
+        .count()
+}
 
 /// Read one length-prefixed frame; `Ok(None)` at a clean end of stream.
 pub async fn read_frame(
@@ -141,7 +192,7 @@ async fn serve_connection(
                     sync.target,
                 );
                 let frame = RendezvousMessage::PunchSync(sync).encode();
-                if let Some(tx) = channels.lock().await.get(&key).cloned() {
+                if let Some(tx) = channel_for(&channels, &key) {
                     let _ = tx.send(ControlEvent::Frame(frame)).await;
                 }
             }
@@ -164,7 +215,7 @@ async fn route_connect(
         Namespace::new(connect.network_id, connect.genesis_hash.clone()),
         connect.target,
     );
-    let sender = channels.lock().await.get(&key).cloned();
+    let sender = channel_for(channels, &key);
     match sender {
         Some(tx) => {
             if tx
@@ -199,7 +250,7 @@ async fn run_reserved(
 ) {
     let (tx, mut rx) = mpsc::channel::<ControlEvent>(8);
     let key = (namespace.clone(), peer);
-    channels.lock().await.insert(key.clone(), tx);
+    insert_channel(&channels, key.clone(), tx);
 
     let max_frame_bytes = { rendezvous.lock().await.config().max_frame_bytes };
 
@@ -208,7 +259,7 @@ async fn run_reserved(
             event = rx.recv() => {
                 match event {
                     Some(ControlEvent::Circuit { source_stream, connect }) => {
-                        channels.lock().await.remove(&key); // one circuit consumes the reservation
+                        remove_channel(&channels, &key); // one circuit consumes the reservation
                         // Belt-and-braces: re-validate the reservation the circuit will be metered
                         // against before bridging; an expired one is refused rather than relayed.
                         if !rendezvous
@@ -234,8 +285,17 @@ async fn run_reserved(
                             return;
                         }
                         let punch_peers = (connect.source, peer);
-                        rendezvous.lock().await.note_circuit();
+                        // The in-flight guard is taken *before* the bridge and dropped when it ends,
+                        // including on a panic. This is what makes a drain a drain: without it, the
+                        // circuits were detached tasks nobody awaited, and the runtime dropping at
+                        // the end of `main` cut every one of them mid-frame.
+                        let guard = {
+                            let mut service = rendezvous.lock().await;
+                            service.note_circuit();
+                            service.drain().enter()
+                        };
                         bridge(stream, source_stream, limits_of(&reservation), remote).await;
+                        drop(guard);
                         // The circuit is gone; drop any punch coordination it accrued.
                         rendezvous
                             .lock()
@@ -245,7 +305,7 @@ async fn run_reserved(
                     }
                     Some(ControlEvent::Frame(frame)) => {
                         if write_frame(&mut stream, &frame).await.is_err() {
-                            channels.lock().await.remove(&key);
+                            remove_channel(&channels, &key);
                             return;
                         }
                     }
@@ -264,7 +324,7 @@ async fn run_reserved(
                         match decision {
                             Decision::Reply(reply) => {
                                 if write_frame(&mut stream, &reply).await.is_err() {
-                                    channels.lock().await.remove(&key);
+                                    remove_channel(&channels, &key);
                                     return;
                                 }
                             }
@@ -274,12 +334,12 @@ async fn run_reserved(
                                     sync.target,
                                 );
                                 let fframe = RendezvousMessage::PunchSync(sync).encode();
-                                if let Some(other) = channels.lock().await.get(&fkey).cloned() {
+                                if let Some(other) = channel_for(&channels, &fkey) {
                                     let _ = other.send(ControlEvent::Frame(fframe)).await;
                                 }
                             }
                             Decision::Drop(_) => {
-                                channels.lock().await.remove(&key);
+                                remove_channel(&channels, &key);
                                 return;
                             }
                             // A reserved connection re-reserving or connecting is not expected;
@@ -288,7 +348,7 @@ async fn run_reserved(
                         }
                     }
                     _ => {
-                        channels.lock().await.remove(&key);
+                        remove_channel(&channels, &key);
                         return;
                     }
                 }
@@ -363,13 +423,20 @@ async fn bridge(a: TcpStream, b: TcpStream, limits: CircuitLimits, remote: Socke
     );
 }
 
-/// Run the listener until `shutdown` resolves, then drain.
+/// Run the listener until `shutdown` resolves.
+///
+/// `channels` is passed in rather than created here so the lifecycle task can broadcast a drain notice
+/// down the same control channels this loop registers. `shutdown` resolves *after* the drain has
+/// finished, not when the signal arrives — which is why the listener can stay open through it: a peer
+/// arriving mid-drain gets a reservation refused with a reason instead of a connection refused, and a
+/// reason is what makes it move somewhere else rather than retry here.
 pub async fn run(
     rendezvous: Arc<Mutex<Rendezvous>>,
     listener: TcpListener,
+    channels: Option<ControlChannels>,
     shutdown: impl std::future::Future<Output = ()>,
 ) -> io::Result<()> {
-    let channels: ControlChannels = Arc::new(Mutex::new(HashMap::new()));
+    let channels = channels.unwrap_or_else(control_channels);
     let (max_frame_bytes, sweep_interval) = {
         let guard = rendezvous.lock().await;
         (
@@ -387,11 +454,14 @@ pub async fn run(
                 let mut guard = rendezvous.lock().await;
                 let expired = guard.sweep(now_millis());
                 let (regs, discs, res, circuits, rejected, namespaces) = guard.stats();
+                let in_flight = guard.drain().in_flight();
+                let draining = guard.drain().is_draining();
                 if expired > 0 || regs > 0 || res > 0 || circuits > 0 {
                     println!(
                         "nodera-rendezvous: namespaces={namespaces} registrations={regs} \
                          discoveries={discs} reservations={res} circuits={circuits} \
-                         rejected={rejected} expired_now={expired}"
+                         rejected={rejected} expired_now={expired} in_flight={in_flight} \
+                         draining={draining}"
                     );
                 }
             }
@@ -415,7 +485,10 @@ pub async fn run(
                 }
             }
             _ = &mut shutdown => {
-                println!("nodera-rendezvous: draining on shutdown signal");
+                // The drain already ran: this is the point at which the listener closes, after the
+                // peers have been told and the circuits have finished. The old code printed
+                // "draining" here and then dropped the runtime, which cut them instead.
+                println!("nodera-rendezvous: closing the listener");
                 break;
             }
         }
@@ -436,6 +509,14 @@ mod tests {
     const NET: NetworkId = NetworkId { msb: 1, lsb: 2 };
 
     async fn spawn_service() -> (SocketAddr, Arc<Mutex<Rendezvous>>) {
+        let (addr, service, _channels) = spawn_service_with_channels().await;
+        (addr, service)
+    }
+
+    /// Spawn a service and keep a handle on its control-channel map, so a test can do what the
+    /// lifecycle task does: push a frame down every reserved peer's own socket.
+    async fn spawn_service_with_channels() -> (SocketAddr, Arc<Mutex<Rendezvous>>, ControlChannels)
+    {
         let config = Config {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
             reservation_max_bytes: 64,
@@ -446,10 +527,12 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let served = Arc::clone(&rendezvous);
+        let channels = control_channels();
+        let wired = Arc::clone(&channels);
         tokio::spawn(async move {
-            let _ = run(served, listener, std::future::pending::<()>()).await;
+            let _ = run(served, listener, Some(wired), std::future::pending::<()>()).await;
         });
-        (addr, rendezvous)
+        (addr, rendezvous, channels)
     }
 
     async fn send(stream: &mut TcpStream, msg: &RendezvousMessage) {
@@ -575,5 +658,222 @@ mod tests {
         .await;
         let mut buf = [0u8; 1];
         assert_eq!(a.read(&mut buf).await.unwrap(), 0, "closed, not bridged");
+    }
+
+    // --- draining, over real sockets ---
+
+    async fn reserve(addr: SocketAddr, peer: u64) -> (TcpStream, RelayReservation) {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        send(
+            &mut stream,
+            &RendezvousMessage::Reserve(RelayReserve {
+                network_id: NET,
+                genesis_hash: b"world".to_vec(),
+                peer: NodeId::new(0, peer),
+            }),
+        )
+        .await;
+        match recv(&mut stream).await {
+            RendezvousMessage::Reservation(reservation) => (stream, reservation),
+            other => panic!("expected a reservation, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_drain_notice_arrives_on_a_reserved_peers_own_control_channel() {
+        // The decisive property of the migration lane: the peer that is about to lose its inbound path
+        // is told on the socket it already holds, with somewhere to go, before anything breaks.
+        let (addr, service, channels) = spawn_service_with_channels().await;
+        let (mut reserver, reservation) = reserve(addr, 1).await;
+        assert!(reservation.accepted);
+
+        // Wait for the control channel to be registered (the reserver's task installs it).
+        for _ in 0..100 {
+            if channels.lock().unwrap().len() == 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(channels.lock().unwrap().len(), 1);
+
+        let identity =
+            nodera_service::identity::ServiceIdentity::from_parts(NodeId::new(77, 77), [9u8; 32]);
+        let (record, signature) = identity.sign_record(nodera_service::identity::RecordSnapshot {
+            kind: nodera_codec::service::ServiceKind::Rendezvous,
+            lifecycle: nodera_codec::service::ServiceLifecycle::Draining,
+            network_id: NET,
+            routes: vec!["rdv.example:25601".to_owned()],
+            version: "0.1.0".to_owned(),
+            active_sessions: 1,
+            max_sessions: 10,
+            active_circuits: 0,
+            max_circuits: 4,
+            rejected_last_window: 0,
+            now_millis: now_millis(),
+            ttl_millis: 300_000,
+            drain_deadline_epoch_millis: now_millis() + 30_000,
+        });
+        let notice = nodera_codec::service::ServiceDrainNotice {
+            record,
+            signature,
+            replacements: Vec::new(),
+            reason: nodera_codec::service::ServiceDrainNotice::REASON_UPDATE.to_owned(),
+        };
+        let frame = nodera_codec::service::ServiceMessage::DrainNotice(notice).encode();
+        assert_eq!(broadcast_frame(&channels, &frame), 1);
+
+        let received = read_frame(&mut reserver, 1 << 20).await.unwrap().unwrap();
+        match nodera_codec::service::ServiceMessage::decode(&received).unwrap() {
+            nodera_codec::service::ServiceMessage::DrainNotice(got) => {
+                assert_eq!(
+                    got.record.lifecycle,
+                    nodera_codec::service::ServiceLifecycle::Draining
+                );
+                assert_eq!(got.reason, "update");
+                // Verifiable, so a peer cannot be herded onto an attacker's relay by a forged notice.
+                nodera_codec::sig::verify(
+                    &got.record.public_key,
+                    &got.record.signed_bytes(),
+                    &got.signature,
+                )
+                .unwrap();
+            }
+            other => panic!("expected a drain notice, got tag {}", other.tag()),
+        }
+        drop(service);
+    }
+
+    #[tokio::test]
+    async fn a_draining_relay_refuses_a_reservation_with_a_readable_reason() {
+        // A refusal a peer can read means "re-reserve elsewhere now". A closed socket means "retry
+        // here" — which is what the peer side used to do, once, before giving up for good.
+        let (addr, service, _channels) = spawn_service_with_channels().await;
+        service
+            .lock()
+            .await
+            .drain()
+            .begin(now_millis() + 30_000, "update");
+        let (_stream, reservation) = reserve(addr, 2).await;
+        assert!(!reservation.accepted);
+        assert_eq!(reservation.reason, crate::service::DRAINING_REASON);
+        assert!(reservation.proof.is_empty(), "no proof for a refused slot");
+    }
+
+    #[tokio::test]
+    async fn a_draining_relay_still_answers_discovery() {
+        // Refusing discovery too would strand exactly the peers that need to find each other in
+        // order to move somewhere else.
+        let (addr, service, _channels) = spawn_service_with_channels().await;
+        let signed = {
+            let mut s = signed_record(1, NET, b"world", RegistrationEvent::Register, 0);
+            s.record.issued_at_epoch_millis = now_millis();
+            crate::test_support::TestSigner::new(1).sign(s.record)
+        };
+        let mut registrant = TcpStream::connect(addr).await.unwrap();
+        send(
+            &mut registrant,
+            &RendezvousMessage::Register(RendezvousRegister { signed }),
+        )
+        .await;
+        let _ = recv(&mut registrant).await;
+
+        service
+            .lock()
+            .await
+            .drain()
+            .begin(now_millis() + 30_000, "update");
+
+        let mut asker = TcpStream::connect(addr).await.unwrap();
+        send(
+            &mut asker,
+            &RendezvousMessage::Discover(RendezvousDiscover {
+                network_id: NET,
+                genesis_hash: b"world".to_vec(),
+                cursor: 0,
+                limit: 0,
+            }),
+        )
+        .await;
+        match recv(&mut asker).await {
+            RendezvousMessage::Peers(page) => assert_eq!(page.records.len(), 1),
+            other => panic!("a draining relay must still answer discovery, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_draining_relay_refuses_a_new_circuit() {
+        let (addr, service, _channels) = spawn_service_with_channels().await;
+        let (_reserver, reservation) = reserve(addr, 3).await;
+        assert!(reservation.accepted);
+        service
+            .lock()
+            .await
+            .drain()
+            .begin(now_millis() + 30_000, "update");
+
+        let mut caller = TcpStream::connect(addr).await.unwrap();
+        send(
+            &mut caller,
+            &RendezvousMessage::Connect(RelayConnect {
+                network_id: NET,
+                genesis_hash: b"world".to_vec(),
+                source: NodeId::new(0, 9),
+                target: NodeId::new(0, 3),
+            }),
+        )
+        .await;
+        let mut buf = [0u8; 1];
+        assert_eq!(
+            caller.read(&mut buf).await.unwrap(),
+            0,
+            "a circuit that would break inside the grace period is refused, not opened"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_live_circuit_registers_as_in_flight_work() {
+        // This is the counter a drain waits on. Before it existed, bridged circuits were detached
+        // tasks nobody awaited, so "draining" cut them the moment the runtime dropped.
+        let (addr, service, _channels) = spawn_service_with_channels().await;
+        assert_eq!(service.lock().await.drain().in_flight(), 0);
+
+        let (mut b, _reservation) = reserve(addr, 4).await;
+        let mut a = TcpStream::connect(addr).await.unwrap();
+        send(
+            &mut a,
+            &RendezvousMessage::Connect(RelayConnect {
+                network_id: NET,
+                genesis_hash: b"world".to_vec(),
+                source: NodeId::new(0, 5),
+                target: NodeId::new(0, 4),
+            }),
+        )
+        .await;
+        match recv(&mut b).await {
+            RendezvousMessage::Incoming(_) => {}
+            other => panic!("expected an incoming circuit, got {other:?}"),
+        }
+        let mut counted = false;
+        for _ in 0..100 {
+            if service.lock().await.drain().in_flight() == 1 {
+                counted = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(counted, "a bridged circuit must count as in-flight work");
+
+        // And releases when the circuit ends, so a drain is not held open by a finished transfer.
+        drop(a);
+        drop(b);
+        let mut released = false;
+        for _ in 0..200 {
+            if service.lock().await.drain().in_flight() == 0 {
+                released = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(released, "the guard must release when the bridge ends");
     }
 }

@@ -15,7 +15,13 @@ RUN apk add --no-cache musl-dev
 WORKDIR /src
 COPY VERSION ./VERSION
 COPY rust/Cargo.toml rust/Cargo.lock ./rust/
+# EVERY workspace member has to be copied, not just the ones this image builds: Cargo resolves the
+# whole workspace manifest before it builds anything, so a member listed in `[workspace] members` and
+# absent from the context fails the build outright. Adding a crate to the workspace therefore means
+# adding a line here, in the same commit — `nodera-service` did not, and the image was the only thing
+# that noticed.
 COPY rust/nodera-codec ./rust/nodera-codec
+COPY rust/nodera-service ./rust/nodera-service
 COPY rust/nodera-tracker ./rust/nodera-tracker
 COPY rust/nodera-rendezvous ./rust/nodera-rendezvous
 COPY rust/nodera-telemetry ./rust/nodera-telemetry

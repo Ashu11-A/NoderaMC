@@ -37,6 +37,17 @@ jobs:
       - name: List collected artifacts
         run: ls -la build/
 
+      # The digest manifest is what the services' self-update lane reads. A service compares the
+      # published digest of its own asset against the digest of the file it is executing — the only
+      # comparison that can see a new build at all, because the rolling `latest` keeps VERSION at the
+      # same value across every push. Without this asset the update lane finds nothing and stays put,
+      # which is safe but silent, so it is generated in the same step that publishes the binaries.
+      - name: Generate SHA256SUMS for the release assets
+        working-directory: build
+        run: |
+          sha256sum nodera-tracker nodera-rendezvous neoforge-mod.jar > SHA256SUMS
+          cat SHA256SUMS
+
       # Roll the `latest` prerelease to this commit. Delete-then-create keeps a single latest tag
       # that always points at the newest build; `|| true` covers the first run when none exists.
       - name: Publish rolling latest prerelease
@@ -49,6 +60,7 @@ jobs:
             build/nodera-tracker \
             build/nodera-rendezvous \
             build/neoforge-mod.jar \
+            build/SHA256SUMS \
             --prerelease \
             --target "$GITHUB_SHA" \
             --title "latest ($short)" \

@@ -2,7 +2,8 @@
 
 <!-- AI-AGENT-INSTRUCTION: This service is DISCOVERY INFRASTRUCTURE, NEVER AUTHORITY. No endpoint here
      may become load-bearing for correctness — peers verify everything by hash and signature. The
-     service holds NO signing keys (verify-only) and self-registration is the only way in. It runs on
+     service holds no signing keys over anything but its OWN ADDRESS RECORD (see nodera-service), and
+     self-registration is the only way in for peers and services alike. It runs on
      the public internet: quotas, size caps, bounded counts, no full-scrape endpoint, and a UDP path
      bounded against reflection amplification are structural, not optional. Update this file when a
      module is added. -->
@@ -10,8 +11,11 @@
 **Always-on world and peer discovery that does not die with any player.** An operator runs this on a
 public host; peers announce signed records and query per-world swarms.
 
-- **Depends on:** `nodera-codec` (the peers' own canonical encoding — there is no second protocol).
-- **Depended on by:** the Java `TrackerClient`, the mod's multiplayer list, the worker's announce loop.
+- **Depends on:** `nodera-codec` (the peers' own canonical encoding — there is no second protocol),
+  `nodera-service` (identity, self-announce, drain, self-update — shared with the rendezvous so the two
+  cannot drift into different definitions of "draining").
+- **Depended on by:** the Java `TrackerClient`, the mod's multiplayer list, the worker's announce loop,
+  and — new with the service directory — every peer that needs to find a rendezvous point.
 - **Docs:** [`docs/tracker/`](../../docs/tracker/Task.0.md) · reference architecture:
   [`docs/tracker/REFERENCE.md`](../../docs/tracker/REFERENCE.md)
 

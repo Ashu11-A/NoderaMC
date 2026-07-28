@@ -5,11 +5,12 @@
      a direct path does not prove relay correctness and must not be recorded as doing so. Keep counts
      and Last run current. -->
 
-**Category:** rendezvous · **Last run:** 2026-07-25 · **62 Rust tests · 0 failing** (plus the Java
+**Category:** rendezvous · **Last run:** 2026-07-27 · **67 Rust tests · 0 failing** (plus the Java
 transport tests, including `RendezvousRelayIT`, on the Java gate)
 
 ```bash
-cd rust && cargo test -p nodera-rendezvous          # the service
+cd rust && cargo test -p nodera-rendezvous          # the service (67)
+cd rust && cargo test -p nodera-service              # identity, announce, drain, update (38)
 ./gradlew :transport:test --tests '*endezvous*'     # the transport + the real-binary IT
 ```
 
@@ -71,3 +72,20 @@ Live rendezvous behaviour is exercised by the mod's scripted suites (see
 [`../minecraft/TESTING.md`](../minecraft/TESTING.md)); `rendezvous.log` in a suite run shows
 signed-record registrations. The measured direct/punched/relayed **mix** is [`Task.3.md`](Task.3.md)
 and is not yet recorded.
+
+## Draining, over real sockets (Task 5)
+
+The five tests that hold the migration lane in place, all in `wire.rs`:
+
+- `a_drain_notice_arrives_on_a_reserved_peers_own_control_channel` — the notice is delivered on the
+  socket the reserver is already holding, and **verified** with the service's own key. A forged notice is
+  an eviction primitive, so the signature check is the test's point as much as the delivery is.
+- `a_live_circuit_registers_as_in_flight_work` — the counter a drain waits on, and its release when the
+  bridge ends. This is the test that would have caught the drain that was only a log line.
+- `a_draining_relay_refuses_a_reservation_with_a_readable_reason` — a reason, not a closed socket.
+- `a_draining_relay_still_answers_discovery` — the peers who must move can still look.
+- `a_draining_relay_refuses_a_new_circuit` — nothing is opened that would break inside the grace period.
+
+The ordering itself is asserted in the shared crate:
+`lifecycle::tests::a_drain_refuses_work_before_it_tells_anybody` and
+`in_flight_work_delays_the_drain_and_the_grace_period_bounds_it`.
