@@ -5,6 +5,7 @@ import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.crypto.StableHash;
 import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedPoint;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NetworkEntityId;
 import dev.nodera.core.state.PersistedEntityState;
@@ -92,27 +93,20 @@ public final class ItemEntityRules {
     private static PersistedEntityState move(PersistedEntityState entity) {
         FixedVec3 pos = entity.pos();
         if (pos.y() <= GROUND_Y && entity.vel().y() <= 0) {
-            return withMotion(entity, new FixedVec3(pos.x(), GROUND_Y, pos.z()), FixedVec3.ZERO);
+            return entity.withMotion(new FixedVec3(pos.x(), GROUND_Y, pos.z()), FixedVec3.ZERO);
         }
         long nextX = pos.x() + entity.vel().x();
         long nextZ = pos.z() + entity.vel().z();
         long nextVy = entity.vel().y() - GRAVITY_PER_TICK;
         long nextY = pos.y() + nextVy;
         if (nextY <= GROUND_Y) {
-            return withMotion(entity, new FixedVec3(nextX, GROUND_Y, nextZ), FixedVec3.ZERO);
+            return entity.withMotion(new FixedVec3(nextX, GROUND_Y, nextZ), FixedVec3.ZERO);
         }
         FixedVec3 velocity = new FixedVec3(
-                multiplyFixed(entity.vel().x(), HORIZONTAL_FRICTION),
+                FixedPoint.multiply(entity.vel().x(), HORIZONTAL_FRICTION),
                 nextVy,
-                multiplyFixed(entity.vel().z(), HORIZONTAL_FRICTION));
-        return withMotion(entity, new FixedVec3(nextX, nextY, nextZ), velocity);
-    }
-
-    private static PersistedEntityState withMotion(
-            PersistedEntityState entity, FixedVec3 position, FixedVec3 velocity) {
-        return new PersistedEntityState(
-                entity.id(), entity.kind(), entity.typeId(), position, velocity,
-                entity.ageTicks(), entity.despawnTick(), entity.payload());
+                FixedPoint.multiply(entity.vel().z(), HORIZONTAL_FRICTION));
+        return entity.withMotion(new FixedVec3(nextX, nextY, nextZ), velocity);
     }
 
     private static void merge(MutableRegionState state) {
@@ -153,10 +147,6 @@ public final class ItemEntityRules {
 
     private static boolean within(long a, long b) {
         return a >= b - MERGE_RADIUS && a <= b + MERGE_RADIUS;
-    }
-
-    private static long multiplyFixed(long value, long multiplier) {
-        return Math.multiplyHigh(value, multiplier) << 32 | (value * multiplier) >>> 32;
     }
 
     /** Decoded ITEM stack payload. */

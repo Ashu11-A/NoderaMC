@@ -1,6 +1,7 @@
 package dev.nodera.shadow;
 
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkKey;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.RegionSnapshot;
 
@@ -65,11 +66,11 @@ public final class InterferenceProbe {
     private static int changedSections(RegionSnapshot a, RegionSnapshot b) {
         Map<Long, int[]> byChunk = new HashMap<>(a.chunks().size());
         for (ChunkColumnState col : a.chunks()) {
-            byChunk.put(pack(col.chunkX(), col.chunkZ()), col.paletteStateIdsPerSection());
+            byChunk.put(ChunkKey.pack(col.chunkX(), col.chunkZ()), col.paletteStateIdsPerSection());
         }
         int changed = 0;
         for (ChunkColumnState col : b.chunks()) {
-            int[] before = byChunk.remove(pack(col.chunkX(), col.chunkZ()));
+            int[] before = byChunk.remove(ChunkKey.pack(col.chunkX(), col.chunkZ()));
             int[] after = col.paletteStateIdsPerSection();
             if (before == null) {
                 changed += after.length; // a chunk that appeared is wholly foreign
@@ -98,11 +99,11 @@ public final class InterferenceProbe {
     private static int changedBlocks(RegionSnapshot a, RegionSnapshot b) {
         Map<Long, ChunkColumnState> byChunk = new HashMap<>(a.chunks().size());
         for (ChunkColumnState col : a.chunks()) {
-            byChunk.put(pack(col.chunkX(), col.chunkZ()), col);
+            byChunk.put(ChunkKey.pack(col.chunkX(), col.chunkZ()), col);
         }
         int changed = 0;
         for (ChunkColumnState after : b.chunks()) {
-            ChunkColumnState before = byChunk.remove(pack(after.chunkX(), after.chunkZ()));
+            ChunkColumnState before = byChunk.remove(ChunkKey.pack(after.chunkX(), after.chunkZ()));
             if (before == null) {
                 changed += nonAirBlocks(after); // a chunk that appeared is wholly foreign
                 continue;
@@ -174,10 +175,6 @@ public final class InterferenceProbe {
             }
         }
         return count;
-    }
-
-    private static long pack(int chunkX, int chunkZ) {
-        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
     /** @return the number of probes run. */

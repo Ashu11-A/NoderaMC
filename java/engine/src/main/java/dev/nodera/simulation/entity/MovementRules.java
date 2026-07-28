@@ -64,9 +64,7 @@ public final class MovementRules {
         if (player == null) {
             return;
         }
-        PersistedEntityState moved = new PersistedEntityState(
-                player.id(), player.kind(), player.typeId(), move.to(), player.vel(),
-                player.ageTicks(), player.despawnTick(), player.payload());
+        PersistedEntityState moved = player.withMotion(move.to(), player.vel());
         NBlockPos feet = new NBlockPos(
                 move.to().blockX(), move.to().blockY(), move.to().blockZ());
         if (state.inOwnedRegion(feet)) {

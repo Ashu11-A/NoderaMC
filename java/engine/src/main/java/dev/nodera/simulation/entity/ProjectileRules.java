@@ -3,6 +3,7 @@ package dev.nodera.simulation.entity;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedPoint;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.NetworkEntityId;
@@ -84,9 +85,9 @@ public final class ProjectileRules {
     private static void step(MutableRegionState state, PersistedEntityState shot) {
         FixedVec3 vel = shot.vel();
         // Fixed order: gravity before drag on Y, then drag on X/Z.
-        long vy = multiplyFixed(vel.y() - GRAVITY, DRAG);
-        long vx = multiplyFixed(vel.x(), DRAG);
-        long vz = multiplyFixed(vel.z(), DRAG);
+        long vy = FixedPoint.multiply(vel.y() - GRAVITY, DRAG);
+        long vx = FixedPoint.multiply(vel.x(), DRAG);
+        long vz = FixedPoint.multiply(vel.z(), DRAG);
         FixedVec3 nextVel = new FixedVec3(vx, vy, vz);
 
         // Origin embed: if a block mutation earlier this tick filled the projectile's own cell, the
@@ -96,7 +97,8 @@ public final class ProjectileRules {
         if (state.inOwnedRegion(originCell)) {
             int originBlock = state.getBlock(originCell);
             if (originBlock != FlatWorldRules.AIR && !LightField.isTransparent(originBlock)) {
-                state.updateEntity(withMotion(shot, origin, FixedVec3.ZERO));
+                state.updateEntity(shot.withMotionAndAge(
+                        origin, FixedVec3.ZERO, shot.ageTicks() + 1));
                 return;
             }
         }
@@ -119,7 +121,8 @@ public final class ProjectileRules {
                         state.region().dimension(),
                         Math.floorDiv(candidate.blockX(), 16),
                         Math.floorDiv(candidate.blockZ(), 16));
-                state.transferEntity(target, withMotion(shot, candidate, nextVel));
+                state.transferEntity(target, shot.withMotionAndAge(
+                        candidate, nextVel, shot.ageTicks() + 1));
                 return;
             }
             PersistedEntityState struck = entityStruckAt(state, candidate, shot.id());
@@ -128,12 +131,14 @@ public final class ProjectileRules {
                 // damage in the root (GHOST vitals stay server-authoritative — the arrow stops
                 // but cannot wound the mirror).
                 MobCombatRules.damage(state, struck, MobCombatRules.ARROW_DAMAGE);
-                state.updateEntity(withMotion(shot, pos, FixedVec3.ZERO));
+                state.updateEntity(shot.withMotionAndAge(
+                        pos, FixedVec3.ZERO, shot.ageTicks() + 1));
                 return;
             }
             int block = state.getBlock(cell);
             if (block != FlatWorldRules.AIR && !LightField.isTransparent(block)) {
-                state.updateEntity(withMotion(shot, pos, FixedVec3.ZERO)); // stick one sub-step short
+                state.updateEntity(shot.withMotionAndAge(
+                        pos, FixedVec3.ZERO, shot.ageTicks() + 1)); // stick one sub-step short
                 return;
             }
             pos = candidate;
@@ -141,7 +146,7 @@ public final class ProjectileRules {
             remY -= sy;
             remZ -= sz;
         }
-        state.updateEntity(withMotion(shot, pos, nextVel));
+        state.updateEntity(shot.withMotionAndAge(pos, nextVel, shot.ageTicks() + 1));
     }
 
     /** One sub-step of the march: the remaining displacement, clamped to ±1 block. */
@@ -180,15 +185,4 @@ public final class ProjectileRules {
         return d <= HIT_RADIUS && d >= -HIT_RADIUS;
     }
 
-    private static PersistedEntityState withMotion(
-            PersistedEntityState entity, FixedVec3 position, FixedVec3 velocity) {
-        return new PersistedEntityState(
-                entity.id(), entity.kind(), entity.typeId(), position, velocity,
-                entity.ageTicks() + 1, entity.despawnTick(), entity.payload());
-    }
-
-    /** Signed Q32.32 product (the sanctioned {@code Math.multiplyHigh} idiom, cf. ItemEntityRules). */
-    private static long multiplyFixed(long value, long multiplier) {
-        return Math.multiplyHigh(value, multiplier) << 32 | (value * multiplier) >>> 32;
-    }
 }

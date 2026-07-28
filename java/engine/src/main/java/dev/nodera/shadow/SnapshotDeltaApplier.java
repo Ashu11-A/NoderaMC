@@ -2,6 +2,7 @@ package dev.nodera.shadow;
 
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.state.BlockMutation;
+import dev.nodera.core.state.ChunkKey;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.EntityMutation;
@@ -75,7 +76,7 @@ public final class SnapshotDeltaApplier {
         Map<Long, ChunkColumnState> work = new HashMap<>(base.chunks().size());
         Map<Long, ChunkColumnState> baseCols = new HashMap<>(base.chunks().size());
         for (ChunkColumnState col : base.chunks()) {
-            long key = packChunk(col.chunkX(), col.chunkZ());
+            long key = ChunkKey.pack(col.chunkX(), col.chunkZ());
             work.put(key, col);
             baseCols.put(key, col);
         }
@@ -86,7 +87,8 @@ public final class SnapshotDeltaApplier {
         // validate independently against the base.
         for (BlockMutation m : delta.blockMutations()) {
             NBlockPos pos = m.pos();
-            long key = packChunk(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
+            long key = ChunkKey.pack(
+                    Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
             ChunkColumnState col = baseCols.get(key);
             if (col == null) {
                 throw new ReplicaDriftException(pos, m.expectedPreviousStateId(), Integer.MIN_VALUE);
@@ -105,7 +107,8 @@ public final class SnapshotDeltaApplier {
         }
         for (BlockMutation m : delta.blockMutations()) {
             NBlockPos pos = m.pos();
-            long key = packChunk(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
+            long key = ChunkKey.pack(
+                    Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE));
             ChunkColumnState col = work.get(key);
             int section = Math.floorDiv(pos.y() - col.minY(), CHUNK_SIZE);
             work.put(key, col.withBlock(section,
@@ -177,7 +180,4 @@ public final class SnapshotDeltaApplier {
         return result;
     }
 
-    private static long packChunk(int chunkX, int chunkZ) {
-        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
-    }
 }
