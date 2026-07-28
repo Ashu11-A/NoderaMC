@@ -26,10 +26,15 @@
 **Overall system completion: `90.4%`**
 `██████████████████░░`
 
-**90.4% remains unchanged:** issue #87 advances worker W-DUP-3 to RETIRING without completing Task 8.
-Worker identity and registry writes now survive filesystems without POSIX attributes through the
-production startup-state seam; launched-process proof remains. Full Java gate: **2,059 tests, zero
-failures**.
+**90.4% remains unchanged:** issue #97 retires network **L-86** and **L-89** — the cross-version
+forward-compatibility rows whose stated exit tests are entirely headless and all green
+(`ForwardCompatibilityTest` + `CrossVersionIT.aFutureFieldSurvivesARelay`). Task 14 itself stays in
+progress: L-87/L-88/L-90 remain RETIRING pending a live mixed-release run. Full Java gate:
+**2,059 tests, zero failures**.
+
+Previously, 90.4% held through issue #87, which advances worker W-DUP-3 to RETIRING without completing
+Task 8. Worker identity and registry writes now survive filesystems without POSIX attributes through the
+production startup-state seam; launched-process proof remains.
 
 99.2 → **97.4 %**: the **service-directory lane** opened three tasks
 ([tracker 5](docs/tracker/Task.5.md), [rendezvous 5](docs/rendezvous/Task.5.md),
