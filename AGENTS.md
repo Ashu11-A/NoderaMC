@@ -1,9 +1,10 @@
 # AGENTS.md — NoderaMC
 
 ## Repo layout (polyglot monorepo; unified Java API since issue #30, 2026-07-21)
-- `java/<module>/` — **exactly seven Gradle modules** (plus `build-logic`): `core` · `engine` ·
-  `transport` · `storage` · `peer` · `testing` · `neoforge-mod`. The old fine-grained modules
-  merged into them with **packages unchanged** (package map: `docs/README.md` §3) — e.g.
+- `java/<module>/` — **nine Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` ·
+  `storage` · `peer` · `worker` · `testing` · `neoforge-mod` · `paper-plugin`. Seven are the
+  unified API/product modules; `worker` and `paper-plugin` are separately packaged runtimes. The old
+  fine-grained modules merged with **packages unchanged** (package map: `docs/README.md` §3) — e.g.
   `./gradlew :engine:test` runs what used to be `:simulation` + `:consensus` + `:coordinator` +
   `:committee` + `:shadow-validation` + `:fallback`.
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
@@ -42,9 +43,10 @@ same frozen wire contract, so a codec regression is a consensus regression.
   entropy, IO, and concurrency APIs alongside `simulation/DeterminismPropertyTest`.
 
 ## Layering (Task 0 §7; module boundaries unified by issue #30 — inter-PACKAGE rules unchanged)
-- Module graph: `core` → JDK only. `engine`/`transport`/`storage` → `core`. `peer` → `core` +
-  `transport` + `storage`. `testing` → `core` + `engine` + `transport`. `neoforge-mod` → all of
-  them (the ONLY module with Minecraft/NeoForge types).
+- Module graph: `core` → JDK only. `engine`/`transport`/`storage` → `core`. `peer` → those four.
+  `worker` → `peer` + its library graph. `testing` → `core` + `engine` + `transport`.
+  `neoforge-mod` → `core`/`engine`/`transport`/`storage`/`peer` (the ONLY module with
+  Minecraft/NeoForge types). `paper-plugin` → `core` + `peer` and contains Paper types only.
 - `core` — Task 23's `core/crypto/symmetric` follows the JDK-only rule: AES-GCM-256, `ContentKey`,
   the `PasswordKeyDerivation` seam, and PBKDF2-HMAC-SHA256 use JDK crypto only.
 - `engine` (`dev.nodera.simulation` / `consensus` / `shadow` / `coordinator` / `committee` /
@@ -89,9 +91,7 @@ same frozen wire contract, so a codec regression is a consensus regression.
     implementation-scoped.
   - `client`: `BoundedClientWorldStore` never evicts an assigned region's current state; eviction
     callbacks run only after the store monitor is released (Task 24 hardening).
-- `peer` (`dev.nodera.distribution` + `dev.nodera.peer` + `dev.nodera.diagnostics` +
-  `dev.nodera.headless`; carries the `application` plugin — launcher name `nodera-headless` is a
-  contract with `rust/nodera-app` (daemon.rs) and `scripts/dev.sh`):
+- `peer` (`dev.nodera.distribution` + `dev.nodera.peer` + `dev.nodera.diagnostics`):
   - `distribution`: the PIECE layer beneath the frozen region layer. Plaintext worlds slice
     byte-for-byte `RegionSnapshot.encode` so `SHA-256(reassembled blob)` IS the region
     `StateRoot`; encrypted worlds slice deterministic AES-GCM ciphertext (piece hashes/
@@ -111,8 +111,10 @@ same frozen wire contract, so a codec regression is a consensus regression.
     `control.rs` mirror.
   - `diagnostics`: Minecraft-free telemetry/view models; metrics accept injected monotonic time
     and never enter simulation, state roots, or certificates.
-  - `headless`: `HeadlessPeerMain` + `WorkerControlHandler` (NODERA-STATE JSON is the Rust
-    dashboard contract) + `WorldHostingService`.
+- `worker` (`dev.nodera.headless`) carries the `application` plugin; launcher name
+  `nodera-headless` is a contract with `rust/nodera-app` (`daemon.rs`) and `scripts/dev.sh`.
+  `HeadlessPeerMain` composes the peer libraries; `WorkerControlHandler` owns NODERA-STATE;
+  `WorldHostingService` owns persisted hosting/announce state.
 - `testing` (`dev.nodera.testkit`): `LoopbackTransport` (chunks streams exactly like the real
   transports), `FakeRegion`, wire-fixture IO; future home of the multi-peer scenario suite.
 - `neoforge-mod` is onboarded via the `nodera.neoforge-mod` convention (ModDevGradle → NeoForge

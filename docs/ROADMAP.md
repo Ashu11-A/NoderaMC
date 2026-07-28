@@ -8,7 +8,7 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,065 Java tests · 408 Rust
+**Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,068 Java tests · 408 Rust
 workspace tests · 157 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
 full green `./gradlew check` + `cargo test` on 2026-07-28; `nodera-app` is a separate workspace and
 was not re-run).
@@ -286,7 +286,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | L-81 (RETIRING — release signing key outstanding, a credential step not code) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
-| Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1 · OPEN: W-DUP-1…4 |
+| Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
 | App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, A-9, A-UX-1…5 |
 | Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | M-1…M-5, **M-9** (added 2026-07-28), M-NET-1…4 |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-72, L-73, L-74, L-75 |

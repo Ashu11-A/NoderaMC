@@ -20,7 +20,7 @@ certified chain, and an uncertified suffix can never advance it.
 
 ## Status detail
 
-Complete. `java/storage` carries 102 tests. Three tiers behind one `WorldStore` seam: an in-memory
+Complete. `java/storage` carries 157 tests. Three tiers behind one `WorldStore` seam: an in-memory
 event-sourced implementation, a **RocksDB archival tier** with WAL-backed column families, and a
 byte-budgeted client tier. `FsContentStore` provides content-addressed blobs with atomic
 temp-and-move writes and hash-verified, corrupt-blob-rejecting reads. Per-region heads are recovered
@@ -75,7 +75,9 @@ and a file already present at a destination during a move is provably a duplicat
 conflict.
 
 **Atomic temp-and-move writes.** A partially written blob must never be readable under its final
-name; the rename is the commit point.
+name; the rename is the commit point. `AtomicFileWriter.writeOwnerOnly` additionally creates POSIX
+temps as `0600` before content, fails closed on a lying provider, and deletes temps after failed
+writes/moves while preserving cleanup errors as suppressed exceptions.
 
 **Three tiers, one seam.** An archival peer wants RocksDB, a player's client wants a byte budget, and
 a test wants memory. They implement the same `WorldStore` interface so every consumer is written once
@@ -87,6 +89,7 @@ and the durability tests run against the real tier.
 - `java/storage/src/main/java/dev/nodera/storage/event/{EventReplayer,PeerSyncFlow}.java`
 - `java/storage/src/main/java/dev/nodera/storage/rocksdb/{RocksWorldStore,FsContentStore}.java`
 - `java/storage/src/main/java/dev/nodera/storage/client/{BoundedClientWorldStore,StorageQuotaManager,ArchiveEvictionPolicy}.java`
+- `java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java`
 
 ## Testing
 
@@ -97,6 +100,8 @@ and the durability tests run against the real tier.
 - `FsContentStoreRelocationTest` (5) — every blob survives a relocation, a store **reopened** on the
   new directory finds the content, same-directory is a no-op, and an identical blob already at the
   destination is merged rather than refused.
+- `AtomicFileWriterTest` (3) — owner-only creation, temp deletion after failed replacement, and
+  suppressed cleanup failure.
 
 ## Acceptance criteria
 

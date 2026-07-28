@@ -2,16 +2,14 @@ package dev.nodera.peer.discovery;
 
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.PersistedNodeIdentity;
+import dev.nodera.storage.io.AtomicFileWriter;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Loads and stores a peer's {@link NodeIdentity} on disk so a returning peer keeps its
@@ -39,9 +37,9 @@ import java.util.Set;
  *
  * <p>The persisted form contains a private key. On POSIX systems the file is created with mode
  * {@code 600} (owner read/write only); on file systems that do not support POSIX permissions the
- * file is still written (best effort) and the limitation is the OS's, not ours. The temp-then-move
- * write means a crash mid-save never truncates the existing identity — a peer always either keeps
- * its old identity or atomically adopts a new one.
+ * file is still written and the limitation is the OS's, not ours. {@link AtomicFileWriter} completes the
+ * temporary file before replacement, requests an atomic move, and removes secret-bearing temporary
+ * files after failure.
  *
  * <p>Thread-context: methods are safe to call from any thread but perform blocking file IO on the
  * caller's thread; one store per peer, one writer at a time.
@@ -102,25 +100,7 @@ public final class PersistentIdentityStore {
         dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter(160);
         persisted.encode(w);
         try {
-            Path parent = file.toAbsolutePath().getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Path temp = Files.createTempFile(
-                    parent,
-                    file.getFileName().toString() + ".",
-                    ".tmp",
-                    PosixFilePermissions.asFileAttribute(ownerOnly()));
-            Files.write(temp, w.toByteArray());
-            restrict(temp);
-            try {
-                Files.move(temp, file,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            }
-            restrict(file);
+            AtomicFileWriter.writeOwnerOnly(file, w.toByteArray());
         } catch (IOException e) {
             throw new UncheckedIOException("failed to save identity file " + file, e);
         }
@@ -143,25 +123,4 @@ public final class PersistentIdentityStore {
         return fresh.identity();
     }
 
-    /**
-     * POSIX {@code rw-------} — owner-only.
-     *
-     * @return the permission set.
-     * @Thread-context any thread.
-     */
-    private static Set<PosixFilePermission> ownerOnly() {
-        return Set.of(
-                PosixFilePermission.OWNER_READ,
-                PosixFilePermission.OWNER_WRITE);
-    }
-
-    /** Apply owner-only permissions where supported; tolerate filesystems that reject it. */
-    private static void restrict(Path path) {
-        try {
-            Files.setPosixFilePermissions(path, ownerOnly());
-        } catch (UnsupportedOperationException | IOException ignored) {
-            // Non-POSIX filesystem: best effort only. The file is written; access control is the
-            // OS/user's responsibility. Not an error worth failing identity persistence over.
-        }
-    }
 }
