@@ -20,6 +20,7 @@
 #   scripts/android-e2e.sh                 # run against the default tracker
 #   scripts/android-e2e.sh --tracker HOST:PORT
 #   scripts/android-e2e.sh --no-install    # test what is already installed
+#   scripts/android-e2e.sh --no-install --expect-p2p-port 42186
 # ===========================================================================
 set -euo pipefail
 
@@ -32,6 +33,7 @@ ACTIVITY="$PACKAGE/.MainActivity"
 APK="$NODERA_ROOT/build/nodera-release.apk"
 TRACKER="${NODERA_TRACKER:-10.0.0.101:25600}"
 DO_INSTALL=1
+EXPECTED_P2P_PORT="${NODERA_ANDROID_EXPECT_P2P_PORT:-}"
 # How long the phone gets to reach the tracker. It announces on mount and the
 # loop retries every 20s, so two rounds is a generous budget for a device on
 # the same Wi-Fi.
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --tracker)    TRACKER="$2"; shift ;;
     --apk)        APK="$2"; shift ;;
     --no-install) DO_INSTALL=0 ;;
+    --expect-p2p-port) EXPECTED_P2P_PORT="$2"; shift ;;
     -h|--help)    sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
@@ -54,6 +57,12 @@ say()  { printf '\033[1;36m[e2e]\033[0m %s\n' "$*"; }
 ok()   { PASS=$((PASS + 1)); printf '\033[1;32m  PASS\033[0m %s\n' "$*"; }
 bad()  { FAIL=$((FAIL + 1)); printf '\033[1;31m  FAIL\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[e2e]\033[0m %s\n' "$*" >&2; exit 1; }
+
+if [[ -n "$EXPECTED_P2P_PORT" ]] \
+    && { ! [[ "$EXPECTED_P2P_PORT" =~ ^[0-9]+$ ]] \
+        || (( EXPECTED_P2P_PORT < 1 || EXPECTED_P2P_PORT > 65535 )); }; then
+  die "--expect-p2p-port must be in 1..65535"
+fi
 
 command -v adb >/dev/null || die "adb is not on PATH"
 [[ -n "$(adb devices | sed -n '2p')" ]] || die "no device is connected"
@@ -123,6 +132,26 @@ if grep -q "accepted the announce" "$LOG"; then
 else
   bad "no tracker accepted an announce"
   grep 'peer:' "$LOG" | tail -5 | sed 's/^/       /'
+fi
+
+# Optional exact M-NET-2 exit: choose a one-port range in Settings, fully stop/relaunch the app,
+# then prove the worker selected it from the worker's own state rather than from UI text.
+if [[ -n "$EXPECTED_P2P_PORT" ]]; then
+  STATE=""
+  for _ in $(seq 1 20); do
+    STATE="$(adb shell \
+      '(printf "NODERA-STATE 2\n"; sleep 1) | timeout 8 toybox nc 127.0.0.1 25610' \
+      2>/dev/null | tr -d '\r' | head -1 || true)"
+    [[ "$STATE" == \{* ]] && break
+    sleep 1
+  done
+  SELF_ROUTE="$(printf '%s' "$STATE" | python3 -c \
+    'import json,sys; print(json.load(sys.stdin).get("self_route", ""))' 2>/dev/null || true)"
+  if [[ "${SELF_ROUTE##*:}" == "$EXPECTED_P2P_PORT" ]]; then
+    ok "worker state selected the configured P2P port: $SELF_ROUTE"
+  else
+    bad "worker state route '$SELF_ROUTE' did not select P2P port $EXPECTED_P2P_PORT"
+  fi
 fi
 
 # --- 4. the other end: ask the tracker ourselves --------------------------

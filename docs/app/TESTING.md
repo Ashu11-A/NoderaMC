@@ -6,7 +6,7 @@
      no logic in the UI worth testing beyond parsing. Keep counts and Last run current. -->
 
 **Category:** app · **Last run:** 2026-07-28 · **Last audit:** 2026-07-28 ·
-**184 tests** (183 Rust + 1 frontend), all re-run
+**188 tests** (187 Rust + 1 frontend), all re-run
 
 ```bash
 cd rust/nodera-app && cargo test        # REQUIRED — the workspace gate does not cover this crate
@@ -48,7 +48,9 @@ The app is deliberately the thinnest layer in the project, and its test strategy
 ### Test counts (run 2026-07-28)
 
 A count of `#[test]` / `#[tokio::test]` attributes in `rust/nodera-app/src/`, plus the frontend's
-Node test. Both commands were re-run: **184 total.**
+Node test, re-run after the Android port lane additions (desktop/property parity, control isolation,
+property-file replacement across changed settings, and both possible context/setup startup orders):
+**188 total.**
 
 | Module | Tests |
 |---|---:|
@@ -57,12 +59,13 @@ Node test. Both commands were re-run: **184 total.**
 | `api::model` | 15 |
 | `stores` | 15 |
 | `api::link` | 12 |
-| `daemon` | 11 |
+| `daemon` | 14 |
 | `config` | 10 |
 | `power` | 10 |
 | `metrics` | 8 |
 | `peer::tracker` | 8 |
 | `android::network` | 7 |
+| `android::worker` | 2 |
 | `telemetry` | 7 |
 | `api::modinstall` | 6 |
 | `api::network` | 6 |
@@ -76,7 +79,7 @@ Node test. Both commands were re-run: **184 total.**
 | `logs` | 2 |
 | `system` | 2 |
 | `ui/tests/tracker-stores-style.test.mjs` | 1 |
-| **Total** | **184** |
+| **Total** | **188** |
 
 ## 3. Manual smoke, per increment
 

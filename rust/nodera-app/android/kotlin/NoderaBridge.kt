@@ -21,4 +21,10 @@ object NoderaBridge {
      */
     @JvmStatic
     external fun initialise(context: Context)
+
+    /** Called by Rust after context binding and setup's property handoff have both completed. */
+    @JvmStatic
+    fun startWorker(context: Context) {
+        NoderaWorker.start(context)
+    }
 }

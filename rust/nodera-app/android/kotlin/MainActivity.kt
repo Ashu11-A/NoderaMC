@@ -7,10 +7,9 @@ import androidx.activity.enableEdgeToEdge
 /**
  * The app's activity.
  *
- * Overridden for exactly one reason beyond Tauri's default: it starts the **Java peer worker** in
- * this process before the WebView loads. The worker takes a few seconds to bind its sockets, and
- * the UI's control link retries until it answers, so starting it first costs nothing and starting
- * it late would show an "offline" node that is merely still booting.
+ * Overridden to bind Android's application context after the native library loads. Rust combines
+ * that signal with its own setup-complete signal and starts the Java worker only after persisted P2P
+ * settings are materialised. Activity lifecycle timing is never used as proof that setup finished.
  *
  * Kept in `android/kotlin/` and copied into the generated Gradle project by
  * `scripts/android-apk.sh`, because `gen/` is disposable — Tauri regenerates it, and an edit made
@@ -46,10 +45,10 @@ class MainActivity : TauriActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
-    NoderaWorker.start(applicationContext)
     super.onCreate(savedInstanceState)
     // After super.onCreate, because that is what loads the native library this call lives in.
-    // Failure is logged and survivable: it costs the battery-optimisation check, not the app.
+    // Failure is logged and survivable: battery checks and worker startup stay unavailable, but the
+    // app remains open and reports the worker offline.
     runCatching { NoderaBridge.initialise(applicationContext) }
       .onFailure { android.util.Log.e("NoderaMC", "could not bind the native bridge", it) }
     // Only an activity can start the folder picker for a result.

@@ -30,6 +30,23 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — Android worker startup waits for both lifecycle halves
+
+Issue #86 review hardening replaces Activity-timed worker boot with a one-shot Rust gate: Android
+context binding and Tauri setup's persisted-property handoff may arrive in either order, but both
+must finish before Kotlin starts `HeadlessPeerMain`. The Java bridge class is retained as a JNI global
+reference, so a Rust-created thread never depends on Android's bootstrap class loader finding an app
+class. Evidence: **188** `nodera-app` tests, Android-target `cargo check`, frontend production build,
+and a signed 185 MiB debug APK all pass.
+
+### 2026-07-28 — One port encoder serves desktop env and Android properties
+
+Issue #86 factors P2P bind settings into one encoder: desktop supervision still sends the same
+environment pairs, while Android writes those pairs to the private property handoff consumed before
+the in-process worker starts. Control is absent by contract, preventing an app/worker endpoint split.
+Evidence: all **188** `nodera-app` tests green, including the two new parity/control guards. Mobile
+owns the physical `self_route` exit and keeps M-NET-2 RETIRING until it runs.
+
 ### 2026-07-28 — Tracker stores follows both shells, proven from the bundle
 
 Review found that replacing undefined desktop utilities was not enough: the same component is
@@ -41,7 +58,7 @@ cards, errors, inputs, dialog surfaces, and scrim to generated `--md-sys-color-*
 The prior test only scanned literal `className` strings, which could pass while Tailwind emitted no
 selector. It now runs after the production Vite build and verifies actual CSS rules for every desktop
 and mobile role mapping, every consumed surface/control role, and both shell padding selectors.
-Evidence: `built tracker-store CSS resolves desktop and mobile shell roles`, 183 app Rust tests, 408
+Evidence: `built tracker-store CSS resolves desktop and mobile shell roles`, 187 app Rust tests, 408
 Rust workspace tests, and the full Gradle gate. A-UX-4 remains retired on stronger evidence.
 
 ### 2026-07-28 — Tracker stores uses the generated palette and the right frame
@@ -52,7 +69,7 @@ replaced with colours exported by `styles.css`. Desktop now wraps the route in t
 shared component, so mobile retains its existing `px-4` frame without receiving desktop padding.
 
 Evidence: `tracker stores uses generated colours and layout-specific page padding` passed inside
-the production `bun run build`; all 183 app Rust tests and the full Gradle gate also passed. A-UX-4
+the production `bun run build`; all 187 app Rust tests and the full Gradle gate also passed. A-UX-4
 moved to `LIMITATIONS.fixed.md`; Task 10 remains in progress.
 
 ### 2026-07-28 — Documentation sweep: statuses, test count, refactoring register

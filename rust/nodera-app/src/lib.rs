@@ -389,6 +389,10 @@ fn save_settings(
 ) -> Result<(), String> {
     let auto_start = next.behavior.auto_start;
     state.save(next)?;
+    #[cfg(target_os = "android")]
+    if let Err(reason) = daemon::write_worker_properties(&state.snapshot()) {
+        log::warn!("could not refresh Android worker properties: {reason}");
+    }
     // Kept in step with the document, because on Android this file is the only way the worker ever
     // learns about a tracker (see `stores::sync_file_body`).
     settings::write_sync_file(&state.snapshot());
@@ -917,7 +921,7 @@ pub fn run() {
             // Android first: nothing below may touch the filesystem until the app knows which
             // directory it is allowed to write to.
             #[cfg(target_os = "android")]
-            {
+            let android_worker_properties_ready = {
                 use tauri::Manager as _;
                 match app.path().app_data_dir() {
                     Ok(dir) => {
@@ -928,10 +932,22 @@ pub fn run() {
                         // defaults read from a path that did not exist. Re-read now, or every
                         // answer the user has ever given is invisible to this process.
                         user_settings.reload();
+                        // Materialise validated settings now, but do not signal readiness until the
+                        // end of this setup hook. Control port is intentionally absent.
+                        match daemon::write_worker_properties(&user_settings.snapshot()) {
+                            Ok(()) => true,
+                            Err(reason) => {
+                                log::error!("could not prepare Android worker properties: {reason}");
+                                false
+                            }
+                        }
                     }
-                    Err(e) => log::error!("no writable app directory: {e}"),
+                    Err(e) => {
+                        log::error!("no writable app directory: {e}");
+                        false
+                    }
                 }
-            }
+            };
 
             #[cfg(desktop)]
             {
@@ -965,13 +981,13 @@ pub fn run() {
                 });
             }
 
-            // On Android the worker is started by `MainActivity` before the WebView loads — it runs
-            // in this process, loaded from the APK's assets by `NoderaWorker.kt`. There is nothing
-            // to supervise from here: a process that cannot outlive us cannot be restarted by us,
-            // and the link below reports it exactly as it reports a desktop worker.
+            // On Android the two-signal startup gate calls `NoderaWorker.start` after context and
+            // property handoff are both ready. It runs in this process, loaded from the APK's
+            // assets. There is nothing to supervise from here: a process that cannot outlive us
+            // cannot be restarted by us, and the link reports it like a desktop worker.
             #[cfg(not(desktop))]
             {
-                log::info!("worker: started in-process by MainActivity; connecting to the control endpoint");
+                log::info!("worker: awaiting deterministic in-process startup; connecting to the control endpoint");
                 // The worker's own log file is the Activity screen's source. Same tailer the
                 // desktop uses in attach mode — the worker is somebody else's process there too.
                 let logs_tail = Arc::clone(&worker_logs);
@@ -1081,6 +1097,12 @@ pub fn run() {
                     let _ = handle.emit("nodera://system", system_ui.snapshot());
                 }
             });
+
+            // Last setup action: only now may the context/settings gate start the Java worker.
+            #[cfg(target_os = "android")]
+            if android_worker_properties_ready {
+                android::worker::settings_ready();
+            }
 
             Ok(())
         })

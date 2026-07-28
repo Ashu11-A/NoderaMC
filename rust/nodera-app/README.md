@@ -29,13 +29,16 @@ rust/nodera-app/
 ├── src/
 │   ├── main.rs       tray + window + single-instance + autostart + the 1 Hz metrics pump
 │   ├── daemon.rs     the supervisor: spawn the bundled worker OR attach to an external one
+│   │                 plus Android's allowlisted P2P-property handoff from persisted settings
 │   ├── control.rs    loopback control client — a strict mirror of ControlProtocol
 │   ├── metrics.rs    the Metrics struct the UI renders
 │   ├── settings.rs   the settings surface backed by the worker's CONFIG verb
 │   ├── config.rs     app configuration and the worker's spawn environment
 │   ├── power.rs      power-state policy (whether to transfer)
 │   ├── logs.rs       a bounded log ring
-│   └── system.rs     host sampling
+│   ├── system.rs     host sampling
+│   └── android/
+│       └── worker.rs one-shot Android context + setup startup gate
 └── ui/src/           React + Vite: App, Settings, World, components, theme, ipc
                       — Info / State / Peers / Trackers / Pieces, in VPN-client chrome
 ```
@@ -82,6 +85,13 @@ an unnoticed gap.
 The **worker** owns `127.0.0.1:25610` and answers the presence probe; this app *connects* to it and
 never binds it.
 
+On Android, the mobile Network screen persists random/fixed P2P settings and Rust writes
+`nodera-worker.properties`. A one-shot gate waits for both `MainActivity`'s bound context and Tauri
+setup's successful property handoff before calling Kotlin. Kotlin allowlists only `NODERA_P2P_PORT`
+and `NODERA_P2P_PORT_RANGE`; control stays on the shared default because setting only Java's side
+would disconnect this Rust client. Desktop keeps its existing environment handoff, generated from
+the same P2P settings encoder.
+
 ```
 client → worker:  NODERA-PROBE <protocolVersion>
 worker → client:  NODERA-OK <protocolVersion> <workerVersion>
@@ -121,9 +131,10 @@ distribution copied in at bundle time (build it with the worker's `installDist` 
 
 ## Tests
 
-184 tests: 183 Rust tests covering bitmap decoding and its edge cases, additive-field tolerance,
+188 tests: 187 Rust tests covering bitmap decoding and its edge cases, additive-field tolerance,
 control-socket error surfacing and timeouts, the settings golden JSON (the cross-language key
-contract), worker-environment spawn pairs, a power-state truth table, the log ring, system sampling,
-and badge-enforcement invariants; plus one post-build frontend test pinning emitted tracker-store
+contract), worker-environment spawn pairs, Android-property parity/control isolation/replacement,
+both Android startup orders, a power-state truth table, the log ring, system sampling, and
+badge-enforcement invariants; plus one post-build frontend test pinning emitted tracker-store
 desktop roles, dynamic Material 3 mobile roles, and padding ownership. The frontend test runs after
 every production UI build, so a utility Tailwind silently omitted cannot satisfy it.
