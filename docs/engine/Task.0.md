@@ -7,7 +7,7 @@
      or completed, and keep it in agreement with ../ROADMAP.md §2. -->
 
 **Category:** `engine` · **Status:** 🚧 IN PROGRESS (7 of 12 tasks completed) ·
-**Last audit:** 2026-07-25
+**Last audit:** 2026-07-28
 
 ---
 

@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** tracker · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [telemetry 1](../telemetry/Task.1.md)
 **Consumed by:** [telemetry 3](../telemetry/Task.3.md), community operators
 
@@ -21,7 +21,8 @@ individual peer or world leaves the process.
 
 ## Status detail
 
-Complete and green (`cargo test -p nodera-tracker`, 62 tests).
+Complete and green. The crate now carries **109 `#[test]`s** (2 of them in `telemetry.rs`); the
+decisive one for this task is `telemetry_is_off_without_an_endpoint`.
 
 Landed: `telemetry_endpoint` / `telemetry_interval_seconds` in `nodera-tracker.toml`, both empty or
 inert by default; `src/telemetry.rs`, a windowed reporter on its own task; `Tracker::world_health_counts`
@@ -46,7 +47,7 @@ when no endpoint is configured, so a default deployment opens no socket at all.
 | 4 | `service.latency` — p50/p95/p99 over the window | ⬜ |
 | 5 | `service.start` with version, OS, arch | ✅ |
 | 6 | Bounded queue; a telemetry outage never affects announce or query handling | ✅ |
-| 7 | Deployment note in the operator documentation ([tracker 3](Task.3.md)) | ⬜ |
+| 7 | Deployment note in the operator documentation ([tracker 3](Task.3.md)) | ✅ [`SELF-HOSTING.md`](SELF-HOSTING.md) §3 documents `NODERA_TRACKER_TELEMETRY_ENDPOINT` |
 
 ## Design
 
@@ -79,7 +80,7 @@ failure mode because a dashboard is unreachable.
 ## Testing
 
 ```bash
-cd rust && cargo test -p nodera-tracker      # 62 tests, telemetry included
+cd rust && cargo test -p nodera-tracker      # 109 tests in the crate, telemetry included
 ```
 
 - `telemetry::tests::telemetry_is_off_without_an_endpoint` — the loop returns instead of looping, so
@@ -99,7 +100,7 @@ cd rust && cargo test -p nodera-tracker      # 62 tests, telemetry included
    `ServiceEvent`, and asserted on the rendered JSON in `a_window_event_renders_counters_and_labels_only`.
 3. ✅ A telemetry outage leaves announce/query behaviour unchanged: the reporter runs on its own
    task and `an_unreachable_collector_keeps_the_events` proves it neither blocks nor panics.
-4. ⬜ Operator documentation states what is sent and how to turn it off ([tracker 3](Task.3.md)).
+4. ✅ Operator documentation states what is sent and how to turn it off — [`SELF-HOSTING.md`](SELF-HOSTING.md) §3 (`NODERA_TRACKER_TELEMETRY_ENDPOINT`, "windowed counters only; never a peer, a world or an address").
 
 ## Limitations
 

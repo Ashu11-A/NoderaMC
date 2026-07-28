@@ -6,8 +6,8 @@
      let the tracker's answer affect world state, it is wrong. Keep the task index in agreement with
      ../ROADMAP.md §2. -->
 
-**Category:** `tracker` · **Status:** 🚧 IN PROGRESS (3 of 5 tasks completed) ·
-**Last audit:** 2026-07-27
+**Category:** `tracker` · **Status:** 🚧 IN PROGRESS (5 of 6 tasks completed) ·
+**Last audit:** 2026-07-28
 
 ---
 
@@ -64,8 +64,8 @@ Minecraft closed), [`app/Task.2.md`](../app/Task.2.md) (the dashboard's trackers
 | [2](Task.2.md) | The Java client: announce family + `TrackerClient` | ✅ COMPLETED |
 | [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS |
 | [4](Task.4.md) | Service telemetry | ✅ COMPLETED |
-| [5](Task.5.md) | The service directory and the scoring plane | 🚧 IN PROGRESS |
-| [6](Task.6.md) | A published image, and a tracker anyone can run | ✅ DONE |
+| [5](Task.5.md) | The service directory and the scoring plane | ✅ COMPLETED |
+| [6](Task.6.md) | A published image, and a tracker anyone can run | ✅ COMPLETED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
@@ -77,7 +77,7 @@ expiry, sampling, and abuse defences. The task files bind that reference to Node
 
 | Path | Contents |
 |---|---|
-| `rust/nodera-tracker/src/` | The service: `main`, `config`, `registry`, `announce`, `query`, `health`, `expiry`, `limits`, `wire`, `services` (the service directory) |
+| `rust/nodera-tracker/src/` | The service: `main`, `config`, `registry`, `announce`, `query`, `health`, `deletion`, `limits`, `wire`, `services` (the service directory), `service` (dispatch), `telemetry` (Task 4); `bin/nodera-query.rs` (Task 6 diagnostic) |
 | `rust/nodera-service/src/` | Shared with the rendezvous: `identity`, `directory`, `drain`, `lifecycle`, `update` |
 | `java/transport/.../protocol/discovery/` | `TrackerAnnounce`, `TrackerAnnounceAck` and the query family |
 | `java/peer/.../discovery/TrackerClient.java` | Announce loop, query API, scheme-aware endpoints |

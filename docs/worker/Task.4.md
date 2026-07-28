@@ -6,7 +6,7 @@
      forbidden by the single-engine rule. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (headless; live real-world region feed → [minecraft 2](../minecraft/Task.2.md))
-**Category:** worker · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 5](../engine/Task.5.md), [network 2](../network/Task.2.md)
 **Consumed by:** [minecraft 2](../minecraft/Task.2.md), the mesh's quorum health
 
@@ -79,7 +79,7 @@ authority.
 ## Files
 
 - `java/peer/src/main/java/dev/nodera/peer/validation/WorkerValidationService.java`
-- `java/peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` (composition root)
+- `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` (composition root)
 
 ## Testing
 

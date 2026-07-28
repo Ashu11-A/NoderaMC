@@ -8,7 +8,7 @@
      headless tests before the plugin consumes it. Keep this header accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-62 (L-63 RETIRED 2026-07-26) · **Last audit:** 2026-07-26
+**Category:** server · **Owns:** L-62 (L-63 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [server 2](Task.2.md), [engine 5](../engine/Task.5.md), [network 6](../network/Task.6.md)
 **Consumed by:** [server 4](Task.4.md), [server 5](Task.5.md), [server 6](Task.6.md)
 

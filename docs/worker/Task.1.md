@@ -6,7 +6,7 @@
      down. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** worker · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 2](../network/Task.2.md), [network 5](../network/Task.5.md)
 **Consumed by:** [worker 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md), [app 1](../app/Task.1.md)
 
@@ -65,7 +65,7 @@ can classify skew as "update the app" or "update the mod" rather than failing wi
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java`
+- `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java`
 - `java/peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlServer}.java`
 - `scripts/dev.sh`
 

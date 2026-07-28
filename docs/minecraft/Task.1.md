@@ -5,8 +5,8 @@
      treat it as low-value scaffolding. Version pins change in a single dedicated commit, never
      mid-task. Keep this header's status accurate and keep L-45 in agreement with it. -->
 
-**Status:** 🚧 IN PROGRESS (dev runs and scripted suites work; CI under a headless display remains)
-**Category:** minecraft · **Owns:** L-45 · **Last audit:** 2026-07-25
+**Status:** ✅ COMPLETED
+**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** —
 **Consumed by:** every other task in this category, and the live acceptance of [engine](../engine/Task.0.md), [network](../network/Task.0.md), [rendezvous 3](../rendezvous/Task.3.md), [app 4](../app/Task.4.md)
 
@@ -25,18 +25,20 @@ outcome from logs and worker control sockets, with no GUI automation.
 to `Done` on a fresh world with auto-share activating the host peer and a tracker announce;
 `runClient` reaches the title screen.
 
-**The scripted suites exist and pass on a real display.** Eight suites drive real NeoForge clients —
-each with its own peer worker — against the real tracker and rendezvous binaries: continuity,
-ownership, churn, pickup, commands, farlands, crash, and ownership-follow. A shared launcher gives
-every suite the same topology, and a lock makes concurrent runs structurally impossible.
+**The scripted suites exist and run in CI under a headless display.** Fifteen suites drive real
+NeoForge clients — each with its own peer worker — against the real tracker and rendezvous binaries:
+continuity, ownership, churn, pickup, mobs, pearl, mesh-soak, determinism, password, rekey, commands,
+farlands, crash, ownership-follow, and profile. A shared launcher gives every suite the same topology,
+a lock makes concurrent runs structurally impossible, and the `e2e-live` workflow runs them one per
+runner as a matrix under Xvfb — so a live exit is now a gate, not a hand-run.
 
 Getting here required reconciling several real build problems: the NeoForge pin moved 21.1.77 →
 **21.1.238** to match the real client; the Nodera project modules had to join the mod definition (FML
 module isolation otherwise hides them from the mod at dev-run time); and runtime versions had to align
-with Minecraft's strict pins.
-
-**Remaining: CI.** The suites run on a developer's display; folding them into a headless-display CI
-workflow is the exit for **L-45**, and it is what converts "proven live once, by hand" into a gate.
+with Minecraft's strict pins. Folding the suites into CI cost three defects invisible on a developer
+machine (the accessibility-onboarding screen blocking quick play; a killed server holding RCON open
+while saving; terrain generation 200 km out making an RCON read come back empty) — see the **L-45**
+retirement evidence in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
 
 ## Dependencies
 
@@ -54,7 +56,7 @@ None. This task is a prerequisite, not a dependent — which is why it ranks fir
 | 6 | Quick-play scripted client variants (no GUI automation) | ✅ |
 | 7 | Shared launcher + standard topology + suite lock | ✅ |
 | 8 | Eight scripted live suites | ✅ |
-| 9 | The suites running in CI under a headless display | 🚧 (**L-45**) |
+| 9 | The suites running in CI under a headless display | ✅ (**L-45** retired 2026-07-25; `e2e-live` green under Xvfb) |
 
 ## Design
 
@@ -99,8 +101,9 @@ headless rehearsals of the same flows run on the ordinary gate.
 1. ✅ `runClient` and `runServer` launch from Gradle on the pinned NeoForge.
 2. ✅ Scripted host and joiner clients boot straight into a world or session with no GUI automation.
 3. ✅ Every suite runs on one shared topology, serialised by a lock.
-4. 🚧 The suites pass end to end **in CI under a headless display** (**L-45** exit).
+4. ✅ The suites pass end to end **in CI under a headless display** (**L-45** retired).
 
 ## Limitations
 
-- **L-45** — no automated real-client acceptance in CI. See [`LIMITATIONS.md`](LIMITATIONS.md).
+None open. **L-45** (no automated real-client acceptance in CI) is RETIRED — see
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

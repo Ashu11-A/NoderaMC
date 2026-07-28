@@ -7,8 +7,8 @@
      automation. Every suite launches through scripts/lib/e2e-main.sh + scripts/lib/e2e-server.sh —
      no suite starts a service itself. Keep this header accurate. -->
 
-**Status:** ⬜ NOT STARTED (the suites exist and skip)
-**Category:** server · **Owns:** — · **Last audit:** 2026-07-25
+**Status:** 🚧 IN PROGRESS (suites committed and green for the built subset — enable, ALIGN-1, external link; the mixed-client headline stages skip on open rows)
+**Category:** server · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [server 8](Task.8.md), [minecraft 1](../minecraft/Task.1.md)
 **Consumed by:** every other server task's exit test
 
@@ -24,13 +24,27 @@ headline claim rather than describe it:
 
 ## Status detail
 
-The three suites are **written and committed**. Until a `nodera-endpoint` jar exists they stop at
-their preflight and report `SKIPPED (server task 1 — no plugin jar)`, naming
-[L-61](LIMITATIONS.md), and exit 0 so a nightly run stays honest instead of red-for-unbuilt.
+**The three suites, the launcher half, the vanilla-bot driver, and the CI matrix entries are all
+committed** (`scripts/e2e-endpoint.sh`, `scripts/e2e-folia.sh`, `scripts/e2e-plugins.sh`,
+`scripts/lib/e2e-server.sh`, `scripts/lib/vanilla-bot.py`, entries in `scripts/run-tests.sh` and
+`.github/workflows/e2e-live.yml`). They run **green for the built surface**:
+
+- `e2e-endpoint.sh` E1–E4 against real Paper 1.21.1: the plugin enables, refuses to disable itself,
+  links its external worker, hands it the world, and survives a SIGKILL of the server JVM (L-71's
+  exit).
+- `e2e-folia.sh` against a real Folia: ALIGN-1 passes at the platform default and **refuses** at
+  grid-exponent 2.
+- `e2e-plugins.sh`: co-existence with whatever corpus an operator staged.
+
+The **headline stages** (P2–P8, F2–F6, the WorldEdit certification) still report `SKIPPED` naming the
+open row that blocks each — the in-process peer ([server 2](Task.2.md) deliverables 1/2/4), the
+tenant lane ([server 6](Task.6.md)), the capture lane ([server 5](Task.5.md)) — and the suite exits 0
+so a nightly run reads "not built yet", never "broken". L-61 (no plugin jar) is retired; the remaining
+skips name L-62, L-64, L-65, L-66, L-67, L-68, L-69, L-70.
 
 ## Dependencies
 
-- [server 8](Task.8.md) — everything the suites assert.
+- [server 8](Task.8.md) — everything the headline stages assert.
 - [minecraft 1](../minecraft/Task.1.md) — the Xvfb harness, the quick-play client launch, and the
   shared launcher these suites extend rather than duplicate.
 
@@ -40,12 +54,12 @@ their preflight and report `SKIPPED (server task 1 — no plugin jar)`, naming
 |---|---|---|
 | 1 | `scripts/lib/e2e-server.sh` — Paper/Folia staging, plugin install, vanilla-bot driver | ✅ |
 | 2 | `scripts/lib/vanilla-bot.py` — the unmodified-client driver (vanilla protocol, offline mode) | ✅ |
-| 3 | `scripts/e2e-endpoint.sh` — the mixed-client drive | ✅ |
-| 4 | `scripts/e2e-folia.sh` — parallel regions, ALIGN-1 live, zero thread-context violations | ✅ |
-| 5 | `scripts/e2e-plugins.sh` — the compatibility corpus | ✅ |
+| 3 | `scripts/e2e-endpoint.sh` — the mixed-client drive | ✅ (built-subset stages green; headline stages skip) |
+| 4 | `scripts/e2e-folia.sh` — parallel regions, ALIGN-1 live, zero thread-context violations | ✅ (ALIGN-1 stages green; parallel-region stages skip) |
+| 5 | `scripts/e2e-plugins.sh` — the compatibility corpus | ✅ (co-existence stage green; WorldEdit-certification stage skips) |
 | 6 | `scripts/run-tests.sh` — the three suites in the canonical batch | ✅ |
 | 7 | `.github/workflows/e2e-live.yml` — three matrix entries + the Paper/Folia download step | ✅ |
-| 8 | Every stage above asserting instead of skipping | ⬜ |
+| 8 | Every stage above asserting instead of skipping | ⬜ (headline stages skip on open rows) |
 
 ## Design
 
@@ -61,7 +75,7 @@ and works. The unmodified client deliberately is **not** a second launched game:
 - and none of it buys anything, because **every assertion in this suite comes from logs and control
   sockets**, exactly as in every other suite. Nothing is read off a screen.
 
-So the unmodified client is `scripts/lib/vanilla-bot.py`: a Minecraft-protocol client that performs
+So the unmodified client is `scripts/lib/vanilla_bot.py`: a Minecraft-protocol client that performs
 the handshake, offline-mode login, and play-state exchange, and can move, chat, run a command, and
 drop an item. It is *more* faithful to the thing under test than a launched client would be, because
 it proves the endpoint is reachable **by anything that speaks the protocol**, with no NeoForge
@@ -85,7 +99,7 @@ suite drives it identically.
 | **P8** | A client with a mismatched registry fingerprint is refused, and the message names the mod (L-70) |
 
 P5 is the assertion the whole category exists for. Everything before it is setup and everything after
-it is hardening.
+it is hardening. **E1–E4 (the built-subset) are green; P1–P8 skip on the open rows above.**
 
 ### `e2e-folia.sh` — parallelism, proven rather than argued
 
@@ -100,7 +114,7 @@ it is hardening.
 
 F6 is the one that matters most and it is a grep, not a judgement call. A thread-context violation on
 Folia halts the scheduler and stops the server, so it is both the likeliest failure mode and the
-loudest.
+loudest. **F0/F1 (ALIGN-1) green; F2–F6 skip on the open rows.**
 
 ### `e2e-plugins.sh` — compatibility against real plugins
 
@@ -113,7 +127,7 @@ change; the log must be clean. On Folia the corpus narrows to the Folia-ready me
 
 Three entries join the `e2e-live` matrix — `endpoint`, `folia`, `plugins` — each on its own runner,
 `fail-fast: false`, so one red suite never cancels the evidence from the others. A conditional step
-resolves and caches the pinned Paper and Folia builds through the PaperMC v2 API; the suites
+resolves and caches the pinned Paper and Folia builds through the PaperMC API; the suites
 themselves never download anything, so a local run and a CI run execute the same code path.
 
 ## Files
@@ -132,12 +146,14 @@ cannot assert reports `SKIPPED` naming the limitation that blocks it.
 ## Acceptance criteria
 
 1. ⬜ `e2e-endpoint.sh` P5 asserts: an item passes from an unmodified player to a modded player,
-   credited exactly once.
+   credited exactly once. *(built-subset E1–E4 green; P5 skips on [server 2](Task.2.md)/[6](Task.6.md))*
 2. ⬜ `e2e-folia.sh` F3 asserts two Folia regions committing concurrently.
 3. ⬜ `e2e-folia.sh` F6 finds zero thread-context violations across a full run.
 4. ⬜ `e2e-plugins.sh` asserts a certified WorldEdit write against the pinned corpus.
-5. ⬜ All three are green in the `e2e-live` matrix on their own runners.
-6. ⬜ No stage reports `SKIPPED` any more, and [L-61](LIMITATIONS.md) retires.
+5. 🚧 All three run green in the `e2e-live` matrix on their own runners — for the built subset; the
+   headline stages exit 0 via `SKIPPED` naming their blocker.
+6. ⬜ No stage reports `SKIPPED` any more — blocked on the open rows in
+   [`LIMITATIONS.md`](LIMITATIONS.md).
 
 ## Limitations
 

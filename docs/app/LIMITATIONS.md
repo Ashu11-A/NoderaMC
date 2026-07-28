@@ -6,7 +6,7 @@
      removing an unsupportable setting would silently drop values users already saved AND hide that
      the limitation is known. -->
 
-**Category:** app · **Last audit:** 2026-07-27 · Open or retiring rows: **7**
+**Category:** app · **Last audit:** 2026-07-28 · Open or retiring rows: **7**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).

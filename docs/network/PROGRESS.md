@@ -28,12 +28,47 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [10](Task.10.md) | Tick-lag + low-TPS handoff | ✅ COMPLETED | Gained a live call site 2026-07-25 |
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
-| [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-84) |
+| [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-91, renumbered from a duplicate L-84 on 2026-07-28) |
 | [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86…L-90 RETIRING pending a live mixed-release run |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: audit, register hygiene, refactoring register
+
+Category-wide status reconciliation against the tree. No status changed: tasks 1, 3–12 stay
+✅ COMPLETED and tasks 2, 13, 14 stay 🚧 IN PROGRESS, each matching the code and the exit tests
+named in its file. Every `Last audit` is bumped to 2026-07-28.
+
+**Register hygiene.** `LIMITATIONS.md` carried two different rows both numbered **L-84**: the
+task-2 "joining peer could not send to its own bootstrap" row and the task-13 "the mod composes
+its rendezvous transport from a static config list" row. The task-13 row has been renumbered to
+**L-91**; `Task.13.md`, `Task.0.md` and this ledger carry the new id. No row text was lost, and
+the open/retiring summary is corrected: 11 rows total (OPEN: L-30, L-85; RETIRING: L-33, L-76,
+L-84, L-86…L-91).
+
+**No limitation retired this pass.** L-30 and L-85 stay OPEN (both need a live run; their headless
+exit tests are unchanged). L-33, L-76, L-84, L-86…L-91 stay RETIRING — each needs a live suite or
+wild telemetry that has not been produced. Every exit test named in the register was confirmed to
+exist in the tree (`BootstrapAddressHasNoNodeIdTest`, `HeartbeatSurvivesABadBootstrapTest`,
+`CallerRouteIsDirectTest`, `ForwardCompatibilityTest`, `NegotiationTest`, `MessageRouterTest`,
+`WireEnumRulesTest`, `CrossVersionIT`, `ResidentQuorumIT`, `EventSyncOverTransportIT`,
+`TelemetryEmitterTest`, `TelemetryRegistryMirrorTest`, `WorkerStateParserRendezvousTest`).
+
+**New: [`REFACTORING.md`](REFACTORING.md).** A register built from `build/jscpd/jscpd-report.json`
+filtered to this category's four modules plus manual god-class/dead-code review. The five highest-
+signal candidates, in order: extract `IntegerEmaMeter` from the `TickSkewMeter`/`TpsMeter` pair
+(48 %/39 % duplicated); extract `DurableAppendJournal` from the two `Durable*Journal` siblings
+(40 %); extract a `SealedRecord` helper for the four signed canonical records; remove the dead-tag
+runtime classes (`EchoTest` 17, `RelayEnvelope` 18, handshake 1–4, `InventoryAdvertisement` 29,
+`ArchiveReplicaAssignment`/`Ack` 30/31) — the dominant source of cross-file duplication; and
+last, behind the fixture and tag-mirror gates, derive `MessageCodec`/`InfrastructureCodec`
+dispatch from `WireRegistry`.
+
+**Counts grep-verified.** `@Test` annotations: transport 184, storage 154, peer 574 (was listed
+595; `rg` over `java/peer/src/test` gives 574), `nodera-codec` `#[test]` 73. The headless-worker
+tests live in `java/worker` and are accounted under the worker category.
 
 ### 2026-07-28 — the wire was rebuilt, and a peer from another release can now stay on the network
 

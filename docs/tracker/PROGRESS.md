@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** tracker · **Last audit:** 2026-07-27 · Tasks completed: **3 / 5**
+**Category:** tracker · **Last audit:** 2026-07-28 · Tasks completed: **5 / 6**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -15,15 +15,41 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | The service binary | ✅ COMPLETED | 60 Rust tests; driven by `TrackerServiceIT` against the real binary |
+| [1](Task.1.md) | The service binary | ✅ COMPLETED | 109 Rust `#[test]`s in the crate; driven by `TrackerServiceIT` against the real binary |
 | [2](Task.2.md) | The Java client | ✅ COMPLETED | Announce loop moves into the worker; GUI rows ride the live pass |
-| [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS | `STATS`, listing policy, deployment docs remain |
+| [3](Task.3.md) | Operations hardening | 🚧 IN PROGRESS | `--healthcheck`/`--version` + deployment docs landed via Task 6; `STATS` + listing policy remain |
 | [4](Task.4.md) | Service telemetry | ✅ COMPLETED | Off unless configured; counters only, proven on the rendered JSON |
-| [5](Task.5.md) | Service directory + scoring | 🚧 IN PROGRESS | 102 Rust tests; operator docs for the new keys remain |
+| [5](Task.5.md) | Service directory + scoring | ✅ COMPLETED | 109 Rust tests; operator docs landed in SELF-HOSTING.md; L-81 RETIRING (credential only) |
+| [6](Task.6.md) | Published image + self-hosting | ✅ COMPLETED | Live in production; GHCR amd64+arm64; relay announces into the directory |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: the directory lane closes, the operator surface reconciled
+
+A read-only sweep against the current tree (Rust `nodera-tracker`, Java `dev.nodera.peer.discovery`,
+and `docs/tracker/*`) reconciled the task ledger with the code. Two status changes landed:
+
+- **Task 5 → ✅ COMPLETED.** Its last open deliverable — operator documentation for the new
+  configuration keys — shipped with [Task 6](Task.6.md)'s [`SELF-HOSTING.md`](SELF-HOSTING.md) §3
+  (`NODERA_TRACKER_MAX_SERVICES`, `NODERA_TRACKER_PER_IP_REPORT_QUOTA`,
+  `NODERA_TRACKER_SERVICE_REPORT_MAX_REPORTERS`, `NODERA_TRACKER_PEER_TRACKER_ENDPOINTS`). Every
+  acceptance criterion is now green. The crate carries 109 `#[test]`s (grep-verified, up from the 102
+  recorded when the lane landed). The one open row, **L-81**, is RETIRING rather than blocking: the
+  provenance-verification mechanism is built and its exit test
+  (`a_validly_digested_but_wrongly_signed_manifest_is_refused`, in `nodera-service`) is green; the only
+  remaining step is minting the release signing key — a project-owner credential action, explicitly not
+  code.
+- **Task 3 partial close.** `--healthcheck`/`--version` (`main.rs:64,67`) and the deployment notes
+  ([`SELF-HOSTING.md`](SELF-HOSTING.md)) are now ✅; `STATS` (over the wire) and the public-listing
+  policy remain ⬜. Task 3 stays 🚧 IN PROGRESS.
+
+The sweep also corrected the charter's file list (`expiry.rs` never existed as a file — the TTL sweep
+lives in `registry.rs`; `deletion.rs`, `service.rs`, `telemetry.rs`, and `bin/nodera-query.rs` are now
+named), normalised Task 6's "✅ DONE" to the template's "✅ COMPLETED", and added a
+[`REFACTORING.md`](REFACTORING.md) register from the jscpd + loccount report. No new limitations
+opened; no limitation retired.
 
 ### 2026-07-27 — The tracker learns a second question, and still answers neither with authority
 
@@ -48,6 +74,16 @@ that matters — **nothing a service signs is authority over world state.**
 Two rows opened with the update lane rather than being papered over: **L-81** (the release digest proves
 integrity, not provenance) and **L-82** (the fetcher shells out to `curl`). Both are inert while
 `update_channel` is empty, which is the default.
+
+### 2026-07-27 — A published image, and a tracker anyone can run (Task 6)
+
+[Task 6](Task.6.md) landed the container and the deployment surface: every TOML key has an
+`NODERA_TRACKER_*` environment twin, an unrecognised variable refuses the start, a multi-arch
+(amd64+arm64) image is published to GHCR, and a self-hoster follows [`SELF-HOSTING.md`](SELF-HOSTING.md)
+end to end with no checkout. The project's own tracker and relay are live; the relay announces into the
+tracker's service directory, verified from a third machine. Two real defects the deployment exposed
+that no unit test had — the documented `tcp://host:port` route form announced to nobody, and a container
+cannot hairpin to its own published port — were fixed in the shared `nodera-service` endpoint helper.
 
 ### 2026-07-25 — Service telemetry, and the type that makes the privacy claim structural
 

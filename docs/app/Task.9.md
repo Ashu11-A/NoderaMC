@@ -6,7 +6,7 @@
      APPENDED after the user's own and never reorder them. Keep this header's status accurate. -->
 
 **Status:** ✅ DONE
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-27
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [app 8](Task.8.md), [tracker 6](../tracker/Task.6.md), [network 13](../network/Task.13.md)
 **Consumed by:** [mobile 5](../mobile/Task.5.md)
 

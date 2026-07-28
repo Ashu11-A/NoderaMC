@@ -7,7 +7,7 @@
      Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (headless) — live pass rides [minecraft 2](Task.2.md)
-**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 5](../worker/Task.5.md), [network 12](../network/Task.12.md), [minecraft 7](Task.7.md)
 **Consumed by:** [telemetry 3](../telemetry/Task.3.md)
 

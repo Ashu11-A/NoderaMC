@@ -4,7 +4,7 @@
      Rule 1 is load-bearing: if the phone ever stops running the real worker, this file must say so
      before any other document is updated. -->
 
-**Status:** ✅ COMPLETED · **Category:** mobile · **Last audit:** 2026-07-26
+**Status:** ✅ COMPLETED · **Category:** mobile · **Last audit:** 2026-07-28
 
 ---
 
@@ -42,7 +42,8 @@ app talks to it over `127.0.0.1:25610` with the same code the desktop uses.
 | [5](Task.5.md) | The phone reaches the network it was told to | 🚧 IN PROGRESS |
 
 Operational guide — building, Wi-Fi debugging, the scripts, the test procedures:
-[`TESTING.md`](TESTING.md).
+[`TESTING.md`](TESTING.md). Open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) (M-1 … M-5, M-NET-1 …
+M-NET-4, M-9). Refactoring register: [`REFACTORING.md`](REFACTORING.md).
 
 ## Boundaries
 

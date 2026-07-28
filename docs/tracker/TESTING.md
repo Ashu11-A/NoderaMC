@@ -6,12 +6,14 @@
      include a degradation test when touching the service: tracker down must degrade discovery only.
      Keep counts and Last run current. -->
 
-**Category:** tracker · **Last run:** 2026-07-27 · **102 Rust tests · 0 failing** (plus
-`TrackerServiceIT` and the client tests on the Java gate, and 38 in the shared `nodera-service` crate)
+**Category:** tracker · **Last run:** 2026-07-28 · **109 Rust `#[test]`s · 0 failing** (grep-verified)
+in `rust/nodera-tracker`, plus **89 `@Test` methods** in `java/peer/.../dev/nodera/peer/discovery/`
+(including `TrackerServiceIT` and the client tests on the Java gate, and 38 in the shared
+`nodera-service` crate).
 
 ```bash
-cd rust && cargo test -p nodera-tracker      # the service (102)
-cd rust && cargo test -p nodera-service      # identity, announce, drain, update (38)
+cd rust && cargo test -p nodera-tracker      # the service (109 #[test]s)
+cd rust && cargo test -p nodera-service      # identity, announce, drain, update (38; incl. L-81's exit test)
 ./gradlew :peer:test --tests '*Tracker*'     # the client + the real-binary IT
 ./gradlew :peer:test --tests '*ServiceScoreBoardTest*' --tests '*RendezvousDirectoryTest*'
 ```
@@ -28,23 +30,34 @@ The service is tested at three levels, and the third is the one that matters:
 | Cross-language conformance | Every announce and query message round-trips byte-exactly against Java-emitted fixtures; the tag mirror fails CI if one side appends alone |
 | **Real-binary integration** | `TrackerServiceIT` spawns the actual release binary and drives it from Java peers — the only level that proves the two implementations agree in practice |
 
-## 2. Rust unit coverage
+## 2. Rust unit coverage (109 `#[test]`s across the crate)
 
-- Announce lifecycle, including re-announce **replacement** (a peer announcing twice must not appear
-  twice).
-- TTL expiry via the last-seen sweep; `STOPPED` removes immediately.
-- Per-world isolation: two worlds announced by the same peers stay separate swarms.
-- Sampling bounds and the **seeder floor** — a sample that contained no seeders would leave a joiner
-  with peers but no data.
-- Quota rejection (per IP, per identity), record-size caps, bounded world and peer counts.
-- Invalid-signature rejection: the record never reaches the registry.
-- Health and retention-countdown transitions.
-- UDP: one datagram per request, the anti-amplification cap, silent drop of undecodable datagrams.
-- The service directory (Task 5): signed admission and trust-on-first-use binding, a tampered record
-  refused, a draining service still listed with its deadline, a stopped one removed, bounded reporter
-  tables, freshness decay between refresh and expiry, and the two anti-abuse properties — a capped
-  reporter cannot sink an available service, and three honest reporters beat one liar on the median.
-- Separate quotas: a score-report flood cannot starve the announce budget the world list depends on.
+Counts by file (grep `#\[test\]`/`#\[tokio::test\]`):
+
+| File | `#[test]`s | Focus |
+|---|---|---|
+| `service.rs` | 26 | dispatch, the announce path, the service directory through real `handle_frame`, deletion handling |
+| `services.rs` | 20 | directory admission, TOFU binding, score aggregation, anti-abuse, freshness decay |
+| `query.rs` | 11 | sampling + seeder floor, catalog, routes, population semantics |
+| `registry.rs` | 9 | announce replacement, TTL expiry, per-world isolation, world/peer limits |
+| `config.rs` | 8 | defaults, validation, env-overlay precedence, the drift guard |
+| `announce.rs` | 6 | signature/freshness/identity-binding admission |
+| `wire.rs` | 7 | TCP + UDP over real sockets, amplification cap, silent drop |
+| `health.rs` | 6 | health + countdown transitions |
+| `deletion.rs` | 5 | verified-deletion cache, persistence, restart, edited-file rejection |
+| `limits.rs` | 5 | per-IP quota windows |
+| `main.rs` | 4 | arg parsing (`--healthcheck`/`--version`/`--config`/`--bind`) |
+| `telemetry.rs` | 2 | off-without-endpoint; platform-label enums |
+
+Coverage spans: announce lifecycle, including re-announce **replacement**; TTL expiry via the
+last-seen sweep; `STOPPED` removes immediately; per-world isolation; sampling bounds and the
+**seeder floor**; quota rejection (per IP, per identity) and the separate report quota; record-size
+caps and bounded world/peer counts; invalid-signature rejection; health and retention-countdown
+transitions; UDP (one datagram per request, the anti-amplification cap, silent drop of undecodable
+datagrams); the world-deletion lane (verified unlisting, re-list refusal with proof, persistence,
+edited-file rejection); and the service directory (signed admission, TOFU binding, tampered-record
+refusal, draining-with-deadline, bounded reporter tables, freshness decay, the two anti-abuse
+properties, the non-authority composite).
 
 ## 3. `TrackerServiceIT` — the decisive scenario
 
@@ -58,11 +71,18 @@ Driven from Java against the real binary:
 5. **The exit scenario:** a world whose every Java seeder has gone silent past the TTL is still listed
    by name, with its countdown and a DEAD verdict.
 
-## 4. Client tests
+## 4. Client tests (`java/peer/.../discovery/`)
 
+- `TrackerServiceIT` (7 `@Test`s) — the client against the real binary, including the deletion-notice
+  hand-back and the service-directory + score-report round trips.
 - `TrackerEndpointTest` — scheme parsing and the bare-host-stays-TCP contract.
 - `TrackerClientUdpTest` — the datagram path and the TCP fallback when an answer would exceed the
   bound.
+- `ServiceScoreBoardTest` (18) — peer-local scoring, percentile windows, selection ordering.
+- `RendezvousDirectoryTest` (11) — sweep/probe/select, drain-notice migration, seeds-preferred.
+- `CachedPeerStoreTest`, `PersistentIdentityStoreTest`, `InvitationCodecTest`, `BootstrapClientTest`,
+  `MultiBootstrapIT`, `PeerDirectoryTest`, `ArchiveInventoryTest`, `CommonsPresenceTest` — the
+  bootstrap/cache/directory surfaces.
 - Merge behaviour: results from several endpoints combine without arbitration; an unreachable endpoint
   backs off without failing the query.
 

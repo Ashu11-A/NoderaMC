@@ -6,7 +6,7 @@
      status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 1](../worker/Task.1.md)
 **Consumed by:** every player; it is what makes the always-on node an actual guarantee
 

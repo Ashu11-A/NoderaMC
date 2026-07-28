@@ -7,7 +7,7 @@
      added at all. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** telemetry · **Owns:** L-72, L-73 · **Last audit:** 2026-07-25
+**Category:** telemetry · **Owns:** L-72, L-73 · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md) (framing)
 **Consumed by:** [telemetry 2](Task.2.md), [network 12](../network/Task.12.md), [tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [worker 5](../worker/Task.5.md)
 
@@ -22,7 +22,7 @@ in one sitting.
 
 ## Status detail
 
-Complete and green: **83 tests** (`cargo test -p nodera-telemetry`), clippy clean at `-D warnings`.
+Complete and green: **91 tests** (`cargo test -p nodera-telemetry`), clippy clean at `-D warnings`.
 
 The crate is a **library as well as a binary**: `reporter.rs` — the service-side emitter used by
 `nodera-tracker` and `nodera-rendezvous` — lives here so the thing that builds events and the thing
@@ -32,7 +32,7 @@ Landed: the event registry with closed value domains; batch parsing with a hard 
 per-event rejection and per-attribute dropping with counted reasons; rotating HMAC pseudonymisation;
 longest-prefix country/ASN lookup with the address discarded; per-source batch and event quotas;
 rotating NDJSON spool; the framed TCP surface with a probe frame; `--print-schema`, `--healthcheck`,
-`--version`; configuration that **refuses to start** without a pseudonymisation secret.
+`--print-env`, `--version`; configuration that **refuses to start** without a pseudonymisation secret.
 
 The decisive test is `wire::tests::a_batch_submitted_over_tcp_is_answered_and_written` — framing,
 service, and sink only agree in practice if a real frame produces a real reply and a real row.
@@ -97,14 +97,14 @@ if liveness checks spent the same budget as real clients, a healthy service woul
 
 ## Files
 
-- `rust/nodera-telemetry/src/{schema,event,subject,geo,limits,sink,service,wire,config,main}.rs`
+- `rust/nodera-telemetry/src/{schema,event,subject,geo,limits,sink,service,wire,config,reporter,main}.rs`
 - `rust/nodera-telemetry/{Cargo.toml,build.rs,README.md}`
 - `docker/telemetry/ingest/nodera-telemetry.toml` — the deployment's configuration
 
 ## Testing
 
 ```bash
-cd rust && cargo test -p nodera-telemetry     # 83 tests
+cd rust && cargo test -p nodera-telemetry     # 91 tests
 cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 ```
 

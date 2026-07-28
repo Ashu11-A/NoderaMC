@@ -8,7 +8,7 @@
      trust model working correctly — a proposal that "fixes" one is a design regression and must be
      refused, not implemented. -->
 
-**Category:** server · **Last audit:** 2026-07-26 · Open or retiring rows: **8**
+**Category:** server · **Last audit:** 2026-07-28 · Open or retiring rows: **8**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).

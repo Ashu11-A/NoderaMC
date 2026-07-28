@@ -6,7 +6,11 @@
      capability regresses, open a bug issue and add a NEW row to LIMITATIONS.md; do not edit history
      here. -->
 
-**Category:** network · **Last audit:** 2026-07-25 · Retired rows: **16**
+**Category:** network · **Last audit:** 2026-07-28 · Retired rows: **16**
+
+> No row retired in this sweep (2026-07-28): every open/retiring row in `LIMITATIONS.md` still
+> needs a live run or wild-telemetry evidence that this pass cannot produce. The 16 retired rows
+> below are unchanged.
 
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|

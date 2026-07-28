@@ -7,7 +7,7 @@
      as a key. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** worker · **Owns:** W-DUP-1 … W-DUP-4, W-FETCH-1 · **Last audit:** 2026-07-27
+**Category:** worker · **Owns:** W-DUP-1…4, W-FETCH-1, W-REPL-1 (W-REPL-2 and W-REPL-3 retired 2026-07-28) · **Last audit:** 2026-07-28
 **Depends on:** [worker 3](Task.3.md), [minecraft 6](../minecraft/Task.6.md)
 **Consumed by:** [app 10](../app/Task.10.md), [minecraft 10](../minecraft/Task.10.md)
 
@@ -167,3 +167,8 @@ workspace**.
 | W-DUP-3 | `LocalFiles.writeAtomically` throws `UnsupportedOperationException` on a non-POSIX filesystem, so no worker-owned file is ever written there | deliverable 8 |
 | W-DUP-4 | Registries that already contain duplicates are not repaired by the fix, only stopped from growing | deliverable 9 |
 | W-FETCH-1 | An archive download could be evicted mid-transfer by the retention policy (fixed; live re-run is the exit) | deliverable 10 |
+| W-REPL-1 | A world this node claimed but held nothing of was never repaired (fixed; live 0%→100% is the exit) | [`LIMITATIONS.md`](LIMITATIONS.md) |
+
+**Retired on 2026-07-28** (headless exit tests confirmed green): **W-REPL-2** (supersede-eviction
+destroyed the only servable plaintext copy) and **W-REPL-3** (peers offered manifests for content
+they held nothing of) — moved to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).

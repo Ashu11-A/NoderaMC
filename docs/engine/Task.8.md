@@ -6,8 +6,7 @@
      header's status accurate and keep L-50 in LIMITATIONS.md in agreement with it. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** engine · **Owns:** L-50 (live evidence), contributes to L-24
-**Last audit:** 2026-07-25
+**Category:** engine · **Owns:** L-50 (live evidence) · **Last audit:** 2026-07-28
 **Depends on:** [engine 7](Task.7.md), [network 3](../network/Task.3.md), [minecraft 2](../minecraft/Task.2.md)
 **Consumed by:** [engine 10](Task.10.md), [engine 11](Task.11.md), [engine 12](Task.12.md)
 
@@ -123,4 +122,6 @@ player-root inventory survives only as a migration stopgap.
 ## Limitations
 
 - **L-50** — live evidence and the last activation clauses. See [`LIMITATIONS.md`](LIMITATIONS.md).
-- **L-24** — `mobCapture` defaults off per species until validation ships ([task 11](Task.11.md)).
+- **L-24** — `mobCapture` default-off per species: **RETIRED 2026-07-26** (see
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)); the species-default capture landed and `e2e-mobs.sh`
+  G2a/G2b pass on a live run. Tracked to closure by [task 11](Task.11.md).

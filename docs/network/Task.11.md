@@ -6,7 +6,7 @@
      will lie on screen. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (renderers → [minecraft 3](../minecraft/Task.3.md), [minecraft 4](../minecraft/Task.4.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md)
 **Consumed by:** [minecraft 3](../minecraft/Task.3.md), [minecraft 4](../minecraft/Task.4.md), [worker 2](../worker/Task.2.md), [app 2](../app/Task.2.md)
 

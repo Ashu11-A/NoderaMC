@@ -6,7 +6,7 @@
      LIMITATIONS.fixed.md with its evidence. Note the §C entry: some properties that LOOK like
      limitations are the trust model working as designed, and must not be "fixed". -->
 
-**Category:** tracker · **Last audit:** 2026-07-27 · Open or retiring rows: **1**
+**Category:** tracker · **Last audit:** 2026-07-28 · Open or retiring rows: **1**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -24,7 +24,7 @@ the trust model, not facts of the platform.
 
 | ID | Gap | Why it is not permanent | Elimination path | Owner | Exit test | Status |
 |---|---|---|---|---|---|---|
-| L-81 | The self-update lane verifies release **integrity, not provenance**: the digest it checks comes from the same release as the binary, so whoever can publish to the release can publish a matching digest | Signing is a release-process change, not an architectural one — the verification seam (`update::stage`) already refuses a mismatch, so a signature check slots in beside it | Sign `SHA256SUMS` in `release-latest.yml`, ship the public key with the binary, and verify the signature before the digest | [5](Task.5.md) | a test that a validly-digested but wrongly-signed manifest is refused by `update::check` | RETIRING — the mechanism is built and tested. `update::check` now fetches `SHA256SUMS.sig` and verifies it against a pinned Ed25519 key **before** it reads a digest (provenance before integrity: checking the digest first lets a substituted manifest choose the binary before anyone asks whether the manifest is genuine). A missing signature is a refusal, not a fallback, or anyone able to delete one asset turns the check off. `release-latest.yml` signs with OpenSSL and verifies what it just produced. The OpenSSL and `ed25519-dalek` halves were cross-checked against each other by hand. Exit test green: `a_validly_digested_but_wrongly_signed_manifest_is_refused`, plus the accept and missing-signature cases. **What remains is not code:** no signing key exists yet. `DEFAULT_RELEASE_PUBLIC_KEY` is empty, which means the lane still checks integrity only and says so on every check. It retires when a key is generated, its private half stored as the `NODERA_RELEASE_SIGNING_KEY` secret and its public half compiled in — a credential-creating step that belongs to the project owner, not to this branch. |
+| L-81 | The self-update lane verifies release **integrity, not provenance**: the digest it checks comes from the same release as the binary, so whoever can publish to the release can publish a matching digest | Signing is a release-process change, not an architectural one — the verification seam (`update::stage`) already refuses a mismatch, so a signature check slots in beside it | Sign `SHA256SUMS` in `release-latest.yml`, ship the public key with the binary, and verify the signature before the digest | [5](Task.5.md) | a test that a validly-digested but wrongly-signed manifest is refused by `update::check` | RETIRING — the mechanism is built and tested. `update::check` now fetches `SHA256SUMS.sig` and verifies it against a pinned Ed25519 key **before** it reads a digest (provenance before integrity: checking the digest first lets a substituted manifest choose the binary before anyone asks whether the manifest is genuine). A missing signature is a refusal, not a fallback, or anyone able to delete one asset turns the check off. `release-latest.yml` signs with OpenSSL and verifies what it just produced. The OpenSSL and `ed25519-dalek` halves were cross-checked against each other by hand. Exit test green: `a_validly_digested_but_wrongly_signed_manifest_is_refused` (in `rust/nodera-service`), plus the accept and missing-signature cases. **What remains is not code:** no signing key exists yet. `DEFAULT_RELEASE_PUBLIC_KEY` is empty, which means the lane still checks integrity only and says so on every check. It retires when a key is generated, its private half stored as the `NODERA_RELEASE_SIGNING_KEY` secret and its public half compiled in — a credential-creating step that belongs to the project owner, not to this branch. Audit 2026-07-28: unchanged; the row is verified still-RETIRING against the current tree. |
 
 L-81 is confined to the update lane: with `update_channel` empty — the default — it cannot affect a
 running service at all.
@@ -36,7 +36,7 @@ Two adjacent gaps are tracked in the categories that own them, not here:
   announce that stops when the game closes is exactly the gap that task exists to remove — and the
   worker's L-41 row retired on 2026-07-26 with the heartbeat proven to re-read what this node holds
   on every announce.
-- Operator hardening (`STATS`, listing policy, deployment docs) is ordinary remaining scope in
+- Operator hardening (`STATS`, listing policy) is ordinary remaining scope in
   [`Task.3.md`](Task.3.md), not a limitation: nothing about the network is degraded by its absence.
 
 ---

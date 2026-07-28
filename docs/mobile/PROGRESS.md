@@ -5,10 +5,11 @@
      EVIDENCE (a test, a log line, a control-socket answer), then reconcile ../ROADMAP.md §2.
      Never rewrite an old note. -->
 
-**Category:** mobile · **Last audit:** 2026-07-27 · Tasks completed: **7 / 8**
+**Category:** mobile · **Last audit:** 2026-07-28 · Tasks completed: **7 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
-[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md) · refactoring
+register: [`REFACTORING.md`](REFACTORING.md).
 
 ---
 
@@ -25,7 +26,38 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | 7 | The phone in the mesh, tested | ✅ COMPLETED | `scripts/e2e-android-mesh.sh` — asserts the phone's own `total_received_bytes` moves after joining the Linux mesh |
 | [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Kotlin now derives the path from `dataDir/nodera`, matching `settings::sync_file_path()`; live re-read, `envInt`, restart and the foreground service remain |
 
+Task-file mapping: the eight rows above are the category's sub-deliverables. The deliverable task
+files are [`Task.1`](Task.1.md) ✅ · [`Task.2`](Task.2.md) ✅ · [`Task.3`](Task.3.md) ✅ ·
+[`Task.4`](Task.4.md) ✅ (2026-07-28) · [`Task.5`](Task.5.md) 🚧 (owns M-NET-1 … M-NET-4).
+
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: Task 4 closed, Task 5 re-audited, M-9 filed
+
+A full status reconciliation against the current tree.
+
+* **Task 4 (settings + worker-verb census) → ✅ COMPLETED.** All four §Exit clauses are met and each
+  is pinned by `cargo test -p nodera-app`: damaged-file preservation (`Stored { Document, Absent,
+  Damaged }`), the metered-policy truth table (incl. metered-hotspot and unmetered-SIM), the
+  worker-key census (`config.rs` asserts every key the app sends is one `applyConfig` recognises),
+  and the no-private-address default. The §3 verb census is a living register of future work in the
+  owning categories, not incomplete work here — the deliverable was the census itself.
+* **Task 5 re-audited — still 🚧.** Deliverable 1 (services-list path) stays green
+  (`NoderaWorker.kt:92-95`). M-NET-1 … M-NET-4 each re-verified against code: `SyncedServices.load`
+  boot-only (`HeadlessPeerMain.java:103`); `envInt` getenv-only (`:630`); `restart_worker`'s
+  consumer `daemon::supervise` is `#[cfg(desktop)]`; `minSdk = 24`
+  (`gen/android/app/build.gradle.kts:22`) vs `--min-api 26` (`scripts/android-apk.sh:156`).
+* **New limitation M-9** (build pipeline): the generated Gradle project now `compileSdk`/`targetSdk
+  = 36` (`gen/android/app/build.gradle.kts:17,23`) but `scripts/android-toolchain.sh:33` installs
+  only platform `android-34`. A host provisioned solely by the toolchain is one SDK-pull away from a
+  failed build. Owned by [Task.1](Task.1.md).
+* **Refactoring register added** ([`REFACTORING.md`](REFACTORING.md)): jscpd finds **0 clones** in
+  `rust/nodera-app/android/` (the Kotlin module is clean). jscpd does not scan shell, so the three
+  `scripts/android-*.sh` were reviewed manually — they share logging helpers, version pins and the
+  `NODERA_ROOT` preamble worth sourcing from one library; the top sequencing item (centralising the
+  version pins) is also the elimination path for M-9.
+
+No limitations retired this pass — every open M-* row was re-confirmed still live in code.
 
 ### 2026-07-27 — The services file the phone was told to read
 

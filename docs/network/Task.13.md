@@ -8,7 +8,7 @@
      Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** network · **Owns:** L-84 · **Last audit:** 2026-07-27
+**Category:** network · **Owns:** L-91 · **Last audit:** 2026-07-28
 **Depends on:** [tracker 5](../tracker/Task.5.md), [rendezvous 5](../rendezvous/Task.5.md),
 [network 1](Task.1.md), [network 2](Task.2.md)
 **Consumed by:** [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
@@ -48,8 +48,12 @@ verb and no wire change were needed — the `rendezvous` array was already in th
 reading a field that exists is free where adding one is not.
 
 Remaining: the exit test. It is a **live** suite — two relays, one drained mid-session, the in-game
-transport asserted to re-register — and it does not exist yet, so L-84 is RETIRING rather than
+transport asserted to re-register — and it does not exist yet, so L-91 is RETIRING rather than
 RETIRED.
+
+> Register note (2026-07-28): this task's limitation was renumbered from a duplicate **L-84** to
+> **L-91**. The other L-84 (task 2, "a joining peer could not send to its own bootstrap") keeps the
+> id. See [`LIMITATIONS.md`](LIMITATIONS.md) for the hygiene note.
 
 ## Dependencies
 
@@ -71,7 +75,7 @@ RETIRED.
 | 8 | A verified drain notice migrates the peer, using the replacement it names | ✅ |
 | 9 | Configured endpoints survive as seeds | ✅ |
 | 10 | The worker drives the sweep and re-registers on change | ✅ |
-| 11 | The mod's transport reads the worker's selection | ✅ code; ⬜ live exit test (L-84) |
+| 11 | The mod's transport reads the worker's selection | ✅ code; ⬜ live exit test (L-91) |
 
 ## Design
 
@@ -187,11 +191,11 @@ Decisive tests:
 5. ✅ A rendezvous restart does not end a peer's inbound relay path.
 6. ✅ A verified drain notice migrates the peer before the old relay stops.
 7. ✅ Configured endpoints keep working, with or without a tracker.
-8. 🚧 The Minecraft mod's transport reads the worker's selection — code landed and unit-tested; the live drain suite that is this row's exit test is still to be written (L-84).
+8. 🚧 The Minecraft mod's transport reads the worker's selection — code landed and unit-tested; the live drain suite that is this row's exit test is still to be written (L-91).
 
 ## Limitations
 
-Owns **L-84**, now RETIRING. The mod reads the worker's live selection and pushes changes into the
-transport without a world reopen; what is not yet proved is the loop closing against a relay that
-actually drains, which is a live suite this branch has not written. Recorded in
-[`LIMITATIONS.md`](LIMITATIONS.md) with its exit test.
+Owns **L-91** (renumbered 2026-07-28 from a duplicate L-84), now RETIRING. The mod reads the
+worker's live selection and pushes changes into the transport without a world reopen; what is not yet
+proved is the loop closing against a relay that actually drains, which is a live suite this branch has
+not written. Recorded in [`LIMITATIONS.md`](LIMITATIONS.md) with its exit test.

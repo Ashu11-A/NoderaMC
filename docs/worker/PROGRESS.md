@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-27 · Tasks completed: **6 / 8**
+**Category:** worker · **Last audit:** 2026-07-28 · Tasks completed: **6 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -17,7 +17,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 |---|---|---|---|
 | [1](Task.1.md) | Boot + presence endpoint | ✅ COMPLETED | Verified live: boots, becomes gateway, answers the probe |
 | [2](Task.2.md) | Control protocol v2 + telemetry | ✅ COMPLETED | Real bytes/peers/worlds; verbs grew additively to 10+ |
-| [3](Task.3.md) | Host/join delegation + seeding | 🚧 IN PROGRESS | Archive seeding + grant gossip + the announce heartbeat's live holdings + validated-lane region-piece seeding (`NODERA-SEED-REGION`, `RegionSeedSpool`) landed; L-41 retired 2026-07-26. Deliverable 9 — rendezvous registration persisting across game sessions — has no evidence yet |
+| [3](Task.3.md) | Host/join delegation + seeding | 🚧 IN PROGRESS | Archive seeding + grant gossip + the announce heartbeat's live holdings + validated-lane region-piece seeding (`NODERA-SEED-REGION`, `RegionSeedSpool`) landed; L-41 retired 2026-07-26. Deliverable 9 — rendezvous registration persisting across game sessions — has the mechanism (hosting restore re-announces + re-registers every persisted world) but no live cross-session evidence yet |
 | [4](Task.4.md) | Out-of-game validation | ✅ COMPLETED (headless) | L-48 retired; live region feed rides the mod |
 | [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
 | [6](Task.6.md) | World ownership + durable registry | ✅ COMPLETED | `WorldHostingPersistenceTest`, `OwnershipGossipIT`, `WorldOwnershipVerbIT`; verified live against the built distribution |
@@ -27,6 +27,38 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — Documentation sweep: status reconciliation + refactoring register
+
+A category-wide documentation sweep against the current tree. No code changed; this note records the
+status reconciliations so the ledger matches reality.
+
+- **Task.0 charter**: the header status moved from the stale "(4 of 5 tasks completed)" to
+  **"6 of 8"**, matching the task index that grew to Tasks 1–8. The §6 Files table was corrected for
+  the 2026-07-26 module split (`dev.nodera.headless` lives in `java/worker/`, not `java/peer/`) and
+  the dead `WorkerState.java` row was removed — there is no such file in this category; the live
+  `STATE` snapshot is built in `WorkerControlHandler.stateJson` (the `dev.nodera.shadow.WorkerState`
+  in `:engine` is unrelated).
+- **Tasks 1–7**: every `Last audit` date bumped to 2026-07-28 and file-path prefixes corrected to
+  `java/worker/` where the code now lives. No status changes — the headless evidence for each is
+  unchanged and still green.
+- **Task 8**: `Owns` refreshed to `W-DUP-1…4, W-FETCH-1, W-REPL-1` after W-REPL-2 and W-REPL-3 retired
+  (below).
+- **Two limitations retired**: **W-REPL-2** and **W-REPL-3** moved to
+  [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). Both had purely headless exit tests
+  (`SupersededManifestEvictionTest` + `ArchiveFetchOverSocketsIT`, including
+  `#onlyHeldVersionsAreOffered` and `#aSilentBystanderDoesNotStallTheFetch`), all named methods exist
+  in `java/worker/src/test/java/dev/nodera/headless/`, and the 2026-07-27 PROGRESS notes already
+  recorded "1,970 Java tests green" with these as the evidence. The open/retiring count dropped
+  8 → 6, and a pre-existing header miscount (it read 7) was corrected.
+- **Still RETIRING**: W-FETCH-1 and W-REPL-1 — both state a **live** cross-session bar
+  ("a live join to a world whose host is playing", "a live node at 0% reaching 100%") that no headless
+  run can satisfy. **Still OPEN**: W-DUP-1…4 (deliverables 6–9 of Task 8).
+- **New: [`REFACTORING.md`](REFACTORING.md)** — a refactoring register built from `jscpd` (155 dup
+  blocks touch this category) plus manual god-class/long-method findings. Top-3: the archive-fixture
+  test cluster (one test is 68% duplicated), the 1,798-line `WorkerControlHandler` god class, and the
+  cross-gossip duplication between `WorldOwnershipService` / `WorldGrantGossipService` /
+  `WorldDeletionService`.
 
 ### 2026-07-27 — Every peer offering a version none of them had
 

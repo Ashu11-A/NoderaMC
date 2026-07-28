@@ -6,7 +6,7 @@
      Keep this header's status accurate. -->
 
 **Status:** ⏳ BLOCKED (needs the worker's own announce timer and the joining-client harness)
-**Category:** app · **Owns:** L-47 (shared) · **Last audit:** 2026-07-25
+**Category:** app · **Owns:** L-47 (shared) · **Last audit:** 2026-07-28
 **Depends on:** [worker 3](../worker/Task.3.md), [minecraft 1](../minecraft/Task.1.md)
 **Consumed by:** the project's product claim
 

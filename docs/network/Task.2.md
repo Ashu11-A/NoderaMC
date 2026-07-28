@@ -6,7 +6,7 @@
      is that no round is needed. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS (membership, election, and continuity landed; migration end-to-end remains)
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md), [engine 5](../engine/Task.5.md)
 **Consumed by:** [worker 1](../worker/Task.1.md), [minecraft 2](../minecraft/Task.2.md), [rendezvous 3](../rendezvous/Task.3.md)
 

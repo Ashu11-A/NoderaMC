@@ -5,8 +5,8 @@
      `PeerTransport` seam described here is sacred: no call site anywhere in the project may know
      which transport carried a message. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `network` · **Status:** 🚧 IN PROGRESS (11 of 13 tasks completed) ·
-**Last audit:** 2026-07-27
+**Category:** `network` · **Status:** 🚧 IN PROGRESS (11 of 14 tasks completed) ·
+**Last audit:** 2026-07-28
 
 ---
 

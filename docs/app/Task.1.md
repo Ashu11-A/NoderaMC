@@ -5,7 +5,7 @@
      supervisor into an unconditional kill-on-exit. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (scaffold; CI build → [task 3](Task.3.md))
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 1](../worker/Task.1.md)
 **Consumed by:** [app 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md)
 
@@ -18,9 +18,9 @@ worker running — with a supervisor that is safe in both of its modes.
 
 ## Status detail
 
-Complete as a scaffold. `main.rs` provides the tray, window, single-instance guard, and autostart
-registration; `daemon.rs` supervises the worker and is **attach-aware**; `tray.rs` carries the status
-icon and quick actions; the React shell renders the dashboard panels.
+Complete as a scaffold. `main.rs` is a two-line shim into `lib.rs::run()`; `lib.rs` provides the tray
+(via `build_tray`), window, single-instance guard, and autostart registration; `daemon.rs` supervises
+the worker and is **attach-aware**; the React shell renders the dashboard panels.
 
 The crate is **workspace-excluded** from the headless `cargo test` gate because Tauri's native webkit
 dependencies would break it. It builds separately, and `scripts/dev.sh --with-app` launches it in
@@ -68,7 +68,7 @@ a dedicated build job is a named deliverable rather than an afterthought.
 
 ## Files
 
-- `rust/nodera-app/src/{main,daemon,tray}.rs`, `rust/nodera-app/tauri.conf.json`
+- `rust/nodera-app/src/{main,lib,daemon}.rs` (the tray is built by `build_tray` in `lib.rs`), `rust/nodera-app/tauri.conf.json`
 - `rust/nodera-app/ui/`
 - `scripts/dev.sh` (`--with-app`)
 

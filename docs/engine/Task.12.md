@@ -7,7 +7,7 @@
      complete on partial sub-lanes. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS (programme-level; several sub-lanes landed)
-**Category:** engine · **Owns:** L-12, L-16, L-17 · **Last audit:** 2026-07-25
+**Category:** engine · **Owns:** L-12, L-16, L-17 · **Last audit:** 2026-07-28
 **Depends on:** [engine 11](Task.11.md), [network 2](../network/Task.2.md), [minecraft 2](../minecraft/Task.2.md)
 **Consumed by:** the project's exit condition
 

@@ -4,10 +4,15 @@
      NOT `app_data_dir()`. filesDir is `/data/user/0/<pkg>/files`; Tauri's app_data_dir() is
      `/data/user/0/<pkg>`, and `settings::config_dir()` joins `nodera` to it. Any path shared
      between the Kotlin side and the Rust side must be derived from the same one of those, and a
-     comment claiming they are equal is wrong. Keep this header's status accurate. -->
+     comment claiming they are equal is wrong. Keep this header's status accurate.
+     2026-07-28 audit: deliverable 1 is green (path fix landed in NoderaWorker.kt:92-95).
+     Deliverables 2-7 remain OPEN and are the four limitations M-NET-1..M-NET-4 — each still
+     verified against the code: SyncedServices.load is boot-only (HeadlessPeerMain.java:103);
+     envInt reads getenv only (HeadlessPeerMain.java:630); restart_worker is desktop-cfg-only;
+     minSdk 24 (gen build.gradle.kts:22) vs --min-api 26 (scripts/android-apk.sh:156). -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-07-27
+**Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-07-28
 **Depends on:** [mobile 3](Task.3.md), [app 9](../app/Task.9.md), [worker 2](../worker/Task.2.md)
 **Consumed by:** —
 
@@ -40,7 +45,19 @@ Two divergences at once — `filesDir` is one level below `app_data_dir()`, and 
 already documents that they are not, and works around it for `storage-pick.json`. The network came up
 regardless only because `network.default_trackers` also arrives over `NODERA-CONFIG`, which is live.
 
-Landed so far: the Kotlin side now derives the path the same way the Rust side does.
+Landed so far: the Kotlin side now derives the path the same way the Rust side does
+(`NoderaWorker.kt:92-95` sets `NODERA_SERVICES_FILE` to `dataDir/nodera/nodera-services.list`).
+
+**2026-07-28 re-audit.** Deliverable 1 stays green; deliverables 2–7 remain open and each maps to a
+verified limitation:
+
+* **D2 / M-NET-1** — `SyncedServices.load` still runs once at `HeadlessPeerMain.java:103`; no
+  re-read path exists.
+* **D3 / M-NET-2** — `envInt` (`HeadlessPeerMain.java:630`) still reads `System.getenv` only, while
+  every sibling (`setting`, `env`, `envLong`, `envBool`) falls back to `System.getProperty`.
+* **D4 / M-NET-3** — `restart_worker`'s only consumer (`daemon::supervise`) is still `#[cfg(desktop)]`.
+* **D6 / M-NET-4** — `gen/android/app/build.gradle.kts:22` is still `minSdk = 24` while
+  `scripts/android-apk.sh:156` dexes at `--min-api 26`.
 
 ## Dependencies
 
@@ -52,11 +69,11 @@ Landed so far: the Kotlin side now derives the path the same way the Rust side d
 | # | Deliverable | State |
 |---|---|---|
 | 1 | The worker reads the services list the app writes | ✅ |
-| 2 | The services list is re-read without a process restart | ⬜ |
-| 3 | `envInt` honours system properties, so Android can set its ports | ⬜ |
-| 4 | Restart-scoped settings either apply on Android or are hidden there | ⬜ |
-| 5 | A foreground service, so the node survives the app leaving the screen | ⬜ |
-| 6 | `minSdk` and the dex `--min-api` agree | ⬜ |
+| 2 | The services list is re-read without a process restart | ⬜ (M-NET-1) |
+| 3 | `envInt` honours system properties, so Android can set its ports | ⬜ (M-NET-2) |
+| 4 | Restart-scoped settings either apply on Android or are hidden there | ⬜ (M-NET-3) |
+| 5 | A foreground service, so the node survives the app leaving the screen | ⬜ (M-2) |
+| 6 | `minSdk` and the dex `--min-api` agree | ⬜ (M-NET-4) |
 | 7 | The two desktop screens reused on mobile are usable by touch | ⬜ |
 
 ## Design
@@ -93,11 +110,13 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 
 | Path | Role |
 |---|---|
-| `rust/nodera-app/android/kotlin/NoderaWorker.kt` | services-list path, worker boot |
+| `rust/nodera-app/android/kotlin/NoderaWorker.kt:92-95` | services-list path (`NODERA_SERVICES_FILE`), worker boot |
+| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:103` | `SyncedServices.load` (boot-only — M-NET-1) |
+| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:629-640` | `envInt` (getenv-only — M-NET-2) |
 | `rust/nodera-app/src/settings.rs` | `config_dir`, `sync_file_path`, `ANDROID_DATA_DIR` |
-| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | `SyncedServices.load`, `envInt` |
-| `rust/nodera-app/gen/android/app/src/main/AndroidManifest.xml` | permissions, deep link |
-| `scripts/android-apk.sh` | dex min-api, manifest injection, kotlin copy |
+| `rust/nodera-app/src/daemon.rs` | `supervise` — the desktop-only restart consumer (M-NET-3) |
+| `rust/nodera-app/gen/android/app/build.gradle.kts:22` | `minSdk = 24` (M-NET-4) |
+| `scripts/android-apk.sh:156` | `--min-api 26` dex floor (M-NET-4) |
 
 ## Testing
 
@@ -105,7 +124,7 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 |---|---|
 | `scripts/android-e2e.sh` with a LAN tracker and **no** `NODERA_DEFAULT_TRACKERS` baked in | deliverable 1 — the phone can only reach the tracker through the services file |
 | `adb shell run-as dev.nodera.app ls nodera/` | the file is where both sides agree |
-| A store added in the app, then `logcat` showing the endpoint in use | deliverable 2 |
+| A store added in the app, then `logcat` showing the endpoint in use | deliverable 2 (M-NET-1 — not yet green) |
 
 ## Acceptance criteria
 

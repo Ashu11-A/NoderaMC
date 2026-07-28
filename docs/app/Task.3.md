@@ -6,7 +6,7 @@
      header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [app 1](Task.1.md)
 **Consumed by:** players (the install target), [app 4](Task.4.md)
 

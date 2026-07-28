@@ -6,7 +6,7 @@
      hash-validate a piece BEFORE accepting it. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (renderer/applier lock-map consumers → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** L-33 · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** L-33 · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md), [network 3](Task.3.md), [engine 2](../engine/Task.2.md)
 **Consumed by:** [network 6](Task.6.md), [network 8](Task.8.md), [network 9](Task.9.md), [worker 3](../worker/Task.3.md)
 

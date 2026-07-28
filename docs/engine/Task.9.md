@@ -6,8 +6,8 @@
      whenever component behaviour changes, so an old peer refuses rather than diverges. Keep this
      header's status accurate. -->
 
-**Status:** 🚧 IN PROGRESS (palette v4 complete; `RULES_VERSION` is 5 since obsidian joined for L-2; contraption migration remains)
-**Category:** engine · **Owns:** — (L-26 RETIRED) · **Last audit:** 2026-07-25
+**Status:** 🚧 IN PROGRESS (palette v4 complete; `RULES_VERSION` is now 6 / `palette.v6` after obsidian + farmland/wheat; contraption migration remains)
+**Category:** engine · **Owns:** — (L-26 RETIRED) · **Last audit:** 2026-07-28
 **Depends on:** [engine 6](Task.6.md), [engine 7](Task.7.md), [network 3](../network/Task.3.md)
 **Consumed by:** [engine 10](Task.10.md), [engine 12](Task.12.md), [minecraft 2](../minecraft/Task.2.md)
 
@@ -22,7 +22,8 @@ cross**: every region of a contraption group gets the same primary.
 
 ## Status detail
 
-**Palette v2 is complete and `RULES_VERSION` is 4** (`palette.v4`). The three staged component
+**Palette v2 completed at `RULES_VERSION` 4 / `palette.v4`** (since raised to **6** by the obsidian
+and farmland increments — see [`PROGRESS.md`](PROGRESS.md)). The three staged component
 groups are green: wire/torch/repeater/comparator/piston, observer + quasi-connectivity + daylight
 sensor, and comparator/hopper/note block. The final two components landed 2026-07-25:
 

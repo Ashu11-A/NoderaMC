@@ -7,7 +7,7 @@
      self == author BEFORE any re-key. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** worker · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 1](Task.1.md), [network 11](../network/Task.11.md), [network 3](../network/Task.3.md)
 **Consumed by:** [minecraft 4](../minecraft/Task.4.md), [minecraft 6](../minecraft/Task.6.md), [app 2](../app/Task.2.md)
 
@@ -78,7 +78,7 @@ verb; nothing password-shaped is logged or serialized.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/headless/{WorkerControlHandler,WorkerState}.java`
+- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (verb table + `STATE` snapshot)
 - `java/peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java`
 - Mirrors: `java/neoforge-mod/.../common/CompanionProtocol.java`, `rust/nodera-app/src/control.rs`
 

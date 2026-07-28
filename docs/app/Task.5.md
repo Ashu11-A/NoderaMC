@@ -7,7 +7,7 @@
      ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** — (L-78 RETIRED 2026-07-26) · **Last audit:** 2026-07-26
+**Category:** app · **Owns:** — (L-78 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [worker 5](../worker/Task.5.md), [app 2](Task.2.md)
 **Consumed by:** every player; [telemetry 3](../telemetry/Task.3.md)
 

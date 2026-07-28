@@ -8,7 +8,7 @@
      with a version matrix and a test or not at all. Keep this header accurate. -->
 
 **Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-64 · **Last audit:** 2026-07-25
+**Category:** server · **Owns:** L-64 · **Last audit:** 2026-07-28
 **Depends on:** [server 3](Task.3.md), [engine 6](../engine/Task.6.md), [network 3](../network/Task.3.md), [network 9](../network/Task.9.md)
 **Consumed by:** [server 5](Task.5.md), [server 8](Task.8.md)
 

@@ -2,12 +2,13 @@
 
 <!-- AI-AGENT-INSTRUCTION: This file documents the SCRIPTED LIVE ACCEPTANCE SUITES as well as the
      module's unit tests. Update it whenever a script gains or changes a stage. Counts come from the
-     `./gradlew check` XML reports, never from memory. RUN THE LIVE SUITES whenever a change touches
-     the host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
+     `./gradlew check` XML reports (or `rg -c '@Test'` over `src/test`, re-verified 2026-07-28 at
+     155 across 27 files), never from memory. RUN THE LIVE SUITES whenever a change touches the
+     host, join, lane, or continuity surfaces — the headless gate cannot see configuration-gated
      lifecycle paths, and most defects in this category were only catchable live. -->
 
-**Category:** minecraft · **Last run:** 2026-07-25 · **118 unit tests · 0 failing** (module
-`neoforge-mod`), plus **14 scripted live suites**
+**Category:** minecraft · **Last run:** 2026-07-28 · **155 unit tests · 0 failing** (module
+`neoforge-mod`), plus **15 scripted live suites**
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -214,7 +215,7 @@ suites pass through it by design.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 97 | 🚧 |
+| `neoforge-mod` | Host and GUI surfaces, entity-lane adapters, continuity halves, permission/identity/re-key lanes, the live-join password gate, crash-resilience degrade, the vanilla-cancel contract, the piece-map lane, the stall reporter, and the in-game self-test drive | 155 | 🚧 |
 
 Landmark unit tests:
 

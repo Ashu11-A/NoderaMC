@@ -6,7 +6,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED (live forward sync + manager wiring → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-25
+**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md), [engine 1](../engine/Task.1.md)
 **Consumed by:** [network 4](Task.4.md), [network 9](Task.9.md), [worker 2](../worker/Task.2.md), [minecraft 5](../minecraft/Task.5.md)
 
