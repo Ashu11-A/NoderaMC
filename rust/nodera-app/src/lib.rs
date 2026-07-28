@@ -349,14 +349,14 @@ fn get_worker_ownership() -> daemon::WorkerOwnership {
 /// **Refuses in attach mode.** A worker started by `scripts/dev.sh` — or by an operator — is not
 /// this app's process to kill; killing it would leave the dev stack silently short a node with no
 /// supervisor to bring it back.
+///
+/// **Refuses on mobile.** The supervisor that consumes the signal is `#[cfg(desktop)]`, so the
+/// notification would wake nobody; the answer is a sentence telling the user what does work
+/// (relaunching the app), not a no-op that looks like success.
 #[tauri::command]
 fn restart_worker(restart: tauri::State<Arc<RestartSignal>>) -> Result<(), String> {
-    if daemon::attach_mode() {
-        return Err(
-            "this worker was started outside the app, so the app will not stop it — restart it \
-             where you started it"
-                .to_owned(),
-        );
+    if let Some(why) = daemon::restart_unavailable() {
+        return Err(why.to_owned());
     }
     restart.0.notify_one();
     Ok(())

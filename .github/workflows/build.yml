@@ -69,6 +69,31 @@ jobs:
       - name: Hosted world survives the host closing Minecraft
         run: ./gradlew :worker:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
 
+  # M-5's exit job. Java 21 type-pattern switches (`case SomeType v ->`) compile to an
+  # `invokedynamic` on `java.lang.runtime.SwitchBootstraps`; ART does not implement it and D8 cannot
+  # desugar it, so one reaching the worker's closure is a crash on the phone and nowhere else. It is
+  # latent — the worker boots, announces, serves state, and dies encoding its first peer message,
+  # taking the app's process with it. Nothing in `./gradlew check` can see that, because the
+  # property that matters is "no invoke-custom in the dex" and only the dexer can say.
+  #
+  # So the guard runs here, on every push, against the real compiled distribution.
+  android-bytecode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      # build-tools 35 specifically: 34's R8 8.2 cannot even read Java 21 class files
+      # ("Unsupported class file major version 65"), so an older d8 would fail for the wrong reason.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'build-tools;35.0.0'
+      - name: No bytecode Android cannot run
+        run: scripts/check-android-bytecode.sh
+
   rust:
     runs-on: ubuntu-latest
     defaults:

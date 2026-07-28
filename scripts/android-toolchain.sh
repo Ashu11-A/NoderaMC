@@ -30,8 +30,18 @@ NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Versions are pinned. An Android build that silently follows "latest" produces a different artifact
 # every month, and the day it breaks nobody can tell what moved.
 CMDLINE_TOOLS_VERSION="11076708"
-COMPILE_SDK="34"
+# 36, because that is what the generated Gradle project compiles and targets
+# (`gen/android/app/build.gradle.kts`). When this said 34 the two committed pins disagreed and a
+# machine provisioned only by this script failed its first build, downloading platform 36 (and
+# asking for its licence) at a moment nobody expected a download.
+COMPILE_SDK="36"
+# Two, both load-bearing, because they are not interchangeable:
+#   * 34.0.0 — `zipalign` + `apksigner`, what scripts/android-apk.sh signs with;
+#   * 35.0.0 — `d8` + `dexdump`. Build-tools 34's R8 8.2 cannot read Java 21 class files at all
+#     ("Unsupported class file major version 65"), so the worker's dexing and
+#     scripts/check-android-bytecode.sh both need the newer one.
 BUILD_TOOLS="34.0.0"
+DEX_BUILD_TOOLS="35.0.0"
 NDK_VERSION="26.1.10909125"
 
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
@@ -75,7 +85,8 @@ report() {
     log "  sdkmanager       $(have "$SDKMANAGER")"
     log "  platform-tools   $(have "$ANDROID_HOME/platform-tools/adb")"
     log "  platform ${COMPILE_SDK}      $(have "$ANDROID_HOME/platforms/android-$COMPILE_SDK")"
-    log "  build-tools      $(have "$ANDROID_HOME/build-tools/$BUILD_TOOLS")"
+    log "  build-tools $BUILD_TOOLS  $(have "$ANDROID_HOME/build-tools/$BUILD_TOOLS")"
+    log "  build-tools $DEX_BUILD_TOOLS  $(have "$ANDROID_HOME/build-tools/$DEX_BUILD_TOOLS")"
     log "  ndk $NDK_VERSION $(have "$(ndk_path)")"
     local installed missing=()
     installed="$(rustup target list --installed 2>/dev/null || true)"
@@ -123,7 +134,8 @@ log "accepting SDK licences"
 yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
 
 for package in "platform-tools" "platforms;android-$COMPILE_SDK" \
-               "build-tools;$BUILD_TOOLS" "ndk;$NDK_VERSION"; do
+               "build-tools;$BUILD_TOOLS" "build-tools;$DEX_BUILD_TOOLS" \
+               "ndk;$NDK_VERSION"; do
     log "installing $package"
     "$SDKMANAGER" --install "$package" >/dev/null || die "sdkmanager failed on $package"
 done
