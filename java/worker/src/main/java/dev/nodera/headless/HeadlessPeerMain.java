@@ -37,8 +37,9 @@ import java.util.concurrent.CountDownLatch;
  * — the mod refuses to launch if this worker is not running.
  *
  * <p>The Tauri companion app ({@code rust/nodera-app}) supervises this process (auto-launch at login,
- * tray, dashboard); {@code scripts/dev.sh} can also run it directly for development. Configuration is
- * environment-driven so the supervisor can pass it without a config file.
+ * tray, dashboard); {@code scripts/dev.sh} can also run it directly for development. Desktop
+ * configuration is environment-driven; the in-process Android worker uses system properties where
+ * it cannot receive a process environment.
  *
  * <p>Deferred to the live lane: per-world tracker announce + rendezvous registration + seeding are
  * driven by control verbs once the mod asks the worker to host/join a world; this MVP establishes the
@@ -74,9 +75,12 @@ public final class HeadlessPeerMain {
     public static void main(String[] args) throws Exception {
         long startedAtMillis = System.currentTimeMillis();
         String controlHost = env("NODERA_CONTROL_HOST", "127.0.0.1");
+        // Control stays environment-only: the desktop supervisor and its Rust client inherit the
+        // same value. Android has no environment handoff and both sides deliberately keep 25610;
+        // accepting an independent Java property here could strand the app on the wrong endpoint.
         int controlPort = envInt("NODERA_CONTROL_PORT", 25610);
         String bindHost = env("NODERA_P2P_BIND", "0.0.0.0");
-        int p2pPort = envInt("NODERA_P2P_PORT", 25620);
+        int p2pPort = settingInt("NODERA_P2P_PORT", 25620);
         // NODERA_P2P_PORT_RANGE=start-end widens the bind to the first free port in a range. A
         // single fixed port is forwardable but fails outright when anything else already holds it
         // (a second worker, a stale JVM, a dev client); an ephemeral port always binds but is not
@@ -641,6 +645,20 @@ public final class HeadlessPeerMain {
     private static int envInt(String key, int fallback) {
         String v = System.getenv(key);
         if (v == null || v.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            LOG.warn("Bad integer in {}='{}', using {}", key, v, fallback);
+            return fallback;
+        }
+    }
+
+    /** Environment-first integer setting with a system-property fallback for in-process Android. */
+    static int settingInt(String key, int fallback) {
+        String v = setting(key);
+        if (v == null) {
             return fallback;
         }
         try {

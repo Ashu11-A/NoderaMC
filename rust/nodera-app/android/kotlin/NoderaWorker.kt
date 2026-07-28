@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import dalvik.system.DexClassLoader
 import java.io.File
+import java.util.Properties
 
 /**
  * Runs the **real Java peer worker** inside this app's process.
@@ -38,20 +39,25 @@ import java.io.File
  * # What the app does with it afterwards
  *
  * Nothing special: the worker opens `127.0.0.1:25610` and the Rust side connects to it with the
- * same control-protocol code the desktop uses. That is the point of doing this properly rather than
- * reimplementing a smaller peer in Rust — the phone becomes the same kind of node as a desktop.
+ * same control-protocol code the desktop uses. P2P bind settings cross the in-process boundary as
+ * allowlisted Java properties; control does not, because configuring only one end would disconnect
+ * the app from its worker. That is the point of doing this properly rather than reimplementing a
+ * smaller peer in Rust — the phone becomes the same kind of node as a desktop.
  */
 object NoderaWorker {
 
     private const val TAG = "NoderaMC"
     private const val ASSET = "nodera-worker.jar"
     private const val MAIN_CLASS = "dev.nodera.headless.HeadlessPeerMain"
+    private const val PROPERTIES_FILE = "nodera/nodera-worker.properties"
+    private val P2P_PROPERTIES = listOf("NODERA_P2P_PORT", "NODERA_P2P_PORT_RANGE")
 
     @Volatile
     private var started = false
 
     /**
-     * Start the worker once. Safe to call again; later calls are no-ops.
+     * Start the worker once. Called from Rust only after both Android context setup and the
+     * persisted-property handoff complete. Safe to call again; later calls are no-ops.
      *
      * Never throws: a phone that cannot start the worker must still show its UI and say what is
      * wrong, rather than failing to open.
@@ -60,8 +66,30 @@ object NoderaWorker {
     @Synchronized
     fun start(context: Context) {
         if (started) return
+        runCatching { applyPortProperties(context) }
+            .onFailure { Log.e(TAG, "worker: could not read P2P properties; using defaults", it) }
         started = true
         Thread({ run(context) }, "nodera-worker-boot").apply { isDaemon = true }.start()
+    }
+
+    /** Apply only peer-listener properties; control remains fixed at the Rust client's port. */
+    private fun applyPortProperties(context: Context) {
+        P2P_PROPERTIES.forEach { System.clearProperty(it) }
+        val file = File(context.dataDir, PROPERTIES_FILE)
+        if (!file.isFile) {
+            Log.w(TAG, "worker: no port properties at ${file.absolutePath}; using worker defaults")
+            return
+        }
+        val configured = Properties().apply { file.inputStream().use { load(it) } }
+        P2P_PROPERTIES.forEach { key ->
+            configured.getProperty(key)?.trim()?.takeIf(String::isNotEmpty)?.let { value ->
+                System.setProperty(key, value)
+            }
+        }
+        val applied = P2P_PROPERTIES.mapNotNull { key ->
+            System.getProperty(key)?.let { value -> "$key=$value" }
+        }
+        Log.i(TAG, "worker: P2P properties $applied")
     }
 
     private fun run(context: Context) {
