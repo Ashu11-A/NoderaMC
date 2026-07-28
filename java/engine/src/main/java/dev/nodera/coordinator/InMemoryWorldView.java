@@ -1,6 +1,7 @@
 package dev.nodera.coordinator;
 
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkKey;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.InventoryCredit;
@@ -38,7 +39,7 @@ public final class InMemoryWorldView implements MutableWorldView {
     public void load(RegionSnapshot snapshot) {
         Map<Long, Column> cols = new HashMap<>(snapshot.chunks().size());
         for (ChunkColumnState c : snapshot.chunks()) {
-            cols.put(pack(c.chunkX(), c.chunkZ()), new Column(c));
+            cols.put(ChunkKey.pack(c.chunkX(), c.chunkZ()), new Column(c));
         }
         world.put(snapshot.region(), cols);
         Map<NetworkEntityId, PersistedEntityState> entityRows = new HashMap<>();
@@ -201,11 +202,8 @@ public final class InMemoryWorldView implements MutableWorldView {
         if (cols == null) {
             return null;
         }
-        return cols.get(pack(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE)));
-    }
-
-    private static long pack(int chunkX, int chunkZ) {
-        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+        return cols.get(ChunkKey.pack(
+                Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE)));
     }
 
     private Map<RegionId, Map<Long, Column>> copyWorld() {

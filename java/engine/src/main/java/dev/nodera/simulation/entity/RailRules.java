@@ -2,6 +2,7 @@ package dev.nodera.simulation.entity;
 
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.EntityKind;
+import dev.nodera.core.state.FixedPoint;
 import dev.nodera.core.state.FixedVec3;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.PersistedEntityState;
@@ -99,7 +100,8 @@ public final class RailRules {
                 int[] turn = turnExit(state, cell, heading);
                 if (turn == null) {
                     // Dead-end: stop at the rail head, snapped to its centre.
-                    state.updateEntity(withMotion(cart, centerSnap(cart.pos(), cell), FixedVec3.ZERO));
+                    state.updateEntity(cart.withMotionAndAge(
+                            centerSnap(cart.pos(), cell), FixedVec3.ZERO, cart.ageTicks() + 1));
                     return;
                 }
                 heading = turn;
@@ -111,7 +113,7 @@ public final class RailRules {
         if (boost) {
             speed = MAX_SPEED;
         } else {
-            speed = multiplyFixed(speed, FRICTION);
+            speed = FixedPoint.multiply(speed, FRICTION);
         }
         long vx = heading[0] * speed;
         long vz = heading[2] * speed;
@@ -121,10 +123,12 @@ public final class RailRules {
                     state.region().dimension(),
                     Math.floorDiv(nextPos.blockX(), 16),
                     Math.floorDiv(nextPos.blockZ(), 16));
-            state.transferEntity(target, withMotion(cart, nextPos, new FixedVec3(vx, 0L, vz)));
+            state.transferEntity(target, cart.withMotionAndAge(
+                    nextPos, new FixedVec3(vx, 0L, vz), cart.ageTicks() + 1));
             return;
         }
-        state.updateEntity(withMotion(cart, nextPos, new FixedVec3(vx, 0L, vz)));
+        state.updateEntity(cart.withMotionAndAge(
+                nextPos, new FixedVec3(vx, 0L, vz), cart.ageTicks() + 1));
     }
 
     /** The heading matching an axis-aligned velocity, or {@code null} when at rest. */
@@ -193,15 +197,4 @@ public final class RailRules {
         return new FixedVec3(centerX, pos.y(), centerZ);
     }
 
-    private static PersistedEntityState withMotion(
-            PersistedEntityState entity, FixedVec3 position, FixedVec3 velocity) {
-        return new PersistedEntityState(
-                entity.id(), entity.kind(), entity.typeId(), position, velocity,
-                entity.ageTicks() + 1, entity.despawnTick(), entity.payload());
-    }
-
-    /** Signed Q32.32 product (the sanctioned {@code Math.multiplyHigh} idiom). */
-    private static long multiplyFixed(long value, long multiplier) {
-        return Math.multiplyHigh(value, multiplier) << 32 | (value * multiplier) >>> 32;
-    }
 }

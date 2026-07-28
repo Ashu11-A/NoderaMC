@@ -3,6 +3,7 @@ package dev.nodera.simulation;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.region.RegionBounds;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkKey;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.InventoryCredit;
@@ -150,7 +151,7 @@ public final class MutableRegionState implements RegionWorldView {
         }
         this.columnsByChunk = new HashMap<>(snapshot.chunks().size());
         for (ChunkColumnState col : snapshot.chunks()) {
-            columnsByChunk.put(packChunk(col.chunkX(), col.chunkZ()), new ColumnModel(col));
+            columnsByChunk.put(ChunkKey.pack(col.chunkX(), col.chunkZ()), new ColumnModel(col));
         }
         this.entityStore = new EntityStore(snapshot.entities());
     }
@@ -531,15 +532,11 @@ public final class MutableRegionState implements RegionWorldView {
     private ColumnModel columnAt(NBlockPos pos) {
         int chunkX = Math.floorDiv(pos.x(), CHUNK_SIZE);
         int chunkZ = Math.floorDiv(pos.z(), CHUNK_SIZE);
-        return columnsByChunk.get(packChunk(chunkX, chunkZ));
+        return columnsByChunk.get(ChunkKey.pack(chunkX, chunkZ));
     }
 
     private static int sectionIndex(ColumnModel col, int y) {
         return Math.floorDiv(y - col.minY, CHUNK_SIZE);
-    }
-
-    private static long packChunk(int chunkX, int chunkZ) {
-        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
     /** Mutable working copy of one chunk column, retaining the immutable base palette for CAS. */

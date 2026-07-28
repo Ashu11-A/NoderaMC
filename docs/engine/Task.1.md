@@ -22,8 +22,9 @@ contract after this task**: changing it is a network-breaking change.
 
 ## Status detail
 
-Landed and stable. `java/core` carries 257 `@Test` methods covering canonical round-trips for
-every type, golden-file encodings, signature verification, and tamper rejection.
+Landed and stable. `java/core` carries 263 XML test executions (260 `@Test` methods and 3 jqwik
+`@Property` methods) covering canonical round-trips, deterministic arithmetic, golden-file
+encodings, signature verification, and tamper rejection.
 
 Extensions landed after the original delivery, each additive and tag-appended:
 

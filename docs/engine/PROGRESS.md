@@ -34,6 +34,21 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — Deterministic helper duplication removed (L-52)
+
+L-52 is RETIRED. Core now owns the three operations that engine packages had copied:
+`FixedPoint.multiply` for signed Q32.32 products, `PersistedEntityState.withMotion`/
+`withMotionAndAge` for immutable canonical entity copies, and `ChunkKey` for reversible signed
+coordinate packing. Every named equivalent call site now delegates to those helpers; remaining
+entity constructors change payload, despawn policy, or identity and were deliberately left alone.
+
+Canonical forms did not move: no encoder, tag, version, field order, or rules version changed.
+Evidence: `FixedPointTest` (10,000 arbitrary products against `BigInteger`), `ChunkKeyTest` (10,000
+signed-coordinate round trips plus exact layouts), and
+`EntityLaneTypesTest.motionUpdateMatchesDirectConstructionCanonicalBytesAndRoundTrips`. Focused
+core/engine XML is 767/767 green with no skips; full `./gradlew check` is 2,061 tests with no failures
+or errors.
+
 ### 2026-07-28 — Documentation sweep: status reconciliation + refactoring register
 
 A category-wide documentation sweep (no code change) reconciled every task header, the limitations

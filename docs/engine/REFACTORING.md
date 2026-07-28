@@ -35,15 +35,20 @@ excluded. Sorted by `% duplicated` descending; `—` marks a manual candidate js
 | `java/core/.../action/BreakBlockAction.java` | 58 | 82.8 | AttackEntityAction, BlockChangedEvent, InteractBlockAction, PlaceBlockAction | Sealed-action codec consolidation. |
 | `java/core/.../region/RegionCommittee.java` | 140 | 68.6 | NodeCapabilities, RegionLease, RegionProgress | The "defensive-copy + UUID-sort validators" compact-constructor block is shared with `RegionLease` — extract `NodeIdList.canonicalCopyOf`. |
 | `java/core/.../region/RegionLease.java` | 127 | 67.7 | NodeCapabilities, RegionCommittee | Same as above (`NodeIdList.canonicalCopyOf`). |
-| `java/engine/src/main/.../entity/PortalRules.java` | 73 | 63.0 | MobAiRules, ProjectileRules, RailRules | The fixed-point scale + `transferEntity` cross-border hand-off block recurs across the four entity rules — see L-52 / the shared entity-update helper. |
+| `java/engine/src/main/.../entity/PortalRules.java` | 70 | — | MobAiRules, ProjectileRules, RailRules | L-52 removed the entity-reconstruction clone. Target-region resolution + `transferEntity` hand-off still recur; extract only that remaining policy if the four paths must evolve together. |
 | `java/engine/src/main/.../simulation/rules/RedstoneRules.java` | 726 | 5.9 | EntityRuleSet, FlatWorldRules | — God class. Split into `WireNetwork`, `PistonMotion`, `ObserverTiming`, and `ComparatorDaylight` helpers; `recomputeNetwork` and `firePistonEvent` are each ~80 lines and the only callers of the family-aware piston helpers. |
 | `java/engine/src/main/.../simulation/rules/FlatWorldRules.java` | 539 | 10.2 | EntityRuleSet | — Extract the 100-row `PALETTE` table + `buildPlaceable`/`buildWhitelist` into a `FlatWorldPalette` type; `validate`/`apply` action-dispatch stays. |
 | `java/engine/src/main/.../simulation/MutableRegionState.java` | 559 | 3.3 | SnapshotDeltaApplier, RegionHalo, InMemoryWorldView | — Five responsibilities (blocks / entities / scheduled ticks / block events / containers / border signals). The misplaced `worldTime()` javadoc (sitting where the `bindOperators` doc belongs) is a symptom. Extract a `ScheduledState` and `ContainerState` helper owned by the region state. |
 | `java/engine/src/main/.../coordinator/entity/EntityTransferCoordinator.java` | 581 | 11.9 | EntityTransferCoordinatorTest, EntityTransferCrashRecoveryIT | — Split the live `transfer()` path from the `restorePending()`/recovery path; the `finish()` step-machine is shared but the validation surfaces are not. |
 | `java/engine/src/main/.../coordinator/WorldMutationApplier.java` | 300 | 9.7 | (none, manual) | — `applyAll` runs three near-identical verify+apply passes (block / entity / credit targets). Extract a per-target `TargetStrategy` so the two-pass loop reads once. |
-| `multiplyFixed` / `withMotion` / `packChunk` (L-52) | — | — | ItemEntityRules, ProjectileRules, TntRules, RailRules, MobAiRules; MutableRegionState, InMemoryWorldView, SnapshotDeltaApplier, InterferenceProbe, RegionHalo, WorldMutationApplier | — Extract `dev.nodera.simulation.FixedPoint` (the `Math.multiplyHigh` Q32.32 idiom), an entity `EntityUpdate.with(entity,pos,vel)` helper, and a `ChunkKey.pack/unpack` util. Determinism-maintainability win (tracked as L-52). |
 | `Encodable` tag+version guard across ~40 core types | — | — | every `Encodable` in `core` | — `CanonicalReader.expectTag(tag)` + `CanonicalWriter.writeFrame(tag)` so the `writeU16(tag).writeU16(ENCODING_VERSION)` / `readU16`-compare-`readVersion` triplet is one call. Wire bytes identical. |
 | `instanceof` action-dispatch chains | — | — | FlatWorldRules, EntityRuleSet, BorderClassifier, PackDelegatingRuleSet | — Constrained: a type-pattern `switch` compiles to `SwitchBootstraps` which Android ART does not implement (mobile M-8). Keep the chains, but factor the "resolve target position / id" step into one `Actions.targetBlockIdOf(action)` so the four copies agree. |
+
+## Resolved
+
+- **2026-07-28 — L-52:** `FixedPoint`, `PersistedEntityState.withMotion`/`withMotionAndAge`, and
+  `ChunkKey` now own the deterministic helper implementations. `FixedPointTest`, `ChunkKeyTest`, and
+  `EntityLaneTypesTest` pin arithmetic, reversible bit layout, and canonical entity bytes.
 
 ## Sequencing
 
@@ -52,16 +57,15 @@ The order favours changes that unlock the rest and that carry the least wire-con
 1. **`CanonicalFrame` tag+version helper + `EnumEncodable`** — unblocks the largest cluster (every
    `Encodable` row above) and is wire-byte-identical, so the only verification is the existing
    `fixtures/wire` + `tag_mirror` conformance. Do this first.
-2. **`FixedPoint` + `EntityUpdate` + `ChunkKey` shared utils (L-52)** — removes a real determinism
-   hazard (four copies of the multiply idiom) and is covered by a new `@Property` plus the existing
-   entity-rule roots. Highest safety value per line touched.
-3. **`CanonicalNodeIdOrder` constant + `NodeIdList.canonicalCopyOf`** — small, mechanical, removes
+2. **`CanonicalNodeIdOrder` constant + `NodeIdList.canonicalCopyOf`** — small, mechanical, removes
    the `Comparator.comparing(NodeId::value)` literal pasted across the coordinator/committee and the
    validator-sort block in `RegionLease`/`RegionCommittee`.
-4. **`RedstoneRules` split** — the biggest god class (726 lines) and the one that makes every
+3. **`RedstoneRules` split** — the biggest god class (726 lines) and the one that makes every
    redstone change expensive to reason about. Split after the helpers above exist so the new
    `WireNetwork`/`PistonMotion` files can use them.
-5. **Shared test fixtures (`RegionFixture`, `MobSoakHarness`, consolidate `CommFixtures`/
+4. **Shared test fixtures (`RegionFixture`, `MobSoakHarness`, consolidate `CommFixtures`/
    `CoordFixtures`)** — the test duplication is the largest absolute volume (BorderSignalTest alone
    is a 290%-hub) and pure-test refactors cannot break the gate; do it once the production helpers
    land so the fixtures adopt them.
+5. **`FlatWorldPalette` extraction** — move the static palette table and whitelist builders out of
+   `FlatWorldRules`; keep action dispatch and mutation semantics in the rule class.

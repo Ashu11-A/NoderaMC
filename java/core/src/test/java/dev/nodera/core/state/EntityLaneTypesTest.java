@@ -72,6 +72,49 @@ final class EntityLaneTypesTest {
     }
 
     @Test
+    void motionUpdatePreservesEveryOtherStateField() {
+        PersistedEntityState original = new PersistedEntityState(
+                NetworkEntityId.allocate(REGION, new SnapshotVersion(2), 4),
+                EntityKind.PROJECTILE, 0x1234,
+                FixedVec3.ofBlock(1, 2, 3), FixedVec3.ZERO,
+                41, 6000, Bytes.fromHex("cafe"));
+        FixedVec3 position = new FixedVec3(Long.MIN_VALUE, 17L, Long.MAX_VALUE);
+        FixedVec3 velocity = new FixedVec3(-9L, 8L, -7L);
+
+        assertThat(original.withMotion(position, velocity)).isEqualTo(
+                new PersistedEntityState(
+                        original.id(), original.kind(), original.typeId(), position, velocity,
+                        original.ageTicks(), original.despawnTick(), original.payload()));
+        assertThat(original.withMotionAndAge(position, velocity, 42)).isEqualTo(
+                new PersistedEntityState(
+                        original.id(), original.kind(), original.typeId(), position, velocity,
+                        42, original.despawnTick(), original.payload()));
+    }
+
+    @Test
+    void motionUpdateMatchesDirectConstructionCanonicalBytesAndRoundTrips() {
+        PersistedEntityState original = new PersistedEntityState(
+                NetworkEntityId.allocate(REGION, new SnapshotVersion(2), 5),
+                EntityKind.MINECART, 400,
+                FixedVec3.ofBlock(-3, 64, 9), new FixedVec3(1L, 2L, 3L),
+                7, PersistedEntityState.NEVER_DESPAWN, Bytes.fromHex("010203"));
+        FixedVec3 position = new FixedVec3(-123L, 456L, -789L);
+        FixedVec3 velocity = new FixedVec3(Long.MAX_VALUE, 0L, Long.MIN_VALUE);
+        PersistedEntityState expected = new PersistedEntityState(
+                original.id(), original.kind(), original.typeId(), position, velocity,
+                8, original.despawnTick(), original.payload());
+        PersistedEntityState updated = original.withMotionAndAge(position, velocity, 8);
+        CanonicalWriter expectedWriter = new CanonicalWriter();
+        CanonicalWriter updatedWriter = new CanonicalWriter();
+        expected.encode(expectedWriter);
+        updated.encode(updatedWriter);
+
+        assertThat(updatedWriter.toBytes()).isEqualTo(expectedWriter.toBytes());
+        assertThat(PersistedEntityState.decode(
+                new CanonicalReader(updatedWriter.toBytes().toArray()))).isEqualTo(expected);
+    }
+
+    @Test
     void neverDespawnSentinel() {
         PersistedEntityState immortal = new PersistedEntityState(
                 NetworkEntityId.allocate(REGION, new SnapshotVersion(1), 0),

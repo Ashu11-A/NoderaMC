@@ -64,10 +64,7 @@ public final class PortalRules {
                     targetDim,
                     Math.floorDiv(scaled.blockX(), 16),
                     Math.floorDiv(scaled.blockZ(), 16));
-            state.transferEntity(target, new PersistedEntityState(
-                    traveller.id(), traveller.kind(), traveller.typeId(),
-                    scaled, traveller.vel(), traveller.ageTicks(), traveller.despawnTick(),
-                    traveller.payload()));
+            state.transferEntity(target, traveller.withMotion(scaled, traveller.vel()));
         }
     }
 }

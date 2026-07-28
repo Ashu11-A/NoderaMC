@@ -2,6 +2,7 @@ package dev.nodera.coordinator;
 
 import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkKey;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -74,7 +75,7 @@ public final class RegionChunkHolds {
         List<ChunkRef> newlyHeld = new ArrayList<>();
         for (ChunkRef chunk : chunksOf(region)) {
             Set<RegionId> owners = holders.computeIfAbsent(
-                    key(chunk), unused -> new LinkedHashSet<>());
+                    ChunkKey.pack(chunk.chunkX(), chunk.chunkZ()), unused -> new LinkedHashSet<>());
             if (owners.isEmpty()) {
                 newlyHeld.add(chunk);
             }
@@ -92,7 +93,7 @@ public final class RegionChunkHolds {
     public Delta release(RegionId region) {
         List<ChunkRef> released = new ArrayList<>();
         for (ChunkRef chunk : chunksOf(region)) {
-            long key = key(chunk);
+            long key = ChunkKey.pack(chunk.chunkX(), chunk.chunkZ());
             Set<RegionId> owners = holders.get(key);
             if (owners == null) {
                 continue;
@@ -110,7 +111,7 @@ public final class RegionChunkHolds {
     public Delta releaseAll() {
         List<ChunkRef> released = new ArrayList<>(holders.size());
         for (Long key : List.copyOf(holders.keySet())) {
-            released.add(new ChunkRef((int) (key >> 32), key.intValue()));
+            released.add(new ChunkRef(ChunkKey.unpackX(key), ChunkKey.unpackZ(key)));
         }
         holders.clear();
         return new Delta(List.of(), released);
@@ -118,7 +119,7 @@ public final class RegionChunkHolds {
 
     /** @return whether any region currently holds this chunk. */
     public boolean isHeld(int chunkX, int chunkZ) {
-        return holders.containsKey(key(new ChunkRef(chunkX, chunkZ)));
+        return holders.containsKey(ChunkKey.pack(chunkX, chunkZ));
     }
 
     /** @return how many distinct chunks are held right now. */
@@ -126,7 +127,4 @@ public final class RegionChunkHolds {
         return holders.size();
     }
 
-    private static long key(ChunkRef chunk) {
-        return ((long) chunk.chunkX() << 32) | (chunk.chunkZ() & 0xFFFFFFFFL);
-    }
 }

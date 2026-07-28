@@ -81,9 +81,7 @@ public final class MobAiRules {
      */
     private static void applyKnockback(MutableRegionState state, PersistedEntityState ghost) {
         if (settled(ghost.vel())) {
-            state.updateEntity(new PersistedEntityState(
-                    ghost.id(), ghost.kind(), ghost.typeId(), ghost.pos(), FixedVec3.ZERO,
-                    ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+            state.updateEntity(ghost.withMotion(ghost.pos(), FixedVec3.ZERO));
             return;
         }
         FixedVec3 target = ghost.pos().add(ghost.vel());
@@ -93,22 +91,15 @@ public final class MobAiRules {
                             state.region().dimension(),
                             Math.floorDiv(target.blockX(), 16),
                             Math.floorDiv(target.blockZ(), 16)),
-                    new PersistedEntityState(ghost.id(), ghost.kind(), ghost.typeId(),
-                            target, ghost.vel().scale(KNOCKBACK_FRICTION),
-                            ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+                    ghost.withMotion(target, ghost.vel().scale(KNOCKBACK_FRICTION)));
             return;
         }
         if (!LightField.isTransparent(state.getBlock(cell))) {
             // Ran into an opaque block: stop dead where it is.
-            state.updateEntity(new PersistedEntityState(
-                    ghost.id(), ghost.kind(), ghost.typeId(), ghost.pos(), FixedVec3.ZERO,
-                    ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+            state.updateEntity(ghost.withMotion(ghost.pos(), FixedVec3.ZERO));
             return;
         }
-        state.updateEntity(new PersistedEntityState(
-                ghost.id(), ghost.kind(), ghost.typeId(), target,
-                ghost.vel().scale(KNOCKBACK_FRICTION),
-                ghost.ageTicks(), ghost.despawnTick(), ghost.payload()));
+        state.updateEntity(ghost.withMotion(target, ghost.vel().scale(KNOCKBACK_FRICTION)));
     }
 
     /** True when every axis of an imparted velocity has decayed below the settle threshold. */
@@ -140,12 +131,8 @@ public final class MobAiRules {
                         ((long) tx << 32) + (1L << 31),
                         (long) cell.y() << 32,
                         ((long) tz << 32) + (1L << 31));
-                PersistedEntityState moved = new PersistedEntityState(
-                        ghost.id(), ghost.kind(), ghost.typeId(),
-                        landed,
-                        FixedVec3.ZERO,
-                        ghost.ageTicks() + AI_INTERVAL_TICKS,
-                        ghost.despawnTick(), ghost.payload());
+                PersistedEntityState moved = ghost.withMotionAndAge(
+                        landed, FixedVec3.ZERO, ghost.ageTicks() + AI_INTERVAL_TICKS);
                 state.updateEntity(moved);
                 return;
             }

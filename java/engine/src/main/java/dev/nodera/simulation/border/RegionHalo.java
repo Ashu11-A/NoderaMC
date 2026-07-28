@@ -2,6 +2,7 @@ package dev.nodera.simulation.border;
 
 import dev.nodera.core.region.RegionBounds;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkKey;
 import dev.nodera.core.state.ChunkColumnState;
 import dev.nodera.core.state.NBlockPos;
 import dev.nodera.core.state.SnapshotVersion;
@@ -126,15 +127,11 @@ public final class RegionHalo {
                 if (!bounds.isHaloChunk(column.chunkX(), column.chunkZ())) {
                     continue;
                 }
-                backing.putIfAbsent(key(column.chunkX(), column.chunkZ()), column);
+                backing.putIfAbsent(ChunkKey.pack(column.chunkX(), column.chunkZ()), column);
             }
         }
         this.columns = Map.copyOf(backing);
         this.versions = bySource;
-    }
-
-    private static long key(int chunkX, int chunkZ) {
-        return ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
     }
 
     /** @return the region whose halo this view represents. */
@@ -195,7 +192,7 @@ public final class RegionHalo {
             return AIR;
         }
         ChunkColumnState column = columns.get(
-                key(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE)));
+                ChunkKey.pack(Math.floorDiv(pos.x(), CHUNK_SIZE), Math.floorDiv(pos.z(), CHUNK_SIZE)));
         if (column == null) {
             return AIR;
         }

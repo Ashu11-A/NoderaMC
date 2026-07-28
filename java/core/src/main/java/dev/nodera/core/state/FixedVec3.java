@@ -56,7 +56,10 @@ public record FixedVec3(long x, long y, long z) implements Encodable {
 
     /** Scale by a fixed-point multiplier (Q32.32); result is the high-32 product (rounding down). */
     public FixedVec3 scale(long fixedMultiplier) {
-        return new FixedVec3(mul(x, fixedMultiplier), mul(y, fixedMultiplier), mul(z, fixedMultiplier));
+        return new FixedVec3(
+                FixedPoint.multiply(x, fixedMultiplier),
+                FixedPoint.multiply(y, fixedMultiplier),
+                FixedPoint.multiply(z, fixedMultiplier));
     }
 
     /** The integer (block) part of each axis. */
@@ -72,12 +75,6 @@ public record FixedVec3(long x, long y, long z) implements Encodable {
     /** The integer (block) part of each axis. */
     public int blockZ() {
         return (int) (z >> 32);
-    }
-
-    /** Signed fixed-point multiply, returning the Q32.32 product (full 64-bit high word). */
-    private static long mul(long a, long b) {
-        // Q32.32 * Q32.32 = Q64.64; take bits [32..95] as the Q32.32 result.
-        return Math.multiplyHigh(a, b) << 32 | (a * b) >>> 32;
     }
 
     private static long toFixed(double value) {

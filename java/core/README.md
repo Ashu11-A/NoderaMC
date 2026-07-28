@@ -24,7 +24,7 @@ dev.nodera.core
 ├── region/         RegionId, dimension keys, leases, epochs, assignment
 ├── action/         the sealed GameAction hierarchy, ActionEnvelope, ActionBatch
 ├── state/          RegionSnapshot, RegionDelta, StateRoot, NBlockState/NBlockPos,
-│                   entity records, container entries
+│                   entity records, deterministic fixed-point math, packed chunk keys
 ├── event/          the RegionEvent family
 ├── consensuscert/  ValidationVote, QuorumCertificate, CommitteeChangeCertificate,
 │                   ServerAuthorityCertificate
@@ -66,9 +66,9 @@ imports a Minecraft type; the mod owns the mapping in both directions.
 
 ## Tests
 
-233 tests: canonical round-trips for every type, golden-file byte comparison, cross-JVM fixture
-replay, signature verification with tamper and wrong-key rejection, and the type-tag registry
-snapshot.
+263 tests: canonical round-trips for every type, full-range fixed-point and chunk-key properties,
+golden-file byte comparison, cross-JVM fixture replay, signature verification with tamper and
+wrong-key rejection, and the type-tag registry snapshot.
 
 ```bash
 ./gradlew :core:test
