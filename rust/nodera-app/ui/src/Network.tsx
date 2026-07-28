@@ -5,6 +5,8 @@
 // paragraph at the top.
 import { useEffect, useMemo, useState } from "react";
 import {
+  FiArrowDown,
+  FiArrowUp,
   FiCheck,
   FiCopy,
   FiLogIn,
@@ -29,9 +31,100 @@ interface Joined {
   address: string;
 }
 
+/* ---------------------------------------------------------------------------------- sorting */
+
+/**
+ * What the directory can be ordered by.
+ *
+ * Exactly the columns the table already shows, and no more. A sort control offering a criterion
+ * that is not a column asks people to re-order a list by something they cannot see, and then to
+ * trust the result.
+ */
+type SortKey = "name" | "peers" | "pieces" | "health";
+
+interface Sort {
+  key: SortKey;
+  ascending: boolean;
+}
+
+/**
+ * Health, ranked worst-to-best so "sort by availability" means something.
+ *
+ * The wire sends a word, and words have no order — sorting the strings alphabetically would put
+ * `dead` before `degraded` before `healthy` and look deliberate while meaning nothing. Ranking here
+ * is what makes the column answer "which of these worlds can I count on".
+ */
+const HEALTH_RANK: Record<string, number> = { dead: 0, degraded: 1, healthy: 2 };
+
+function healthRank(health: string): number {
+  // An unrecognised health is ranked below every known one rather than above: a world whose state
+  // this app does not understand is not evidence of a healthy world.
+  return HEALTH_RANK[health] ?? -1;
+}
+
+function comparatorFor(sort: Sort): (a: DirectoryEntry, b: DirectoryEntry) => number {
+  const direction = sort.ascending ? 1 : -1;
+  return (a, b) => {
+    let difference = 0;
+    switch (sort.key) {
+      case "peers":
+        difference = a.peers - b.peers;
+        break;
+      case "pieces":
+        difference = a.pieces - b.pieces;
+        break;
+      case "health":
+        difference = healthRank(a.health) - healthRank(b.health);
+        break;
+      case "name":
+        difference = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+        break;
+    }
+    // Ties break on name, always ascending. Without it, two worlds with the same peer count swap
+    // places between refreshes — the list appears to shuffle itself while nothing has changed.
+    if (difference === 0) {
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    }
+    return difference * direction;
+  };
+}
+
+/** A column header that sorts. The arrow marks the active column and its direction. */
+function SortHeader(props: {
+  label: string;
+  sortKey: SortKey;
+  sort: Sort;
+  num?: boolean;
+  onSort: (key: SortKey) => void;
+}) {
+  const active = props.sort.key === props.sortKey;
+  return (
+    <Th num={props.num}>
+      <button
+        className={cx(
+          "inline-flex items-center gap-1 hover:text-text",
+          active ? "text-text" : "text-faint",
+        )}
+        onClick={() => props.onSort(props.sortKey)}
+        // Read out by screen readers as the table's current ordering, which the arrow alone is not.
+        aria-sort={active ? (props.sort.ascending ? "ascending" : "descending") : "none"}
+      >
+        {props.label}
+        {active &&
+          (props.sort.ascending ? (
+            <FiArrowUp aria-hidden size={11} />
+          ) : (
+            <FiArrowDown aria-hidden size={11} />
+          ))}
+      </button>
+    </Th>
+  );
+}
+
 export function NetworkScreen() {
   const [worlds, setWorlds] = useState<DirectoryEntry[]>([]);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort>({ key: "name", ascending: true });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -58,14 +151,30 @@ export function NetworkScreen() {
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return worlds;
     // Name and id both, because a friend sends you one or the other: a world name to look for, or
     // an invitation whose id you pasted.
-    return worlds.filter(
-      (w) =>
-        w.name.toLowerCase().includes(needle) || w.session_id.toLowerCase().includes(needle),
+    const found = needle
+      ? worlds.filter(
+          (w) =>
+            w.name.toLowerCase().includes(needle) || w.session_id.toLowerCase().includes(needle),
+        )
+      : worlds;
+    // Copied before sorting: `found` is the state array itself when nothing is being searched for,
+    // and sorting in place would mutate React's own state and make the next render's comparison
+    // meaningless.
+    return [...found].sort(comparatorFor(sort));
+  }, [worlds, query, sort]);
+
+  /** Click a column to sort by it; click it again to reverse. */
+  const sortBy = (key: SortKey) =>
+    setSort((current) =>
+      current.key === key
+        ? { key, ascending: !current.ascending }
+        : // A new column starts in the direction that answers the question people ask of it:
+          // names alphabetically, and every measure biggest-first, because "which world has the
+          // most players" is the question and "which has the fewest" is not.
+          { key, ascending: key === "name" },
     );
-  }, [worlds, query]);
 
   const join = (sessionId: string) => {
     setBusy(sessionId);
@@ -217,10 +326,10 @@ export function NetworkScreen() {
                     count and every cell after Players was read under the wrong heading — a table
                     that quietly relabelled its own data. */}
                 <Tr>
-                  <Th>World</Th>
-                  <Th num>Players</Th>
-                  <Th num>Pieces</Th>
-                  <Th>Health</Th>
+                  <SortHeader label="World" sortKey="name" sort={sort} onSort={sortBy} />
+                  <SortHeader label="Peers" sortKey="peers" sort={sort} onSort={sortBy} num />
+                  <SortHeader label="Pieces" sortKey="pieces" sort={sort} onSort={sortBy} num />
+                  <SortHeader label="Health" sortKey="health" sort={sort} onSort={sortBy} />
                   <Th />
                 </Tr>
               </thead>
@@ -243,7 +352,7 @@ export function NetworkScreen() {
                       </Td>
                       <Td num>
                         <span className="inline-flex items-center gap-1">
-                          <FiUsers aria-hidden /> {world.players}
+                          <FiUsers aria-hidden /> {world.peers}
                         </span>
                       </Td>
                       {/* The tracker's own numbers. The previous version invented a category

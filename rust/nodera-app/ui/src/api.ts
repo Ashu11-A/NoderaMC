@@ -71,8 +71,19 @@ export interface World {
   administered: boolean;
   /** This node hosts it rather than only keeping its bytes. Answers "what am I doing with it". */
   hosting: boolean;
+  /**
+   * Somebody on this machine is in the world right now. Answers "am I playing it" — which neither
+   * of the flags above can, because the ordinary case is a world you neither run nor authored.
+   */
+  connected: boolean;
   world_public_key: string;
-  players: number;
+  /**
+   * Players in-world, or null when no node that is *in* the world has reported recently.
+   *
+   * Only a node with a game in the world can count them. Rendering the unknown as 0 is what made
+   * this number wrong on every peer except the one hosting the game — always show it via `show()`.
+   */
+  players: number | null;
   /** null once the host's game closes. */
   game_endpoint: string | null;
   added_at: number;
@@ -83,8 +94,24 @@ export interface World {
   piece_count: number;
   pieces_held: number;
   seeders: number;
+  /** Full copies believed to exist, this node's included when it holds one. */
+  backup_copies: number;
+  /**
+   * Copies a network this size should keep. Capped by the peers that exist, so a small network
+   * wants a full copy on every peer — which is why this equals `backup_copies` once reached.
+   */
+  backup_copies_wanted: number;
+  /** Chance nobody holds it right now, permille. null once it rounds to nothing. */
+  loss_risk_permille: number | null;
   /** null until the manifest is known — unmeasured, not 0%. */
   completeness_permille: number | null;
+  /**
+   * Whether any tracker lists this world; null when it has never been announced.
+   *
+   * false is not a warning about quality of service — it means no peer on the network can find
+   * this world, whatever else this screen says about it.
+   */
+  discoverable: boolean | null;
 }
 
 export interface Peer {
@@ -116,6 +143,12 @@ export interface Discovery {
 export interface Counts {
   administered_worlds: number;
   supported_worlds: number;
+  /** Worlds somebody on this machine is in right now. */
+  connected_worlds: number;
+  /** Worlds kept alive for other people — supported and not being played here. */
+  shared_for_others: number;
+  /** Content bytes verified present here across every world this node does not administer. */
+  shared_bytes: number;
   players: number;
   peers: number;
 }
@@ -171,7 +204,15 @@ export const EMPTY_DASHBOARD: Dashboard = {
   worlds: [],
   peers: [],
   discovery: { trackers: [], rendezvous: [], relay_latency_ms: null },
-  counts: { administered_worlds: 0, supported_worlds: 0, players: 0, peers: 0 },
+  counts: {
+    administered_worlds: 0,
+    supported_worlds: 0,
+    connected_worlds: 0,
+    shared_for_others: 0,
+    shared_bytes: 0,
+    players: 0,
+    peers: 0,
+  },
   lan: { supported: false, reason: "", sessions: [] },
 };
 
@@ -326,6 +367,31 @@ export function shortId(id: string, head = 8, tail = 4): string {
   if (!id) return UNKNOWN;
   if (id.length <= head + tail + 1) return id;
   return `${id.slice(0, head)}…${id.slice(-tail)}`;
+}
+
+/**
+ * Bytes of a world verified present on this node.
+ *
+ * Prorated from the piece counts, mirroring `World::held_bytes` in Rust so the two never disagree.
+ * Zero pieces is zero bytes, never the world's full size — a node holding nothing contributes
+ * nothing, and rounding that up is how a screen tells somebody they are seeding when they are not.
+ */
+export function heldBytes(w: World): number {
+  if (w.piece_count === 0) return 0;
+  return Math.floor((w.total_bytes * w.pieces_held) / w.piece_count);
+}
+
+/**
+ * What this node is to a world, in one word, from the three independent flags.
+ *
+ * Order is deliberate: "playing" is what the player came to the screen to see, and it outranks the
+ * bookkeeping — you are still supporting a world you are playing in, and the section it is listed
+ * under already says so.
+ */
+export function worldRole(w: World): "playing" | "administered" | "hosting" | "supporting" {
+  if (w.connected) return "playing";
+  if (w.administered) return "administered";
+  return w.hosting ? "hosting" : "supporting";
 }
 
 /** Permille integers cross the wire so every surface renders the same number. */

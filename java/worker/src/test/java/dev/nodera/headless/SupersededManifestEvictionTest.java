@@ -73,8 +73,13 @@ final class SupersededManifestEvictionTest {
         Bytes worldId = hashes.sha256("l55-world".getBytes());
         String worldIdHex = worldId.toHex();
 
-        // This peer replicated the world before the author rotated its password.
-        PieceManifest old = replica.seedArchive(worldIdHex, blob(1L, 80_000));
+        // This peer replicated the world before the author rotated its password. ENCRYPTED, because
+        // that is what the rule is about: the superseded blob is ciphertext the OLD password still
+        // opens. The fixture used a plaintext archive, which has no password to revoke — so the test
+        // was asserting the rule against content the rule does not protect, and that mismatch is why
+        // eviction had been applied to plaintext worlds too, destroying the only copies a swarm had.
+        PieceManifest old = replica.seedEncryptedArchive(worldIdHex, blob(1L, 80_000),
+                "old-password".toCharArray());
         assertThat(replica.heldVersions(worldIdHex)).hasSize(1);
         assertThat(store.has(old.blob())).isTrue();
         assertThat(replica.holdingsFor(worldIdHex)).hasSize(1);
@@ -83,6 +88,7 @@ final class SupersededManifestEvictionTest {
         // exchange. Note it holds no piece of v2 — it only learned that v2 exists, and that alone
         // is what makes v1 superseded.
         PieceManifest rotated = dev.nodera.distribution.WorldArchive.manifestFor(2L, blob(2L, 80_000));
+        // (only the version number matters here — the peer learns v2 exists, holding none of it)
         replica.onMessage(PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback"),
                 answerCarrying(worldId, rotated));
 
@@ -106,7 +112,8 @@ final class SupersededManifestEvictionTest {
         Bytes worldId = hashes.sha256("l55-world-2".getBytes());
         String worldIdHex = worldId.toHex();
 
-        PieceManifest held = replica.seedArchive(worldIdHex, blob(3L, 40_000));
+        PieceManifest held = replica.seedEncryptedArchive(worldIdHex, blob(3L, 40_000),
+                "pw".toCharArray());
         replica.onMessage(PeerAddress.of(NodeIdentity.generate().nodeId(), "loopback"),
                 answerCarrying(worldId, held));
 
@@ -123,8 +130,9 @@ final class SupersededManifestEvictionTest {
         Bytes worldId = hashes.sha256("l55-world-3".getBytes());
         String worldIdHex = worldId.toHex();
 
-        replica.seedArchive(worldIdHex, blob(9L, 10_000));                    // v1 locally…
-        PieceManifest current = replica.seedArchive(worldIdHex, blob(4L, 50_000)); // …then v2
+        replica.seedEncryptedArchive(worldIdHex, blob(9L, 10_000), "pw".toCharArray());  // v1…
+        PieceManifest current =
+                replica.seedEncryptedArchive(worldIdHex, blob(4L, 50_000), "pw".toCharArray()); // v2
         replica.supersedeOlderVersions(worldIdHex);                           // v1 evicted
         assertThat(replica.heldVersions(worldIdHex)).hasSize(1);
 

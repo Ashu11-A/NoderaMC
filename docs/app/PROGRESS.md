@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE, then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** app · **Last audit:** 2026-07-26 · Tasks completed: **5 / 8**
+**Category:** app · **Last audit:** 2026-07-27 · Tasks completed: **5 / 10**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -23,10 +23,30 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [6](Task.6.md) | Dashboard API + live link | ✅ COMPLETED | `NODERA-WATCH` push (9 ms measured), typed Rust model, 92 crate tests |
 | [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED | LAN modal + Join a world + invitations + mod installer; 107 crate tests |
 | [8](Task.8.md) | Screen redesign: one subject per screen | ✅ COMPLETED | 8 screens, each owning one subject; worker events drive the LAN prompt; generated licence manifest; 116 crate tests |
+| [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll and a single dashboard subscription landed; the content pass and the settings-honesty pass remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-27 — Numbers that stop resetting, screens that start at the top
+
+A screen-by-screen audit found no fake screens — all ten desktop screens reach a real backend and
+eight reach the worker. The defects were honesty and ergonomics.
+
+"Uploaded / Downloaded" reset several times a session because `total_sent_bytes` is a `LongAdder`
+born with the worker's JVM, and the supervisor restarts that JVM whenever a restart-scoped setting
+is saved. `DashboardStore` now banks the last reading of an ending lifetime and persists the bank to
+`traffic-totals.json`, recording the last reading it saw so a restarted *app* can tell a worker that
+was already running from a new one. Rates moved to a ≥1 s window, held between windows — the top bar
+was dividing each 250 ms push on its own and flickering to `0 B/s` four times a second.
+
+The "frozen screen" was one `overflow-y-auto` div with no `key`: React kept the same DOM node across
+navigation and `scrollTop` belongs to the node. Keyed per screen, plus an explicit reset on the two
+screens with internal tabs, and the same fix on the mobile shell. `useDashboard` was also subscribed
+twice, giving two listeners and two initial fetches.
+
+Evidence: 5 new `api::store` tests (13 green in that module), `tsc --noEmit` clean.
 
 ### 2026-07-26 — The screens were rebuilt around one subject each
 

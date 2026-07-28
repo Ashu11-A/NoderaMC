@@ -41,7 +41,8 @@ export interface Lan {
 export interface DirectoryEntry {
   session_id: string;
   name: string;
-  players: number;
+  /** Live announcing **peers** for the world, as the tracker counts them — never players. */
+  peers: number;
   pieces: number;
   health: string;
   mine: boolean;

@@ -70,6 +70,12 @@ public final class NoderaContinuity {
         }
         joined = new JoinedWorld(worldIdHex, worldName);
         rehosting = false;
+        // Tell THIS machine's worker what its player is doing. Two things follow, and neither used
+        // to happen: the world enters the worker's sweep set — so a joiner supports the world it is
+        // playing in — and the companion app finally has a row for it. The verb existed on both
+        // sides for months and nothing ever sent it, which is why a joiner's app showed an empty
+        // "Worlds" screen to somebody standing in a world.
+        renewConnected();
         // Hot standby: pull the world archive NOW, while the session is healthy, so a host loss
         // needs no download phase — the local worker already holds every piece and recovery
         // collapses to the world-open. Re-fetches ride new seeded versions; failures are silent
@@ -93,7 +99,101 @@ public final class NoderaContinuity {
 
     /** Disarm (deliberate leave, rehost done, or the player declined). */
     static void disarm() {
+        JoinedWorld leaving = joined;
         joined = null;
+        // Cleared with it: `rehosting` is the "one recovery at a time" latch, and leaving it set
+        // after a recovery ended meant the next disconnect in the same session was ignored — the
+        // flag was only ever reset by arming a new join.
+        rehosting = false;
+        // A clean goodbye, so the app stops saying "playing" the moment the player stops rather
+        // than when the lease runs out. Best-effort by construction — the lease is what makes this
+        // an optimisation instead of a correctness requirement.
+        if (leaving != null && CompanionLink.isPresent()) {
+            Thread.ofPlatform().name("nodera-leave").daemon().start(
+                    () -> CompanionLink.client().leaveWorld(leaving.worldIdHex()));
+        }
+    }
+
+    /**
+     * Renew the worker's "a player here is in this world" lease, off the render thread.
+     *
+     * <p>Scheduled rather than sent once: the worker's claim expires on its own, which is what
+     * makes a crashed or force-quit game stop being reported as connected. The cost of that is
+     * having to say so repeatedly, and this is where.
+     */
+    private static void renewConnected() {
+        JoinedWorld world = joined;
+        if (world == null || !CompanionLink.isPresent()) {
+            return;
+        }
+        // Read on the render thread, sent off it: the client's connection is not safe to touch from
+        // a background thread, and the value is a plain int by the time it leaves here.
+        int players = playersVisibleHere();
+        RENEWALS.execute(() -> {
+            JoinedWorld current = joined;
+            if (current != null) {
+                CompanionLink.client().joinWorld(current.worldIdHex(), current.name(), players);
+            }
+        });
+    }
+
+    /**
+     * How many players this client can see in the world it is connected to.
+     *
+     * <p>The client's own online-player set — the same live roster the server's entity and region
+     * lanes plan over, delivered to every client that is in the world. It is the only first-hand
+     * answer a joiner has, and reporting it is what stops the app showing "0 players" for a world
+     * the player is standing in with other people: the count used to be published solely by the
+     * hosting node, so every other peer answered with the zero it had never been told otherwise.
+     *
+     * @return the count, or {@code -1} when this client is not connected to anything — which is
+     *         "I cannot tell", not "nobody is there".
+     */
+    private static int playersVisibleHere() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc == null || mc.getConnection() == null) {
+            return -1;
+        }
+        try {
+            return mc.getConnection().getOnlinePlayers().size();
+        } catch (RuntimeException e) {
+            // A roster read that throws mid-teardown must not stop the lease renewal — losing the
+            // lease would take the world out of the app entirely, which is far worse than a count
+            // that is briefly unknown.
+            return -1;
+        }
+    }
+
+    /**
+     * The renewal cadence. A third of the worker's lease, so one missed round trip — a busy control
+     * socket, a stalled tick — cannot make a live session flicker out of the companion app.
+     */
+    private static final int RENEW_SECONDS = 30;
+
+    /**
+     * One daemon thread for both the periodic renewal and the one-shot sends.
+     *
+     * <p>Single-threaded on purpose: renewals for one session must not overtake each other, and a
+     * goodbye must land after the last renewal rather than race it.
+     */
+    private static final java.util.concurrent.ScheduledExecutorService RENEWALS =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "nodera-join-lease");
+                t.setDaemon(true);
+                return t;
+            });
+
+    static {
+        RENEWALS.scheduleWithFixedDelay(() -> {
+            try {
+                renewConnected();
+            } catch (RuntimeException e) {
+                // A renewal that throws must not cancel the schedule — scheduleWithFixedDelay
+                // silently stops on an escaping exception, and a lease that stops renewing looks
+                // exactly like a player who left.
+                LOG.debug("join-lease renewal failed: {}", e.toString());
+            }
+        }, RENEW_SECONDS, RENEW_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /**
@@ -107,6 +207,22 @@ public final class NoderaContinuity {
                 || !NoderaConfig.CONTINUITY_AUTO_REHOST.get()
                 || !CompanionLink.isPresent()
                 || NoderaPeerService.get().isHosting()) {
+            return;
+        }
+        // A refused join is not a dead host. The password gate seals the connection during
+        // configuration, which produces exactly the same DisconnectedScreen a host crash produces —
+        // and this handler runs on `Opening`, before `JoinPasswordScreen.onScreenInit` runs on
+        // `Init.Post`, so replacing the screen here ate the password prompt before the player ever
+        // saw it. What they got instead was a two-minute unescapable "Migrating world…" ending in
+        // "no seeder online?" — while the seeder was online, seeding, and the only thing missing was
+        // a password nobody had been asked for.
+        //
+        // The gate records the challenge it could not answer. That is the difference between "the
+        // host is gone" and "the host said no", and it is the whole test.
+        if (ClientJoinPasswords.pendingGateWorldId() != null) {
+            LOG.info("Nodera continuity: the join to '{}' was refused at the password gate, not "
+                    + "lost — leaving the disconnect screen alone so the password can be entered",
+                    world.name());
             return;
         }
         rehosting = true;
@@ -168,11 +284,20 @@ public final class NoderaContinuity {
                 Files.createDirectories(fetchDir);
                 Path archiveFile = fetchDir.resolve(world.worldIdHex().substring(0, 12) + ".nar");
                 screen.setStatus(Component.translatable("nodera.continuity.fetching"));
+                StringBuilder reason = new StringBuilder();
                 Optional<String> fetched = CompanionLink.client().fetchArchive(
                         world.worldIdHex(), archiveFile,
-                        NoderaConfig.CONTINUITY_FETCH_TIMEOUT_SECONDS.get());
+                        NoderaConfig.CONTINUITY_FETCH_TIMEOUT_SECONDS.get(), reason);
+                if (screen.cancelled) {
+                    return;
+                }
                 if (fetched.isEmpty()) {
-                    fail(mc, screen, "the worker could not fetch the archive (no seeder online?)");
+                    // The worker's own words, verbatim. Two guesses have been printed here and both
+                    // were wrong in front of a user: "no seeder online?" while a seeder was seeding
+                    // forty pieces, then "this world is password protected" for a world shared with
+                    // encryption off. A cause this code cannot observe is a cause it must not name.
+                    fail(mc, screen, reason.isEmpty() ? "the peer worker could not fetch it"
+                            : reason.toString());
                     return;
                 }
                 screen.setStatus(Component.translatable("nodera.continuity.unpacking"));
@@ -194,6 +319,13 @@ public final class NoderaContinuity {
                 }
                 LOG.info("Nodera continuity: '{}' restored to saves/{} ({} bytes, {})",
                         world.name(), dirName, blob.length, fetched.get());
+                if (screen.cancelled) {
+                    // The player left while this was unpacking. The save is on disk and will be
+                    // there next time; opening a world somebody walked away from is not recovery.
+                    LOG.info("Nodera continuity: '{}' was restored but the player cancelled — "
+                            + "not opening it", world.name());
+                    return;
+                }
                 disarm();
                 mc.execute(() -> {
                     screen.setStatus(Component.translatable("nodera.continuity.opening"));
@@ -221,6 +353,8 @@ public final class NoderaContinuity {
         private final JoinedWorld world;
         private volatile Component status = Component.translatable("nodera.continuity.starting");
         private volatile Component failure;
+        /** Set when the player leaves: the fetch thread must not drag them back into the world. */
+        volatile boolean cancelled;
 
         RehostScreen(JoinedWorld world) {
             super(Component.translatable("nodera.continuity.title"));
@@ -235,6 +369,13 @@ public final class NoderaContinuity {
             this.status = component;
         }
 
+        /** Cancel: stop waiting on the fetch and go back. The fetch thread is left to finish. */
+        private void cancel() {
+            cancelled = true;
+            disarm();
+            onClose();
+        }
+
         void showFailure(String reason) {
             this.failure = Component.translatable("nodera.continuity.failed", reason);
             rebuildWidgets();
@@ -242,12 +383,23 @@ public final class NoderaContinuity {
 
         @Override
         protected void init() {
-            if (failure != null) {
-                addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
-                                net.minecraft.network.chat.CommonComponents.GUI_BACK,
-                                b -> onClose())
-                        .bounds(this.width / 2 - 100, this.height / 2 + 40, 200, 20).build());
-            }
+            // There is always a way out. The button used to exist only once a failure had been
+            // recorded, and `shouldCloseOnEsc` agreed with it, so for the whole length of the fetch
+            // — 120 s by default, an hour at the configured ceiling — the player was held on a
+            // screen with no button, no Esc, and one unchanging line of text. "Endless" is what that
+            // is, whether or not the code would eventually have given up.
+            addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
+                            failure != null
+                                    ? net.minecraft.network.chat.CommonComponents.GUI_BACK
+                                    : net.minecraft.network.chat.CommonComponents.GUI_CANCEL,
+                            b -> {
+                                if (failure != null) {
+                                    onClose();
+                                } else {
+                                    cancel();
+                                }
+                            })
+                    .bounds(this.width / 2 - 100, this.height / 2 + 40, 200, 20).build());
         }
 
         @Override
@@ -257,19 +409,35 @@ public final class NoderaContinuity {
             // prefetch this screen typically lives for well under a second before the world-open.
             super.render(graphics, mouseX, mouseY, partialTick);
             if (failure != null) {
-                graphics.drawCenteredString(this.font, failure, this.width / 2,
-                        this.height / 2 - 4, 0xFF6666);
-            } else {
-                graphics.drawCenteredString(this.font,
-                        net.minecraft.network.chat.Component.translatable(
-                                "nodera.continuity.migrating"),
-                        this.width / 2, this.height / 2 - 4, 0xA0A0A0);
+                // Wrapped, and to a width that leaves a margin. A failure message is the longest
+                // string this screen ever draws and it was drawn with `drawCenteredString`, which
+                // does not wrap: a worker's explanation ran off both edges of the window with its
+                // first and last words cut off, so the one screen whose whole job is to explain
+                // something was the one screen that could not.
+                int wrapWidth = Math.max(120, this.width - 80);
+                int y = this.height / 2 - 4;
+                for (net.minecraft.util.FormattedCharSequence line
+                        : this.font.split(failure, wrapWidth)) {
+                    graphics.drawCenteredString(this.font, line, this.width / 2, y, 0xFF6666);
+                    y += this.font.lineHeight + 2;
+                }
+                return;
             }
+            // The heading names the operation; the line under it names the STEP. `status` is moved
+            // through starting → fetching → unpacking → opening by the worker thread and, until
+            // this line existed, was written by four call sites and read by none: every phase of a
+            // multi-minute operation rendered the same five words. A screen that cannot change
+            // cannot be distinguished from a screen that has stopped.
+            graphics.drawCenteredString(this.font,
+                    net.minecraft.network.chat.Component.translatable("nodera.continuity.migrating"),
+                    this.width / 2, this.height / 2 - 14, 0xA0A0A0);
+            graphics.drawCenteredString(this.font, this.status, this.width / 2,
+                    this.height / 2 + 2, 0x808080);
         }
 
         @Override
         public boolean shouldCloseOnEsc() {
-            return failure != null;
+            return true;
         }
 
         @Override

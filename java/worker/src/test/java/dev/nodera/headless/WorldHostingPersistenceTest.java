@@ -34,8 +34,21 @@ final class WorldHostingPersistenceTest {
     @TempDir
     Path dir;
 
+    /**
+     * This node's identity, stable across the "restarts" below.
+     *
+     * <p>Stable on purpose: a restart that came back as a different node would not be a restart, and
+     * — since a claim is only <i>this node's</i> when it names this node — every ownership assertion
+     * here would pass or fail for the wrong reason.
+     */
+    private final NodeIdentity self = NodeIdentity.generate();
+
     private WorldHostingService newService(WorldRegistryStore registry) {
-        return new WorldHostingService(NodeIdentity.generate(), NodeCapabilities.initial(),
+        return newService(self, registry);
+    }
+
+    private WorldHostingService newService(NodeIdentity identity, WorldRegistryStore registry) {
+        return new WorldHostingService(identity, NodeCapabilities.initial(),
                 () -> "127.0.0.1:25620",
                 new dev.nodera.peer.discovery.TrackerClient(List.of(), NodeIdentity.generate()),
                 List.of(), worldId -> List.of(), registry);
@@ -49,10 +62,11 @@ final class WorldHostingPersistenceTest {
         return new dev.nodera.core.crypto.HashService().sha256(seed.getBytes()).toHex();
     }
 
-    private static Bytes ownershipFor(String worldIdHex) {
+    /** A verifying ownership claim for {@code worldIdHex}, minted by {@code owner}. */
+    private static Bytes ownershipFor(String worldIdHex, NodeIdentity owner) {
         PersistedWorldKey key = PersistedWorldKey.generate(Bytes.fromHex(worldIdHex));
         CanonicalWriter w = new CanonicalWriter();
-        WorldOwnership.create(NodeIdentity.generate(), key, 1000L).encode(w);
+        WorldOwnership.create(owner, key, 1000L).encode(w);
         return w.toBytes();
     }
 
@@ -105,7 +119,10 @@ final class WorldHostingPersistenceTest {
             // The game endpoint and the player count describe a RUNNING game. Restoring them would
             // advertise a world as joinable when the thing that made it joinable is gone.
             assertThat(world0.mcRoute()).isNull();
-            assertThat(world0.players()).isZero();
+            // UNKNOWN, not zero. Nothing is in this world to count anybody, and the two answers
+            // used to share the value 0 — which is how every peer that was not hosting the game
+            // published a confident "nobody is playing" for a world full of people.
+            assertThat(world0.players()).isEqualTo(WorldHostingService.PLAYERS_UNKNOWN);
         }
     }
 
@@ -144,7 +161,7 @@ final class WorldHostingPersistenceTest {
     @DisplayName("administration survives the restart, and the world key comes back with it")
     void ownershipSurvives() {
         String world = worldId("mine");
-        Bytes claim = ownershipFor(world);
+        Bytes claim = ownershipFor(world, self);
         try (WorldHostingService first = newService(registry())) {
             first.host(world, "Mine", "{}");
             first.bindOwnership(world, claim);
@@ -164,7 +181,7 @@ final class WorldHostingPersistenceTest {
     void ownershipDoesNotNeedAShareFirst() {
         String world = worldId("authored-not-shared");
         try (WorldHostingService service = newService(registry())) {
-            service.bindOwnership(world, ownershipFor(world));
+            service.bindOwnership(world, ownershipFor(world, self));
 
             // Visible immediately, not only after the next restart: the live list and the file
             // behind it must agree.
@@ -187,6 +204,59 @@ final class WorldHostingPersistenceTest {
 
             // The distinction the Home screen is built on: this node serves the world, and has
             // nothing to say about who runs it.
+            assertThat(service.hostedWorlds().iterator().next().owned()).isFalse();
+            assertThat(service.administers(world)).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("holding somebody else's ownership claim does not make this node the administrator")
+    void anotherPeersClaimIsNotOurs() {
+        // The live failure, 2026-07-27: two players in one session, one world, and BOTH companion
+        // apps showing "You administer this" on it — with the administrator-only actions offered to
+        // both. Neither of them had authored it: the claim on disk named a third node entirely. The
+        // registry persists a claim for every world a peer keeps available, precisely so it can say
+        // WHO runs the world, and "we have a claim" had been read as "the claim is ours".
+        String world = worldId("someone-elses");
+        NodeIdentity author = NodeIdentity.generate();
+        Bytes theirClaim = ownershipFor(world, author);
+
+        try (WorldHostingService service = newService(registry())) {
+            service.bindOwnership(world, theirClaim);
+            WorldHostingService.HostedWorld held = service.hostedWorlds().iterator().next();
+
+            assertThat(held.owned())
+                    .as("a claim naming another node is not this node's authority")
+                    .isFalse();
+            assertThat(service.administers(world)).isFalse();
+            // The claim is still kept and still readable — that is what it is stored for.
+            assertThat(held.ownershipRecord()).isEqualTo(theirClaim);
+            assertThat(held.worldPublicKey()).isNotEqualTo(Bytes.empty());
+        }
+
+        // And it is still not ours after a restart, which is where the live symptom appeared: the
+        // registry restore path bound the record without ever asking whose it was.
+        try (WorldHostingService restarted = newService(registry())) {
+            assertThat(restarted.hostedWorlds().iterator().next().owned()).isFalse();
+            assertThat(restarted.administers(world)).isFalse();
+        }
+
+        // The author's own node reads the same bytes as authority, from the same file.
+        try (WorldHostingService theirs = newService(author, registry())) {
+            assertThat(theirs.hostedWorlds().iterator().next().owned()).isTrue();
+            assertThat(theirs.administers(world)).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("a forged ownership claim administers nothing")
+    void anUnverifiableClaimIsRefused() {
+        String world = worldId("forged");
+        try (WorldHostingService service = newService(registry())) {
+            // Right shape, wrong bytes: signatures that cover nothing. Ownership is decided by
+            // verify(), not by the record being present and well-formed.
+            service.bindOwnership(world, Bytes.fromHex("00112233445566778899aabbccddeeff"));
+
             assertThat(service.hostedWorlds().iterator().next().owned()).isFalse();
             assertThat(service.administers(world)).isFalse();
         }

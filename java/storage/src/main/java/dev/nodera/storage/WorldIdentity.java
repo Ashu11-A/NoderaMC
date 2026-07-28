@@ -87,6 +87,37 @@ public record WorldIdentity(
         return sign(author, worldId, createdAtEpoch, shared, listedOnTracker, encrypted, manifestRef);
     }
 
+    /**
+     * Sign an identity for a world id that already exists, instead of deriving a new one.
+     *
+     * <p>Derivation binds the genesis root, so any drift in that root — a genesis file that went
+     * missing and was re-certified from a different set of loaded chunks, a world renamed before it
+     * had a certified genesis, an identity file that could not be written and so was minted again
+     * from {@code now} — produced a <em>second</em> world id for one save. Both ids stayed announced,
+     * both got their own administrator key, and the network held the same world twice. Once a world
+     * id has been persisted next to the save it is the world's name for life: this is the entry
+     * point that says so.
+     *
+     * <p>Authorship is still enforced by the signature — a peer that is not the author cannot
+     * produce a record another peer will accept — so pinning the id cannot be used to claim
+     * somebody else's world.
+     *
+     * @param author          the world author (this worker).
+     * @param worldId         the already-established 32-byte world id.
+     * @param createdAtEpoch  the world's original creation time; part of the derivation, so it must
+     *                        be carried forward unchanged or the id would stop reproducing.
+     * @param shared          whether the world is shared now.
+     * @param listedOnTracker whether it is listed publicly.
+     * @param encrypted       whether its content is password-encrypted.
+     * @param manifestRef     a reference to the current content manifest.
+     * @return a signed {@link WorldIdentity} carrying {@code worldId} unchanged.
+     */
+    public static WorldIdentity createPinned(NodeIdentity author, Bytes worldId, long createdAtEpoch,
+                                             boolean shared, boolean listedOnTracker,
+                                             boolean encrypted, Bytes manifestRef) {
+        return sign(author, worldId, createdAtEpoch, shared, listedOnTracker, encrypted, manifestRef);
+    }
+
     /** Re-sign a modified copy (share state / manifest change) keeping the same id + author. */
     public WorldIdentity resign(NodeIdentity author, boolean nowShared, boolean nowListed,
                                 boolean nowEncrypted, Bytes newManifestRef) {

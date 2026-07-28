@@ -53,7 +53,10 @@ public final class JoinPasswordScreen extends Screen {
         if (!(event.getScreen() instanceof net.minecraft.client.gui.screens.DisconnectedScreen)) {
             return;
         }
-        String worldId = ClientJoinPasswords.unansweredWorldId();
+        // The wider marker: a join refused because the typed password was WRONG answered the
+        // challenge, so `unansweredWorldId` is null for it and the button never appeared — the one
+        // case where the player most needs it. Both refusals end at the gate, and that is the test.
+        String worldId = ClientJoinPasswords.pendingGateWorldId();
         NoderaJoinFlow.LastJoin target = NoderaJoinFlow.lastJoin();
         if (worldId == null || target == null) {
             return;

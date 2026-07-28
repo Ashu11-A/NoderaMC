@@ -16,6 +16,22 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
 /** Tabular data and identifiers: monospace so digits and hashes line up column-wise. */
 export const MONO = "font-mono text-[12px]";
 
+/** The id of the desktop shell's single scrolling element. */
+export const SCROLLPORT_ID = "nodera-scrollport";
+
+/**
+ * Put the desktop scrollport back to the top.
+ *
+ * The shell scrolls one element for every screen, so a view swapped in underneath keeps whatever
+ * offset the last one left. Screen changes handle this with a `key` — a new node starts at zero —
+ * but a tab change inside a screen keeps the same node deliberately, and has to say so. Without
+ * this, opening a short Settings section after scrolling a long one showed the sticky tab bar above
+ * empty space and read as a frozen page.
+ */
+export function resetScrollport(): void {
+  document.getElementById(SCROLLPORT_ID)?.scrollTo({ top: 0 });
+}
+
 /** The world's initial in a gradient tile — the app's only avatar. Size is the caller's. */
 export const AVATAR = "grid flex-none place-items-center rounded-sm bg-brand font-bold text-white";
 

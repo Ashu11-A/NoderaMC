@@ -149,6 +149,10 @@ fn announce_for(identity: &PeerIdentity, world: &[u8], routes: Vec<String>) -> T
         world_name: String::new(),
         retention_deadline_epoch_millis: 0,
         reliability_bps: 10_000,
+        // -1, "I cannot see": this device is a bootstrap relay with no game in the world, so it has
+        // no population to report. Zero would be this peer asserting the world is empty, which is
+        // the mistake the field was widened to make impossible.
+        world_player_count: -1,
         announce_epoch_millis: now_ms(),
         signature: Vec::new(),
     };

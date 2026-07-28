@@ -252,7 +252,25 @@ public final class RendezvousPeerTransport implements PeerTransport {
     }
 
     private void dispatch(PeerAddress to, byte[] frame, TransportSelector.MessageClass messageClass) {
-        NodeId peer = Objects.requireNonNull(to.nodeId(), "rendezvous transport requires a nodeId");
+        if (to != null && to.nodeId() == null) {
+            // A route with nobody's name on it is the bootstrap: the address a joining peer dials
+            // before it can possibly know who is listening there. The relay cannot carry it — a
+            // circuit is addressed to a node id — but the direct transport dials host:port and does
+            // not care, and introducing yourself is exactly what the frame is for.
+            //
+            // This used to be `Objects.requireNonNull(to.nodeId(), ...)`, three lines above the code
+            // that already knew how to honour a caller-supplied route. The NPE it threw is not a
+            // `TransportException`, so `PeerRuntime.sendTo` — which deliberately swallows send
+            // failures — did not catch it; it escaped `onHeartbeatTick`, and an exception out of a
+            // periodic scheduled task cancels that task for the life of the process. A joiner that
+            // had not yet meshed therefore killed its own heartbeat on the first tick, stopped
+            // sending `SessionKeepAlive`, and was dropped by every other peer as
+            // "heartbeat-timeout" — while its own screen waited for a download whose holders had
+            // just been pruned out from under it.
+            sendUnnamed(to, frame);
+            return;
+        }
+        NodeId peer = Objects.requireNonNull(to, "to").nodeId();
         TransportSelector.Path path = selector.select(peer, messageClass, availablePaths(peer, to));
 
         if (path == TransportSelector.Path.DIRECT && directTransport != null) {
@@ -280,6 +298,27 @@ public final class RendezvousPeerTransport implements PeerTransport {
             selector.recordFailure(peer, TransportSelector.Path.RELAYED);
             circuits.remove(peer);
             throw new TransportException("relay send to " + peer + " failed", e);
+        }
+    }
+
+    /**
+     * Send to an address that carries a route but no node id — the bootstrap dial.
+     *
+     * <p>Direct only, and deliberately: there is nobody to open a circuit to. A failure here is a
+     * {@link TransportException}, the type every caller already expects a send to be able to fail
+     * with, rather than an unchecked one that unwinds a scheduler thread.
+     */
+    private void sendUnnamed(PeerAddress to, byte[] frame) {
+        if (directTransport == null || to.route() == null || to.route().isBlank()) {
+            throw new TransportException(
+                    "cannot send to " + to + ": no node id to relay to and no route to dial");
+        }
+        try {
+            directTransport.send(to, frame);
+        } catch (TransportException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new TransportException("direct send to " + to + " failed", e);
         }
     }
 

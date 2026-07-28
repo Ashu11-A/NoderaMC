@@ -28,6 +28,15 @@ pub enum Rejection {
     WorldLimit,
     /// The world is at its peer limit.
     WorldFull,
+    /// The frame is an announce this build cannot decode — a peer speaking a newer (or older)
+    /// encoding of the announce body.
+    ///
+    /// It is a *rejection* rather than an unsupported frame on purpose. Hanging up leaves the
+    /// announcer with no answer, which is indistinguishable from a dropped packet, so a peer whose
+    /// every announce is refused keeps reporting itself as listed while the tracker has never
+    /// registered it — the live symptom was two peers on one machine, both hosting, both shown as
+    /// joinable, and a tracker that answered "0 peers" to every query about their world.
+    Undecodable,
 }
 
 impl Rejection {
@@ -41,6 +50,7 @@ impl Rejection {
             Self::TooLarge => "too-large",
             Self::WorldLimit => "world-limit",
             Self::WorldFull => "world-full",
+            Self::Undecodable => "undecodable-announce",
         }
     }
 }

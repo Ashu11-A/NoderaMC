@@ -128,6 +128,16 @@ final class WorldContinuityIT {
         assertThat(listed.peers()).isNotEmpty();
         assertThat(listed.seeders()).as("archive manifest advertised to the tracker").isNotEmpty();
 
+        // …and the host KNOWS it can be found. An announce that was sent is not an announce that
+        // was registered: a tracker that refuses one (or hangs up on an announce body it cannot
+        // decode) leaves the host describing the world as hosted and joinable while no directory
+        // carries it, and the failure then surfaces only on the joining player's screen as a world
+        // with no seeder. This is the host-side half of the assertion above.
+        assertThat(host.stateJson())
+                .as("the host reports the listing the tracker just proved")
+                .contains("\"listed_on_trackers\":1")
+                .contains("\"announced_to_trackers\":1");
+
         var discovered = new RendezvousClient(joiner.identity, Duration.ofSeconds(3),
                 Duration.ofSeconds(5)).discover(rendezvous,
                 UUID.nameUUIDFromBytes(worldId.toArray()), worldId, 0, 10);

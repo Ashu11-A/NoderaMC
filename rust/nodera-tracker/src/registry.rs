@@ -22,6 +22,12 @@ pub struct PeerRecord {
     pub holdings: Vec<ManifestHolding>,
     /// Self-reported reliability in basis points.
     pub reliability_bps: u32,
+    /// Players this peer said it can see in the world, or `-1` for "I cannot see".
+    ///
+    /// Stored per peer rather than per world because that is how it arrives and how it expires: a
+    /// peer that stops announcing takes its claim with it when its record ages out, and the swarm's
+    /// figure is recomputed from whoever is still there.
+    pub world_player_count: i64,
     /// Tracker-clock millis of the last accepted announce.
     pub last_seen_millis: u64,
 }
@@ -211,6 +217,7 @@ impl Registry {
                 capabilities: announce.capabilities.clone(),
                 holdings: announce.holdings.clone(),
                 reliability_bps: announce.reliability_bps,
+                world_player_count: announce.world_player_count,
                 last_seen_millis: now_millis,
             },
         );

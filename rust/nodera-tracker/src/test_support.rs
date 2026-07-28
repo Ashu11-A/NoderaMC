@@ -62,6 +62,9 @@ pub fn announce(
         world_name: String::new(),
         retention_deadline_epoch_millis: 0,
         reliability_bps: 9_000,
+        // Unknown by default: a bare announce fixture is a seeder, and a seeder cannot see into a
+        // world. Tests that mean to report a population say so explicitly.
+        world_player_count: -1,
         announce_epoch_millis: 10_000,
         signature: vec![0u8; 64],
     }

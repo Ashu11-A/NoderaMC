@@ -106,12 +106,29 @@ public final class WorldReplicationService implements AutoCloseable {
         this.tracker = java.util.Objects.requireNonNull(tracker, "tracker");
         this.archive = java.util.Objects.requireNonNull(archive, "archive");
         this.hosting = java.util.Objects.requireNonNull(hosting, "hosting");
-        this.policy = new RendezvousArchivePolicy();
+        // Sized for world saves, not for simulation state. The spec's fixed ×5 leaves a world whose
+        // holders are home machines online about a third of the time unreachable roughly 12% of the
+        // time; ReplicationTarget derives the count from that availability, and the policy caps it
+        // at the peers that exist — so a small network puts a FULL COPY ON EVERY PEER and a large
+        // one asks each peer for a shrinking share of the whole corpus.
+        this.policy = new RendezvousArchivePolicy(
+                dev.nodera.peer.archival.ReplicationFactors.forWorldArchives(
+                        dev.nodera.peer.archival.ReplicationTarget.standard()));
         this.budgetBytes = Math.max(0, budgetBytes);
         this.sweepSeconds = Math.max(30, sweepSeconds);
     }
 
-    /** Begin sweeping. Idempotent. The first sweep is delayed one interval so startup stays quiet. */
+    /**
+     * How soon after starting the first sweep runs.
+     *
+     * <p>Not a full sweep interval. A node that has just been told about a world — because its
+     * player joined one — should start pulling it in seconds, not in the five minutes the steady
+     * cadence is sized for. Long enough that a worker still binding its transport and probing its
+     * trackers is not asked to download anything mid-boot.
+     */
+    private static final int FIRST_SWEEP_SECONDS = 15;
+
+    /** Begin sweeping. Idempotent. */
     public synchronized void start() {
         startRequested = true;
         if (scheduler != null || budgetBytes == 0) {
@@ -122,8 +139,25 @@ public final class WorldReplicationService implements AutoCloseable {
             t.setDaemon(true);
             return t;
         });
-        scheduler.scheduleWithFixedDelay(this::sweepQuietly, sweepSeconds, sweepSeconds,
-                TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(this::sweepQuietly,
+                Math.min(FIRST_SWEEP_SECONDS, sweepSeconds), sweepSeconds, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Sweep now, off the caller's thread — the "something changed, do not wait out the cadence" seam.
+     *
+     * <p>Joining a world is the case this exists for. The steady sweep is sized for a background
+     * duty and runs every few minutes; a player who has just joined a world would sit for that long
+     * with an empty progress bar while the peer that could serve them did nothing, which reads as
+     * broken and is indistinguishable from it.
+     *
+     * @Thread-context any thread; a no-op when the lane is not running.
+     */
+    public synchronized void sweepNow() {
+        if (scheduler == null) {
+            return;
+        }
+        scheduler.execute(this::sweepQuietly);
     }
 
     /**
@@ -186,7 +220,9 @@ public final class WorldReplicationService implements AutoCloseable {
         try {
             sweep();
         } catch (RuntimeException e) {
-            LOG.debug("replication sweep failed: {}", e.toString());
+            // WARN, not debug. A sweep that throws is the difference between "this node is helping"
+            // and "this node looks like it is helping", and the whole lane runs unattended.
+            LOG.warn("Replication sweep failed: {}", e.toString());
         }
     }
 
@@ -198,34 +234,79 @@ public final class WorldReplicationService implements AutoCloseable {
      */
     int sweep() {
         if (tracker.endpoints().isEmpty()) {
+            LOG.info("Replication sweep skipped — this node has no tracker to read a directory from");
             return 0;
         }
         List<TrackerCatalogEntry> catalog;
         try {
             catalog = tracker.catalog(0);
         } catch (RuntimeException e) {
-            LOG.debug("catalog read failed: {}", e.toString());
+            LOG.warn("Replication sweep could not read the directory from {} tracker(s): {}",
+                    tracker.endpoints().size(), e.toString());
+            return 0;
+        }
+        if (catalog.isEmpty()) {
+            LOG.info("Replication sweep: {} tracker(s) list no worlds — nothing to support",
+                    tracker.endpoints().size());
             return 0;
         }
         long held = replicatedBytes();
         int adopted = 0;
+        // Every sweep says what it DECIDED, per world, at INFO. This lane was silent by design —
+        // an empty catalog returned 0, a declined placement logged nothing, and a failure went to
+        // debug — so "my peer is not receiving any chunks" produced no evidence anywhere and took
+        // several rounds of live debugging to even locate. Sweeps are minutes apart; the lines are
+        // cheap and they are the only account of why a node is or is not holding somebody's world.
+        int skippedComplete = 0;
+        int skippedUnplaced = 0;
+        int skippedBounded = 0;
         for (TrackerCatalogEntry entry : catalog) {
-            if (adopted >= MAX_ADOPTIONS_PER_SWEEP || held >= budgetBytes) {
-                break;
-            }
             String worldIdHex = entry.genesisHash().toHex();
-            if (holdsCompletely(worldIdHex) || hosts(worldIdHex)) {
-                continue; // already this node's problem, one way or the other
+            if (holdsCompletely(worldIdHex)) {
+                skippedComplete++;
+                continue; // nothing to fetch
             }
-            if (!placedFor(entry.genesisHash())) {
-                continue; // some other node is the deterministic holder for this world
+            // A world this node CLAIMS is repaired unconditionally, ahead of the bounds.
+            //
+            // The skip used to read `holdsCompletely(...) || hosts(...)` — "already this node's
+            // problem, one way or the other". But `hosts()` asks what the registry says, not what
+            // the content store has, and `restoreFromRegistry` reloads every row as hosted at boot
+            // whether or not a single byte survived. So the one state that most needs repairing —
+            // this node announcing a world it cannot serve — was the exact state that disqualified
+            // it from being repaired. Observed live: a node showing "Yours — hosted here" and
+            // "0.0% · 0 of 73 pieces", permanently, while three other peers held all 73.
+            //
+            // `holdsCompletely` already covers a host that really does hold its world, so this
+            // branch only ever fires for a claim with nothing behind it.
+            boolean ours = hosts(worldIdHex);
+            // Bounds and placement govern volunteered replicas only; see the class doc — a node
+            // must never be volunteered into filling its disk, but its own worlds are not optional.
+            boolean bounded = withinBounds(adopted, held, budgetBytes);
+            boolean placed = ours || (bounded && placedFor(entry.genesisHash()));
+            if (!shouldAdopt(false, ours, placed, bounded)) {
+                if (!bounded) {
+                    skippedBounded++;
+                } else {
+                    skippedUnplaced++;
+                }
+                continue;
             }
+            if (ours) {
+                LOG.info("Repairing world '{}' ({}) — this node announces it but holds none of it",
+                        entry.worldName(), shortId(worldIdHex));
+            }
+            LOG.info("Supporting world '{}' ({}) — fetching its archive from the network",
+                    entry.worldName(), shortId(worldIdHex));
             long grew = adopt(worldIdHex, entry.worldName());
-            if (grew > 0) {
+            if (grew > 0 && !ours) {
                 held += grew;
                 adopted++;
             }
         }
+        LOG.info("Replication sweep over {} world(s): {} adopted, {} already complete here, "
+                        + "{} not placed on this node, {} past the bounds ({} of {} byte(s) used)",
+                catalog.size(), adopted, skippedComplete, skippedUnplaced, skippedBounded,
+                held, budgetBytes);
         return adopted;
     }
 
@@ -303,6 +384,34 @@ public final class WorldReplicationService implements AutoCloseable {
             }
         }
         return bytes;
+    }
+
+    /** Whether another volunteered replica may be adopted this sweep. */
+    static boolean withinBounds(int adoptedThisSweep, long replicatedBytes, long budgetBytes) {
+        return adoptedThisSweep < MAX_ADOPTIONS_PER_SWEEP && replicatedBytes < budgetBytes;
+    }
+
+    /**
+     * Should this world be fetched now? The sweep's decision, as a pure function of what is known
+     * about one world, so it can be exercised without a tracker.
+     *
+     * @param holdsCompletely whether this node already holds every piece.
+     * @param hosts           whether this node announces the world as its own.
+     * @param placedFor       whether the placement policy expects a replica here.
+     * @param withinBounds    whether the replica bounds still allow an adoption.
+     * @return whether to fetch.
+     */
+    static boolean shouldAdopt(boolean holdsCompletely, boolean hosts, boolean placedFor,
+                               boolean withinBounds) {
+        if (holdsCompletely) {
+            return false;
+        }
+        // A claim with no content behind it is repaired regardless of placement or bounds: this node
+        // is telling the network it serves a world it cannot serve, and no other node will fix that.
+        if (hosts) {
+            return true;
+        }
+        return withinBounds && placedFor;
     }
 
     private boolean holdsCompletely(String worldIdHex) {

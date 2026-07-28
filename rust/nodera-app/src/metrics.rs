@@ -31,13 +31,34 @@ pub struct PeerRow {
     pub total_down_bytes: u64,
 }
 
+/// The player count of a world nothing has reported on — see [`WorldRow::players`].
+///
+/// A named function rather than an inline default because `#[serde(default)]` would give `0`, and
+/// `0` is a real answer to a different question.
+fn unknown_players() -> i64 {
+    -1
+}
+
+/// A world that has never been announced — see [`WorldRow::announced_to_trackers`].
+///
+/// Distinct from `0`, which means "announced to no trackers because none are configured".
+fn never_announced() -> i64 {
+    -1
+}
+
 /// One world this node is keeping discoverable on the network — a row of the Info tab.
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorldRow {
     pub world_id: String,
     pub name: String,
-    #[serde(default)]
-    pub players: u32,
+    /// Players in-world, or **negative for "no node in that world has reported"**.
+    ///
+    /// Signed, and that is the whole point. Only a node with a game in the world can count its
+    /// players; every other peer has to be able to say it does not know. While this was a `u32` the
+    /// two answers shared the value `0`, so a peer supporting a busy world published "0 players"
+    /// with the same confidence as the host publishing the truth.
+    #[serde(default = "unknown_players")]
+    pub players: i64,
     /// The host's open Minecraft endpoint while its game is running; empty once it closes.
     #[serde(default)]
     pub mc_route: String,
@@ -63,9 +84,35 @@ pub struct WorldRow {
     /// Peers believed to hold some of this world.
     #[serde(default)]
     pub seeders: u64,
+    /// Full copies of this world believed to exist, including this node's when it has one.
+    ///
+    /// Full, not partial: a half-downloaded copy cannot serve the world on its own, and counting
+    /// one would let a swarm of half-downloads report itself backed up.
+    #[serde(default)]
+    pub backup_copies: u64,
+    /// Copies a network this size should keep — `ReplicationTarget.replicasFor`.
+    ///
+    /// Capped by the number of peers that exist, which is what makes a small network keep a full
+    /// copy on every peer instead of holding back copies it could have made.
+    #[serde(default)]
+    pub backup_copies_wanted: u64,
+    /// Chance nobody is holding this world right now, in permille: `(1 - availability)^copies`.
+    #[serde(default)]
+    pub loss_risk_permille: u64,
     /// `true` when this node only keeps the world's bytes alive; `false` when it hosts it.
     #[serde(default)]
     pub seeding: bool,
+
+    /// How many trackers accepted this world's most recent announce.
+    ///
+    /// Zero with a positive [`Self::announced_to_trackers`] is the state that has no other symptom
+    /// on this machine: the world is hosted, complete and healthy here, and **undiscoverable**.
+    /// Every screen that says "joinable" is describing an intention until this number is positive.
+    #[serde(default)]
+    pub listed_on_trackers: i64,
+    /// Trackers asked at that announce; `-1` when this world has never been announced.
+    #[serde(default = "never_announced")]
+    pub announced_to_trackers: i64,
 
     /// `true` when this peer holds this world's private key and can prove it administers it.
     ///
@@ -76,10 +123,54 @@ pub struct WorldRow {
     #[serde(default)]
     pub owned: bool,
 
+    /// `true` when somebody on this machine is playing in this world right now.
+    ///
+    /// The third independent fact about a world, alongside [`Self::seeding`] and [`Self::owned`],
+    /// and the one that was missing: a player joins worlds they neither run nor authored, and until
+    /// this existed the app had nothing at all to show them for the world they were standing in.
+    ///
+    /// Backed by a lease the game renews, so a game that dies without saying goodbye stops
+    /// claiming this on its own.
+    #[serde(default)]
+    pub connected: bool,
+
     /// The world's own public key (base64 X.509) — its administrative root — or empty when this
     /// node has no verified ownership claim for the world.
     #[serde(default)]
     pub world_public_key: String,
+}
+
+/// Hand-written so `players` defaults to *unknown* rather than to zero.
+///
+/// A derived `Default` would give `0`, which is a real and different answer — "nobody is in this
+/// world" — and a fixture that silently claims it is a fixture that hides the bug this field was
+/// widened to fix.
+impl Default for WorldRow {
+    fn default() -> Self {
+        Self {
+            world_id: String::new(),
+            name: String::new(),
+            players: unknown_players(),
+            mc_route: String::new(),
+            added_at: 0,
+            updated_at: 0,
+            total_bytes: 0,
+            checksum: String::new(),
+            version: 0,
+            piece_count: 0,
+            pieces_held: 0,
+            seeders: 0,
+            backup_copies: 0,
+            backup_copies_wanted: 0,
+            loss_risk_permille: 0,
+            seeding: false,
+            listed_on_trackers: 0,
+            announced_to_trackers: never_announced(),
+            owned: false,
+            connected: false,
+            world_public_key: String::new(),
+        }
+    }
 }
 
 /// A world's piece picture, fetched on demand for the Pieces tab (`NODERA-PIECES`).

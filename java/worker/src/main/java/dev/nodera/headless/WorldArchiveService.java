@@ -141,6 +141,59 @@ public final class WorldArchiveService implements AutoCloseable {
     private final Map<String, CompletableFuture<List<PieceManifest>>> pendingManifests =
             new ConcurrentHashMap<>();
 
+    /**
+     * Manifest roots this node is downloading right now — eviction-proof for the duration.
+     *
+     * <p>A retention policy and an in-flight download disagree about what "old" means: to the policy
+     * a superseded version is dead weight, to the download it is the only thing that matters. The
+     * policy loses while the download runs, because a version that is still arriving is by
+     * definition still wanted, and the fetched copy is a complete and valid world — the joiner opens
+     * it and catches up live, which is the whole design of the continuity lane.
+     */
+    private final Set<Bytes> fetching = ConcurrentHashMap.newKeySet();
+
+    /**
+     * worldIdHex → manifest roots the tracker says at least one peer holds pieces of.
+     *
+     * <p>The difference between a version that exists and a version that can be obtained. A live
+     * host archives every couple of minutes and then closes its game; the newest version is then
+     * known to everyone and held by nobody, and a fetch aimed at it downloads 0 pieces until its
+     * deadline. Observed exactly that way: {@code 2 seeder(s), 2 routable} and
+     * {@code archive fetch stalled at 0/73 piece(s) after 120s}.
+     */
+    private final Map<String, Set<Bytes>> heldRoots = new ConcurrentHashMap<>();
+
+    /**
+     * manifest root → the peers the tracker says hold pieces of it.
+     *
+     * <p>The same answer as {@link #heldRoots} with the identity kept, and it is the identity that
+     * decides who gets asked. A fetch used to credit <b>every</b> routable peer in the swarm with
+     * <b>every</b> piece, on the theory that over-claiming costs only a re-select — but a peer that
+     * does not have the piece answers with silence, and silence carries no signal at all, so the
+     * request sat in the in-flight budget until the stall detector fired. With a deterministic
+     * selector that is not a slow download, it is a stopped one: a live fetch wedged at 22 of 150
+     * pieces with a peer holding all 150 sitting right there, because the front of the queue was
+     * assigned to a peer holding none of it.
+     */
+    private final Map<Bytes, Set<NodeId>> rootHolders = new ConcurrentHashMap<>();
+
+    /** How long a {@link #holdersFor} answer stays good enough for a dashboard. */
+    private static final Duration HOLDER_CACHE_TTL = Duration.ofSeconds(15);
+
+    /** worldIdHex → the last holder set resolved for it, with the moment it was resolved. */
+    private final Map<String, CachedHolders> holderCache = new ConcurrentHashMap<>();
+
+    /**
+     * @param manifestRoot a manifest root.
+     * @return whether a fetch is currently in flight on it — the eviction-immunity flag.
+     * @Thread-context any thread. Package-private: a test has to be able to wait for the download
+     *     to have registered before it delivers the newer manifest, or it would be racing the very
+     *     window it exists to pin.
+     */
+    boolean isFetching(Bytes manifestRoot) {
+        return fetching.contains(manifestRoot);
+    }
+
     private final ScheduledExecutorService scheduler;
 
     /** How many versions per world survive a seed; see {@link #DEFAULT_RETAINED_VERSIONS}. */
@@ -449,8 +502,38 @@ public final class WorldArchiveService implements AutoCloseable {
      */
     private int evictVersionsBelow(String worldIdHex, NavigableMap<Long, PieceManifest> versions,
                                    long floor, String why) {
+        return evictVersionsBelow(worldIdHex, versions, floor, why, m -> true);
+    }
+
+    /**
+     * As above, evicting only the versions {@code evictable} accepts.
+     *
+     * @param evictable which superseded versions may actually be destroyed.
+     */
+    private int evictVersionsBelow(String worldIdHex, NavigableMap<Long, PieceManifest> versions,
+                                   long floor, String why,
+                                   java.util.function.Predicate<PieceManifest> evictable) {
         int evicted = 0;
         for (Long version : new ArrayList<>(versions.headMap(floor, false).keySet())) {
+            PieceManifest candidate = versions.get(version);
+            if (candidate != null && !evictable.test(candidate)) {
+                continue;
+            }
+            // A version this node is in the middle of downloading is not evictable, whatever the
+            // policy says. Observed live and it is the whole failure: a joiner started fetching a
+            // 27 MB archive, the host streamed the next version two minutes later, this node
+            // learned of it, and evicted the manifest the download was targeting — unpinning the
+            // blob and unpublishing the root the `PieceDownloader` was writing into. The download
+            // could then never complete and the player sat on "Migrating world…" until the deadline.
+            //
+            // `supersedeOlderVersions` already carries a comment refusing to run from `seedArchive`
+            // for exactly this reason. The same hazard reaches here through the learning path, which
+            // that comment did not cover.
+            if (candidate != null && fetching.contains(candidate.manifestRoot())) {
+                LOG.info("Keeping world archive {} v{} (root {}) — {} — a fetch is in flight on it",
+                        shortId(worldIdHex), version, candidate.manifestRoot().toShortHex(6), why);
+                continue;
+            }
             PieceManifest gone = versions.remove(version);
             if (gone == null) {
                 continue;
@@ -478,6 +561,16 @@ public final class WorldArchiveService implements AutoCloseable {
      * from {@link #holdingsFor} (so the next announce stops advertising it), and from the content
      * store itself.
      *
+     * <p><b>Encrypted versions only.</b> The rule exists to revoke a password, and a plaintext
+     * archive has no password to revoke — evicting one buys no security and costs the world. That
+     * cost was not theoretical: a host archives every couple of minutes and closes its game, every
+     * peer learns of the newest version through the manifest exchange, and each one then destroyed
+     * the copy it was actually serving in exchange for a version nobody held. The swarm ended up
+     * offering each other a manifest none of them had, and
+     * {@code ContentTransferService.serve} drops requests for unknown roots in silence, so every
+     * joiner sat at {@code 0/73 pieces} until its deadline. Plaintext versions stay, bounded by
+     * {@link #trimToRetention} rather than by this cliff.
+     *
      * <p>Deliberately NOT called from {@link #seedArchive}: the continuous archive streaming added
      * for issue #43 appends a version every interval, and evicting the previous one under a joiner
      * that is mid-fetch would trade a security fix for a data-availability regression. The two call
@@ -490,13 +583,37 @@ public final class WorldArchiveService implements AutoCloseable {
      * @Thread-context any thread.
      */
     public int supersedeOlderVersions(String worldIdHex) {
+        return supersedeOlderVersions(worldIdHex, false);
+    }
+
+    /**
+     * As {@link #supersedeOlderVersions}, optionally refusing to drop the last openable copy.
+     *
+     * <p>The two callers of this rule want opposite things and had been given the same behaviour.
+     *
+     * <p>A <b>re-key</b> ({@code keepLastCompleteCopy=false}) must evict: the superseded ciphertext
+     * still opens under the old password, so keeping it is a password change that revoked nothing.
+     * Availability is not the concern there — the author is right here, holding the new bytes.
+     *
+     * <p><b>Learning that a newer version exists</b> ({@code keepLastCompleteCopy=true}) must not.
+     * That path fires on the ordinary streaming cadence, and evicting on it deleted the only
+     * complete copy a peer had of a world in exchange for a manifest it did not hold — and, once the
+     * host's game closed, could not get from anyone. The node ended up advertising and holding
+     * nothing, with a download that could never finish. A version this node can still open is kept
+     * until a newer one is complete locally.
+     *
+     * @param worldIdHex          the world.
+     * @param keepLastCompleteCopy whether to retain the newest complete local version regardless.
+     * @return how many superseded versions were evicted.
+     */
+    public int supersedeOlderVersions(String worldIdHex, boolean keepLastCompleteCopy) {
         Objects.requireNonNull(worldIdHex, "worldIdHex");
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
         if (versions == null || versions.size() < 2) {
             return 0;
         }
         return evictVersionsBelow(worldIdHex, versions, versions.lastKey(),
-                "superseded, no longer seeded");
+                "superseded, no longer seeded", PieceManifest::encrypted);
     }
 
     /**
@@ -560,6 +677,33 @@ public final class WorldArchiveService implements AutoCloseable {
     }
 
     /** @return the newest seeded/held manifest for a world, if any. */
+    /**
+     * The newest version of a world this node holds <b>every piece of</b>, if any.
+     *
+     * <p>Distinct from {@link #newestManifest}, which answers "the newest version I know exists" —
+     * a question about the network. This one asks "the newest version I can actually open", which is
+     * a question about this disk, and they diverge exactly when it matters: a live host streams a new
+     * archive version every couple of minutes, so a peer routinely knows of a version newer than
+     * anything it (or anybody still online) holds.
+     *
+     * @param worldIdHex the world.
+     * @return the newest complete manifest held locally.
+     */
+    public Optional<PieceManifest> newestCompleteLocally(String worldIdHex) {
+        NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
+        if (versions == null) {
+            return Optional.empty();
+        }
+        for (PieceManifest candidate : versions.descendingMap().values()) {
+            if (candidate.pieceCount() > 0
+                    && content.heldPieces(candidate.manifestRoot()).cardinality()
+                            == candidate.pieceCount()) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
     public Optional<PieceManifest> newestManifest(String worldIdHex) {
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
         return versions == null || versions.isEmpty()
@@ -668,19 +812,38 @@ public final class WorldArchiveService implements AutoCloseable {
      * traffic; self is excluded. Never throws: a tracker that is down means "nobody known", not a
      * failed screen.
      *
+     * <p>Answered from a short-lived cache. This is a <b>display</b> query: every STATE the app
+     * polls asks it once per world, and it used to run two tracker round-trips per world per poll,
+     * on the control-connection thread. Two players with eleven registered worlds produced 872
+     * "Seeder lookup" lines in one session's log — enough to bury the archive lane's own output
+     * while that lane was being debugged — plus a tracker load and a STATE latency proportional to
+     * the world count. A holder set that is a few seconds stale is indistinguishable on screen; a
+     * dashboard that hammers the tracker is not.
+     *
      * @param worldIdHex the world.
      * @return the distinct holder ids.
-     * @Thread-context any thread; performs a short tracker round-trip when trackers are configured.
+     * @Thread-context any thread; performs a short tracker round-trip on a cache miss.
      */
     public Set<NodeId> holdersFor(String worldIdHex) {
+        CachedHolders cached = holderCache.get(worldIdHex);
+        long now = System.nanoTime();
+        if (cached != null && now - cached.atNanos() < HOLDER_CACHE_TTL.toNanos()) {
+            return cached.holders();
+        }
         try {
             Set<NodeId> holders = resolveSeeders(Bytes.fromHex(worldIdHex));
             holders.remove(self);
-            return holders;
+            Set<NodeId> immutable = Set.copyOf(holders);
+            holderCache.put(worldIdHex, new CachedHolders(immutable, now));
+            return immutable;
         } catch (RuntimeException e) {
             LOG.debug("holder resolution for {} failed: {}", shortId(worldIdHex), e.getMessage());
             return Set.of();
         }
+    }
+
+    /** One cached {@link #holdersFor} answer and the {@link System#nanoTime()} it was taken at. */
+    private record CachedHolders(Set<NodeId> holders, long atNanos) {
     }
 
     /**
@@ -754,8 +917,19 @@ public final class WorldArchiveService implements AutoCloseable {
         List<Bytes> encoded = new ArrayList<>();
         NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
         if (versions != null) {
+            // Only versions this node holds at least one piece of. The answer's purpose is to let
+            // the asker fetch FROM THIS PEER, and a manifest for content we do not have serves the
+            // opposite: the asker picks the highest version it is offered, requests its pieces, and
+            // `ContentTransferService.serve` drops every request for an unknown root in silence —
+            // no reply, no counter — so the download sits at 0 pieces until its deadline.
+            //
+            // That is the whole of the live failure: a host archives once more and closes its game,
+            // every peer has HEARD of that version, none of them has it, and all of them keep
+            // offering it to each other.
             for (PieceManifest m : versions.descendingMap().values()) {
-                encoded.add(encodeManifest(m));
+                if (!content.heldPieces(m.manifestRoot()).isEmpty()) {
+                    encoded.add(encodeManifest(m));
+                }
             }
         }
         // Region manifests answer the same query (L-41). A holding advertised on the tracker is a
@@ -866,8 +1040,14 @@ public final class WorldArchiveService implements AutoCloseable {
         Bytes worldId = Bytes.fromHex(worldIdHex);
 
         // Already hold a complete copy? Serve it locally without touching the network.
-        Optional<PieceManifest> held = newestManifest(worldIdHex).filter(m ->
-                content.heldPieces(m.manifestRoot()).cardinality() == m.pieceCount());
+        //
+        // "A complete copy" means any complete version, not the newest known one. This asked
+        // `newestManifest(...).filter(complete)`, so a node holding v2 in full while merely knowing
+        // that v3 exists went to the network for v3 — and when the host's game had closed, nothing
+        // was serving v3, so it downloaded 0 of 73 pieces indefinitely with two complete copies of
+        // the world already on its disk. Watched happening: a worker reporting 146 pieces (two full
+        // versions of a 73-piece world) sat on "Migrating world…".
+        Optional<PieceManifest> held = newestCompleteLocally(worldIdHex);
         PieceManifest manifest = held.orElseGet(
                 () -> requestManifest(worldIdHex, worldId, seeders, deadline));
 
@@ -876,39 +1056,118 @@ public final class WorldArchiveService implements AutoCloseable {
             return reassembleLocal(manifest);
         }
 
+        // Declared before the first piece is requested and cleared in the `finally` below: between
+        // those two points this root outranks the retention policy. Registering it after the
+        // download started would leave a window in which a manifest learned from the network could
+        // evict the thing being fetched — which is the exact race this guards.
+        fetching.add(manifest.manifestRoot());
         PieceDownloader downloader = content.download(manifest, null);
         Set<Integer> all = new HashSet<>();
         for (int i = 0; i < manifest.pieceCount(); i++) {
             all.add(i);
         }
+        // Who does the tracker say actually holds THIS root? When somebody does, ask only them.
+        //
+        // The alternative — crediting every routable peer with every piece — is not a harmless
+        // over-claim. A peer without the piece answers with silence (there is no "I don't have it"
+        // on the wire), the request keeps its slot in the in-flight budget until a retry round, and
+        // the selector is deterministic, so the same silent peer is re-picked for the same pieces
+        // every round. A fetch stopped dead at 22 of 150 that way, with a full copy one hop away.
+        Set<NodeId> known = rootHolders.getOrDefault(manifest.manifestRoot(), Set.of());
+        List<NodeId> routable = new ArrayList<>();
+        List<NodeId> unroutable = new ArrayList<>();
         for (NodeId seeder : seeders) {
-            if (!seeder.equals(self) && routes.get(seeder) != null) {
-                // Claim the full piece set: over-claiming only costs a re-select on a miss.
-                downloader.addHolder(seeder, all);
+            if (seeder.equals(self)) {
+                continue;
             }
+            if (routes.get(seeder) == null) {
+                unroutable.add(seeder);
+                continue;
+            }
+            routable.add(seeder);
         }
+        // Peers the tracker names as holders of this exact root, when any of them is reachable.
+        // Otherwise everyone reachable is asked: a peer that finished downloading a moment ago holds
+        // the world and has not announced it yet, and asking nobody is worse than asking the wrong
+        // one. Inventory gossip narrows both cases to real holdings as it lands.
+        List<NodeId> holders = new ArrayList<>(routable);
+        holders.removeIf(peer -> !known.contains(peer));
+        if (holders.isEmpty()) {
+            holders = routable;
+        }
+        for (NodeId holder : holders) {
+            downloader.addHolder(holder, all);
+        }
+        // A download with nobody to ask cannot make progress, and used to spend the entire fetch
+        // budget discovering that in silence — the caller saw a screen that said "downloading" for
+        // two minutes and then a timeout that blamed the pieces. Say it immediately, and say which
+        // seeders were known but had no dial route, because that is the difference between "nobody
+        // has this world" and "nobody told us how to reach the peers that do".
+        if (holders.isEmpty()) {
+            throw new IllegalStateException("no reachable seeder for world " + shortId(worldIdHex)
+                    + " (" + seeders.size() + " known, " + unroutable.size() + " without a route)");
+        }
+        LOG.info("Fetching world archive {} v{} — {} piece(s), {} byte(s), from {} of {} seeder(s)",
+                shortId(worldIdHex), manifest.version().value(), manifest.pieceCount(),
+                manifest.totalLength(), holders.size(), seeders.size());
         CompletableFuture<Bytes> completion = downloader.start();
         try {
             // Await in short slices, nudging the downloader between them: a bounded seeder
             // silently drops over-budget requests, and the clock-free downloader relies on its
             // caller to notice the quiet period and retryPending().
+            //
+            // The deadline is a STALL deadline, not a wall clock. A flat budget asks the wrong
+            // question — "has this taken too long?" — and gets it wrong in both directions: it
+            // kills a large world that is transferring perfectly well, and it makes a download that
+            // is receiving nothing at all look busy for two minutes before admitting it. The
+            // question that matters is whether pieces are still arriving. `timeout` is honoured as
+            // the no-progress budget, and a fetch that keeps moving keeps going.
+            long stallBudgetNanos = Math.max(timeout.toNanos(), TimeUnit.SECONDS.toNanos(20));
+            int lastVerified = downloader.verifiedCount();
+            long lastProgressAt = System.nanoTime();
+            long lastReportAt = lastProgressAt;
             while (true) {
-                long remaining = deadline - System.nanoTime();
-                if (remaining <= 0) {
-                    throw new IllegalStateException("archive fetch timed out ("
-                            + downloader.verifiedCount() + "/" + manifest.pieceCount()
-                            + " pieces)");
-                }
                 try {
-                    Bytes blob = completion.get(
-                            Math.min(remaining, TimeUnit.SECONDS.toNanos(2)),
-                            TimeUnit.NANOSECONDS);
+                    Bytes blob = completion.get(2, TimeUnit.SECONDS);
                     LOG.info("Fetched world archive {} v{} — {} byte(s) from {} seeder(s)",
                             shortId(worldIdHex), manifest.version().value(), blob.length(),
-                            seeders.size());
+                            holders.size());
                     return blob.toArray();
                 } catch (TimeoutException stalled) {
                     downloader.retryPending();
+                }
+                long now = System.nanoTime();
+                int verified = downloader.verifiedCount();
+                if (verified != lastVerified) {
+                    lastVerified = verified;
+                    lastProgressAt = now;
+                }
+                // A periodic line, because a multi-minute transfer with no output is
+                // indistinguishable from a hang — which is exactly how this lane has been read
+                // every time it went wrong.
+                if (now - lastReportAt >= TimeUnit.SECONDS.toNanos(10)) {
+                    lastReportAt = now;
+                    LOG.info("Fetching world archive {} — {}/{} piece(s)", shortId(worldIdHex),
+                            verified, manifest.pieceCount());
+                }
+                if (now - lastProgressAt > stallBudgetNanos) {
+                    // Before giving up: an older version held in full is a world the player can
+                    // open. Refusing it because a newer one exists somewhere unreachable trades a
+                    // playable world for a loading screen, which is the opposite of what the
+                    // continuity lane is for. The world is behind by one archive interval; joining
+                    // it catches the player up.
+                    Optional<PieceManifest> fallback = newestCompleteLocally(worldIdHex);
+                    if (fallback.isPresent()) {
+                        LOG.info("Archive fetch of {} v{} stalled at {}/{} — opening v{}, "
+                                        + "the newest complete copy this node already holds",
+                                shortId(worldIdHex), manifest.version().value(), verified,
+                                manifest.pieceCount(), fallback.get().version().value());
+                        return reassembleLocal(fallback.get());
+                    }
+                    throw new IllegalStateException("archive fetch stalled at "
+                            + verified + "/" + manifest.pieceCount() + " piece(s) after "
+                            + TimeUnit.NANOSECONDS.toSeconds(now - lastProgressAt)
+                            + "s with no progress, from " + holders.size() + " seeder(s)");
                 }
             }
         } catch (InterruptedException e) {
@@ -916,6 +1175,16 @@ public final class WorldArchiveService implements AutoCloseable {
             throw new IllegalStateException("archive fetch interrupted", e);
         } catch (ExecutionException e) {
             throw new IllegalStateException("archive fetch failed: " + e.getCause(), e);
+        } finally {
+            // Released whatever happened. A root left in here would be pinned against every future
+            // retention pass — the fetch would be over and the policy would never reclaim it.
+            fetching.remove(manifest.manifestRoot());
+            // Now that the download is no longer protected, apply the policy that was held off
+            // while it ran, so a fetch does not leave superseded versions seeded behind it.
+            NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
+            if (versions != null && versions.size() > 1) {
+                trimToRetention(worldIdHex, versions);
+            }
         }
     }
 
@@ -927,24 +1196,65 @@ public final class WorldArchiveService implements AutoCloseable {
         }
         Optional<TrackerResponse> response = tracker.query(worldId);
         response.ifPresent(r -> {
+            // Roots somebody actually HOLDS, as distinct from versions somebody has heard of. A
+            // manifest answer proves knowledge, not possession, and the two diverge every time a
+            // host archives once more and then closes its game: every peer knows of that version
+            // and none of them has it.
+            r.seeders().forEach(s -> {
+                if (!s.seeders().isEmpty()) {
+                    heldRoots.computeIfAbsent(worldId.toHex(), k -> ConcurrentHashMap.newKeySet())
+                            .add(s.manifestRoot());
+                    // Kept per root, not merged into one set: "who holds v2" and "who holds v3" are
+                    // different questions, and the fetch only ever asks one of them.
+                    Set<NodeId> holders = ConcurrentHashMap.newKeySet();
+                    holders.addAll(s.seeders());
+                    rootHolders.put(s.manifestRoot(), holders);
+                }
+            });
             r.seeders().forEach(s -> seeders.addAll(s.seeders()));
             // Peers with live routes count as manifest sources even before they hold pieces —
             // the host's always-on worker is exactly such a peer right after a seed.
-            r.peers().forEach(p -> seeders.add(p.nodeId()));
+            //
+            // The route on the entry is KEPT. It used to be dropped here and the code then relied
+            // on the separate routes query below to supply it, which meant a tracker that did not
+            // answer that query — an older build, a dropped datagram, anything — left every seeder
+            // known and unreachable. Live symptom: "no routable seeder for world d454b2264b84",
+            // three seconds after the host announced it to the same tracker. The answer was in the
+            // first response the whole time.
+            r.peers().forEach(p -> {
+                seeders.add(p.nodeId());
+                rememberRoute(p.nodeId(), p.route());
+            });
         });
         TrackerRoutesResponse routesResponse = tracker.routes(worldId);
         for (TrackerRoutesResponse.PeerRoutes peer : routesResponse.peers()) {
             for (String route : peer.routes()) {
-                // "mc/..." claims are Minecraft game endpoints, not P2P dial routes.
-                if (!route.startsWith(WorldHostingService.MC_ROUTE_PREFIX) && !route.isBlank()) {
-                    routes.putIfAbsent(peer.peer(), PeerAddress.of(peer.peer(), route));
+                if (rememberRoute(peer.peer(), route)) {
                     seeders.add(peer.peer());
                     break;
                 }
             }
         }
         seeders.remove(self);
+        long routable = seeders.stream().filter(s -> routes.get(s) != null).count();
+        LOG.info("Seeder lookup for {} — {} seeder(s), {} routable, over {} tracker(s)",
+                shortId(worldId.toHex()), seeders.size(), routable, tracker.endpoints().size());
         return seeders;
+    }
+
+    /**
+     * Record a peer's dial route, rejecting the ones that are not dial routes.
+     *
+     * @return whether the route was usable.
+     */
+    private boolean rememberRoute(NodeId peer, String route) {
+        // "mc/..." claims are Minecraft game endpoints, not P2P dial routes.
+        if (route == null || route.isBlank()
+                || route.startsWith(WorldHostingService.MC_ROUTE_PREFIX)) {
+            return false;
+        }
+        routes.putIfAbsent(peer, PeerAddress.of(peer, route));
+        return true;
     }
 
     /** Ask every routable seeder for its manifests and wait for the first useful answer. */
@@ -973,9 +1283,7 @@ public final class WorldArchiveService implements AutoCloseable {
             }
             long remaining = Math.max(1, deadlineNanos - System.nanoTime());
             List<PieceManifest> answered = pending.get(remaining, TimeUnit.NANOSECONDS);
-            return answered.stream()
-                    .max((a, b) -> Long.compare(a.version().value(), b.version().value()))
-                    .orElseThrow();
+            return chooseFetchable(worldIdHex, answered);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("manifest resolution interrupted", e);
@@ -1002,6 +1310,51 @@ public final class WorldArchiveService implements AutoCloseable {
     }
 
     /** The content router: answers from tracker-learned + traffic-learned routes. */
+    /**
+     * Pick the version to download: the newest one somebody is known to hold, else the newest known.
+     *
+     * <p>"Newest" alone was the rule, and it is the wrong question when the answer decides what to
+     * download. A manifest answer says a peer has <em>heard of</em> a version; the tracker's seeder
+     * rows say a peer <em>holds pieces of</em> one. A host that archives and then closes its game
+     * leaves the newest version in the first category and not the second, and every peer aiming at
+     * it downloads nothing until the deadline while complete older copies sit on the swarm.
+     *
+     * @param worldIdHex the world.
+     * @param answered   the manifests peers answered with.
+     * @return the manifest to fetch.
+     */
+    private PieceManifest chooseFetchable(String worldIdHex, List<PieceManifest> answered) {
+        Set<Bytes> held = heldRoots.getOrDefault(worldIdHex, Set.of());
+        Optional<PieceManifest> obtainable = answered.stream()
+                .filter(m -> held.contains(m.manifestRoot()))
+                .max((a, b) -> Long.compare(a.version().value(), b.version().value()));
+        if (obtainable.isPresent()) {
+            return obtainable.get();
+        }
+        // Nothing the tracker vouches for: fall back to the newest answered version rather than
+        // refusing, because the seeder rows can lag a fresh seed and a peer that just answered with
+        // a manifest is a peer plausibly holding it.
+        PieceManifest newest = answered.stream()
+                .max((a, b) -> Long.compare(a.version().value(), b.version().value()))
+                .orElseThrow();
+        if (!held.isEmpty()) {
+            LOG.info("No seeder is advertised for any answered version of {} — trying v{} anyway",
+                    shortId(worldIdHex), newest.version().value());
+        }
+        return newest;
+    }
+
+    /**
+     * Record how to dial a peer, the way a tracker lookup does.
+     *
+     * @param peer  the peer.
+     * @param route its dialable {@code host:port}.
+     * @Thread-context any thread.
+     */
+    public void learnRoute(NodeId peer, String route) {
+        rememberRoute(peer, route);
+    }
+
     private PeerAddress routeOf(NodeId peer) {
         return routes.get(peer);
     }
