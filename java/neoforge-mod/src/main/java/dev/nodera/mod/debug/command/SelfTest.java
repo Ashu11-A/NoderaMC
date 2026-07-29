@@ -105,7 +105,7 @@ public final class SelfTest {
         CommandDispatcher<CommandSourceStack> dispatcher = server.getCommands().getDispatcher();
         List<ServerPlayer> players = List.copyOf(server.getPlayerList().getPlayers());
         if (players.isEmpty()) {
-            src.sendFailure(Component.literal("Selftest needs at least one connected player."));
+            src.sendFailure(Component.translatable(CommandLang.SELFTEST_NO_PLAYERS));
             return 0;
         }
 
@@ -171,16 +171,23 @@ public final class SelfTest {
                     StandardCharsets.UTF_8);
         } catch (IOException e) {
             LOG.warn("SELFTEST report write failed: {}", e.toString());
-            src.sendFailure(Component.literal("Selftest report write failed: " + e.getMessage()));
+            src.sendFailure(Component.translatable(CommandLang.SELFTEST_WRITE_FAILED,
+                    String.valueOf(e.getMessage())));
         }
 
+        // Two audiences, two shapes (MC-GUI-5). The log line keeps its exact machine-readable
+        // form — scripts/e2e-commands.sh greps "SELFTEST complete:" and would silently stop
+        // matching if it were translated. What the player reads is a lang key over the same
+        // numbers, so it can be translated without breaking any harness.
         String summary = String.format(Locale.ROOT,
                 "SELFTEST complete: ok=%d zero=%d syntaxErr=%d exception=%d skipped=%d "
                         + "commands=%d players=%d durationMs=%d tps=%.1f report=%s",
                 ok, zero, syntax, thrown, skipped, commands.size(), players.size(), totalMs, tps,
                 jsonPath);
         LOG.info(summary);
-        src.sendSuccess(() -> Component.literal(summary), true);
+        Object[] counts = {ok, zero, syntax, thrown, skipped, commands.size(), players.size(),
+                totalMs, jsonPath.toString()};
+        src.sendSuccess(() -> Component.translatable(CommandLang.SELFTEST_SUMMARY, counts), true);
         return ok;
     }
 
