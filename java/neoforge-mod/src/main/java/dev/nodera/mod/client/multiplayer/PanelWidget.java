@@ -4,6 +4,7 @@ import dev.nodera.diagnostics.state.Semantic;
 import dev.nodera.diagnostics.view.Cell;
 import dev.nodera.diagnostics.view.Panel;
 import dev.nodera.diagnostics.view.Row;
+import dev.nodera.mod.debug.render.ComponentRenderer;
 import dev.nodera.mod.debug.render.Palette;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -51,8 +52,11 @@ public final class PanelWidget extends AbstractWidget {
             }
             int x = getX();
             for (Cell cell : row.cells()) {
-                graphics.drawString(font, cell.text(), x, y, colorOf(Palette.chat(cell.semantic())));
-                x += font.width(cell.text()) + CELL_GAP;
+                // MC-GUI-5: the view model hands over a key + arguments; resolution happens here,
+                // in the only layer that has a lang file.
+                Component text = ComponentRenderer.text(cell);
+                graphics.drawString(font, text, x, y, colorOf(Palette.chat(cell.semantic())));
+                x += font.width(text) + CELL_GAP;
             }
             y += ROW_HEIGHT;
         }

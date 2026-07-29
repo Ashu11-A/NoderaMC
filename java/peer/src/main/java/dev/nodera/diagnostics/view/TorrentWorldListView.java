@@ -25,6 +25,20 @@ public final class TorrentWorldListView {
 
     /** The panel title key. */
     public static final String PANEL_TITLE = "nodera.multiplayer.torrent_worlds";
+    /** Lang key for the "by &lt;host&gt;" cell ({@code %s} = host name). */
+    public static final String KEY_BY_HOST = "nodera.multiplayer.row.by";
+    /** Lang key for a known population ({@code %s} = count). */
+    public static final String KEY_PLAYERS = "nodera.world.players";
+    /** Lang key for an unreported population — nothing that can see into the world has said. */
+    public static final String KEY_PLAYERS_UNKNOWN = "nodera.world.players_unknown";
+    /** Lang key for the stored-piece count ({@code %s} = count). */
+    public static final String KEY_CHUNKS = "nodera.world.chunks";
+    /** Lang key for the reliability cell ({@code %s} = formatted percentage). */
+    public static final String KEY_RELIABILITY = "nodera.world.reliability";
+    /** Lang key prefix for {@link WorldHealth}; the enum name (lower case) completes it. */
+    public static final String HEALTH_PREFIX = "nodera.world.health.";
+    /** Lang key for the retention countdown ({@code %s} = formatted duration). */
+    public static final String KEY_COUNTDOWN = "nodera.multiplayer.row.countdown";
 
     /**
      * One torrent world as the tracker reports it.
@@ -90,11 +104,12 @@ public final class TorrentWorldListView {
         }
 
         /**
-         * @return the population, in words: {@code "3 online"}, or {@code "players unknown"} when
-         *         nothing that can see into the world has said.
+         * @return the population as a translation key + argument: {@link #KEY_PLAYERS} with the
+         *         count, or {@link #KEY_PLAYERS_UNKNOWN} when nothing that can see into the world
+         *         has reported.
          */
-        public String playersLabel() {
-            return TorrentWorldListView.playersLabel(playerCount);
+        public Cell playersCell() {
+            return TorrentWorldListView.playersCell(playerCount, Semantic.NEUTRAL);
         }
     }
 
@@ -108,10 +123,12 @@ public final class TorrentWorldListView {
      * Every surface that prints a population goes through here.
      *
      * @param playerCount players in-world, or negative when nobody could count.
-     * @return the label.
+     * @return the population cell (key + argument, never a finished phrase).
      */
-    public static String playersLabel(long playerCount) {
-        return playerCount < 0 ? "players unknown" : playerCount + " online";
+    public static Cell playersCell(long playerCount, Semantic semantic) {
+        return playerCount < 0
+                ? Cell.tr(KEY_PLAYERS_UNKNOWN, Semantic.SECONDARY)
+                : Cell.tr(KEY_PLAYERS, semantic, playerCount);
     }
 
     private static final Comparator<TorrentWorldEntry> NAME_ORDER =
@@ -155,24 +172,28 @@ public final class TorrentWorldListView {
     static Row rowOf(TorrentWorldEntry entry) {
         Semantic health = semanticOf(entry.health());
         List<Cell> cells = new ArrayList<>(7);
-        cells.add(Cell.bold(entry.name(), health));
+        cells.add(Cell.boldRaw(entry.name(), health));
         if (entry.hasHost()) {
-            cells.add(Cell.of("by " + entry.hostName(), Semantic.SECONDARY));
+            cells.add(Cell.tr(KEY_BY_HOST, Semantic.SECONDARY, entry.hostName()));
         }
         // Said only when somebody could actually count. A directory row comes from a tracker, which
         // sees announcing peers and not players, so it has no honest number to put here — and the
         // cell it used to fill said "3 players" about three seeders of an empty world.
-        cells.add(entry.playersKnown()
-                ? Cell.of(entry.playersLabel(), Semantic.NEUTRAL)
-                : Cell.of(entry.playersLabel(), Semantic.SECONDARY));
-        cells.add(Cell.of(entry.storedChunks() + " chunks", Semantic.SECONDARY));
-        cells.add(Cell.of(formatReliability(entry.reliabilityBps()), Semantic.SECONDARY));
-        cells.add(Cell.of(entry.health().name(), health));
+        cells.add(entry.playersCell());
+        cells.add(Cell.tr(KEY_CHUNKS, Semantic.SECONDARY, entry.storedChunks()));
+        cells.add(Cell.tr(KEY_RELIABILITY, Semantic.SECONDARY,
+                formatReliability(entry.reliabilityBps())));
+        cells.add(Cell.tr(healthKey(entry.health()), health));
         if (entry.retentionSecondsRemaining() >= 0) {
-            cells.add(Cell.of("drops in " + formatCountdown(entry.retentionSecondsRemaining()),
-                    Semantic.WORLD_DEGRADED));
+            cells.add(Cell.tr(KEY_COUNTDOWN, Semantic.WORLD_DEGRADED,
+                    formatCountdown(entry.retentionSecondsRemaining())));
         }
         return new Row(cells);
+    }
+
+    /** @return the lang key naming this health state — the word itself lives in the lang file. */
+    public static String healthKey(WorldHealth health) {
+        return HEALTH_PREFIX + health.name().toLowerCase(Locale.ROOT);
     }
 
     /** The colour policy for a {@link WorldHealth} — the Task 26 red/gray rule. */

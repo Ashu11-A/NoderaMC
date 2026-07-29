@@ -20,7 +20,19 @@ import java.util.List;
 public final class RendezvousStatusView {
 
     /** Lang key for the Rendezvous tab title. */
-    public static final String TITLE = "nodera.multiplayer.tab.rendezvous";
+    public static final String TITLE = "nodera.multiplayer.panel.rendezvous";
+    /** Lang key for the "no rendezvous configured" placeholder row. */
+    public static final String NONE_CONFIGURED = "nodera.rendezvous.none_configured";
+    /** Lang key for a registered endpoint. */
+    public static final String REGISTERED = "nodera.rendezvous.registered";
+    /** Lang key for an unregistered endpoint. */
+    public static final String UNREGISTERED = "nodera.rendezvous.unregistered";
+    /** Lang key for the open-reservation count ({@code %s} = count). */
+    public static final String RESERVATIONS = "nodera.rendezvous.reservations";
+    /** Lang key for the relayed-volume cell ({@code %s} = formatted size). */
+    public static final String RELAYED = "nodera.rendezvous.relayed";
+    /** Lang key prefix for {@link PathKind}; the enum name (lower case) completes it. */
+    public static final String PATH_PREFIX = "nodera.rendezvous.path.";
 
     /** How the transport last resolved a peer path. */
     public enum PathKind { DIRECT, PUNCHED, RELAYED, NONE }
@@ -54,7 +66,7 @@ public final class RendezvousStatusView {
     public static Panel panel(List<RendezvousEndpointStatus> endpoints) {
         List<Row> rows = new ArrayList<>();
         if (endpoints == null || endpoints.isEmpty()) {
-            rows.add(Row.of(Cell.of("No rendezvous configured", Semantic.SECONDARY)));
+            rows.add(Row.of(Cell.tr(NONE_CONFIGURED, Semantic.SECONDARY)));
             return Panel.titled(TITLE, Semantic.HEADING, rows);
         }
         for (RendezvousEndpointStatus e : endpoints) {
@@ -66,23 +78,20 @@ public final class RendezvousStatusView {
     static Row rowOf(RendezvousEndpointStatus e) {
         Semantic health = e.registered() ? Semantic.HEALTHY : Semantic.CRITICAL;
         List<Cell> cells = new ArrayList<>(4);
-        cells.add(Cell.bold(e.endpoint(), health));
-        cells.add(Cell.of(e.registered() ? "registered" : "unregistered", health));
-        cells.add(Cell.of(pathLabel(e.path()), pathSemantic(e.path())));
+        cells.add(Cell.boldRaw(e.endpoint(), health));
+        cells.add(Cell.tr(e.registered() ? REGISTERED : UNREGISTERED, health));
+        cells.add(Cell.tr(pathKey(e.path()), pathSemantic(e.path())));
         if (e.activeReservations() >= 0) {
-            cells.add(Cell.of(e.activeReservations() + " relays", Semantic.SECONDARY));
+            cells.add(Cell.tr(RESERVATIONS, Semantic.SECONDARY, e.activeReservations()));
         }
-        cells.add(Cell.of(formatBytes(e.bytesRelayed()) + " relayed", Semantic.SECONDARY));
+        cells.add(Cell.tr(RELAYED, Semantic.SECONDARY, formatBytes(e.bytesRelayed())));
         return new Row(cells);
     }
 
-    static String pathLabel(PathKind path) {
-        return switch (path) {
-            case DIRECT -> "direct";
-            case PUNCHED -> "hole-punched";
-            case RELAYED -> "relayed";
-            case NONE -> "—";
-        };
+    /** @return the lang key naming this path kind — the label itself lives in the lang file. */
+    public static String pathKey(PathKind path) {
+        PathKind kind = path == null ? PathKind.NONE : path;
+        return PATH_PREFIX + kind.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     static Semantic pathSemantic(PathKind path) {

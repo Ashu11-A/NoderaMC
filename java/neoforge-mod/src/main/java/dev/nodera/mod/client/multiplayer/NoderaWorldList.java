@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 
 import java.util.List;
 
@@ -20,6 +21,9 @@ import java.util.List;
 public final class NoderaWorldList extends ObjectSelectionList<NoderaWorldList.Row> {
 
     private static final int ROW_HEIGHT = 36;
+
+    /** Separator between the stat fragments of a row — punctuation, not a word. */
+    private static final Component SEP = Component.literal(" · ");
 
     private List<TorrentWorldEntry> entries = List.of();
     private String search = "";
@@ -94,9 +98,16 @@ public final class NoderaWorldList extends ObjectSelectionList<NoderaWorldList.R
             // Second line: population + storage + reliability.
             // Through the shared formatter: this row printed "-1 online" for every world nothing
             // had reported on, which is the sentinel for "unknown" rendered as a population.
-            String stats = entry.playersLabel()
-                    + (entry.storedChunks() > 0 ? " · " + entry.storedChunks() + " chunks" : "")
-                    + " · " + (entry.reliabilityBps() / 100) + "% reliable";
+            MutableComponent stats = Component.empty()
+                    .append(dev.nodera.mod.debug.render.ComponentRenderer.text(entry.playersCell()));
+            if (entry.storedChunks() > 0) {
+                stats.append(SEP).append(Component.translatable(
+                        TorrentWorldListView.KEY_CHUNKS,
+                        entry.storedChunks()));
+            }
+            stats.append(SEP).append(Component.translatable(
+                    TorrentWorldListView.KEY_RELIABILITY,
+                    (entry.reliabilityBps() / 100) + "%"));
             graphics.drawString(font, stats, left + 14, top + 18, 0x9C9CA8);
 
             // Right-aligned joinability / health badge.

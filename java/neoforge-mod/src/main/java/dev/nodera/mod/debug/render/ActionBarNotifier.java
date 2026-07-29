@@ -18,21 +18,28 @@ import net.minecraft.server.level.ServerPlayer;
  */
 public final class ActionBarNotifier {
 
+    /** Lang keys for the alert surface (MC-GUI-5). */
+    public static final String FOREIGN = "nodera.alert.foreign";
+    public static final String FOREIGN_UNASSIGNED = "nodera.alert.foreign.unassigned";
+    public static final String FOREIGN_OWNED = "nodera.alert.foreign.owned";
+    public static final String OWNED = "nodera.alert.owned";
+
     private ActionBarNotifier() {}
 
     /** Action-bar + chat: entering a foreign / unassigned zone (RED, bold). */
     public static void alertForeign(ServerPlayer player, String regionCoord, String owner) {
-        actionBar(player, Component.literal("⚠ Entering unmanaged zone (region " + regionCoord + ")")
+        actionBar(player, Component.translatable(FOREIGN, regionCoord)
                 .withStyle(ChatFormatting.RED, ChatFormatting.BOLD));
-        MutableComponent line = Component.literal("Region " + regionCoord
-                + (owner == null || owner.isEmpty() ? " is unassigned." : " is owned by " + owner + "."))
+        MutableComponent line = (owner == null || owner.isEmpty()
+                ? Component.translatable(FOREIGN_UNASSIGNED, regionCoord)
+                : Component.translatable(FOREIGN_OWNED, regionCoord, owner))
                 .withStyle(ChatFormatting.GRAY);
         player.sendSystemMessage(line);
     }
 
     /** Action-bar: re-entered an owned / validated zone (GREEN). */
     public static void alertOwned(ServerPlayer player, String regionCoord) {
-        actionBar(player, Component.literal("✔ Entered your zone (region " + regionCoord + ")")
+        actionBar(player, Component.translatable(OWNED, regionCoord)
                 .withStyle(ChatFormatting.GREEN));
     }
 

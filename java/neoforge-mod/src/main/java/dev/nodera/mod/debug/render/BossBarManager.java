@@ -33,6 +33,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class BossBarManager {
 
+    /** Lang keys for the four boss bars (MC-GUI-5: the HUD reads from the lang file). */
+    public static final String BAR_ZONE = "nodera.bossbar.zone";
+    public static final String BAR_HEALTH = "nodera.bossbar.health";
+    public static final String BAR_NET = "nodera.bossbar.net";
+    public static final String BAR_TPS = "nodera.bossbar.tps";
+    /** Lang keys for the live bar labels; each takes the measured value as its argument. */
+    public static final String ZONE = "nodera.bossbar.zone.value";
+    public static final String HEALTH = "nodera.bossbar.health.value";
+    public static final String NET = "nodera.bossbar.net.value";
+    public static final String TPS = "nodera.bossbar.tps.value";
+
     /** Fixed 100%-throughput reference for the net-bar progress (256 KiB/s). */
     private static final double MAX_NET_BYTES_PER_SEC = 256.0 * 1024.0;
 
@@ -107,13 +118,13 @@ public final class BossBarManager {
 
         PlayerBars(ServerPlayer player) {
             this.player = player;
-            zoneBar = new ServerBossEvent(Component.literal("Nodera zone"),
+            zoneBar = new ServerBossEvent(Component.translatable(BAR_ZONE),
                     BossBarColor.WHITE, BossBarOverlay.PROGRESS);
-            healthBar = new ServerBossEvent(Component.literal("Nodera health"),
+            healthBar = new ServerBossEvent(Component.translatable(BAR_HEALTH),
                     BossBarColor.GREEN, BossBarOverlay.PROGRESS);
-            netBar = new ServerBossEvent(Component.literal("Nodera net"),
+            netBar = new ServerBossEvent(Component.translatable(BAR_NET),
                     BossBarColor.PURPLE, BossBarOverlay.PROGRESS);
-            tpsBar = new ServerBossEvent(Component.literal("Nodera TPS"),
+            tpsBar = new ServerBossEvent(Component.translatable(BAR_TPS),
                     BossBarColor.BLUE, BossBarOverlay.PROGRESS);
             zoneBar.addPlayer(player);
             healthBar.addPlayer(player);
@@ -123,10 +134,9 @@ public final class BossBarManager {
         }
 
         void updateZone(OwnershipState state) {
-            String name = "Zone " + state.name();
-            String key = name + "|" + state + "|" + progressOf(state);
+            String key = state + "|" + progressOf(state);
             if (!key.equals(zoneKey)) {
-                zoneBar.setName(Component.literal(name));
+                zoneBar.setName(Component.translatable(ZONE, state.name()));
                 zoneBar.setColor(Palette.bossBar(state));
                 zoneBar.setProgress(progressOf(state));
                 zoneKey = key;
@@ -135,15 +145,14 @@ public final class BossBarManager {
 
         void updateHealth(TelemetrySnapshot snap) {
             Health h = snap.health().state();
-            String name = "Health " + h.name();
             float progress = switch (h) {
                 case HEALTHY -> 1.0f;
                 case DEGRADED -> 0.5f;
                 case CRITICAL -> 0.2f;
             };
-            String key = name + "|" + h + "|" + progress;
+            String key = h + "|" + progress;
             if (!key.equals(healthKey)) {
-                healthBar.setName(Component.literal(name));
+                healthBar.setName(Component.translatable(HEALTH, h.name()));
                 healthBar.setColor(Palette.bossBar(h));
                 healthBar.setProgress(progress);
                 healthKey = key;
@@ -154,12 +163,12 @@ public final class BossBarManager {
             double total = snap.net().bytesPerSecTx() + snap.net().bytesPerSecRx();
             // Linear normalisation against a fixed ceiling (the log1p form saturated at ~54 B/s).
             float progress = (float) Math.min(1.0, total / MAX_NET_BYTES_PER_SEC);
-            String name = "▲" + ViewBuilder.formatRate(snap.net().bytesPerSecTx())
-                    + " ▼" + ViewBuilder.formatRate(snap.net().bytesPerSecRx());
+            String tx = ViewBuilder.formatRate(snap.net().bytesPerSecTx());
+            String rx = ViewBuilder.formatRate(snap.net().bytesPerSecRx());
             int bucket = Math.round(progress * 40);
-            String key = name + "|" + bucket;
+            String key = tx + "|" + rx + "|" + bucket;
             if (!key.equals(netKey)) {
-                netBar.setName(Component.literal(name));
+                netBar.setName(Component.translatable(NET, tx, rx));
                 netBar.setColor(BossBarColor.PURPLE);
                 netBar.setProgress(progress);
                 netKey = key;
@@ -171,11 +180,11 @@ public final class BossBarManager {
             BossBarColor color = tps >= 18.0 ? BossBarColor.GREEN
                     : tps >= 10.0 ? BossBarColor.YELLOW : BossBarColor.RED;
             float progress = (float) Math.min(1.0, tps / 20.0);
-            String name = String.format(java.util.Locale.ROOT, "TPS %.1f", tps);
+            String value = String.format(java.util.Locale.ROOT, "%.1f", tps);
             int bucket = Math.round(progress * 40);
-            String key = name + "|" + color + "|" + bucket;
+            String key = value + "|" + color + "|" + bucket;
             if (!key.equals(tpsKey)) {
-                tpsBar.setName(Component.literal(name));
+                tpsBar.setName(Component.translatable(TPS, value));
                 tpsBar.setColor(color);
                 tpsBar.setProgress(progress);
                 tpsKey = key;

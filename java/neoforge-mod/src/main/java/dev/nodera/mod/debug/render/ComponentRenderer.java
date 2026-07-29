@@ -40,7 +40,7 @@ public final class ComponentRenderer {
     /** @return one panel as a titled multi-line {@link Component}. */
     public static MutableComponent renderPanel(Panel panel) {
         MutableComponent out = Component.empty();
-        out.append(heading(panel.title()));
+        out.append(heading(panel.titleKey()));
         for (Row row : panel.rows()) {
             out.append(Component.literal("\n")).append(renderRow(row));
         }
@@ -63,12 +63,21 @@ public final class ComponentRenderer {
     /** @return one cell as a coloured {@link Component} (bold when the cell is bold). */
     public static MutableComponent renderCell(Cell cell) {
         ChatFormatting fmt = Palette.chat(cell.semantic());
+        MutableComponent text = text(cell);
         return cell.bold()
-                ? Component.literal(cell.text()).withStyle(fmt, ChatFormatting.BOLD)
-                : Component.literal(cell.text()).withStyle(fmt);
+                ? text.withStyle(fmt, ChatFormatting.BOLD)
+                : text.withStyle(fmt);
     }
 
-    private static MutableComponent heading(String title) {
-        return Component.literal(title).withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD);
+    /**
+     * Resolve a {@link Cell}'s translation key + arguments — the single place the MC-free view
+     * models' keys become words (MC-GUI-5). Nothing upstream of here holds English.
+     */
+    public static MutableComponent text(Cell cell) {
+        return Component.translatable(cell.key(), cell.args().toArray());
+    }
+
+    private static MutableComponent heading(String titleKey) {
+        return Component.translatable(titleKey).withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD);
     }
 }

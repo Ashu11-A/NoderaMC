@@ -21,8 +21,12 @@ public final class PublicWorldBadgeView {
 
     /** Lang key for the badge shown on a shared world's row. */
     public static final String BADGE_PUBLIC = "nodera.worldlist.public";
-    /** Lang key for the screen-level summary ("N worlds shared"). */
-    public static final String SUMMARY_KEY = "nodera.worldlist.shared_summary";
+    /** Lang key for the badge with a known player count ({@code %s} = count). */
+    public static final String BADGE_ONLINE = "nodera.worldlist.public_online";
+    /** Lang key for the screen-level summary of one shared world. */
+    public static final String SUMMARY_ONE = "nodera.worldlist.shared_summary_one";
+    /** Lang key for the screen-level summary of several shared worlds ({@code %s} = count). */
+    public static final String SUMMARY_MANY = "nodera.worldlist.shared_summary_many";
 
     private PublicWorldBadgeView() {
     }
@@ -58,15 +62,18 @@ public final class PublicWorldBadgeView {
         if (status == null || !status.shared()) {
             return null;
         }
-        return Cell.of(badgeText(status.connectedPlayers()), Semantic.WORLD_HEALTHY);
+        return badgeCell(status.connectedPlayers());
     }
 
-    /** {@code "● 3 online"} for a known count; {@code "● Public"} when the count is unknown. */
-    public static String badgeText(long connectedPlayers) {
+    /**
+     * The badge cell for a connected-player count: {@link #BADGE_ONLINE} with the count, or
+     * {@link #BADGE_PUBLIC} while the count is still unknown. Key + argument, never a phrase.
+     */
+    public static Cell badgeCell(long connectedPlayers) {
         if (connectedPlayers < 0) {
-            return "● Public";
+            return Cell.tr(BADGE_PUBLIC, Semantic.WORLD_HEALTHY);
         }
-        return "● " + connectedPlayers + " online";
+        return Cell.tr(BADGE_ONLINE, Semantic.WORLD_HEALTHY, connectedPlayers);
     }
 
     /** @return how many of the given worlds are currently shared. */
@@ -78,15 +85,17 @@ public final class PublicWorldBadgeView {
     }
 
     /**
-     * A screen-level summary of shared worlds, or {@code null} when none are shared.
-     * {@code "1 world shared to Nodera"} / {@code "3 worlds shared to Nodera"}.
+     * A screen-level summary of shared worlds as a key + argument, or {@code null} when none are
+     * shared (nothing to annotate). Plural selection is a key choice, not string concatenation —
+     * a language whose plural rules differ from English can now express it.
      */
-    public static String summary(List<PublicWorldStatus> worlds) {
+    public static Cell summaryCell(List<PublicWorldStatus> worlds) {
         long shared = sharedCount(worlds);
         if (shared == 0) {
             return null;
         }
-        String noun = shared == 1 ? "world" : "worlds";
-        return shared + " " + noun + " shared to Nodera";
+        return shared == 1
+                ? Cell.tr(SUMMARY_ONE, Semantic.WORLD_HEALTHY)
+                : Cell.tr(SUMMARY_MANY, Semantic.WORLD_HEALTHY, shared);
     }
 }
