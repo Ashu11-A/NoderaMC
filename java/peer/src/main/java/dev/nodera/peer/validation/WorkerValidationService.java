@@ -213,6 +213,12 @@ public final class WorkerValidationService {
     private final Map<NodeId, PeerAddress> peers = new ConcurrentHashMap<>();
     private final Map<NodeId, Bytes> peerKeys = new ConcurrentHashMap<>();
     private final Map<NodeId, java.util.Set<Bytes>> actorKeys = new ConcurrentHashMap<>();
+    /**
+     * The neighbour edge state this node has been handed (engine L-2). Written by
+     * {@link #onHaloUpdate}, read by {@link #haloFor} when a region executes.
+     */
+    private final dev.nodera.simulation.border.HaloStore halos =
+            new dev.nodera.simulation.border.HaloStore();
     private final Map<StateRoot, ActionBatch> reservedBatches = new java.util.HashMap<>();
     private final Map<NodeId, Long> highestReservedPlayerSequence = new java.util.HashMap<>();
     private long highestReservedServerSequence = -1L;
@@ -444,6 +450,15 @@ public final class WorkerValidationService {
         }
         registerLease(lease);
         replicas.put(base.region(), new Replica(base, lease));
+        // Seed the border in both directions at activation, not only at the next commit: a region
+        // that never commits still has edge state its neighbours must read, and a neighbour that
+        // activated first has edge state this one must read (engine L-2).
+        publishHalo(base);
+        for (Replica other : replicas.values()) {
+            if (!other.snapshot.region().equals(base.region())) {
+                publishHalo(other.snapshot);
+            }
+        }
     }
 
     /** Resume durable transfer stages after leases, peer keys, and region snapshots are restored. */
@@ -564,6 +579,9 @@ public final class WorkerValidationService {
         if (replica != null) {
             replica.pipeline.revoke();
         }
+        // A revoked replica reads nothing across its border: keeping stale neighbour columns would
+        // let it re-activate later on a world that has moved on without it.
+        halos.forget(region);
     }
 
     /** Regions refused outright: no replica of these is activated again this session (L-60). */
@@ -812,6 +830,7 @@ public final class WorkerValidationService {
         } else if (message instanceof EntityTransferAccept a) { onTransferAccept(from, a);
         } else if (message instanceof EntityTransferCommit c) { worldExecutor.accept(() -> onTransferCommit(from, c));
         } else if (message instanceof ExternalDelta e) { worldExecutor.accept(() -> onExternalDelta(from, e));
+        } else if (message instanceof dev.nodera.protocol.simulationmsg.HaloUpdate h) { onHaloUpdate(h);
         } else if (message instanceof RegionRefusal r) { onRegionRefusal(from, r);
         } else { /* not a validation message */ }
     }
@@ -1103,7 +1122,8 @@ public final class WorkerValidationService {
         WorldMutationApplier.ApplyResult applied = applier.apply(ballot.delta());
         if (!applied.committed()) {
             throw new IllegalStateException("certified delta failed to apply for "
-                    + replica.snapshot.region() + " at " + applied.failedAt());
+                    + replica.snapshot.region() + " at " + applied.failedAt()
+                    + " (" + applied.failure() + ")");
         }
         SnapshotVersion next = replica.snapshot.version().next();
         RegionSnapshot committed = world.reExtract(replica.snapshot.region(), next, tick);
@@ -1118,6 +1138,8 @@ public final class WorkerValidationService {
         replica.headRoot = cert.resultingRoot();
         replica.snapshot = committed;
         notifyCommit(committed, cert.resultingRoot());
+        // The border is only worth republishing once the state behind it is final (engine L-2).
+        publishHalo(committed);
         replica.pipeline.committeeCommitted(next);
         recordCommittedSequences(batch);
         replica.pendingBallot = null;
@@ -2029,7 +2051,8 @@ public final class WorkerValidationService {
             ActionBatch batch = new ActionBatch(env.region(), replicaEpochOrInitial(env.region()),
                     base.version(), env.targetTick(), env.targetTick(), List.of(env));
             FallbackExecutor.FallbackResult result =
-                    executor.execute(new RegionExecutionRequest(contextFor(batch), base, batch));
+                    executor.execute(new RegionExecutionRequest(contextFor(batch), base, batch,
+                            halos.haloFor(base.region())));
             if (result.committed()) {
                 recordCommittedSequences(batch);
                 fallbackCommits.incrementAndGet();
@@ -2261,7 +2284,117 @@ public final class WorkerValidationService {
     }
 
     private RegionExecutionRequest requestFor(Replica replica, ActionBatch batch) {
-        return new RegionExecutionRequest(contextFor(batch), replica.snapshot, batch);
+        return new RegionExecutionRequest(
+                contextFor(batch), replica.snapshot, batch, haloFor(replica));
+    }
+
+    // ---- the halo exchange (engine L-2): a river no longer stops dead at a region boundary ----
+
+    /**
+     * Producer: hand this region's freshly committed EDGE COLUMNS to every neighbour that reads
+     * them — the committees this node knows, plus any neighbour replica it holds itself.
+     *
+     * <p>Called from the commit paths, which is the only moment the columns are both final and
+     * newly meaningful: {@code HaloUpdate} names the version it was cut at, so a receiver can tell
+     * a stale slice from a fresh one instead of silently executing on a different world.
+     */
+    private void publishHalo(RegionSnapshot committed) {
+        if (committed == null) {
+            return;
+        }
+        for (RegionId neighbour
+                : dev.nodera.simulation.border.HaloSlicer.neighboursOf(committed.region())) {
+            dev.nodera.simulation.border.RegionHalo.Slice slice =
+                    dev.nodera.simulation.border.HaloSlicer.sliceFor(committed, neighbour);
+            if (slice == null) {
+                continue;
+            }
+            // A neighbour replica on this same node takes the slice directly: identical bytes,
+            // no round trip, and it works on a solo host where there is no second peer at all.
+            if (replicas.containsKey(neighbour)) {
+                halos.accept(neighbour, slice);
+            }
+            RegionLease lease = knownLeases.get(neighbour);
+            if (lease == null) {
+                continue;
+            }
+            List<Bytes> encoded = new java.util.ArrayList<>(slice.columns().size());
+            for (dev.nodera.core.state.ChunkColumnState column : slice.columns()) {
+                CanonicalWriter w = new CanonicalWriter();
+                column.encode(w);
+                encoded.add(w.toBytes());
+            }
+            dev.nodera.protocol.simulationmsg.HaloUpdate update =
+                    new dev.nodera.protocol.simulationmsg.HaloUpdate(
+                            committed.region(), committed.version(), encoded);
+            for (NodeId member : committeeMembers(lease)) {
+                if (!member.equals(identity.nodeId())) {
+                    sendTo(member, update);
+                }
+            }
+        }
+    }
+
+    /**
+     * Consumer: take a neighbour's edge slice for every replica of ours whose halo it can cover.
+     *
+     * <p>The store drops anything older than what it already holds and {@code RegionHalo} drops
+     * any column outside the receiving region's ring, so a neighbour can neither rewind this
+     * node's border reads nor reach into its owned area.
+     */
+    void onHaloUpdate(dev.nodera.protocol.simulationmsg.HaloUpdate update) {
+        if (update == null) {
+            return;
+        }
+        List<dev.nodera.core.state.ChunkColumnState> columns =
+                new java.util.ArrayList<>(update.encodedEdgeColumns().size());
+        for (Bytes encoded : update.encodedEdgeColumns()) {
+            try {
+                columns.add(dev.nodera.core.state.ChunkColumnState.decode(
+                        new CanonicalReader(encoded.toArray())));
+            } catch (RuntimeException e) {
+                LOG.warn("halo update from {} carried an undecodable column — dropped",
+                        update.region());
+                return;
+            }
+        }
+        if (columns.isEmpty()) {
+            return;
+        }
+        dev.nodera.simulation.border.RegionHalo.Slice slice =
+                new dev.nodera.simulation.border.RegionHalo.Slice(
+                        update.region(), update.version(), columns);
+        for (RegionId neighbour
+                : dev.nodera.simulation.border.HaloSlicer.neighboursOf(update.region())) {
+            if (replicas.containsKey(neighbour)) {
+                halos.accept(neighbour, slice);
+            }
+        }
+    }
+
+    /**
+     * The halo one replica executes against.
+     *
+     * <p><b>Why this is gated.</b> The halo is execution INPUT, so every member of a committee
+     * must hold the IDENTICAL one or they diverge without either being wrong — and nothing pins it
+     * yet: {@code HaloUpdate} carries no committee attestation, and a proposal does not name the
+     * slice versions it was executed against, so a validator that received one more slice than the
+     * primary would compute a different root and cost the region its round. A committee of one has
+     * no second party to disagree with, so the halo is applied there (the solo-host case, and the
+     * one the L-2 exit test exercises); a larger committee keeps the empty halo until the slice is
+     * a signed consensus input. Retiring L-2 is exactly that pinning.
+     */
+    private dev.nodera.simulation.border.RegionHalo haloFor(Replica replica) {
+        RegionId region = replica.snapshot.region();
+        if (committeeMembers(replica.lease).size() != 1) {
+            return new dev.nodera.simulation.border.RegionHalo(region);
+        }
+        return halos.haloFor(region);
+    }
+
+    /** @return the halo currently held for a region (empty when no neighbour has delivered). */
+    public dev.nodera.simulation.border.RegionHalo halo(RegionId region) {
+        return halos.haloFor(region);
     }
 
     private RegionExecutionContext contextFor(ActionBatch batch) {
