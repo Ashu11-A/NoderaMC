@@ -1,5 +1,6 @@
 package dev.nodera.mod.server.entity;
 
+import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.EntityKind;
 import dev.nodera.core.state.InventoryCredit;
@@ -13,6 +14,7 @@ import dev.nodera.coordinator.MutableWorldView;
 import dev.nodera.mod.common.entity.NetworkEntityIdAttachment;
 import dev.nodera.peer.validation.InventoryCreditPersistence;
 import dev.nodera.simulation.entity.ItemEntityRules;
+import dev.nodera.simulation.entity.PlayerRootRegistration;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -38,6 +40,8 @@ public final class ServerEntityWorldView implements MutableWorldView {
     private final Map<RegionId, ServerLevel> levels = new HashMap<>();
     private final Map<ProjectionKey, UUID> vanillaEntities = new HashMap<>();
     private final Map<String, InventoryCredit> pendingCredits = new LinkedHashMap<>();
+    /** L-11: committed root inventory gains still owed to a real vanilla inventory. */
+    private final List<PendingGain> pendingGains = new ArrayList<>();
     private final InventoryCreditPersistence creditPersistence;
     private List<Runnable> stagedEffects;
     /**
@@ -183,10 +187,75 @@ public final class ServerEntityWorldView implements MutableWorldView {
     @Override
     public void setEntity(RegionId region, PersistedEntityState entity) {
         requireScope();
+        PersistedEntityState previous = canonical.getEntity(region, entity.id());
         canonical.setEntity(region, entity);
         if (entity.kind() == EntityKind.ITEM) {
             stagedEffects.add(() -> projectItem(region, entity));
+            return;
         }
+        if (entity.kind() == EntityKind.PLAYER) {
+            // L-11's other direction. Once a PLAYER root exists the engine stops emitting the
+            // one-way InventoryCredit for a pickup and puts the stack in the validated root
+            // instead — so unless the root's gains are projected back, a picked-up item is
+            // committed correctly and never reaches the player's hands.
+            //
+            // Registration comes in through captureExternal, not here, so `previous` is non-null
+            // for every ENGINE-committed change and the seed is never mistaken for a gain.
+            List<PlayerRootRegistration.Gain> gains = PlayerRootRegistration.gains(
+                    previous != null && previous.kind() == EntityKind.PLAYER
+                            ? previous.payload() : null,
+                    entity.payload());
+            if (!gains.isEmpty()) {
+                NodeId owner = dev.nodera.simulation.entity.PlayerRules
+                        .decode(entity.payload()).owner();
+                stagedEffects.add(() -> projectPlayerGains(region, owner, gains));
+            }
+        }
+    }
+
+    /**
+     * Hand the validated root's gains to the real player. Anything undeliverable right now — the
+     * player logged out between commit and projection, or their vanilla inventory is full — is
+     * queued on the same retry pump as an {@code InventoryCredit} rather than dropped, because the
+     * gain has already been removed from the world as an item entity: forgetting it here is the
+     * exact "picked-up items disappear" regression a naive registration causes.
+     */
+    private void projectPlayerGains(
+            RegionId region, NodeId owner, List<PlayerRootRegistration.Gain> gains) {
+        ServerLevel level = levels.get(region);
+        if (level == null) {
+            pendingGains.add(new PendingGain(owner, gains));
+            return;
+        }
+        deliverGains(level.getServer(), new PendingGain(owner, gains));
+    }
+
+    /** @return true when every gain reached the player's real inventory. */
+    private boolean deliverGains(MinecraftServer server, PendingGain pending) {
+        ServerPlayer player = server.getPlayerList().getPlayer(pending.owner().value());
+        if (player == null) {
+            pendingGains.add(pending);
+            return false;
+        }
+        List<PlayerRootRegistration.Gain> undelivered = new ArrayList<>();
+        for (PlayerRootRegistration.Gain gain : pending.gains()) {
+            ItemStack stack = new ItemStack(
+                    BuiltInRegistries.ITEM.byId(gain.itemStackId()), gain.count());
+            EntityCaptureBridge.get().materialize(() -> player.getInventory().add(stack));
+            if (!stack.isEmpty()) {
+                undelivered.add(new PlayerRootRegistration.Gain(
+                        gain.itemStackId(), stack.getCount()));
+            }
+        }
+        if (!undelivered.isEmpty()) {
+            pendingGains.add(new PendingGain(pending.owner(), List.copyOf(undelivered)));
+            return false;
+        }
+        return true;
+    }
+
+    /** One committed root gain still owed to a real vanilla inventory. */
+    private record PendingGain(NodeId owner, List<PlayerRootRegistration.Gain> gains) {
     }
 
     @Override
@@ -217,6 +286,14 @@ public final class ServerEntityWorldView implements MutableWorldView {
             if (deliver(server, credit)) {
                 pendingCredits.remove(creditKey(credit));
             }
+        }
+        // L-11: the root-inventory half of the same pump. A player who logged out between the
+        // commit and the projection, or whose inventory was full, still gets what the committee
+        // says is theirs.
+        List<PendingGain> owed = List.copyOf(pendingGains);
+        pendingGains.clear();
+        for (PendingGain pending : owed) {
+            deliverGains(server, pending);
         }
     }
 
