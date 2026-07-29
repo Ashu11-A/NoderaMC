@@ -192,7 +192,7 @@ fn write_worker_properties_to(path: &std::path::Path, settings: &Settings) -> Re
     let temp = path.with_extension("properties.tmp");
     std::fs::write(&temp, worker_properties_body(settings))
         .map_err(|e| format!("could not write worker properties: {e}"))?;
-    std::fs::rename(&temp, &path).map_err(|e| format!("could not install worker properties: {e}"))
+    std::fs::rename(&temp, path).map_err(|e| format!("could not install worker properties: {e}"))
 }
 
 #[cfg(any(target_os = "android", test))]

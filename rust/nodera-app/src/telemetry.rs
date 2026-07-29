@@ -44,6 +44,9 @@ impl Consent {
         }
     }
 
+    // The inverse of the parser above, kept as a pair: a one-way mapping is how the two ends of
+    // a consent token drift apart.
+    #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
             Consent::Unanswered => "unanswered",
