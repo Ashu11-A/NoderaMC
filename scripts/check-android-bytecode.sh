@@ -32,7 +32,14 @@ say()  { printf '\033[1;36m[bytecode]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[bytecode] FAIL\033[0m %s\n' "$*" >&2; exit 1; }
 
 [[ -x "$TOOLS/d8" ]] || fail "build-tools 35 is missing — run scripts/android-toolchain.sh"
-[[ -d "$DIST/lib" ]] || { say "building the worker…"; ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist -q ); }
+# Always rebuild. Gradle is incremental, so this costs nothing when nothing moved — and reusing a
+# stale distribution is how a guard reports yesterday's answer about today's sources.
+if [[ "${NODERA_SKIP_BUILD:-0}" == "1" ]]; then
+    [[ -d "$DIST/lib" ]] || fail "NODERA_SKIP_BUILD=1 but there is no distribution at $DIST"
+else
+    say "building the worker…"
+    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist -q )
+fi
 
 STAGE="$(mktemp -d -t nodera-bytecode-XXXXXX)"
 trap 'rm -rf "$STAGE"' EXIT

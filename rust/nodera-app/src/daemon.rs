@@ -48,12 +48,38 @@ pub struct WorkerOwnership {
 }
 
 /// Report who owns the worker process.
+///
+/// **Never on mobile.** [`supervise`] — the only consumer of [`RestartSignal`] — is `#[cfg(desktop)]`,
+/// and on Android the worker is a thread in this very process rather than a child of it. A process
+/// that cannot outlive us cannot be cycled by us, so notifying the signal there wakes nobody and the
+/// button that sent it is a silent lie. Offering nothing is the honest answer, and the UI already
+/// gates the Restart button on this flag (M-NET-3).
 pub fn ownership() -> WorkerOwnership {
     let attached = attach_mode();
     WorkerOwnership {
         attached,
-        can_restart: !attached,
+        can_restart: !attached && cfg!(desktop),
     }
+}
+
+/// Why a restart cannot be offered on this platform, or [`None`] when it can be.
+///
+/// Separate from [`ownership`] so the command can *say* it rather than fail silently: a user who
+/// reaches the verb through an older frontend bundle gets a sentence, not a no-op.
+pub fn restart_unavailable() -> Option<&'static str> {
+    if attach_mode() {
+        return Some(
+            "this worker was started outside the app, so the app will not stop it — restart it \
+             where you started it",
+        );
+    }
+    if !cfg!(desktop) {
+        return Some(
+            "the worker runs inside this app on Android, so it cannot be restarted on its own — \
+             close and reopen the app to apply these settings",
+        );
+    }
+    None
 }
 
 /// Signal that asks the supervisor to cycle the worker.
@@ -500,6 +526,31 @@ mod tests {
         // `attach_mode` reads the process environment, so assert the invariant rather than mutate
         // it: a test that sets NODERA_APP_ATTACH would race every other test in the binary.
         let owned = ownership();
-        assert_eq!(owned.can_restart, !owned.attached);
+        assert_eq!(owned.can_restart, !owned.attached && cfg!(desktop));
+    }
+
+    /// M-NET-3. The Restart button was offered on Android and did nothing: the signal it notifies
+    /// is consumed only by `supervise`, which is `#[cfg(desktop)]`. Both the flag the UI gates on
+    /// and the verb itself now answer for the platform they are compiled for.
+    #[test]
+    fn restart_is_never_offered_where_nothing_consumes_the_signal() {
+        if cfg!(desktop) {
+            // Desktop, not attached (the test binary sets no NODERA_APP_ATTACH): a restart works.
+            if !attach_mode() {
+                assert!(ownership().can_restart);
+                assert!(restart_unavailable().is_none());
+            }
+        } else {
+            assert!(!ownership().can_restart);
+            let why = restart_unavailable().expect("mobile must refuse with a reason");
+            assert!(why.contains("Android"), "the refusal must say why: {why}");
+        }
+    }
+
+    #[test]
+    fn every_refusal_names_a_thing_the_user_can_actually_do() {
+        if let Some(why) = restart_unavailable() {
+            assert!(why.contains("restart it where you started it") || why.contains("reopen"));
+        }
     }
 }
