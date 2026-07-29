@@ -1397,7 +1397,9 @@ public final class WorldArchiveService implements AutoCloseable {
 
     @Override
     public void close() {
-        scheduler.shutdownNow();
+        // Waits: a transfer window in flight is reading and writing the content store, which the
+        // caller may delete as soon as this returns.
+        Shutdown.stopAndWait(scheduler);
         if (ownsTracker) {
             tracker.close();
         }

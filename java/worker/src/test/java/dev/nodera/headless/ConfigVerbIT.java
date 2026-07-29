@@ -460,6 +460,48 @@ final class ConfigVerbIT {
         assertTrue(archive.content().transfersPaused());
     }
 
+    /**
+     * M-NET-1. A tracker store added in the companion app has to reach the worker that is
+     * <i>already running</i>.
+     *
+     * <p>The mobile limitation read "the synchronised services list is read once, at worker boot"
+     * — true of {@code SyncedServices.load}, which is the boot seed, and irrelevant to how a store
+     * actually takes effect. The app merges every store's trackers into
+     * {@code network.default_trackers} and pushes them over {@code NODERA-CONFIG}
+     * ({@code config.rs::a_stores_trackers_are_pushed_to_a_running_worker}); this is the other half
+     * — that the running worker changes which trackers it dials when it arrives. One shared
+     * {@link TrackerClient} is what makes that reach every lane at once.
+     *
+     * <p>Nothing here is desktop-specific: on Android the same push crosses the same control
+     * endpoint into a worker living in the app's own process.
+     */
+    @Test
+    void aStoresTrackersChangeWhichTrackerARunningWorkerDials() throws Exception {
+        worker();
+        assertTrue(tracker.endpoints().isEmpty(), "the worker starts with no tracker configured");
+
+        String reply = config("{\"network.default_trackers\":"
+                + "[\"tcp://store-one.example:25600\",\"tcp://store-two.example:25601\"]}");
+        assertNotNull(reply);
+        assertFalse(reply.startsWith(ControlProtocol.ERR), reply);
+        assertFalse(reply.contains("unknown setting"), reply);
+        assertTrue(reply.contains("\"rejected\":{}"), reply);
+        assertTrue(reply.contains("\"applied\":[\"network.default_trackers\"]"), reply);
+
+        List<String> dialled = tracker.endpoints().stream()
+                .map(e -> e.host() + ":" + e.port())
+                .toList();
+        assertEquals(List.of("store-one.example:25600", "store-two.example:25601"), dialled,
+                "the store's trackers must be live, not queued behind a restart");
+
+        // And a later store REPLACES the list rather than appending to it — otherwise removing a
+        // store in the app would leave the worker dialling it forever.
+        assertFalse(config("{\"network.default_trackers\":[\"tcp://store-three.example:25602\"]}")
+                .startsWith(ControlProtocol.ERR));
+        assertEquals(List.of("store-three.example:25602"), tracker.endpoints().stream()
+                .map(e -> e.host() + ":" + e.port()).toList());
+    }
+
     // --- helpers ---------------------------------------------------------------------------------
 
     private String config(String json) throws Exception {

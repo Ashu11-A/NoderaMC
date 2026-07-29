@@ -288,9 +288,17 @@ export function SettingsScreen(props: {
                 {restarting ? "Restarting…" : "Restart worker"}
               </button>
             ) : (
-              // Attach mode: the worker belongs to whoever started it (scripts/dev.sh, an
-              // operator). Offering a button that kills someone else's process would be wrong.
-              <span className="text-xs opacity-80">Restart it where you started it.</span>
+              // Two reasons the button is absent, and they need different sentences:
+              //   * attached — the worker belongs to whoever started it (scripts/dev.sh, an
+              //     operator), and offering to kill someone else's process would be wrong;
+              //   * mobile — the worker is a thread in this app, so it cannot be cycled without
+              //     the app. Telling a phone user to "restart it where you started it" told them
+              //     nothing (M-NET-3).
+              <span className="text-xs opacity-80">
+                {ownership?.attached
+                  ? "Restart it where you started it."
+                  : "Close and reopen the app to apply these."}
+              </span>
             )}
           </div>
         )}

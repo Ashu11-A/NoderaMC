@@ -63,9 +63,9 @@ final class TrafficDirectionSplitTest {
 
         // And the surface keeps them apart: ▲ reads TX, ▼ reads RX.
         Panel panel = ViewBuilder.netPanel(snapshot, null);
-        assertThat(rateOf(panel, "\u25b2 tx"))
+        assertThat(rateOf(panel, ViewBuilder.VAL_TX))
                 .as("the two directions never render the same figure")
-                .isNotEqualTo(rateOf(panel, "\u25bc rx"));
+                .isNotEqualTo(rateOf(panel, ViewBuilder.VAL_RX));
     }
 
     @Test
@@ -85,11 +85,11 @@ final class TrafficDirectionSplitTest {
         assertThat(net.bytesPerSecTx()).isGreaterThan(net.bytesPerSecRx() * 100);
     }
 
-    private static String rateOf(Panel panel, String row) {
+    private static Object rateOf(Panel panel, String rowKey) {
         return panel.rows().stream()
-                .filter(r -> r.cells().get(0).text().equals(row))
+                .filter(r -> r.cells().get(0).key().equals(rowKey))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("no '" + row + "' row"))
-                .cells().get(2).text();
+                .orElseThrow(() -> new AssertionError("no '" + rowKey + "' row"))
+                .cells().get(2).args().get(0);
     }
 }

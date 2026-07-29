@@ -57,9 +57,10 @@ final class PieceMapViewTest {
         PieceMap map = PieceMapView.map("New World",
                 List.of(PieceState.HELD, PieceState.HELD, PieceState.MISSING, PieceState.MISSING,
                         PieceState.MISSING), 4, 9);
-        // 2/5 = 400 permille → "40.0%"
-        assertEquals("New World · 40.0% held · 2/5 pieces · 4 seeders · 9 peers sharing",
-                PieceMapView.aggregates(map));
+        // 2/5 = 400 permille → "40.0"; the sentence itself lives in the lang file (MC-GUI-5).
+        Cell line = PieceMapView.aggregates(map);
+        assertEquals(PieceMapView.AGGREGATES, line.key());
+        assertEquals(List.of("New World", "40.0", 2L, 5, 4, 9), line.args());
     }
 
     @Test

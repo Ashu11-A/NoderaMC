@@ -13,6 +13,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Task 26 acceptance #1 (Minecraft-free): tracker data → correct rows, counts, health colour
  * semantics; search filters by name; ordering is deterministic regardless of input order.
+ *
+ * <p>MC-GUI-5: rows carry translation keys + arguments, so the assertions below name keys and
+ * argument lists — never rendered English, which this view model no longer produces.
  */
 final class TorrentWorldListViewTest {
 
@@ -20,24 +23,31 @@ final class TorrentWorldListViewTest {
         return new TorrentWorldEntry(name, 3, 4096, 9750, health, -1, "");
     }
 
+    /** The first argument of a cell — for RAW cells, the data itself. */
+    private static Object arg0(Cell cell) {
+        return cell.args().isEmpty() ? null : cell.args().get(0);
+    }
+
     @Test
     void rowCarriesCountsReliabilityAndHealthCells() {
         Panel panel = TorrentWorldListView.panel(
                 List.of(new TorrentWorldEntry("SkyBlock", 7, 12_345, 9750, WorldHealth.HEALTHY, -1, "")), "");
-        assertThat(panel.title()).isEqualTo(TorrentWorldListView.PANEL_TITLE);
+        assertThat(panel.titleKey()).isEqualTo(TorrentWorldListView.PANEL_TITLE);
         assertThat(panel.rows()).hasSize(1);
         List<Cell> cells = panel.rows().get(0).cells();
-        assertThat(cells.get(0).text()).isEqualTo("SkyBlock");
+        assertThat(cells.get(0).key()).isEqualTo(Cell.RAW);
+        assertThat(arg0(cells.get(0))).isEqualTo("SkyBlock");
         assertThat(cells.get(0).bold()).isTrue();
-        assertThat(cells.get(1).text()).isEqualTo("7 online");
 
-        // "7 online", not "7 players", because this cell and the second line of the in-game world
-        // row are the same fact and used to word it two different ways — which is how one of them
-        // ended up printing the unknown sentinel as "-1 online" while the other guarded against it.
-        // Both go through TorrentWorldListView.playersLabel now.
-        assertThat(cells.get(2).text()).isEqualTo("12345 chunks");
-        assertThat(cells.get(3).text()).isEqualTo("97.5%");
-        assertThat(cells.get(4).text()).isEqualTo("HEALTHY");
+        // Population, storage, reliability and health are keys the lang file words — the counts
+        // ride along as arguments, so a translator can reorder or re-pluralise them.
+        assertThat(cells.get(1).key()).isEqualTo(TorrentWorldListView.KEY_PLAYERS);
+        assertThat(cells.get(1).args()).containsExactly(7L);
+        assertThat(cells.get(2).key()).isEqualTo(TorrentWorldListView.KEY_CHUNKS);
+        assertThat(cells.get(2).args()).containsExactly(12_345L);
+        assertThat(cells.get(3).key()).isEqualTo(TorrentWorldListView.KEY_RELIABILITY);
+        assertThat(cells.get(3).args()).containsExactly("97.5%");
+        assertThat(cells.get(4).key()).isEqualTo("nodera.world.health.healthy");
         assertThat(cells).hasSize(5); // no countdown cell when none is running
     }
 
@@ -60,12 +70,13 @@ final class TorrentWorldListViewTest {
         Panel counting = TorrentWorldListView.panel(List.of(
                 new TorrentWorldEntry("Fading", 0, 10, 5000, WorldHealth.DEGRADED, 86_340, "")), "");
         List<Cell> cells = counting.rows().get(0).cells();
-        assertThat(cells.get(5).text()).isEqualTo("drops in 23h59m");
+        assertThat(cells.get(5).key()).isEqualTo(TorrentWorldListView.KEY_COUNTDOWN);
+        assertThat(cells.get(5).args()).containsExactly("23h59m");
         assertThat(cells.get(5).semantic()).isEqualTo(Semantic.WORLD_DEGRADED);
 
         Panel subMinute = TorrentWorldListView.panel(List.of(
                 new TorrentWorldEntry("Fading", 0, 10, 5000, WorldHealth.DEGRADED, 30, "")), "");
-        assertThat(subMinute.rows().get(0).cells().get(5).text()).isEqualTo("drops in <1m");
+        assertThat(subMinute.rows().get(0).cells().get(5).args()).containsExactly("<1m");
     }
 
     @Test
@@ -73,13 +84,16 @@ final class TorrentWorldListViewTest {
         Panel panel = TorrentWorldListView.panel(List.of(
                 new TorrentWorldEntry("MyWorld", 2, 100, 9750, WorldHealth.HEALTHY, -1, "Steve")), "");
         List<Cell> cells = panel.rows().get(0).cells();
-        assertThat(cells.get(0).text()).isEqualTo("MyWorld");
-        assertThat(cells.get(1).text()).isEqualTo("by Steve"); // owner cell inserted right after name
-        assertThat(cells.get(2).text()).isEqualTo("2 online");
+        assertThat(arg0(cells.get(0))).isEqualTo("MyWorld");
+        // owner cell inserted right after the name, as a key carrying the host name
+        assertThat(cells.get(1).key()).isEqualTo(TorrentWorldListView.KEY_BY_HOST);
+        assertThat(cells.get(1).args()).containsExactly("Steve");
+        assertThat(cells.get(2).key()).isEqualTo(TorrentWorldListView.KEY_PLAYERS);
         // A blank host inserts no owner cell (indices stay as the other tests assume).
         Panel noHost = TorrentWorldListView.panel(List.of(
                 new TorrentWorldEntry("MyWorld", 2, 100, 9750, WorldHealth.HEALTHY, -1, "")), "");
-        assertThat(noHost.rows().get(0).cells().get(1).text()).isEqualTo("2 online");
+        assertThat(noHost.rows().get(0).cells().get(1).key())
+                .isEqualTo(TorrentWorldListView.KEY_PLAYERS);
     }
 
     @Test
@@ -93,13 +107,15 @@ final class TorrentWorldListViewTest {
                 new TorrentWorldEntry("Unknown", -1, 4, 10_000, WorldHealth.HEALTHY, -1, "");
 
         assertThat(unknown.playersKnown()).isFalse();
-        assertThat(unknown.playersLabel()).isEqualTo("players unknown");
+        assertThat(unknown.playersCell().key()).isEqualTo(TorrentWorldListView.KEY_PLAYERS_UNKNOWN);
+        // The unknown sentinel never becomes a count argument on any cell of the row.
         assertThat(TorrentWorldListView.panel(List.of(unknown), "").rows().get(0).cells())
-                .extracting(Cell::text)
-                .doesNotContain("-1 online", "-1 players");
+                .noneMatch(c -> c.args().contains(-1L) || c.args().contains(-1));
 
         // A node in the world reporting an empty world is a different, real answer.
-        assertThat(TorrentWorldListView.playersLabel(0)).isEqualTo("0 online");
+        Cell empty = TorrentWorldListView.playersCell(0, Semantic.NEUTRAL);
+        assertThat(empty.key()).isEqualTo(TorrentWorldListView.KEY_PLAYERS);
+        assertThat(empty.args()).containsExactly(0L);
     }
 
     @Test
@@ -109,7 +125,7 @@ final class TorrentWorldListViewTest {
                 world("Creative Plots", WorldHealth.HEALTHY),
                 world("skywars", WorldHealth.HEALTHY));
         Panel filtered = TorrentWorldListView.panel(worlds, "SKY");
-        assertThat(filtered.rows()).extracting(r -> r.cells().get(0).text())
+        assertThat(filtered.rows()).extracting(r -> arg0(r.cells().get(0)))
                 .containsExactly("SkyBlock", "skywars");
         assertThat(TorrentWorldListView.panel(worlds, "  ").rows()).hasSize(3); // blank = all
         assertThat(TorrentWorldListView.panel(worlds, "nether").rows()).isEmpty();
@@ -126,7 +142,7 @@ final class TorrentWorldListViewTest {
         assertThat(TorrentWorldListView.panel(forward, ""))
                 .isEqualTo(TorrentWorldListView.panel(reversed, ""));
         assertThat(TorrentWorldListView.panel(forward, "").rows())
-                .extracting(r -> r.cells().get(0).text())
+                .extracting(r -> arg0(r.cells().get(0)))
                 .containsExactly("alpha", "Bravo", "charlie");
     }
 

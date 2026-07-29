@@ -236,7 +236,9 @@ public final class WorkerTelemetryService implements AutoCloseable {
     @Override
     public synchronized void close() {
         if (scheduler != null) {
-            scheduler.shutdownNow();
+            // Waits before the final persist below: a tick that is still running is persisting the
+            // same spool, and two writers to one file is how a window is lost or truncated.
+            Shutdown.stopAndWait(scheduler);
             scheduler = null;
         }
         try {

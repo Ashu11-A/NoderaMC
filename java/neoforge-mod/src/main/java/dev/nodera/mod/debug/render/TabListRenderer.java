@@ -20,7 +20,24 @@ import net.minecraft.network.protocol.game.ClientboundTabListPacket;
  */
 public final class TabListRenderer {
 
+    /** Lang keys for the tab-list segments (MC-GUI-5: the HUD reads from the lang file). */
+    public static final String TITLE = "nodera.hud.title";
+    public static final String EPOCH = "nodera.hud.epoch";
+    public static final String GATEWAY = "nodera.hud.gateway";
+    public static final String GATEWAY_SELF = "nodera.hud.gateway.you";
+    public static final String PEERS = "nodera.hud.peers";
+    public static final String RATE_TX = "nodera.hud.rate.tx";
+    public static final String RATE_RX = "nodera.hud.rate.rx";
+    public static final String REGIONS = "nodera.hud.regions";
+    public static final String OWNED = "nodera.hud.owned";
+    public static final String VALIDATING = "nodera.hud.validating";
+    public static final String HEALTH = "nodera.hud.health";
+
     private TabListRenderer() {}
+
+    /** Punctuation between segments — a separator, not a word. */
+    private static final Component SEP =
+            Component.literal(" · ").withStyle(ChatFormatting.DARK_GRAY);
 
     /** @return the packet for {@code snapshot}; never null. */
     public static ClientboundTabListPacket render(TelemetrySnapshot s) {
@@ -29,27 +46,38 @@ public final class TabListRenderer {
 
     private static MutableComponent header(TelemetrySnapshot s) {
         MutableComponent h = Component.empty();
-        h.append(Component.literal("NoderaMC").withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD));
-        h.append(Component.literal(" · epoch ").withStyle(ChatFormatting.DARK_GRAY));
-        h.append(Component.literal(String.valueOf(s.session().epoch())).withStyle(ChatFormatting.WHITE));
-        h.append(Component.literal(" · gateway ").withStyle(ChatFormatting.DARK_GRAY));
-        String gw = s.session().selfGateway() ? "YOU" : ViewBuilder.shortId(s.session().gatewayId());
-        h.append(Component.literal(gw).withStyle(Palette.chat(Semantic.GATEWAY)));
-        h.append(Component.literal(" · " + s.session().memberCount() + " peers").withStyle(ChatFormatting.DARK_GRAY));
+        h.append(Component.translatable(TITLE).withStyle(ChatFormatting.WHITE, ChatFormatting.BOLD));
+        h.append(SEP);
+        h.append(Component.translatable(EPOCH, s.session().epoch()).withStyle(ChatFormatting.WHITE));
+        h.append(SEP);
+        Component gw = s.session().selfGateway()
+                ? Component.translatable(GATEWAY_SELF)
+                : Component.literal(ViewBuilder.shortId(s.session().gatewayId()));
+        h.append(Component.translatable(GATEWAY, gw).withStyle(Palette.chat(Semantic.GATEWAY)));
+        h.append(SEP);
+        h.append(Component.translatable(PEERS, s.session().memberCount())
+                .withStyle(ChatFormatting.DARK_GRAY));
         return h;
     }
 
     private static MutableComponent footer(TelemetrySnapshot s) {
         MutableComponent f = Component.empty();
-        f.append(Component.literal("▲ " + ViewBuilder.formatRate(s.net().bytesPerSecTx())).withStyle(Palette.chat(Semantic.TX)));
-        f.append(Component.literal(" · ").withStyle(ChatFormatting.DARK_GRAY));
-        f.append(Component.literal("▼ " + ViewBuilder.formatRate(s.net().bytesPerSecRx())).withStyle(Palette.chat(Semantic.RX)));
-        f.append(Component.literal(" · regions: ").withStyle(ChatFormatting.DARK_GRAY));
-        f.append(Component.literal(s.regions().primary().size() + " owned")
+        f.append(Component.translatable(RATE_TX, ViewBuilder.formatRate(s.net().bytesPerSecTx()))
+                .withStyle(Palette.chat(Semantic.TX)));
+        f.append(SEP);
+        f.append(Component.translatable(RATE_RX, ViewBuilder.formatRate(s.net().bytesPerSecRx()))
+                .withStyle(Palette.chat(Semantic.RX)));
+        f.append(SEP);
+        f.append(Component.translatable(REGIONS).withStyle(ChatFormatting.DARK_GRAY));
+        f.append(Component.literal(" "));
+        f.append(Component.translatable(OWNED, s.regions().primary().size())
                 .withStyle(Palette.chat(Semantic.OWNED)));
-        f.append(Component.literal(" / " + s.regions().validator().size() + " val")
+        f.append(Component.literal(" "));
+        f.append(Component.translatable(VALIDATING, s.regions().validator().size())
                 .withStyle(Palette.chat(Semantic.VALIDATING)));
-        f.append(Component.literal(" · health ").withStyle(ChatFormatting.DARK_GRAY));
+        f.append(SEP);
+        f.append(Component.translatable(HEALTH).withStyle(ChatFormatting.DARK_GRAY));
+        f.append(Component.literal(" "));
         f.append(Component.literal(s.health().state().name())
                 .withStyle(Palette.chat(ViewBuilder.healthSemantic(s.health().state()))));
         return f;

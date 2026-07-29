@@ -83,10 +83,14 @@ public final class PanelLayout {
      * @param cellGap    the horizontal gap between two cells on the same line.
      * @param scroll     the current scroll offset in pixels (clamped into range).
      * @param measure    text → width in pixels (the font, or a stub).
+     * @param resolve    cell → display text. Since MC-GUI-5 a {@link Cell} carries a translation
+     *                   key and arguments rather than assembled English, so the caller that owns a
+     *                   lang file resolves it; this class stays Minecraft-free and measurable.
      * @return the placements plus the scroll extent.
      */
     public static Laid lay(String title, Panel panel, int width, int height, int rowHeight,
-                           int cellGap, int scroll, ToIntFunction<String> measure) {
+                           int cellGap, int scroll, ToIntFunction<String> measure,
+                           java.util.function.Function<Cell, String> resolve) {
         List<Placed> out = new ArrayList<>();
         int line = 0;
         if (title != null && !title.isBlank()) {
@@ -98,7 +102,7 @@ public final class PanelLayout {
             int x = 0;
             boolean firstOnLine = true;
             for (Cell cell : row.cells()) {
-                String fitted = fit(cell.text(), width, measure);
+                String fitted = fit(resolve.apply(cell), width, measure);
                 int w = measure.applyAsInt(fitted);
                 if (!firstOnLine && x + w > width) {
                     // Wrap rather than overflow: a status row is several short cells, and losing

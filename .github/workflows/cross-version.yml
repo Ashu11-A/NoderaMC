@@ -8,10 +8,15 @@
 #     different rule set, negotiating with the current build and then exchanging discovery, content
 #     and tunnel traffic with it. This runs on every commit and needs no second checkout.
 #
-#   * `previous-release` checks out the last released tag, builds its wire fixtures, and runs the
-#     current build against them. What it asserts depends on which side of the NDR2 flag day that
-#     release sits on, and the job says which — see the step comments. Silence is not the same as
-#     compatibility, so the job fails if it cannot tell.
+#   * `previous-release` takes the wire corpus committed at an EARLIER revision — the last release
+#     tag when one is published, otherwise the last revision that changed the corpus — and runs the
+#     current build against those bytes. What it asserts depends on which side of the NDR2 flag day
+#     each of those frames sits on, and the test reads that out of the bytes. Silence is not the
+#     same as compatibility: the job fails when it cannot find something to compare against, when
+#     the corpus is empty, and when the test that carries the assertion did not actually execute.
+#
+# Neither job is a *live* mixed-release run: both compare a build against recorded bytes, not
+# against a second running process. Network rows L-86..L-90 stay RETIRING until that exists.
 name: cross-version
 
 on:
@@ -77,64 +82,108 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Find the previous release
+      # There is a previous BUILD long before there is a previous RELEASE. This step used to look
+      # only for a release tag and, finding none, hand the rest of the job an empty string — every
+      # later step was `if:`-ed out and the job reported success having compared nothing. A green
+      # check that asserts nothing is worse than a red one, so the fallback is git history: the
+      # newest ancestor commit that changed the committed wire corpus is a real earlier build of
+      # this project, and its fixtures are the bytes that build was asserted to emit.
+      - name: Find the previous build to compare against
         id: previous
         run: |
           set -euo pipefail
-          # The most recent tag that is not the moving `latest` pointer.
+          ref=""
+          kind=""
           tag="$(git tag --sort=-creatordate | grep -v '^latest$' | head -1 || true)"
-          if [ -z "$tag" ]; then
-            echo "no previous release tag yet; the interop assertion has nothing to run against"
-            echo "tag=" >> "$GITHUB_OUTPUT"
+          if [ -n "$tag" ]; then
+            ref="$tag"
+            kind="release tag"
           else
-            echo "previous release: $tag"
-            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            # No release tag has been published yet. Fall back to the last revision that changed
+            # the wire corpus, excluding HEAD itself (which may be the change under test).
+            ref="$(git log --format=%H HEAD~1 -- fixtures/wire/ | head -1 || true)"
+            kind="last wire-changing revision"
+            if [ -z "$ref" ]; then
+              ref="$(git rev-parse HEAD~1 2>/dev/null || true)"
+              kind="parent revision"
+            fi
           fi
-
-      - name: Build the previous release's wire corpus
-        if: steps.previous.outputs.tag != ''
-        run: |
-          set -euo pipefail
-          git worktree add ../previous "${{ steps.previous.outputs.tag }}"
-          cd ../previous
-          # Regenerating is safe here: it writes into the WORKTREE's fixtures, not this checkout's.
-          ./gradlew :transport:test --tests '*WireFixtureTest' \
-            -Dnodera.fixtures.regenerate=true || true
-          mkdir -p "$GITHUB_WORKSPACE/build/previous-corpus"
-          cp fixtures/wire/*.bin "$GITHUB_WORKSPACE/build/previous-corpus/" || true
-
-      # Which assertion is correct depends on the epoch the previous release speaks.
-      #
-      #   epoch 1 (pre-NDR2): its frames MUST be refused, loudly and at the magic. That is the flag
-      #     day, and a silent misparse is the outcome the magic number exists to prevent.
-      #   epoch 2 or later:   its frames MUST decode, because TLV absorbs additive change and a
-      #     genuinely incompatible change allocates a new kind rather than a new epoch.
-      #
-      # The step reads the epoch out of the bytes rather than being told, so it cannot assert the
-      # wrong thing after the next release.
-      - name: Interoperate with, or cleanly refuse, the previous release
-        if: steps.previous.outputs.tag != ''
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          corpus=(build/previous-corpus/*.bin)
-          if [ ${#corpus[@]} -eq 0 ]; then
-            echo "::error::the previous release produced no fixtures; this job cannot tell whether \
-          the two builds interoperate, and passing on that basis would be a lie"
+          if [ -z "$ref" ]; then
+            echo "::error::no previous release tag AND no earlier revision exists, so this job \
+          cannot compare this build against anything. It fails rather than reporting a \
+          compatibility it never checked."
             exit 1
           fi
-          magic="$(head -c 4 "${corpus[0]}" | xxd -p)"
-          if [ "$magic" = "4e445232" ]; then
-            echo "the previous release speaks NDR2; asserting the current build decodes it"
-            ./gradlew :transport:test --tests '*WireFixtureTest' --stacktrace \
-              -Dnodera.wire.previousCorpus="$GITHUB_WORKSPACE/build/previous-corpus"
-          else
-            echo "the previous release predates NDR2; asserting its frames are refused, not misparsed"
-            ./gradlew :transport:test --tests '*ForwardCompatibilityTest' --stacktrace
-          fi
+          echo "previous build: $ref ($kind)"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
 
-      - name: Report when there is nothing to compare against
-        if: steps.previous.outputs.tag == ''
+      # The previous build's wire corpus is already committed at that revision — those files ARE the
+      # bytes it was asserted to emit, checked by its own WireFixtureTest at the time. Reading them
+      # out of git is both cheaper and more honest than rebuilding an old tree, whose regeneration
+      # would be performed by whatever encoder this runner happens to compile.
+      - name: Extract the previous build's wire corpus
+        id: corpus
         run: |
-          echo "::notice::no previous release tag exists yet, so there is nothing to interoperate \
-          with. The in-repo mixed-release suite in the `matrix` job still ran."
+          set -euo pipefail
+          dest="$GITHUB_WORKSPACE/build/previous-corpus"
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          if ! git archive "${{ steps.previous.outputs.ref }}" fixtures/wire \
+              | tar -x -C "$dest" --strip-components=2; then
+            echo "::error::revision ${{ steps.previous.outputs.ref }} has no fixtures/wire corpus, \
+          so there is nothing to interoperate with. Failing instead of passing on silence."
+            exit 1
+          fi
+          count="$(find "$dest" -name '*.bin' | wc -l)"
+          echo "$count frames from ${{ steps.previous.outputs.ref }}"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::the previous build's corpus is empty; this job cannot tell whether the \
+          two builds interoperate, and passing on that basis would be a lie"
+            exit 1
+          fi
+          echo "dir=$dest" >> "$GITHUB_OUTPUT"
+
+      # Which assertion is correct depends on the epoch each of those frames carries.
+      #
+      #   epoch 1 (pre-NDR2): the frame MUST be refused, loudly and at the magic. That is the flag
+      #     day, and a silent misparse is the outcome the magic number exists to prevent.
+      #   epoch 2 or later:   the frame MUST decode, because TLV absorbs additive change and a
+      #     genuinely incompatible change allocates a new kind rather than a new epoch.
+      #
+      # PreviousReleaseCorpusTest reads the epoch out of each file rather than being told, so it
+      # cannot assert the wrong thing after the next release. --rerun-tasks --no-build-cache because
+      # a FROM-CACHE test task proves nothing about a corpus that is not one of its inputs.
+      - name: Interoperate with, or cleanly refuse, the previous build
+        run: >
+          ./gradlew :transport:test --stacktrace --rerun-tasks --no-build-cache
+          --tests '*PreviousReleaseCorpusTest'
+          --tests '*ForwardCompatibilityTest'
+          -Dnodera.wire.previousCorpus=${{ steps.corpus.outputs.dir }}
+
+      # The assertion above lives inside a test, and a test that does not run is indistinguishable
+      # from one that passed unless somebody looks. This reads the JUnit XML and requires the
+      # cross-build test to have EXECUTED — not been filtered out, not been skipped.
+      - name: Prove the cross-build assertion actually executed
+        if: always()
+        run: |
+          set -euo pipefail
+          xml="java/transport/build/test-results/test/TEST-dev.nodera.protocol.wire.PreviousReleaseCorpusTest.xml"
+          if [ ! -f "$xml" ]; then
+            echo "::error::$xml is missing: the cross-build test never ran, so this job asserted \
+          nothing about compatibility with ${{ steps.previous.outputs.ref }}."
+            exit 1
+          fi
+          if grep -q '<skipped' "$xml"; then
+            echo "::error::the cross-build test was SKIPPED. A skip here is the exact silent no-op \
+          this job exists to prevent."
+            exit 1
+          fi
+          if ! grep -q 'tests="1"' "$xml"; then
+            echo "::error::the cross-build test class reported no executed test."
+            cat "$xml"
+            exit 1
+          fi
+          echo "cross-build assertion executed against ${{ steps.previous.outputs.ref }} \
+          (${{ steps.previous.outputs.kind }})"
+          grep -o '\[previous-release\][^<]*' "$xml" || true

@@ -199,6 +199,40 @@ final class RegionSeedSpoolTest {
     }
 
     @Test
+    @DisplayName("close does not return while a push is still touching the spool directory")
+    void closeWaitsForTheInFlightPush(@TempDir Path dir) throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean finished =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        RegionSeedSpool spool = new RegionSeedSpool(() -> "w", () -> dir, (world, file) -> {
+            started.countDown();
+            // Deliberately does not stop on interrupt: shutdownNow only asks, so this stands in for
+            // any push that is mid-write when the world unloads.
+            long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(500);
+            while (System.nanoTime() < until) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException retryUntilDone) {
+                    // swallowed on purpose; see above
+                }
+            }
+            finished.set(true);
+            return true;
+        }, 0L);
+
+        assertThat(spool.offer(snapshot(REGION, 1))).isTrue();
+        assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+        spool.close();
+
+        // If close returned early the push would still be creating and deleting files in `dir`
+        // while JUnit tried to remove it — the temp-directory cleanup failure this guards.
+        assertThat(finished)
+                .as("close must not return while a push is still writing into the spool directory")
+                .isTrue();
+        Thread.interrupted();
+    }
+
+    @Test
     @DisplayName("nulls are ignored at the call and refused at construction")
     void argumentsAreChecked(@TempDir Path dir) {
         RegionSeedSpool spool =

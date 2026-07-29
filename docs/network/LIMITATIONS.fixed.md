@@ -6,14 +6,23 @@
      capability regresses, open a bug issue and add a NEW row to LIMITATIONS.md; do not edit history
      here. -->
 
-**Category:** network · **Last audit:** 2026-07-28 · Retired rows: **16**
+**Category:** network · **Last audit:** 2026-07-28 · Retired rows: **18**
 
-> No row retired in this sweep (2026-07-28): every open/retiring row in `LIMITATIONS.md` still
-> needs a live run or wild-telemetry evidence that this pass cannot produce. The 16 retired rows
-> below are unchanged.
+> 2026-07-28 — **L-86 and L-89 retired** (issue #97). Their stated exit tests are all headless and all
+> green at the last gate, so by the binding rule ("retire when the stated exit test is green, not when
+> the narrative 'remaining' note looks small") they move now rather than waiting on the live
+> mixed-release run that still holds L-87/L-88/L-90. Evidence:
+> `ForwardCompatibilityTest.aFieldAppendedByANewerPeerIsIgnored`,
+> `aFieldAppendedInsideANestedStructureIsIgnored`,
+> `aFieldTheSenderOmitsTakesItsDocumentedDefault`,
+> `CrossVersionIT.aFutureFieldSurvivesARelay` (L-86); and
+> `ForwardCompatibilityTest.aConsensusPayloadCrossesAsOpaqueBytes` +
+> `theTwoPlanesAreExactlyPopulated` (L-89). The 16 rows retired before this sweep are unchanged below.
 
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|
+| L-86 | **R1 — a positional body cannot be extended.** Message bodies were fixed-width fields written back to back, and nothing below the frame carried its own length, so a decoder could not skip a field it did not know. There was no such thing as a compatible change — every cross-version symptom traced here — and truncation was undetectable where a trailing field was optional (a `PeerJoin` cut before `clientVersion` was byte-for-byte a valid legacy frame, the one truncation exception `CanonicalMutationFuzzTest` documented) | The `NDR2` frame and canonical TLV bodies: every field carries its own length, so an unknown one is skipped, kept, and re-emitted verbatim. Verified green: `ForwardCompatibilityTest.aFieldAppendedByANewerPeerIsIgnored` + `aFieldAppendedInsideANestedStructureIsIgnored` + `aFieldTheSenderOmitsTakesItsDocumentedDefault`, and `CrossVersionIT.aFutureFieldSurvivesARelay`. Both fuzz exceptions are gone — `PeerJoin` truncation is now detectable, and `RegionRefusal` preserves its raw reason code | [14](Task.14.md) | 2026-07-28 |
+| L-89 | **R4 — one codec for two opposite requirements.** `MessageCodec` carried signed consensus payloads and tracker/rendezvous/tunnel infrastructure under a single strictness rule — right for the first group (a byte that round-trips differently is a fork) and the direct cause of version-lock in the second, where strictness bought nothing | Consensus payloads now cross the infrastructure plane as opaque bytes, and no infrastructure decoder parses a signed structure. 25 consensus kinds keep the strict positional encoding and travel inside one opaque `BYTES` field; 50 infrastructure kinds get TLV. `TrackerAnnounce`, `SignedPeerRecord`, `ServiceRecord` and `ServiceScoreReport` stay opaque for the same reason. Verified green: `ForwardCompatibilityTest.aConsensusPayloadCrossesAsOpaqueBytes` + `theTwoPlanesAreExactlyPopulated` | [14](Task.14.md) | 2026-07-28 |
 | L-28 | Peer identity was ephemeral — `NodeIdentity` was regenerated per process, so a returning peer got a new `NodeId` | `PersistentIdentityStore` persists the identity with an owner-only atomic temp-and-move write and reloads it on the next run, so a returning peer keeps its `NodeId` and rejoins its committees. `PersistentIdentityStoreTest` | [5](Task.5.md) | 2026-07-18 |
 | L-29 | Gateway election was rendezvous-hash only; capabilities were carried but not weighted | Within a tier, the peer with the highest bounded pure-integer weight (cores, memory, inverse latency, reliability, each clamped to a bucket) wins; the rendezvous score only spreads duty among equal-weight peers. Bootstrap preference and the deterministic tie-break are unchanged, so the order-independence property test still holds. `GatewayElectionTest.capabilityWeightIsBoundedPureIntegerMath`, `mostCapablePeerWins*` | [2](Task.2.md) | 2026-07-18 |
 | L-30 (first form) | The continuity beta meshed peers with gossiped membership but ran **no** committee re-execution or certified sync on the P2P lane | Both halves landed: committee validation over the transport (`WorkerQuorumValidationIT` — three companion-only workers propose, re-execute, vote, quorum-commit to the reference-engine root, and persist the co-signed certificate) and certified forward sync (`EventSyncQuery`/`EventSyncAnswer` + `EventSyncService`, proven by `EventSyncOverTransportIT`: a fresh peer pulls certified events and certificates over the `PeerTransport`, replays the chain, converges on the certified root, and an uncertified tail never syncs). A narrower live-soak row of the same id remains open | [2](Task.2.md) | 2026-07-23 |

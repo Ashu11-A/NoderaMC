@@ -24,6 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * {@link ViewBuilder} report logic — Panel/Row/Cell + {@link Semantic} for a crafted snapshot
  * (Task 18 acceptance #1).
+ *
+ * <p>MC-GUI-5: assertions name translation keys and argument lists. The builder emits no English,
+ * so there is no rendered text here to assert against.
  */
 final class ViewBuilderTest {
 
@@ -43,12 +46,12 @@ final class ViewBuilderTest {
     @Test
     void sessionPanelMarksSelfGatewayWithSelfSemantic() {
         Panel p = ViewBuilder.sessionPanel(snapshot());
-        assertThat(p.title()).isEqualTo(ViewBuilder.SESSION);
+        assertThat(p.titleKey()).isEqualTo(ViewBuilder.SESSION);
         // Find the gateway row's value cell and assert it carries SELF + bold (we are the gateway).
-        Cell gatewayValue = findRowSecondCell(p, "gateway");
+        Cell gatewayValue = findRowSecondCell(p, ViewBuilder.LBL_GATEWAY);
         assertThat(gatewayValue.semantic()).isEqualTo(Semantic.SELF);
         assertThat(gatewayValue.bold()).isTrue();
-        assertThat(findRowSecondCell(p, "epoch").text()).isEqualTo("7");
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_EPOCH).args()).containsExactly("7");
     }
 
     @Test
@@ -57,38 +60,38 @@ final class ViewBuilderTest {
         // 2 members → 2 data rows.
         assertThat(p.rows()).hasSize(2);
         Cell otherId = p.rows().get(1).cells().get(0);
-        assertThat(otherId.text()).isEqualTo(ViewBuilder.shortId(OTHER));
+        assertThat(otherId.key()).isEqualTo(Cell.RAW);
+        assertThat(otherId.args()).containsExactly(ViewBuilder.shortId(OTHER));
+        Cell keepAlives = p.rows().get(1).cells().get(4);
+        assertThat(keepAlives.key()).isEqualTo(ViewBuilder.VAL_KEEPALIVES);
+        assertThat(keepAlives.args()).containsExactly(4L);
     }
 
     @Test
     void netPanelIncludesPerTypeBreakdown() {
         Panel p = ViewBuilder.netPanel(snapshot(), null);
-        String rendered = render(p);
-        assertThat(rendered).contains("SessionKeepAlive").contains("PeerJoin");
-        assertThat(rendered).contains("▲ tx").contains("▼ rx");
+        assertThat(argStrings(p)).contains("SessionKeepAlive", "PeerJoin");
+        assertThat(keys(p)).contains(ViewBuilder.VAL_TX, ViewBuilder.VAL_RX);
     }
 
     @Test
     void netPanelTypeFilterShowsOnlyThatType() {
         Panel p = ViewBuilder.netPanel(snapshot(), "SessionKeepAlive");
-        String rendered = render(p);
-        assertThat(rendered).contains("SessionKeepAlive");
-        assertThat(rendered).doesNotContain("PeerJoin");
+        assertThat(argStrings(p)).contains("SessionKeepAlive").doesNotContain("PeerJoin");
     }
 
     @Test
     void regionsPanelShowsPlaceholderWhenEmpty() {
         Panel p = ViewBuilder.regionsPanel(snapshot());
-        String rendered = render(p);
-        assertThat(rendered).contains("Task 6"); // placeholder note
-        assertThat(findRowSecondCell(p, "owned").semantic()).isEqualTo(Semantic.OWNED);
+        assertThat(keys(p)).contains(ViewBuilder.VAL_NO_REGIONS); // placeholder note
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_OWNED).semantic()).isEqualTo(Semantic.OWNED);
     }
 
     @Test
     void zonePanelClassifiesOriginAsUnassignedWhenEmpty() {
         Panel p = ViewBuilder.zonePanel(snapshot(), DimensionKey.overworld(), 0, 0);
-        Cell state = findRowSecondCell(p, "state");
-        assertThat(state.text()).isEqualTo(OwnershipState.UNASSIGNED.name());
+        Cell state = findRowSecondCell(p, ViewBuilder.LBL_STATE);
+        assertThat(state.args()).containsExactly(OwnershipState.UNASSIGNED.name());
         assertThat(state.semantic()).isEqualTo(Semantic.UNASSIGNED);
     }
 
@@ -99,15 +102,15 @@ final class ViewBuilderTest {
         TelemetrySnapshot s = new TelemetrySnapshot(1L, SELF, false, null, null, own,
                 EntityControl.empty(), HealthStat.healthy());
         Panel p = ViewBuilder.zonePanel(s, DimensionKey.overworld(), 10, 10);
-        Cell state = findRowSecondCell(p, "state");
-        assertThat(state.text()).isEqualTo(OwnershipState.OWNED.name());
+        Cell state = findRowSecondCell(p, ViewBuilder.LBL_STATE);
+        assertThat(state.args()).containsExactly(OwnershipState.OWNED.name());
         assertThat(state.semantic()).isEqualTo(Semantic.OWNED);
     }
 
     @Test
     void entitiesPanelShowsPlaceholderWhenEmpty() {
         Panel p = ViewBuilder.entitiesPanel(snapshot());
-        assertThat(render(p)).contains("Task 12");
+        assertThat(keys(p)).contains(ViewBuilder.VAL_NO_ENTITIES);
     }
 
     @Test
@@ -115,14 +118,15 @@ final class ViewBuilderTest {
         TelemetrySnapshot critical = new TelemetrySnapshot(1L, SELF, false, null, null,
                 RegionOwnership.empty(), EntityControl.empty(), new HealthStat(Health.CRITICAL, "isolated"));
         Panel p = ViewBuilder.healthPanel(critical);
-        assertThat(findRowSecondCell(p, "state").semantic()).isEqualTo(Semantic.CRITICAL);
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_STATE).semantic())
+                .isEqualTo(Semantic.CRITICAL);
     }
 
     @Test
     void fullViewIsNotEmptyAndOrdered() {
         DiagnosticsView v = ViewBuilder.full(snapshot());
         assertThat(v.isEmpty()).isFalse();
-        assertThat(v.panels().get(0).title()).isEqualTo(ViewBuilder.SESSION);
+        assertThat(v.panels().get(0).titleKey()).isEqualTo(ViewBuilder.SESSION);
     }
 
     @Test
@@ -150,10 +154,10 @@ final class ViewBuilderTest {
     @Test
     void serverPanelCarriesSelfRoleAndTxRxSemantics() {
         Panel p = ViewBuilder.serverPanel(snapshot());
-        assertThat(p.title()).isEqualTo(ViewBuilder.SERVER);
-        assertThat(findRowSecondCell(p, "role").semantic()).isEqualTo(Semantic.SELF);
-        assertThat(findRowSecondCell(p, "members").text())
-                .isEqualTo(String.valueOf(snapshot().session().memberCount()));
+        assertThat(p.titleKey()).isEqualTo(ViewBuilder.SERVER);
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_ROLE).semantic()).isEqualTo(Semantic.SELF);
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_MEMBERS).args())
+                .containsExactly(String.valueOf(snapshot().session().memberCount()));
         // Rows: role, members, then the ▲ tx / ▼ rx marker rows (label-less → index by position).
         assertThat(p.rows().get(2).cells().get(0).semantic()).isEqualTo(Semantic.TX);
         assertThat(p.rows().get(3).cells().get(0).semantic()).isEqualTo(Semantic.RX);
@@ -168,12 +172,16 @@ final class ViewBuilderTest {
         TelemetrySnapshot s = new TelemetrySnapshot(1L, SELF, false, null, null, own,
                 EntityControl.empty(), HealthStat.healthy());
         Panel p = ViewBuilder.regionsPanel(s);
-        String rendered = render(p);
-        assertThat(rendered).doesNotContain("Task 6"); // placeholder note absent when populated
-        assertThat(findRowSecondCell(p, "owned").text()).isEqualTo("1 region(s)");
-        assertThat(findRowSecondCell(p, "validator").semantic()).isEqualTo(Semantic.VALIDATING);
-        assertThat(findRowSecondCell(p, "replica").semantic()).isEqualTo(Semantic.REPLICA);
-        assertThat(findRowSecondCell(p, "chunks").text()).isEqualTo("64");
+        // placeholder note absent when populated
+        assertThat(keys(p)).doesNotContain(ViewBuilder.VAL_NO_REGIONS);
+        Cell owned = findRowSecondCell(p, ViewBuilder.LBL_OWNED);
+        assertThat(owned.key()).isEqualTo(ViewBuilder.VAL_REGION_COUNT);
+        assertThat(owned.args()).containsExactly(1);
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_VALIDATOR).semantic())
+                .isEqualTo(Semantic.VALIDATING);
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_REPLICA).semantic())
+                .isEqualTo(Semantic.REPLICA);
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_CHUNKS).args()).containsExactly("64");
     }
 
     @Test
@@ -184,10 +192,11 @@ final class ViewBuilderTest {
         TelemetrySnapshot s = new TelemetrySnapshot(1L, SELF, false, null, null,
                 RegionOwnership.empty(), ec, HealthStat.healthy());
         Panel p = ViewBuilder.entitiesPanel(s);
-        String rendered = render(p);
-        assertThat(findRowSecondCell(p, "total").text()).isEqualTo("3");
-        assertThat(rendered).contains("1 entity").contains("2 entities");
-        assertThat(rendered).doesNotContain("Task 12"); // placeholder note absent when populated
+        assertThat(findRowSecondCell(p, ViewBuilder.LBL_TOTAL).args()).containsExactly("3");
+        // Plural is a key choice, not a concatenated suffix — a translator can express its own rule.
+        assertThat(keys(p)).contains(ViewBuilder.VAL_ENTITY_COUNT_ONE,
+                ViewBuilder.VAL_ENTITY_COUNT_MANY);
+        assertThat(keys(p)).doesNotContain(ViewBuilder.VAL_NO_ENTITIES);
     }
 
     @Test
@@ -200,24 +209,22 @@ final class ViewBuilderTest {
         }
     }
 
-    private static String render(Panel p) {
-        StringBuilder sb = new StringBuilder();
-        for (Row r : p.rows()) {
-            for (Cell c : r.cells()) {
-                sb.append(c.text()).append(' ');
-            }
-            sb.append('|');
-        }
-        return sb.toString();
+    private static List<String> keys(Panel p) {
+        return p.rows().stream().flatMap(r -> r.cells().stream()).map(Cell::key).toList();
     }
 
-    /** Find the row whose first cell text equals {@code label}; return its second cell. */
-    private static Cell findRowSecondCell(Panel p, String label) {
+    private static List<String> argStrings(Panel p) {
+        return p.rows().stream().flatMap(r -> r.cells().stream())
+                .flatMap(c -> c.args().stream()).map(String::valueOf).toList();
+    }
+
+    /** Find the row whose first cell carries {@code labelKey}; return its second cell. */
+    private static Cell findRowSecondCell(Panel p, String labelKey) {
         for (Row r : p.rows()) {
-            if (!r.cells().isEmpty() && label.equals(r.cells().get(0).text())) {
+            if (!r.cells().isEmpty() && labelKey.equals(r.cells().get(0).key())) {
                 return r.cells().size() > 1 ? r.cells().get(1) : r.cells().get(0);
             }
         }
-        throw new AssertionError("no row with label " + label + " in " + render(p));
+        throw new AssertionError("no row with label key " + labelKey + " in " + keys(p));
     }
 }
