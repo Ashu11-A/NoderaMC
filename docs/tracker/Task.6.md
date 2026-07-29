@@ -64,9 +64,11 @@ re-read, and `NODERA_TRACKER_MAX_SERVICE` looks exactly as authoritative in a co
 real name. Four names in these prefixes belong to the Java peer and are declared as belonging
 elsewhere, so a shell holding both can start both.
 
-**Values are never echoed.** Every error names the variable and the type expected. One of these
-variables on the telemetry service is a pseudonymisation secret, and an error message is the one
-place a secret escapes into a log that outlives the process.
+**Values are never echoed.** Every error names the variable and the type expected. A service may
+sit next to another on the same host whose variable *is* a secret, and an error message is the one
+place a secret escapes into a log that outlives the process. (The telemetry service no longer holds
+a pseudonymisation secret at all — its per-period key is minted in memory — but the rule is general
+and stays.)
 
 **Two build jobs, not one.** A single `platforms: amd64,arm64` build emulates arm64 through QEMU,
 and a Rust release build under emulation takes the better part of an hour per image. Each platform

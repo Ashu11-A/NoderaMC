@@ -136,10 +136,9 @@ max_event_age_seconds = 604800
 report_interval_seconds = 5
 EOF
 
-# The secret arrives through the environment, exactly as the compose deployment passes it — a
-# secret in a config file is a secret in a backup.
-NODERA_TELEMETRY_SUBJECT_SECRET="e2e-secret-0123456789abcdef" \
-    "$INGEST_BIN" --config "$LOG_DIR/nodera-telemetry.toml" > "$LOG_DIR/ingest.log" 2>&1 &
+# The ingest mints its pseudonymisation key in memory (docs/telemetry/LIMITATIONS.fixed.md L-72);
+# there is no secret to pass it. It boots straight from the config file below.
+"$INGEST_BIN" --config "$LOG_DIR/nodera-telemetry.toml" > "$LOG_DIR/ingest.log" 2>&1 &
 INGEST_PID=$!
 wait_for "the collector to answer its health probe" 30 \
     "$INGEST_BIN" --healthcheck "127.0.0.1:$INGEST_PORT" \
