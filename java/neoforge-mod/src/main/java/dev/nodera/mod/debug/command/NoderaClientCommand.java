@@ -66,8 +66,11 @@ public final class NoderaClientCommand {
         }
         for (var world : hosted) {
             out.append("\n  ").append(world.name()).append(" — ")
-                    .append(dev.nodera.diagnostics.view.TorrentWorldListView
-                            .playersLabel(world.players()))
+                    .append(dev.nodera.mod.debug.render.ComponentRenderer.text(
+                            dev.nodera.diagnostics.view.TorrentWorldListView
+                                    .playersCell(world.players(),
+                                            dev.nodera.diagnostics.state.Semantic.NEUTRAL))
+                            .getString())
                     .append(", ")
                     .append(world.mcRoute().isBlank() ? "game closed" : "joinable at " + world.mcRoute());
         }
@@ -90,7 +93,10 @@ public final class NoderaClientCommand {
             if (entry.hasHost()) {
                 out.append(" (by ").append(entry.hostName()).append(")");
             }
-            out.append(" — ").append(entry.playersLabel()).append(", ")
+            out.append(" — ")
+                    .append(dev.nodera.mod.debug.render.ComponentRenderer
+                            .text(entry.playersCell()).getString())
+                    .append(", ")
                     .append(entry.mcRoute().isBlank()
                             ? entry.health().name().toLowerCase(java.util.Locale.ROOT)
                             : "joinable");

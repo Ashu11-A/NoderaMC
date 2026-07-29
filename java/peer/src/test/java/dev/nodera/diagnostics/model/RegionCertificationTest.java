@@ -11,6 +11,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.diagnostics.model.RegionOwnership.Certification;
+import dev.nodera.diagnostics.view.Cell;
 import dev.nodera.diagnostics.view.Panel;
 import dev.nodera.diagnostics.view.Row;
 import dev.nodera.diagnostics.view.ViewBuilder;
@@ -100,12 +101,13 @@ final class RegionCertificationTest {
                 Map.of(REGION, new RegionOwnership.LeaseInfo(1L, 100L, Certification.SOLO, 1, 1)));
         Panel panel = ViewBuilder.regionsPanel(snapshotWith(owned));
 
-        Row solo = rowNamed(panel, "solo");
-        assertThat(solo.cells().get(1).text())
-                .contains("1 region(s)")
-                .contains("no other peer on this committee");
-        assertThat(panel.rows().stream().map(r -> r.cells().get(0).text()))
-                .doesNotContain("pending");
+        Row solo = rowNamed(panel, ViewBuilder.LBL_SOLO);
+        // The solo row names its own key — the population reason is words in the lang file, not a
+        // sentence this view model assembled (MC-GUI-5).
+        assertThat(solo.cells().get(1).key()).isEqualTo(ViewBuilder.VAL_SOLO);
+        assertThat(solo.cells().get(1).args()).containsExactly(1);
+        assertThat(panel.rows().stream().map(r -> r.cells().get(0).key()))
+                .doesNotContain(ViewBuilder.LBL_PENDING);
     }
 
     @Test
@@ -117,23 +119,28 @@ final class RegionCertificationTest {
                         second, new RegionOwnership.LeaseInfo(1L, 100L, Certification.PENDING, 3, 0)));
         Panel panel = ViewBuilder.regionsPanel(snapshotWith(owned));
 
-        assertThat(rowNamed(panel, "certified").cells().get(1).text()).startsWith("1 region(s)");
-        assertThat(rowNamed(panel, "pending").cells().get(1).text()).startsWith("1 region(s)");
+        Cell certified = rowNamed(panel, ViewBuilder.LBL_CERTIFIED).cells().get(1);
+        assertThat(certified.key()).isEqualTo(ViewBuilder.VAL_CERTIFIED);
+        assertThat(certified.args()).containsExactly(1);
+        Cell pending = rowNamed(panel, ViewBuilder.LBL_PENDING).cells().get(1);
+        assertThat(pending.key()).isEqualTo(ViewBuilder.VAL_PENDING);
+        assertThat(pending.args()).containsExactly(1);
     }
 
     @Test
     void aPeerWithNoLaneStillRendersThePlaceholderAndNoCertificationRows() {
         Panel panel = ViewBuilder.regionsPanel(snapshotWith(RegionOwnership.empty()));
-        assertThat(panel.rows().stream().map(r -> r.cells().get(0).text()))
-                .contains("note")
-                .doesNotContain("certified", "pending", "solo");
+        assertThat(panel.rows().stream().map(r -> r.cells().get(0).key()))
+                .contains(ViewBuilder.LBL_NOTE)
+                .doesNotContain(ViewBuilder.LBL_CERTIFIED, ViewBuilder.LBL_PENDING,
+                        ViewBuilder.LBL_SOLO);
     }
 
-    private static Row rowNamed(Panel panel, String name) {
+    private static Row rowNamed(Panel panel, String labelKey) {
         return panel.rows().stream()
-                .filter(r -> r.cells().get(0).text().equals(name))
+                .filter(r -> r.cells().get(0).key().equals(labelKey))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("no '" + name + "' row in " + panel.rows()));
+                .orElseThrow(() -> new AssertionError("no '" + labelKey + "' row in " + panel.rows()));
     }
 
     private static TelemetrySnapshot snapshotWith(RegionOwnership regions) {

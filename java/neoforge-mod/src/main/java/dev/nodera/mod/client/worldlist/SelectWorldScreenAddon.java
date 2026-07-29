@@ -1,9 +1,12 @@
 package dev.nodera.mod.client.worldlist;
 
 import dev.nodera.diagnostics.state.Semantic;
+import dev.nodera.diagnostics.view.Cell;
 import dev.nodera.diagnostics.view.PublicWorldBadgeView;
 import dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus;
+import dev.nodera.mod.debug.render.ComponentRenderer;
 import dev.nodera.mod.debug.render.Palette;
+import net.minecraft.network.chat.Component;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.worldselection.SelectWorldScreen;
@@ -48,10 +51,12 @@ public final class SelectWorldScreenAddon {
         if (!(event.getScreen() instanceof SelectWorldScreen screen)) {
             return;
         }
-        String summary = PublicWorldBadgeView.summary(statusSupplier.get());
-        if (summary == null) {
+        Cell cell = PublicWorldBadgeView.summaryCell(statusSupplier.get());
+        if (cell == null) {
             return; // no shared worlds → nothing to annotate
         }
+        // MC-GUI-5: the view model chose a key + count; the words come from the lang file here.
+        Component summary = ComponentRenderer.text(cell);
         GuiGraphics graphics = event.getGuiGraphics();
         var font = Minecraft.getInstance().font;
         Integer colour = Palette.chat(Semantic.WORLD_HEALTHY).getColor();
