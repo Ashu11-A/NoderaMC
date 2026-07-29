@@ -11,6 +11,7 @@ import dev.nodera.distribution.PieceDownloader;
 import dev.nodera.distribution.PieceManifest;
 import dev.nodera.distribution.WorldArchive;
 import dev.nodera.peer.discovery.TrackerClient;
+import dev.nodera.peer.discovery.TrackerLookup;
 import dev.nodera.protocol.NoderaMessage;
 import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.wire.WireCodec;
@@ -87,7 +88,7 @@ public final class WorldArchiveService implements AutoCloseable {
     private final NodeId self;
     private final PeerTransport transport;
     private final ContentTransferService content;
-    private final TrackerClient tracker;
+    private final TrackerLookup tracker;
     /**
      * Whether {@link #close()} may close the tracker client. False when the client was handed in
      * (the consolidated one-per-node client): closing a shared client here would silently mute
@@ -245,8 +246,29 @@ public final class WorldArchiveService implements AutoCloseable {
                 false);
     }
 
+    /**
+     * As above, but against the read-only {@link TrackerLookup} seam rather than the concrete
+     * client.
+     *
+     * <p>Seeder resolution merges two tracker answers that can arrive independently (see L-85 in
+     * the network register), and that merge could not be exercised headlessly while the parameter
+     * type was a final socket-owning class. This overload is what a test — or any caller with a
+     * tracker that is not a {@link TrackerClient} — hands its lookup in through. The lookup is
+     * <b>not</b> closed by {@link #close()}, exactly as the shared-client overload above.
+     *
+     * @param identity     this worker's identity.
+     * @param transport    the worker's peer transport.
+     * @param store        the local blob tier.
+     * @param sharedLookup the tracker read seam; <b>not</b> closed by {@link #close()}.
+     */
+    public WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
+                               TrackerLookup sharedLookup) {
+        this(identity, transport, store, Objects.requireNonNull(sharedLookup, "sharedLookup"),
+                false);
+    }
+
     private WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
-                                TrackerClient tracker, boolean ownsTracker) {
+                                TrackerLookup tracker, boolean ownsTracker) {
         this.self = identity.nodeId();
         this.pins = store instanceof dev.nodera.storage.PinnableContentStore p ? p : null;
         this.transport = Objects.requireNonNull(transport, "transport");
@@ -1356,7 +1378,15 @@ public final class WorldArchiveService implements AutoCloseable {
         rememberRoute(peer, route);
     }
 
-    private PeerAddress routeOf(NodeId peer) {
+    /**
+     * The dial route this node has learned for a peer, from a tracker answer or live traffic.
+     *
+     * @param peer the peer.
+     * @return its address, or {@code null} when none is known — which is precisely the
+     *         "known but unroutable" state L-85 is about.
+     * @Thread-context any thread.
+     */
+    public PeerAddress routeOf(NodeId peer) {
         return routes.get(peer);
     }
 

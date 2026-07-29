@@ -176,7 +176,14 @@ public final class HeadlessPeerMain {
         WorldKeyStore worldKeys = localState.worldKeys();
 
         WorldHostingService hosting = new WorldHostingService(identity, caps, runtime::selfRoute,
-                tracker, rendezvousEndpoints, archive::holdingsFor, worldRegistry);
+                tracker, rendezvousEndpoints, archive::holdingsFor, worldRegistry, worldKeys);
+        // W-DUP-1: reconcile every registry row against the world this node can still SERVE. A row
+        // restored from `worlds.dat` whose bytes are gone from the content plane — a save deleted
+        // outside the worker, an archive directory wiped — used to be re-announced on every start
+        // forever, sending joiners to a node that cannot honour them. A world with no archived
+        // content AND no live game route is suppressed from the announce set on the next refresh
+        // cycle; its row is kept, so re-fetching the content reinstates it under the same identity.
+        hosting.bindServability(worldIdHex -> archive.newestManifest(worldIdHex).isPresent());
 
         // The validation lane (L-48/L-30): this worker re-executes region batches out-of-game
         // with THE engine and participates in committee quorum over the same PeerTransport its

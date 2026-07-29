@@ -5,7 +5,7 @@
      its evidence. Note §C: several properties that LOOK like limitations are the design working
      correctly (a relayed steady state, an untrusted service). Do not convert them into §B rows. -->
 
-**Category:** rendezvous · **Last audit:** 2026-07-28 · Open or retiring rows: **1**
+**Category:** rendezvous · **Last audit:** 2026-07-28 · Open or retiring rows: **0**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -18,13 +18,21 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 |---|---|---|---|
 | A-8 | Some NAT pairs cannot be punched (symmetric NAT on both sides, carrier-grade NAT) | The relayed path is a **first-class** fallback, not a failure mode: correctness holds on a pure-relay path, and the relay is metered and end-to-end encrypted so it is safe to depend on | [1](Task.1.md), [2](Task.2.md) |
 
+A-8 is an envelope constraint and has no exit test to run: it does not retire, because no amount of code
+makes a symmetric-NAT pair punchable. It is listed so the *mechanism* stays honest, and the mechanism is
+the tested one — `RendezvousRelayIT` drives two relay-only peers end to end through the real binary, and
+the retired L-23/L-27 rows are its evidence. Re-checked 2026-07-28. The only thing that would falsify it
+is a call site above the transport behaving differently on a relayed path than on a direct one; that is a
+bug in the caller, and the reading guide below says so.
+
 ---
 
 ## §B — Staged capabilities
 
-| ID | Gap | Why it is not permanent | Elimination path | Owner | Exit test | Status |
-|---|---|---|---|---|---|---|
-| L-83 | A drain's grace period can expire with circuits still bridged, and those circuits are then cut — bounded and reported, but a truncation | The bound exists because an unbounded wait lets one stuck circuit hang a restart forever. What is missing is the *other* half: telling the peers on those circuits to move the transfer rather than losing it | Have the drain notice carry the deadline to the circuit's peers (it already carries it in the record) and have the content lane checkpoint and resume a transfer across a relay change, so an expired grace costs a re-dial instead of the transfer | [5](Task.5.md) | a test where a circuit still live at the deadline resumes through a replacement relay instead of failing | OPEN — but the elimination path is now known to be **much smaller than this row assumed, and needs no wire change**. Traced 2026-07-27. The content plane already resumes: `PieceDownloader` seeds pieces already held locally and documents itself as resumable at piece granularity, and `onHolderLost` re-queues a lost holder's pending pieces. The signal already arrives: `RendezvousPeerTransport` calls `onPeerDown` from the `finally` of its circuit reader, so a cut circuit reaches `ContentTransferService.onPeerDown` and thence `onHolderLost`. And the replacement relay is already in place, because this branch made the transport migrate on a drain notice without a world reopen (L-84). So the parts compose, on paper: cut circuit -> holder lost -> pieces re-queued -> re-dial through the relay the peer has already moved to. **What is missing is the proof, not the mechanism.** No test drives a drain against a live transfer, so nothing shows the re-dial actually happens before the transfer is abandoned, or that a piece interrupted mid-flight is retried rather than counted. The revised path is therefore: write the exit test first, and treat whatever it finds as the real gap. The earlier plan — checkpointing plus a byte offset in `ContentRequest`, which would have been a frozen-tag wire change — is not needed, because piece granularity is already the checkpoint. |
+None open. L-83 retired on 2026-07-28 — see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). Writing its
+exit test first, as that row's last trace proposed, found the one part that did **not** compose: a cut
+circuit and a departed peer arrive as the same `onPeerDown`, so the download dropped the holdings of a
+peer that had merely migrated and was then left with nobody to ask.
 
 The remaining work in this category — real cross-internet numbers and the pure-relay continuity run —
 is [`Task.3.md`](Task.3.md), which is **blocked on a real cross-internet/NAT environment**. The

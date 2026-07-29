@@ -6,7 +6,7 @@
      removing an unsupportable setting would silently drop values users already saved AND hide that
      the limitation is known. -->
 
-**Category:** app · **Last audit:** 2026-07-28 · Open or retiring rows: **6**
+**Category:** app · **Last audit:** 2026-07-28 · Open or retiring rows: **2**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -27,10 +27,6 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 |---|---|---|---|---|
 | L-47 | There is no automated **installer-based, cross-machine** acceptance. The halves that exist are green in CI: a companion job builds the app end to end, runs the gate both ways (worker present ⇒ Minecraft starts; absent ⇒ an actionable abort), and proves hosted-world survival with a real daemon and a SIGKILLed stand-in game process. What is missing is the sentence a player would actually say — install the app, host a world, close Minecraft, and have it still be listed **and joinable from a second, separately networked side** | [4](Task.4.md) | A CI job installs the app, verifies the gate both ways, hosts a world, closes Minecraft, and joins that world from a second machine or separately networked instance | OPEN |
 | L-56 | **Two connection settings can never be honoured as specified.** Settings → Network exposes a per-world connection cap and an unlimited-connections-only filter. Neither is implementable against the architecture as it stands, and both are **kept in the UI on purpose**, permanently badged with the worker's own reason rather than deleted — removing them would silently drop settings users already saved and would hide that the limitation is known. *Per-world caps:* the socket transport has no world dimension at all — a socket is not owned by a world — so making it real needs either a world dimension on the transport or a world→manifest accounting index, i.e. an architectural change rather than a settings change. *Unlimited-connections-only:* no peer advertises a connection cap anywhere on the wire, so there is nothing to filter peers on; it would need a new field in the frozen membership family, mirrored in the Rust codec. The worker returns both as `rejected` with these reasons and the app renders a distinct muted "not supported" badge — deliberately **not** the amber "not enforced yet", which would imply the feature is coming | [3](Task.3.md) | Either the transport gains per-world attribution and a peer-advertised cap field, or both controls are removed from the UI **with their saved values migrated** | OPEN |
-| A-UX-1 | When the link to the worker is down, only the top bar changes: every screen keeps rendering its numbers unmarked, because they all gate on `link.has_data`, which stays true. Keeping the last picture is deliberate; failing to say it is the last picture is not | [10](Task.10.md) | With the worker stopped, every screen marks its figures as last-known rather than current | OPEN |
-| A-UX-2 | `appearance.notifications` reports itself as in force and has no read site — no consumer, no `tauri-plugin-notification`, no capability entry. `Enforcement::Local` resolves to `Live` unconditionally | [10](Task.10.md) | The setting either raises a notification or is declared unenforced | OPEN |
-| A-UX-3 | Saving a restart-scoped setting tells the user to restart the worker themselves, while the app already owns the restart signal | [10](Task.10.md) | The banner restarts the worker, or explains why it cannot in this mode | OPEN |
-| A-UX-5 | Six registered commands have no desktop caller: `settings_fault`, `pause_reason`, `dashboard_world`, `open_share_file`, `get_unenforced_settings`, and the `nodera://pause` event | [10](Task.10.md) | Each has a caller or is deleted | OPEN |
 
 ---
 

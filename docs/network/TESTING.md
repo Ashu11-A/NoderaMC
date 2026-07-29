@@ -6,13 +6,13 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-28 · **936 Java test cases + 73 Rust (`nodera-codec`)
+**Category:** network · **Last run:** 2026-07-28 · **938 Java test cases + 73 Rust (`nodera-codec`)
 `#[test]` · 0 failing at the last gate** — Java counts come from Gradle XML reports and sum the module
-table below (184 + 157 + 595). Worker-module cases are accounted under the worker category.
+table below (186 + 157 + 595). Worker-module cases are accounted under the worker category.
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `transport` | The `NDR2` wire and both planes: all 75 kinds sampled, fixtured and dispatch-tested; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz | 184 | ✅ |
+| `transport` | The `NDR2` wire and both planes: all 75 kinds sampled, fixtured and dispatch-tested; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard | 186 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes | 157 | ✅ |
 | `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, the endpoint tenant boundary, the L-16 prediction feed | 595 | 🚧 |
 | `rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 73 | ✅ |

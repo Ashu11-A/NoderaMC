@@ -88,6 +88,22 @@ public final class PieceDownloader {
     private final int requestReplication;
 
     private final Map<NodeId, Set<Integer>> holders = new LinkedHashMap<>();
+    /**
+     * Holdings of peers whose route died mid-download, kept so the next {@link #retryPending()}
+     * round can ask them again.
+     *
+     * <p><b>Why a lost holder is remembered rather than forgotten.</b> The transport-level signal
+     * for "this relay circuit was cut" and for "this peer left the swarm" is the same
+     * {@code onPeerDown}, and a rendezvous drain produces the first one on purpose: a drain's grace
+     * period can expire with circuits still bridged, and those circuits are cut. The peers behind
+     * them have not gone anywhere — they have already migrated to a replacement relay, and the very
+     * next request re-dials through it (the transport tries every endpoint it knows). Dropping their
+     * holdings permanently is what turned a planned relay restart into an abandoned transfer: the
+     * downloader kept every piece it had verified, and then had nobody left to ask for the rest.
+     * Restored once per loss, so a peer that really is gone costs one skipped round (it lands in
+     * {@link #unanswered}) rather than a retry loop.
+     */
+    private final Map<NodeId, Set<Integer>> lostHolders = new LinkedHashMap<>();
     /** piece index → holders currently asked for it. */
     private final Map<Integer, Set<NodeId>> inflight = new HashMap<>();
     /** piece index → holders that served bytes failing the manifest hash. Permanent: a peer that
@@ -110,6 +126,7 @@ public final class PieceDownloader {
 
     private long requestsIssued;
     private long piecesRejected;
+    private long holdersRestored;
     private boolean started;
 
     /**
@@ -180,6 +197,8 @@ public final class PieceDownloader {
         Objects.requireNonNull(pieces, "pieces");
         synchronized (this) {
             holders.put(peer, Set.copyOf(pieces));
+            // It answered for itself: whatever we remembered from an earlier loss is stale now.
+            lostHolders.remove(peer);
         }
         pump();
     }
@@ -296,7 +315,12 @@ public final class PieceDownloader {
     public void onHolderLost(NodeId peer) {
         Objects.requireNonNull(peer, "peer");
         synchronized (this) {
-            holders.remove(peer);
+            Set<Integer> held = holders.remove(peer);
+            if (held != null && !held.isEmpty() && !completion.isDone()) {
+                // Remembered, not discarded: see lostHolders. It is dropped from `holders` all the
+                // same, so nothing is asked over the route that just died.
+                lostHolders.put(peer, held);
+            }
             for (Set<NodeId> asked : inflight.values()) {
                 asked.remove(peer);
             }
@@ -365,8 +389,24 @@ public final class PieceDownloader {
                         .addAll(asked.getValue());
             }
             inflight.clear();
+            // Give the holders whose route died a second chance, on the route the transport has
+            // since migrated to. This is the recovery half of a rendezvous drain: the grace period
+            // expiring cuts a live circuit, and without this the download that circuit was carrying
+            // has no holder left to re-dial even though the peer is still there. One restoration per
+            // loss — a peer that is genuinely gone simply does not answer and is skipped again.
+            holders.putAll(lostHolders);
+            holdersRestored += lostHolders.size();
+            lostHolders.clear();
         }
         pump();
+    }
+
+    /**
+     * @return how many holder entries have been restored after their route died (see
+     *         {@link #retryPending()}).
+     */
+    public synchronized long holdersRestored() {
+        return holdersRestored;
     }
 
     /** @return how many piece requests have been emitted (retries included). */

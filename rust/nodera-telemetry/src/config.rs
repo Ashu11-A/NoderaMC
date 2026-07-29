@@ -2,9 +2,11 @@
 //!
 //! Two kinds of setting live here and they are not interchangeable. The **bounds** exist because
 //! the service is unauthenticated and internet-facing, exactly like the tracker's. The **privacy
-//! settings** — the pseudonymisation secret, its rotation period, the geolocation table — decide
-//! what the stored data *is*, and one of them (`subject_secret`) has no safe default at all, so
-//! the service refuses to start until an operator sets it.
+//! settings** — the pseudonymisation rotation period and the geolocation table — decide what the
+//! stored data *is*. There is deliberately **no pseudonymisation secret** here: since L-72 retired,
+//! the per-period key is minted from the OS CSPRNG and held only in process memory
+//! ([`crate::subject`]), so the configuration carries no key material at all and an operator with
+//! the full config cannot reproduce a previous period's subjects.
 
 use nodera_service::env::{EnvOverlay, EnvSource};
 use serde::{Deserialize, Serialize};
@@ -13,11 +15,6 @@ use std::path::PathBuf;
 
 /// Prefix for the environment form of every key below.
 pub const ENV_PREFIX: &str = "NODERA_TELEMETRY_";
-
-/// The placeholder shipped in the example configuration. Refused explicitly so that copying the
-/// example and forgetting to edit it fails loudly at boot rather than quietly producing subjects
-/// every other deployment can also compute.
-pub const PLACEHOLDER_SECRET: &str = "change-me";
 
 /// `Serialize` exists so a test can enumerate the keys of a serialized default and fail if any of
 /// them has no environment override.
@@ -32,9 +29,8 @@ pub struct Config {
     pub spool_max_bytes: u64,
     /// …or this age, whichever comes first.
     pub spool_max_seconds: u64,
-    /// HMAC key behind [`crate::subject`]. **No default that works** — see [`PLACEHOLDER_SECRET`].
-    pub subject_secret: String,
-    /// How many days a pseudonymous subject survives before it rotates.
+    /// How many days a pseudonymous subject survives before it rotates. The key behind it is
+    /// memory-only — see [`crate::subject::Pseudonymiser`].
     pub subject_rotation_days: u64,
     /// Optional `cidr,country,asn` table for coarse geolocation. Absent means every row is
     /// recorded as `ZZ`/`0`, which is honest and is the default.
@@ -155,7 +151,6 @@ impl Default for Config {
             spool_dir: PathBuf::from("telemetry-spool"),
             spool_max_bytes: 64 * 1024 * 1024,
             spool_max_seconds: 300,
-            subject_secret: String::new(),
             subject_rotation_days: 1,
             geo_table_path: None,
             max_frame_bytes: 1024 * 1024,
@@ -176,15 +171,6 @@ impl Default for Config {
 /// Why a configuration was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
-    #[error(
-        "subject_secret is unset: telemetry cannot be pseudonymised without one. \
-         Generate 32+ random characters and keep them out of the warehouse."
-    )]
-    MissingSecret,
-    #[error("subject_secret is still the example placeholder {PLACEHOLDER_SECRET:?}")]
-    PlaceholderSecret,
-    #[error("subject_secret is shorter than 16 characters")]
-    WeakSecret,
     #[error("{0} must be greater than zero")]
     MustBePositive(&'static str),
     #[error(
@@ -200,20 +186,11 @@ pub enum ConfigError {
     Env(#[from] nodera_service::env::EnvError),
 }
 
-/// Environment variable that overrides [`Config::subject_secret`].
-///
-/// A secret in a config file is a secret in a bind mount, in a backup, and eventually in a
-/// screenshot. The container deployment passes it this way so the file on disk stays publishable.
-///
-/// This is now one key of the general scheme rather than a special case, and the name is unchanged
-/// because it was already `ENV_PREFIX` + the TOML key.
-pub const SECRET_ENV: &str = "NODERA_TELEMETRY_SUBJECT_SECRET";
-
 impl Config {
     /// Apply `NODERA_TELEMETRY_*` overrides.
     ///
     /// **This widens a deliberately narrow rule, so the reasoning is worth restating.** The earlier
-    /// version overrode only [`SECRET_ENV`], on the grounds that everything else is an operator
+    /// version overrode only a single key, on the grounds that everything else is an operator
     /// policy decision belonging in a file someone can review rather than in a process environment
     /// nobody can reconstruct afterwards. That argument holds for a host an operator administers
     /// and fails for a container: an image whose only configuration path is a file is an image that
@@ -225,7 +202,7 @@ impl Config {
     /// file, and is the artefact those operators already keep in version control. So the rule
     /// becomes: every key is overridable, unknown variables are refused rather than ignored
     /// (`nodera_service::env`), and the startup log names which variables took effect — never their
-    /// values, because one of them is this service's pseudonymisation secret.
+    /// values, because one of them could be an operator secret for an adjacent service.
     pub fn apply_env(
         &mut self,
         env: &impl EnvSource,
@@ -235,9 +212,6 @@ impl Config {
         overlay.set("spool_dir", &mut self.spool_dir);
         overlay.set("spool_max_bytes", &mut self.spool_max_bytes);
         overlay.set("spool_max_seconds", &mut self.spool_max_seconds);
-        // `set_non_empty`, not `set`: an empty value here has no meaning, and a compose file
-        // referencing an unset variable passes exactly that. Blanking the secret refuses the start.
-        overlay.set_non_empty("subject_secret", &mut self.subject_secret);
         overlay.set("subject_rotation_days", &mut self.subject_rotation_days);
         overlay.set_optional_path("geo_table_path", &mut self.geo_table_path);
         overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
@@ -268,15 +242,6 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.subject_secret.is_empty() {
-            return Err(ConfigError::MissingSecret);
-        }
-        if self.subject_secret == PLACEHOLDER_SECRET {
-            return Err(ConfigError::PlaceholderSecret);
-        }
-        if self.subject_secret.len() < 16 {
-            return Err(ConfigError::WeakSecret);
-        }
         if self.max_frame_bytes == 0 {
             return Err(ConfigError::MustBePositive("max_frame_bytes"));
         }
@@ -310,45 +275,12 @@ impl Config {
 mod tests {
     use super::*;
 
-    fn valid() -> Config {
-        Config {
-            subject_secret: "0123456789abcdef0123".to_owned(),
-            ..Config::default()
-        }
-    }
-
     #[test]
-    fn the_default_configuration_refuses_to_start() {
-        assert_eq!(
-            Config::default().validate().unwrap_err(),
-            ConfigError::MissingSecret
-        );
-    }
-
-    #[test]
-    fn the_example_placeholder_is_refused_by_name() {
-        let config = Config {
-            subject_secret: PLACEHOLDER_SECRET.to_owned(),
-            ..Config::default()
-        };
-        assert_eq!(
-            config.validate().unwrap_err(),
-            ConfigError::PlaceholderSecret
-        );
-    }
-
-    #[test]
-    fn a_short_secret_is_refused() {
-        let config = Config {
-            subject_secret: "short".to_owned(),
-            ..Config::default()
-        };
-        assert_eq!(config.validate().unwrap_err(), ConfigError::WeakSecret);
-    }
-
-    #[test]
-    fn a_realistic_configuration_validates() {
-        assert!(valid().validate().is_ok());
+    fn the_default_configuration_validates() {
+        // The pseudonymisation key is minted in memory from the OS CSPRNG (see `subject.rs`), so a
+        // default configuration with no secret set is a valid one. The old "refuses to start
+        // without a subject_secret" check is gone with L-72: there is no persistent secret to set.
+        assert!(Config::default().validate().is_ok());
     }
 
     #[test]
@@ -362,7 +294,6 @@ mod tests {
         let config: Config = toml::from_str(
             r#"
             bind_addr = "127.0.0.1:25620"
-            subject_secret = "0123456789abcdef0123"
             subject_rotation_days = 7
             "#,
         )
@@ -375,29 +306,9 @@ mod tests {
 
     #[test]
     fn bounds_are_converted_to_milliseconds() {
-        let bounds = valid().bounds();
+        let bounds = Config::default().bounds();
         assert_eq!(bounds.max_clock_skew_millis, 300_000);
         assert_eq!(bounds.max_event_age_millis, 7 * 24 * 3_600_000);
-    }
-
-    #[test]
-    fn the_secret_can_come_from_the_environment_so_it_need_not_sit_in_a_file() {
-        use nodera_service::env::MapEnv;
-
-        let mut config = Config::default();
-        config
-            .apply_env(&MapEnv::empty().with(SECRET_ENV, "an-environment-provided-secret"))
-            .unwrap();
-        assert_eq!(config.subject_secret, "an-environment-provided-secret");
-        assert!(config.validate().is_ok());
-
-        // An empty value must not silently blank a secret the file did provide: a compose file
-        // referencing an unset variable passes the empty string, and that must not be an outage.
-        let mut kept = valid();
-        let before = kept.subject_secret.clone();
-        kept.apply_env(&MapEnv::empty().with(SECRET_ENV, "   "))
-            .unwrap();
-        assert_eq!(kept.subject_secret, before);
     }
 
     #[test]
@@ -432,7 +343,7 @@ mod tests {
         use nodera_service::env::MapEnv;
 
         // `SPOOL_MAX_BYTE` looks as authoritative in a compose file as the real name.
-        let mut config = valid();
+        let mut config = Config::default();
         assert!(config
             .apply_env(&MapEnv::empty().with("NODERA_TELEMETRY_SPOOL_MAX_BYTE", "1"))
             .is_err());
@@ -503,11 +414,30 @@ mod tests {
     fn a_zero_bound_that_would_disable_validation_is_refused() {
         let config = Config {
             max_events_per_batch: 0,
-            ..valid()
+            ..Config::default()
         };
         assert_eq!(
             config.validate().unwrap_err(),
             ConfigError::MustBePositive("max_events_per_batch")
+        );
+    }
+
+    #[test]
+    fn a_subject_secret_in_the_file_is_refused_as_unknown_rather_than_silently_honoured() {
+        // L-72 removed `subject_secret` from the schema. A deployment that still carries one (a
+        // stale compose mount, an unreleased operator note) hits `deny_unknown_fields` here and is
+        // told so, rather than silently collecting a value the service no longer reads. That is the
+        // honest failure: the privacy model changed, and a quiet no-op would hide it.
+        let err = toml::from_str::<Config>(
+            r#"
+            bind_addr = "127.0.0.1:25620"
+            subject_secret = "stale-deployment-secret"
+            "#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("subject_secret"),
+            "the stale key must be named in the refusal: {err}"
         );
     }
 }

@@ -65,13 +65,24 @@ pub struct Ingest {
 
 impl Ingest {
     pub fn new(config: Config, geo: GeoTable, sink: Box<dyn EventSink>) -> Self {
+        let rotation_days = config.subject_rotation_days;
+        Self::with_pseudonymiser(config, geo, sink, Pseudonymiser::memory_only(rotation_days))
+    }
+
+    /// Injection constructor so the restart/rotation privacy property can be asserted at the
+    /// service level with a deterministic key source. The default path ([`Ingest::new`]) uses the
+    /// OS CSPRNG; nothing about a `Pseudonymiser` built here is persisted.
+    pub fn with_pseudonymiser(
+        config: Config,
+        geo: GeoTable,
+        sink: Box<dyn EventSink>,
+        pseudonymiser: Pseudonymiser,
+    ) -> Self {
         let quota = IngestQuota::new(
             config.quota_window_seconds.saturating_mul(1_000).max(1),
             config.per_ip_batch_quota,
             config.per_ip_event_quota,
         );
-        let pseudonymiser =
-            Pseudonymiser::new(&config.subject_secret, config.subject_rotation_days);
         // `validate()` has already refused an unparseable CIDR, and `serve` refuses to start on a
         // config that does not validate — so reaching this with a bad range is a programming error
         // and must be loud rather than silently open.
@@ -115,9 +126,12 @@ impl Ingest {
         false
     }
 
-    /// Expire idle quota counters.
+    /// Expire idle quota counters and advance the pseudonymiser so a quiet period still erases
+    /// the previous period's key promptly after the boundary, rather than holding it until the
+    /// next batch arrives.
     pub fn sweep(&mut self, now_millis: u64) {
         self.quota.sweep(now_millis);
+        self.pseudonymiser.advance_to(now_millis);
     }
 
     /// Handle one frame.
@@ -323,10 +337,7 @@ mod tests {
     const NOW: u64 = 1_800_000_000_000;
 
     fn config() -> Config {
-        Config {
-            subject_secret: "0123456789abcdef0123".to_owned(),
-            ..Config::default()
-        }
+        Config::default()
     }
 
     fn geo_table() -> GeoTable {
@@ -549,5 +560,89 @@ mod tests {
         let row: Value = serde_json::from_str(&sink.0.lock().unwrap()[0]).unwrap();
         assert_eq!(row["country"], Value::from("ZZ"));
         assert_eq!(row["asn"], Value::from(0));
+    }
+
+    /// Service-level form of the L-72 exit test. A row written in period P0 carries a subject that
+    /// a restarted ingest (fresh memory, identical empty configuration) cannot reproduce — neither
+    /// for the rolled-to P1 nor for a back-dated P0 — because the per-period key lived only in the
+    /// first process. Rotation is driven through the real `subject` path; the eager `sweep` wiring
+    /// is covered by `subject::tests`.
+    #[test]
+    fn a_previous_period_subject_in_a_written_row_is_not_reproducible_after_restart() {
+        use crate::subject::{DeterministicKeySource, KeySource, Pseudonymiser};
+
+        let day = 86_400_000u64;
+        let now_p0 = day * 10;
+        let now_p1 = day * 11;
+        let install_batch =
+            batch("{'name':'feature.use','attrs':{'feature':'selftest','count':1}}")
+                .replace('\'', "\"");
+
+        // Identical nominal seed for both processes — the point is that identical empty
+        // configuration is still insufficient once process memory is gone.
+        let seed = b"operator-seed";
+        let mk = || {
+            (
+                SharedSink::default(),
+                Pseudonymiser::with_key_source(
+                    1,
+                    Box::new(DeterministicKeySource::new(seed)) as Box<dyn KeySource>,
+                ),
+            )
+        };
+
+        // --- Process A: write a row in P0. ---
+        let (sink_a, pseudo_a) = mk();
+        let mut a =
+            Ingest::with_pseudonymiser(config(), geo_table(), Box::new(sink_a.clone()), pseudo_a);
+        let Handled::Reply(_) = a.handle_frame(
+            install_batch.as_bytes(),
+            Some("198.51.100.7".parse().unwrap()),
+            now_p0,
+        );
+        let subject_p0 = serde_json::from_str::<Value>(&sink_a.0.lock().unwrap()[0]).unwrap()
+            ["subject"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        // --- Restart: drop A, build B with identical config + fresh memory. ---
+        drop(a);
+        let (sink_b, pseudo_b) = mk();
+        let mut b =
+            Ingest::with_pseudonymiser(config(), geo_table(), Box::new(sink_b.clone()), pseudo_b);
+
+        // B boots into P1. The same install cannot reproduce P0's subject.
+        let Handled::Reply(_) = b.handle_frame(
+            install_batch.as_bytes(),
+            Some("198.51.100.7".parse().unwrap()),
+            now_p1,
+        );
+        let subject_p1_b = serde_json::from_str::<Value>(&sink_b.0.lock().unwrap()[0]).unwrap()
+            ["subject"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(
+            subject_p1_b, subject_p0,
+            "the restarted process must not reproduce the previous period's subject"
+        );
+
+        // And B cannot reproduce P0 either: back-dating to P0 mints a fresh key, because the
+        // P0 key A held was never persisted.
+        let Handled::Reply(_) = b.handle_frame(
+            install_batch.as_bytes(),
+            Some("198.51.100.7".parse().unwrap()),
+            now_p0,
+        );
+        let subject_p0_b = serde_json::from_str::<Value>(&sink_b.0.lock().unwrap()[1]).unwrap()
+            ["subject"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(
+            subject_p0_b, subject_p0,
+            "the rolled-away period's key is gone; a fresh mint must not reproduce it"
+        );
     }
 }

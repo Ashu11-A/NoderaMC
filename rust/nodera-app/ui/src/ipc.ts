@@ -366,11 +366,6 @@ export async function togglePause(): Promise<boolean> {
   return invoke<boolean>("toggle_pause");
 }
 
-/** Emitted when the tray's Pause seeding item is used, so the window can follow along. */
-export function onPauseToggled(cb: (paused: boolean) => void): Promise<UnlistenFn> {
-  return listen<boolean>("nodera://pause", (event) => cb(event.payload));
-}
-
 
 /* ------------------------------------------------------------------------------ the mobile peer */
 
