@@ -191,18 +191,6 @@ pub fn write_share_file(path: &std::path::Path, uri: &str) -> Result<(), String>
         .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
-/// Read a `.nodera` invitation back, tolerating a file somebody pasted extra whitespace into.
-pub fn read_share_file(path: &std::path::Path) -> Result<String, String> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    let uri = text
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("nodera:") || line.starts_with("magnet:"))
-        .ok_or_else(|| "that file does not contain a Nodera invitation".to_owned())?;
-    Ok(uri.to_owned())
-}
-
 /// The world id inside an invitation, without needing the worker to parse it.
 ///
 /// Deliberately duplicated from the Java parser rather than round-tripped through the worker: this
@@ -283,26 +271,20 @@ mod tests {
         assert_eq!(world_id_of("nodera:?xt=urn%3Anodera%3Anothex"), None);
     }
 
+    /// The written file must still be readable by whoever receives it — one invitation URI, on its
+    /// own line, and nothing else. The reader half used to live here too; it was reachable only
+    /// from a command with no caller and was deleted (A-UX-5), so what the writer emits is now
+    /// asserted directly rather than through its own reader.
     #[test]
-    fn an_invitation_file_round_trips_through_disk() {
+    fn a_saved_invitation_is_the_uri_on_its_own_line() {
         let dir = std::env::temp_dir().join(format!("nodera-share-{}", std::process::id()));
         let file = dir.join("world.nodera");
         let uri = "nodera:?xt=urn%3Anodera%3Aaabb&dn=Test";
 
         write_share_file(&file, uri).expect("write");
-        assert_eq!(read_share_file(&file).expect("read"), uri);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_file_that_is_not_an_invitation_says_so() {
-        let dir = std::env::temp_dir().join(format!("nodera-share-bad-{}", std::process::id()));
-        let file = dir.join("notes.txt");
-        write_share_file(&file, "just some text").expect("write");
-
-        let error = read_share_file(&file).expect_err("not an invitation");
-        assert!(error.contains("does not contain"), "{error}");
+        let text = std::fs::read_to_string(&file).expect("read back");
+        assert_eq!(text, format!("{uri}\n"));
+        assert_eq!(world_id_of(text.trim()), Some("aabb".to_owned()));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

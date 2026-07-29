@@ -38,6 +38,22 @@ export const AVATAR = "grid flex-none place-items-center rounded-sm bg-brand fon
 /** Auto-filling tile grid shared by Home and the world State tab. */
 export const STAT_GRID = "grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3";
 
+/**
+ * "These figures are the last known picture, not the current one."
+ *
+ * Shown at the top of a screen that renders worker-derived numbers whenever the link is down but a
+ * previous snapshot exists. Keeping the last picture is right; failing to say it is the last
+ * picture is the defect A-UX-1 retires. A screen that has never heard from the worker renders "—"
+ * for every figure and has nothing to mark, so this only appears when `isStale(link)` is true.
+ */
+export function StaleDataNotice() {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-warn/35 bg-warn/10 px-3.5 py-2 text-xs text-warn">
+      <FiInfo aria-hidden /> Showing the last known picture — the worker link is offline.
+    </div>
+  );
+}
+
 /* --------------------------------------------------------------------------------------- cards */
 
 export function Card(props: { title?: string; hint?: string; right?: ReactNode; children: ReactNode }) {

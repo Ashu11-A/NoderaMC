@@ -130,6 +130,25 @@ final class TorrentWorldListViewTest {
                 .containsExactly("alpha", "Bravo", "charlie");
     }
 
+    /** MC-JOIN-1: the one rule that decides whether the join flow may be offered for a row. */
+    @Test
+    void joinabilityIsAMeasurementNotAnAssumption() {
+        // A live world with a known game endpoint, and one the join flow can resolve by id.
+        assertThat(new TorrentWorldEntry("live", 1, 0, 10_000, WorldHealth.HEALTHY, -1, "",
+                "deadbeef", "10.0.0.4:25565").joinable()).isTrue();
+        assertThat(new TorrentWorldEntry("resolvable", 1, 0, 9_000, WorldHealth.HEALTHY, -1, "",
+                "deadbeef", "").joinable()).isTrue();
+        // A degraded world is still enterable — degraded is about content redundancy, not the game.
+        assertThat(new TorrentWorldEntry("degraded", 1, 0, 100, WorldHealth.DEGRADED, -1, "",
+                "deadbeef", "").joinable()).isTrue();
+        // DEAD is what the feed stamps on a world whose host game is closed.
+        assertThat(new TorrentWorldEntry("closed", 0, 0, 0, WorldHealth.DEAD, -1, "",
+                "deadbeef", "").joinable()).isFalse();
+        // No handle at all: no game route and no id for the join flow to resolve.
+        assertThat(new TorrentWorldEntry("handleless", 0, 0, 0, WorldHealth.HEALTHY, -1, "")
+                .joinable()).isFalse();
+    }
+
     @Test
     void reliabilityFormattingIsPureIntegerMathAndClamped() {
         assertThat(TorrentWorldListView.formatReliability(10_000)).isEqualTo("100.0%");

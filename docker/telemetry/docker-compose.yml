@@ -35,9 +35,6 @@ services:
       context: ../..
       dockerfile: docker/telemetry/Dockerfile
     restart: unless-stopped
-    environment:
-      # The pseudonymisation secret. NOT in the warehouse, NOT in the image, NOT in git.
-      NODERA_TELEMETRY_SUBJECT_SECRET: ${NODERA_TELEMETRY_SUBJECT_SECRET:?set it in .env}
     volumes:
       - ./ingest/nodera-telemetry.toml:/etc/nodera/nodera-telemetry.toml:ro
       # Optional operator-supplied `cidr,country,asn` table. Absent ⇒ every row is ZZ/0.

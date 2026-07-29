@@ -196,12 +196,18 @@ public final class MultiplayerWorldFeed {
         List<TorrentWorldEntry> out = new ArrayList<>(hosted.size());
         for (HostedWorldInfo world : hosted) {
             String name = world.name().isBlank() ? world.worldId() : world.name();
+            // MC-JOIN-1: readiness is a measurement, not an assumption. The worker publishes
+            // `mc_route` only while a game is actually listening for this world, so its absence is
+            // the one honest signal this node has that the world is seeded but not enterable —
+            // hosting it says nothing about whether anyone can walk into it. Stamping HEALTHY and
+            // full reliability regardless is what made a closed world look exactly like a live one.
+            boolean live = !world.mcRoute().isBlank();
             out.add(new TorrentWorldEntry(
                     name,
                     world.players(),
                     0,                       // stored chunks: real count arrives with the content plane
-                    10_000,                  // a world you host is fully reliable from your own node
-                    WorldHealth.HEALTHY,
+                    live ? 10_000 : 0,       // a world you host is fully reliable while it is up
+                    live ? WorldHealth.HEALTHY : WorldHealth.DEAD,
                     -1,                      // no retention countdown for a live-hosted world
                     owner == null ? "" : owner,
                     world.worldId(),

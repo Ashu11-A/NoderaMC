@@ -54,6 +54,18 @@ final class WorldHostingPersistenceTest {
                 List.of(), worldId -> List.of(), registry);
     }
 
+    /**
+     * A service wired to a world-key store, so ownership can be re-bound from a surviving key
+     * (W-DUP-2). Mirrors the production wiring in {@code HeadlessPeerMain}.
+     */
+    private WorldHostingService newServiceWithKeys(NodeIdentity identity, WorldRegistryStore registry,
+                                                   WorldKeyStore keys) {
+        return new WorldHostingService(identity, NodeCapabilities.initial(),
+                () -> "127.0.0.1:25620",
+                new dev.nodera.peer.discovery.TrackerClient(List.of(), NodeIdentity.generate()),
+                List.of(), worldId -> List.of(), registry, keys);
+    }
+
     private WorldRegistryStore registry() {
         return new WorldRegistryStore(dir.resolve("worlds.dat"));
     }
@@ -268,6 +280,114 @@ final class WorldHostingPersistenceTest {
         try (WorldHostingService service = newService(null)) {
             assertThat(service.host(worldId("ephemeral"), "W", "{}")).isNull();
             assertThat(service.hostedWorlds()).hasSize(1);
+        }
+    }
+
+    /**
+     * W-DUP-1: a registry row whose world this node can no longer serve stops being announced
+     * within one refresh cycle, but its claim is retained for repair.
+     */
+    @Test
+    @DisplayName("a world this node can no longer serve is suppressed but its row is kept (W-DUP-1)")
+    void anUnservableWorldIsSuppressedWithinOneCycle() {
+        String world = worldId("stale");
+        try (WorldHostingService svc = newService(registry())) {
+            assertThat(svc.host(world, "W", "{}")).isNull();
+            assertThat(svc.hostedWorlds().iterator().next().announceSuppressed())
+                    .as("a servable world is announced")
+                    .isFalse();
+
+            // The world's bytes vanished from this node (a moved save, a drained content store): it
+            // can no longer honour a join, so it must stop being announced.
+            svc.bindServability(id -> !id.equals(world));
+            svc.reconcile();
+
+            assertThat(svc.hostedWorlds().iterator().next().announceSuppressed())
+                    .as("an unservable world is suppressed within one refresh cycle")
+                    .isTrue();
+            // The claim is retained for repair — the row is NOT dropped from the live set ...
+            assertThat(svc.hostedWorlds()).hasSize(1);
+            // ... nor from the registry a restart would read.
+            assertThat(new WorldRegistryStore(dir.resolve("worlds.dat")).find(world)).isPresent();
+
+            // A repair makes it servable again: the announce resumes, under the SAME identity (no
+            // second row, no re-derivation).
+            svc.bindServability(id -> true);
+            svc.reconcile();
+            assertThat(svc.hostedWorlds().iterator().next().announceSuppressed()).isFalse();
+            assertThat(svc.hostedWorlds()).hasSize(1);
+        }
+    }
+
+    /**
+     * The servability test is about the bytes at rest. A world a game is serving RIGHT NOW is
+     * servable whatever the content plane says, or the worker would stop announcing a world people
+     * are playing in the moment its archive stream lagged.
+     */
+    @Test
+    @DisplayName("a world with a live game route is never suppressed (W-DUP-1)")
+    void aLiveWorldIsNeverSuppressed() {
+        String world = worldId("live");
+        try (WorldHostingService svc = newService(registry())) {
+            assertThat(svc.host(world, "W", "{\"mc\":\"127.0.0.1:25565\"}")).isNull();
+
+            svc.bindServability(id -> false); // nothing is servable at rest
+            svc.reconcile();
+
+            assertThat(svc.hostedWorlds().iterator().next().announceSuppressed())
+                    .as("a running game is serving the world regardless of the content plane")
+                    .isFalse();
+        }
+    }
+
+    /**
+     * W-DUP-2: {@code stop} then re-{@code seed} a world whose {@code .worldkey} exists on disk;
+     * the registry row still reads owned.
+     */
+    @Test
+    @DisplayName("stop then re-seed a world whose key exists reads as owned again (W-DUP-2)")
+    void ownershipSurvivesStopAndReSeed() {
+        String world = worldId("mine");
+        WorldKeyStore keys = new WorldKeyStore(dir.resolve("world-keys"));
+        // This node authored the world — its key is minted and persists on disk.
+        keys.loadOrGenerate(world);
+
+        try (WorldHostingService svc = newServiceWithKeys(self, registry(), keys)) {
+            assertThat(svc.host(world, "Mine", "{}")).isNull();
+            assertThat(svc.hostedWorlds().iterator().next().owned())
+                    .as("host re-binds ownership from the surviving key")
+                    .isTrue();
+
+            // stop drops the in-memory world AND the registry row, but the .worldkey is NOT removed
+            // (see WorldRegistryStore.remove / WorldHostingService.stop).
+            assertThat(svc.stop(world)).isNull();
+            assertThat(svc.hostedWorlds()).isEmpty();
+            assertThat(keys.administers(world))
+                    .as("the key survives stop on disk")
+                    .isTrue();
+
+            // re-seed recreates the row carrying no ownership record in hand — the fix re-binds it
+            // from the key the stop never removed, so an administered world stays administered.
+            assertThat(svc.seed(world, "Mine")).isNull();
+            assertThat(svc.hostedWorlds().iterator().next().owned())
+                    .as("an administered world reads as owned after stop → re-seed")
+                    .isTrue();
+            // The registry a restart would read agrees with the live world.
+            assertThat(new WorldRegistryStore(dir.resolve("worlds.dat")).find(world)
+                    .orElseThrow().owned()).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("re-binding ownership from the key store never invents authority for a foreign world")
+    void aForeignWorldIsNotReAdministered() {
+        String foreign = worldId("theirs");
+        try (WorldHostingService svc =
+                     newServiceWithKeys(self, registry(), new WorldKeyStore(dir.resolve("k")))) {
+            // No key exists for this world, so it must read as supported, not owned.
+            assertThat(svc.seed(foreign, "Their World")).isNull();
+            assertThat(svc.hostedWorlds().iterator().next().owned()).isFalse();
+            assertThat(svc.administers(foreign)).isFalse();
         }
     }
 }
