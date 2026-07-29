@@ -11,8 +11,10 @@
 //! `docs/telemetry/Task.1.md` §Design.
 //!
 //! There is **no TLS here.** The service is meant to run behind a TLS-terminating proxy (the
-//! compose stack ships one); a plaintext listener exposed directly to the internet is recorded as
-//! an open limitation rather than hidden.
+//! compose stack ships one). That arrangement used to be a convention with nothing enforcing it —
+//! the plaintext listener served whoever reached it. It is now checkable: a deployment that sets
+//! `public_endpoint` names the ranges its TLS front dials from, and `serve_connection` closes a
+//! connection from anywhere else before reading a byte (telemetry L-73).
 
 use std::io;
 use std::net::SocketAddr;
@@ -83,6 +85,19 @@ pub async fn serve_connection(
     remote: SocketAddr,
     max_frame_bytes: usize,
 ) {
+    // Before the first read, because the question "may this address talk to the plaintext port at
+    // all" is not about anything it sent.
+    {
+        let mut guard = ingest.lock().await;
+        if !guard.admits_connection(remote.ip()) {
+            eprintln!(
+                "nodera-telemetry: refused {remote}: this endpoint is declared public, so the \
+                 plaintext port serves only the declared TLS front"
+            );
+            let _ = stream.shutdown().await;
+            return;
+        }
+    }
     loop {
         let frame = match read_frame(&mut stream, max_frame_bytes).await {
             Ok(Some(frame)) => frame,
@@ -282,5 +297,77 @@ mod tests {
         write_frame(&mut client, b"{\"v\":1}").await.unwrap();
         let frame = read_frame(&mut server, 4096).await.unwrap().unwrap();
         assert_eq!(frame, b"{\"v\":1}");
+    }
+
+    /// The plaintext-listener gate, over a real socket (telemetry L-73).
+    ///
+    /// The deployment declares itself public and names the range its TLS terminator dials from. A
+    /// client reaching the plaintext port from anywhere else is disconnected before its frame is
+    /// read: it gets an end of stream rather than a reply, and nothing it sent is stored.
+    ///
+    /// The source address is handed to `serve_connection` rather than being the socket's real peer,
+    /// because every address a test can dial from is loopback and loopback is deliberately admitted
+    /// — a container healthcheck must keep working. The refusal is a function of that address, so
+    /// driving it directly is the honest way to reach the case.
+    #[tokio::test]
+    async fn a_direct_plaintext_client_is_refused_once_the_endpoint_is_declared_public() {
+        let spool = std::env::temp_dir().join(format!(
+            "nodera-telemetry-public-{}-{}",
+            std::process::id(),
+            now_millis()
+        ));
+        let _ = std::fs::remove_dir_all(&spool);
+        let mut config = config(&spool);
+        config.public_endpoint = true;
+        config.trusted_proxy_cidrs = vec!["203.0.113.0/24".to_owned()];
+        config
+            .validate()
+            .expect("a public config naming a TLS front is valid");
+
+        let sink = NdjsonSink::new(&config.spool_dir, 1 << 20, 3_600).unwrap();
+        let ingest = Arc::new(Mutex::new(Ingest::new(
+            config.clone(),
+            GeoTable::empty(),
+            Box::new(sink),
+        )));
+
+        for (source, admitted) in [
+            // A stranger dialling the public endpoint in the clear.
+            ("198.51.100.9:40000", false),
+            // The declared TLS terminator, which is the only way in.
+            ("203.0.113.7:40000", true),
+        ] {
+            let listener = TcpListener::bind(config.bind_addr).await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let remote: SocketAddr = source.parse().unwrap();
+            let served = tokio::spawn({
+                let ingest = Arc::clone(&ingest);
+                async move {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    serve_connection(ingest, stream, remote, 1 << 20).await;
+                }
+            });
+
+            let mut client = TcpStream::connect(addr).await.unwrap();
+            let body = br#"{"schema_version":1,"install_id":"i","consent":true,"events":[]}"#;
+            write_frame(&mut client, body).await.unwrap();
+            let reply = read_frame(&mut client, 1 << 20).await.unwrap();
+            assert_eq!(
+                reply.is_some(),
+                admitted,
+                "{source}: expected admitted={admitted}, got reply={reply:?}"
+            );
+            drop(client);
+            served.await.unwrap();
+        }
+
+        let counters = ingest.lock().await.counters().clone();
+        assert_eq!(counters.connections_refused, 1, "exactly one refusal");
+        assert_eq!(
+            counters.reasons.get("plaintext_not_via_tls_front"),
+            Some(&1),
+            "the refusal is reported by name in the operator counters"
+        );
+        let _ = std::fs::remove_dir_all(&spool);
     }
 }
