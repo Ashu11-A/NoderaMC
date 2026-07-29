@@ -34,8 +34,10 @@ use crate::metrics::{Metrics, PeerRow, WorldRow};
 /// How the app is currently getting its data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum LinkStatus {
     /// No worker has answered yet this run — never confuse with "the worker said zero".
+    #[default]
     Connecting,
     /// A snapshot arrived recently over the push stream: what is on screen is current.
     Live,
@@ -44,12 +46,6 @@ pub enum LinkStatus {
     Polling,
     /// The link is down. Whatever is on screen is the last thing we heard and is dated.
     Offline,
-}
-
-impl Default for LinkStatus {
-    fn default() -> Self {
-        Self::Connecting
-    }
 }
 
 /// Where a snapshot came from and how much it can be trusted right now.
@@ -314,6 +310,9 @@ pub struct LanSession {
 
 impl LanSession {
     /// Whether this world is waiting on an answer — the condition the modal is raised for.
+    // The modal condition is asserted by this module's tests; the UI evaluates it from the state
+    // string it is handed.
+    #[allow(dead_code)]
     pub fn awaiting_answer(&self) -> bool {
         self.state == "offered"
     }

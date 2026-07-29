@@ -409,8 +409,7 @@ fn save_settings(
         } else {
             manager.disable()
         };
-        return result
-            .map_err(|e| format!("settings saved, but auto-start could not be applied: {e}"));
+        result.map_err(|e| format!("settings saved, but auto-start could not be applied: {e}"))
     }
     // Android has no login-item concept and the setting is hidden there. Saving it is still
     // honoured — a device that is later synced to a desktop keeps the preference — but claiming to

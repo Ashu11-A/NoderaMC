@@ -631,7 +631,9 @@ mod tests {
             SILENCE_TIMEOUT >= Duration::from_secs(20),
             "must tolerate at least two missed keepalives"
         );
-        assert!(
+        // A compile-time assertion: `assert!` on two constants is checked by the compiler, not by
+        // running the test, so it is stated as the constant it is.
+        const _: () = assert!(
             WATCH_INTERVAL_MILLIS >= 50,
             "the worker clamps below 50 ms anyway"
         );

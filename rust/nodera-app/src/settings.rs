@@ -214,6 +214,7 @@ impl Default for Network {
 /// Where content this node holds for other people is written.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct Storage {
     /// Empty = the worker's own default (`~/.nodera/archive`).
     pub peer_worlds_dir: String,
@@ -227,16 +228,6 @@ pub struct Storage {
     /// How often the replication sweep runs, in seconds. 0 = the worker's default; the worker
     /// clamps anything below its own 30 s floor and says so.
     pub replication_sweep_seconds: u64,
-}
-
-impl Default for Storage {
-    fn default() -> Self {
-        Self {
-            peer_worlds_dir: String::new(),
-            replication_budget_bytes: 0,
-            replication_sweep_seconds: 0,
-        }
-    }
 }
 
 /// What the first-run setup has settled.
@@ -740,6 +731,8 @@ fn iso_millis(millis: u64) -> String {
     format!("epoch {secs}")
 }
 
+// Called from the Android branch of the setup hook only.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub fn set_android_data_dir(dir: PathBuf) {
     let _ = ANDROID_DATA_DIR.set(dir);
 }
@@ -889,6 +882,7 @@ impl SettingsHandle {
     ///
     /// Called from the Android setup hook once the app's private directory is known — see the type
     /// comment for why that is later than it sounds.
+    #[cfg_attr(not(target_os = "android"), allow(dead_code))]
     pub fn reload(&self) {
         self.absorb(read_stored());
     }

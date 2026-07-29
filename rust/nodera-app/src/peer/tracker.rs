@@ -423,7 +423,7 @@ mod tests {
         let identity = PeerIdentity::from_seed([42u8; 32]);
         let result = self_test(
             &identity,
-            &[endpoint.clone()],
+            std::slice::from_ref(&endpoint),
             vec!["10.0.0.101:25620".to_owned()],
         );
         let _ = child.kill();

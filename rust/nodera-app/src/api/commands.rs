@@ -161,7 +161,7 @@ mod tests {
         let dash = store.snapshot();
         assert!(dash.worlds.iter().any(|w| w.world_id == "abc"));
         // The command's own lookup, without needing a Tauri State harness.
-        assert!(dash.worlds.iter().find(|w| w.world_id == "gone").is_none());
+        assert!(!dash.worlds.iter().any(|w| w.world_id == "gone"));
     }
 }
 

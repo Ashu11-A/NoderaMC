@@ -122,6 +122,9 @@ pub fn open_help() -> Result<(), String> {
 }
 
 /// The vendor page, or the site's index when the vendor is unknown.
+// Only the `target_os = "android"` entry points call this; on desktop it is reachable from the
+// tests alone, and dead code there is not a defect.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 fn help_url(manufacturer: &str) -> String {
     let slug: String = manufacturer
         .to_lowercase()
