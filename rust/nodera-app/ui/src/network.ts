@@ -116,11 +116,6 @@ export async function saveShareFile(name: string, uri: string): Promise<string> 
   return invoke<string>("save_share_file", { name, uri });
 }
 
-/** Read an invitation somebody sent as a file; resolves to its URI. */
-export async function openShareFile(path: string): Promise<string> {
-  return invoke<string>("open_share_file", { path });
-}
-
 /** Validate a pasted link locally; resolves to the world id it names. */
 export async function parseShareLink(uri: string): Promise<string> {
   return invoke<string>("parse_share_link", { uri });
