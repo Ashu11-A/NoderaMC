@@ -26,10 +26,16 @@
 **Overall system completion: `90.4%`**
 `██████████████████░░`
 
-**90.4% remains unchanged:** issue #87 advances worker W-DUP-3 to RETIRING without completing Task 8.
-Worker identity and registry writes now survive filesystems without POSIX attributes through the
-production startup-state seam; launched-process proof remains. Full Java gate: **2,059 tests, zero
-failures**.
+**90.4% remains unchanged:** issue #95 retires telemetry **L-72** without opening or closing a task.
+The ingest service stopped holding a pseudonymisation secret the operator could read: each rotation
+period now mints a fresh 32-byte key from the OS CSPRNG, holds it only in process memory, and wipes
+it the moment the period rolls, so past periods are unrecoverable even to the operator — and
+`subject_secret` is gone from the config schema and every deploy artefact. Telemetry's register is
+now three open rows. Rust gate: **413 tests, zero failures**; clippy clean.
+
+Previously, issue #87 advanced worker W-DUP-3 to RETIRING without completing Task 8. Worker identity
+and registry writes now survive filesystems without POSIX attributes through the production
+startup-state seam; launched-process proof remains. Full Java gate: **2,059 tests, zero failures**.
 
 99.2 → **97.4 %**: the **service-directory lane** opened three tasks
 ([tracker 5](docs/tracker/Task.5.md), [rendezvous 5](docs/rendezvous/Task.5.md),
@@ -95,7 +101,7 @@ Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test cou
 | `rust/nodera-service` | shared service crate behind the tracker and the rendezvous binaries: the signed service directory and its records, availability/latency scoring from many reporters (a median, so one liar cannot move the ordering), drain deadlines, and the bounded reporter table | 64 | ✅ |
 | `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED); tracker 4 adds the windowed self-report, **off unless an operator configures an endpoint** | 109 | ✅ |
 | `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED); rendezvous 4 adds **NAT-pair punch statistics** (four coarse classes, success inferred from whether the pair falls back to a relay) | 71 | ✅ |
-| `rust/nodera-telemetry` | (telemetry 1–2) telemetry ingest service — the consent gate, the event registry that no free-text value can enter, rotating HMAC pseudonymisation, coarse country/ASN geolocation with the address discarded, per-source quotas, and a rotating NDJSON spool for the Big Data plane in `docker/telemetry/`. Carries **no authority**: nothing in the network reads it | 91 | ✅ |
+| `rust/nodera-telemetry` | (telemetry 1–2) telemetry ingest service — the consent gate, the event registry that no free-text value can enter, forward-secret rotating pseudonymisation (per-period OS-CSPRNG key, memory-only, wiped on rotation), coarse country/ASN geolocation with the address discarded, per-source quotas, and a rotating NDJSON spool for the Big Data plane in `docker/telemetry/`. Carries **no authority**: nothing in the network reads it | 91 | ✅ |
 | `rust/nodera-app` | (Task 32 · app 5) Tauri companion app — always-on headless-peer supervisor (Option B: bundled Java peer) + loopback control endpoint (mod presence gate) + system tray + autostart + React dashboard (chunks/GB/peers/world). Workspace-EXCLUDED (Tauri native deps); built separately | 188 | 🚧 |
 | `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 

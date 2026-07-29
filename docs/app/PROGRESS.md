@@ -24,7 +24,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [7](Task.7.md) | The client becomes the way in | ✅ COMPLETED | LAN modal + Join a world + invitations + mod installer; 107 crate tests |
 | [8](Task.8.md) | Screen redesign: one subject per screen | ✅ COMPLETED | 8 screens, each owning one subject; worker events drive the LAN prompt; generated licence manifest; 116 crate tests |
 | [9](Task.9.md) | Tracker stores | ✅ COMPLETED | Trust lists added by URL or deep link; built-in store is deletable; the services sync file is the Android worker's only channel; verified on a physical device 2026-07-27 |
-| [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll, one dashboard subscription, and A-UX-4's desktop/Material role repair landed; content and settings-honesty work remains |
+| [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll, one dashboard subscription, A-UX-4's desktop/Material role repair, and the UX honesty bundle (A-UX-1/2/3/5) landed; the content pass remains |
 
 ---
 
@@ -38,6 +38,40 @@ must finish before Kotlin starts `HeadlessPeerMain`. The Java bridge class is re
 reference, so a Rust-created thread never depends on Android's bootstrap class loader finding an app
 class. Evidence: **188** `nodera-app` tests, Android-target `cargo check`, frontend production build,
 and a signed 185 MiB debug APK all pass.
+
+### 2026-07-28 — The app stops claiming more than it knows (A-UX-1/2/3/5)
+
+Issue #98 closed the four Task 10 honesty rows. Each was a gap between what the app *had* and what it
+*said*, so each is now pinned by a check that fails when the claim drifts again.
+
+**A-UX-1** — stale figures are marked. `isStale(link)` is true only when a picture exists (`has_data`)
+and the status is neither `live` nor `polling`: without the first half an app that never connected
+would call its em-dashes stale, without the second a live app would call live numbers dated. The
+desktop shell renders the notice above every screen showing worker-derived figures (Overview, Worlds,
+a world, Peers) and the phone shell mirrors it on both figure-bearing tabs, in the same words.
+Settings and About are excluded on purpose — marking screens that describe the app is noise, not
+honesty.
+
+**A-UX-2** — `appearance.notifications` is declared `Enforcement::Never` with its reason, because this
+build raises no notification at all. Reporting `Live` was exactly the defect the enforcement table
+exists to prevent. Per the L-56 precedent the toggle stays and is badged rather than deleted, so a
+saved preference is not silently dropped.
+
+**A-UX-3** — verified, not rebuilt: the restart banner already restarted an app-owned worker and, in
+attach mode, said `Restart it where you started it.` instead of offering to kill a process the app
+does not own. What was missing was a check keeping it that way.
+
+**A-UX-5** — `pause_reason` and `settings_fault` got callers (a node that quietly pauses looks like one
+that crashed; a settings screen showing defaults must say the real file is untouched). `dashboard_world`,
+`open_share_file`, and `get_unenforced_settings` were deleted along with their now-unreachable helpers,
+and the `nodera://pause` event was dropped because the pushed dashboard already carries that fact. The
+new gate walks all **47** registered commands against every `.ts`/`.tsx` file under `src/`, so the next
+orphan fails the build rather than accumulating.
+
+Evidence: 5 tests in `ui/tests/ux-honesty.test.mjs` plus
+`appearance_notifications_is_declared_unenforced_with_a_reason`; **187** `nodera-app` Rust tests green
+(net −1: two tests for deleted code removed, one direct assertion added), `cargo check --all-targets`
+clean, and the production `tsc && vite build` green. All four rows moved to `LIMITATIONS.fixed.md`.
 
 ### 2026-07-28 — One port encoder serves desktop env and Android properties
 

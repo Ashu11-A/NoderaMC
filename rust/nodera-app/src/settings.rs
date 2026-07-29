@@ -256,19 +256,6 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Keys the UI must label as stored-but-not-yet-applied.
-    ///
-    /// Thin shim over [`setting_status`], kept so an older frontend build keeps working. The real
-    /// API is [`setting_status`], which answers *why* and can say "this worker cannot", a
-    /// distinction a flat list of names structurally cannot carry.
-    pub fn unenforced(report: &WorkerReport<'_>) -> Vec<String> {
-        setting_status(report)
-            .into_iter()
-            .filter(|status| status.state != SettingState::Live)
-            .map(|status| status.key)
-            .collect()
-    }
-
     /// Every settings key, derived from the document itself rather than written out by hand.
     ///
     /// Derived so that adding a field to any section breaks the coverage test in this module until
@@ -401,10 +388,16 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
             how: "applied by this window as it renders",
         },
     ),
+    // Declared unenforced rather than `Local`: this build raises no notification at all (there is
+    // no `tauri-plugin-notification` dependency, capability, or read site), so reporting it as `Live`
+    // would be exactly the defect this table exists to prevent — a control that claims to be in force
+    // with nothing applying it. The toggle stays so a saved preference is not silently dropped, and
+    // is badged "not supported" with this reason. See A-UX-2.
     (
         "appearance.notifications",
-        Enforcement::Local {
-            how: "applied by this app when it raises a notification",
+        Enforcement::Never {
+            reason: "desktop notifications are not wired up in this build; the toggle is saved \
+                     but no notification is raised",
         },
     ),
     (
@@ -1289,6 +1282,26 @@ mod tests {
         );
     }
 
+    /// `appearance.notifications` is declared unenforced because this build raises no notification.
+    ///
+    /// It used to be `Enforcement::Local`, which `resolve` reported as `Live` unconditionally — a
+    /// control that claimed to be in force with no consumer, no plugin, and no capability. The exit
+    /// test (A-UX-2) is "the setting either raises a notification or is declared unenforced"; this
+    /// pins the second branch and keeps it from regressing to the first.
+    #[test]
+    fn appearance_notifications_is_declared_unenforced_with_a_reason() {
+        let none = BTreeMap::new();
+        // A worker that confirms everything cannot make this live: nothing reads it here.
+        let applied = vec!["appearance.notifications".to_owned()];
+        let statuses = setting_status(&report(true, true, &applied, &[], &none));
+        let status = state_of(&statuses, "appearance.notifications");
+        assert_eq!(status.state, SettingState::Unenforced);
+        assert!(
+            status.reason.contains("no notification is raised"),
+            "{status:?}"
+        );
+    }
+
     /// A permanent limitation carries a reason; a merely-unapplied key must too, so the UI always
     /// has something to say instead of an unexplained grey badge.
     #[test]
@@ -1312,20 +1325,5 @@ mod tests {
         let status = state_of(&statuses, "network.max_upload_slots_per_world");
         assert_eq!(status.state, SettingState::Unenforced);
         assert!(status.reason.contains("whole pieces"), "{status:?}");
-    }
-
-    /// The compatibility shim must keep returning namespaced names and must exclude anything live.
-    #[test]
-    fn the_unenforced_shim_lists_exactly_the_non_live_keys() {
-        let none = BTreeMap::new();
-        let applied = vec!["network.max_connections".to_owned()];
-        let report = report(true, true, &applied, &[], &none);
-        let shim = Settings::unenforced(&report);
-        assert!(!shim.contains(&"network.max_connections".to_owned()));
-        assert!(!shim.contains(&"appearance.theme".to_owned()));
-        assert!(shim.contains(&"network.max_connections_per_world".to_owned()));
-        for key in &shim {
-            assert!(key.contains('.'), "{key} should be section.field");
-        }
     }
 }

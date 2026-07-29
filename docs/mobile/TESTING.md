@@ -299,6 +299,11 @@ No device was connected, so the physical selected-port exit did not run.
 `ThreadsTest` is the one to watch: it asserts that a started thread **runs its body**, which is the
 property ART broke and which a construction-only test would have missed entirely.
 
+The dex guard (`scripts/check-android-bytecode.sh`) now has a Java-level mirror in `./gradlew check`:
+`:transport`'s `AndroidTypeSwitchGuardTest` fails if any class in that module compiles to a
+`SwitchBootstraps` type-switch. It covers only the transport module — the whole-closure guarantee is
+still the dex script — but it is what caught the M-5 regression's rewrite site at issue time.
+
 ### 4.7 Manual checks with no script
 
 | Check | How | Expected |

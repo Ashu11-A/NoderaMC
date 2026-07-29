@@ -32,13 +32,13 @@ frame ─► probe? ─► quota ─► parse + consent ─► schema validate �
 |---|---|
 | `schema.rs` | **The collection policy, in code.** Every collectable event and attribute, with a closed value domain. No free-text value is representable |
 | `event.rs` | Batch parsing, consent enforcement, per-event and per-attribute validation |
-| `subject.rs` | Rotating HMAC pseudonymisation — the install id is never stored |
+| `subject.rs` | Forward-secret rotating pseudonymisation — each period mints a fresh OS-CSPRNG key, held only in memory and wiped on rotation; the install id is never stored and the operator's config carries no key material |
 | `geo.rs` | Longest-prefix `cidr,country,asn` lookup; the address itself is discarded |
 | `limits.rs` | Per-source batch and event quotas (the service is unauthenticated by design) |
 | `sink.rs` | Rotating NDJSON spool — the file is the buffer, so a broker outage cannot drop a report |
 | `service.rs` | The ingest decision and the reply; per-reason counters |
 | `wire.rs` | `nodera-codec` framing over TCP, the sweep, and the operator counter line |
-| `config.rs` | `nodera-telemetry.toml`; refuses to start without a pseudonymisation secret |
+| `config.rs` | `nodera-telemetry.toml`; the pseudonymisation key is not here — it is minted in memory |
 | `reporter.rs` | The **service-side** emitter (`nodera-tracker`, `nodera-rendezvous`): off unless an operator configures an endpoint, and its event type holds numbers and `'static` labels only |
 
 ## The three properties it enforces rather than promises
@@ -46,8 +46,11 @@ frame ─► probe? ─► quota ─► parse + consent ─► schema validate �
 1. **Consent is a gate.** A batch without `consent: "granted"` writes nothing at all.
 2. **The registry is the policy.** An undeclared event is rejected; an undeclared attribute is
    dropped. Both are counted and reported back to the sender.
-3. **Identifiers are replaced, addresses are discarded.** `install` becomes
-   `HMAC(secret ‖ period, source ‖ install)[..8]`; the source IP becomes a country and an ASN.
+3. **Identifiers are replaced, addresses are discarded, and the link key does not outlive its
+   period.** `install` becomes `HMAC(period_key, period ‖ source ‖ install)[..8]`, where
+   `period_key` is minted fresh from the OS CSPRNG each rotation period, held only in process memory,
+   and wiped on rotation; the source IP becomes a country and an ASN. The configuration carries no
+   key material, so a past period's subjects cannot be recomputed by anyone — including the operator.
 
 Why unsigned and unauthenticated: signing a report with a node's Ed25519 identity would tie every
 measurement to the key the rest of the network knows that peer by — precisely the linkage this
@@ -57,11 +60,13 @@ the data is treated as aggregate-only, never as evidence about a particular node
 ## Tests
 
 ```bash
-cd rust && cargo test -p nodera-telemetry     # 83 tests
+cd rust && cargo test -p nodera-telemetry     # 93 tests
 ```
 
 The decisive ones: `a_batch_without_consent_writes_nothing_and_says_why`,
 `a_row_carries_the_country_and_never_the_address`,
 `the_install_identifier_is_replaced_by_a_rotating_subject`,
+`after_rotation_and_restart_a_previous_period_subject_is_not_reproducible_from_configuration`
+(the L-72 exit test — past periods unrecoverable from configuration alone),
 `no_attribute_accepts_free_text`, and the end-to-end
 `a_batch_submitted_over_tcp_is_answered_and_written`.

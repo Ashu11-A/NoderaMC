@@ -34,6 +34,7 @@ import {
   fetchSettingStatus,
   fetchConfigStatus,
   fetchWorkerOwnership,
+  fetchSettingsFault,
   restartWorker,
   EMPTY_CONFIG_STATUS,
   type Settings as SettingsDoc,
@@ -160,6 +161,12 @@ export function SettingsScreen(props: {
   const [ownership, setOwnership] = useState<WorkerOwnership | null>(null);
   const [error, setError] = useState<string>("");
   const [restarting, setRestarting] = useState(false);
+  // Why the stored settings could not be read, or "". Non-empty means every control below is
+  // showing a default while the user's real document sits on disk untouched — which has to be said
+  // on the screen holding the defaults, or the user re-enters their whole configuration on top of a
+  // file that was never the problem. The phone screen has said this all along; the desktop one did
+  // not, which is the half of A-UX-5 this closes.
+  const [fault, setFault] = useState<string>("");
   // Read from the worker, never from this app's own idea of it: the consent record lives on the
   // node, and the in-game `/nodera telemetry` command can change it while this screen is open.
   const [telemetry, setTelemetry] = useTelemetryStatus();
@@ -174,6 +181,7 @@ export function SettingsScreen(props: {
   useEffect(() => {
     refreshStatus();
     fetchWorkerOwnership().then(setOwnership).catch(() => {});
+    fetchSettingsFault().then(setFault).catch(() => {});
     const timer = window.setInterval(refreshStatus, 3000);
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
@@ -237,6 +245,16 @@ export function SettingsScreen(props: {
           </div>
         )}
 
+        {fault && (
+          <div className="flex items-start gap-2 rounded-sm border border-warn/45 bg-warn/12 px-3.5 py-2.5 text-sm text-warn">
+            <FiAlertCircle aria-hidden className="mt-0.5 flex-none" />
+            <span>
+              Your saved settings could not be read, so these are defaults. The file has been left
+              alone — {fault}
+            </span>
+          </div>
+        )}
+
         {/* Soft status, never an error: the setting is already saved either way. */}
         {config.pushed && !config.supported && (
           <div className="flex items-center gap-2 rounded-sm border border-warn/45 bg-warn/12 px-3.5 py-2.5 text-sm text-warn">
@@ -292,8 +310,9 @@ export function SettingsScreen(props: {
             />
             <Toggle
               label="Notifications"
-              hint="Node events: a peer joins, a world is recovered, the worker stops answering."
+              hint="Raise a desktop notification when node events happen."
               checked={s.appearance.notifications}
+              note={note("appearance.notifications")}
               onChange={(v) => update((d) => (d.appearance.notifications = v))}
             />
           </Card>

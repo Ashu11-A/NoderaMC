@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::model::{Dashboard, World};
+use crate::api::model::Dashboard;
 use crate::api::store::DashboardStore;
 use crate::metrics::PieceMapView;
 
@@ -19,22 +19,6 @@ use crate::metrics::PieceMapView;
 #[tauri::command]
 pub fn dashboard(store: tauri::State<Arc<DashboardStore>>) -> Dashboard {
     store.snapshot()
-}
-
-/// One world by id, or `None` when this node is not keeping it.
-///
-/// `None` rather than a blank world on purpose: a world that has been stopped, or was never here,
-/// must not render as a world with every counter at zero.
-#[tauri::command]
-pub fn dashboard_world(
-    store: tauri::State<Arc<DashboardStore>>,
-    world_id: String,
-) -> Option<World> {
-    store
-        .snapshot()
-        .worlds
-        .into_iter()
-        .find(|w| w.world_id == world_id)
 }
 
 /// One world's piece grid, pulled on demand.

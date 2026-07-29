@@ -65,7 +65,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>Thread-context: thread-safe. Each call opens, uses and closes its own short-lived socket, so
  * concurrent announces and queries never share connection state. {@link #close()} is idempotent.
  */
-public final class TrackerClient implements AutoCloseable {
+public final class TrackerClient implements TrackerLookup {
 
     /** Interval assumed before any tracker has answered. */
     public static final int DEFAULT_ANNOUNCE_INTERVAL_SECONDS = 120;

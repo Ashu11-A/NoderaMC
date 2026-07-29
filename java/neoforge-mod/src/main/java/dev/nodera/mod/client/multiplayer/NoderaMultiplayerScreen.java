@@ -117,7 +117,10 @@ public final class NoderaMultiplayerScreen extends Screen {
             joinButton = addRenderableWidget(Button.builder(
                     Component.translatable("nodera.multiplayer.join"), b -> {
                         TorrentWorldEntry sel = worldList == null ? null : worldList.selectedWorld();
-                        if (sel != null) {
+                        // MC-JOIN-1: the same rule the button's `active` uses, re-checked at the
+                        // click. The feed refreshes under the screen, so a world can go dark
+                        // between arming the button and pressing it.
+                        if (sel != null && sel.joinable()) {
                             joinHandler.accept(sel, this);
                         }
                     }).bounds(this.width / 2 - 154, row1, 150, 20).build());
@@ -194,9 +197,12 @@ public final class NoderaMultiplayerScreen extends Screen {
             lastFeedPullMs = System.currentTimeMillis();
         }
         if (joinButton != null) {
-            boolean selected = worldList != null && worldList.selectedWorld() != null;
-            joinButton.active = selected;
-            piecesButton.active = selected;
+            TorrentWorldEntry selection = worldList == null ? null : worldList.selectedWorld();
+            // MC-JOIN-1: Join follows readiness, not selection. Pieces follows selection — a
+            // world's content plane is inspectable whether or not its game is up, which is exactly
+            // what a player wants when it is down.
+            joinButton.active = selection != null && selection.joinable();
+            piecesButton.active = selection != null;
         }
     }
 
