@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.SequencedMap;
+import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.function.Predicate;
 
@@ -124,6 +125,24 @@ public final class WorldArchive {
      * @Thread-context any thread.
      */
     public static byte[] packDirectory(Path root, Predicate<String> filter) {
+        return pack(readDirectory(root, filter));
+    }
+
+    /**
+     * Read a directory tree into a path → bytes map, applying the archive's path filter.
+     *
+     * <p>Separate from {@link #packDirectory} because a save is not always packed whole: the
+     * region-addressed lane reads the same tree and packs one blob per {@link SaveRegion}. Both
+     * callers must see exactly the same file set, which is why they share this step rather than
+     * each walking the directory with their own filter.
+     *
+     * @param root   the directory to read.
+     * @param filter which files to include, judged on the {@code /}-separated relative path.
+     * @return relative path → file bytes, sorted by path.
+     * @throws UncheckedIOException on any read failure.
+     * @Thread-context any thread; blocking I/O.
+     */
+    public static SortedMap<String, byte[]> readDirectory(Path root, Predicate<String> filter) {
         TreeMap<String, byte[]> files = new TreeMap<>();
         try (var stream = Files.walk(root)) {
             for (Path p : (Iterable<Path>) stream::iterator) {
@@ -137,9 +156,9 @@ public final class WorldArchive {
                 files.put(rel, Files.readAllBytes(p));
             }
         } catch (IOException e) {
-            throw new UncheckedIOException("packing world archive from " + root, e);
+            throw new UncheckedIOException("reading world save from " + root, e);
         }
-        return pack(files);
+        return files;
     }
 
     /**
@@ -222,9 +241,29 @@ public final class WorldArchive {
      * @Thread-context any thread.
      */
     public static PieceManifest manifestFor(long version, byte[] blob) {
+        return manifestFor(ARCHIVE_REGION, version, blob);
+    }
+
+    /**
+     * Build the piece manifest for one <b>region's</b> archive blob.
+     *
+     * <p>The region travels in the manifest, so it travels in the announce and in every holding a
+     * peer advertises: a piece is never just "part of some world", it is part of {@code r.X.Z.mca}
+     * of a named dimension, and a peer asking for the ground it is standing on can ask for exactly
+     * that. Identical in every other respect to the whole-world manifest — same splitter, same
+     * self-checking {@code regionRoot} over the bytes — because a region blob <i>is</i> an archive
+     * blob, of one region's files.
+     *
+     * @param region  the region these bytes belong to ({@link SaveRegion#toRegionId()}).
+     * @param version the archive snapshot version (monotonic per world; freshness ordering).
+     * @param blob    the canonical archive bytes for that region.
+     * @return the manifest.
+     * @Thread-context any thread.
+     */
+    public static PieceManifest manifestFor(RegionId region, long version, byte[] blob) {
         List<Piece> pieces = PieceSplitter.splitFixed(blob, ARCHIVE_PIECE_BYTES);
         return PieceManifest.of(
-                ARCHIVE_REGION,
+                region,
                 new SnapshotVersion(version),
                 version,
                 StateRoot.of(HASHES.sha256(blob)),

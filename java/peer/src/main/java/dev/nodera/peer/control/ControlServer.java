@@ -414,6 +414,16 @@ public final class ControlServer implements AutoCloseable {
                         return err("unknown telemetry action");
                 }
             }
+            if (ControlProtocol.TEST.equals(verb)) {
+                // NODERA-TEST <ver> ROLE | READY | DRIVE <action…>
+                // Everything after the action is handed over unsplit: a drive action carries
+                // coordinates and item names, and re-joining what this dispatch just split is how a
+                // harness ends up sending a subtly different command than the one it wrote.
+                String action = arg(parts, 2).toUpperCase(java.util.Locale.ROOT);
+                String rest = remainder(line, 3);
+                String reply = handler.testMode(action, rest);
+                return reply == null ? err("unsupported") : reply;
+            }
             return err("unknown verb");
         } catch (RuntimeException e) {
             return err(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
@@ -430,6 +440,22 @@ public final class ControlServer implements AutoCloseable {
 
     private static String arg(String[] parts, int i) {
         return i < parts.length ? parts[i] : "";
+    }
+
+    /**
+     * Everything from token {@code from} onwards, with the original spacing collapsed to one space.
+     *
+     * <p>Used by verbs whose tail is a free-form command rather than a fixed argument list. Rebuilding
+     * it from the split parts (rather than re-splitting the raw line) keeps one definition of where
+     * the arguments start, and the collapse is deliberate: a control line is one line by contract, so
+     * runs of whitespace inside it carry no meaning worth preserving.
+     */
+    private static String remainder(String line, int from) {
+        String[] parts = line.trim().split("\\s+");
+        if (from >= parts.length) {
+            return "";
+        }
+        return String.join(" ", java.util.Arrays.copyOfRange(parts, from, parts.length));
     }
 
     /**

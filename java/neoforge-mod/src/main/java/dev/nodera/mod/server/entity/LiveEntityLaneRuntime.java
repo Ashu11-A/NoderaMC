@@ -97,6 +97,19 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     /** Keeps every delegated region's chunks resident — an unloaded region cannot be validated. */
     private final dev.nodera.mod.server.shadow.ChunkTicketService tickets =
             new dev.nodera.mod.server.shadow.ChunkTicketService();
+
+    /**
+     * Hands every region this node commits to the always-on worker (worker L-41).
+     *
+     * <p>The client lane has done this since L-41 landed; the <b>server</b> lane never did, and the
+     * asymmetry had a cost that showed up on screen: the machine running the world — the one whose
+     * seats cover the spawn and everywhere its player stands — contributed <em>no</em> validated
+     * region to the network, so its regions died with its game while a joiner's survived. The
+     * bargain is the same one the world archive already makes for the save, and it belongs on both
+     * commit paths or on neither.
+     */
+    private final dev.nodera.mod.common.RegionSeedSpool regionSeeds =
+            dev.nodera.mod.common.RegionSeedSpool.companion();
     private long currentTick;
 
     public LiveEntityLaneRuntime(
@@ -131,6 +144,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     /** Expose event capture only after region state and durable recovery are ready. */
     public void install() {
+        // The spool decides for itself whether to push (it throttles per region, never blocks the
+        // committing thread, and skips when there is no world identity yet), so this stays one call.
+        validation.onCommit((snapshot, root) -> regionSeeds.offer(snapshot));
         EntityCaptureBridge.get().runtime(this);
         dev.nodera.mod.server.shadow.BlockCaptureBridge.get().sink(this);
         // The choke point is inert until this line: a server validating nothing pays one null
@@ -689,5 +705,8 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         boundLevels.clear();
         regions.clear();
         ghosts.clear();
+        // Waits for an in-flight push: it is writing into the spool directory, and close() runs on
+        // the world-unload path that is entitled to tear that down.
+        regionSeeds.close();
     }
 }

@@ -218,15 +218,49 @@ public final class WorldReplicationService implements AutoCloseable {
         }
     }
 
+    /**
+     * How soon a sweep that could not fetch anything tries again, instead of waiting out the cadence.
+     *
+     * <p>The steady cadence is sized for a background duty; the first sweep after boot is not one.
+     * It fires seconds after start, which on a fresh session is <em>before</em> the host has
+     * archived a single version — so the honest answer is "nobody holds it yet", and the peer then
+     * sat at 0 bytes for five more minutes while the world it was there to support filled up next
+     * door. Bounded to one extra attempt per steady sweep, so a world that simply cannot be fetched
+     * costs one retry, not a permanent minute-by-minute loop.
+     */
+    private static final int RETRY_AFTER_FAILURE_SECONDS = 45;
+
     private void sweepQuietly() {
+        sweepQuietly(true);
+    }
+
+    private void sweepQuietly(boolean mayRetry) {
         try {
-            sweep();
+            if (sweepFailedToFetch() && mayRetry) {
+                ScheduledExecutorService s;
+                synchronized (this) {
+                    s = scheduler;
+                }
+                if (s != null) {
+                    s.schedule(() -> sweepQuietly(false),
+                            RETRY_AFTER_FAILURE_SECONDS, TimeUnit.SECONDS);
+                }
+            }
         } catch (RuntimeException e) {
             // WARN, not debug. A sweep that throws is the difference between "this node is helping"
             // and "this node looks like it is helping", and the whole lane runs unattended.
             LOG.warn("Replication sweep failed: {}", e.toString());
         }
     }
+
+    /** Run one sweep. @return whether any world it decided to fetch could not be fetched. */
+    private boolean sweepFailedToFetch() {
+        sweep();
+        return lastSweepFailures > 0;
+    }
+
+    /** Worlds the last sweep tried and failed to fetch — what {@link #sweepQuietly} retries for. */
+    private volatile int lastSweepFailures;
 
     /**
      * One sweep: read the directory, decide which worlds this node is placed for, and adopt the
@@ -235,6 +269,7 @@ public final class WorldReplicationService implements AutoCloseable {
      * @return the number of worlds adopted this sweep.
      */
     int sweep() {
+        lastSweepFailures = 0;
         if (tracker.endpoints().isEmpty()) {
             LOG.info("Replication sweep skipped — this node has no tracker to read a directory from");
             return 0;
@@ -262,11 +297,33 @@ public final class WorldReplicationService implements AutoCloseable {
         int skippedComplete = 0;
         int skippedUnplaced = 0;
         int skippedBounded = 0;
+        int refreshed = 0;
+        int failed = 0;
         for (TrackerCatalogEntry entry : catalog) {
             String worldIdHex = entry.genesisHash().toHex();
             if (holdsCompletely(worldIdHex)) {
-                skippedComplete++;
-                continue; // nothing to fetch
+                // Complete is a statement about ONE VERSION, and worlds do not stop changing.
+                //
+                // This used to `continue` here, and that single line is why a peer could hold a
+                // world forever without ever holding the world: it fetched v2 while the host was
+                // still building, the host played on and streamed v3…v6, and every sweep from then
+                // on read "complete" off the v2 manifest and skipped. Seen side by side on two
+                // machines in the same world — 7 of 7 pieces at v2 against 208 of 208 at v6, both
+                // rendering "100.0%". The peer was not supporting that world in any sense a player
+                // would recognise; it was seeding a museum piece.
+                //
+                // A world this node HOSTS is exempt: it is the authority on its own newest version,
+                // so there is nothing on the network to catch up to.
+                if (hosts(worldIdHex)) {
+                    skippedComplete++;
+                    continue;
+                }
+                if (refresh(worldIdHex, entry.worldName())) {
+                    refreshed++;
+                } else {
+                    skippedComplete++;
+                }
+                continue;
             }
             // A world this node CLAIMS is repaired unconditionally, ahead of the bounds.
             //
@@ -300,16 +357,56 @@ public final class WorldReplicationService implements AutoCloseable {
             LOG.info("Supporting world '{}' ({}) — fetching its archive from the network",
                     entry.worldName(), shortId(worldIdHex));
             long grew = adopt(worldIdHex, entry.worldName());
-            if (grew > 0 && !ours) {
+            if (grew <= 0) {
+                // Counted, because a sweep that tried and failed used to report the same all-zero
+                // summary as a sweep that decided there was nothing to do.
+                failed++;
+                continue;
+            }
+            if (!ours) {
                 held += grew;
                 adopted++;
             }
         }
-        LOG.info("Replication sweep over {} world(s): {} adopted, {} already complete here, "
-                        + "{} not placed on this node, {} past the bounds ({} of {} byte(s) used)",
-                catalog.size(), adopted, skippedComplete, skippedUnplaced, skippedBounded,
-                held, budgetBytes);
+        LOG.info("Replication sweep over {} world(s): {} adopted, {} brought up to date, "
+                        + "{} already current here, {} not placed on this node, {} past the bounds, "
+                        + "{} could not be fetched ({} of {} byte(s) used)",
+                catalog.size(), adopted, refreshed, skippedComplete, skippedUnplaced,
+                skippedBounded, failed, held, budgetBytes);
+        lastSweepFailures = failed;
         return adopted;
+    }
+
+    /**
+     * Catch a complete-but-stale copy up to the version the swarm is actually seeding.
+     *
+     * <p>Never fatal and never bounded: this is content this node already committed to holding, so
+     * a newer version of it is not a new adoption to be rationed — it is the same obligation, kept
+     * honestly. A world that cannot be refreshed stays exactly as playable as it was.
+     *
+     * @return whether this node moved to a newer version.
+     */
+    private boolean refresh(String worldIdHex, String worldName) {
+        boolean caughtUp;
+        try {
+            caughtUp = archive.refreshArchive(worldIdHex, FETCH_TIMEOUT);
+        } catch (RuntimeException e) {
+            LOG.info("World '{}' ({}) has a newer version this node could not fetch ({}) — the copy "
+                            + "held here stays available", worldName, shortId(worldIdHex),
+                    e.getMessage());
+            return false;
+        }
+        if (!caughtUp) {
+            return false;
+        }
+        // Re-announce under the new root: `holdingsFor` reads the manifest table at announce time,
+        // so this is what tells the swarm the newer version has another holder.
+        hosting.seed(worldIdHex, worldName);
+        WorldArchiveService.PieceReport report = archive.pieceReport(worldIdHex);
+        LOG.info("Brought world '{}' ({}) up to date — now seeding v{}, {} piece(s)", worldName,
+                shortId(worldIdHex), report == null ? 0 : report.version(),
+                report == null ? 0 : report.pieceCount());
+        return true;
     }
 
     /**
@@ -358,9 +455,13 @@ public final class WorldReplicationService implements AutoCloseable {
         try {
             archive.fetchArchive(worldIdHex, FETCH_TIMEOUT);
         } catch (RuntimeException e) {
-            // No seeder answered, or the download did not complete inside the deadline. Both are
-            // ordinary in a small swarm; the next sweep tries again.
-            LOG.debug("replication of {} did not complete: {}", shortId(worldIdHex), e.getMessage());
+            // INFO, not debug. No seeder answering is ordinary in a small swarm and the next sweep
+            // tries again — but this line is the ONLY account of why a world the sweep announced it
+            // was fetching never arrived, and at debug it was invisible in every log anyone reads.
+            // A live session showed "Supporting world 'Hello' — fetching its archive" followed by
+            // silence and a summary of all-zeroes, with nothing anywhere to say what had happened.
+            LOG.info("Replication of '{}' ({}) did not complete: {}", worldName,
+                    shortId(worldIdHex), e.getMessage());
             return 0;
         }
         WorldArchiveService.PieceReport report = archive.pieceReport(worldIdHex);

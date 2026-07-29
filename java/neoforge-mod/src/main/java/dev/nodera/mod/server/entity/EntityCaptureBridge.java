@@ -256,15 +256,29 @@ public final class EntityCaptureBridge {
                     NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity)),
                     runtime == Runtime.DISABLED ? "DISABLED" : runtime.getClass().getSimpleName());
         }
-        // L-60: "this dimension never opted into mob capture" is a CONFIG fact, true on every node,
-        // and it disqualifies the region from the validated lane no matter who owns it. Under
-        // field-of-view ownership the seats sit on the players' nodes while entities spawn and tick
-        // on the session server, which routinely owns nothing — so the node that SEES the
-        // disqualifying entity is usually not the node holding the region. Checking this before the
-        // ownership gate is what lets that node say so instead of returning in silence.
+        // An entity this build's engine does not model is LEFT TO VANILLA. It is not captured, so it
+        // never enters the validated state, so every committee member re-executes the same set and
+        // determinism is untouched — which is the property the old behaviour was protecting, at a
+        // price that made the lane unusable.
+        //
+        // What it used to do: refuse the whole region, permanently, announced to the mesh. The
+        // capture list defaults to zombies alone, so the first cow, bat, squid or chicken to walk
+        // into a region deleted it from the validated lane — on every node, for the rest of the
+        // session. A default install therefore validated nothing in any world that had animals in
+        // it, which is every world; both players then read "region unassigned / unsigned" and every
+        // block and entity went on being computed by the one machine running the integrated server.
+        //
+        // Blocks that an unmodelled entity changes are still certified: they arrive through
+        // BlockWriteGuard, whose CONVERT mode folds a foreign write into the region's next commit.
+        // That is the mechanism the interference lane exists for, and it does not care which entity
+        // caused the write.
         if (!(entity instanceof ItemEntity)
                 && !NoderaConfig.mobCapture(entity.level().dimension(), speciesOf(entity))) {
-            runtime.revokeForEntity(region, entity);
+            if (vanillaOnlyRegions.add(region)) {
+                GHOST_LOG.info("LANE: {} keeps validating blocks and modelled entities; {} is not "
+                                + "modelled by this build's engine and stays vanilla",
+                        region, speciesOf(entity));
+            }
             return;
         }
         if (!runtime.delegated(region)) {
@@ -502,6 +516,15 @@ public final class EntityCaptureBridge {
 
     /** Regions already announced as holding ghosts — the announcement is once per region. */
     private final java.util.Set<RegionId> ghostRegionsAnnounced =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
+     * Regions where an unmodelled entity has been seen and left to vanilla — logged once each.
+     *
+     * <p>A world full of animals must not be a log full of lines, and the fact worth reporting is
+     * about the region, not about the seventieth chicken.
+     */
+    private final java.util.Set<RegionId> vanillaOnlyRegions =
             java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /** The ghost lane's evidence stream (L-50): one line the first time a region holds ghosts. */

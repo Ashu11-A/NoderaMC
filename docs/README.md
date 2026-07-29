@@ -152,6 +152,7 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 | [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `rust/nodera-app/android`, `scripts/android-*.sh` | 5 |
 | [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | (unwritten) | 10 |
 | [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `rust/nodera-telemetry`, `docker/telemetry` | 3 |
+| [`testing/`](testing/Task.0.md) | The test tooling itself: the live harness, the acceptance scenarios, the benchmark lanes and the structural report, behind one `nodera-test` command | `java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh` | 1 |
 
 Category boundaries are **documentation** boundaries; they do not always equal Gradle/Cargo module
 boundaries. The mapping from category to module is stated in each category's `Task.0.md` §Files,

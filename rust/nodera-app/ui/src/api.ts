@@ -112,6 +112,14 @@ export interface World {
    * this world, whatever else this screen says about it.
    */
   discoverable: boolean | null;
+  /**
+   * Regions of the live world this node validates and seeds snapshots for.
+   *
+   * Holding a world and running one are different contributions. This is the second one, and the
+   * only field on this screen that can distinguish a peer carrying part of the simulation from a
+   * peer that is merely storing somebody else's save.
+   */
+  regions_held: number;
 }
 
 export interface Peer {

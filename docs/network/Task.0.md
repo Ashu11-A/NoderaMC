@@ -96,6 +96,7 @@ as a process), [`minecraft/`](../minecraft/Task.0.md) (which delivers every live
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED |
 | [13](Task.13.md) | Measured service selection on the peer | 🚧 IN PROGRESS |
 | [14](Task.14.md) | Cross-version wire protocol ([`plans/Plan.7.md`](../plans/Plan.7.md)) | 🚧 IN PROGRESS |
+| [15](Task.15.md) | Structural benchmarking + structural code report | ✅ COMPLETED |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) ·

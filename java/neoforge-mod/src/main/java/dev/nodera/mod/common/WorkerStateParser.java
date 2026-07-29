@@ -28,11 +28,29 @@ public final class WorkerStateParser {
      * @param mcRoute the host's open Minecraft game endpoint ({@code host:port}), or {@code ""}
      *                while the hosting player's game is closed (listed but not joinable).
      */
-    public record HostedWorldInfo(String worldId, String name, long players, String mcRoute) {
+    public record HostedWorldInfo(String worldId, String name, long players, String mcRoute,
+                                  boolean seeding) {
 
         /** Pre-join-flow shape (no game endpoint reported). */
         public HostedWorldInfo(String worldId, String name, long players) {
-            this(worldId, name, players, "");
+            this(worldId, name, players, "", false);
+        }
+
+        /** Shape before {@code seeding} was carried — a world this install hosts. */
+        public HostedWorldInfo(String worldId, String name, long players, String mcRoute) {
+            this(worldId, name, players, mcRoute, false);
+        }
+
+        /**
+         * Whether this node <b>hosts</b> the world rather than only keeping its bytes alive.
+         *
+         * <p>The distinction decides whether this install may speak for the world's liveness at
+         * all. For a world it hosts, "no game endpoint here" and "nobody can enter" are the same
+         * statement. For a world it merely supports, they are unrelated — the world is somebody
+         * else's and is very probably open right now.
+         */
+        public boolean hostedHere() {
+            return !seeding;
         }
 
         /** @return whether anybody in the world has reported its player count. */
@@ -88,12 +106,18 @@ public final class WorkerStateParser {
             // JSON entirely is likewise unknown, not empty.
             long players = longField(obj, "players", -1);
             String mcRoute = stringField(obj, "mc_route");
+            // Defaults to false — "this node hosts it" — because that is what every row meant
+            // before the worker carried the flag, and because it is the conservative reading: a
+            // node claiming to host a world it cannot serve is visible, while a node silently
+            // overriding the network's view of somebody else's world is not.
+            boolean seeding = booleanField(obj, "seeding", false);
             if (worldId != null || name != null) {
                 out.add(new HostedWorldInfo(
                         worldId == null ? "" : worldId,
                         name == null ? "" : name,
                         players,
-                        mcRoute == null ? "" : mcRoute));
+                        mcRoute == null ? "" : mcRoute,
+                        seeding));
             }
             i = objEnd + 1;
         }
@@ -268,6 +292,29 @@ public final class WorkerStateParser {
     /** Read a JSON integer field {@code "key":123} from a flat object; {@code 0} if absent/bad. */
     private static long longField(String obj, String keyName) {
         return longField(obj, keyName, 0);
+    }
+
+    /** Read a JSON boolean field {@code "key":true} from a flat object. */
+    private static boolean booleanField(String obj, String keyName, boolean absent) {
+        int at = obj.indexOf("\"" + keyName + "\"");
+        if (at < 0) {
+            return absent;
+        }
+        int colon = obj.indexOf(':', at + keyName.length() + 2);
+        if (colon < 0) {
+            return absent;
+        }
+        int i = colon + 1;
+        while (i < obj.length() && Character.isWhitespace(obj.charAt(i))) {
+            i++;
+        }
+        if (obj.startsWith("true", i)) {
+            return true;
+        }
+        if (obj.startsWith("false", i)) {
+            return false;
+        }
+        return absent;
     }
 
     /**

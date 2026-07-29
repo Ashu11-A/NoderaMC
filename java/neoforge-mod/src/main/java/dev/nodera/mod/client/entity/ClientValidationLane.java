@@ -46,20 +46,19 @@ public final class ClientValidationLane {
     private static dev.nodera.mod.common.RegionSeedSpool regionSeedSpool;
     private static int activeRegions;
 
-    /**
-     * Where committed snapshots are staged before the handoff to the worker (L-41). Beside the
-     * worker's own content store rather than inside a save: a joiner has no save directory for the
-     * world it is validating, and the file is a handoff that is deleted immediately after.
-     */
-    private static java.nio.file.Path spoolDir() {
-        return java.nio.file.Path.of(System.getProperty("user.home"), ".nodera", "spool");
-    }
-
     private ClientValidationLane() {
     }
 
     /** Derive the plan from the broadcast inputs and activate this player's region set. */
     public static synchronized void apply(NoderaLanePlanPayload plan) {
+        // The client half of the root switch. A session running this build broadcasts no plan at
+        // all, so this is unreachable in a homogeneous network — and that is exactly why it is
+        // here: a plan from an older or hostile peer must not start a lane this build has switched
+        // off. See ValidationLane for the release decision.
+        if (!dev.nodera.mod.common.ValidationLane.deterministicValidationEnabled()) {
+            LOG.debug("ignoring a region-ownership plan — deterministic validation is off");
+            return;
+        }
         // The hosting JVM's server lane already validates there — a second in-JVM lane under the
         // client peer's identity duplicates work and competes for the app-message handler.
         if (NoderaPeerService.get().isHosting()) {
@@ -133,7 +132,7 @@ public final class ClientValidationLane {
         // spool decides whether to actually push — it throttles per region and never touches the
         // lane's thread — so this stays one call each.
         dev.nodera.mod.common.RegionSeedSpool spool =
-                dev.nodera.mod.common.RegionSeedSpool.companion(ClientValidationLane::spoolDir);
+                dev.nodera.mod.common.RegionSeedSpool.companion();
         regionSeedSpool = spool;
         lane.onCommit((snapshot, root) -> {
             view.committed(snapshot, root);

@@ -8,12 +8,15 @@
 **Category:** telemetry · **Last run:** 2026-07-28 · **93 Rust tests · 0 failing** (ingest crate), plus the
 emitter suites in the categories that emit and one end-to-end suite that drives the real binaries
 
+> **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
+> `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
+
 ```bash
 cd rust && cargo test -p nodera-telemetry          # the receiver (93)
 cd rust && cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 ./gradlew :peer:test --tests '*Telemetry*'        # the emitter core + the worker + the verb
 ./gradlew :neoforge-mod:test --tests '*Telemetry*' # the game-side façade
-scripts/e2e-telemetry.sh                          # THE decisive one: real binaries, end to end
+scripts/nodera-test.sh run telemetry                          # THE decisive one: real binaries, end to end
 scripts/telemetry-stack.sh smoke                  # a batch becomes a queryable ClickHouse row
 nodera-telemetry --print-schema | jq              # what the running binary will accept
 ```
@@ -76,8 +79,8 @@ Counts grep-verified 2026-07-28 (`#[test]` + `#[tokio::test]` per file). The cra
 
 ## 4. The end-to-end suite
 
-`scripts/e2e-telemetry.sh` is the decisive level for the whole programme, and it is **headless** —
-no GUI, no Minecraft — so it runs in CI unchanged and first in `scripts/run-tests.sh`.
+`scripts/nodera-test.sh run telemetry` is the decisive level for the whole programme, and it is **headless** —
+no GUI, no Minecraft — so it runs in CI unchanged and first in `scripts/nodera-test.sh run`.
 
 | Step | What it proves |
 |---|---|

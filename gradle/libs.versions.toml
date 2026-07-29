@@ -9,7 +9,9 @@ zstd              = "1.5.6-3"
 roaringbitmap     = "1.3.0"
 fastutil          = "8.5.12" # strictly-pinned by minecraft-dependencies 1.21.1 (mod runtime must match)
 archunit          = "1.3.0"
-jmh               = "0.7.2"
+jmh               = "0.7.2"       # me.champeau.jmh Gradle plugin (the :peer benchmark source set)
+jmhCore           = "1.37"        # the JMH runtime/annotations the plugin resolves
+asm               = "9.7.1"       # bytecode reader for the structural code report (:worker)
 jetbrainsAnnotations = "26.0.1"
 bouncycastle      = "1.84"
 rocksdb           = "9.7.3"
@@ -34,9 +36,23 @@ jetbrains-annotations = { module = "org.jetbrains:annotations",           versio
 bouncycastle       = { module = "org.bouncycastle:bcprov-jdk18on",          version.ref = "bouncycastle" }
 rocksdbjni         = { module = "org.rocksdb:rocksdbjni",                   version.ref = "rocksdb" }
 paper-api          = { module = "io.papermc.paper:paper-api",               version.ref = "paperApi" }
+# JMH: the benchmark harness itself. The Gradle plugin resolves these versions for the `jmh`
+# source set; pinning them here keeps the harness on one version across the tree.
+jmh-core           = { module = "org.openjdk.jmh:jmh-core",                 version.ref = "jmhCore" }
+jmh-annprocess     = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmhCore" }
+# ASM: reads the compiled `dev.nodera..` classes for the structural report (reference graph +
+# in-loop cost smells). Test-scoped in `:worker` only — no production code depends on it.
+asm                = { module = "org.ow2.asm:asm",                          version.ref = "asm" }
+asm-tree           = { module = "org.ow2.asm:asm-tree",                     version.ref = "asm" }
 
 # Plugin coordinates (for build-logic)
 plugin-jmh = { module = "me.champeau.jmh:jmh-gradle-plugin", version.ref = "jmh" }
+
+[plugins]
+# Applied by `:peer` directly (NOT via a build-logic convention plugin: any edit under
+# java/build-logic/src/main/kotlin re-triggers the kotlin-dsl accessor breakage documented in
+# gradle.properties, and this needs no shared conventions).
+jmh = { id = "me.champeau.jmh", version.ref = "jmh" }
 
 [bundles]
 test-impl = ["assertj-core", "jqwik"]

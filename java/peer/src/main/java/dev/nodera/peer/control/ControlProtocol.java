@@ -416,6 +416,28 @@ public final class ControlProtocol {
      */
     public static final String TELEMETRY = "NODERA-TELEMETRY";
 
+    /**
+     * {@code NODERA-TEST <ver> ROLE|READY|DRIVE <action…>} — the integration-run verb.
+     *
+     * <p>Only a worker started with {@code --test-mode} answers it; every other worker replies
+     * {@link #ERR} {@code unsupported}, which is the point: a production node must not grow a
+     * remote-control surface because a test needed one. The flag is on the command line rather than
+     * in the config so that it cannot be turned on by a file somebody else can write.
+     *
+     * <ul>
+     *   <li>{@code ROLE} — which player this node belongs to ({@code player1}, {@code player2},
+     *       {@code player3}, {@code spare}). An integration assertion has to be able to name its
+     *       subject; before this, the harness identified nodes by which control port had been
+     *       started first, and renumbering the port plan silently swapped the subjects of every
+     *       cross-node assertion.</li>
+     *   <li>{@code READY} — the node has booted far enough to be part of a run.</li>
+     *   <li>{@code DRIVE <action…>} — publish an action for the attached game to execute on this
+     *       role's player. The worker never touches the game itself: it puts the action on the
+     *       event stream the mod already consumes, so the path under test is the production one.</li>
+     * </ul>
+     */
+    public static final String TEST = "NODERA-TEST";
+
     private ControlProtocol() {
     }
 

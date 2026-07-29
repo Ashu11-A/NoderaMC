@@ -25,6 +25,9 @@
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
 - `cd rust && cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
 - `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
+- `scripts/nodera-test.sh list|run|bench|structure|all` — **THE test entry point** (docs/testing/Task.0.md). One tool over the acceptance scenarios (`dev.nodera.testkit.scenario`, formerly the twenty `scripts/e2e-*.sh`), the benchmark lanes and the structural report; writes `build/reports/nodera/TEST-REPORT.md`. Live scenarios take `run/.e2e-suite.lock` and run one at a time
+- `./gradlew :peer:jmh -Pbench.quick` / `./gradlew :peer:benchmarkReport` — the peer benchmark lanes (discovery · chunk sync · wire · runtime latency) and the ranked report with load-scaling and a baseline diff (network task 15). NOT part of `check`: minutes, and not a correctness gate
+- `./gradlew :worker:structureReport` — the structural code report: dead code, in-loop cost findings, and a **debugger-profiled** run of the real `nodera-headless` worker. `-Pstructure.debug=false` skips the probe. Budgets in `fixtures/structure/budget.json` ratchet DOWN only
 - `scripts/dev.sh --build-only` — compile both toolchains + collect artifacts (2 binaries + the jar) into `build/`; the CI `release-latest` workflow runs this on every push and attaches them to a rolling `latest` prerelease
 - `scripts/dev.sh --test` — build both toolchains + run the full gate (no server to start; Task 30 retired it)
 - `scripts/dev.sh` — build everything, then run the two infrastructure services (tracker + rendezvous) from `build/`, health-checked; worlds are hosted by a player's client (pause-menu "Share"), not a dedicated server. `--install-mod` drops the jar into `~/.minecraft/mods` for a real-client test
@@ -172,7 +175,7 @@ Three rules, refusable if violated:
 One emitter per node, and it is the **worker**: the mod and the app hand it events, they never send.
 
 ```bash
-scripts/e2e-telemetry.sh          # the consent lane end to end (headless; first in run-tests.sh)
+scripts/nodera-test.sh run telemetry   # the consent lane end to end (headless; first in the queue)
 scripts/telemetry-stack.sh up     # the Big Data plane; `smoke` proves a batch becomes a row
 ```
 
@@ -204,7 +207,7 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
 1. **Run tests before committing.** Execute `./gradlew check`. If it is red, you do NOT commit.
    If you cannot fix a failure immediately, open a `bug` issue (`.github/ISSUE_SYSTEM.md`) and stop.
    When the change touches the mod's host/join/lane/continuity/command surfaces, also run the
-   relevant live suite(s) via `scripts/run-tests.sh <suite…>` (docs/minecraft/TESTING.md Part 1) — the
+   relevant live scenario(s) via `scripts/nodera-test.sh run <id…>` (docs/testing/TESTING.md) — the
    headless gate cannot see NeoForge-config-gated lifecycle paths. Live suites run strictly one
    at a time (the runner + suites hold `run/.e2e-suite.lock`).
 2. **Update the documentation in the SAME commit** that changes outcomes — it is part of the
