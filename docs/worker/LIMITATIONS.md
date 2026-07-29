@@ -5,7 +5,7 @@
      row — move it to LIMITATIONS.fixed.md with its evidence. §C lists properties that are the design
      working correctly; do not convert them into §B rows. -->
 
-**Category:** worker · **Last audit:** 2026-07-28 · Open or retiring rows: **6**
+**Category:** worker · **Last audit:** 2026-07-28 · Open or retiring rows: **3**
 
 Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md)).
@@ -21,20 +21,19 @@ node lives only while its player has Minecraft open" — rather than to hide one
 
 ## §B — Staged capabilities
 
-Six rows, all owned by [Task 8](Task.8.md). The category's previous staged row, L-41, retired on
+Three rows, all owned by [Task 8](Task.8.md). The category's previous staged row, L-41, retired on
 2026-07-26 — see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). Two replication rows that were
 opened here on 2026-07-27 (W-REPL-2, W-REPL-3) retired on 2026-07-28 once their headless exit tests
-were confirmed green. W-DUP-3 is RETIRING: component and production startup-seam zipfs proofs are
-green, but the exact launched-process exit remains outstanding.
+were confirmed green, and the registry-integrity bundle (W-DUP-1, W-DUP-2, W-DUP-4) retired on the
+same date with its exit tests green. W-DUP-3 is the one row of that bundle that remains RETIRING:
+component and production startup-seam zipfs proofs are green, but the exact launched-process exit
+remains outstanding.
 
 | ID | Limitation today | Owner | Exit test | Status |
 |---|---|---|---|---|
 | W-FETCH-1 | **A world archive being downloaded could be evicted mid-transfer.** The retention policy (`supersedeOlderVersions`, L-55) runs when this node *learns* a newer version exists. On a live world the host streams a new archive version every couple of minutes, so a joiner fetching a large archive had the manifest root its `PieceDownloader` was writing into unpinned and unpublished underneath it — the download could never complete, and the player sat on "Migrating world…" until the fetch deadline. Observed live: 913 KiB downloaded, 0 pieces retained. Fixed by making an in-flight root eviction-proof for the duration of the fetch | [8](Task.8.md) | `FetchSurvivesSupersessionTest` green **and** a live join to a world whose host is playing | RETIRING — headless proof green, live re-run outstanding |
 | W-REPL-1 | **A world this node claimed but held nothing of was never repaired.** The replication sweep skipped any world where `holdsCompletely(...) || hosts(...)` — but `hosts()` reads the registry claim, not the content store, and `restoreFromRegistry` reloads every row as hosted at boot whether or not the bytes survived. So a node announcing a world it could not serve was disqualified from fetching it, permanently and self-perpetuatingly. Observed live: "Yours — hosted here · 0.0% · 0 of 73 pieces" beside "3 peers holding it besides this node". Fixed: the skip is about content held, and a claim with nothing behind it is repaired ahead of placement and bounds | [8](Task.8.md) | `ReplicationRepairsEmptyClaimsTest` green (verified failing without the fix) **and** a live node at 0% reaching 100% within one sweep | RETIRING |
-| W-DUP-1 | A registry row is never reconciled against the world still existing, so a stale entry is re-announced on every worker start, forever | [8](Task.8.md) | A row whose world this node can no longer serve stops being announced within one refresh cycle | OPEN |
-| W-DUP-2 | `stop` removes the in-memory world that held the ownership record, so a later `seed` recreates it unowned — an administered world reads as merely supported | [8](Task.8.md) | Stop then re-seed a world whose `.worldkey` exists on disk; the registry row still reads owned | OPEN |
 | W-DUP-3 | Worker identity, registry, world-key and tombstone writes now use one fail-closed owner-only atomic writer. `HeadlessPeerMainStateTest` invokes the production startup-state seam on zipfs and recovers identity plus a replaced registry, but this does not launch the worker distribution because configured paths resolve on the process default filesystem | [8](Task.8.md) | Launch the worker distribution with identity and registry on a non-POSIX default/mounted filesystem; perform a registry-writing host operation; restart and recover the same identity and updated `worlds.dat` | RETIRING — implementation + closest production seam green; launched-process proof outstanding |
-| W-DUP-4 | Registries that already hold duplicate rows for one save are not repaired; the fix stops them growing | [8](Task.8.md) | A one-shot merge tool leaves one row per save, with the surviving id chosen by the persisted `nodera-world.dat` | OPEN |
 
 ---
 
