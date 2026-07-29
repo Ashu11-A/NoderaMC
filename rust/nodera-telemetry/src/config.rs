@@ -396,8 +396,14 @@ mod tests {
         config.validate().unwrap();
         let admission = Admission::from_config(&config).unwrap();
 
-        assert!(admission.admits("203.0.113.7".parse().unwrap()), "the front");
-        assert!(admission.admits("127.0.0.1".parse().unwrap()), "healthcheck");
+        assert!(
+            admission.admits("203.0.113.7".parse().unwrap()),
+            "the front"
+        );
+        assert!(
+            admission.admits("127.0.0.1".parse().unwrap()),
+            "healthcheck"
+        );
         assert!(admission.admits("2001:db8::5".parse().unwrap()), "v6 front");
         assert!(
             !admission.admits("198.51.100.9".parse().unwrap()),

@@ -320,7 +320,9 @@ mod tests {
         let mut config = config(&spool);
         config.public_endpoint = true;
         config.trusted_proxy_cidrs = vec!["203.0.113.0/24".to_owned()];
-        config.validate().expect("a public config naming a TLS front is valid");
+        config
+            .validate()
+            .expect("a public config naming a TLS front is valid");
 
         let sink = NdjsonSink::new(&config.spool_dir, 1 << 20, 3_600).unwrap();
         let ingest = Arc::new(Mutex::new(Ingest::new(
