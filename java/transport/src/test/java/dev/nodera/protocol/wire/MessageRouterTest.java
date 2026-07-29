@@ -140,6 +140,43 @@ class MessageRouterTest {
                 .isInstanceOf(MessageRouter.Outcome.Malformed.class);
     }
 
+    @Test
+    @DisplayName("answerFor answers only the two outcomes that carry a NACK")
+    void answerForOnlyAnswersTheOutcomesThatCarryANack() {
+        // Pins the instanceof chain in answerFor against the original switch: the two NACK-bearing
+        // outcomes are answered, and the other three fall through to empty exactly as before.
+        MessageRouter router = new MessageRouter();
+
+        int futureKind = WireRegistry.NEXT_KIND + 11;
+        byte[] unknownFrame = new NoderaFrame(WireRegistry.WIRE_EPOCH, futureKind, FrameFlags.REQUEST,
+                7L, Bytes.unsafeWrap(new byte[0])).encode();
+        MessageRouter.Outcome unknown = router.accept(unknownFrame, node(1, 1));
+        assertThat(unknown).isInstanceOf(MessageRouter.Outcome.UnknownKind.class);
+        assertThat(MessageRouter.answerFor(unknown)).isPresent();
+
+        byte[] claimedFrame = WireCodec.encode(new GatewayClaim(node(1, 1), 7L));
+        MessageRouter.Outcome refused = router.accept(claimedFrame, node(2, 2));
+        assertThat(refused).isInstanceOf(MessageRouter.Outcome.Refused.class);
+        assertThat(MessageRouter.answerFor(refused)).isPresent();
+
+        router.register(MessageCodec.TAG_WORLD_GRANT_GOSSIP, (from, msg) -> { });
+        byte[] deliveredFrame = WireCodec.encode(
+                MessageSamples.byTag().get(MessageCodec.TAG_WORLD_GRANT_GOSSIP));
+        MessageRouter.Outcome delivered = router.accept(deliveredFrame, node(1, 1));
+        assertThat(delivered).isInstanceOf(MessageRouter.Outcome.Delivered.class);
+        assertThat(MessageRouter.answerFor(delivered)).isEmpty();
+
+        byte[] unhandledFrame = WireCodec.encode(
+                MessageSamples.byTag().get(MessageCodec.TAG_TRACKER_QUERY));
+        MessageRouter.Outcome unhandled = router.accept(unhandledFrame, null);
+        assertThat(unhandled).isInstanceOf(MessageRouter.Outcome.Unhandled.class);
+        assertThat(MessageRouter.answerFor(unhandled)).isEmpty();
+
+        MessageRouter.Outcome malformed = router.accept(new byte[] {1, 2, 3}, null);
+        assertThat(malformed).isInstanceOf(MessageRouter.Outcome.Malformed.class);
+        assertThat(MessageRouter.answerFor(malformed)).isEmpty();
+    }
+
     // ---------------------------------------------------------------- correlation
 
     @Test
