@@ -25,6 +25,26 @@ Run with:
 cd rust && cargo test                                  # the Rust gate (required alongside)
 ```
 
+### A fast `java` job is not a skipped one
+
+`org.gradle.caching=true` is set repo-wide and CI's `gradle/actions/setup-gradle` persists the
+Gradle home between runs, so the `java` job's `./gradlew check build` is cached end to end. A run
+that touches only workflows or docs legitimately finishes in **~40 seconds** with every `:*:test`
+task logged `FROM-CACHE`; a run that touches production code re-executes exactly the affected
+modules. Both shapes have been observed in CI, e.g. run `30409106421` (workflow-only change: 8 of 9
+test tasks `FROM-CACHE`, 43s) versus `30409846415` (peer/relay change: `:core`/`:transport`/
+`:testing` cached, the six downstream modules executed, 2m 2s). Verified directly: with a warm
+cache, editing one production method in `:core` makes `:core:test` execute rather than resolve from
+cache, and the build goes red. Gradle's cache key covers the test task's runtime classpath, so a
+changed production class invalidates its own module's tests **and** every downstream module's.
+
+Because wall-clock time therefore proves nothing either way, the gate is judged on what it
+reported. `scripts/java-test-report.sh` runs after `check build` in CI and requires that **every**
+module with `src/test/java` produced JUnit XML — those reports are task outputs, so Gradle restores
+them on a cache hit and the counts are real whether the suite ran now or was replayed. It writes the
+per-module table into the job summary (2 070 tests across 9 modules as of 2026-07-28), so a module
+whose suite silently stops running turns the job red instead of merely making it faster.
+
 ---
 
 ## 1. The testing strategy
