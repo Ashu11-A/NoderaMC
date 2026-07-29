@@ -19,6 +19,7 @@ import dev.nodera.coordinator.entity.EntityLaneSoakMetrics;
 import dev.nodera.coordinator.entity.EntityLaneRouting;
 import dev.nodera.coordinator.interference.InterferenceBuffer;
 import dev.nodera.coordinator.interference.InterferenceCommitter;
+import dev.nodera.mod.common.entity.NetworkEntityIdAttachment;
 import dev.nodera.peer.validation.DurableActionJournal;
 import dev.nodera.peer.validation.WorkerValidationService;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -251,6 +252,85 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     }
 
     /**
+     * L-11's production registration: the player's {@code PLAYER} root entity, seeded from the
+     * inventory they are actually holding.
+     *
+     * <p>It goes down the adoption path rather than through an action, because a player standing
+     * in a delegated region is a FACT of the vanilla world in exactly the way an item entity
+     * discovered by the sweep is — there is nothing for a committee to validate about it, and the
+     * adoption path already resolves the canonical CAS so a re-register after a restart updates
+     * instead of throwing.
+     *
+     * <p><b>Why the seed matters.</b> {@code EntityRuleSet.applyPickup} routes into the validated
+     * root inventory the moment this entity exists and falls back to the one-way
+     * {@code InventoryCredit} only when it does not. Registering an EMPTY root would therefore make
+     * everything the player was already carrying invisible to the lane and — worse — send picked-up
+     * items into a root nothing mirrors back. Seeding from vanilla plus
+     * {@code ServerEntityWorldView}'s gain projection closes both directions.
+     */
+    @Override
+    public boolean registerPlayer(ServerPlayer player, RegionId region) {
+        if (!delegated(region)) {
+            return false;
+        }
+        NodeId owner = new NodeId(player.getUUID());
+        NetworkEntityId id = NetworkEntityIdAttachment.getOrCreate(player);
+        int max = Math.max(1, Math.round(player.getMaxHealth()));
+        int health = Math.min(max, Math.max(1, Math.round(player.getHealth())));
+        adoptEntity(region, new PersistedEntityState(
+                id, EntityKind.PLAYER,
+                dev.nodera.simulation.entity.PlayerRules.PLAYER_TYPE_ID,
+                MinecraftEntityAdapters.fixedPosition(player),
+                MinecraftEntityAdapters.fixedVelocity(player),
+                0, PersistedEntityState.NEVER_DESPAWN,
+                dev.nodera.simulation.entity.PlayerRootRegistration.seedPayload(
+                        owner, health, max, vanillaSlots(player))));
+        boolean registered = PlayerLanePresence.registered(
+                validation.currentSnapshot(region), owner);
+        if (registered) {
+            LOG.info("player root registered: {} in {} ({} slots seeded from vanilla)",
+                    player.getGameProfile().getName(), region,
+                    dev.nodera.simulation.entity.PlayerRules.PLAYER_SLOTS);
+        }
+        return registered;
+    }
+
+    /** Drop the root presence; vanilla keeps the durable inventory (see the class javadoc). */
+    @Override
+    public void unregisterPlayer(ServerPlayer player, RegionId region) {
+        if (!delegated(region)) {
+            return;
+        }
+        NetworkEntityId id = NetworkEntityIdAttachment.getOrCreate(player);
+        PersistedEntityState current = world.getEntity(region, id);
+        if (current != null && current.kind() == EntityKind.PLAYER) {
+            externalEntity(region, current, null);
+        }
+    }
+
+    /**
+     * The player's real main inventory (36 slots: 27 + hotbar) as validated slots. Component
+     * patches — enchantments, custom names — collapse to the plain item id, which is what the
+     * validated slot table can express; the vanilla stack itself is untouched.
+     */
+    private static java.util.List<dev.nodera.core.state.ContainerEntry.ItemSlot> vanillaSlots(
+            ServerPlayer player) {
+        java.util.List<dev.nodera.core.state.ContainerEntry.ItemSlot> slots =
+                new java.util.ArrayList<>();
+        for (int slot = 0; slot < dev.nodera.simulation.entity.PlayerRules.PLAYER_SLOTS; slot++) {
+            net.minecraft.world.item.ItemStack stack = player.getInventory().getItem(slot);
+            if (stack.isEmpty()) {
+                slots.add(dev.nodera.core.state.ContainerEntry.ItemSlot.EMPTY);
+                continue;
+            }
+            slots.add(new dev.nodera.core.state.ContainerEntry.ItemSlot(
+                    BuiltInRegistries.ITEM.getId(stack.getItem()),
+                    Math.min(255, stack.getCount())));
+        }
+        return slots;
+    }
+
+    /**
      * The block-capture lane's entry point (minecraft Task 2 deliverable 1). Block actions take the
      * identical signed path as entity actions — nothing about a place or a break is special once it
      * is an {@link ActionEnvelope} — and vanilla is never cancelled for them, so there is no
@@ -289,22 +369,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         ActionEnvelope signed = new ActionEnvelope(
                 actor, playerSequence, serverSequence, tick, region, action,
                 authority.sign(unsigned.signedPortion()));
-        // L-16 / L-17: the observer path is the COMMON one under field-of-view ownership — a node
-        // sees far more regions than it owns — so it gets exactly the same two overlays as the
-        // owned path. Predicting first keeps the player's own edit on screen; holding the action
-        // in the handover is what stops a gateway migration from silently eating it.
-        predictions.onLocalAction(signed);
-        if (!handover.submit(signed)) {
-            // Frozen: held for replay. Optimistic true matches the owned path — the action is
-            // "later", never "lost", and a false here would push the failure into the capture path.
-            return true;
-        }
         try {
             boolean sent = validation.forwardTo(primary, signed);
             if (sent) {
                 LOG.debug("observer forwarded a block action for {} to its primary {}",
                         region, primary);
-                handover.acknowledge(actor, playerSequence);
             }
             return sent;
         } catch (RuntimeException unreachable) {
@@ -341,7 +410,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         for (ActionEnvelope a : held) {
             try {
                 boolean sent = validation.forwardToPrimary(a)
-                        || replayAsObserver(a)
                         || validation.proposeBatch(a.region(), a.targetTick(), a.targetTick(),
                                 java.util.List.of(a)).isPresent();
                 if (sent) {
@@ -353,20 +421,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                 LOG.debug("replay of {} deferred: {}", a.region(), unavailable.toString());
             }
         }
-    }
-
-    /**
-     * Replay an observer-origin action: this node holds no replica of the region, so
-     * {@code forwardToPrimary} (which starts from a local lease) cannot route it and
-     * {@code proposeBatch} has no standing to. The ownership plan is what every node computes, so
-     * that is what the replay resolves against — the same route the original submit took.
-     *
-     * @return whether the action left this node.
-     */
-    private boolean replayAsObserver(ActionEnvelope action) {
-        NodeId primary = ObserverOwnership.primaryOf(action.region());
-        return primary != null && !primary.equals(authority.nodeId())
-                && validation.forwardTo(primary, action);
     }
 
     private boolean submit(
