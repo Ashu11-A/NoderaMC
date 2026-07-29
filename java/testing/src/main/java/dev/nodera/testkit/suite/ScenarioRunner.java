@@ -52,7 +52,7 @@ public final class ScenarioRunner {
      */
     public List<ScenarioResult> runAll(List<Scenario> scenarios) {
         if (build) {
-            buildEverythingTheRunNeeds();
+            buildWhatTheQueueNeeds(scenarios);
         }
         List<ScenarioResult> results = new ArrayList<>();
         for (Scenario scenario : scenarios) {
@@ -97,19 +97,39 @@ public final class ScenarioRunner {
     }
 
     /**
-     * Build everything a live run needs, before the lock is taken.
+     * Build what this queue needs, before the lock is taken.
      *
-     * <p>The endpoint plugin jar is in this list because without it the server-category scenarios
+     * <p>The endpoint plugin jar is on the list because without it the server-category scenarios
      * could only ever skip: their requirement looks for a jar that nothing else in the harness
      * produces. A skip that is structural rather than circumstantial is not a skip — it is a
      * scenario that never runs.
+     *
+     * <p>The Minecraft-side builds are conditional for the opposite reason. A queue of one headless
+     * scenario does not need a NeoForge mod jar, and making it wait for one turns a three-minute
+     * consent-lane job into a fifteen-minute one that fails for reasons in a module it never
+     * touches.
      */
-    private void buildEverythingTheRunNeeds() {
+    private void buildWhatTheQueueNeeds(List<Scenario> scenarios) {
+        boolean needsMinecraft = scenarios.stream().anyMatch(scenario ->
+                scenario.tags().contains("live") || scenario.tags().contains("server"));
+        // Every service binary a scenario can ask for, including the telemetry collector. It is on
+        // this list for the same reason the endpoint plugin jar is on the Gradle one: the telemetry
+        // scenario's first stage looks for a collector nothing else in the harness builds, so
+        // leaving it out turns a scenario into one that can only ever fail on its own preflight.
+        // Selected by PACKAGE, not by binary name: `--bin` after a `-p` is scoped to that package,
+        // so mixing the two forms asks cargo for a tracker binary inside the telemetry crate and it
+        // refuses — correctly, and confusingly.
         run("cargo", List.of("cargo", "build", "--release",
-                "--bin", "nodera-tracker", "--bin", "nodera-rendezvous"), paths.root().resolve("rust"));
-        run("gradle", List.of(paths.root().resolve("gradlew").toString(),
-                ":worker:installDist", ":neoforge-mod:build", ":paper-plugin:jar",
-                "-x", "test", "-x", "check", "--console=plain"), paths.root());
+                "-p", "nodera-tracker", "-p", "nodera-rendezvous", "-p", "nodera-telemetry"),
+                paths.root().resolve("rust"));
+        List<String> gradle = new ArrayList<>(List.of(paths.root().resolve("gradlew").toString(),
+                ":worker:installDist"));
+        if (needsMinecraft) {
+            gradle.add(":neoforge-mod:build");
+            gradle.add(":paper-plugin:jar");
+        }
+        gradle.addAll(List.of("-x", "test", "-x", "check", "--console=plain"));
+        run("gradle", gradle, paths.root());
     }
 
     private void run(String what, List<String> command, java.nio.file.Path workingDir) {

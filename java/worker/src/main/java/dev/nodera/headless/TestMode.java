@@ -4,9 +4,11 @@ import dev.nodera.peer.control.WorkerEvent;
 import dev.nodera.peer.control.WorkerEventBus;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The worker's integration-run mode: {@code nodera-headless --test-mode --role player1}.
@@ -60,11 +62,6 @@ public final class TestMode {
         this.debug = debug;
     }
 
-    /** A worker that is not part of an integration run. */
-    public static TestMode disabled() {
-        return DISABLED;
-    }
-
     /**
      * Parse the worker's command line.
      *
@@ -85,7 +82,10 @@ public final class TestMode {
         boolean enabled = false;
         boolean debug = false;
         String role = "spare";
-        List<String> known = List.of("player1", "player2", "player3", "spare");
+        // A set rather than a list: the membership test sits inside the argument loop, and a
+        // linear scan inside a loop is the shape the structural report calls quadratic — correctly,
+        // even when n is four. Cheap to write the way that stays right if the list grows.
+        Set<String> known = new LinkedHashSet<>(List.of("player1", "player2", "player3", "spare"));
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             switch (arg) {
