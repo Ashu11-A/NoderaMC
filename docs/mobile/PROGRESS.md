@@ -32,6 +32,17 @@ files are [`Task.1`](Task.1.md) ✅ · [`Task.2`](Task.2.md) ✅ · [`Task.3`](T
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — The bytecode guard catches a real regression (issue #94)
+
+M-5's guard is not theoretical: a Java-21 type-pattern switch in `dev.nodera.protocol.wire.MessageRouter.answerFor`
+re-entered the worker's closure and `scripts/check-android-bytecode.sh` rejected it (the same
+`SwitchBootstraps.typeSwitch` class of crash as M-8, latent until the first encode). The switch is
+rewritten to an `instanceof` chain in the `network` category, and a new Java-level mirror
+(`AndroidTypeSwitchGuardTest` in `:transport`) now catches the same slip in `./gradlew check`, not
+only in the dex. The guard reports *0 invoke-custom sites, 0 SwitchBootstraps references*. M-5 stays
+OPEN — the script is still the only whole-closure guard — but the in-gate test narrows the blind spot
+for the module that regressed. No physical device was needed: this is a bytecode property.
+
 ### 2026-07-28 — Mobile port controls and deterministic worker boot
 
 Issue #86 review hardening adds the missing mobile Network controls for random P2P assignment or a

@@ -35,6 +35,27 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — `MessageRouter.answerFor` no longer compiles to a `SwitchBootstraps` type-switch
+
+The Android bytecode guard (issue #94, [`mobile/LIMITATIONS.md`](../mobile/LIMITATIONS.md) M-5)
+rejected `MessageRouter.answerFor`: its `switch (outcome) { case Outcome.UnknownKind u -> … }` is a
+Java-21 **type-pattern switch**, which compiles to an `invokedynamic` on
+`java.lang.runtime.SwitchBootstraps.typeSwitch` (verified in the class file — constant pool
+`InvokeDynamic typeSwitch`, bootstrap `SwitchBootstraps.typeSwitch`). ART does not implement it and
+D8 cannot desugar it, so the first encode through that path would crash on Android. This is the same
+class of defect as M-8: a new type-switch slipped back into the worker's closure after M-8's rewrite
+of the original ten. It is a genuine violation — the guard's compiled-dex `invoke-custom` /
+`SwitchBootstraps` check is the correct signal, not an over-match — so the fix rewrites the switch to
+an `instanceof` chain (byte-identical behaviour), following the convention already used in
+`CommitteeSession` and `EntityRuleSet`.
+
+A regression is now pinned at the Java gate, not only in the dex: `AndroidTypeSwitchGuardTest` scans
+this module's compiled `.class` files and fails if any reference `SwitchBootstraps` / `typeSwitch`,
+so `./gradlew check` catches the next slip without needing Android build-tools. `MessageRouterTest`
+also gains `answerForOnlyAnswersTheOutcomesThatCarryANack`, pinning the rewritten chain against all
+five `Outcome` variants. Evidence: `scripts/check-android-bytecode.sh` reports *0 invoke-custom sites,
+0 SwitchBootstraps references*; `:transport:test` green (186 cases). Task 1 remains ✅ COMPLETED.
+
 ### 2026-07-28 — One secure atomic writer for identity and worker state
 
 `AtomicFileWriter.writeOwnerOnly` now owns POSIX-at-create, non-POSIX capability selection, atomic
