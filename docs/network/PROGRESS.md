@@ -29,11 +29,37 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 | [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-91, renumbered from a duplicate L-84 on 2026-07-28) |
-| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86…L-90 RETIRING pending a live mixed-release run |
+| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97); L-87/L-88/L-90 RETIRING pending a live mixed-release run |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — L-86 and L-89 RETIRED (issue #97)
+
+The two cross-version rows whose exit tests are entirely headless retired this pass. Each row's
+*stated* exit clause names specific unit/IT methods with no live-run component, and every one of them
+is green at the last gate, so by the binding rule — *retire when the stated exit test is green, not
+when the narrative "remaining" note looks small* — they move to
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) now rather than waiting on the live mixed-release run
+that still holds L-87/L-88/L-90.
+
+**L-86 (R1 — positional, non-delimited bodies):** a field a newer peer appended is skipped at any
+depth, and a field an older peer omitted takes its default. Evidence:
+`ForwardCompatibilityTest.aFieldAppendedByANewerPeerIsIgnored`,
+`aFieldAppendedInsideANestedStructureIsIgnored`,
+`aFieldTheSenderOmitsTakesItsDocumentedDefault`, and
+`CrossVersionIT.aFutureFieldSurvivesARelay`.
+
+**L-89 (R4 — one codec for two opposite requirements):** a consensus payload crosses the tolerant
+plane as one opaque `BYTES` field, and no infrastructure decoder parses a signed structure. Evidence:
+`ForwardCompatibilityTest.aConsensusPayloadCrossesAsOpaqueBytes` +
+`theTwoPlanesAreExactlyPopulated`.
+
+All six named methods were confirmed to exist and pass under
+`./gradlew :transport:test --tests 'dev.nodera.protocol.wire.ForwardCompatibilityTest' --tests 'dev.nodera.protocol.wire.CrossVersionIT'`;
+the full gate (`./gradlew check`, `cd rust && cargo test` — the codec mirror matters) is green. Task
+14 stays 🚧 IN PROGRESS: L-87, L-88 and L-90 remain RETIRING, each pending the live mixed-release run.
 
 ### 2026-07-28 — `MessageRouter.answerFor` no longer compiles to a `SwitchBootstraps` type-switch
 

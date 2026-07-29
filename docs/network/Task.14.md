@@ -9,8 +9,8 @@
      to make a phase pass; if a phase cannot satisfy it, the phase is wrong. Keep this header's
      status accurate. -->
 
-**Status:** 🚧 IN PROGRESS — all eight phases landed; the five limitation rows are RETIRING
-pending a live mixed-release run
+**Status:** 🚧 IN PROGRESS — all eight phases landed; L-86 and L-89 RETIRED on their green headless exit
+tests (issue #97); L-87, L-88, L-90 RETIRING pending a live mixed-release run
 **Category:** network · **Owns:** L-86, L-87, L-88, L-89, L-90 · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md), [network 2](Task.2.md), [tracker 5](../tracker/Task.5.md),
 [rendezvous 5](../rendezvous/Task.5.md)
@@ -179,8 +179,10 @@ Counts and suites are in [`TESTING.md`](TESTING.md).
 | `mutation.rs` | The Rust half of the canonical invariant, on the same corpus, with the same overlay semantics |
 | `tlv.rs` / `frame.rs` unit tests | The grammar itself: ascending ids, exact fixed widths, 0/1 booleans, strict UTF-8, a pre-`NDR2` frame diagnosed at the magic |
 
-Still missing, and the reason the five rows are RETIRING rather than RETIRED: **a live mixed-release
-run**, two real processes from different builds on one network. Everything above is headless.
+Still missing, and the reason the **three remaining** rows (L-87, L-88, L-90) are RETIRING rather
+than RETIRED: **a live mixed-release run**, two real processes from different builds on one network.
+Everything above is headless. (L-86 and L-89 retired on 2026-07-28 — their stated exit tests are all
+headless and all green, so by the binding retire-on-green-exit-test rule they did not wait for this run.)
 
 ## Acceptance criteria
 
@@ -200,18 +202,23 @@ run**, two real processes from different builds on one network. Everything above
 - [x] CI runs a mixed-release matrix on every commit, and the current build against the previous
       release when a release tag exists.
 - [ ] **A live mixed-release run** — two real processes from different builds on one network. This is
-      what keeps the five rows at RETIRING rather than RETIRED; everything above is headless.
+      what keeps the three remaining rows (L-87, L-88, L-90) at RETIRING rather than RETIRED;
+      everything above is headless. (L-86 and L-89 retired 2026-07-28 on green headless exit tests.)
 
 ## Limitations
 
 | ID | Row | Status |
 |---|---|---|
-| L-86 | R1 — positional, non-delimited bodies: no change is a compatible change | RETIRING |
+| L-86 | R1 — positional, non-delimited bodies: no change is a compatible change | ✅ RETIRED 2026-07-28 (issue #97) |
 | L-87 | R2 — no negotiation before membership | RETIRING |
 | L-88 | R3 — tolerant readers, unconditional writers | RETIRING |
-| L-89 | R4 — one codec for the consensus and infrastructure planes | RETIRING |
+| L-89 | R4 — one codec for the consensus and infrastructure planes | ✅ RETIRED 2026-07-28 (issue #97) |
 | L-90 | R5 — ordinal enums at the boundary, including Minecraft's `Pose` | RETIRING |
 
-All five are **RETIRING, not RETIRED**: every exit test is green headless, and none of them has been
-run as two real processes from different builds on one network. That run is the last gate, and the
-register does not get to claim it before it happens.
+L-86 and L-89 are **RETIRED**: their stated exit tests are headless and all green
+(`ForwardCompatibilityTest` ×3 + `CrossVersionIT.aFutureFieldSurvivesARelay` for L-86;
+`ForwardCompatibilityTest` ×2 for L-89), so they retired on 2026-07-28 under the binding
+retire-on-green-exit-test rule. The remaining three are **RETIRING, not RETIRED**: every exit test
+passes headless, but none has run as two real processes from different builds on one network, and the
+negotiation/admission behaviour they cover is exactly what a live mixed-release run is for. That run
+is the last gate, and the register does not get to claim it before it happens.
