@@ -21,7 +21,7 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 |---|---|---|---|
 | [1](Task.1.md) | Plugin skeleton, build lane, platform abstraction | ✅ COMPLETED | `nodera-endpoint.jar` enables on real Paper 1.21.1 **and** Folia; ALIGN-1 passes at the default and REFUSES at exponent 2. **L-61 retired 2026-07-26**; L-66 (version pin) remains. `NoderaScheduler` seam + ArchUnit ban deferred to tasks 3–5 |
 | [2](Task.2.md) | Embedded peer + control plane | 🚧 IN PROGRESS | `nodera-endpoint.yml` parsed/validated/enforced (`EndpointConfig`, 9 tests); **external worker link shipped** (`EndpointPeerLink` + `ControlClient`, E4 green). **L-71 retired 2026-07-26**. The in-process `PeerRuntime` remains; `embedded` does nothing (follow-on scope) |
-| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | Owns L-62; **L-63 retired 2026-07-26** (multi-view planning). **The design risk**, deliberately before any behaviour change |
+| [3](Task.3.md) | Region custody and the ownership bridge | 🚧 IN PROGRESS | **L-62 retired 2026-07-28** (`CustodyDigest` + `CustodyAudit`, `CustodyAuditIT`) and **L-63 retired 2026-07-26** (multi-view planning). Remaining: the digest on the announce, the custody tiebreak, `NoderaFoliaRegionMap` |
 | [4](Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | ⬜ NOT STARTED | Owns L-64. Format-level `.mca` replacement is refused (§C) |
 | [5](Task.5.md) | Entity, mob, and event capture lane | ⬜ NOT STARTED | Owns L-67, L-69. Two NeoForge hooks have no Bukkit twin |
 | [6](Task.6.md) | The vanilla endpoint: tenants | ⬜ NOT STARTED | Owns L-68. A0′ lands here |
@@ -33,6 +33,27 @@ Tests and live suites: [`TESTING.md`](TESTING.md) · architecture reference:
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — A custody claim can now be falsified — L-62 RETIRED
+
+`custody: FULL` was believed by everyone and checked by no one, so an endpoint that had silently lost
+half its world still read as a complete replica. `CustodyDigest` makes the claim checkable — a Merkle
+root over `(RegionId → head SnapshotVersion)` with the leaves in canonical
+`RegionOrder.BY_DIMENSION_XZ`, so two honest nodes with the same state produce the same root and any
+peer can verify one region's head from an inclusion proof without holding the world. `CustodyAudit`
+samples one region at random **from the region set the auditor believes the world to have** — never a
+set the subject supplied, because a liar would just omit what it lost — and a failure **downgrades to
+`VIEW` rather than evicting**, so a transient loss never becomes an outage.
+
+The evidence is `CustodyAuditIT` (5, green): a 64-region endpoint that lost one region and advertises
+an internally perfect digest survives every sample that misses the loss and is caught the moment it is
+sampled, named in the reason; the world stays available, asserted by re-serving and re-verifying all
+63 surviving regions **after** the downgrade. `CustodyDigestTest` (8) covers ordering,
+one-changed-head, one-missing-region and proofs at world sizes 1…100. `EndpointConfig` now uses
+`dev.nodera.core.region.CustodyClass` instead of a private enum, so the configured claim and the
+audited claim are one type. Carrying the digest on the tracker announce is task 3 deliverable 3 and
+was deliberately not folded in here: the audit verifies against a root it is handed, which is exactly
+what an announce will hand it.
 
 ### 2026-07-28 — Documentation sweep: statuses reconciled against the actual code
 

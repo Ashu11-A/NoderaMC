@@ -107,9 +107,8 @@ jobs:
         working-directory: docker/telemetry
         run: |
           cp .env.example .env
-          # The placeholder secret is refused by the service on purpose; the smoke run supplies a
-          # real one so a config validity check does not need a running service.
-          sed -i 's/^NODERA_TELEMETRY_SUBJECT_SECRET=.*/NODERA_TELEMETRY_SUBJECT_SECRET=ci-secret-0123456789abcdef/' .env
+          # The pseudonymisation key is minted in memory; only the warehouse/dashboard passwords
+          # need materialising for a `docker compose config` validity check.
           sed -i 's/^CLICKHOUSE_PASSWORD=.*/CLICKHOUSE_PASSWORD=ci-clickhouse/' .env
           sed -i 's/^GRAFANA_PASSWORD=.*/GRAFANA_PASSWORD=ci-grafana/' .env
           docker compose config > /dev/null

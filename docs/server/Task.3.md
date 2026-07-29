@@ -7,8 +7,8 @@
      plan and NEVER outranks geometric distance. The multi-view planner change lands in `core` with
      headless tests before the plugin consumes it. Keep this header accurate. -->
 
-**Status:** ⬜ NOT STARTED
-**Category:** server · **Owns:** L-62 (L-63 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
+**Status:** 🚧 IN PROGRESS
+**Category:** server · **Owns:** — (L-62 RETIRED 2026-07-28, L-63 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [server 2](Task.2.md), [engine 5](../engine/Task.5.md), [network 6](../network/Task.6.md)
 **Consumed by:** [server 4](Task.4.md), [server 5](Task.5.md), [server 6](Task.6.md)
 
@@ -24,9 +24,13 @@ model; it still changes nothing about how Minecraft behaves.
 
 ## Status detail
 
-Not started. `ViewOwnershipPlanner` takes one `PlayerView` per node
+In progress. Custody is now a **checkable** claim: `CustodyDigest` (Merkle root over per-region heads
+in canonical `RegionOrder`, with inclusion proofs) and `CustodyAudit` (random spot-check → downgrade
+to `VIEW`, never eviction) landed with `CustodyDigestTest` (8) and `CustodyAuditIT` (5) — **L-62
+retired 2026-07-28**. What remains here is the wire and the Minecraft side: carrying the digest on the
+announce and membership gossip (deliverable 3), the custody tiebreak in the plan (6), and
+`NoderaFoliaRegionMap` (7–8). `ViewOwnershipPlanner` takes one `PlayerView` per node
 (**L-63**, retired 2026-07-26 — `planMultiView` takes a node's whole set of views and ranks it by its nearest one), and no custody claim is checkable by anyone
-([L-62](LIMITATIONS.md)).
 
 ## Dependencies
 
@@ -39,10 +43,10 @@ Not started. `ViewOwnershipPlanner` takes one `PlayerView` per node
 
 | # | Deliverable | State |
 |---|---|---|
-| 1 | `CustodyClass` (`VIEW` \| `FULL`) on the membership entry | ⬜ |
-| 2 | `CustodyDigest` — Merkle root over `(RegionId → head SnapshotVersion)` in canonical `RegionOrder` | ⬜ |
+| 1 | `CustodyClass` (`VIEW` \| `FULL`) on the membership entry | 🚧 the type exists in `core.region` and the plugin's config uses it; the **membership entry** field is deliverable 3's wire change |
+| 2 | `CustodyDigest` — Merkle root over `(RegionId → head SnapshotVersion)` in canonical `RegionOrder` | ✅ |
 | 3 | The digest rides every tracker announce and every membership gossip | ⬜ |
-| 4 | Spot-check: any peer samples a region and downgrades a failing claim to `VIEW` | ⬜ |
+| 4 | Spot-check: any peer samples a region and downgrades a failing claim to `VIEW` | ✅ |
 | 5 | `ViewOwnershipPlanner` multi-view overload (`Map<NodeId, Collection<PlayerView>>`, min distance) | ⬜ |
 | 6 | Custody-class tiebreak, **after** distance, **before** the `NodeId` tiebreak | ⬜ |
 | 7 | `NoderaFoliaRegionMap` — `RegionId` → owning Folia region, with the ALIGN-1 assertion live | ⬜ |
@@ -146,8 +150,8 @@ region split across two threads is corruption with a delay fuse.
 
 ## Acceptance criteria
 
-1. ⬜ An endpoint advertises `FULL` custody with a digest another peer can verify.
-2. ⬜ A false `FULL` claim is downgraded by a spot-check, and the world stays available.
+1. 🚧 An endpoint advertises `FULL` custody with a digest another peer can verify — the digest and its verification exist (`CustodyDigest`); putting it on the announce is deliverable 3.
+2. ✅ A false `FULL` claim is downgraded by a spot-check, and the world stays available (`CustodyAuditIT`).
 3. ⬜ An endpoint with N players contributes N views under one `NodeId`, and the plan is identical on
    two independent peers.
 4. ⬜ A modded player nearer to a region than any tenant **primaries** it; the endpoint validates.
@@ -156,5 +160,5 @@ region split across two threads is corruption with a delay fuse.
 
 ## Limitations
 
-- **L-62** — full custody is declared but not spot-checked.
+- **L-62** — RETIRED 2026-07-28: `CustodyDigest` + `CustodyAudit`; a 64-region endpoint missing one region is caught by a random spot-check against its advertised digest and downgraded to `VIEW`, with all 63 surviving regions still served and verifying afterwards (`CustodyAuditIT`, 5). Evidence in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
 - **L-63** — RETIRED 2026-07-26: `ViewOwnershipPlanner.planMultiView` plans from a node's whole view set with the min-distance rule; two peers holding the same facts in different orders derive identical plans for a 20-tenant endpoint (`ViewOwnershipPlannerTest`). Evidence in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
