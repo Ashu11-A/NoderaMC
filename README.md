@@ -26,7 +26,13 @@
 **Overall system completion: `90.4%`**
 `██████████████████░░`
 
-**90.4% remains unchanged:** issue #95 retires telemetry **L-72** without opening or closing a task.
+**90.4% remains unchanged:** issue #97 retires network **L-86** and **L-89** — the cross-version
+forward-compatibility rows whose stated exit tests are entirely headless and all green
+(`ForwardCompatibilityTest` + `CrossVersionIT.aFutureFieldSurvivesARelay`). Task 14 itself stays in
+progress: L-87/L-88/L-90 remain RETIRING pending a live mixed-release run. Full Java gate:
+**2,059 tests, zero failures**.
+
+Also unchanged at 90.4%: issue #95 retires telemetry **L-72** without opening or closing a task.
 The ingest service stopped holding a pseudonymisation secret the operator could read: each rotation
 period now mints a fresh 32-byte key from the OS CSPRNG, holds it only in process memory, and wipes
 it the moment the period rolls, so past periods are unrecoverable even to the operator — and
@@ -35,7 +41,7 @@ now three open rows. Rust gate: **413 tests, zero failures**; clippy clean.
 
 Previously, issue #87 advanced worker W-DUP-3 to RETIRING without completing Task 8. Worker identity
 and registry writes now survive filesystems without POSIX attributes through the production
-startup-state seam; launched-process proof remains. Full Java gate: **2,059 tests, zero failures**.
+startup-state seam; launched-process proof remains.
 
 99.2 → **97.4 %**: the **service-directory lane** opened three tasks
 ([tracker 5](docs/tracker/Task.5.md), [rendezvous 5](docs/rendezvous/Task.5.md),
