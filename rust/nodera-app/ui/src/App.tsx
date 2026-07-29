@@ -18,7 +18,7 @@ import {
   FiTerminal,
   FiUsers,
 } from "react-icons/fi";
-import { cx, MONO, SCROLLPORT_ID } from "./components";
+import { cx, MONO, SCROLLPORT_ID, StaleDataNotice } from "./components";
 import { SettingsScreen } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
 import { OverviewScreen } from "./Overview";
@@ -39,6 +39,7 @@ import {
   formatAge,
   useDashboard,
   formatRate,
+  isStale,
   linkFault,
   shortId,
   show,
@@ -140,6 +141,17 @@ function DesktopApp(props: {
   const selected =
     screen.name === "world" ? d.worlds.find((w: World) => w.world_id === screen.id) : undefined;
   const onWorlds = screen.name === "worlds" || screen.name === "world";
+  // The screens that render worker-derived figures: when the link is down but a previous snapshot
+  // exists, those numbers are the last known picture and must be marked as such (A-UX-1). Screens
+  // about the app itself (Settings, About) or that query something other than the dashboard link
+  // (Join a world, the console's system stats) are excluded — marking nothing is not honesty, it is
+  // noise.
+  const showsWorkerFigures =
+    screen.name === "overview" ||
+    screen.name === "worlds" ||
+    screen.name === "world" ||
+    screen.name === "peers";
+  const staleWorkerFigures = showsWorkerFigures && isStale(d.link);
 
   return (
     <div className="grid h-full grid-cols-[60px_1fr]">
@@ -199,6 +211,11 @@ function DesktopApp(props: {
           key={screen.name === "world" ? `world:${screen.id}` : screen.name}
           className="min-h-0 flex-1 overflow-y-auto"
         >
+          {staleWorkerFigures && (
+            <div className="px-[26px] pt-3">
+              <StaleDataNotice />
+            </div>
+          )}
           {screen.name === "settings" ? (
             <SettingsScreen settings={settings} onChange={setSettings} />
           ) : screen.name === "about" ? (

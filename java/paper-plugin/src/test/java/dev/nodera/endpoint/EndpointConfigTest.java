@@ -1,5 +1,7 @@
 package dev.nodera.endpoint;
 
+import dev.nodera.core.region.CustodyClass;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +52,7 @@ class EndpointConfigTest {
         assertThat(config.p2pPort()).isEqualTo(25620);
         assertThat(config.p2pAdvertise()).isEqualTo("127.0.0.1");
         assertThat(config.worldId()).isEqualTo("cafebabe");
-        assertThat(config.custody()).isEqualTo(EndpointConfig.Custody.FULL);
+        assertThat(config.custody()).isEqualTo(CustodyClass.FULL);
         assertThat(config.listed()).isTrue();
         assertThat(config.trackers()).containsExactly("127.0.0.1:25600");
         assertThat(config.rendezvous()).containsExactly("127.0.0.1:25601");
@@ -67,7 +69,7 @@ class EndpointConfigTest {
         assertThat(config.peerMode()).isEqualTo(EndpointConfig.PeerMode.EMBEDDED);
         assertThat(config.controlPort()).isEqualTo(EndpointConfig.DEFAULT_CONTROL_PORT);
         assertThat(config.p2pPort()).isEqualTo(EndpointConfig.DEFAULT_P2P_PORT);
-        assertThat(config.custody()).isEqualTo(EndpointConfig.Custody.VIEW);
+        assertThat(config.custody()).isEqualTo(CustodyClass.VIEW);
         assertThat(config.listed()).isFalse();
         assertThat(config.problems())
                 .as("a file that says nothing must not be a file that refuses to start")

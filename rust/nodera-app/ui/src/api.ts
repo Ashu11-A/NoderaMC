@@ -294,11 +294,6 @@ export function useDiscovery(): DiscoveryChange | null {
   return d;
 }
 
-/** One world by id, or null when this node is not keeping it. */
-export async function fetchWorld(worldId: string): Promise<World | null> {
-  return invoke<World | null>("dashboard_world", { worldId });
-}
-
 /** The outcome of asking the worker to prove it administers a world. */
 export interface AdminProof {
   signed: boolean;
@@ -445,6 +440,19 @@ export function linkFault(link: Link): string {
     case "offline":
       return link.last_error || "Your peer is not answering";
   }
+}
+
+/**
+ * A picture exists but the link is not delivering current data.
+ *
+ * True only when `has_data` is set: a screen that has never heard from the worker shows "—" for
+ * every figure (there is nothing to mark), while a screen that *has* heard and then lost the link
+ * is showing the last known picture — which must be said, because those numbers look identical to
+ * live ones. This is the flag every figure-bearing screen marks itself with when the worker is
+ * stopped, so "last known" is stated rather than implied (A-UX-1).
+ */
+export function isStale(link: Link): boolean {
+  return link.has_data && link.status !== "live" && link.status !== "polling";
 }
 
 /* ----------------------------------------------------------------------------------- the hook */

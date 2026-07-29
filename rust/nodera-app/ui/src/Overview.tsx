@@ -15,13 +15,30 @@ import {
   show,
   type Dashboard,
 } from "./api";
-import { togglePause, type SystemStats } from "./ipc";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { togglePause, fetchPauseReason, type SystemStats } from "./ipc";
 
 export function OverviewScreen(props: { d: Dashboard; sys: SystemStats }) {
   const { d } = props;
   const known = d.link.has_data;
   const [pausing, setPausing] = useState(false);
+  // Why transfers are paused, in the worker's own words. A node that quietly stops seeding on
+  // mobile data or under the battery rules looks exactly like one that crashed; the reason is the
+  // difference, and it is fetched only while paused so an idle node pays nothing for it.
+  const [pauseReason, setPauseReason] = useState("");
+  useEffect(() => {
+    if (!d.node.transfers_paused) {
+      setPauseReason("");
+      return;
+    }
+    let alive = true;
+    fetchPauseReason()
+      .then((r) => alive && setPauseReason(r))
+      .catch(() => alive && setPauseReason(""));
+    return () => {
+      alive = false;
+    };
+  }, [d.node.transfers_paused]);
 
   return (
     <div className="flex max-w-[1100px] flex-col gap-4 px-[26px] pt-5 pb-10">
@@ -103,6 +120,9 @@ export function OverviewScreen(props: { d: Dashboard; sys: SystemStats }) {
           </div>
         }
       >
+        {d.node.transfers_paused && pauseReason && (
+          <p className="pb-1.5 text-xs text-warn">{pauseReason}</p>
+        )}
         <dl>
           <KeyValue label="Node" value={known ? d.node.node_id : UNKNOWN} mono />
           <KeyValue label="Address" value={known && d.node.self_route ? d.node.self_route : UNKNOWN} mono />

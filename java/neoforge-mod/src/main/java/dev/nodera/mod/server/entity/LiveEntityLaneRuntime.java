@@ -225,6 +225,32 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     }
 
     /**
+     * L-12's submit path: a captured step becomes a signed {@code MovePlayerAction} on the same
+     * lane as every other action. Vanilla is never cancelled for it — movement stays
+     * vanilla-immediate and the committee's verdict reconciles the committed presence — so there
+     * is no {@link VanillaCancelGate} check here.
+     *
+     * <p><b>The presence gate.</b> {@code MovementRules} validates a step against the actor's
+     * committed {@link dev.nodera.core.state.EntityKind#PLAYER} entity, and a step for an actor
+     * with no such entity is rejected {@code ENTITY_NOT_FOUND} on every replica. Registering that
+     * entity is L-11's job, not this one's, and doing it here would be actively harmful: with a
+     * player entity present the engine routes pickups into the validated root inventory instead of
+     * the {@code InventoryCredit} stopgap this mod actually mirrors back into the vanilla
+     * inventory, so seeding an empty one would make picked-up items disappear from real
+     * inventories. So the step is proposed only once the committee already holds the presence it
+     * would move — which is honest about what is wired and costs a stationary lane nothing.
+     */
+    @Override
+    public boolean submitMove(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.MovePlayerAction move) {
+        NodeId actor = new NodeId(player.getUUID());
+        if (!PlayerLanePresence.registered(validation.currentSnapshot(region), actor)) {
+            return false;
+        }
+        return submit(player, region, move);
+    }
+
+    /**
      * The block-capture lane's entry point (minecraft Task 2 deliverable 1). Block actions take the
      * identical signed path as entity actions — nothing about a place or a break is special once it
      * is an {@link ActionEnvelope} — and vanilla is never cancelled for them, so there is no
@@ -263,11 +289,22 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         ActionEnvelope signed = new ActionEnvelope(
                 actor, playerSequence, serverSequence, tick, region, action,
                 authority.sign(unsigned.signedPortion()));
+        // L-16 / L-17: the observer path is the COMMON one under field-of-view ownership — a node
+        // sees far more regions than it owns — so it gets exactly the same two overlays as the
+        // owned path. Predicting first keeps the player's own edit on screen; holding the action
+        // in the handover is what stops a gateway migration from silently eating it.
+        predictions.onLocalAction(signed);
+        if (!handover.submit(signed)) {
+            // Frozen: held for replay. Optimistic true matches the owned path — the action is
+            // "later", never "lost", and a false here would push the failure into the capture path.
+            return true;
+        }
         try {
             boolean sent = validation.forwardTo(primary, signed);
             if (sent) {
                 LOG.debug("observer forwarded a block action for {} to its primary {}",
                         region, primary);
+                handover.acknowledge(actor, playerSequence);
             }
             return sent;
         } catch (RuntimeException unreachable) {
@@ -304,6 +341,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         for (ActionEnvelope a : held) {
             try {
                 boolean sent = validation.forwardToPrimary(a)
+                        || replayAsObserver(a)
                         || validation.proposeBatch(a.region(), a.targetTick(), a.targetTick(),
                                 java.util.List.of(a)).isPresent();
                 if (sent) {
@@ -315,6 +353,20 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                 LOG.debug("replay of {} deferred: {}", a.region(), unavailable.toString());
             }
         }
+    }
+
+    /**
+     * Replay an observer-origin action: this node holds no replica of the region, so
+     * {@code forwardToPrimary} (which starts from a local lease) cannot route it and
+     * {@code proposeBatch} has no standing to. The ownership plan is what every node computes, so
+     * that is what the replay resolves against — the same route the original submit took.
+     *
+     * @return whether the action left this node.
+     */
+    private boolean replayAsObserver(ActionEnvelope action) {
+        NodeId primary = ObserverOwnership.primaryOf(action.region());
+        return primary != null && !primary.equals(authority.nodeId())
+                && validation.forwardTo(primary, action);
     }
 
     private boolean submit(

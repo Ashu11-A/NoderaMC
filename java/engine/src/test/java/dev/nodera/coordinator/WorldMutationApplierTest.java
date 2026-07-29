@@ -369,7 +369,12 @@ class WorldMutationApplierTest {
     }
 
     @Test
-    void duplicateSectionTargetsAreRejectedBeforeWrites() {
+    void twoBlocksInOneSectionBothApply() {
+        // This asserted the opposite until engine L-2's halo finally let a fluid spread: the
+        // duplicate check was still at SECTION granularity, a leftover of the retired
+        // section-paint delta model, so any delta touching two blocks of the same 16³ box — every
+        // spreading fluid — aborted with DUPLICATE_BLOCK_TARGET. The conflict unit is the exact
+        // position now; two writers of one POSITION are still refused (the test above).
         RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
         InMemoryWorldView world = new InMemoryWorldView();
         world.load(base);
@@ -380,9 +385,25 @@ class WorldMutationApplierTest {
                 List.of(new BlockMutation(firstPos, 0, 1, 0),
                         new BlockMutation(secondPos, 0, 2, 0)), StateRoot.zero());
         WorldMutationApplier.ApplyResult result = new WorldMutationApplier(world).apply(delta);
+        assertThat(result.committed()).isTrue();
+        assertThat(world.getBlock(region, firstPos)).isEqualTo(1);
+        assertThat(world.getBlock(region, secondPos)).isEqualTo(2);
+    }
+
+    @Test
+    void duplicatePositionInOneDeltaIsRejectedBeforeWrites() {
+        RegionSnapshot base = CoordFixtures.fullUniformSnapshot(region, 0);
+        InMemoryWorldView world = new InMemoryWorldView();
+        world.load(base);
+        NBlockPos pos = new NBlockPos(1, 64, 1);
+        RegionDelta delta = new RegionDelta(
+                region, base.version(), base.version().next(),
+                List.of(new BlockMutation(pos, 0, 1, 0),
+                        new BlockMutation(pos, 0, 2, 0)), StateRoot.zero());
+        WorldMutationApplier.ApplyResult result = new WorldMutationApplier(world).apply(delta);
         assertThat(result.committed()).isFalse();
         assertThat(result.failure()).isEqualTo("DUPLICATE_BLOCK_TARGET");
-        assertThat(world.getBlock(region, firstPos)).isZero();
+        assertThat(world.getBlock(region, pos)).isZero();
     }
 
     @Test

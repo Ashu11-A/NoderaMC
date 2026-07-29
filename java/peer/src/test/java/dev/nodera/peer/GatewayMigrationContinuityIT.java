@@ -176,6 +176,62 @@ final class GatewayMigrationContinuityIT {
     }
 
     @Test
+    @DisplayName("the observer route is covered too — the common case, not the owned one")
+    void theObserverRouteFreezesAndReplaysExactlyOnce() {
+        // Under field-of-view ownership a node SEES far more regions than it owns, so most captured
+        // actions leave by the observer route: no local replica, resolve the region's primary from
+        // the ownership plan, forward. That route used to bypass the handover entirely, which meant
+        // the whole of this row's guarantee stopped at the regions a player happened to own — a
+        // migration still ate the swing anywhere else. It is the same handover now, so this asserts
+        // the same two properties against a send that is a plan lookup rather than a lease lookup.
+        GatewayHandover handover = new GatewayHandover();
+        List<Long> forwarded = new ArrayList<>();
+        // "The primary is reachable" — the observer's only send condition. While it is false the
+        // action must be held, not dropped.
+        boolean[] primaryReachable = {true};
+        GatewayHandoverListener listener = new GatewayHandoverListener(handover, PLAYER,
+                held -> held.forEach(a -> {
+                    if (primaryReachable[0]) {
+                        forwarded.add(a.playerSeq());
+                        handover.acknowledge(a.actor(), a.playerSeq());
+                    }
+                }));
+
+        for (long seq = 1; seq <= 2; seq++) {
+            ActionEnvelope a = place(seq, (int) seq, 3);
+            assertThat(handover.submit(a)).isTrue();
+            forwarded.add(seq);
+            handover.acknowledge(PLAYER, seq);
+        }
+
+        // The gateway carrying the forward goes away mid-swing.
+        primaryReachable[0] = false;
+        listener.onGatewayChanged(OLD_GATEWAY, NEW_GATEWAY, 1L);
+        for (long seq = 3; seq <= 5; seq++) {
+            assertThat(handover.submit(place(seq, (int) seq, 3)))
+                    .as("an observer's action is held, exactly as an owner's is")
+                    .isFalse();
+        }
+        // A resume while the primary is still unreachable must not consume the held actions.
+        listener.resume();
+        assertThat(forwarded).containsExactly(1L, 2L);
+        assertThat(handover.inFlightCount())
+                .as("still no route, so still held — an unacknowledged action is what the next "
+                        + "resume replays")
+                .isEqualTo(3);
+
+        primaryReachable[0] = true;
+        listener.onGatewayChanged(NEW_GATEWAY, OLD_GATEWAY, 2L);
+        listener.resume();
+
+        assertThat(forwarded)
+                .as("nothing lost across two migrations, and the two already acknowledged by the "
+                        + "first primary are not forwarded a second time")
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(handover.inFlightCount()).isZero();
+    }
+
+    @Test
     @DisplayName("two migrations back to back still lose nothing and double nothing")
     void successiveMigrationsPreserveExactlyOnce() {
         GatewayHandover handover = new GatewayHandover();

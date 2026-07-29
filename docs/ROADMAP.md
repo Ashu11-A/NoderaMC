@@ -292,7 +292,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
 | App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, A-9, A-UX-1…5 |
 | Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | OPEN: M-1…M-5, M-9, M-NET-1, M-NET-3…4 · RETIRING: M-NET-2 (headless property/self-route proof green; physical phone pending) |
-| Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-72, L-73, L-74, L-75 |
+| Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-73, L-74, L-75 (L-72 retired → [`LIMITATIONS.fixed.md`](telemetry/LIMITATIONS.fixed.md)) |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players
 cannot observe them) are listed once, in each owning category's register §A. They never burn down;

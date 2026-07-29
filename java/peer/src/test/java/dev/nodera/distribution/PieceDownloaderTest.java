@@ -355,6 +355,54 @@ final class PieceDownloaderTest {
     }
 
     @Test
+    void aHolderLostToACutCircuitIsAskedAgainOnTheNextRetryRound() {
+        RegionSnapshotSplitter.Layout layout = layout();
+        List<Sent> sent = new ArrayList<>();
+        PieceDownloader d = new PieceDownloader(layout.manifest(), null,
+                (holder, req) -> req.pieceIndexes().forEach(i -> sent.add(new Sent(holder, i))));
+
+        NodeId only = DistFixtures.node(7);
+        d.addHolder(only, allPieces(layout.manifest()));
+        CompletableFuture<Bytes> done = d.start();
+        // Answer one piece so the download is under way, then lose the route mid-transfer — a
+        // rendezvous drain whose grace period expired with this circuit still bridged.
+        Sent first = sent.get(0);
+        d.onChunk(new ContentChunk(layout.manifest().manifestRoot(), first.index(),
+                pieceBytes(layout, first.index())));
+        int carried = d.verifiedCount();
+        assertThat(carried).isPositive();
+
+        sent.clear();
+        d.onHolderLost(only);
+        assertThat(sent).as("nothing is asked over the route that just died").isEmpty();
+
+        // The caller's ordinary stall nudge restores it — the peer migrated, it did not leave.
+        d.retryPending();
+        assertThat(d.holdersRestored()).isEqualTo(1L);
+        assertThat(sent).as("the migrated holder is asked again").isNotEmpty();
+        assertThat(sent).allMatch(s -> s.holder().equals(only));
+
+        List<Integer> askedAfterTheCut = new ArrayList<>();
+        for (int guard = 0; guard < 1000 && !done.isDone(); guard++) {
+            List<Sent> batch = new ArrayList<>(sent);
+            sent.clear();
+            for (Sent s : batch) {
+                askedAfterTheCut.add(s.index());
+                d.onChunk(new ContentChunk(layout.manifest().manifestRoot(), s.index(),
+                        pieceBytes(layout, s.index())));
+            }
+            if (batch.isEmpty()) {
+                d.retryPending();
+            }
+        }
+        assertThat(done).isCompleted();
+        assertThat(done.join()).isEqualTo(layout.blob());
+        // Resumed, not restarted: the piece verified before the cut was never asked for again.
+        assertThat(askedAfterTheCut).doesNotContain(first.index());
+        assertThat(d.verifiedCount()).isEqualTo(layout.manifest().pieceCount());
+    }
+
+    @Test
     void requestsCarryTheManifestRootSoAHolderCanAnswerFromContentAddressAlone() {
         RegionSnapshotSplitter.Layout layout = layout();
         List<ContentRequest> requests = new ArrayList<>();

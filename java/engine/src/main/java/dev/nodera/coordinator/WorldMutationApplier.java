@@ -285,10 +285,21 @@ public final class WorldMutationApplier {
         }
     }
 
-    private record BlockTarget(RegionId region, int chunkX, int sectionY, int chunkZ) {
+    /**
+     * The conflict unit of a block write: one exact position.
+     *
+     * <p>It used to be the containing 16³ SECTION, which was correct while a mutation PAINTED a
+     * whole section (the pre-rulesVersion-3 delta model) — two mutations in one section really
+     * were two writers of the same cell. Densification retired that model: a mutation now names
+     * one block with its own pre-batch expectation, so section granularity rejected every delta
+     * that changed two blocks in the same 16³ box. A spreading fluid is exactly that shape, which
+     * is why the whole cross-region fluid lane (engine L-2) aborted with DUPLICATE_BLOCK_TARGET
+     * the moment a halo finally let it flow. Two writes to the SAME position are still a
+     * duplicate, which is what the check was ever meant to catch.
+     */
+    private record BlockTarget(RegionId region, NBlockPos pos) {
         private static BlockTarget of(RegionId region, NBlockPos pos) {
-            return new BlockTarget(region, Math.floorDiv(pos.x(), 16),
-                    Math.floorDiv(pos.y(), 16), Math.floorDiv(pos.z(), 16));
+            return new BlockTarget(region, pos);
         }
     }
 
