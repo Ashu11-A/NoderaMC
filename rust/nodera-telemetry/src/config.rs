@@ -275,6 +275,14 @@ impl Config {
 mod tests {
     use super::*;
 
+    /// A configuration that validates, as the base for `..valid()` struct updates.
+    ///
+    /// Since the pseudonymisation secret left the schema (L-72), the default *is* a valid
+    /// configuration — `the_default_configuration_validates` below is what keeps that true.
+    fn valid() -> Config {
+        Config::default()
+    }
+
     #[test]
     fn the_default_configuration_validates() {
         // The pseudonymisation key is minted in memory from the OS CSPRNG (see `subject.rs`), so a
