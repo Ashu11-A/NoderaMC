@@ -58,6 +58,17 @@ public final class EntityCaptureBridge {
         /** Return true only after pickup action reservation is durable. */
         boolean submitPickup(ServerPlayer player, RegionId region, NetworkEntityId id);
 
+        /**
+         * Propose one validated movement step (L-12). Vanilla movement is never cancelled for it —
+         * the client proposes and the committee decides, and a step the committee refuses is
+         * reconciled by the committed state like any other rejection.
+         *
+         * @return true if the step left this node (proposed or forwarded).
+         */
+        boolean submitMove(
+                ServerPlayer player, RegionId region,
+                dev.nodera.core.action.MovePlayerAction move);
+
         void externalEntity(
                 RegionId region, PersistedEntityState expected, PersistedEntityState replacement);
 
@@ -77,6 +88,9 @@ public final class EntityCaptureBridge {
             @Override public boolean submitDrop(ServerPlayer player, ItemEntity vanillaDrop) { return false; }
             @Override public boolean submitPickup(
                     ServerPlayer player, RegionId region, NetworkEntityId id) { return false; }
+            @Override public boolean submitMove(
+                    ServerPlayer player, RegionId region,
+                    dev.nodera.core.action.MovePlayerAction move) { return false; }
             @Override public void externalEntity(
                     RegionId region, PersistedEntityState expected,
                     PersistedEntityState replacement) {}
@@ -95,6 +109,8 @@ public final class EntityCaptureBridge {
     /** Regions this bridge has seen ANY entity in — the evidence that joins reach it at all. */
     private final java.util.Set<RegionId> observedRegions = new java.util.HashSet<>();
     private final Queue<Entity> deferredJoins = new ArrayDeque<>();
+    /** L-12: per-player movement anchors — the producer of every {@code MovePlayerAction}. */
+    private final PlayerMovementCapture movement = new PlayerMovementCapture();
     private final ThreadLocal<Integer> materializationDepth = ThreadLocal.withInitial(() -> 0);
     /**
      * The installed coordinator, or {@link Runtime#DISABLED}.
@@ -160,6 +176,7 @@ public final class EntityCaptureBridge {
         runtime = Runtime.DISABLED;
         captured.clear();
         deferredJoins.clear();
+        movement.clear();
         return true;
     }
 
@@ -287,7 +304,13 @@ public final class EntityCaptureBridge {
 
     private void onTickPost(EntityTickEvent.Post event) {
         Entity entity = event.getEntity();
-        if (!(entity.level() instanceof ServerLevel) || entity instanceof Player) {
+        if (!(entity.level() instanceof ServerLevel)) {
+            return;
+        }
+        if (entity instanceof Player) {
+            if (entity instanceof ServerPlayer player) {
+                capturePlayerMove(player);
+            }
             return;
         }
         Captured prior = captured.get(entity.getUUID());
@@ -321,8 +344,37 @@ public final class EntityCaptureBridge {
         captured.put(entity.getUUID(), new Captured(currentRegion, current, false));
     }
 
+    /**
+     * L-12's production call site: the vanilla player's real position, every tick, becomes the
+     * signed steps the committee validates. Self-catching because a NeoForge listener exception is
+     * NOT isolated — it rethrows into the server tick — and latency-hiding movement capture must
+     * never be the thing that takes a world down.
+     */
+    private void capturePlayerMove(ServerPlayer player) {
+        try {
+            RegionId region = MinecraftEntityAdapters.region(player);
+            PlayerMovementCapture.Plan plan = movement.observe(
+                    player.getUUID(), runtime.delegated(region),
+                    MinecraftEntityAdapters.fixedPosition(player));
+            for (dev.nodera.core.action.MovePlayerAction step : plan.steps()) {
+                runtime.submitMove(player, region, step);
+            }
+        } catch (RuntimeException laneFailure) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").debug(
+                    "movement capture for {} skipped this tick ({})",
+                    player.getUUID(), laneFailure.toString());
+            movement.forget(player.getUUID());
+        }
+    }
+
     private void onLeave(EntityLeaveLevelEvent event) {
         if (!(event.getLevel() instanceof ServerLevel) || materializationDepth.get() != 0) {
+            return;
+        }
+        if (event.getEntity() instanceof Player) {
+            // A logout or a dimension change: the next position this node sees is unrelated to the
+            // last one it proposed, and an anchor kept across that gap manufactures a "teleport".
+            movement.forget(event.getEntity().getUUID());
             return;
         }
         Captured prior = captured.remove(event.getEntity().getUUID());
