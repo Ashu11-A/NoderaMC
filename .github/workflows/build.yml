@@ -20,6 +20,14 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew check build --stacktrace
+      # `check build` is cacheable end to end, so a healthy run can finish in ~40s with every
+      # `:*:test` FROM-CACHE — visually identical to a job that skipped into green. Judge the gate
+      # by what it reported, not by how long it took: this asserts that every module with test
+      # sources produced JUnit results (Gradle restores those reports on a cache hit, so the numbers
+      # are real either way) and puts the executed count in the job summary.
+      - name: Java tests reported results
+        if: always()
+        run: scripts/java-test-report.sh --summary
       # The golden wire fixtures are committed; `:transport:test` fails if the encoder drifts from
       # them. Fail loudly if the run mutated a fixture (that can only happen with the deliberate
       # -Dnodera.fixtures.regenerate flag, which must never be set in CI).

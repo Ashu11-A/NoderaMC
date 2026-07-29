@@ -7,8 +7,8 @@
 
 **Category:** telemetry · **Last audit:** 2026-07-28 · Tasks completed: **1 / 3** (plus 6 of the 7 emitter tasks in other categories — see [`../plans/Plan.6.md`](../plans/Plan.6.md) §6)
 
-Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
-[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md) ·
+Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) (3 open: L-73, L-74, L-75) · retired gaps:
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) (1 retired: L-72) · charter: [`Task.0.md`](Task.0.md) ·
 programme: [`../plans/Plan.6.md`](../plans/Plan.6.md).
 
 ---
@@ -17,13 +17,35 @@ programme: [`../plans/Plan.6.md`](../plans/Plan.6.md).
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 91 Rust tests; clippy clean; the gate is at the receiver, and the shared reporter lives here too |
+| [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 93 Rust tests; clippy clean; forward-secret pseudonymisation retired L-72; the gate is at the receiver, and the shared reporter lives here too |
 | [2](Task.2.md) | The Big Data plane | 🚧 IN PROGRESS | Compose + warehouse + rollups landed; `stack-smoke` green in CI. Parquet export + TTL-merge assertion remain |
 | [3](Task.3.md) | Analysis, dashboards, alerting, report | ⬜ NOT STARTED | The emitters exist now; what is missing is a **population** that has opted in |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-28 — L-72 retired: forward-secret pseudonymisation (issue #95)
+
+The pseudonymiser stopped holding a secret the operator could read. Each rotation period now mints a
+fresh 32-byte key from `/dev/urandom`, holds it only in process memory, and wipes it (zero-then-drop)
+the moment the period rolls — eagerly from the ingest sweep, lazily from the next batch. The
+`subject_secret` field, its environment override (`NODERA_TELEMETRY_SUBJECT_SECRET`), and every
+deploy artefact that set it (compose env, Dockerfile, `.env.example`, `scripts/telemetry-stack.sh`,
+`scripts/e2e-telemetry.sh`, the CI workflow) are gone, so the operator's configuration carries no
+key material at all. A restart mints a brand-new key for whatever period it boots into; past periods
+are unrecoverable even to the operator, because the key that derived them no longer exists anywhere.
+
+Evidence (the L-72 exit test, deterministic fake entropy/clock):
+`subject::tests::after_rotation_and_restart_a_previous_period_subject_is_not_reproducible_from_configuration`,
+plus a service-level companion
+`service::tests::a_previous_period_subject_in_a_written_row_is_not_reproducible_after_restart` that
+drives the same property through the real ingest write path. Plan.6 §10 records D7's re-opening;
+**L-72** moved to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). Test count rose 91 → **93**.
+
+Cost carried forward, stated plainly: subjects are no longer stable across a process restart *within*
+a period — the intended trade for forward secrecy, and strictly stronger than the persistent-secret
+design it replaces.
 
 ### 2026-07-28 — Documentation sweep: test-count reconciliation, ledger fix, refactoring register
 
@@ -46,9 +68,10 @@ defects corrected, all in this directory:
    in-diagnostics (`TpsMeter` ↔ `TickSkewMeter`, ~40–48%). Recorded with elimination paths so the
    next maintainer does not rediscover it.
 
-No limitation moved status: **L-72, L-73, L-74, L-75** are all still OPEN — none of their exit
-tests exist in this crate yet (a restart-and-rotate pseudonymisation test, a non-TLS refusal test,
-a ClickHouse backup/restore drill, and the first real-population dashboard respectively).
+No limitation moved status in that sweep. **L-72** has since retired (see the 2026-07-28 issue-#95
+note above); **L-73, L-74, L-75** are still OPEN — none of their exit tests exist in this crate yet
+(a non-TLS refusal test, a ClickHouse backup/restore drill, and the first real-population dashboard
+respectively).
 
 ### 2026-07-26 — Four defects the smoke job found on its first four runs
 

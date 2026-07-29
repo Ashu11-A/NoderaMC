@@ -1,8 +1,10 @@
 # Ingest configuration for the compose deployment.
 #
-# The pseudonymisation secret is deliberately ABSENT: it arrives through
-# NODERA_TELEMETRY_SUBJECT_SECRET so this file stays publishable. The service refuses to start if
-# neither the file nor the environment supplies one.
+# No pseudonymisation secret lives here — or anywhere on disk. Each rotation period, the ingest
+# process mints a fresh key from the OS CSPRNG and holds it only in memory, wiping it the moment
+# the period rolls (docs/telemetry/LIMITATIONS.fixed.md L-72). This file carries only policy, so it
+# stays publishable, and an operator with the full config still cannot reproduce a previous period's
+# subjects.
 
 bind_addr = "0.0.0.0:25620"
 

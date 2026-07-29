@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "tsc && vite build && node --test tests/tracker-stores-style.test.mjs",
-    "build": "tsc && vite build && node --test tests/tracker-stores-style.test.mjs",
+    "test": "tsc && vite build && node --test \"tests/*.test.mjs\"",
+    "build": "tsc && vite build && node --test \"tests/*.test.mjs\"",
     "preview": "vite preview"
   },
   "dependencies": {

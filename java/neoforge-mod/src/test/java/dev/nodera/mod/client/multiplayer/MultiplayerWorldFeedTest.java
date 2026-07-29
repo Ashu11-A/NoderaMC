@@ -31,6 +31,7 @@ final class MultiplayerWorldFeedTest {
             assertThat(e.health()).isEqualTo(WorldHealth.HEALTHY);
             assertThat(e.worldIdHex()).isEqualTo("deadbeef");
             assertThat(e.mcRoute()).isEqualTo("192.168.0.9:25565");
+            assertThat(e.joinable()).isTrue();
         });
     }
 
@@ -54,15 +55,46 @@ final class MultiplayerWorldFeedTest {
         });
     }
 
+    /**
+     * MC-JOIN-1: a world this install seeds but whose game is closed is still LISTED — it is a
+     * real world and its content is real — but it is not offered as enterable, and it does not
+     * claim the health and reliability of a world that is up.
+     */
     @Test
-    void aWorldWhoseHostGameIsClosedListsWithoutAGameEndpoint() {
+    void aWorldWhoseHostGameIsClosedIsListedButNotJoinable() {
         String state = "{\"connected_worlds\":["
                 + "{\"world_id\":\"deadbeef\",\"name\":\"My World\",\"players\":0,\"mc_route\":\"\"}"
                 + "]}";
         assertThat(MultiplayerWorldFeed.buildEntries(state, "Steve"))
                 .singleElement()
-                .extracting(TorrentWorldEntry::mcRoute)
-                .isEqualTo("");
+                .satisfies(e -> {
+                    assertThat(e.mcRoute()).isEmpty();
+                    assertThat(e.health()).isEqualTo(WorldHealth.DEAD);
+                    assertThat(e.reliabilityBps()).isZero();
+                    assertThat(e.joinable()).isFalse();
+                });
+    }
+
+    /** The negative control: reopening the world (a route reappears) makes it joinable again. */
+    @Test
+    void reopeningTheHostGameMakesTheWorldJoinableAgain() {
+        String closed = "{\"connected_worlds\":[{\"world_id\":\"deadbeef\",\"name\":\"W\","
+                + "\"players\":0,\"mc_route\":\"\"}]}";
+        String open = "{\"connected_worlds\":[{\"world_id\":\"deadbeef\",\"name\":\"W\","
+                + "\"players\":1,\"mc_route\":\"10.0.0.4:25565\"}]}";
+        assertThat(MultiplayerWorldFeed.buildEntries(closed, "Steve").getFirst().joinable()).isFalse();
+        assertThat(MultiplayerWorldFeed.buildEntries(open, "Steve").getFirst().joinable()).isTrue();
+    }
+
+    /** A tracker row the directory itself calls DEAD is not offered either. */
+    @Test
+    void aDeadTrackerWorldIsNotJoinable() {
+        var catalog = List.of(new dev.nodera.protocol.discovery.TrackerCatalogEntry(
+                dev.nodera.core.Bytes.fromHex("cafebabe"), "Gone", 0, 0, 0,
+                WorldHealth.DEAD, 0L));
+        assertThat(MultiplayerWorldFeed.buildNetworkEntries(catalog))
+                .singleElement()
+                .satisfies(e -> assertThat(e.joinable()).isFalse());
     }
 
     @Test

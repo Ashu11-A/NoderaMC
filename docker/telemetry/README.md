@@ -52,10 +52,12 @@ discarded. The full argument is `docs/telemetry/Task.1.md`; the gaps that remain
 
 ## Operating notes
 
-- **`NODERA_TELEMETRY_SUBJECT_SECRET` never goes in the warehouse.** It is the only thing standing
-  between a stored subject and the install id it came from. Rotating it makes old subjects
-  permanently unlinkable to new ones — a privacy improvement *and* a retention-analysis outage, so
-  do it deliberately.
+- **No pseudonymisation secret is held on disk.** Each rotation period the ingest process mints a
+  fresh key from the OS CSPRNG and holds it only in memory, wiping it the moment the period rolls.
+  That is what retired `docs/telemetry/LIMITATIONS.fixed.md` L-72: an operator with the full
+  deployment config cannot reproduce a previous period's subjects, because the key that derived them
+  no longer exists anywhere. The cost is that subjects are not stable across a process restart
+  within a period — an acceptable trade for forward secrecy.
 - **Retention is a table TTL** (30 days raw, 400 days aggregated) in `clickhouse/init/01-schema.sql`,
   not a cron job. Changing it is a schema change, reviewed like one.
 - **Geolocation is operator-supplied.** `ingest/geo.csv` ships empty; without a table every row is

@@ -1,9 +1,12 @@
 package dev.nodera.headless;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.peer.discovery.TrackerClient;
+import dev.nodera.storage.PersistedWorldKey;
+import dev.nodera.storage.WorldOwnership;
 import dev.nodera.protocol.discovery.AnnounceEvent;
 import dev.nodera.protocol.rendezvous.CandidateKind;
 import dev.nodera.protocol.rendezvous.PeerCandidate;
@@ -133,10 +136,26 @@ public final class WorldHostingService implements AutoCloseable {
     private final WorldRegistryStore registry;
 
     /**
+     * The private keys of the worlds this node created, or {@code null} when this embedding keeps
+     * none. Its presence is what lets a stopped-then-re-seeded world read as administered again
+     * (W-DUP-2): the key survives {@code stop} on disk, so re-binding the ownership claim from it
+     * restores the badge without minting a second identity.
+     */
+    private final WorldKeyStore keys;
+
+    /**
      * Worlds this node must refuse to serve, whatever asks it to (see
      * {@link #refuseDeletedWorlds}). Defaults to refusing nothing.
      */
     private volatile java.util.function.Predicate<String> deleted = worldIdHex -> false;
+
+    /**
+     * Whether this node can still <b>serve</b> each world it holds (W-DUP-1). Defaults to every
+     * world being servable. A world that fails this test is <b>suppressed from the announce set</b>
+     * within one refresh cycle but its row is kept — in memory and in the registry — so a repair can
+     * reinstate it rather than mint a second identity for the save.
+     */
+    private volatile java.util.function.Predicate<String> servable = worldIdHex -> true;
 
     /** A hosting service with no archive lane: its announces carry no piece holdings. */
     public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
@@ -197,7 +216,33 @@ public final class WorldHostingService implements AutoCloseable {
                                java.util.function.Function<String,
                                        List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor,
                                WorldRegistryStore registry) {
+        this(identity, capabilities, selfRoute, sharedTracker, rendezvousEndpoints, holdingsFor,
+                registry, null);
+    }
+
+    /**
+     * As above, plus the world-key store that holds this node's administrator keys.
+     *
+     * @param registry the on-disk record of the worlds this peer shares and supports, or
+     *                 {@code null} for a memory-only service. When present, every world it holds is
+     *                 restored and re-announced here, at construction — which is what makes the
+     *                 worker's promise ("your world stays on the network") survive the worker's own
+     *                 restart.
+     * @param keys     the private keys of the worlds this node created, or {@code null} when this
+     *                 embedding keeps none. When present, a world whose registry row lost its
+     *                 ownership record (a stop that removed the row, a corrupted claim) is
+     *                 re-administered from its on-disk key, so ownership survives stop → re-seed
+     *                 without re-deriving a second identity (W-DUP-2).
+     */
+    public WorldHostingService(NodeIdentity identity, NodeCapabilities capabilities,
+                               Supplier<String> selfRoute,
+                               TrackerClient sharedTracker,
+                               List<RendezvousEndpoint> rendezvousEndpoints,
+                               java.util.function.Function<String,
+                                       List<dev.nodera.protocol.content.ManifestHolding>> holdingsFor,
+                               WorldRegistryStore registry, WorldKeyStore keys) {
         this.registry = registry;
+        this.keys = keys;
         this.identity = identity;
         this.capabilities = capabilities;
         this.selfRoute = selfRoute;
@@ -233,6 +278,39 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     /**
+     * Bind the test that decides whether a world this node holds can still be <b>served</b>.
+     *
+     * <p>A world that fails this test (its save vanished, its content store emptied, its bytes
+     * unrecoverable) is <b>suppressed from the announce set</b> on the next refresh cycle: the
+     * worker stops telling trackers and rendezvous services about it, so a joiner is no longer sent
+     * to a node that cannot honour the request. The row is <b>retained</b> — in the live set and in
+     * the registry — so a repair (the save coming back, the content being re-fetched) reinstates it
+     * under the same identity instead of minting a second one.
+     *
+     * <p>Without this, a registry row was re-announced on every worker start forever: nothing
+     * reconciled a row against the world still being servable, so a stale entry outlived the save
+     * it described (W-DUP-1).
+     *
+     * @param servable answers "can this node still serve this world"; never null.
+     */
+    public void bindServability(java.util.function.Predicate<String> servable) {
+        this.servable = java.util.Objects.requireNonNull(servable, "servable");
+    }
+
+    /**
+     * Run one announce-reconciliation pass immediately rather than waiting for the refresh cadence.
+     *
+     * <p>The same pass the scheduler runs on the worker's refresh interval: every world this node
+     * holds is tested for servability, unservable ones are marked suppressed and skipped, and the
+     * rest are re-announced. Exposed so a caller that knows servability changed (a save was moved, a
+     * repair completed) can reconcile at that moment, and so a test does not have to race the
+     * scheduler to observe the suppression.
+     */
+    public void reconcile() {
+        refreshAll();
+    }
+
+    /**
      * Repopulate the live world set from the persisted registry and announce every world again.
      *
      * <p>The announce is scheduled rather than performed inline because construction happens on the
@@ -253,6 +331,12 @@ public final class WorldHostingService implements AutoCloseable {
             // Liveness is NOT restored: mcRoute stays null and players stays 0 until a running game
             // says otherwise. A restored world is "shared, game closed", which is the truth.
             bindOwnershipRecord(world, entry.ownershipRecord());
+            // W-DUP-2: a row whose ownership record was lost (a stop that removed and re-seeded it,
+            // a claim that stopped verifying) is re-administered from this node's on-disk key, so
+            // ownership survives a restart without re-deriving a second identity for the save.
+            if (rebindOwnershipFromKeyStore(world) && registry != null) {
+                registry.put(entry.worldIdHex(), world.name, world.seeding, world.ownershipRecord);
+            }
             worlds.put(entry.worldIdHex(), world);
         }
         if (worlds.isEmpty()) {
@@ -305,6 +389,7 @@ public final class WorldHostingService implements AutoCloseable {
         // has the game open, and it stops being credible when that game stops refreshing it. The
         // hosting mod re-sends this on a cadence for exactly that reason.
         markPlayers(id, jsonLongField(optionsJson, "players"), PLAYERS_LEASE_SECONDS);
+        rebindOwnershipFromKeyStore(world);
         record(world);
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
@@ -364,6 +449,7 @@ public final class WorldHostingService implements AutoCloseable {
             }
             return existing;
         });
+        rebindOwnershipFromKeyStore(world);
         record(world);
         announce(world, AnnounceEvent.STARTED);
         registerRendezvous(world, RegistrationEvent.REGISTER);
@@ -532,6 +618,48 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     /**
+     * Re-administer a world from its on-disk private key, when this node still holds it.
+     *
+     * <p>The single repair for {@code stop} removing the in-memory (and registry) ownership record
+     * while the world's {@code .worldkey} survives on disk (W-DUP-2). The key's presence IS the
+     * claim "this node administers this world" — keys are only ever minted locally for a world this
+     * node authored, never accepted from the network — so a world this node is seeding or hosting
+     * again, with no claim attached, is re-bound from the key it never stopped holding.
+     *
+     * <p>The re-minted claim carries a fresh {@code createdAtEpoch}: the original timestamp is not
+     * recoverable from the key file, and it does not need to be. The claim still verifies (both
+     * signatures are valid) and still names this node, which is what "owned" reads as. The world id
+     * is pinned and never re-derived here.
+     *
+     * @return whether this call re-bound the ownership (the caller persists it).
+     */
+    private boolean rebindOwnershipFromKeyStore(HostedWorld world) {
+        if (keys == null || !world.ownershipRecord.isEmpty()) {
+            return false;
+        }
+        java.util.Optional<PersistedWorldKey> key = keys.load(world.worldIdHex);
+        if (key.isEmpty()) {
+            return false;
+        }
+        try {
+            WorldOwnership claim = WorldOwnership.create(identity, key.get(),
+                    System.currentTimeMillis());
+            CanonicalWriter w = new CanonicalWriter();
+            claim.encode(w);
+            bindOwnershipRecord(world, w.toBytes());
+            LOG.info("Re-administered world '{}' ({}) from its on-disk key after the ownership "
+                    + "record was lost", world.name, shortId(world.worldIdHex));
+            return true;
+        } catch (RuntimeException e) {
+            // A world that cannot be re-keyed is still a world: it reads as supported, not owned,
+            // which is the same state it was in before this call. The key file is left untouched.
+            LOG.warn("Could not re-bind ownership for world '{}' from its key: {}",
+                    world.name, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * @param ownershipRecord a canonical claim, possibly empty.
      * @return whether it verifies <b>and</b> names this node as the world's administrator.
      */
@@ -651,9 +779,22 @@ public final class WorldHostingService implements AutoCloseable {
 
     // --- internals -------------------------------------------------------------------------------
 
-    /** Re-announce HEARTBEAT + refresh rendezvous for every hosted world (keeps listings alive). */
+    /**
+     * Re-announce HEARTBEAT + refresh rendezvous for every hosted world this node can still serve.
+     *
+     * <p>A world that fails the {@link #bindServability servability} test is suppressed within this
+     * one cycle (W-DUP-1): it is marked and skipped, so a stale row stops being announced, and its
+     * claim is retained for a repair to reinstate.
+     */
     private void refreshAll() {
         for (HostedWorld world : worlds.values()) {
+            // A world with a live game route is servable by definition — a running game is serving
+            // it right now — whatever the content-plane test says about the bytes at rest.
+            if (world.mcRoute == null && !servable.test(world.worldIdHex)) {
+                world.announceSuppressed = true;
+                continue;
+            }
+            world.announceSuppressed = false;
             announce(world, AnnounceEvent.HEARTBEAT);
             registerRendezvous(world, RegistrationEvent.REFRESH);
         }
@@ -896,6 +1037,15 @@ public final class WorldHostingService implements AutoCloseable {
         volatile int listedOnTrackers;
         /** Trackers asked at that last announce. {@code -1} means "never announced". */
         volatile int announcedToTrackers = -1;
+        /**
+         * Whether the last reconciliation pass suppressed this world from the announce set because
+         * this node can no longer serve it (W-DUP-1).
+         *
+         * <p>A world marked here is <b>not announced</b> (no HEARTBEAT, no rendezvous refresh) but
+         * its row is kept, so a repair reinstates it under the same identity rather than minting a
+         * second one. Cleared the moment the world is servable again.
+         */
+        volatile boolean announceSuppressed;
 
         HostedWorld(String worldIdHex, Bytes worldId, String name, UUID networkId) {
             this(worldIdHex, worldId, name, networkId, System.currentTimeMillis(),
@@ -986,6 +1136,15 @@ public final class WorldHostingService implements AutoCloseable {
          */
         public int announcedToTrackers() {
             return announcedToTrackers;
+        }
+
+        /**
+         * @return whether the last reconciliation pass suppressed this world from the announce set
+         *         because this node can no longer serve it (W-DUP-1). The row is retained; this flag
+         *         only says the worker is no longer telling the network about it.
+         */
+        public boolean announceSuppressed() {
+            return announceSuppressed;
         }
 
         /**

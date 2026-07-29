@@ -331,13 +331,6 @@ async fn get_collected_schema(endpoint: String) -> Result<String, String> {
     telemetry::collected_schema(&endpoint).await
 }
 
-/// Tauri command: kept as a thin shim over [`get_setting_status`] so an older frontend bundle keeps
-/// working. New code should ask for the statuses, which say *why*.
-#[tauri::command]
-fn get_unenforced_settings(status: tauri::State<Arc<ConfigStatusHandle>>) -> Vec<String> {
-    settings::Settings::unenforced(&status.snapshot().report())
-}
-
 /// Tauri command: who owns the worker process, so the UI knows whether to offer Restart.
 #[tauri::command]
 fn get_worker_ownership() -> daemon::WorkerOwnership {
@@ -510,15 +503,6 @@ pub(crate) fn share_dir() -> std::path::PathBuf {
             )
             .join("Nodera")
         })
-}
-
-/// Tauri command: read an invitation somebody sent as a file, and report the world it names.
-#[tauri::command]
-fn open_share_file(path: String) -> Result<String, String> {
-    let uri = api::network::read_share_file(std::path::Path::new(&path))?;
-    api::network::world_id_of(&uri)
-        .map(|_| uri)
-        .ok_or_else(|| "that invitation does not name a world".to_owned())
 }
 
 /// Tauri command: the world id inside a pasted link, or an error the UI can show immediately.
@@ -852,7 +836,6 @@ pub fn run() {
             remove_tracker_store,
             refresh_tracker_stores,
             api::commands::dashboard,
-            api::commands::dashboard_world,
             prove_world_admin,
             lan_action,
             browse_network,
@@ -860,7 +843,6 @@ pub fn run() {
             leave_world,
             world_share_link,
             save_share_file,
-            open_share_file,
             parse_share_link,
             about_build,
             peer_status,
@@ -886,7 +868,6 @@ pub fn run() {
             delete_world,
             get_piece_map,
             get_settings,
-            get_unenforced_settings,
             get_setting_status,
             get_config_status,
             get_worker_ownership,
@@ -1140,14 +1121,13 @@ fn build_tray(
             // itself, because a toggle that never changes appearance reads as a dead menu entry —
             // which is exactly what this one was.
             "pause" => {
-                let paused = pause_state.toggle_manual();
+                pause_state.toggle_manual();
                 push.request();
                 let _ = pause_item.set_text(if pause_state.manual_paused() {
                     "Resume seeding"
                 } else {
                     "Pause seeding"
                 });
-                let _ = app.emit("nodera://pause", paused);
             }
             "quit" => app.exit(0),
             _ => {}
