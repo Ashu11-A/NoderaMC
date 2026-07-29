@@ -31,7 +31,7 @@ import { SettingsScreen, type Page as SettingsPage } from "./Settings";
 import { useBackStack } from "./nav";
 import { SetupFlow } from "./Setup";
 import { fetchSetupState, fetchWorkerLogs, type Settings as SettingsDoc } from "../ipc";
-import { formatBytes, heldBytes, linkFault, shortId, type Dashboard } from "../api";
+import { formatBytes, heldBytes, isStale, linkFault, shortId, type Dashboard } from "../api";
 
 type Tab = "node" | "worlds" | "activity" | "settings";
 
@@ -165,6 +165,7 @@ function NodeTab(props: { d: Dashboard; onAddTrackers: () => void }) {
 
   return (
     <Stagger className="flex flex-col gap-3">
+      {isStale(d.link) && <StaleNotice />}
       <StaggerItem className="grid grid-cols-2 gap-3">
         <Metric label="Peers" value={known ? String(d.counts.peers) : "—"} />
         <Metric
@@ -255,6 +256,7 @@ function WorldsTab(props: { d: Dashboard }) {
 
   return (
     <Stagger className="flex flex-col gap-3">
+      {isStale(props.d.link) && <StaleNotice />}
       <StaggerItem className="grid grid-cols-2 gap-3">
         <Metric label="Playing in" value={String(props.d.counts.connected_worlds)} />
         <Metric label="You serve" value={formatBytes(props.d.counts.shared_bytes)} />
@@ -293,6 +295,17 @@ function WorldGroup(props: { title: string; worlds: Dashboard["worlds"] }) {
         ))}
       </Card>
     </StaggerItem>
+  );
+}
+
+/** "These figures are the last known picture, not the current one." Mirrors the desktop
+ *  `StaleDataNotice`: a phone showing stale numbers without saying so reads as a live but idle node
+ *  when the worker has actually stopped (A-UX-1). */
+function StaleNotice() {
+  return (
+    <div className="rounded-[12px] bg-[var(--md-sys-color-error-container)] px-4 py-3 text-[13px] text-[var(--md-sys-color-on-error-container)]">
+      Showing the last known picture — the worker link is offline.
+    </div>
   );
 }
 

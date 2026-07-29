@@ -120,6 +120,10 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
 | `rust/nodera-app/ui/src/TrackerStores.tsx` | shared shell-semantic colour roles |
 | `rust/nodera-app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
 | `rust/nodera-app/ui/tests/tracker-stores-style.test.mjs` | emitted desktop/mobile CSS and padding contract |
+| `rust/nodera-app/ui/tests/ux-honesty.test.mjs` | A-UX-1/2/3/5 exit tests over the sources |
+| `rust/nodera-app/ui/src/api.ts` | `isStale(link)` — a picture exists but is not current |
+| `rust/nodera-app/ui/src/Overview.tsx` | shows the worker's pause reason while paused |
+| `rust/nodera-app/ui/src/Settings.tsx` | settings-fault banner, notifications badge, restart banner |
 | `rust/nodera-app/ui/src/components.tsx` | `SCROLLPORT_ID`, `resetScrollport` |
 | `rust/nodera-app/ui/src/{Settings,World}.tsx` | tab-change scroll reset |
 | `rust/nodera-app/ui/src/mobile/{MobileApp,Settings}.tsx` | same, mobile shell |
@@ -134,6 +138,12 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
 | `api::store::tests::attaching_to_the_worker_that_was_already_running_banks_nothing` | no double count |
 | `api::store::tests::a_rate_is_held_between_windows_instead_of_flickering_to_zero` | deliverable 2 |
 | `built tracker-store CSS resolves desktop and mobile shell roles` | deliverable 7; A-UX-4 exit |
+| `a screen showing worker figures marks them as last-known when the link is down` | deliverable 6; A-UX-1 exit |
+| `the notifications toggle is badged with why it is not in force` | deliverable 8; A-UX-2 exit (screen half) |
+| `settings::tests::appearance_notifications_is_declared_unenforced_with_a_reason` | deliverable 8; A-UX-2 exit (declaration half) |
+| `the restart banner restarts the worker, or says why it cannot` | deliverable 9; A-UX-3 exit |
+| `every registered command has a frontend caller` | A-UX-5 exit; fails on any future orphan, not just the six |
+| `the six A-UX-5 commands are each resolved, and stay resolved` | A-UX-5 exit, named row by row |
 | `tsc --noEmit` over `ui/` | the shell changes type-check |
 
 ## Acceptance criteria
@@ -143,15 +153,15 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
       is running.
 - [x] Scrolling the Console to the bottom and opening About shows About from its top.
 - [ ] No screen contains a paragraph that could be moved to `docs/` without losing an action.
-- [ ] With the worker stopped, every screen marks its numbers as last-known rather than current.
-- [ ] No setting reports itself as in force without a read site.
+- [x] With the worker stopped, every screen marks its numbers as last-known rather than current.
+- [x] No setting reports itself as in force without a read site.
 
 ## Limitations
 
 | Id | Statement | Exit test |
 |---|---|---|
-| A-UX-1 | Screens render stale numbers unmarked when the link is down; only the top bar changes | deliverable 6 |
-| A-UX-2 | `appearance.notifications` reports as live and has no consumer | deliverable 8 |
-| A-UX-3 | Restart-scoped settings ask the user to restart the worker by hand | deliverable 9 |
+| A-UX-1 | **RETIRED 2026-07-28:** screens rendered stale numbers unmarked when the link was down; only the top bar changed | deliverable 6; `isStale(link)` + `StaleDataNotice` on both shells, `a screen showing worker figures marks them as last-known when the link is down` green |
+| A-UX-2 | **RETIRED 2026-07-28:** `appearance.notifications` reported as live and had no consumer | deliverable 8; declared `Enforcement::Never` with its reason and badged on screen, `appearance_notifications_is_declared_unenforced_with_a_reason` green |
+| A-UX-3 | **RETIRED 2026-07-28:** restart-scoped settings asked the user to restart the worker by hand | deliverable 9; the banner already restarted an app-owned worker and explains attach mode, now pinned by `the restart banner restarts the worker, or says why it cannot` |
 | A-UX-4 | **RETIRED 2026-07-28:** `TrackerStores` used undefined desktop tokens, ignored Material 3 roles on mobile, and rendered without desktop padding | deliverable 7; post-build desktop/mobile CSS and padding regression green |
-| A-UX-5 | Six registered commands have no desktop caller (`settings_fault`, `pause_reason`, `dashboard_world`, `open_share_file`, `get_unenforced_settings`, `nodera://pause`) | a caller or a deletion for each |
+| A-UX-5 | **RETIRED 2026-07-28:** six registered commands had no desktop caller (`settings_fault`, `pause_reason`, `dashboard_world`, `open_share_file`, `get_unenforced_settings`, `nodera://pause`) | a caller or a deletion for each; `pause_reason` and `settings_fault` got callers, the rest were deleted, and `every registered command has a frontend caller` now walks all 47 |
