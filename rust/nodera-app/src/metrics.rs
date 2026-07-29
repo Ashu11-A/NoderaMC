@@ -138,6 +138,15 @@ pub struct WorldRow {
     /// node has no verified ownership claim for the world.
     #[serde(default)]
     pub world_public_key: String,
+
+    /// Regions of the live world whose validated snapshots are committed and seeded by this node.
+    ///
+    /// Storage and processing are different contributions, and only this one answers "is this
+    /// machine doing any of the world's work". A peer can hold a full copy of a world and validate
+    /// none of it; a player standing in a world validates the regions their view covers whether or
+    /// not they host anything.
+    #[serde(default)]
+    pub regions_held: u64,
 }
 
 /// Hand-written so `players` defaults to *unknown* rather than to zero.
@@ -169,6 +178,7 @@ impl Default for WorldRow {
             owned: false,
             connected: false,
             world_public_key: String::new(),
+            regions_held: 0,
         }
     }
 }

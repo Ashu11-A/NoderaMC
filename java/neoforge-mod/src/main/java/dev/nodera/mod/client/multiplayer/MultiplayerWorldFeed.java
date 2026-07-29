@@ -53,6 +53,14 @@ public final class MultiplayerWorldFeed {
 
     private static volatile List<TorrentWorldEntry> ownWorlds = List.of();
     private static volatile List<TorrentWorldEntry> networkWorlds = List.of();
+    /**
+     * World ids this node <b>hosts</b>, as opposed to the ones it only keeps alive for others.
+     *
+     * <p>The set is what {@link #merge} uses to decide whose answer about liveness counts. Kept
+     * beside the rows rather than inside them because it is a fact about this install, not about
+     * the world, and every other consumer of a row would have to ignore it.
+     */
+    private static volatile java.util.Set<String> authoritative = java.util.Set.of();
     private static ScheduledExecutorService scheduler;
     private static volatile TrackerClient tracker;
 
@@ -77,16 +85,65 @@ public final class MultiplayerWorldFeed {
     }
 
     public static List<TorrentWorldEntry> snapshot() {
-        List<TorrentWorldEntry> own = ownWorlds;
-        List<TorrentWorldEntry> network = networkWorlds;
+        return merge(ownWorlds, networkWorlds, authoritative);
+    }
+
+    /**
+     * Merge this node's own rows with the tracker's, world by world.
+     *
+     * <p>This used to be "own rows win, {@code putIfAbsent} for the rest", and that one line made a
+     * live world unjoinable from every peer that was helping to host it. The worker's
+     * {@code connected_worlds} lists <b>every</b> world in the local registry, including the ones
+     * this node only stores for somebody else; {@link #buildEntries} derives health from whether
+     * <i>this</i> install has a game endpoint open for it; and a supported world never does. So the
+     * peer stamped {@code DEAD} on somebody else's live world, that row displaced the tracker row
+     * that said {@code HEALTHY · 1 player}, and {@code joinable()} — which refuses DEAD — greyed out
+     * the Join button. Seen live: "Hello by Dev · players unknown · 0% reliable · Offline" on the
+     * peer, beside "Joinable now · 1 in this world" on the host, same world, same minute.
+     *
+     * <p>The rule is about <b>who is entitled to answer which question</b>. Identity — the world's
+     * name and who owns it — is local knowledge and stays local. Liveness is the network's answer
+     * unless this node hosts the world, in which case its own game endpoint is the better one.
+     *
+     * @param own           rows from this node's worker.
+     * @param network       rows from the tracker directory.
+     * @param hostedHere    world ids this node actually hosts (not merely supports).
+     * @return the merged list: own worlds first, then the rest of the network.
+     */
+    static List<TorrentWorldEntry> merge(List<TorrentWorldEntry> own,
+                                         List<TorrentWorldEntry> network,
+                                         java.util.Set<String> hostedHere) {
         Map<String, TorrentWorldEntry> merged = new LinkedHashMap<>();
         for (TorrentWorldEntry entry : own) {
             merged.put(keyOf(entry), entry);
         }
         for (TorrentWorldEntry entry : network) {
-            merged.putIfAbsent(keyOf(entry), entry);
+            String key = keyOf(entry);
+            TorrentWorldEntry local = merged.get(key);
+            if (local == null) {
+                merged.put(key, entry);
+            } else if (!hostedHere.contains(local.worldIdHex())) {
+                merged.put(key, withLocalIdentity(local, entry));
+            }
         }
         return List.copyOf(merged.values());
+    }
+
+    /** The network's row, keeping the name and owner this node knows locally. */
+    private static TorrentWorldEntry withLocalIdentity(TorrentWorldEntry local,
+                                                       TorrentWorldEntry network) {
+        return new TorrentWorldEntry(
+                local.name().isBlank() ? network.name() : local.name(),
+                network.playerCount(),
+                network.storedChunks(),
+                network.reliabilityBps(),
+                network.health(),
+                network.retentionSecondsRemaining(),
+                local.hostName().isBlank() ? network.hostName() : local.hostName(),
+                network.worldIdHex(),
+                // Kept if this node happens to know one — it is a better handle than the catalog's
+                // (empty) one, and a stale endpoint costs a failed dial, not a hidden world.
+                local.mcRoute().isBlank() ? network.mcRoute() : local.mcRoute());
     }
 
     private static String keyOf(TorrentWorldEntry entry) {
@@ -124,7 +181,9 @@ public final class MultiplayerWorldFeed {
 
     private static void refreshOwn() {
         try {
-            ownWorlds = buildEntries(workerState(), localPlayerName());
+            String state = workerState();
+            ownWorlds = buildEntries(state, localPlayerName());
+            authoritative = hostedHere(state);
         } catch (RuntimeException e) {
             // Never let a feed error blank the tab or kill the daemon thread; keep the last snapshot.
         }
@@ -191,6 +250,23 @@ public final class MultiplayerWorldFeed {
      * @param owner           the owner display name to stamp on each hosted world.
      * @return the own-worlds entries.
      */
+    /**
+     * The world ids this install hosts, from a worker STATE reply — the ones whose liveness this
+     * node is entitled to answer for. Pure over its input, like {@link #buildEntries}.
+     *
+     * @param workerStateJson the worker STATE reply (may be {@code null}).
+     * @return hosted world ids; supported-only worlds are excluded.
+     */
+    public static java.util.Set<String> hostedHere(String workerStateJson) {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        for (HostedWorldInfo world : WorkerStateParser.connectedWorlds(workerStateJson)) {
+            if (world.hostedHere()) {
+                ids.add(world.worldId());
+            }
+        }
+        return java.util.Set.copyOf(ids);
+    }
+
     public static List<TorrentWorldEntry> buildEntries(String workerStateJson, String owner) {
         List<HostedWorldInfo> hosted = WorkerStateParser.connectedWorlds(workerStateJson);
         List<TorrentWorldEntry> out = new ArrayList<>(hosted.size());

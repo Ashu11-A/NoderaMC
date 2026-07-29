@@ -2,7 +2,7 @@
 #
 # Three jobs, and the middle one is the one that matters:
 #
-#   consent-lane  runs scripts/e2e-telemetry.sh against the REAL binaries — a worker nobody asked
+#   consent-lane  runs the `telemetry` scenario against the REAL binaries — a worker nobody asked
 #                 collects nothing, a consented worker's rows carry a rotating subject and no
 #                 address, an undeclared event is refused, revocation forgets the identifier, and
 #                 the node is unaffected when the collector dies (Plan.6 D10).
@@ -24,7 +24,8 @@ on:
       - 'java/peer/src/**/headless/WorkerTelemetryService.java'
       - 'java/neoforge-mod/src/**/ModTelemetry.java'
       - 'docker/telemetry/**'
-      - 'scripts/e2e-telemetry.sh'
+      - 'java/testing/src/main/java/dev/nodera/testkit/**'
+      - 'scripts/nodera-test.sh'
       - 'scripts/telemetry-stack.sh'
       - '.github/workflows/telemetry.yml'
   pull_request:
@@ -57,8 +58,10 @@ jobs:
       - name: Java emitter tests
         run: ./gradlew :peer:test --tests '*Telemetry*' :worker:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
 
+      # The scenario is headless — no display, no Minecraft — which is why it is the one live
+      # lane that belongs in a per-push workflow rather than in the nightly matrix.
       - name: End-to-end consent lane
-        run: scripts/e2e-telemetry.sh
+        run: scripts/nodera-test.sh run telemetry
 
       - name: Collect evidence
         if: always()
@@ -66,8 +69,8 @@ jobs:
         with:
           name: telemetry-e2e
           path: |
-            run/logs/e2e-telemetry/**
-            run/results/e2e-telemetry/**
+            run/results/telemetry/**
+            build/reports/nodera/TEST-REPORT.md
           if-no-files-found: warn
 
   registry-mirror:

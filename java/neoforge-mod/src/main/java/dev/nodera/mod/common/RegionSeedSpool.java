@@ -94,12 +94,33 @@ public final class RegionSeedSpool {
                 });
     }
 
+    /**
+     * Where committed snapshots are staged before the handoff to the worker.
+     *
+     * <p>Beside the worker's own store rather than inside a save: a joiner has no save directory for
+     * the world it is validating, and the file is a handoff that is deleted immediately after.
+     */
+    public static Path defaultSpoolDir() {
+        return Path.of(System.getProperty("user.home"), ".nodera", "spool");
+    }
+
+    /** A spool wired to the companion worker and the default spool directory. */
+    public static RegionSeedSpool companion() {
+        return companion(RegionSeedSpool::defaultSpoolDir);
+    }
+
     /** A spool wired to the companion worker and the mod's spool directory. */
     public static RegionSeedSpool companion(Supplier<Path> spoolDir) {
         return new RegionSeedSpool(
                 () -> NoderaPeerService.get().currentWorldIdHex(),
                 spoolDir,
-                (world, file) -> CompanionLink.client().seedRegion(world, file).isPresent(),
+                // Null-checked rather than dereferenced: a player can be validating regions before
+                // the companion gate has linked, and an NPE here would be swallowed by the push
+                // path's catch and read as "the worker declined it" for the rest of the session.
+                (world, file) -> {
+                    CompanionClient companion = CompanionLink.client();
+                    return companion != null && companion.seedRegion(world, file).isPresent();
+                },
                 DEFAULT_THROTTLE_MILLIS);
     }
 

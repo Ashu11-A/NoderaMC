@@ -10,7 +10,7 @@
 #
 # NOTHING HERE IS REQUIRED TO PLAY NODERA. This is the project's own analytics
 # deployment; a peer that cannot reach it keeps its reports in a bounded spool
-# and eventually drops them. `scripts/e2e-telemetry.sh` proves exactly that.
+# and eventually drops them. the `telemetry` scenario (`scripts/nodera-test.sh run telemetry`) proves exactly that.
 # ===========================================================================
 set -uo pipefail
 

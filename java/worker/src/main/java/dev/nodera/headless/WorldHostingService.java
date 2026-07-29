@@ -257,8 +257,10 @@ public final class WorldHostingService implements AutoCloseable {
         });
         // Refresh announces/registrations + endpoint health on a fixed cadence.
         int refresh = refreshIntervalSeconds();
-        scheduler.scheduleWithFixedDelay(this::refreshAll, refresh, refresh, TimeUnit.SECONDS);
-        scheduler.scheduleWithFixedDelay(this::probeHealth, 0, HEALTH_PROBE_SECONDS, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(survivable("announce refresh", this::refreshAll),
+                refresh, refresh, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(survivable("endpoint health probe", this::probeHealth),
+                0, HEALTH_PROBE_SECONDS, TimeUnit.SECONDS);
         restoreFromRegistry();
     }
 
@@ -788,16 +790,61 @@ public final class WorldHostingService implements AutoCloseable {
      */
     private void refreshAll() {
         for (HostedWorld world : worlds.values()) {
-            // A world with a live game route is servable by definition — a running game is serving
-            // it right now — whatever the content-plane test says about the bytes at rest.
-            if (world.mcRoute == null && !servable.test(world.worldIdHex)) {
-                world.announceSuppressed = true;
-                continue;
+            // Per world, not per pass. One world that cannot be announced — a signing failure, a
+            // servability test that throws, anything — must not stop the worlds after it in the map
+            // from being announced. A worker holding five worlds must not go dark on all five
+            // because of the first one.
+            try {
+                refreshOne(world);
+            } catch (RuntimeException e) {
+                LOG.warn("could not refresh the announce for '{}': {}", world.name, e.toString());
             }
-            world.announceSuppressed = false;
-            announce(world, AnnounceEvent.HEARTBEAT);
-            registerRendezvous(world, RegistrationEvent.REFRESH);
         }
+    }
+
+    private void refreshOne(HostedWorld world) {
+        // A world with a live game route is servable by definition — a running game is serving
+        // it right now — whatever the content-plane test says about the bytes at rest.
+        if (world.mcRoute == null && !servable.test(world.worldIdHex)) {
+            world.announceSuppressed = true;
+            return;
+        }
+        world.announceSuppressed = false;
+        announce(world, AnnounceEvent.HEARTBEAT);
+        registerRendezvous(world, RegistrationEvent.REFRESH);
+    }
+
+    /**
+     * Wrap a scheduled task so that nothing it throws can stop it from running again.
+     *
+     * <p>{@code scheduleWithFixedDelay} <b>cancels a task permanently</b> the first time it throws,
+     * and reports that only into a {@code Future} nobody reads. This heartbeat is what keeps every
+     * world this worker holds listed on every tracker, and the worker is the thing that is supposed
+     * to outlive the game — so one exception here does not degrade the node, it silently un-hosts
+     * everything it has, forever, while the process stays up and healthy-looking.
+     *
+     * <p>That is not hypothetical. Live, with two peers online and a full copy on each: every
+     * tracker query for the world came back {@code 0 seeder(s), 0 routable} — on the very node
+     * holding 394 of 394 pieces — because the peers had aged out of the tracker and nothing was
+     * re-announcing them. The player who had left could never get back in, the player still there
+     * sat on "Migrating world…", and both workers were running the whole time. The one path in this
+     * method that can throw is outside any try: {@code rendezvous.sign} in the registration
+     * refresh, which runs on every world on every tick.
+     *
+     * @param what a name for the log line — the task is anonymous otherwise.
+     * @param body the work.
+     * @return a runnable that reports failures and always returns normally.
+     */
+    private Runnable survivable(String what, Runnable body) {
+        return () -> {
+            try {
+                body.run();
+            } catch (RuntimeException | Error e) {
+                // Error too: an OOM or a LinkageError inside one tick must not be the reason this
+                // node stops telling the network it exists.
+                LOG.warn("worker {} failed this cycle (it will run again): {}", what, e.toString());
+            }
+        };
     }
 
     /** Build + send a signed tracker announce for one world. Never throws. */
@@ -905,8 +952,17 @@ public final class WorldHostingService implements AutoCloseable {
                 ? List.of()
                 : List.of(new PeerCandidate(CandidateKind.HOST, route, 100));
         long now = System.currentTimeMillis();
-        SignedRecord record = rendezvous.sign(world.networkId, world.worldId, event, candidates,
-                capabilities, now, now + REGISTRATION_TTL.toMillis());
+        SignedRecord record;
+        try {
+            record = rendezvous.sign(world.networkId, world.worldId, event, candidates,
+                    capabilities, now, now + REGISTRATION_TTL.toMillis());
+        } catch (RuntimeException e) {
+            // Signing sat outside every try in this method while being the one call in it that can
+            // fail. A relay registration is a convenience — it is how a joiner behind a NAT finds a
+            // route — and losing it must never cost the tracker announce that runs beside it.
+            LOG.warn("could not sign the rendezvous record for '{}': {}", world.name, e.toString());
+            return;
+        }
         for (RendezvousEndpoint endpoint : endpoints) {
             try {
                 rendezvous.register(endpoint, record);

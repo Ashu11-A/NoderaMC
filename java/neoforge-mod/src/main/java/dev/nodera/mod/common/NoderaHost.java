@@ -241,15 +241,69 @@ public final class NoderaHost {
         // Live lane (Task 9/19/23): genesis-from-current-world + self-cert, PieceManifest emission,
         // per-piece encryption iff opts.encryptionEnabled(), and content seeding by the worker.
 
-        // Task 12 validated entity lane: opt-in until soak-proven; a bootstrap failure must never
-        // break sharing itself.
-        if (NoderaConfig.ENTITY_LANE_AUTO.get()) {
+        // The validated entity lane — the whole of what makes this a network of peers rather than
+        // one player's server with spectators. A bootstrap failure must never break sharing itself.
+        if (laneEnabled(opts)) {
             try {
                 activateEntityLaneFromWorld(server);
             } catch (RuntimeException e) {
                 LOG.warn("Nodera: entity lane bootstrap failed for '{}': {}", world, e.getMessage());
             }
+        } else {
+            // Said out loud, because the silent version of this is indistinguishable from a broken
+            // network: no plan is broadcast, no client activates a region, nothing is ever
+            // co-signed, and every screen reports unassigned/unsigned regions with no cause given.
+            LOG.info("Nodera: '{}' runs WITHOUT deterministic region validation — {}. Players "
+                            + "trust the session they joined; content stays hash-verified",
+                    world, whyNoLane(opts));
         }
+    }
+
+    /**
+     * Whether the validated lane may run for this world.
+     *
+     * <p>Two switches, and they answer different questions. {@code entity.laneAutoActivate} is the
+     * install's kill switch, on by default. {@link ShareOptions#delegateRegions()} is the world's
+     * own setting, chosen in the Share screen by the player who shared it — and until this method
+     * existed it was <b>read by nothing at all</b>: the checkbox was drawn, toggled, persisted into
+     * the options record and printed in the share log, and no code anywhere consumed it. A player
+     * who ticked "let other peers run this world's regions" got no lane and no explanation.
+     *
+     * @param opts the world's share options, or {@code null} when they are not known yet.
+     */
+    private static boolean laneEnabled(ShareOptions opts) {
+        // The root switch first: deterministic validation is out of scope for the initial release
+        // (see ValidationLane). Everything below it is left wired so the lane comes back by
+        // flipping one constant rather than by re-deriving how it was supposed to be turned on.
+        return ValidationLane.deterministicValidationEnabled()
+                && NoderaConfig.ENTITY_LANE_AUTO.get()
+                && (opts == null || opts.delegateRegions());
+    }
+
+    /** Which of the three gates is closed — so a log line names a cause instead of a symptom. */
+    private static String whyNoLane(ShareOptions opts) {
+        if (!ValidationLane.deterministicValidationEnabled()) {
+            return "the deterministic validation lane is switched off for this release";
+        }
+        if (!NoderaConfig.ENTITY_LANE_AUTO.get()) {
+            return "entity.laneAutoActivate is false for this install";
+        }
+        return "this world was shared with region delegation switched off";
+    }
+
+    /** As above, for the world currently hosted here. */
+    private static boolean laneEnabled() {
+        return laneEnabled(NoderaPeerService.get().hostOptions());
+    }
+
+    /**
+     * Whether the validated lane may run for the world hosted here — the login-time bootstrap's
+     * seam, for a world that was shared before anybody was online to anchor an ownership plan.
+     *
+     * @Thread-context any thread.
+     */
+    public static boolean laneEnabledHere() {
+        return laneEnabled();
     }
 
     /**
@@ -1077,7 +1131,7 @@ public final class NoderaHost {
         if (tick % OWNERSHIP_TICK_INTERVAL != 0) {
             return;
         }
-        if (!NoderaConfig.ENTITY_LANE_AUTO.get() || !NoderaPeerService.get().isHosting()
+        if (!laneEnabled() || !NoderaPeerService.get().isHosting()
                 || server.getPlayerList().getPlayers().isEmpty()) {
             return;
         }
@@ -1101,7 +1155,7 @@ public final class NoderaHost {
      * @Thread-context server thread.
      */
     public static void replanEntityLane(MinecraftServer server) {
-        if (!NoderaConfig.ENTITY_LANE_AUTO.get() || !NoderaPeerService.get().isHosting()
+        if (!laneEnabled() || !NoderaPeerService.get().isHosting()
                 || server.getPlayerList().getPlayers().isEmpty()) {
             return;
         }

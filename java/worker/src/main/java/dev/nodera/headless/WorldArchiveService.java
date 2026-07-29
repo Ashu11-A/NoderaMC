@@ -144,6 +144,25 @@ public final class WorldArchiveService implements AutoCloseable {
             new ConcurrentHashMap<>();
 
     /**
+     * How many asked seeders have yet to answer an in-flight manifest query, per world.
+     *
+     * <p>What turns "nobody has answered yet" into "everybody has answered, and the answer is no".
+     * Without the count the two are the same silence, and the fetch can only tell them apart by
+     * waiting out its deadline.
+     */
+    private final Map<String, java.util.concurrent.atomic.AtomicInteger> awaitedAnswers =
+            new ConcurrentHashMap<>();
+
+    /**
+     * How long a fetch waits to learn which versions exist before giving up on this attempt.
+     *
+     * <p>Separate from the caller's fetch budget, which is a <em>transfer</em> budget: discovery is
+     * one round trip to peers the tracker just named, so a slow answer here means "not now", not
+     * "keep the sweep thread parked". The next sweep asks again.
+     */
+    private static final Duration MANIFEST_DISCOVERY = Duration.ofSeconds(30);
+
+    /**
      * Manifest roots this node is downloading right now — eviction-proof for the duration.
      *
      * <p>A retention policy and an in-flight download disagree about what "old" means: to the policy
@@ -181,6 +200,16 @@ public final class WorldArchiveService implements AutoCloseable {
 
     /** How long a {@link #holdersFor} answer stays good enough for a dashboard. */
     private static final Duration HOLDER_CACHE_TTL = Duration.ofSeconds(15);
+
+    /**
+     * How long a node that already holds a complete copy waits to hear about a newer version.
+     *
+     * <p>Short on purpose. This probe runs on a world that is already playable here, so its cost is
+     * paid on the join path; what it buys is that a peer notices the world has moved on at all.
+     * Long enough for one round trip to every seeder over a home connection, short enough that a
+     * swarm where nobody answers costs a joiner a pause and not a loading screen.
+     */
+    private static final Duration REFRESH_PROBE = Duration.ofSeconds(8);
 
     /** worldIdHex → the last holder set resolved for it, with the moment it was resolved. */
     private final Map<String, CachedHolders> holderCache = new ConcurrentHashMap<>();
@@ -381,6 +410,52 @@ public final class WorldArchiveService implements AutoCloseable {
      * @return the manifest now seeded — the one already held if this version was seeded before.
      * @Thread-context any thread.
      */
+    /**
+     * Seed one <b>save region</b> of a world — the bytes of one {@code r.X.Z.mca}, or the world
+     * bucket that names the world itself.
+     *
+     * <p>This is the archive lane addressed by place instead of by offset. A world seeded this way
+     * is a set of region blobs, each announced under its own region and fetchable on its own, so
+     * "hold the part of the world I am in" and "serve the region somebody just walked into" become
+     * things a peer can actually do. Under the single-blob archive neither was expressible: piece
+     * 137 of 209 is not anywhere, so every peer held all of a world or none of it, and one player
+     * exploring re-issued the whole thing to everybody.
+     *
+     * <p>Idempotent per (region, version): re-seeding a version already held returns the manifest
+     * already there. A region whose files did not change packs to the same bytes, so a version bump
+     * that did not touch it costs nothing to seed and nothing to re-fetch.
+     *
+     * @param worldIdHex the world, hex-encoded.
+     * @param region     the save region these bytes belong to.
+     * @param version    the archive snapshot version.
+     * @param blob       that region's canonical archive blob.
+     * @return the manifest now seeded.
+     * @Thread-context any thread.
+     */
+    public PieceManifest seedSaveRegion(String worldIdHex, dev.nodera.distribution.SaveRegion region,
+                                        long version, byte[] blob) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        Objects.requireNonNull(region, "region");
+        Objects.requireNonNull(blob, "blob");
+        RegionId id = region.toRegionId();
+        NavigableMap<Long, PieceManifest> versions = regionManifests
+                .computeIfAbsent(worldIdHex, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(id, r -> new ConcurrentSkipListMap<>());
+        PieceManifest held = versions.get(version);
+        if (held != null) {
+            return held;
+        }
+        PieceManifest manifest = WorldArchive.manifestFor(id, version, blob);
+        content.publish(manifest, Bytes.unsafeWrap(blob));
+        pin(manifest);
+        versions.put(version, manifest);
+        LOG.info("Seeding save region {} of {} v{} — {} piece(s), {} byte(s), root {}…",
+                region, shortId(worldIdHex), version, manifest.pieceCount(),
+                manifest.totalLength(), manifest.manifestRoot().toShortHex(6));
+        trimRegionToRetention(worldIdHex, id, versions);
+        return manifest;
+    }
+
     public PieceManifest seedRegion(String worldIdHex,
                                     dev.nodera.core.state.RegionSnapshot snapshot) {
         Objects.requireNonNull(worldIdHex, "worldIdHex");
@@ -1027,8 +1102,19 @@ public final class WorldArchiveService implements AutoCloseable {
             supersedeOlderVersions(worldIdHex);
         }
         CompletableFuture<List<PieceManifest>> pending = pendingManifests.get(worldIdHex);
-        if (pending != null && !decoded.isEmpty()) {
+        if (pending == null) {
+            return;
+        }
+        if (!decoded.isEmpty()) {
             pending.complete(decoded);
+            return;
+        }
+        // "I hold nothing of this world" is an ANSWER, and the fetch is entitled to hear it. Only
+        // once every peer that was asked has said it does the wait end — one peer having nothing
+        // says nothing about the others. See requestManifest for what the silence used to cost.
+        var remaining = awaitedAnswers.get(worldIdHex);
+        if (remaining != null && remaining.decrementAndGet() <= 0) {
+            pending.complete(List.of());
         }
     }
 
@@ -1061,19 +1147,101 @@ public final class WorldArchiveService implements AutoCloseable {
         Objects.requireNonNull(worldIdHex, "worldIdHex");
         long deadline = System.nanoTime() + timeout.toNanos();
         Bytes worldId = Bytes.fromHex(worldIdHex);
-
-        // Already hold a complete copy? Serve it locally without touching the network.
-        //
-        // "A complete copy" means any complete version, not the newest known one. This asked
-        // `newestManifest(...).filter(complete)`, so a node holding v2 in full while merely knowing
-        // that v3 exists went to the network for v3 — and when the host's game had closed, nothing
-        // was serving v3, so it downloaded 0 of 73 pieces indefinitely with two complete copies of
-        // the world already on its disk. Watched happening: a worker reporting 146 pieces (two full
-        // versions of a 73-piece world) sat on "Migrating world…".
         Optional<PieceManifest> held = newestCompleteLocally(worldIdHex);
-        PieceManifest manifest = held.orElseGet(
-                () -> requestManifest(worldIdHex, worldId, seeders, deadline));
+        return download(worldIdHex,
+                chooseTarget(worldIdHex, worldId, seeders, deadline, held), seeders, deadline);
+    }
 
+    /**
+     * Bring this node's copy of a world up to the newest version the swarm can actually serve.
+     *
+     * <p>The difference from {@link #fetchArchive} is what it does when there is nothing to do: this
+     * returns {@code false} without reassembling anything, so the replication sweep can ask "did the
+     * world move on?" every few minutes about a 50 MiB archive for the price of one manifest query.
+     *
+     * @param worldIdHex the world.
+     * @param timeout    the no-progress budget for the download, if one is needed.
+     * @return whether this node now holds a newer version than it did — not merely that one was
+     *         attempted. A download that stalls falls back to the copy already held, and reporting
+     *         that as a catch-up would put "now seeding v6" in the log of a node still on v2.
+     * @throws IllegalStateException if a newer version was found and could not be downloaded.
+     * @Thread-context any thread except the runtime state thread (blocks).
+     */
+    public boolean refreshArchive(String worldIdHex, Duration timeout) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        return refreshArchiveFrom(worldIdHex, resolveSeeders(Bytes.fromHex(worldIdHex)), timeout);
+    }
+
+    /**
+     * As {@link #refreshArchive}, from an explicit candidate-seeder set (routes must already be
+     * known) — the tracker-free path for tests and pre-resolved callers.
+     *
+     * @Thread-context any thread except the runtime state thread (blocks).
+     */
+    public boolean refreshArchiveFrom(String worldIdHex, Set<NodeId> seeders, Duration timeout) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        long deadline = System.nanoTime() + timeout.toNanos();
+        Bytes worldId = Bytes.fromHex(worldIdHex);
+        Optional<PieceManifest> held = newestCompleteLocally(worldIdHex);
+        PieceManifest target = chooseTarget(worldIdHex, worldId, seeders, deadline, held);
+        if (held.isPresent() && target.manifestRoot().equals(held.get().manifestRoot())) {
+            return false; // this node is already on the newest version anybody is offering
+        }
+        download(worldIdHex, target, seeders, deadline);
+        // The store, not the return value, decides whether this worked: `download` answers a
+        // stalled transfer with the newest complete copy already here, which is the right thing to
+        // hand a player and the wrong thing to call a catch-up.
+        return content.heldPieces(target.manifestRoot()).cardinality() == target.pieceCount();
+    }
+
+    /**
+     * Which version to fetch: the newest one the swarm offers, or the copy already on this disk.
+     *
+     * <p><b>Both halves of this have been live bugs, in opposite directions.</b> Aiming blindly at
+     * the newest version anyone had <em>heard of</em> left joiners downloading 0 of 73 pieces of a
+     * version whose only holder had closed its game. Correcting that to "a complete copy always
+     * wins, without asking" then froze a peer on the first version it ever completed: observed as
+     * one node reporting {@code 100.0% · 7 of 7 pieces · v2} — permanently — beside the host's
+     * {@code 100.0% · 208 of 208 pieces · v6} of the same world. Both nodes were "complete"; only
+     * one of them had the world.
+     *
+     * <p>So the question is asked every time, and answered on evidence: probe for what the swarm is
+     * really seeding, take it when it is newer, and keep the held copy when the probe finds nothing
+     * newer, finds nothing at all, or finds a version nobody answers for. The held copy stays
+     * openable throughout — {@link #download} falls back to it if the newer version stalls — so
+     * catching up can never cost a player the world they already have.
+     */
+    private PieceManifest chooseTarget(String worldIdHex, Bytes worldId, Set<NodeId> seeders,
+                                       long deadlineNanos, Optional<PieceManifest> held) {
+        if (held.isEmpty()) {
+            // Nothing openable here: the full deadline belongs to finding a manifest at all.
+            return requestManifest(worldIdHex, worldId, seeders, deadlineNanos);
+        }
+        // A bounded probe, because this path runs when the world is ALREADY playable. Spending the
+        // whole fetch budget waiting for an answer that may never come would turn "open the world
+        // you have" into a two-minute loading screen.
+        long probeDeadline = Math.min(deadlineNanos,
+                System.nanoTime() + REFRESH_PROBE.toNanos());
+        PieceManifest offered;
+        try {
+            offered = requestManifest(worldIdHex, worldId, seeders, probeDeadline);
+        } catch (RuntimeException unreachable) {
+            LOG.info("Keeping world archive {} v{} — no seeder offered a version within the probe "
+                            + "({})", shortId(worldIdHex), held.get().version().value(),
+                    unreachable.getMessage());
+            return held.get();
+        }
+        if (offered.version().value() <= held.get().version().value()) {
+            return held.get();
+        }
+        LOG.info("World {} has moved on — this node holds v{}, the swarm is seeding v{}; catching up",
+                shortId(worldIdHex), held.get().version().value(), offered.version().value());
+        return offered;
+    }
+
+    /** Download one chosen version, or open the newest complete copy held here if it stalls. */
+    private byte[] download(String worldIdHex, PieceManifest manifest, Set<NodeId> seeders,
+                            long deadline) {
         BitSet alreadyHeld = content.heldPieces(manifest.manifestRoot());
         if (alreadyHeld.cardinality() == manifest.pieceCount()) {
             return reassembleLocal(manifest);
@@ -1143,9 +1311,12 @@ public final class WorldArchiveService implements AutoCloseable {
             // question — "has this taken too long?" — and gets it wrong in both directions: it
             // kills a large world that is transferring perfectly well, and it makes a download that
             // is receiving nothing at all look busy for two minutes before admitting it. The
-            // question that matters is whether pieces are still arriving. `timeout` is honoured as
-            // the no-progress budget, and a fetch that keeps moving keeps going.
-            long stallBudgetNanos = Math.max(timeout.toNanos(), TimeUnit.SECONDS.toNanos(20));
+            // question that matters is whether pieces are still arriving. The caller's timeout is
+            // honoured as the no-progress budget, and a fetch that keeps moving keeps going. What
+            // is left of it after the version probe is what this download gets, floored at 20s so a
+            // probe that used the whole budget still leaves the transfer a fair chance.
+            long stallBudgetNanos = Math.max(deadline - System.nanoTime(),
+                    TimeUnit.SECONDS.toNanos(20));
             int lastVerified = downloader.verifiedCount();
             long lastProgressAt = System.nanoTime();
             long lastReportAt = lastProgressAt;
@@ -1280,7 +1451,20 @@ public final class WorldArchiveService implements AutoCloseable {
         return true;
     }
 
-    /** Ask every routable seeder for its manifests and wait for the first useful answer. */
+    /**
+     * Ask every routable seeder for its manifests and wait for the first useful answer.
+     *
+     * <p>Bounded twice over, and both bounds were paid for live. The wait is capped at
+     * {@link #MANIFEST_DISCOVERY} rather than at the caller's whole deadline, because this runs on
+     * the replication sweep's single thread: a world nobody can answer for used to hold that thread
+     * for the full five-minute fetch budget, so one unanswerable world stopped every other world
+     * from being adopted. And a seeder that answers with <em>no manifests</em> — "I have heard of
+     * this world and hold none of it", the ordinary state of every peer before the host first
+     * archives — now counts as an answer. It did not, so a swarm in which everybody honestly said
+     * "nothing here" was indistinguishable from a swarm that never replied at all, and the sweep
+     * waited out its deadline anyway. Live evidence: a peer logged "Supporting world 'Hello' —
+     * fetching its archive" and then nothing whatsoever for eleven minutes.
+     */
     private PieceManifest requestManifest(
             String worldIdHex, Bytes worldId, Set<NodeId> seeders, long deadlineNanos) {
         CompletableFuture<List<PieceManifest>> pending =
@@ -1304,8 +1488,16 @@ public final class WorldArchiveService implements AutoCloseable {
                 throw new IllegalStateException(
                         "no routable seeder for world " + shortId(worldIdHex));
             }
-            long remaining = Math.max(1, deadlineNanos - System.nanoTime());
+            // Registered AFTER the sends are counted, and only then: an expectation of 0 would let
+            // the very first empty answer end the wait for a query still going out to other peers.
+            awaitedAnswers.put(worldIdHex, new java.util.concurrent.atomic.AtomicInteger(asked));
+            long remaining = Math.min(
+                    Math.max(1, deadlineNanos - System.nanoTime()), MANIFEST_DISCOVERY.toNanos());
             List<PieceManifest> answered = pending.get(remaining, TimeUnit.NANOSECONDS);
+            if (answered.isEmpty()) {
+                throw new IllegalStateException("all " + asked + " seeder(s) of world "
+                        + shortId(worldIdHex) + " answered that they hold no version of it");
+            }
             return chooseFetchable(worldIdHex, answered);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -1317,6 +1509,7 @@ public final class WorldArchiveService implements AutoCloseable {
                     "no seeder answered the manifest query for " + shortId(worldIdHex), e);
         } finally {
             pendingManifests.remove(worldIdHex);
+            awaitedAnswers.remove(worldIdHex);
         }
     }
 

@@ -392,4 +392,20 @@ public interface ControlHandler {
     default String recordTelemetryEvent(String eventJsonB64) {
         return "unsupported";
     }
+
+    /**
+     * {@link ControlProtocol#TEST} — the integration-run verb, answered only in test mode.
+     *
+     * <p>The default returns {@code null}, so a normally started worker replies "unsupported" and
+     * has no remote-control surface at all. That default is the security property: test mode is a
+     * command-line flag on a process somebody deliberately started, not a state a config file or a
+     * peer can talk a production node into.
+     *
+     * @param action {@code ROLE}, {@code READY} or {@code DRIVE} (already upper-cased).
+     * @param rest   the rest of the line, unsplit — a drive action carries coordinates and names.
+     * @return the reply line, or {@code null} for "this worker is not in test mode".
+     */
+    default String testMode(String action, String rest) {
+        return null;
+    }
 }

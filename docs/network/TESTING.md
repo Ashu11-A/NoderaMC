@@ -6,9 +6,12 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-28 · **938 Java test cases + 73 Rust (`nodera-codec`)
+**Category:** network · **Last run:** 2026-07-29 · **938 Java test cases + 73 Rust (`nodera-codec`)
 `#[test]` · 0 failing at the last gate** — Java counts come from Gradle XML reports and sum the module
 table below (186 + 157 + 595). Worker-module cases are accounted under the worker category.
+
+> **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
+> `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
@@ -94,6 +97,31 @@ cd rust && cargo test -p nodera-codec
 - **No wall clocks** in anything feeding consensus; meters take injected time so their tests are
   deterministic.
 
+## 3b. Measurement, not correctness (task 15)
+
+Two lanes exist to answer questions a pass/fail suite cannot. Neither is part of `./gradlew check` —
+both take minutes, and a benchmark that blocks every merge on a shared runner gets deleted the first
+time the runner is noisy. Both run in the `benchmarks` workflow (pull request · `main` · weekly ·
+manual) and both are ratcheted so their numbers cannot quietly get worse.
+
+```bash
+./gradlew :peer:jmh -Pbench.quick     # 79 measurements, ~8 min (full run: drop the flag)
+./gradlew :peer:benchmarkReport       # + build/reports/nodera/BENCHMARKS.md
+python3 scripts/bench-report.py --check           # vs fixtures/bench/baseline.json
+./gradlew :worker:structureReport                 # + STRUCTURE.md, structure.json, the JDWP profile
+./gradlew :worker:structureReport -Pstructure.debug=false   # static half only (~5 s)
+```
+
+| Lane | Asserts | Evidence |
+|---|---|---|
+| `:peer:jmh` (`dev.nodera.bench`) | discovery / chunk-sync / wire / runtime latency are measured per stage, ranked, and diffed against a baseline; superlinear growth is detected from the `@Param` sweep rather than guessed | `build/reports/nodera/BENCHMARKS.md` |
+| `:worker:structureReport` (`dev.nodera.structure`) | the debugger observes the real worker loading classes, executing methods, and answering all twelve control verbs; the analysis reaches >1000 methods; every budget in `fixtures/structure/budget.json` holds | `build/reports/nodera/STRUCTURE.md` |
+
+`StructuralReportTest` is tagged `structure` and **excluded from `:worker:test`**, so the module test
+counts in the table above are unchanged by it. That exclusion is why `structureReport` declares every
+module's `classes`/`testClasses` as task dependencies: an uncompiled module is a module whose callers
+vanish, and the analysis would report their callees as dead.
+
 ## 4. The former known flake — fixed 2026-07-26
 
 `SocketPeerTransportAuthTest` used to fail under the full gate at maximum parallelism, and the
@@ -150,8 +178,8 @@ Minecraft clients, the headless peers and the dedicated server all discover and 
 production architecture rather than through two processes that only ever talk to themselves:
 
 ```bash
-scripts/e2e-continuity.sh --official
-scripts/run-tests.sh --official all      # the flag is exported, so every child suite inherits it
+scripts/nodera-test.sh run continuity
+scripts/nodera-test.sh run --official all      # the flag is exported, so every child suite inherits it
 ```
 
 Nothing local binds 25600/25601 in this mode and the run does not demand those ports be free.

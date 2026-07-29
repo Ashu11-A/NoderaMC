@@ -8,7 +8,10 @@
      lifecycle paths, and most defects in this category were only catchable live. -->
 
 **Category:** minecraft · **Last run:** 2026-07-28 · **155 unit tests · 0 failing** (module
-`neoforge-mod`), plus **15 scripted live suites**
+`neoforge-mod`), plus the live acceptance scenarios (now `dev.nodera.testkit.scenario`, run with `scripts/nodera-test.sh`)
+
+> **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
+> `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
 The module is marked 🚧 in the root table because its scope is incomplete
 ([`Task.2.md`](Task.2.md)), not because anything fails.
@@ -24,7 +27,7 @@ run on the ordinary gate.
 
 ## 1.1 Running
 
-`scripts/run-tests.sh` is the entry point for a local batch. It builds once, then runs the requested
+`scripts/nodera-test.sh run` is the entry point for a local batch. It builds once, then runs the requested
 suites **strictly one at a time** — on one machine they share a port block and the run directories, so
 concurrency is made structurally impossible by an exclusive lock that standalone runs honour too.
 
@@ -33,24 +36,24 @@ so the wall clock is the slowest suite rather than the sum, and one suite's left
 another.
 
 ```bash
-scripts/run-tests.sh                    # every suite, canonical order (~45 min)
-scripts/run-tests.sh commands crash     # just these
-scripts/run-tests.sh --no-build churn   # skip the up-front build
+scripts/nodera-test.sh run                    # every suite, canonical order (~45 min)
+scripts/nodera-test.sh run commands crash     # just these
+scripts/nodera-test.sh run --no-build churn   # skip the up-front build
 
-scripts/e2e-continuity.sh               # also BAKES the shared world the others reuse
-scripts/e2e-ownership.sh --no-build
-scripts/e2e-churn.sh     --no-build [--cycles 5]
-scripts/e2e-pickup.sh    --no-build
-scripts/e2e-mobs.sh      --no-build
-scripts/e2e-pearl.sh     --no-build
-scripts/e2e-mesh-soak.sh --no-build
-scripts/e2e-determinism.sh --no-build   # SOAK_SECONDS=7200 for issue #5's acceptance run
-scripts/e2e-password.sh  --no-build
-scripts/e2e-rekey.sh     --no-build
-scripts/e2e-commands.sh  --no-build
-scripts/e2e-farlands.sh  --no-build
-scripts/e2e-crash.sh     --no-build
-scripts/e2e-ownership-follow.sh --no-build
+scripts/nodera-test.sh run continuity               # also BAKES the shared world the others reuse
+scripts/nodera-test.sh run ownership
+scripts/nodera-test.sh run churn     --no-build [--cycles 5]
+scripts/nodera-test.sh run pickup    --no-build
+scripts/nodera-test.sh run mobs      --no-build
+scripts/nodera-test.sh run pearl     --no-build
+scripts/nodera-test.sh run mesh-soak
+scripts/nodera-test.sh run determinism   # SOAK_SECONDS=7200 for issue #5's acceptance run
+scripts/nodera-test.sh run password  --no-build
+scripts/nodera-test.sh run rekey     --no-build
+scripts/nodera-test.sh run commands  --no-build
+scripts/nodera-test.sh run farlands  --no-build
+scripts/nodera-test.sh run crash     --no-build
+scripts/nodera-test.sh run ownership-follow
 
 scripts/dev.sh --play --no-build        # not a test: two interactive clients
 scripts/dev.sh --play --with-app        # …plus a companion window per player
@@ -100,9 +103,9 @@ run first — or alone on its own machine, which is what CI does.
 Any suite can be profiled, and by default none is:
 
 ```bash
-NODERA_SPARK=1 scripts/e2e-mobs.sh                       # steady-load capture
-NODERA_SPARK=1 NODERA_SPARK_TICKS_OVER=100 scripts/e2e-mesh-soak.sh   # lag spikes only
-scripts/e2e-profile.sh                                   # the dedicated suite; always profiles
+NODERA_SPARK=1 scripts/nodera-test.sh run mobs                       # steady-load capture
+NODERA_SPARK=1 NODERA_SPARK_TICKS_OVER=100 scripts/nodera-test.sh run mesh-soak   # lag spikes only
+scripts/nodera-test.sh run profile                                   # the dedicated suite; always profiles
 ```
 
 With `NODERA_SPARK` unset nothing is downloaded, staged, configured or launched differently — the
@@ -154,9 +157,9 @@ node — which used to cap a player-hosted two-player world at two members and p
 Every parameter is a variable with a default, so pinning one is just setting it:
 
 ```bash
-NODERA_SPARE_PEERS=0 scripts/e2e-crash.sh          # thin the swarm on purpose
-NODERA_E2E_TIMEOUT_MULT=3 scripts/e2e-pickup.sh    # slow machine / CI
-scripts/run-tests.sh --spare-peers 2 --players 2   # retopologise a whole batch
+NODERA_SPARE_PEERS=0 scripts/nodera-test.sh run crash          # thin the swarm on purpose
+NODERA_E2E_TIMEOUT_MULT=3 scripts/nodera-test.sh run pickup    # slow machine / CI
+scripts/nodera-test.sh run --spare-peers 2 --players 2   # retopologise a whole batch
 ```
 
 ## 1.5 The stale-bake trap
@@ -167,7 +170,7 @@ is that the entity lane never boots and every ownership assertion in the bake-re
 with no obvious cause. Those suites now bail out immediately naming this. The fix is a re-bake:
 
 ```bash
-rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/e2e-continuity.sh
+rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/nodera-test.sh run continuity
 ```
 
 ## 1.6 The first-run trap: a game dir with no `options.txt`

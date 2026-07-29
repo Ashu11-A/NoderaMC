@@ -261,6 +261,15 @@ function ContributionCard(props: { world: World }) {
       <dl>
         <KeyValue label="What you are to it" value={describeRole(w)} />
         <KeyValue
+          label="World simulation you run"
+          value={
+            w.regions_held > 0
+              ? `${w.regions_held} region${w.regions_held === 1 ? "" : "s"} validated here`
+              : "none — this node only stores the world"
+          }
+          title="Regions whose validated snapshots this node commits and seeds. A player validates the regions their view covers; storing a copy of the world is a separate job."
+        />
+        <KeyValue
           label="Data you can serve"
           value={`${formatBytes(held)} of ${formatBytes(w.total_bytes)}`}
           title="Prorated from the pieces this node has verified. Pieces are what peers request, so this is what you can actually answer with."

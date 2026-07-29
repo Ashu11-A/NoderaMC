@@ -2142,13 +2142,19 @@ public final class WorkerValidationService {
     }
 
     private Replica adopt(Replica old, RegionLease lease) {
-        if (old.pendingBatch != null) {
+        // Read the batch ONCE. `pendingBatch` is cleared by the commit path on the worldExecutor
+        // thread, so checking the field and then hashing the field is a check-then-use: a commit
+        // landing between the two turns the hash into a NullPointerException. It never reproduced
+        // on a workstation and failed on a CI runner, which is exactly the scheduling difference
+        // that makes a race visible — the null it produced was not a missing batch, it was a batch
+        // committed a microsecond earlier.
+        ActionBatch pending = old.pendingBatch;
+        if (pending != null) {
             synchronized (this) {
-                reservedBatches.remove(StateRoot.of(hashes.hash(old.pendingBatch)));
+                reservedBatches.remove(StateRoot.of(hashes.hash(pending)));
             }
         }
-        Replica next = new Replica(old.snapshot, lease);
-        return next;
+        return new Replica(old.snapshot, lease);
     }
 
     /** Real transport-backed joint approval provider used by the transfer coordinator. */

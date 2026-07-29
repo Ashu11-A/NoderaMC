@@ -1,0 +1,183 @@
+# Structural benchmarking + structural code report.
+#
+# Two questions this repository could not answer from CI before:
+#
+#   1. "Is the peer system getting slower?" — `:peer:jmh` measures the three costs that decide how
+#      a session feels (finding peers, moving a region, the per-second work of the always-on
+#      worker), and `scripts/bench-report.py` ranks them, shows how each grows with load, and diffs
+#      every number against `fixtures/bench/baseline.json`.
+#
+#   2. "Is the tree accumulating code that ships and does nothing?" — `:worker:structureReport`
+#      reads every module's bytecode for the reference graph and the in-loop cost smells, then runs
+#      the REAL `nodera-headless` worker under a JDWP debugger to see which of it executes. The
+#      counts are ratcheted by `fixtures/structure/budget.json`.
+#
+# Why these are not in `build.yml`: both are minutes long and neither is a correctness gate. A
+# benchmark that must pass before every merge gets deleted the first time a shared runner is noisy.
+# So they run on pull requests (reported, and regressions are called out), on pushes to main (the
+# trend), weekly (the drift nobody would otherwise see), and on demand.
+name: benchmarks
+on:
+  pull_request:
+    paths:
+      - 'java/**'
+      - 'gradle/**'
+      - 'scripts/bench-report.py'
+      - 'fixtures/bench/**'
+      - 'fixtures/structure/**'
+      - '.github/workflows/benchmarks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'java/**'
+      - 'gradle/**'
+      - 'scripts/bench-report.py'
+      - 'fixtures/bench/**'
+      - 'fixtures/structure/**'
+  schedule:
+    # Mondays, 04:17 UTC. Off the hour on purpose: every runner in the world is busy on the hour,
+    # and a benchmark queued behind a stampede measures the queue.
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full JMH run (2 forks x 8 iterations) instead of the quick shape'
+        type: boolean
+        default: false
+
+# A second run of the same benchmark on the same ref tells nobody anything new, and two JMH runs
+# sharing a runner measure each other.
+# Read-only: this workflow measures and reports, it never writes to the repository. Stating it
+# explicitly rather than inheriting the repository default is what keeps a future step that DOES
+# want to write an obvious decision instead of an accident.
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  # Lane 1: how fast is the peer system, and is it slower than it was?
+  # ---------------------------------------------------------------------------------------------
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      # `-Pbench.quick` is the default shape: 1 fork, 3 x 500 ms. On a shared runner the error bars
+      # are wider than on a workstation, which is exactly why the report's regression check requires
+      # a result to be outside its OWN error bars before it calls anything a regression.
+      # Written as a shell branch rather than an inline expression on purpose: an empty string is
+      # FALSY in GitHub expressions, so the obvious `cond && '' || '-Pbench.quick'` would have
+      # quietly passed the quick flag even on a full run.
+      - name: Run the peer benchmarks
+        run: |
+          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.full }}" = "true" ]; then
+            ./gradlew :peer:jmh --stacktrace
+          else
+            ./gradlew :peer:jmh -Pbench.quick --stacktrace
+          fi
+
+      - name: Render the report
+        run: |
+          python3 scripts/bench-report.py \
+            --results java/peer/build/results/jmh/results.json \
+            --out build/reports/nodera/BENCHMARKS.md \
+            --summary
+
+      # Advisory on purpose: a GitHub runner is not a measurement environment, and a hard failure on
+      # a 25% delta would be a coin toss that trains people to re-run until green. The report says
+      # so in the job summary; the numbers to argue from come from the scheduled runs on the same
+      # runner class, week over week.
+      - name: Regressions against the committed baseline
+        continue-on-error: true
+        run: |
+          python3 scripts/bench-report.py \
+            --results java/peer/build/results/jmh/results.json \
+            --out build/reports/nodera/BENCHMARKS.md \
+            --check
+
+      - name: Prove the run measured something
+        run: |
+          set -euo pipefail
+          count=$(python3 -c "import json;print(len(json.load(open('java/peer/build/results/jmh/results.json'))))")
+          echo "benchmarks measured: $count"
+          # A filtered or crashed run that produced two results would otherwise upload a green,
+          # nearly empty report — the failure shape this repo has hit before.
+          test "$count" -ge 60
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: peer-benchmarks
+          path: |
+            build/reports/nodera/BENCHMARKS.md
+            java/peer/build/results/jmh/results.json
+          # `warn`, not `error`: when a step above already failed, a second red X for a missing
+          # artefact hides which failure was the real one.
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------------------------
+  # Lane 2: what does the tree contain that never runs?
+  # ---------------------------------------------------------------------------------------------
+  structure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          # A JDK, not a JRE: the probe attaches to the worker over JDWP through com.sun.jdi.
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Compiles every module (the task declares them), launches the real worker under a debugger,
+      # drives the control verbs the companion app drives, and fails if any budget rose.
+      - name: Structural code report
+        run: ./gradlew :worker:structureReport --stacktrace
+
+      - name: Publish the report to the job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f build/reports/nodera/STRUCTURE.md ]; then
+            cat build/reports/nodera/STRUCTURE.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'The structural report was not produced — see the failing step.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The Markdown claims a debugger ran; this checks the claim rather than the wording. A probe
+      # that silently produced nothing would otherwise leave a report whose most useful section is
+      # blank and whose header still says it ran.
+      - name: The debugger probe actually observed the worker
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, sys
+          profile = json.load(open('build/reports/nodera/runtime-profile.json'))
+          methods = len(profile['methodEntries'])
+          classes = len(profile['classesLoaded'])
+          print(f"probe: {classes} classes loaded, {methods} methods entered, {profile['events']} events")
+          if methods < 50 or classes < 50:
+              sys.exit("the debugger probe observed almost nothing — the worker did not really run")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: structure-report
+          path: |
+            build/reports/nodera/STRUCTURE.md
+            build/reports/nodera/structure.json
+            build/reports/nodera/runtime-profile.json
+            build/reports/nodera/runtime-probe-worker.log
+          if-no-files-found: warn

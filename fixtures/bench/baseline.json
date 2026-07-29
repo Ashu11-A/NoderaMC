@@ -1,0 +1,323 @@
+{
+  "note": "Written by scripts/bench-report.py --write-baseline. Machine-dependent: treat cross-machine deltas as advisory and same-machine deltas as evidence.",
+  "jdk": "25",
+  "vm": "25+36-LTS",
+  "benchmarks": {
+    "dev.nodera.bench.ChunkSyncBenchmark.assemble[holderCount=24,pieceBytes=24576]": {
+      "micros": 21.453763,
+      "error": 27.487214
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.assemble[holderCount=24,pieceBytes=65536]": {
+      "micros": 19.922983,
+      "error": 20.327008
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.assemble[holderCount=24,pieceBytes=8192]": {
+      "micros": 20.76999,
+      "error": 21.81115
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.assemble[holderCount=3,pieceBytes=24576]": {
+      "micros": 19.389835,
+      "error": 19.406373
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.assemble[holderCount=3,pieceBytes=65536]": {
+      "micros": 19.501102,
+      "error": 7.227967
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.assemble[holderCount=3,pieceBytes=8192]": {
+      "micros": 19.23424,
+      "error": 15.134726
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.chooseHolders[holderCount=24,pieceBytes=24576]": {
+      "micros": 0.379438,
+      "error": 0.124014
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.chooseHolders[holderCount=24,pieceBytes=65536]": {
+      "micros": 0.377567,
+      "error": 0.002557
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.chooseHolders[holderCount=24,pieceBytes=8192]": {
+      "micros": 0.390896,
+      "error": 0.304447
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.chooseHolders[holderCount=3,pieceBytes=24576]": {
+      "micros": 0.085579,
+      "error": 0.038813
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.chooseHolders[holderCount=3,pieceBytes=65536]": {
+      "micros": 0.083821,
+      "error": 0.013872
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.chooseHolders[holderCount=3,pieceBytes=8192]": {
+      "micros": 0.085614,
+      "error": 0.025419
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.fullRegionSync[holderCount=24,pieceBytes=24576]": {
+      "micros": 29.33004,
+      "error": 28.249267
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.fullRegionSync[holderCount=24,pieceBytes=65536]": {
+      "micros": 28.41387,
+      "error": 16.476173
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.fullRegionSync[holderCount=24,pieceBytes=8192]": {
+      "micros": 28.638467,
+      "error": 25.880371
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.fullRegionSync[holderCount=3,pieceBytes=24576]": {
+      "micros": 27.978928,
+      "error": 8.358202
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.fullRegionSync[holderCount=3,pieceBytes=65536]": {
+      "micros": 27.937541,
+      "error": 14.448703
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.fullRegionSync[holderCount=3,pieceBytes=8192]": {
+      "micros": 28.676405,
+      "error": 27.725974
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.manifestRoot[holderCount=24,pieceBytes=24576]": {
+      "micros": 0.179024,
+      "error": 0.083507
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.manifestRoot[holderCount=24,pieceBytes=65536]": {
+      "micros": 0.175372,
+      "error": 0.165584
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.manifestRoot[holderCount=24,pieceBytes=8192]": {
+      "micros": 0.174407,
+      "error": 0.110977
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.manifestRoot[holderCount=3,pieceBytes=24576]": {
+      "micros": 0.193002,
+      "error": 0.532712
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.manifestRoot[holderCount=3,pieceBytes=65536]": {
+      "micros": 0.181224,
+      "error": 0.124464
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.manifestRoot[holderCount=3,pieceBytes=8192]": {
+      "micros": 0.186346,
+      "error": 0.150961
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.selectOrder[holderCount=24,pieceBytes=24576]": {
+      "micros": 0.054346,
+      "error": 0.077644
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.selectOrder[holderCount=24,pieceBytes=65536]": {
+      "micros": 0.057374,
+      "error": 0.087864
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.selectOrder[holderCount=24,pieceBytes=8192]": {
+      "micros": 0.053072,
+      "error": 0.049847
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.selectOrder[holderCount=3,pieceBytes=24576]": {
+      "micros": 0.05518,
+      "error": 0.074881
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.selectOrder[holderCount=3,pieceBytes=65536]": {
+      "micros": 0.055713,
+      "error": 0.02925
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.selectOrder[holderCount=3,pieceBytes=8192]": {
+      "micros": 0.055493,
+      "error": 0.033431
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitBlob[holderCount=24,pieceBytes=24576]": {
+      "micros": 8.830901,
+      "error": 4.154004
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitBlob[holderCount=24,pieceBytes=65536]": {
+      "micros": 8.503889,
+      "error": 8.762247
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitBlob[holderCount=24,pieceBytes=8192]": {
+      "micros": 8.469765,
+      "error": 5.520601
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitBlob[holderCount=3,pieceBytes=24576]": {
+      "micros": 8.633369,
+      "error": 3.526036
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitBlob[holderCount=3,pieceBytes=65536]": {
+      "micros": 8.671935,
+      "error": 7.559607
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitBlob[holderCount=3,pieceBytes=8192]": {
+      "micros": 8.423604,
+      "error": 5.905802
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitSnapshot[holderCount=24,pieceBytes=24576]": {
+      "micros": 171.48729,
+      "error": 93.50829
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitSnapshot[holderCount=24,pieceBytes=65536]": {
+      "micros": 165.647731,
+      "error": 93.958739
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitSnapshot[holderCount=24,pieceBytes=8192]": {
+      "micros": 169.116187,
+      "error": 164.499116
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitSnapshot[holderCount=3,pieceBytes=24576]": {
+      "micros": 169.97957,
+      "error": 118.145522
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitSnapshot[holderCount=3,pieceBytes=65536]": {
+      "micros": 179.822599,
+      "error": 228.619319
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.splitSnapshot[holderCount=3,pieceBytes=8192]": {
+      "micros": 170.655891,
+      "error": 175.956294
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.verifyAndRestoreAll[holderCount=24,pieceBytes=24576]": {
+      "micros": 9.318394,
+      "error": 6.208808
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.verifyAndRestoreAll[holderCount=24,pieceBytes=65536]": {
+      "micros": 9.268819,
+      "error": 5.283821
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.verifyAndRestoreAll[holderCount=24,pieceBytes=8192]": {
+      "micros": 9.724968,
+      "error": 4.662472
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.verifyAndRestoreAll[holderCount=3,pieceBytes=24576]": {
+      "micros": 9.568948,
+      "error": 10.791093
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.verifyAndRestoreAll[holderCount=3,pieceBytes=65536]": {
+      "micros": 9.166551,
+      "error": 3.926089
+    },
+    "dev.nodera.bench.ChunkSyncBenchmark.verifyAndRestoreAll[holderCount=3,pieceBytes=8192]": {
+      "micros": 9.725632,
+      "error": 2.702876
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.cacheLoad[peers=1024]": {
+      "micros": 757.102942,
+      "error": 612.500674
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.cacheLoad[peers=16]": {
+      "micros": 14.736344,
+      "error": 3.5442
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.cacheLoad[peers=256]": {
+      "micros": 184.940224,
+      "error": 93.650071
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.cacheSave[peers=1024]": {
+      "micros": 793.662032,
+      "error": 270.621423
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.cacheSave[peers=16]": {
+      "micros": 128.762733,
+      "error": 174.046742
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.cacheSave[peers=256]": {
+      "micros": 285.013384,
+      "error": 285.965426
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.directoryIngest[peers=1024]": {
+      "micros": 56.623807,
+      "error": 22.012247
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.directoryIngest[peers=16]": {
+      "micros": 0.833422,
+      "error": 0.755423
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.directoryIngest[peers=256]": {
+      "micros": 13.89349,
+      "error": 7.243435
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.directoryOnline[peers=1024]": {
+      "micros": 65.358725,
+      "error": 81.31725
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.directoryOnline[peers=16]": {
+      "micros": 0.888035,
+      "error": 2.238396
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.directoryOnline[peers=256]": {
+      "micros": 14.828824,
+      "error": 35.695176
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.electGateway[peers=1024]": {
+      "micros": 15.549941,
+      "error": 11.56685
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.electGateway[peers=16]": {
+      "micros": 0.297309,
+      "error": 0.176544
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.electGateway[peers=256]": {
+      "micros": 4.099944,
+      "error": 2.616127
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.parseRoutes[peers=1024]": {
+      "micros": 48.352965,
+      "error": 71.421839
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.parseRoutes[peers=16]": {
+      "micros": 0.855133,
+      "error": 0.682968
+    },
+    "dev.nodera.bench.DiscoveryBenchmark.parseRoutes[peers=256]": {
+      "micros": 12.591999,
+      "error": 21.575975
+    },
+    "dev.nodera.bench.RuntimeBenchmark.ingestKeepAlive": {
+      "micros": 0.07762,
+      "error": 0.042635
+    },
+    "dev.nodera.bench.RuntimeBenchmark.meterMessage": {
+      "micros": 0.062224,
+      "error": 0.008213
+    },
+    "dev.nodera.bench.RuntimeBenchmark.publishLocalProgress": {
+      "micros": 0.031943,
+      "error": 0.00066
+    },
+    "dev.nodera.bench.RuntimeBenchmark.sampleDiagnostics": {
+      "micros": 0.072578,
+      "error": 0.065393
+    },
+    "dev.nodera.bench.WireBenchmark.decodeContentChunk": {
+      "micros": 3.554642,
+      "error": 4.6033
+    },
+    "dev.nodera.bench.WireBenchmark.decodeHeartbeat": {
+      "micros": 0.264102,
+      "error": 0.220408
+    },
+    "dev.nodera.bench.WireBenchmark.decodeKeepAlive": {
+      "micros": 28.607732,
+      "error": 61.503457
+    },
+    "dev.nodera.bench.WireBenchmark.decodeMembership": {
+      "micros": 69.530312,
+      "error": 135.498234
+    },
+    "dev.nodera.bench.WireBenchmark.encodeContentChunk": {
+      "micros": 8.529321,
+      "error": 6.211051
+    },
+    "dev.nodera.bench.WireBenchmark.encodeHeartbeat": {
+      "micros": 0.265969,
+      "error": 0.23908
+    },
+    "dev.nodera.bench.WireBenchmark.encodeKeepAlive": {
+      "micros": 22.296881,
+      "error": 15.808154
+    },
+    "dev.nodera.bench.WireBenchmark.encodeMembership": {
+      "micros": 57.44105,
+      "error": 59.047748
+    },
+    "dev.nodera.bench.WireBenchmark.hashContentChunkFrame": {
+      "micros": 24.004654,
+      "error": 8.442648
+    }
+  }
+}

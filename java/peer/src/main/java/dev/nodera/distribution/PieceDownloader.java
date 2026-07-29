@@ -185,6 +185,29 @@ public final class PieceDownloader {
     }
 
     /**
+     * Where a verified piece is persisted, before the download is allowed to call itself finished.
+     *
+     * <p>The ordering is the whole point. The store used to be written by the <i>caller</i> of
+     * {@link #onChunk}, after it returned — and {@code onChunk} completes {@link #completion()} on
+     * the last piece, so a thread awaiting the blob could be handed a complete world while the
+     * final piece was not yet in the content store. Everything downstream asks the store, not the
+     * future: the replication sweep reads {@code heldCount() < pieceCount()} and concludes the
+     * adoption failed, and the refresh check reads "no complete copy here" and re-downloads what it
+     * already has. Rare, load-dependent, and it makes a node's own account of what it holds wrong —
+     * which is the one thing the piece plane exists to be right about.
+     *
+     * @param sink called with (piece index, verified payload) for every accepted piece, before
+     *             completion is decided; {@code null} to persist nothing.
+     * @Thread-context set once at construction time, before the download starts.
+     */
+    public void persistTo(java.util.function.BiConsumer<Integer, Bytes> sink) {
+        this.persist = sink;
+    }
+
+    /** @see #persistTo */
+    private volatile java.util.function.BiConsumer<Integer, Bytes> persist;
+
+    /**
      * Learn (or refresh) what one peer holds.
      *
      * @param peer   the holder.
@@ -300,6 +323,12 @@ public final class PieceDownloader {
                     excluded.computeIfAbsent(index, k -> new HashSet<>()).addAll(asked);
                 }
             }
+        }
+        // Persist BEFORE completing: see persistTo. Outside the lock, because the sink writes to the
+        // content store and the download must not hold its own monitor across that.
+        var sink = persist;
+        if (accepted && sink != null) {
+            sink.accept(chunk.index(), chunk.payload());
         }
         finishIfComplete();
         pump();

@@ -191,7 +191,7 @@ public final class ServerBootstrap {
         }
         // Task 12 live lane: the FOV ownership plan needs a player to anchor it, so a world shared
         // before anyone was online (a dedicated auto-share boot) activates on first login instead.
-        if (route != null && NoderaConfig.ENTITY_LANE_AUTO.get() && !NoderaHost.entityLaneActive()
+        if (route != null && NoderaHost.laneEnabledHere() && !NoderaHost.entityLaneActive()
                 && event.getEntity() instanceof ServerPlayer player) {
             try {
                 NoderaHost.activateEntityLaneFromWorld(player.serverLevel().getServer());

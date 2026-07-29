@@ -13,7 +13,7 @@
 #
 # Both are latent: everything works until the first message is encoded. On a
 # phone the worker shares the app's process, so it takes the UI down with it.
-# That is exactly how it was found — `scripts/e2e-android-mesh.sh` crashed at
+# That is exactly how it was found — the `android-mesh` scenario (then `scripts/e2e-android-mesh.sh`) crashed at
 # the mesh join while every earlier phase passed.
 #
 # This checks the compiled artefacts, not the source, because the property that

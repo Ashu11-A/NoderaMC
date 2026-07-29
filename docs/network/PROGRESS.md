@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-28 · Tasks completed: **11 / 14**
+**Category:** network · **Last audit:** 2026-07-29 · Tasks completed: **12 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -30,10 +30,44 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 | [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-91, renumbered from a duplicate L-84 on 2026-07-28) |
 | [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97); L-87/L-88/L-90 RETIRING pending a live mixed-release run |
+| [15](Task.15.md) | Structural benchmarking + structural code report | ✅ COMPLETED | Four JMH lanes (`:peer:jmh`), ranked report with load-scaling + baseline diff, bytecode dead-code/cost report and JDWP worker probe (`:worker:structureReport`), both ratcheted and both on the `benchmarks` workflow |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-29 — The peer system can be measured, and the tree can be audited (task 15)
+
+Two instruments landed, each with a ratchet so its numbers cannot quietly get worse.
+
+**`./gradlew :peer:jmh` — four benchmark lanes** over the real classes: peer discovery (route parse,
+directory ingest at 16/256/1024 peers, warm-start cache, gateway election), chunk synchronisation
+(snapshot → blob → pieces → rarest-first order → holder choice → verify → reassemble → state root,
+across three piece sizes and two holder counts), the wire codec, and the always-on worker's
+per-second internal latency. `scripts/bench-report.py` renders `build/reports/nodera/BENCHMARKS.md`:
+a ranked bottleneck table, a **cost-growth** table (cost ratio ÷ input ratio per parameter, so
+superlinear work is visible before the network is large enough for it to hurt), and a diff against
+`fixtures/bench/baseline.json` that calls a regression only when a result is both >25% slower and
+outside its own error bars.
+
+**`./gradlew :worker:structureReport` — the structural code report.** ASM reads every module's
+bytecode for the reference graph and for in-loop cost (allocation, boxing, string building, linear
+scans, regex compilation, monitors) plus methods past HotSpot's 8000-byte compile limit; then JDI
+attaches to the **real, unmodified `nodera-headless` process** over JDWP and records which classes
+load and which methods execute while the twelve control verbs the companion app sends are driven
+against it. Evidence: `StructuralReportTest` (probe observed 356 classes / 409 methods / 942 entry
+events), `fixtures/structure/budget.json`.
+
+Its first run found eight `*Action#decode(CanonicalReader)` full-frame decoders with no caller
+anywhere (production goes through `GameAction.decode` into `decodeBody`), a `WorldArchive.Prepared`
+record referenced only by itself, 33 classes only tests and benchmarks reference, and 7 quadratic
+`List.contains`/`remove`-in-a-loop sites — one of them on the worker's `NODERA-CONFIG` path.
+
+The running process also corrected the analysis twice, which is the point of having it: references
+now resolve through supertypes (nothing in the bytecode names the anonymous class implementing an
+interface), and a `<clinit>` is an entry point when its class is used (every `static final`
+singleton is built there). Report section 4.3 — "static analysis contradicted by the running
+process" — is now empty.
 
 ### 2026-07-28 — L-86 and L-89 RETIRED (issue #97)
 

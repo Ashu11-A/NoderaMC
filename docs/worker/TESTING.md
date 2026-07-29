@@ -6,7 +6,10 @@
      nothing about the property this category exists for. Keep counts and Last run current. -->
 
 **Category:** worker · **Last run:** 2026-07-28 · `java/worker` plus the peer-side lanes it drives
-(`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/e2e-telemetry.sh`
+(`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/nodera-test.sh run telemetry`
+
+> **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
+> `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
 The worker is now its own Gradle module (`:worker`) — it was a package inside `:peer` until
 2026-07-26, which put the worker executable inside anything depending on the peer library, the mod's
