@@ -76,9 +76,14 @@ final class HaloExchangeIT {
                 idA.publicKeyBytes());
 
         RegionLease leaseEast = solo(EAST, idB);
+        RegionLease leaseOrigin = solo(ORIGIN, idA);
         b.service.activateRegion(floored(EAST), leaseEast);
-        // A learns who owns EAST — the committee its edge columns are addressed to.
+        // A learns who owns EAST — the committee its edge columns are addressed to — and B learns
+        // who owns ORIGIN, which is whose signatures it will require on a slice. Both directions
+        // are the same neighbour-lease knowledge the cross-region entity-transfer lane already
+        // depends on; a border is not verifiable without knowing who holds the other side.
         a.service.registerLease(leaseEast);
+        b.service.registerLease(leaseOrigin);
 
         // No halo yet: the far bank is dry, and the receiving region is right to keep it dry.
         assertThat(b.service.halo(EAST).isEmpty()).isTrue();
@@ -89,7 +94,7 @@ final class HaloExchangeIT {
 
         // A activates the river. The production path cuts its eastern edge and sends it to EAST's
         // committee; nothing in this test touches HaloUpdate by hand.
-        a.service.activateRegion(originWithEasternWater(), solo(ORIGIN, idA));
+        a.service.activateRegion(originWithEasternWater(), leaseOrigin);
 
         awaitHalo(b);
         assertThat(haloFrames.get())
@@ -107,6 +112,84 @@ final class HaloExchangeIT {
                 .isNotEqualTo(FlatWorldRules.AIR);
         assertThat(FluidRules.isWater(farBank))
                 .as("and it is water, decided by the receiving region's own automaton")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("a MULTI-MEMBER committee floods water across a region boundary and agrees")
+    void multiMemberCommitteesAgreeOnACrossBoundaryFlood() throws Exception {
+        LoopbackTransport.LoopbackNetwork net = LoopbackTransport.LoopbackNetwork.newNetwork();
+        // ORIGIN is held by a committee of two, and so is EAST. Neither region has a single
+        // authority over its own edge, and neither has a single reader of the neighbour's.
+        NodeIdentity idA = NodeIdentity.generate();   // ORIGIN primary
+        NodeIdentity idD = NodeIdentity.generate();   // ORIGIN validator
+        NodeIdentity idB = NodeIdentity.generate();   // EAST primary
+        NodeIdentity idC = NodeIdentity.generate();   // EAST validator
+        Worker a = worker(net, idA);
+        Worker d = worker(net, idD);
+        Worker b = worker(net, idB);
+        Worker c = worker(net, idC);
+        List<Worker> all = List.of(a, d, b, c);
+        for (Worker w : all) {
+            for (Worker other : all) {
+                if (other != w) {
+                    w.service.registerPeer(other.id().nodeId(),
+                            PeerAddress.of(other.id().nodeId(), "loopback"),
+                            other.id().publicKeyBytes());
+                }
+            }
+        }
+
+        RegionLease leaseOrigin = new RegionLease(
+                ORIGIN, RegionEpoch.INITIAL, idA.nodeId(), List.of(idD.nodeId()), 0, 10_000);
+        RegionLease leaseEast = new RegionLease(
+                EAST, RegionEpoch.INITIAL, idB.nodeId(), List.of(idC.nodeId()), 0, 10_000);
+        // Every node learns BOTH leases: the receiving side needs the source committee's
+        // membership to know whose signatures count, and the sending side needs the neighbour's
+        // to know where to address the slice.
+        for (Worker w : all) {
+            w.service.registerLease(leaseOrigin);
+            w.service.registerLease(leaseEast);
+        }
+        b.service.activateRegion(floored(EAST), leaseEast);
+        c.service.activateRegion(floored(EAST), leaseEast);
+
+        // The river activates on BOTH members of ORIGIN's committee. Each signs the slice it cut
+        // from its own snapshot; neither one alone is enough to open EAST's border.
+        a.service.activateRegion(originWithEasternWater(), leaseOrigin);
+        assertThat(b.service.halo(EAST).isEmpty())
+                .as("one member's endorsement is not a committee's — no quorum, no halo")
+                .isTrue();
+        d.service.activateRegion(originWithEasternWater(), leaseOrigin);
+
+        awaitHalo(b);
+        awaitHalo(c);
+        assertThat(b.service.halo(EAST).versionOf(ORIGIN))
+                .isEqualTo(c.service.halo(EAST).versionOf(ORIGIN));
+
+        long before = b.service.currentSnapshot(EAST).orElseThrow().version().value();
+        assertThat(b.service.proposeBatch(EAST, 41, 120, List.of()))
+                .as("a two-member committee reaches quorum with the halo as a named input")
+                .isPresent();
+        assertThat(b.service.currentSnapshot(EAST).orElseThrow().version().value())
+                .as("the round committed rather than timing out")
+                .isGreaterThan(before);
+        assertThat(b.service.divergences())
+                .as("no member computed a different world: the halo was an agreed input")
+                .isZero();
+        assertThat(c.service.divergences()).isZero();
+        awaitCertificate(c);
+        assertThat(c.service.latestCertificate(EAST).orElseThrow().votes())
+                .as("the commit is co-signed — this is a committee, not a solo host")
+                .hasSize(2);
+
+        int farBank = blockAt(b.service.currentSnapshot(EAST).orElseThrow(), FAR_BANK);
+        assertThat(FluidRules.isWater(farBank))
+                .as("water crossed the boundary under a real multi-member committee")
+                .isTrue();
+        assertThat(FluidRules.isWater(
+                blockAt(c.service.currentSnapshot(EAST).orElseThrow(), FAR_BANK)))
+                .as("and the validator's replica holds the identical world")
                 .isTrue();
     }
 
@@ -130,6 +213,15 @@ final class HaloExchangeIT {
         // A revoked replica must not keep reading a border it no longer participates in.
         w.service.revokeRegion(EAST);
         assertThat(w.service.halo(EAST).isEmpty()).isTrue();
+    }
+
+    /** The validator learns of the commit by announcement, so its certificate is polled for. */
+    private static void awaitCertificate(Worker worker) throws InterruptedException {
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline
+                && worker.service.latestCertificate(EAST).isEmpty()) {
+            Thread.sleep(10L);
+        }
     }
 
     /** Delivery is off the sender's thread on this transport, so the receipt is polled for. */

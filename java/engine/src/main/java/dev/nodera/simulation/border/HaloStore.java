@@ -18,11 +18,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * decide what a region reads across its border, and two replicas receiving the same two slices in
  * different orders would execute on different worlds. Same-version re-delivery is idempotent.
  *
- * <p><b>It still verifies nothing.</b> Exactly as {@link RegionHalo} documents: a slice is bytes a
- * neighbour handed over. This store makes the input deterministic given a set of slices; it does
- * not make the slices trustworthy. Pinning the halo as a committee-signed consensus input is the
- * remaining half of engine L-2, and is why {@code trustedFor} is deliberately narrow at the call
- * site rather than assumed here.
+ * <p><b>Provenance is decided before a slice gets here.</b> This store holds slices a strict
+ * majority of the SOURCE region's committee has signed — the caller verifies the
+ * {@code HaloEndorsement} quorum and only then hands the slice over, so what is stored is what a
+ * neighbour committee agreed it published, not what one peer claimed. What this store adds is
+ * determinism given that set: newest-wins ordering, and {@link #pinnedHaloFor} so a member
+ * executes against the exact slices a proposal names rather than its own accumulated view.
  *
  * @Thread-context thread-safe; slices arrive on transport threads and are read on execution
  *                 threads.
@@ -72,6 +73,63 @@ public final class HaloStore {
             return new RegionHalo(target);
         }
         return new RegionHalo(target, new ArrayList<>(bySource.values()));
+    }
+
+    /**
+     * The exact halo named by {@code pins} — the second half of engine L-2.
+     *
+     * <p>A committee member does not execute against "whatever slices it happens to hold": it
+     * executes against the slices the proposal <em>names</em>. Holding one slice more than the
+     * primary is otherwise indistinguishable from a genuine divergence, and costs the region its
+     * round for no fault of anyone's. So the pinned set is assembled exactly: every named
+     * (source, version) must be held at that version, and nothing unnamed is included.
+     *
+     * @param target the region that will execute; must not be null.
+     * @param pins   source region → the version the proposer executed against; must not be null.
+     * @return the pinned halo, or {@code null} when this node does not hold every named slice at
+     *         the named version — the clean failure that replaces a silent divergence.
+     */
+    public RegionHalo pinnedHaloFor(RegionId target, Map<RegionId, SnapshotVersion> pins) {
+        if (target == null || pins == null) {
+            throw new IllegalArgumentException("target and pins must not be null");
+        }
+        if (pins.isEmpty()) {
+            return new RegionHalo(target);
+        }
+        Map<RegionId, RegionHalo.Slice> bySource = byTarget.get(target);
+        if (bySource == null) {
+            return null;
+        }
+        List<RegionHalo.Slice> pinned = new ArrayList<>(pins.size());
+        for (Map.Entry<RegionId, SnapshotVersion> pin : pins.entrySet()) {
+            RegionHalo.Slice held = bySource.get(pin.getKey());
+            if (held == null || !held.version().equals(pin.getValue())) {
+                return null;
+            }
+            pinned.add(held);
+        }
+        return new RegionHalo(target, pinned);
+    }
+
+    /**
+     * What this node would pin if it proposed for {@code target} right now.
+     *
+     * @param target the region; must not be null.
+     * @return source region → held version, in no particular order (the caller canonicalises).
+     */
+    public Map<RegionId, SnapshotVersion> pinsFor(RegionId target) {
+        if (target == null) {
+            throw new IllegalArgumentException("target must not be null");
+        }
+        Map<RegionId, RegionHalo.Slice> bySource = byTarget.get(target);
+        if (bySource == null) {
+            return Map.of();
+        }
+        Map<RegionId, SnapshotVersion> pins = new java.util.LinkedHashMap<>();
+        for (Map.Entry<RegionId, RegionHalo.Slice> e : bySource.entrySet()) {
+            pins.put(e.getKey(), e.getValue().version());
+        }
+        return Map.copyOf(pins);
     }
 
     /** @return the version held for one (target, source) pair, empty when nothing is held. */

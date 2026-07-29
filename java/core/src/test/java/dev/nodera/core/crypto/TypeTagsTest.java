@@ -141,7 +141,8 @@ final class TypeTagsTest {
         expected.put("SERVICE_SCORE", 116);
         expected.put("SERVICE_OBSERVATION", 117);
         expected.put("SERVICE_DIRECTORY_ENTRY", 118);
-        expected.put("NEXT", 118);
+        expected.put("HALO_ENDORSEMENT", 119);
+        expected.put("NEXT", 119);
         return expected;
     }
 
