@@ -222,6 +222,13 @@ public final class TypeTags {
      */
     public static final int SERVICE_DIRECTORY_ENTRY = 118;
 
+    /**
+     * {@code HaloEndorsement} — one committee member's signature over the edge slice its region
+     * published, so a neighbour can require a quorum of the source committee before executing
+     * against it instead of trusting whoever delivered the bytes (engine L-2).
+     */
+    public static final int HALO_ENDORSEMENT = 119;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 118;
+    public static final int NEXT = 119;
 }
