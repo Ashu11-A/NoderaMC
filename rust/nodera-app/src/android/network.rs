@@ -49,6 +49,9 @@ pub enum Transport {
 
 impl Transport {
     /// The label the UI shows. Kept here so the phone and the desktop cannot word it differently.
+    // The dashboard renders the serde value today; this is the wording every future caller must
+    // use, so it stays even though nothing in-tree calls it yet.
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             Transport::Unknown => "Unknown",

@@ -67,6 +67,8 @@ impl WorkerEvent {
     }
 
     /// @return the attribute, or an empty string — an absent attribute is not an error to a page.
+    // Page-facing accessor: exercised by this module's tests, not called from the Rust side.
+    #[allow(dead_code)]
     pub fn attribute(&self, key: &str) -> &str {
         self.attributes.get(key).map(String::as_str).unwrap_or("")
     }
@@ -157,7 +159,6 @@ async fn stream_once(control_addr: &str, sink: &Arc<dyn EventSink>, cursor: &Ato
 mod tests {
     use super::*;
     use std::sync::Mutex;
-    use tokio::io::AsyncWriteExt as _;
     use tokio::net::TcpListener;
 
     #[derive(Default)]

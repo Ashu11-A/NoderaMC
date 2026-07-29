@@ -174,7 +174,7 @@ fn read_battery() -> BatteryState {
     let Ok(batteries) = manager.batteries() else {
         return BatteryState::none();
     };
-    for battery in batteries.flatten() {
+    if let Some(battery) = batteries.flatten().next() {
         let percent = (battery.state_of_charge().value * 100.0).round();
         return BatteryState {
             present: true,

@@ -100,11 +100,16 @@ impl DashboardStore {
     /// The store the application runs on: totals are read back from disk at startup and written
     /// there as they grow.
     pub fn restored() -> Self {
-        Self::at(Some(crate::settings::config_dir().join("traffic-totals.json")))
+        Self::at(Some(
+            crate::settings::config_dir().join("traffic-totals.json"),
+        ))
     }
 
     fn at(persist_to: Option<PathBuf>) -> Self {
-        let banked = persist_to.as_deref().and_then(read_banked).unwrap_or_default();
+        let banked = persist_to
+            .as_deref()
+            .and_then(read_banked)
+            .unwrap_or_default();
         Self {
             inner: Mutex::new(Inner {
                 dashboard: Dashboard::default(),

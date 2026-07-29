@@ -33,6 +33,12 @@ jobs:
       # -Dnodera.fixtures.regenerate flag, which must never be set in CI).
       - name: Golden fixtures unchanged
         run: git diff --exit-code -- fixtures/
+      # README documents `scripts/version.sh --check` as part of the gate, and nothing in CI ran it:
+      # the root VERSION file is mirrored into Cargo, Tauri, and a Java constant, and a mirror left
+      # behind ships artifacts labelled with a version they are not. Pure bash, so it costs nothing
+      # to make the documented claim true.
+      - name: Every version mirror agrees with VERSION
+        run: scripts/version.sh --check
 
   # L-47's exit job: build the companion app, prove the gate both ways, and prove a hosted
   # world survives the host closing Minecraft (the worker keeps it alive).
@@ -72,6 +78,19 @@ jobs:
       # the `rust` job's `cargo test` does not reach it.
       - name: Test the companion app
         run: cd rust/nodera-app && cargo test
+      # The lint half of the same omission (the fmt half runs in the `rust` job, which needs no
+      # compilation). `rust/nodera-app` is its own cargo workspace, so `cargo clippy` in the `rust`
+      # job never reached a line of it — the whole companion app was exempt from the `-D warnings`
+      # standard the rest of the Rust tree is held to. It lives here rather than in `rust` because
+      # linting Tauri needs the webkit2gtk system deps this job already installs.
+      - name: Lint the companion app
+        run: |
+          rustup component add clippy
+          cd rust/nodera-app && cargo clippy --all-targets -- -D warnings
+      # The worker dist and ui/dist are both built above, so this is the run that also covers the
+      # companion app's count.
+      - name: README's test counts match the suites (all six crates)
+        run: scripts/test-counts.sh --check
       - name: Gate both ways (worker present => start, absent => actionable abort)
         run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
@@ -115,10 +134,24 @@ jobs:
         with:
           workspaces: rust
       - run: cargo fmt --check
+      # `rust/nodera-app` is EXCLUDED from this workspace (Tauri native deps), so the line above
+      # skipped it silently: the companion app had never been format-checked, and `src/api/store.rs`
+      # sat drifted on main. rustfmt parses source and needs no dependencies, so the second
+      # workspace is checked here — a formatting failure should not wait on a Tauri build. The
+      # matching clippy run is in the `companion` job, which has the system deps to compile it.
+      - run: cargo fmt --check --manifest-path nodera-app/Cargo.toml
       - run: cargo clippy --all-targets -- -D warnings
       # Includes the cross-language conformance tests: the tag-registry mirror is asserted against
       # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
       - run: cargo test
+      # README's per-crate test-count column was hand-typed and had drifted by up to 47 tests
+      # (tracker claimed 62 against 109). A count in a README is read as evidence, so it is measured
+      # from `cargo test -- --list` rather than remembered. `nodera-app` needs the worker dist and
+      # the built UI to enumerate, so the script skips it here; the `companion` job, which builds
+      # both, checks all six.
+      - name: README's test counts match the suites
+        working-directory: ${{ github.workspace }}
+        run: scripts/test-counts.sh --check
 
   # `services/official.json` is data maintained by pull request from outside the project, so the
   # gate has to be something a contributor can run before opening one — and the failure has to name
