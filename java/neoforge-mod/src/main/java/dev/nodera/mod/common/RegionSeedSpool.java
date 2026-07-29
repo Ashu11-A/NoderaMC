@@ -48,6 +48,13 @@ public final class RegionSeedSpool {
     /** Bounded backlog: enough to absorb a burst, small enough that a stall is not a memory leak. */
     static final int QUEUE_DEPTH = 8;
 
+    /**
+     * How long {@link #close()} waits for an in-flight push before giving up on it. Bounded low
+     * because close runs on the world-unload path: a worker that has wedged must cost the player a
+     * blink on the way out, not a hang.
+     */
+    static final long CLOSE_TIMEOUT_MILLIS = 2_000L;
+
     private final Supplier<String> worldId;
     private final Pusher pusher;
     private final Supplier<Path> spoolDir;
@@ -170,8 +177,25 @@ public final class RegionSeedSpool {
         }
     }
 
-    /** Stop pushing. Idempotent. */
+    /**
+     * Stop pushing, and do not return while a push is still running. Idempotent.
+     *
+     * <p>The wait is the point. {@code shutdownNow} only interrupts; the push it interrupts is
+     * <b>between</b> creating the spool directory, writing the snapshot file and deleting it again,
+     * so a {@code close()} that returned straight away would leave a thread creating and deleting
+     * files in a directory the caller believes it is now free to remove. That is what closes the
+     * spool's own resources honestly, and it is why closing during a world unload does not race the
+     * save directory being torn down underneath it.
+     */
     public void close() {
         executor.shutdownNow();
+        try {
+            if (!executor.awaitTermination(CLOSE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
+                LOG.debug("region seeding did not stop within {}ms; its thread is a daemon and the "
+                        + "work is availability-only", CLOSE_TIMEOUT_MILLIS);
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 }
