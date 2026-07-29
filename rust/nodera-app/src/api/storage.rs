@@ -227,6 +227,10 @@ fn free_space(path: &Path) -> Option<u64> {
         if libc::statvfs(c_path.as_ptr(), &mut stat) != 0 {
             return None;
         }
+        // The casts are redundant on 64-bit Linux, where both fields are already u64, and clippy
+        // says so — but `fsblkcnt_t`/`f_frsize` are narrower on other Unix targets, so removing
+        // them would break the build there rather than tidy it.
+        #[allow(clippy::unnecessary_cast)]
         Some(stat.f_bavail as u64 * stat.f_frsize as u64)
     }
 }
