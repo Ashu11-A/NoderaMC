@@ -69,6 +69,22 @@ public final class EntityCaptureBridge {
                 ServerPlayer player, RegionId region,
                 dev.nodera.core.action.MovePlayerAction move);
 
+        /**
+         * Register {@code player}'s {@code PLAYER} root entity in {@code region}, seeded from the
+         * player's ACTUAL vanilla inventory (L-11). The seed is what makes registration safe: the
+         * engine routes pickups into the validated root the moment a player entity exists, so an
+         * empty one would silently swallow everything a player was already carrying.
+         *
+         * @return true once the committee holds the presence.
+         */
+        default boolean registerPlayer(ServerPlayer player, RegionId region) {
+            return false;
+        }
+
+        /** Drop {@code player}'s root presence from {@code region} (logout, region hand-off). */
+        default void unregisterPlayer(ServerPlayer player, RegionId region) {
+        }
+
         void externalEntity(
                 RegionId region, PersistedEntityState expected, PersistedEntityState replacement);
 
@@ -111,6 +127,8 @@ public final class EntityCaptureBridge {
     private final Queue<Entity> deferredJoins = new ArrayDeque<>();
     /** L-12: per-player movement anchors — the producer of every {@code MovePlayerAction}. */
     private final PlayerMovementCapture movement = new PlayerMovementCapture();
+    /** L-11: the region each player's committed {@code PLAYER} root presence currently lives in. */
+    private final Map<UUID, RegionId> presence = new HashMap<>();
     private final ThreadLocal<Integer> materializationDepth = ThreadLocal.withInitial(() -> 0);
     /**
      * The installed coordinator, or {@link Runtime#DISABLED}.
@@ -177,6 +195,7 @@ public final class EntityCaptureBridge {
         captured.clear();
         deferredJoins.clear();
         movement.clear();
+        presence.clear();
         return true;
     }
 
@@ -309,6 +328,7 @@ public final class EntityCaptureBridge {
         }
         if (entity instanceof Player) {
             if (entity instanceof ServerPlayer player) {
+                ensurePlayerPresence(player);
                 capturePlayerMove(player);
             }
             return;
@@ -345,6 +365,51 @@ public final class EntityCaptureBridge {
     }
 
     /**
+     * L-11's production call site: the committee learns the player exists.
+     *
+     * <p>Nothing in production ever registered an {@code EntityKind.PLAYER} entity, so every
+     * player-root rule the engine has carried since Task 16 — the validated inventory, movement
+     * validation, player combat — was unreachable code. A player ticking inside a region this node
+     * holds is exactly the moment the presence becomes true, and re-checked every tick because a
+     * region can be delegated (or revoked) at any point in a session.
+     *
+     * <p>The {@code presence} map is the cheap half: once the register call has succeeded for a
+     * region there is nothing to do until the player crosses into a different one, and crossing
+     * drops the stale presence first so the same player is never registered in two regions at
+     * once.
+     *
+     * <p>Self-catching, because a NeoForge listener exception is NOT isolated — it rethrows into
+     * the server tick and takes the integrated server down with it.
+     */
+    private void ensurePlayerPresence(ServerPlayer player) {
+        try {
+            RegionId region = MinecraftEntityAdapters.region(player);
+            RegionId held = presence.get(player.getUUID());
+            if (!runtime.delegated(region)) {
+                // Not ours to hold. Forget the cache rather than unregistering: a region this node
+                // no longer holds is a region whose entities it must not mutate.
+                presence.remove(player.getUUID());
+                return;
+            }
+            if (region.equals(held)) {
+                return;
+            }
+            if (held != null) {
+                runtime.unregisterPlayer(player, held);
+                presence.remove(player.getUUID());
+            }
+            if (runtime.registerPlayer(player, region)) {
+                presence.put(player.getUUID(), region);
+            }
+        } catch (RuntimeException laneFailure) {
+            org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").debug(
+                    "player-root registration for {} skipped this tick ({})",
+                    player.getUUID(), laneFailure.toString());
+            presence.remove(player.getUUID());
+        }
+    }
+
+    /**
      * L-12's production call site: the vanilla player's real position, every tick, becomes the
      * signed steps the committee validates. Self-catching because a NeoForge listener exception is
      * NOT isolated — it rethrows into the server tick — and latency-hiding movement capture must
@@ -375,6 +440,20 @@ public final class EntityCaptureBridge {
             // A logout or a dimension change: the next position this node sees is unrelated to the
             // last one it proposed, and an anchor kept across that gap manufactures a "teleport".
             movement.forget(event.getEntity().getUUID());
+            // L-11: the presence goes with the player. Vanilla is the durable inventory store —
+            // Minecraft persists it across the logout and every root gain was projected into it
+            // when it committed — so dropping the root here loses nothing, and the next login
+            // re-seeds the root from that same vanilla inventory.
+            RegionId held = presence.remove(event.getEntity().getUUID());
+            if (held != null && event.getEntity() instanceof ServerPlayer player) {
+                try {
+                    runtime.unregisterPlayer(player, held);
+                } catch (RuntimeException laneFailure) {
+                    org.slf4j.LoggerFactory.getLogger("NoderaEntityLane").debug(
+                            "player-root unregistration for {} failed ({})",
+                            player.getUUID(), laneFailure.toString());
+                }
+            }
             return;
         }
         Captured prior = captured.remove(event.getEntity().getUUID());
