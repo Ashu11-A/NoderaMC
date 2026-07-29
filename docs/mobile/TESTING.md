@@ -7,6 +7,9 @@
 
 **Category:** mobile · **Last run:** 2026-07-28
 
+> **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
+> `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
+
 Last verified on a **Xiaomi 2210129SG** (`ziyi`), **Android 15 / API 35**, arm64-v8a, against a
 tracker on the development machine at `10.0.0.101:25600`.
 
@@ -211,10 +214,10 @@ RETIRING rather than RETIRED.
 ### 4.2 The mesh test — does the phone receive data from the Linux peers?
 
 ```bash
-scripts/e2e-android-mesh.sh                       # the whole thing
-scripts/e2e-android-mesh.sh --no-game             # peers only, no Minecraft clients
-scripts/e2e-android-mesh.sh --no-apk --no-build   # reuse what is already built and installed
-scripts/e2e-android-mesh.sh --serial 10.0.0.104:5555
+scripts/nodera-test.sh run android-mesh                       # the whole thing
+scripts/nodera-test.sh run android-mesh             # peers only, no Minecraft clients
+scripts/nodera-test.sh run android-mesh   # reuse what is already built and installed
+scripts/nodera-test.sh run android-mesh
 ```
 
 `android-e2e.sh` (§4.1) asks whether the phone can be *found*. This one asks whether it can be
@@ -331,7 +334,7 @@ and a stray tap lands in whatever app happens to be in front. Prefer tapping the
 | `scripts/android-toolchain.sh` | Install/verify the SDK, NDK and Rust targets | `--check`, `--env` |
 | `scripts/android-apk.sh` | Build → dex the worker → sign → `build/` | `--debug`, `--install`, `--skip-worker`, `--target` |
 | `scripts/android-e2e.sh` | Install, launch, prove the node, optionally assert its selected P2P port from state | `--no-install`, `--tracker`, `--apk`, `--expect-p2p-port` |
-| `scripts/e2e-android-mesh.sh` | The phone in the mesh with the Linux peers, receiving bytes | `--no-game`, `--no-apk`, `--no-build`, `--serial` |
+| `scripts/nodera-test.sh run android-mesh` | The phone in the mesh with the Linux peers, receiving bytes | `--no-game`, `--no-apk`, `--no-build`, `--serial` |
 | `rust/target/release/nodera-query` | Ask a tracker who it knows, from another machine | `<host:port> [worldIdHex]` |
 | `rust/target/release/nodera-tracker` | The tracker itself; binds `0.0.0.0:25600` TCP+UDP | env-configured |
 

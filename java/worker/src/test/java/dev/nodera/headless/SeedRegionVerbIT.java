@@ -160,6 +160,24 @@ final class SeedRegionVerbIT {
     }
 
     @Test
+    @DisplayName("STATE reports the regions this node validates, not only the bytes it stores")
+    void stateReportsRegionsValidatedHere(@TempDir Path dir) throws Exception {
+        startWorker();
+        String world = hashes.sha256("l41-state".getBytes()).toHex();
+        hosting.host(world, "A World", "{}");
+
+        // Storing a world and running part of one are different contributions, and the app could
+        // only report the first. Two players in one world therefore both read as "supporting the
+        // network" no matter how the ownership plan had actually divided the world between them.
+        assertThat(request(ControlProtocol.STATE + " 2")).contains("\"regions_held\":0");
+
+        assertThat(request(ControlProtocol.SEED_REGION + " 2 " + world + " "
+                + b64(write(dir, snapshot(7))))).startsWith(ControlProtocol.OK);
+
+        assertThat(request(ControlProtocol.STATE + " 2")).contains("\"regions_held\":1");
+    }
+
+    @Test
     @DisplayName("the world stays seeded after the pushing process is gone — the whole of L-41")
     void theRegionOutlivesItsCommitter(@TempDir Path dir) throws Exception {
         startWorker();

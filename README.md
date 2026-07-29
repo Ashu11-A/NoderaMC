@@ -137,6 +137,42 @@ scripts/test-counts.sh --check  # the Rust test counts in the table above are th
 scripts/test-counts.sh --write  # …and this rewrites them, so they are never hand-typed
 ```
 
+**The test tool** (testing task 1 — one command over the acceptance scenarios, the benchmarks and
+the structural report; it replaced twenty `scripts/e2e-*.sh` suites and their batch runner):
+
+```bash
+scripts/nodera-test.sh list                    # every scenario, its tags, what a pass proves
+scripts/nodera-test.sh run                     # the default queue (everything but 'hardware')
+scripts/nodera-test.sh run continuity crash    # a selection, in the order given
+scripts/nodera-test.sh run --tag server        # everything carrying a tag
+scripts/nodera-test.sh all                     # scenarios, then benchmarks, then structure
+```
+
+The report lands in `build/reports/nodera/TEST-REPORT.md` (+ `.json`); each run's logs, client logs
+and worker state snapshots land in `run/results/<scenario>/`. Live scenarios take
+`run/.e2e-suite.lock` and run strictly one at a time. Workers in a run are started
+`nodera-headless --test-mode --role player1|player2`, so a cross-node assertion can name its
+subject instead of guessing from a port number. See [`docs/testing/`](docs/testing/Task.0.md).
+
+**Measurement lanes** (network task 15 — minutes, not seconds, so they are NOT part of `check`; the
+`benchmarks` workflow runs both on every pull request, on `main`, and weekly):
+
+```bash
+./gradlew :peer:jmh -Pbench.quick   # peer discovery / chunk sync / wire / runtime latency
+./gradlew :peer:benchmarkReport     # …plus build/reports/nodera/BENCHMARKS.md, ranked + diffed
+python3 scripts/bench-report.py --check          # regression vs fixtures/bench/baseline.json
+python3 scripts/bench-report.py --write-baseline # accept a run you trust as the new baseline
+
+./gradlew :worker:structureReport                # dead code + cost findings + a DEBUGGER-profiled
+                                                 # run of the real nodera-headless worker
+./gradlew :worker:structureReport -Pstructure.debug=false   # static half only (~5 s)
+```
+
+The structural report writes `build/reports/nodera/STRUCTURE.md`: what nothing references, what only
+tests reference, what no entry point can reach, which loops allocate/box/scan linearly, and which of
+all that the debugger actually watched execute. Its counts are ratcheted by
+`fixtures/structure/budget.json` and may only go down.
+
 > **After every push, verify the build actually passed.** A green local `./gradlew check` does
 > NOT guarantee a green Action: CI runners are slower and have repeatedly exposed
 > timing-sensitive integration tests that pass locally but fail remotely. A few minutes after
@@ -161,7 +197,7 @@ scripts/dev.sh --build-only      # compile everything, collect artifacts into bu
 scripts/dev.sh --test            # run the full gate (gradlew build + cargo test) as part of the build
 scripts/dev.sh --help            # options + env overrides (ports, dirs)
 
-scripts/e2e-telemetry.sh         # the consent lane end to end (headless — no GUI, no Minecraft)
+scripts/nodera-test.sh run telemetry  # the consent lane end to end (headless — no GUI, no Minecraft)
 scripts/telemetry-stack.sh up    # the Big Data plane: Vector → Redpanda → ClickHouse → Grafana
 scripts/telemetry-stack.sh smoke # …and prove a submitted batch becomes a queryable row
 

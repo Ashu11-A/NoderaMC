@@ -60,10 +60,19 @@ public final class BossBarManager {
             return;
         }
         PlayerBars pb = bars.computeIfAbsent(player.getUUID(), u -> new PlayerBars(player));
-        OwnershipState zone = ZoneClassifier.classify(Dimensions.of(player),
-                player.blockPosition().getX(), player.blockPosition().getZ(), snap.regions());
-        pb.updateZone(zone);
-        pb.updateHealth(snap);
+        // Both of these describe the validation lane, and while that lane is switched off for the
+        // release they describe nothing: zone ownership reads UNASSIGNED because no region is ever
+        // claimed, and health reads "below quorum (3)" because quorum is a validation concept. Two
+        // permanent red readings about a subsystem that is not running is worse than no reading —
+        // it sent a live session hunting for a fault that was a scope decision.
+        if (dev.nodera.mod.common.ValidationLane.deterministicValidationEnabled()) {
+            OwnershipState zone = ZoneClassifier.classify(Dimensions.of(player),
+                    player.blockPosition().getX(), player.blockPosition().getZ(), snap.regions());
+            pb.updateZone(zone);
+            pb.updateHealth(snap);
+        } else {
+            pb.hideValidationBars();
+        }
         pb.updateNet(snap);
         pb.updateTps(currentTps(player.server));
     }
@@ -131,6 +140,16 @@ public final class BossBarManager {
             netBar.addPlayer(player);
             tpsBar.addPlayer(player);
             netVisible = true;
+        }
+
+        /** Drop the two validation-lane bars; idempotent, so it is safe on every tick. */
+        void hideValidationBars() {
+            if (!zoneBar.getPlayers().isEmpty()) {
+                zoneBar.removeAllPlayers();
+            }
+            if (!healthBar.getPlayers().isEmpty()) {
+                healthBar.removeAllPlayers();
+            }
         }
 
         void updateZone(OwnershipState state) {

@@ -51,11 +51,21 @@ public final class NoderaConfig {
     public static final ModConfigSpec.ConfigValue<String> HOST_SHARE_PASSWORD =
             SERVER_BUILDER.define("host.sharePassword", "");
 
-    // Task 12 live entity lane. When true, sharing a world also bootstraps the validated entity
-    // lane over the host player's field of view (EntityLaneBootstrap plan; DelegabilityPolicy still
-    // gates every region). Off by default until the lane is soak-proven on real worlds.
+    /**
+     * The operator's switch for the validated entity lane, <b>underneath</b> the release-level root
+     * switch in {@link ValidationLane}.
+     *
+     * <p>Inert while deterministic validation is off for the release: the root switch is checked
+     * first, so setting this to {@code true} enables nothing on its own. It stays defined, and
+     * stays {@code true}, so that the day the lane comes back an install is not silently opted out
+     * of it by a config file written today.
+     *
+     * <p>Which regions are delegated was never this switch's decision anyway — that is per world,
+     * in {@link ShareOptions#delegateRegions()}, chosen in the Share screen by the player who
+     * shared it, and then per region by the delegability policy.
+     */
     public static final ModConfigSpec.BooleanValue ENTITY_LANE_AUTO =
-            SERVER_BUILDER.define("entity.laneAutoActivate", false);
+            SERVER_BUILDER.define("entity.laneAutoActivate", true);
 
     // Task 12b ghost lane. Empty by default: a dimension opts in to capturing EVERY species in it.
     public static final ModConfigSpec.ConfigValue<java.util.List<? extends String>>

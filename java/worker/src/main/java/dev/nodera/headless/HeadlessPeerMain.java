@@ -73,6 +73,20 @@ public final class HeadlessPeerMain {
     }
 
     public static void main(String[] args) throws Exception {
+        // The command line carries exactly one thing: whether this process is part of an
+        // integration run, and which player it is. Everything else about a worker comes from the
+        // environment, because the supervisor that starts it (the Tauri app, a script, Android)
+        // passes an environment and not an argv. Test mode is the exception on purpose — a remote
+        // -control surface must be something a human deliberately started, not something a file
+        // another program can write turns on. See TestMode.
+        TestMode testMode;
+        try {
+            testMode = TestMode.fromArgs(args);
+        } catch (IllegalArgumentException badUsage) {
+            System.err.println(badUsage.getMessage());
+            System.exit(64);
+            return;
+        }
         long startedAtMillis = System.currentTimeMillis();
         String controlHost = env("NODERA_CONTROL_HOST", "127.0.0.1");
         // Control stays environment-only: the desktop supervisor and its Rust client inherit the
@@ -423,6 +437,15 @@ public final class HeadlessPeerMain {
                         lanUnavailable));
         handler.attachOwnership(ownership);
         handler.attachEvents(events);
+        if (testMode.enabled()) {
+            testMode.bind(events);
+            handler.attachTestMode(testMode);
+            // Announced rather than silent: a worker with a remote-control surface open should say
+            // so in the first lines of its log, and an integration run greps this to prove the role
+            // it asked for is the role that started.
+            LOG.info("NODERA-TEST mode active — role {}{}", testMode.role(),
+                    testMode.debug() ? " (debug)" : "");
+        }
         handler.attachDeletion(deletions);
         deletions.attachEvents(events);
         // Claims already on disk are republished once at startup: a peer that was offline while a

@@ -147,6 +147,22 @@ public final class CompanionProtocol {
      */
     public static final String TELEMETRY = "NODERA-TELEMETRY";
 
+    /**
+     * The integration-run verb (testing task 1): {@code NODERA-TEST <ver> ROLE|READY|DRIVE <action>}.
+     *
+     * <p>Mirrored so the two protocol copies stay complete; the mod does not send it. Only a worker
+     * started with {@code --test-mode} answers it at all, and a normally started one replies
+     * {@code NODERA-ERR unsupported} — the same answer it gives a verb that does not exist. That is
+     * deliberate: the verb opens a remote-control surface (its {@code DRIVE} action publishes a
+     * player action on the worker's event stream), so it must be something a human deliberately
+     * started the process with, never something a config file or a peer can turn on.
+     *
+     * <p>The mod's side of {@code DRIVE} — consuming the {@code test.drive} event and executing the
+     * action on this node's player — is not written yet (testing L-2). Until it is, an integration
+     * run drives players over RCON and uses the role only to address the right node.
+     */
+    public static final String TEST = "NODERA-TEST";
+
     private CompanionProtocol() {
     }
 

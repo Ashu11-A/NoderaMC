@@ -1,0 +1,29 @@
+# Every acceptance scenario the `nodera-test` tool knows about.
+#
+# The registry discovers scenarios through this file rather than through a list in the runner,
+# because the shell batch it replaces carried an ALL_SUITES=(…) array and a suite added without
+# touching it existed as a file nobody ran. A class here is a scenario that runs; a class missing
+# from here is invisible, which is the one failure mode this file has and the reason
+# `nodera-test list` is the smoke test that it is complete.
+#
+# Order does not matter: the registry sorts headless work before live work itself.
+dev.nodera.testkit.scenario.AndroidMeshScenario
+dev.nodera.testkit.scenario.ChurnScenario
+dev.nodera.testkit.scenario.CommandsScenario
+dev.nodera.testkit.scenario.ContinuityScenario
+dev.nodera.testkit.scenario.CrashScenario
+dev.nodera.testkit.scenario.DeterminismScenario
+dev.nodera.testkit.scenario.EndpointScenario
+dev.nodera.testkit.scenario.FarlandsScenario
+dev.nodera.testkit.scenario.FoliaScenario
+dev.nodera.testkit.scenario.MeshSoakScenario
+dev.nodera.testkit.scenario.MobsScenario
+dev.nodera.testkit.scenario.OwnershipFollowScenario
+dev.nodera.testkit.scenario.OwnershipScenario
+dev.nodera.testkit.scenario.PasswordScenario
+dev.nodera.testkit.scenario.PearlScenario
+dev.nodera.testkit.scenario.PickupScenario
+dev.nodera.testkit.scenario.PluginsScenario
+dev.nodera.testkit.scenario.ProfileScenario
+dev.nodera.testkit.scenario.RekeyScenario
+dev.nodera.testkit.scenario.TelemetryScenario

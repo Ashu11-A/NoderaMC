@@ -57,13 +57,14 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | Category | Tasks | Done | In progress | Blocked | Charter |
 |---|---:|---:|---:|---:|---|
 | [Engine](engine/Task.0.md) | 12 | 7 | 5 | 0 | Deterministic simulation + committee validation |
-| [Network](network/Task.0.md) | 14 | 11 | 3 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry |
+| [Network](network/Task.0.md) | 15 | 12 | 3 | 0 | Wire, transports, runtime, storage, torrent plane, telemetry, measurement |
 | [Tracker](tracker/Task.0.md) | 6 | 5 | 1 | 0 | Always-on discovery service |
 | [Rendezvous](rendezvous/Task.0.md) | 6 | 4 | 1 | 1 | NAT reach: punching + relay fallback |
 | [Minecraft](minecraft/Task.0.md) | 11 | 5 | 5 | 0 | The NeoForge mod — the playable product |
 | [Worker](worker/Task.0.md) | 8 | 6 | 2 | 0 | The always-on headless peer |
 | [App](app/Task.0.md) | 10 | 6 | 3 | 1 | The Tauri companion that supervises the worker |
 | [Mobile](mobile/Task.0.md) | 5 | 4 | 1 | 0 | The Android build — the worker itself, on a phone |
+| [Testing](testing/Task.0.md) | 1 | 1 | 0 | 0 | The test tooling: harness, scenarios, benchmarks, structural report |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
 | **Total** | **75** | **49** | **22** | **2** | |
 
@@ -122,6 +123,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [12](network/Task.12.md) | Telemetry emitter core | ✅ | network 11, telemetry 1 |
 | [13](network/Task.13.md) | Measured service selection on the peer | 🚧 | tracker 5, rendezvous 5, network 2 |
 | [14](network/Task.14.md) | Cross-version wire protocol ([`plans/Plan.7.md`](plans/Plan.7.md)) | 🚧 | network 1, network 2, tracker 5, rendezvous 5 |
+| [15](network/Task.15.md) | Structural benchmarking + structural code report | ✅ | network 2, network 4, network 5, worker 1 |
 
 ### Tracker — [`docs/tracker/`](tracker/Task.0.md)
 
@@ -199,6 +201,12 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [4](mobile/Task.4.md) | Settings the app can keep; worker verbs it never asks for | ✅ | mobile 2, mobile 3, app 7 |
 | [5](mobile/Task.5.md) | The phone reaches the network it was told to | 🚧 | mobile 3, app 9, worker 2 |
 
+### Testing — [`docs/testing/`](testing/Task.0.md)
+
+| Task | Title | Status | Depends on |
+|---|---|---|---|
+| [1](testing/Task.1.md) | One tool: shell suites become Java scenarios | ✅ | worker 1, minecraft 5, server 1, network 15 |
+
 ### Telemetry — [`docs/telemetry/`](telemetry/Task.0.md)
 
 Programme plan: [`plans/Plan.6.md`](plans/Plan.6.md).
@@ -229,7 +237,7 @@ engine ──► network ──►┬─► tracker ──┐
 | **1 — the live gate** | [minecraft 2](minecraft/Task.2.md) live validation lane | The single biggest remaining lane; capture mixins, `ServerLevel` applier, chunk tickets, live shadow → coordinator → committee → fallback wiring. Almost every ⏳ elsewhere waits on it |
 | **2 — GUI-deferred pool** | [minecraft 3](minecraft/Task.3.md) surface pass · [minecraft 4](minecraft/Task.4.md) live feeds + join flow · [minecraft 5](minecraft/Task.5.md) re-manifest + live encryption · [minecraft 6](minecraft/Task.6.md) world-list mixin + grant enforcement | One GUI environment unlocks all four at once — do them as one batch, not four visits |
 | **3 — network completion** | [network 2](network/Task.2.md) gateway migration end-to-end · [rendezvous 3](rendezvous/Task.3.md) cross-internet soak · [worker 3](worker/Task.3.md) seeding/announce delegation · [app 4](app/Task.4.md) cross-machine continuity | All four need a live/NAT environment; they share the same harness wave 1 produces |
-| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](worker/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [app 5](app/Task.5.md) all but a component test | Done in one pass, proven end to end by `scripts/e2e-telemetry.sh`. What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
+| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](worker/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [app 5](app/Task.5.md) all but a component test | Done in one pass, proven end to end by the `telemetry` scenario (`scripts/nodera-test.sh run telemetry`). What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
 | **4 — parity program** | [engine 8](engine/Task.8.md) → [engine 9](engine/Task.9.md) → [engine 10](engine/Task.10.md) → [engine 11](engine/Task.11.md) → [engine 12](engine/Task.12.md) | Burns every category's `LIMITATIONS.md` to empty; engine 12 closes the ledger |
 
 **Biggest schedule lever:** wave 1. Nine tasks across five categories carry a "live evidence

@@ -46,9 +46,76 @@ dependencies {
 
     testImplementation(project(":testing"))
     testImplementation(project(":engine"))
+
+    // The structural code report (`dev.nodera.structure`, task `structureReport`) reads the
+    // compiled bytecode of every module. TEST scope only: nothing shipped depends on ASM, and the
+    // Android bytecode guard never sees it.
+    testImplementation(libs.asm)
+    testImplementation(libs.asm.tree)
 }
 
 application {
     mainClass.set("dev.nodera.headless.HeadlessPeerMain")
     applicationName = "nodera-headless"
+}
+
+// ---------------------------------------------------------------------------------------------
+// The structural code report (`dev.nodera.structure`)
+// ---------------------------------------------------------------------------------------------
+//
+// # Why it lives in `:worker` and why it is not part of `test`
+//
+// It needs two things at once: the compiled output of EVERY module (to know who calls what), and
+// the ability to launch the real `nodera-headless` process under a debugger (to know what actually
+// runs). `:worker` is the only module that can have both — it is the application, and nothing
+// depends on it, so pointing it at the whole tree creates no cycle.
+//
+// It is tagged `structure` and excluded from `:worker:test` so that one module's unit-test feedback
+// never waits on nine modules compiling. `structureReport` declares those compilations as real task
+// dependencies instead, which is also what makes its "module missing" failure impossible in normal
+// use.
+//
+//   ./gradlew :worker:structureReport                        # full: analysis + debugger probe
+//   ./gradlew :worker:structureReport -Pstructure.debug=false  # static half only (seconds)
+//
+// Outputs land in `build/reports/nodera/` (STRUCTURE.md, structure.json, runtime-profile.json).
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("structure")
+    }
+}
+
+tasks.register<Test>("structureReport") {
+    group = "verification"
+    description = "Analyse the whole tree's bytecode + a debugger-instrumented worker run."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("structure")
+    }
+    // Compiled output of everything: the analysis is only as honest as the set of callers it can
+    // see, so a module that is not compiled is a module whose callers vanish.
+    dependsOn(
+        ":core:classes", ":core:testClasses",
+        ":engine:classes", ":engine:testClasses",
+        ":transport:classes", ":transport:testClasses",
+        ":storage:classes", ":storage:testClasses",
+        ":peer:classes", ":peer:testClasses", ":peer:jmhClasses",
+        ":worker:classes", ":worker:testClasses",
+        ":testing:classes",
+        ":neoforge-mod:classes", ":neoforge-mod:testClasses",
+        ":paper-plugin:classes",
+    )
+    // The debugger probe runs by default: without it the report can list expensive code but not
+    // say whether any of it executes. `-Pstructure.debug=false` skips just that half.
+    systemProperty("nodera.structure.debug",
+        providers.gradleProperty("structure.debug").getOrElse("true"))
+    // The JDI event pump plus a full-tree class graph; the 1g default is not enough.
+    maxHeapSize = "2g"
+    // The report is the output, and it is regenerated whenever anything it reads changes — which
+    // is "the whole tree", so caching it would mean reporting on a tree that no longer exists.
+    outputs.upToDateWhen { false }
+    testLogging {
+        showStandardStreams = true
+    }
 }

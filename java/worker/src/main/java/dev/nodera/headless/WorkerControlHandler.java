@@ -71,6 +71,9 @@ public final class WorkerControlHandler implements ControlHandler {
      */
     private volatile dev.nodera.peer.control.WorkerEventBus events;
 
+    /** The integration-run mode, or null on a normally started worker. See {@link TestMode}. */
+    private volatile TestMode testMode;
+
     /** Publishes this node's ownership claims to the mesh; {@code null} when no lane is wired. */
     private volatile WorldOwnershipService ownership;
     /**
@@ -220,6 +223,25 @@ public final class WorkerControlHandler implements ControlHandler {
         return events;
     }
 
+    /**
+     * Attach the integration-run mode ({@code --test-mode --role …}).
+     *
+     * <p>Set once at startup by {@link HeadlessPeerMain} and never otherwise: a worker that was not
+     * started with the flag leaves this null, {@link #testMode(String, String)} returns null, and
+     * the control server answers every test verb with "unsupported" — the same answer it gives a
+     * verb that does not exist. That is the whole security property of the mode, so this stays a
+     * startup-only attachment rather than something a verb can switch on.
+     */
+    public void attachTestMode(TestMode mode) {
+        this.testMode = mode;
+    }
+
+    @Override
+    public String testMode(String action, String rest) {
+        TestMode mode = testMode;
+        return mode == null ? null : mode.handle(action, rest);
+    }
+
     @Override
     public String workerVersion() {
         return version;
@@ -325,6 +347,17 @@ public final class WorkerControlHandler implements ControlHandler {
                     // currently only seeding. The app renders them as two different lists, so
                     // collapsing them into one flag here would make that impossible.
                     + ",\"owned\":" + world.owned()
+                    // What this node PROCESSES, as distinct from what it stores. The archive
+                    // counters above describe a copy of somebody's save; this counts the regions
+                    // of the live world whose validated snapshots are committed and seeded here —
+                    // the chunks this machine is actually answerable for.
+                    //
+                    // Without it the app could only ever describe a node as a file host, so two
+                    // players sharing a world both read as "Supporting for the network" whatever
+                    // the ownership plan had actually given them, and "is anybody but the host
+                    // doing any work?" had no answer anywhere on screen.
+                    + ",\"regions_held\":"
+                    + (archive == null ? 0 : archive.heldRegions(world.worldIdHex()).size())
                     + ",\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\""
                     + "}");
         }
@@ -339,7 +372,14 @@ public final class WorkerControlHandler implements ControlHandler {
         long sent = meter.bytesTx();
         long received = meter.bytesRx();
 
+        // The integration role, when this worker is part of a run. Absent on every normally
+        // started worker: the dashboard and the mod must never be able to tell the difference
+        // between "no role" and "not in a run", because there is none.
+        TestMode mode = testMode;
+        String roleField = mode == null || !mode.enabled() ? "" : mode.stateFragment() + ",";
+
         return "{"
+                + roleField
                 + "\"node_id\":\"" + escape(self.value().toString()) + "\","
                 + "\"worker_version\":\"" + escape(version) + "\","
                 + "\"client\":\"" + escape(dev.nodera.core.NoderaConstants.CLIENT_AGENT) + "\","

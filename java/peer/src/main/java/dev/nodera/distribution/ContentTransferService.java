@@ -434,7 +434,12 @@ public final class ContentTransferService implements MessageHandler {
         Objects.requireNonNull(manifest, "manifest");
         return downloads.computeIfAbsent(manifest.manifestRoot(), root -> {
             local.computeIfAbsent(root, k -> new LocalContent(manifest));
-            return new PieceDownloader(manifest, lockMap, this::sendRequest);
+            PieceDownloader downloader = new PieceDownloader(manifest, lockMap, this::sendRequest);
+            // Hold every verified piece as it lands — this peer starts seeding what it just learned
+            // — and do it before the downloader is allowed to report the blob complete, so a caller
+            // handed the finished world always finds it in the store too.
+            downloader.persistTo((index, payload) -> seedPiece(manifest, index, payload));
+            return downloader;
         });
     }
 
@@ -609,10 +614,9 @@ public final class ContentTransferService implements MessageHandler {
         if (downloader == null) {
             return;
         }
-        if (downloader.onChunk(chunk)) {
-            // Verified: hold it, so this peer immediately starts seeding what it just learned.
-            seedPiece(downloader.manifest(), chunk.index(), chunk.payload());
-        }
+        // Verified pieces are held by the downloader's persist sink (see `download`), not here: it
+        // runs before completion, and this call site could only run after it.
+        downloader.onChunk(chunk);
     }
 
     // --- budget / metrics ------------------------------------------------------------------

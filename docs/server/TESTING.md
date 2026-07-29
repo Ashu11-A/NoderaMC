@@ -17,15 +17,18 @@ headline stages (P2–P8, F2–F6, WorldEdit certification) report `SKIPPED` nam
 blocks each. The register previously said all three suites were committed when only the harness
 library was; they exist now ([L-61](LIMITATIONS.md) retired 2026-07-26).
 
+> **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
+> `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
+
 ALIGN-1's own arithmetic is tested in `core`, not here: `RegionAlignmentTest` walks every region in a
 ±64 grid across grid exponents 3–6, because whether two threads can write one authority unit is not a
 thing to check by eye.
 
 ```bash
 # Each suite needs its platform jar staged; without one it SKIPS (exit 0), never fails.
-NODERA_PAPER_JAR=/path/to/paper-1.21.1.jar scripts/e2e-endpoint.sh --no-build
-NODERA_FOLIA_JAR=/path/to/folia.jar        scripts/e2e-folia.sh    --no-build
-NODERA_PLUGIN_CORPUS_DIR=/path/to/jars     scripts/e2e-plugins.sh  --no-build
+NODERA_PAPER_JAR=/path/to/paper-1.21.1.jar scripts/nodera-test.sh run endpoint
+NODERA_FOLIA_JAR=/path/to/folia.jar        scripts/nodera-test.sh run folia    --no-build
+NODERA_PLUGIN_CORPUS_DIR=/path/to/jars     scripts/nodera-test.sh run plugins  --no-build
 ```
 
 Folia has no 1.21.1 build (it went 1.21.x → 1.21.4+), so `e2e-folia.sh` runs the newest available.
@@ -43,12 +46,12 @@ service itself: the topology, the port plan, the lock, and the log audit are set
 ## 1.1 Running
 
 ```bash
-scripts/e2e-endpoint.sh              # the mixed-client drive — the headline
-scripts/e2e-folia.sh                 # parallel Folia regions, ALIGN-1 live, thread-context clean
-scripts/e2e-plugins.sh               # the plugin-compatibility corpus
+scripts/nodera-test.sh run endpoint              # the mixed-client drive — the headline
+scripts/nodera-test.sh run folia                 # parallel Folia regions, ALIGN-1 live, thread-context clean
+scripts/nodera-test.sh run plugins               # the plugin-compatibility corpus
 
-scripts/e2e-endpoint.sh --no-build   # skip the up-front build
-scripts/run-tests.sh endpoint folia  # through the batch runner (holds the shared lock)
+scripts/nodera-test.sh run endpoint   # skip the up-front build
+scripts/nodera-test.sh run endpoint folia  # through the batch runner (holds the shared lock)
 ```
 
 Requirements: the Rust toolchain, a GUI session (or Xvfb) for the **modded** client, ~6 GB free RAM,
@@ -77,8 +80,8 @@ skips and names the reason — details in
 [12 — Nodera on Paper & Folia](../minecraft/spark/12-nodera-paper-folia.md).
 
 ```bash
-NODERA_SPARK=1 scripts/e2e-endpoint.sh    # profile this suite
-scripts/e2e-profile.sh                    # stages R2 (Paper) and R3 (Folia)
+NODERA_SPARK=1 scripts/nodera-test.sh run endpoint    # profile this suite
+scripts/nodera-test.sh run profile                    # stages R2 (Paper) and R3 (Folia)
 ```
 
 Attribution on Bukkit is **exact** — spark reflects the plugin out of its classloader, so our

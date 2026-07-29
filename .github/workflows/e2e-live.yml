@@ -22,7 +22,7 @@ on:
         required: false
         default: ''
       soak_seconds:
-        description: 'Soak length for e2e-determinism (issue #5 acceptance = 7200)'
+        description: 'Soak length for the determinism scenario (issue #5 acceptance = 7200)'
         required: false
         default: ''
   schedule:
@@ -39,30 +39,30 @@ jobs:
       - id: pick
         env:
           REQUESTED: ${{ inputs.suites }}
-        # Each entry is one scripts/e2e-<suite>.sh. Suites that reuse the shared NoderaE2E world
-        # bake it themselves — the launcher bakes on first use — so no entry depends on another.
-        # An unknown name is a hard error: a typo must not silently run nothing.
+        # Each entry is one scenario id in the `nodera-test` tool (formerly one
+        # scripts/e2e-<suite>.sh). Scenarios that reuse the shared NoderaE2E world bake it
+        # themselves, so no entry depends on another. An unknown name is a hard error: a typo must
+        # not silently run nothing.
+        #
+        # The names are validated against the TOOL rather than against a list kept here, so a
+        # scenario that is renamed or added cannot leave this workflow dispatching something that
+        # no longer exists. The old form of this check tested that a shell file existed and was
+        # executable — the executable bit in particular, because a full-file rewrite drops it, git
+        # records the mode, and the loss is invisible in a diff that shows no content change. A
+        # Java scenario has no mode to lose; what replaces that check is asking the tool.
         run: |
           set -euo pipefail
+          known=$(scripts/nodera-test.sh list | awk 'NR > 1 && NF { print $1 }')
           all=(continuity crash pickup mobs pearl password rekey commands farlands \
                ownership-follow mesh-soak determinism profile)
           if [[ -z "${REQUESTED// /}" ]]; then
             picked=("${all[@]}")
           else
             IFS=',' read -ra picked <<< "${REQUESTED// /}"
-            for s in "${picked[@]}"; do
-              [[ -e "scripts/e2e-$s.sh" ]] || { echo "::error::unknown suite '$s'"; exit 1; }
-            done
           fi
-          # Validate EVERY picked suite, defaults included. This check used to run only on a
-          # user-supplied list, so a script that lost its executable bit sailed through the plan and
-          # died twelve minutes later inside a runner with a bare `exit 126` — which reads as a
-          # suite failure rather than as a file mode. `e2e-determinism.sh` did exactly that twice:
-          # a full-file rewrite drops the +x bit, and `git` records the mode, so the loss is
-          # invisible in a diff that shows no content change.
           for s in "${picked[@]}"; do
-            [[ -x "scripts/e2e-$s.sh" ]] || {
-              echo "::error::scripts/e2e-$s.sh is not executable (mode $(stat -c '%a' "scripts/e2e-$s.sh" 2>/dev/null || echo '?')) — run: git update-index --chmod=+x scripts/e2e-$s.sh"
+            grep -qx -- "$s" <<<"$known" || {
+              echo "::error::unknown scenario '$s'. Known: $(tr '\n' ' ' <<<"$known")"
               exit 1
             }
           done
@@ -102,22 +102,24 @@ jobs:
       - name: Build stack
         run: |
           (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
-          ./gradlew :worker:installDist :neoforge-mod:build -x test -x check
+          ./gradlew :worker:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
+            -x test -x check
       - name: ${{ matrix.suite }} under Xvfb
         env:
-          # Only e2e-determinism reads it; an empty value leaves the suite's own default in place.
+          # Only the determinism scenario reads it; empty leaves the scenario's own default.
           SOAK_SECONDS: ${{ inputs.soak_seconds }}
         run: |
           NODERA_E2E_TIMEOUT_MULT=3 xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24' \
-            scripts/e2e-${{ matrix.suite }}.sh --no-build
+            scripts/nodera-test.sh run ${{ matrix.suite }} --no-build
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-${{ matrix.suite }}-logs
           path: |
-            run/logs/e2e-${{ matrix.suite }}/
-            run/results/e2e-${{ matrix.suite }}/
+            run/results/${{ matrix.suite }}/
+            build/reports/nodera/TEST-REPORT.md
+            build/reports/nodera/test-report.json
             java/neoforge-mod/run-host/logs/
             java/neoforge-mod/run-join/logs/
             java/neoforge-mod/run-join2/logs/

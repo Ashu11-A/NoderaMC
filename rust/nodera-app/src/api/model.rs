@@ -166,6 +166,12 @@ pub struct World {
     /// can find it at all. Every "joinable" label is a claim about reach, and this is the only field
     /// that knows whether the reach exists.
     pub discoverable: Option<bool>,
+    /// Regions of the live world this node validates and seeds snapshots for.
+    ///
+    /// The processing half of what a node contributes. Holding bytes and doing work are different
+    /// jobs, and a screen that only reports the first one cannot tell a player whether the world's
+    /// simulation is shared out or whether one machine is still carrying all of it.
+    pub regions_held: u64,
 }
 
 impl World {
@@ -225,6 +231,7 @@ impl World {
             } else {
                 Some(row.listed_on_trackers > 0)
             },
+            regions_held: row.regions_held,
         }
     }
 }
