@@ -201,6 +201,14 @@ public final class MessageSamples {
         return new RegionDelta(region, version(base), version(base + 1), List.of(), root(0x31));
     }
 
+    /** A fixed committee endorsement of a halo slice — the attested form of tag 56. */
+    private static dev.nodera.core.Bytes haloEndorsement() {
+        dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
+        new dev.nodera.core.consensuscert.HaloEndorsement(
+                NODE_A, REGION_A, EPOCH, version(5L), root(0x59), filled(64, 0x5A)).encode(w);
+        return w.toBytes();
+    }
+
     private static SignedVote vote(NodeId voter, RegionId region) {
         return new SignedVote(voter, region, EPOCH, version(4L), root(0x41),
                 root(0x42), root(0x43), VoteDecision.ACCEPT, filled(64, 0x44));
@@ -310,7 +318,7 @@ public final class MessageSamples {
         samples.put(MessageCodec.TAG_REGION_PROPOSAL, new RegionProposal(
                 REGION_A, EPOCH, version(4L), 100L, 102L, root(0x41), root(0x42),
                 filled(24, 0x43), root(0x44), filled(64, 0x45),
-                RegionProposal.PROPOSAL_ENCODING_VERSION));
+                List.of(new RegionProposal.HaloPin(REGION_B, version(3L)))));
         samples.put(MessageCodec.TAG_VALIDATION_VOTE,
                 new ValidationVote(REGION_A, EPOCH, version(5L), vote(NODE_B, REGION_A)));
         samples.put(MessageCodec.TAG_COMMIT_ANNOUNCE,
@@ -431,7 +439,8 @@ public final class MessageSamples {
                 REGION_A, List.of(filled(32, 0x54), filled(32, 0x55)),
                 List.of(filled(48, 0x56))));
         samples.put(MessageCodec.TAG_HALO_UPDATE, new HaloUpdate(
-                REGION_A, version(5L), List.of(filled(16, 0x57), filled(16, 0x58))));
+                REGION_A, version(5L), List.of(filled(16, 0x57), filled(16, 0x58)),
+                haloEndorsement()));
         samples.put(MessageCodec.TAG_GROUP_MIGRATION, new GroupMigration(NODE_C, List.of(
                 new GroupMigration.RegionEpochBump(REGION_A, EPOCH.bump()),
                 new GroupMigration.RegionEpochBump(REGION_B, EPOCH.bump()))));

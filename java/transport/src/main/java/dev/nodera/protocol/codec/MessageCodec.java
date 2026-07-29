@@ -392,6 +392,13 @@ public final class MessageCodec {
                 throw new IllegalStateException(
                         "unsupported RegionProposal encoding version " + version);
             }
+        } else if (tag == TAG_HALO_UPDATE) {
+            if (version < ENCODING_VERSION
+                    || version > dev.nodera.protocol.simulationmsg.HaloUpdate
+                            .HALO_UPDATE_ENCODING_VERSION) {
+                throw new IllegalStateException(
+                        "unsupported HaloUpdate encoding version " + version);
+            }
         } else if (tag == TAG_EXTERNAL_DELTA) {
             if (version < ENCODING_VERSION
                     || version > ExternalDelta.EXTERNAL_DELTA_ENCODING_VERSION) {
@@ -505,6 +512,12 @@ public final class MessageCodec {
                 w.writeBytes(m.encodedDelta());
                 if (m.bodyVersion() >= 3) {
                     m.batchRoot().encode(w);
+                }
+                if (m.bodyVersion() >= 4) {
+                    w.writeList(m.haloPins(), (ww, pin) -> {
+                        pin.source().encode(ww);
+                        pin.version().encode(ww);
+                    });
                 }
                 w.writeBytes(m.proposerSig());
         } else if (msg instanceof ValidationVote m) {
@@ -649,10 +662,13 @@ public final class MessageCodec {
                 w.writeList(m.encodedEvents(), CanonicalWriter::writeBytes);
                 w.writeList(m.encodedCertificates(), CanonicalWriter::writeBytes);
         } else if (msg instanceof dev.nodera.protocol.simulationmsg.HaloUpdate m) {
-                w.writeU16(TAG_HALO_UPDATE).writeU16(ENCODING_VERSION);
+                w.writeU16(TAG_HALO_UPDATE).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.version().encode(w);
                 w.writeList(m.encodedEdgeColumns(), CanonicalWriter::writeBytes);
+                if (m.bodyVersion() >= 2) {
+                    w.writeBytes(m.encodedEndorsement());
+                }
         } else if (msg instanceof dev.nodera.protocol.simulationmsg.GroupMigration m) {
                 w.writeU16(TAG_GROUP_MIGRATION).writeU16(ENCODING_VERSION);
                 m.newPrimary().encode(w);
@@ -1077,9 +1093,15 @@ public final class MessageCodec {
                 Bytes encodedDelta = r.readBytesValue();
                 dev.nodera.core.state.StateRoot batchRoot = encodingVersion >= 3
                         ? dev.nodera.core.state.StateRoot.decode(r) : null;
+                java.util.List<RegionProposal.HaloPin> haloPins = encodingVersion >= 4
+                        ? r.readList(rr -> new RegionProposal.HaloPin(
+                                dev.nodera.core.region.RegionId.decode(rr),
+                                dev.nodera.core.state.SnapshotVersion.decode(rr)))
+                        : null;
                 Bytes proposerSig = r.readBytesValue();
                 yield new RegionProposal(region, epoch, baseVersion, tickFrom, tickTo,
-                        prevRoot, resultingRoot, encodedDelta, batchRoot, proposerSig, encodingVersion);
+                        prevRoot, resultingRoot, encodedDelta, batchRoot, proposerSig,
+                        encodingVersion, haloPins);
             }
             case TAG_VALIDATION_VOTE -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
@@ -1246,7 +1268,10 @@ public final class MessageCodec {
                 dev.nodera.core.state.SnapshotVersion version =
                         dev.nodera.core.state.SnapshotVersion.decode(r);
                 java.util.List<Bytes> columns = r.readList(CanonicalReader::readBytesValue);
-                yield new dev.nodera.protocol.simulationmsg.HaloUpdate(region, version, columns);
+                yield encodingVersion >= 2
+                        ? new dev.nodera.protocol.simulationmsg.HaloUpdate(
+                                region, version, columns, r.readBytesValue())
+                        : new dev.nodera.protocol.simulationmsg.HaloUpdate(region, version, columns);
             }
             case TAG_GROUP_MIGRATION -> {
                 dev.nodera.core.identity.NodeId primary =

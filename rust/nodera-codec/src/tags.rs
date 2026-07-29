@@ -93,8 +93,13 @@ pub mod type_tags {
     /// `ServiceDirectoryEntry` — one directory row: signed record + the answering tracker's score.
     pub const SERVICE_DIRECTORY_ENTRY: u16 = 118;
 
+    /// `HaloEndorsement` — a committee member's signature over the halo slice its region
+    /// published, so a neighbour requires a quorum of the source committee before executing
+    /// against it (engine L-2; Java engine only).
+    pub const HALO_ENDORSEMENT: u16 = 119;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 118;
+    pub const NEXT: u16 = 119;
 }
 
 /// Message frame kinds — re-exported from the generated schema.

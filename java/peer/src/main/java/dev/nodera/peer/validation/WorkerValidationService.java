@@ -19,6 +19,7 @@ import dev.nodera.core.action.ActionBatch;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.DropItemAction;
 import dev.nodera.core.action.PickupItemAction;
+import dev.nodera.core.consensuscert.HaloEndorsement;
 import dev.nodera.core.consensuscert.QuorumCertificate;
 import dev.nodera.core.consensuscert.EntityTransferCertificate;
 import dev.nodera.core.consensuscert.SignedVote;
@@ -124,6 +125,12 @@ public final class WorkerValidationService {
         volatile StateRoot headRoot;
         MemberBallot pendingBallot;
         ActionBatch pendingBatch;
+        /**
+         * The halo slice versions {@link #pendingBallot} was computed against (engine L-2). Held
+         * so a re-proposal of the same batch names the inputs it really used, not whatever has
+         * arrived since.
+         */
+        java.util.Map<RegionId, dev.nodera.core.state.SnapshotVersion> pendingPins;
         RegionProposal pendingProposal;
         long pendingTickTo;
         volatile QuorumCertificate lastCertificate;
@@ -707,12 +714,24 @@ public final class WorkerValidationService {
         if (!validBatch(replica, batch)) {
             throw new IllegalArgumentException("batch contains unauthenticated or inadmissible actions");
         }
-        RegionExecutionRequest request = requestFor(replica, batch);
+        // The halo inputs are chosen ONCE, here, and then named in the proposal: a re-proposal of
+        // a batch this node already signed must reuse the very slices that ballot was computed
+        // against, or the proposal would advertise inputs that did not produce its root.
+        java.util.Map<RegionId, SnapshotVersion> pins =
+                replica.pendingPins != null ? replica.pendingPins : pinsFor(region);
+        dev.nodera.simulation.border.RegionHalo halo = halos.pinnedHaloFor(region, pins);
+        if (halo == null) {
+            // Only reachable if a pinned slice was forgotten mid-round (a revoke); re-pin.
+            pins = pinsFor(region);
+            halo = halos.pinnedHaloFor(region, pins);
+        }
+        RegionExecutionRequest request = requestFor(replica, batch, halo);
 
         if (ownBallot == null) {
             ownBallot = member.computeAndVote(request);
             replica.pendingBallot = ownBallot;
             replica.pendingBatch = batch;
+            replica.pendingPins = pins;
         }
         votesCast.incrementAndGet();
 
@@ -733,13 +752,16 @@ public final class WorkerValidationService {
 
         CanonicalWriter deltaW = new CanonicalWriter();
         ownBallot.delta().encode(deltaW);
+        List<RegionProposal.HaloPin> haloPins = new java.util.ArrayList<>(pins.size());
+        pins.forEach((source, version) ->
+                haloPins.add(new RegionProposal.HaloPin(source, version)));
         RegionProposal unsignedProposal = new RegionProposal(region, lease.epoch(),
                 replica.snapshot.version(), tickFrom, tickTo, replica.headRoot,
-                ownBallot.root(), deltaW.toBytes(), batchRoot, Bytes.empty());
+                ownBallot.root(), deltaW.toBytes(), batchRoot, Bytes.empty(), haloPins);
         RegionProposal proposal = new RegionProposal(region, lease.epoch(),
                 replica.snapshot.version(), tickFrom, tickTo, replica.headRoot,
                 ownBallot.root(), deltaW.toBytes(), batchRoot,
-                identity.sign(unsignedProposal.signedPortion()));
+                identity.sign(unsignedProposal.signedPortion()), haloPins);
         for (NodeId validator : lease.validators()) {
             PeerAddress addr = peers.get(validator);
             if (addr != null) {
@@ -994,7 +1016,23 @@ public final class WorkerValidationService {
         if (!proposal.batchRoot().equals(StateRoot.of(hashes.hash(batch)))) {
             return;
         }
-        RegionExecutionRequest request = requestFor(replica, batch);
+        // Engine L-2: execute against the halo the PROPOSAL names, not against whatever this node
+        // has accumulated. Holding one slice more than the primary is not a divergence and must
+        // not be reported as one — and a slice this node has never seen endorsed is a round it
+        // cannot honestly vote on, so it declines and lets the round time out cleanly.
+        java.util.Map<RegionId, SnapshotVersion> pins = new java.util.LinkedHashMap<>();
+        for (RegionProposal.HaloPin pin : proposal.haloPins()) {
+            pins.put(pin.source(), pin.version());
+        }
+        dev.nodera.simulation.border.RegionHalo pinnedHalo =
+                halos.pinnedHaloFor(batch.region(), pins);
+        if (pinnedHalo == null) {
+            LOG.warn("declining {} v{}: the proposal pins halo slices this node does not hold "
+                            + "at those versions ({})",
+                    batch.region(), batch.baseVersion().value(), pins.keySet());
+            return;
+        }
+        RegionExecutionRequest request = requestFor(replica, batch, pinnedHalo);
         long reExecStartedAt = System.nanoTime();
         MemberBallot ballot = member.computeAndVote(request);
         // Relay accounting: this node just re-executed the PRIMARY's batch — another player's
@@ -1022,6 +1060,7 @@ public final class WorkerValidationService {
         replica.pendingProposal = null;
         replica.pendingBallot = ballot;
         replica.pendingBatch = batch;
+        replica.pendingPins = pins;
         replica.pendingTickTo = batch.tickTo();
         votesCast.incrementAndGet();
         transport.send(from, WireCodec.encode(
@@ -1144,6 +1183,7 @@ public final class WorkerValidationService {
         recordCommittedSequences(batch);
         replica.pendingBallot = null;
         replica.pendingBatch = null;
+        replica.pendingPins = null;
         // The primary answered: whatever this node forwarded has landed, so the lag clock stops.
         oldestUnansweredForwardNanos.remove(committed.region());
         committeeCommits.incrementAndGet();
@@ -1186,6 +1226,7 @@ public final class WorkerValidationService {
         recordCommittedSequences(source.pendingBatch);
         source.pendingBallot = null;
         source.pendingBatch = null;
+        source.pendingPins = null;
         committeeCommits.incrementAndGet();
 
         EntityTransferCommit commit = new EntityTransferCommit(
@@ -1322,6 +1363,7 @@ public final class WorkerValidationService {
                 recordCommittedSequences(source.pendingBatch);
                 source.pendingBallot = null;
                 source.pendingBatch = null;
+                source.pendingPins = null;
             }
             if (source != null) {
                 source.pipeline.crossRegionCommitted(descriptor.sourceResultingVersion());
@@ -2014,6 +2056,7 @@ public final class WorkerValidationService {
         reservedBatches.remove(StateRoot.of(hashes.hash(batch)));
         replica.pendingBallot = null;
         replica.pendingBatch = null;
+        replica.pendingPins = null;
         replica.pendingProposal = null;
         replica.pipeline.revoke();
     }
@@ -2283,9 +2326,9 @@ public final class WorkerValidationService {
         return r == null ? dev.nodera.core.region.RegionEpoch.INITIAL : r.lease.epoch();
     }
 
-    private RegionExecutionRequest requestFor(Replica replica, ActionBatch batch) {
-        return new RegionExecutionRequest(
-                contextFor(batch), replica.snapshot, batch, haloFor(replica));
+    private RegionExecutionRequest requestFor(Replica replica, ActionBatch batch,
+                                              dev.nodera.simulation.border.RegionHalo halo) {
+        return new RegionExecutionRequest(contextFor(batch), replica.snapshot, batch, halo);
     }
 
     // ---- the halo exchange (engine L-2): a river no longer stops dead at a region boundary ----
@@ -2297,11 +2340,21 @@ public final class WorkerValidationService {
      * <p>Called from the commit paths, which is the only moment the columns are both final and
      * newly meaningful: {@code HaloUpdate} names the version it was cut at, so a receiver can tell
      * a stale slice from a fresh one instead of silently executing on a different world.
+     *
+     * <p><b>Every member publishes, and signs.</b> The frame carries this node's
+     * {@link HaloEndorsement} over the exact bytes of the slice. One signature proves nothing on
+     * its own; the receiver waits for a strict majority of THIS region's committee to sign the
+     * same slice root, which is what makes the halo a consensus input rather than a rumour.
      */
     private void publishHalo(RegionSnapshot committed) {
         if (committed == null) {
             return;
         }
+        Replica own = replicas.get(committed.region());
+        if (own == null) {
+            return; // only a member of the source committee may speak for its edge
+        }
+        dev.nodera.core.region.RegionEpoch epoch = own.lease.epoch();
         for (RegionId neighbour
                 : dev.nodera.simulation.border.HaloSlicer.neighboursOf(committed.region())) {
             dev.nodera.simulation.border.RegionHalo.Slice slice =
@@ -2309,10 +2362,18 @@ public final class WorkerValidationService {
             if (slice == null) {
                 continue;
             }
-            // A neighbour replica on this same node takes the slice directly: identical bytes,
-            // no round trip, and it works on a solo host where there is no second peer at all.
+            StateRoot sliceRoot = sliceRoot(slice.columns());
+            HaloEndorsement unsigned = new HaloEndorsement(identity.nodeId(), committed.region(),
+                    epoch, committed.version(), sliceRoot, Bytes.empty());
+            HaloEndorsement endorsement = new HaloEndorsement(identity.nodeId(),
+                    committed.region(), epoch, committed.version(), sliceRoot,
+                    identity.sign(unsigned.signedPortion()));
+
+            // A neighbour replica on this same node takes the slice through the SAME quorum door:
+            // no round trip, but no shortcut either, or a node holding both regions would execute
+            // against a slice its fellow committee members are still waiting to see endorsed.
             if (replicas.containsKey(neighbour)) {
-                halos.accept(neighbour, slice);
+                submitEndorsement(slice, sliceRoot, identity.nodeId(), own.lease);
             }
             RegionLease lease = knownLeases.get(neighbour);
             if (lease == null) {
@@ -2324,9 +2385,12 @@ public final class WorkerValidationService {
                 column.encode(w);
                 encoded.add(w.toBytes());
             }
+            CanonicalWriter endorsementWriter = new CanonicalWriter();
+            endorsement.encode(endorsementWriter);
             dev.nodera.protocol.simulationmsg.HaloUpdate update =
                     new dev.nodera.protocol.simulationmsg.HaloUpdate(
-                            committed.region(), committed.version(), encoded);
+                            committed.region(), committed.version(), encoded,
+                            endorsementWriter.toBytes());
             for (NodeId member : committeeMembers(lease)) {
                 if (!member.equals(identity.nodeId())) {
                     sendTo(member, update);
@@ -2335,15 +2399,30 @@ public final class WorkerValidationService {
         }
     }
 
+    /** The canonical hash of a slice's ordered edge columns — what an endorsement signs. */
+    private StateRoot sliceRoot(List<dev.nodera.core.state.ChunkColumnState> columns) {
+        CanonicalWriter w = new CanonicalWriter();
+        w.writeList(columns, CanonicalWriter::writeEncodable);
+        return StateRoot.of(hashes.sha256(w.toBytes()));
+    }
+
     /**
-     * Consumer: take a neighbour's edge slice for every replica of ours whose halo it can cover.
+     * Consumer: verify a neighbour's endorsement and, once a majority of that neighbour's
+     * committee has signed the identical slice, take it for every replica of ours it can cover.
      *
-     * <p>The store drops anything older than what it already holds and {@code RegionHalo} drops
-     * any column outside the receiving region's ring, so a neighbour can neither rewind this
-     * node's border reads nor reach into its owned area.
+     * <p>Everything a receiver needs to decide provenance is checked here rather than assumed: the
+     * endorsement anchors itself to the region, epoch and version it claims; the slice root is
+     * recomputed from the bytes that actually arrived, so a courier cannot swap the columns under
+     * a valid signature; the signer must be a member of the SOURCE region's committee as this node
+     * knows it; and the signature must verify against that member's registered key. Only a strict
+     * majority of that committee opens the door, so a single lying member — or a relay replaying
+     * one honest member's frame with different columns — cannot define what a region reads across
+     * its border.
      */
     void onHaloUpdate(dev.nodera.protocol.simulationmsg.HaloUpdate update) {
-        if (update == null) {
+        if (update == null || update.bodyVersion() < 2) {
+            // An unattested slice is not a weaker input, it is an unusable one: it can never be
+            // pinned, so a committee could not agree it had been used. Dropped, not trusted.
             return;
         }
         List<dev.nodera.core.state.ChunkColumnState> columns =
@@ -2361,35 +2440,87 @@ public final class WorkerValidationService {
         if (columns.isEmpty()) {
             return;
         }
+        HaloEndorsement endorsement;
+        try {
+            CanonicalReader reader = new CanonicalReader(update.encodedEndorsement().toArray());
+            endorsement = HaloEndorsement.decode(reader);
+            if (reader.available() != 0) {
+                return;
+            }
+        } catch (RuntimeException malformed) {
+            return;
+        }
         dev.nodera.simulation.border.RegionHalo.Slice slice =
                 new dev.nodera.simulation.border.RegionHalo.Slice(
                         update.region(), update.version(), columns);
+        StateRoot sliceRoot = sliceRoot(slice.columns());
+        RegionLease sourceLease = knownLeases.get(update.region());
+        if (sourceLease == null
+                || !endorsement.source().equals(update.region())
+                || !endorsement.version().equals(update.version())
+                || !endorsement.epoch().equals(sourceLease.epoch())
+                || !endorsement.sliceRoot().equals(sliceRoot)
+                || !committeeMembers(sourceLease).contains(endorsement.signer())) {
+            return;
+        }
+        Bytes signerKey = publicKey(endorsement.signer());
+        if (signerKey == null
+                || !signatures.verify(signerKey, endorsement.signedPortion(),
+                        endorsement.signature())) {
+            return;
+        }
+        submitEndorsement(slice, sliceRoot, endorsement.signer(), sourceLease);
+    }
+
+    /** One (source, version, sliceRoot) a source committee is still accumulating signatures for. */
+    private record PendingSlice(dev.nodera.simulation.border.RegionHalo.Slice slice,
+                                java.util.Set<NodeId> signers) {
+    }
+
+    /** (source, version, sliceRoot) → the members of the source committee that have signed it. */
+    private final Map<List<Object>, PendingSlice> endorsedSlices = new ConcurrentHashMap<>();
+
+    /**
+     * Fold one verified endorsement in and, on reaching a strict majority of the source committee,
+     * hand the slice to every replica of ours that reads it.
+     *
+     * <p>Equivocation cannot win here: two different slices at the same version have different
+     * roots and therefore different entries, and a committee cannot give a strict majority to both.
+     */
+    private void submitEndorsement(dev.nodera.simulation.border.RegionHalo.Slice slice,
+                                   StateRoot sliceRoot, NodeId signer, RegionLease sourceLease) {
+        List<Object> key = List.of(slice.source(), slice.version().value(), sliceRoot);
+        PendingSlice pending = endorsedSlices.computeIfAbsent(key,
+                k -> new PendingSlice(slice, java.util.concurrent.ConcurrentHashMap.newKeySet()));
+        pending.signers().add(signer);
+        int required = MajorityQuorumPolicy.requiredForMajority(
+                committeeMembers(sourceLease).size());
+        if (pending.signers().size() < required) {
+            return;
+        }
         for (RegionId neighbour
-                : dev.nodera.simulation.border.HaloSlicer.neighboursOf(update.region())) {
+                : dev.nodera.simulation.border.HaloSlicer.neighboursOf(slice.source())) {
             if (replicas.containsKey(neighbour)) {
-                halos.accept(neighbour, slice);
+                halos.accept(neighbour, pending.slice());
             }
         }
+        // The version is settled; older accumulations for this source can never be useful again.
+        endorsedSlices.keySet().removeIf(k -> k.get(0).equals(slice.source())
+                && ((Long) k.get(1)) <= slice.version().value()
+                && !k.equals(key));
     }
 
     /**
-     * The halo one replica executes against.
+     * The halo this node would execute against for {@code region}, and the pins that name it.
      *
-     * <p><b>Why this is gated.</b> The halo is execution INPUT, so every member of a committee
-     * must hold the IDENTICAL one or they diverge without either being wrong — and nothing pins it
-     * yet: {@code HaloUpdate} carries no committee attestation, and a proposal does not name the
-     * slice versions it was executed against, so a validator that received one more slice than the
-     * primary would compute a different root and cost the region its round. A committee of one has
-     * no second party to disagree with, so the halo is applied there (the solo-host case, and the
-     * one the L-2 exit test exercises); a larger committee keeps the empty halo until the slice is
-     * a signed consensus input. Retiring L-2 is exactly that pinning.
+     * <p>No longer gated on a committee of one. The two things that were missing are both here
+     * now: every slice in the store carries a strict majority of its source committee's signatures
+     * ({@link #onHaloUpdate}), and the proposal names the exact versions it executed against
+     * ({@link RegionProposal#haloPins()}), so a validator holding a different set declines the
+     * round instead of computing a different root and being counted as a divergence.
      */
-    private dev.nodera.simulation.border.RegionHalo haloFor(Replica replica) {
-        RegionId region = replica.snapshot.region();
-        if (committeeMembers(replica.lease).size() != 1) {
-            return new dev.nodera.simulation.border.RegionHalo(region);
-        }
-        return halos.haloFor(region);
+    private java.util.Map<RegionId, dev.nodera.core.state.SnapshotVersion> pinsFor(RegionId region) {
+        return halos.pinsFor(region);
     }
 
     /** @return the halo currently held for a region (empty when no neighbour has delivered). */
