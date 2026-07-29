@@ -28,6 +28,23 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — Registry integrity: stale rows stop announcing, ownership survives stop, duplicates repairable
+
+Three of the four Task 8 registry rows retired together. **W-DUP-1**: a row restored from `worlds.dat`
+is now reconciled against the world this node can still *serve* — bound in production to
+`WorldArchiveService.newestManifest(...)` — and an unservable world is suppressed from the announce set
+within one refresh cycle instead of being re-announced forever. The row is kept, not dropped, so a
+repair reinstates it under the same identity; a world with a live game route is never suppressed.
+Evidence: `WorldHostingPersistenceTest#anUnservableWorldIsSuppressedWithinOneCycle` and
+`#aLiveWorldIsNeverSuppressed`. **W-DUP-2**: `stop` then re-`seed` of a world whose `.worldkey` survives
+on disk now reads owned again, because ownership is re-bound from the key rather than re-derived —
+`#ownershipSurvivesStopAndReSeed`, with `#aForeignWorldIsNotReAdministered` proving the repair cannot
+invent authority. **W-DUP-4**: `WorldRegistryMergeTool` is the one-shot, dry-runnable, backup-first
+repair for registries that already hold duplicates; it leaves one row per save with the survivor chosen
+by the persisted `nodera-world.dat`, and quarantines rather than guesses when it cannot decide —
+`WorldRegistryMergeToolTest` (9), including `#survivorIsChosenByTheOnDiskPin` driven entirely from real
+pin and key files on disk. W-DUP-3 remains RETIRING on its launched-process proof.
+
 ### 2026-07-28 — Review correction: secure cleanup landed; W-DUP-3 is RETIRING
 
 Review found two security gaps in the first fallback. A failed write or move could leave the

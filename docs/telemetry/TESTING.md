@@ -5,11 +5,11 @@
      the change is wrong, not the test. Any new event or attribute needs a validation test proving
      both its accepted and its rejected forms. Keep counts and Last run current. -->
 
-**Category:** telemetry · **Last run:** 2026-07-28 · **91 Rust tests · 0 failing** (ingest crate), plus the
+**Category:** telemetry · **Last run:** 2026-07-28 · **93 Rust tests · 0 failing** (ingest crate), plus the
 emitter suites in the categories that emit and one end-to-end suite that drives the real binaries
 
 ```bash
-cd rust && cargo test -p nodera-telemetry          # the receiver (91)
+cd rust && cargo test -p nodera-telemetry          # the receiver (93)
 cd rust && cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 ./gradlew :peer:test --tests '*Telemetry*'        # the emitter core + the worker + the verb
 ./gradlew :neoforge-mod:test --tests '*Telemetry*' # the game-side façade
@@ -50,25 +50,27 @@ claim in [`../plans/Plan.6.md`](../plans/Plan.6.md) §2.
 | `event::tests::a_peer_may_not_report_service_level_events` | D3 — an unsigned surface still cannot forge operator rows |
 | `subject::tests::the_subject_changes_when_the_period_rolls` | D7 — identifiers rotate |
 | `subject::tests::the_install_id_never_appears_in_the_subject` | D7 — pseudonymisation is real |
+| `subject::tests::after_rotation_and_restart_a_previous_period_subject_is_not_reproducible_from_configuration` | D7 — forward secrecy: past periods unrecoverable even with identical config (L-72 exit) |
 | `service::tests::a_row_carries_the_country_and_never_the_address` | D7 — addresses are discarded |
-| `config::tests::the_default_configuration_refuses_to_start` | D7 — no deployment runs with a guessable secret |
+| `config::tests::the_default_configuration_validates` | D7 — no persistent secret to set; the key is memory-only |
 | `main::tests::the_printed_schema_is_json_and_lists_every_declared_event` | D9 — the notice cannot drift from the enforcement |
 
 ## 3. Coverage by module
 
-Counts grep-verified 2026-07-28 (`#[test]` + `#[tokio::test]` per file). The crate total is **91**.
+Counts grep-verified 2026-07-28 (`#[test]` + `#[tokio::test]` per file). The crate total is **93**
+(87 in the library, 6 in the binary).
 
 | Module | Tests | Focus |
 |---|---|---|
 | `schema.rs` | 8 | Registry well-formedness, source admission |
 | `event.rs` | 14 | Envelope, consent, per-event and per-attribute validation, agent sanitisation |
-| `subject.rs` | 7 | Rotation, namespacing, secret dependence |
+| `subject.rs` | 11 | Rotation, namespacing, forward secrecy across rotation+restart, key-source seam |
 | `geo.rs` | 7 | Longest prefix, IPv4-mapped IPv6, unknown answers unknown, `/0` without overflow |
 | `limits.rs` | 8 | Batch/event budgets, window reset, independence, saturation |
 | `sink.rs` | 7 | Rotation triggers, ordering, directory creation |
-| `service.rs` | 10 | The ingest decision, typed attribute split, honest replies, counters |
+| `service.rs` | 11 | The ingest decision, typed attribute split, honest replies, counters, restart pseudonymisation |
 | `wire.rs` | 4 | Framing bounds, clean EOF, **end-to-end over TCP** |
-| `config.rs` | 11 | Defaults, refusals, env secret + every-key override, bounds conversion |
+| `config.rs` | 8 | Defaults, refusals, every-key override, bounds conversion, stale-secret-key refused |
 | `reporter.rs` | 9 | The shared service-side emitter: queue bounds, envelope, refusal handling, install-id derivation |
 | `main.rs` | 6 | CLI parsing, `--print-schema` fidelity |
 

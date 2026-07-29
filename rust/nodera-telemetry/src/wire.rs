@@ -181,7 +181,6 @@ mod tests {
         Config {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
             spool_dir: spool.to_path_buf(),
-            subject_secret: "0123456789abcdef0123".to_owned(),
             ..Config::default()
         }
     }
