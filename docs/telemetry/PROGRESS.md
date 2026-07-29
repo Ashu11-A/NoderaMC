@@ -17,6 +17,7 @@ programme: [`../plans/Plan.6.md`](../plans/Plan.6.md).
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
+| [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 95 Rust tests; clippy clean; the gate is at the receiver, and the shared reporter lives here too |
 | [1](Task.1.md) | The `nodera-telemetry` ingest service | ✅ COMPLETED | 93 Rust tests; clippy clean; forward-secret pseudonymisation retired L-72; the gate is at the receiver, and the shared reporter lives here too |
 | [2](Task.2.md) | The Big Data plane | 🚧 IN PROGRESS | Compose + warehouse + rollups landed; `stack-smoke` green in CI. Parquet export + TTL-merge assertion remain |
 | [3](Task.3.md) | Analysis, dashboards, alerting, report | ⬜ NOT STARTED | The emitters exist now; what is missing is a **population** that has opted in |
@@ -25,6 +26,31 @@ programme: [`../plans/Plan.6.md`](../plans/Plan.6.md).
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-28 — L-73 retired: the TLS proxy is now enforced, not merely documented
+
+The listener speaks plaintext and still does; what changed is that "put the `edge` proxy in front
+of it" stopped being a sentence in a comment and became a condition the service checks. A
+deployment sets `public_endpoint = true` and names the ranges its TLS terminator dials from
+(`trusted_proxy_cidrs`); declaring the first without the second refuses the start, and a connection
+from anywhere else is closed in `serve_connection` **before its first frame is read**, counted as
+`plaintext_not_via_tls_front`.
+
+The distinction that made this worth doing: the old row was written as if the only fix were native
+TLS. It was not. The exposure was that nothing stopped an operator from publishing the plaintext
+port, and an operator who *declares* the deployment public can be held to naming what may reach it.
+
+Evidence: `wire::tests::a_direct_plaintext_client_is_refused_once_the_endpoint_is_declared_public`
+(real TCP socket: the stranger gets an end of stream, the declared front gets its reply, exactly one
+refusal counted), plus four `config::tests::*` covering the boot refusal, an unparseable range, the
+admission ranges themselves, and the unchanged private case. Row moved to
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) with the cost carried forward stated: the hop between
+terminator and service is still unencrypted, and it is now a link the operator controls.
+
+**L-74 and L-75 were triaged in the same pass and left OPEN, deliberately.** L-74's exit test is an
+*exercised* backup/restore of the ClickHouse volume in CI — a deployment lane, not a defect in this
+crate, and writing the row's fix without running that drill would be exactly the "green while
+asserting nothing" failure this pass was cleaning up elsewhere. L-75 needs an opted-in population
+that does not exist yet; no amount of engineering retires it.
 ### 2026-07-28 — L-72 retired: forward-secret pseudonymisation (issue #95)
 
 The pseudonymiser stopped holding a secret the operator could read. Each rotation period now mints a

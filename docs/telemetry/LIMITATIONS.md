@@ -27,7 +27,6 @@ and by labelling every published number as an opt-in sample ([telemetry 3](Task.
 
 | Row | Status | What is missing | Owning task | Exit test |
 |---|---|---|---|---|
-| **L-73** | OPEN | The ingest listener is plaintext. Reports carry no secrets and no identifiers, but a network observer still learns that a given address reports telemetry and roughly how much. TLS is available only by putting the `edge` proxy in front. Elimination path: native TLS in the service, or making the proxy non-optional in the shipped deployment | [1](Task.1.md) | A test that a non-TLS connection to the public endpoint is refused once the deployment declares itself public |
 | **L-74** | OPEN | The compose stack is single-node: no replication, no backup, no restore procedure. A disk loss loses collected history — which costs insight only, never correctness | [2](Task.2.md) | A documented and exercised backup/restore of the ClickHouse volume in CI |
 | **L-75** | OPEN | Nothing has been collected against a real opted-in population yet, so every claim about what the pipeline *shows* is untested against real data. The receiver and the emitters are proven; the population is not | [3](Task.3.md) | The first dashboard answering a §1.1 question from real reports, cited in `PROGRESS.md` |
 

@@ -28,7 +28,11 @@ dependencies {
 // on WireFixtureTest and WireSchemaGeneratorTest only work if the flag reaches the test JVM.
 // Forwarded explicitly — Gradle does not pass -D through.
 tasks.withType<Test>().configureEach {
-    for (flag in listOf("nodera.fixtures.regenerate", "nodera.wire.regenerate")) {
+    // nodera.wire.previousCorpus: PreviousReleaseCorpusTest reads a previous revision's frames out
+    // of the directory this names. Without the forward the test would find nothing and CI would be
+    // asserting compatibility it never checked.
+    for (flag in listOf("nodera.fixtures.regenerate", "nodera.wire.regenerate",
+            "nodera.wire.previousCorpus")) {
         System.getProperty(flag)?.let { systemProperty(flag, it) }
     }
 }
