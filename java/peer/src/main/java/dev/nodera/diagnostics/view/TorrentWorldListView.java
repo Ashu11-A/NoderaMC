@@ -79,6 +79,26 @@ public final class TorrentWorldListView {
                     retentionSecondsRemaining, hostName, "", "");
         }
 
+        /**
+         * Whether this world can be entered right now — the one place that decides it (MC-JOIN-1).
+         *
+         * <p>A row used to be offered as joinable because it existed: a world this install hosts was
+         * stamped {@code HEALTHY} with full reliability even when its game was closed, and the join
+         * button armed itself from "a row is selected". So a world nobody could enter was offered
+         * exactly as confidently as one that could, and the player learned the difference from a
+         * connection timeout.
+         *
+         * <p>The rule: a {@link WorldHealth#DEAD} world is not joinable — for one of this install's
+         * own worlds that is precisely "the host game is closed", because the feed derives health
+         * from whether the worker reports a live game endpoint — and neither is a world with no
+         * handle to reach it by (no game route AND no world id for the join flow to resolve).
+         *
+         * @return whether the join flow may be offered for this world.
+         */
+        public boolean joinable() {
+            return health != WorldHealth.DEAD && !(mcRoute.isBlank() && worldIdHex.isBlank());
+        }
+
         /** @return whether an owner/host name is known for this world. */
         public boolean hasHost() {
             return !hostName.isBlank();
