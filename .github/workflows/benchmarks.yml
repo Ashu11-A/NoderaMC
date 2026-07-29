@@ -47,6 +47,12 @@ on:
 
 # A second run of the same benchmark on the same ref tells nobody anything new, and two JMH runs
 # sharing a runner measure each other.
+# Read-only: this workflow measures and reports, it never writes to the repository. Stating it
+# explicitly rather than inheriting the repository default is what keeps a future step that DOES
+# want to write an obvious decision instead of an accident.
+permissions:
+  contents: read
+
 concurrency:
   group: benchmarks-${{ github.ref }}
   cancel-in-progress: true

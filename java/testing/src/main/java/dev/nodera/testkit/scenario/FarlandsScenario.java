@@ -44,7 +44,10 @@ public final class FarlandsScenario implements Scenario {
     private static final int Z2 = -200_000;
 
     /** The first {@code x,z} pair in a zone panel — the region the player is standing in. */
-    private static final Pattern REGION_COORDS = Pattern.compile("-?[0-9]+,-?[0-9]+");
+    // Bounded and possessive on purpose: this runs over a server reply, which is input the
+    // harness does not control, and an unbounded greedy repetition makes `find()` re-scan the
+    // same characters from every start position — quadratic in the length of the reply.
+    private static final Pattern REGION_COORDS = Pattern.compile("-?[0-9]{1,12}+,-?[0-9]{1,12}+");
 
     /** Any of the ownership states the zone panel may report. */
     private static final Pattern OWNERSHIP_STATE =

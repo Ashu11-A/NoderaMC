@@ -37,7 +37,10 @@ import java.util.regex.Pattern;
 public final class PearlScenario implements Scenario {
 
     /** The int-array form of a player UUID, which is the only form the {@code Owner} tag accepts. */
-    private static final Pattern UUID_ARRAY = Pattern.compile("\\[I;[^]]*]");
+    // Bounded and possessive on purpose: this runs over a server reply, which is input the
+    // harness does not control, and an unbounded greedy repetition makes `find()` re-scan the
+    // same characters from every start position — quadratic in the length of the reply.
+    private static final Pattern UUID_ARRAY = Pattern.compile("\\[I;[^]]{0,120}+]");
 
     @Override
     public String id() {

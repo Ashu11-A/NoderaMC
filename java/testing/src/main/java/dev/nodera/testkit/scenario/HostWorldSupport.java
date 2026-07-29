@@ -82,7 +82,10 @@ public final class HostWorldSupport {
     private static final Pattern LANE_REGIONS = Pattern.compile("active on (\\d+)");
 
     /** The {@code (-1234.5d)} numbers of a {@code data get entity <p> Pos} reply. */
-    private static final Pattern POSITION_NUMBER = Pattern.compile("(-?\\d+\\.?\\d*)d");
+    // Bounded and possessive on purpose: this runs over a server reply, which is input the
+    // harness does not control, and an unbounded greedy repetition makes `find()` re-scan the
+    // same characters from every start position — quadratic in the length of the reply.
+    private static final Pattern POSITION_NUMBER = Pattern.compile("(-?\\d{1,20}+(?:\\.\\d{1,20}+)?)d");
 
     /** The shared world every host-client scenario plays on; baked once, reused thereafter. */
     private static final String STAGED_WORLD = "NoderaE2E";
