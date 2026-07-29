@@ -8,6 +8,10 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.nodera.diagnostics.model.TelemetrySnapshot;
+import dev.nodera.diagnostics.state.Semantic;
+import dev.nodera.diagnostics.view.Cell;
+import dev.nodera.diagnostics.view.Panel;
+import dev.nodera.diagnostics.view.Row;
 import dev.nodera.diagnostics.view.ViewBuilder;
 import dev.nodera.mod.debug.DiagnosticsService;
 import dev.nodera.mod.debug.DiagnosticsService.Surface;
@@ -16,6 +20,8 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 
 import static net.minecraft.commands.Commands.argument;
@@ -134,15 +140,19 @@ public final class NoderaCommand {
     private static int tps(CommandContext<CommandSourceStack> ctx) {
         var server = ctx.getSource().getServer();
         double tps = dev.nodera.mod.debug.render.BossBarManager.currentTps(server);
-        StringBuilder out = new StringBuilder(String.format(java.util.Locale.ROOT,
-                "TPS: %.1f / 20.0 (avg tick %.2f ms)", tps,
-                server.getAverageTickTimeNanos() / 1_000_000.0));
+        // MC-GUI-5: numbers are formatted here, sentences are not — the row shape comes from the
+        // lang file, and this command only supplies the measurements.
+        List<Row> rows = new ArrayList<>();
+        rows.add(Row.of(Cell.tr(CommandLang.TPS_HEADER, Semantic.HEADING,
+                String.format(java.util.Locale.ROOT, "%.1f", tps),
+                String.format(java.util.Locale.ROOT, "%.2f",
+                        server.getAverageTickTimeNanos() / 1_000_000.0))));
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-            out.append('\n').append(p.getGameProfile().getName())
-                    .append(": ping ").append(p.connection.latency()).append(" ms");
+            rows.add(Row.of(Cell.tr(CommandLang.TPS_PING, Semantic.NEUTRAL,
+                    p.getGameProfile().getName(), p.connection.latency())));
         }
-        String text = out.toString();
-        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        CommandTree.sendPanel(ctx.getSource(),
+                Panel.titled(CommandLang.TPS_TITLE, Semantic.HEADING, rows));
         return 1;
     }
 
@@ -153,18 +163,16 @@ public final class NoderaCommand {
                 dev.nodera.mod.common.NoderaPeerService.get().hostOptions();
         dev.nodera.mod.common.NoderaHost.activate(server,
                 current != null ? current : dev.nodera.mod.common.ShareOptions.playerDefault());
-        ctx.getSource().sendSuccess(() -> Component.literal(
-                "Sharing '" + server.getWorldData().getLevelName() + "' on the Nodera network"), true);
-        return 1;
+        return CommandTree.announce(ctx, CommandLang.SHARE_STARTED,
+                server.getWorldData().getLevelName());
     }
 
     /** {@code /nodera share stop} — stop sharing (op). */
     private static int shareStop(CommandContext<CommandSourceStack> ctx) {
         var server = ctx.getSource().getServer();
         dev.nodera.mod.common.NoderaHost.deactivate(server);
-        ctx.getSource().sendSuccess(() -> Component.literal(
-                "Stopped sharing '" + server.getWorldData().getLevelName() + "'"), true);
-        return 1;
+        return CommandTree.announce(ctx, CommandLang.SHARE_STOPPED,
+                server.getWorldData().getLevelName());
     }
 
     /**
@@ -181,24 +189,17 @@ public final class NoderaCommand {
         var svc = dev.nodera.mod.common.NoderaPeerService.get();
         dev.nodera.mod.common.ShareOptions current = svc.hostOptions();
         if (!svc.isHosting() || current == null) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "Not sharing this world — nothing to re-key."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.SHARE_NOT_SHARING);
         }
         if (!dev.nodera.mod.common.NoderaHost.localWorkerIsAuthor(server)) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "Only the world's author may change its password."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.SHARE_NOT_AUTHOR);
         }
         String next = StringArgumentType.getString(ctx, "new");
         if (next.equals(current.password())) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "That is already this world's password."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.SHARE_SAME_PASSWORD);
         }
-        ctx.getSource().sendSuccess(() -> Component.literal(
-                "Nodera: re-keying '" + server.getWorldData().getLevelName()
-                        + "' — every seeder re-fetches and joiners need the new password."), true);
+        CommandTree.announce(ctx, CommandLang.SHARE_REKEYING,
+                server.getWorldData().getLevelName());
         dev.nodera.mod.common.NoderaHost.reconfigure(server, current.withPassword(next));
         return 1;
     }
@@ -207,16 +208,24 @@ public final class NoderaCommand {
     private static int shareStatus(CommandContext<CommandSourceStack> ctx) {
         var svc = dev.nodera.mod.common.NoderaPeerService.get();
         if (!svc.isHosting()) {
-            ctx.getSource().sendSuccess(() -> Component.literal("Not sharing this world."), false);
+            CommandTree.reply(ctx, CommandLang.SHARE_NOT_SHARING);
             return 1;
         }
         String game = svc.gameRoute();
         boolean worker = dev.nodera.mod.common.CompanionLink.isPresent();
-        ctx.getSource().sendSuccess(() -> Component.literal(String.join("\n",
-                "Sharing: yes (P2P " + svc.hostRoute() + ")",
-                "Game endpoint: " + (game == null ? "not open" : game),
-                "Worker: " + (worker ? "linked (world survives game close)" : "not running"))),
-                false);
+        // The Share screen already had lang entries for the endpoint and worker lines; the command
+        // reuses them rather than paraphrasing the same two facts in a second wording.
+        CommandTree.sendPanel(ctx.getSource(), Panel.titled(CommandLang.SHARE_STATUS_TITLE,
+                Semantic.HEADING, List.of(
+                        Row.of(Cell.tr(CommandLang.SHARE_STATUS_P2P, Semantic.HEALTHY,
+                                svc.hostRoute())),
+                        Row.of(game == null
+                                ? Cell.tr(CommandLang.SHARE_STATUS_NO_ROUTE, Semantic.SECONDARY)
+                                : Cell.tr(CommandLang.SHARE_STATUS_ROUTE, Semantic.NEUTRAL, game)),
+                        Row.of(Cell.tr(worker
+                                        ? CommandLang.SHARE_STATUS_WORKER_ON
+                                        : CommandLang.SHARE_STATUS_WORKER_OFF,
+                                worker ? Semantic.HEALTHY : Semantic.DEGRADED)))));
         return 1;
     }
 
@@ -230,17 +239,21 @@ public final class NoderaCommand {
         dev.nodera.mod.common.ModTelemetry.refresh();
         dev.nodera.telemetry.TelemetryConsent consent =
                 dev.nodera.mod.common.ModTelemetry.consent();
-        String state = switch (consent) {
-            case GRANTED -> "sharing anonymous telemetry (thank you)";
-            case DENIED -> "not sharing telemetry";
-            case UNANSWERED -> "not sharing telemetry — nobody has answered the question yet";
+        String stateKey = switch (consent) {
+            case GRANTED -> CommandLang.TELEMETRY_GRANTED;
+            case DENIED -> CommandLang.TELEMETRY_DENIED;
+            case UNANSWERED -> CommandLang.TELEMETRY_UNANSWERED;
         };
-        ctx.getSource().sendSuccess(() -> Component.literal(String.join("\n",
-                "Telemetry: " + state,
-                "What would be shared: counts and buckets only — never world names, player names,",
-                "  chat, coordinates, file paths, or IP addresses.",
-                "Change it here with /nodera telemetry on|off, or in the Nodera companion app.")),
-                false);
+        // The state phrase is itself a translated component nested into the status line, so a
+        // translator can reorder the sentence without the three states drifting apart.
+        CommandTree.sendPanel(ctx.getSource(), Panel.titled(CommandLang.TELEMETRY_TITLE,
+                Semantic.HEADING, List.of(
+                        Row.of(Cell.tr(CommandLang.TELEMETRY_STATE,
+                                consent == dev.nodera.telemetry.TelemetryConsent.GRANTED
+                                        ? Semantic.HEALTHY : Semantic.SECONDARY,
+                                Component.translatable(stateKey))),
+                        Row.of(Cell.tr(CommandLang.TELEMETRY_SHARED, Semantic.NEUTRAL)),
+                        Row.of(Cell.tr(CommandLang.TELEMETRY_CHANGE, Semantic.SECONDARY)))));
         return 1;
     }
 
@@ -249,19 +262,13 @@ public final class NoderaCommand {
         java.util.Optional<String> error =
                 dev.nodera.mod.common.ModTelemetry.setConsent(granted);
         if (error.isPresent()) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "Could not record that: " + error.get()));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.TELEMETRY_ERROR, error.get());
         }
         // Report what the NODE confirmed, not what the command intended — the same discipline the
         // companion app's settings badges follow.
         boolean live = dev.nodera.mod.common.ModTelemetry.collects();
-        ctx.getSource().sendSuccess(() -> Component.literal(live
-                ? "Telemetry is on. Thank you — it is how this project finds out what actually "
-                        + "works on real machines."
-                : "Telemetry is off. Nothing is collected, and anything queued has been discarded."),
-                true);
-        return 1;
+        return CommandTree.announce(ctx,
+                live ? CommandLang.TELEMETRY_ON : CommandLang.TELEMETRY_OFF);
     }
 
     /** {@code /nodera worlds} — the tracker directory as the network sees it. */
@@ -276,22 +283,22 @@ public final class NoderaCommand {
             }
         }
         if (catalog.isEmpty()) {
-            ctx.getSource().sendSuccess(() -> Component.literal(
-                    "No worlds listed on the configured tracker(s)."), false);
-            return 0;
+            return CommandTree.reply(ctx, CommandLang.WORLDS_NONE_LISTED);
         }
-        StringBuilder out = new StringBuilder("Worlds on the network:");
+        List<Row> rows = new ArrayList<>();
         for (var entry : catalog) {
-            out.append("\n  ").append(entry.worldName().isBlank()
-                            ? entry.genesisHash().toHex().substring(0, 12) : entry.worldName())
+            rows.add(Row.of(
+                    Cell.raw(entry.worldName().isBlank()
+                            ? entry.genesisHash().toHex().substring(0, 12) : entry.worldName()),
                     // PEERS, not players: this is the tracker catalog, and a tracker only ever
                     // sees who is announcing a swarm. Saying "online" here credited three seeders
                     // of an empty world with three players.
-                    .append(" — ").append(entry.worldPlayerCount()).append(" peer(s), ")
-                    .append(entry.health().name().toLowerCase(java.util.Locale.ROOT));
+                    Cell.tr(CommandLang.WORLDS_PEERS, Semantic.NEUTRAL, entry.worldPlayerCount()),
+                    Cell.tr(dev.nodera.diagnostics.view.TorrentWorldListView
+                            .healthKey(entry.health()), Semantic.SECONDARY)));
         }
-        String text = out.toString();
-        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        CommandTree.sendPanel(ctx.getSource(),
+                Panel.titled(CommandLang.WORLDS_TITLE, Semantic.HEADING, rows));
         return catalog.size();
     }
 
@@ -336,9 +343,7 @@ public final class NoderaCommand {
     /** {@code /nodera whois <player>} — staged off (needs ClientDiagnosticsReport, Task 18 §networking). */
     private static int whois(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
-        ctx.getSource().sendSuccess(() -> Component.literal(
-                "whois for " + target.getName().getString()
-                        + ": cross-player report is staged (enable via /nodera debug)"), false);
+        CommandTree.reply(ctx, CommandLang.WHOIS_STAGED, target.getName().getString());
         return 1;
     }
 
@@ -354,26 +359,21 @@ public final class NoderaCommand {
         var server = src.getServer();
         var perms = dev.nodera.mod.common.NoderaHost.hostedPermissions();
         if (perms == null) {
-            src.sendFailure(Component.literal("This world is not shared to Nodera."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_NOT_SHARED);
         }
         ServerPlayer executor = src.getPlayer(); // null for the server console
         if (!isGrantAuthorized(server, executor, perms)) {
-            src.sendFailure(Component.literal("You are not authorized to change Nodera permissions."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_UNAUTHORIZED);
         }
         ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
         dev.nodera.mod.common.PlayerNodeRegistry.PlayerNode node =
                 dev.nodera.mod.common.PlayerNodeRegistry.nodeOf(target.getUUID());
         if (node == null) {
-            src.sendFailure(Component.literal(
-                    "No verified Nodera identity yet for " + target.getName().getString() + "."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_NO_IDENTITY,
+                    target.getName().getString());
         }
         if (!dev.nodera.mod.common.CompanionLink.isPresent()) {
-            src.sendFailure(Component.literal(
-                    "No Nodera worker is connected to sign the grant."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_NO_WORKER);
         }
         dev.nodera.core.identity.WorldRole role = grantOp
                 ? dev.nodera.core.identity.WorldRole.OPERATOR
@@ -386,27 +386,22 @@ public final class NoderaCommand {
                         node.nodeId().value().toString(), node.publicKey(), role.ordinal(),
                         grantVersion);
         if (signed.isEmpty()) {
-            src.sendFailure(Component.literal("The Nodera worker declined to sign the grant "
-                    + "(only the world author may op/deop)."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_DECLINED);
         }
         dev.nodera.storage.WorldPermissionGrant grant;
         try {
             grant = dev.nodera.storage.WorldPermissionGrant.decode(
                     new dev.nodera.core.crypto.CanonicalReader(signed.get()));
         } catch (RuntimeException e) {
-            src.sendFailure(Component.literal("Malformed grant from the worker."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_MALFORMED);
         }
         if (!dev.nodera.mod.common.NoderaHost.applyGrant(grant)) {
-            src.sendFailure(Component.literal("The grant was rejected (authority or version)."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.GRANT_REJECTED);
         }
         dev.nodera.mod.server.OperatorBridge.get().syncPlayer(server, target);
-        String verb = grantOp ? "opped" : "de-opped";
-        src.sendSuccess(() -> Component.literal(
-                "Nodera: " + verb + " " + target.getName().getString()), true);
-        return 1;
+        return CommandTree.announce(ctx,
+                grantOp ? CommandLang.GRANT_OPPED : CommandLang.GRANT_DEOPPED,
+                target.getName().getString());
     }
 
     /** Whether the executor may mint permission grants for this world. */
@@ -432,7 +427,7 @@ public final class NoderaCommand {
         if (svc != null) {
             svc.setSampleTicks(n);
         }
-        ctx.getSource().sendSuccess(() -> Component.literal("sample rate = " + n + " ticks"), false);
+        CommandTree.reply(ctx, CommandLang.DEBUG_SAMPLE_RATE, n);
         return n;
     }
 
@@ -446,12 +441,10 @@ public final class NoderaCommand {
         ServerPlayer player = ctx.getSource().getPlayerOrException();
         if (on) {
             dev.nodera.mod.debug.DebugConsole.subscribe(player);
-            ctx.getSource().sendSuccess(() -> Component.literal(
-                    "Nodera debug console ON — service logs stream to this chat."), false);
+            CommandTree.reply(ctx, CommandLang.DEBUG_VERBOSE_ON);
         } else {
             dev.nodera.mod.debug.DebugConsole.unsubscribe(player);
-            ctx.getSource().sendSuccess(() -> Component.literal(
-                    "Nodera debug console OFF."), false);
+            CommandTree.reply(ctx, CommandLang.DEBUG_VERBOSE_OFF);
         }
         return 1;
     }
@@ -490,16 +483,11 @@ public final class NoderaCommand {
         try {
             player = ctx.getSource().getPlayerOrException();
         } catch (com.mojang.brigadier.exceptions.CommandSyntaxException notAPlayer) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "/nodera debug drive must be run BY a player: the action is signed with that "
-                            + "player's key, and there is no such key for the console"));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.DRIVE_NOT_PLAYER);
         }
         var lane = dev.nodera.mod.common.NoderaHost.entityLaneRuntime();
         if (lane == null) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "no entity lane on this node — nothing would capture the edits"));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.DRIVE_NO_LANE);
         }
         int edits = IntegerArgumentType.getInteger(ctx, "edits");
         var level = player.serverLevel();
@@ -519,28 +507,27 @@ public final class NoderaCommand {
                 accepted++;
             }
         }
-        int captured = accepted;
-        ctx.getSource().sendSuccess(() -> Component.literal(
-                "drove " + edits + " edit(s) through the capture path — " + captured
-                        + " submitted to the lane"), false);
+        CommandTree.reply(ctx, CommandLang.DRIVE_DONE, edits, accepted);
         return 1;
     }
 
     private static int capture(CommandContext<CommandSourceStack> ctx) {
         var outcomes = dev.nodera.mod.server.shadow.BlockCaptureBridge.get().outcomes();
         long total = outcomes.values().stream().mapToLong(Long::longValue).sum();
-        StringBuilder text = new StringBuilder("Block capture — ")
-                .append(total).append(" edit(s) seen");
+        List<Row> rows = new ArrayList<>();
+        rows.add(Row.of(Cell.tr(CommandLang.CAPTURE_TOTAL, Semantic.HEADING, total)));
         outcomes.forEach((reason, count) -> {
             if (count > 0) {
-                text.append("\n  ").append(reason).append(": ").append(count);
+                // The reason is an enum constant, not prose, so it rides in as an argument.
+                rows.add(Row.of(Cell.tr(CommandLang.CAPTURE_REASON, Semantic.NEUTRAL,
+                        reason.name(), count)));
             }
         });
         if (total == 0) {
-            text.append("\n  (no block edits observed yet)");
+            rows.add(Row.of(Cell.tr(CommandLang.CAPTURE_NONE, Semantic.SECONDARY)));
         }
-        String rendered = text.toString();
-        ctx.getSource().sendSuccess(() -> Component.literal(rendered), false);
+        CommandTree.sendPanel(ctx.getSource(),
+                Panel.titled(CommandLang.CAPTURE_TITLE, Semantic.HEADING, rows));
         return 1;
     }
 
@@ -555,9 +542,7 @@ public final class NoderaCommand {
         try {
             player = ctx.getSource().getPlayerOrException();
         } catch (CommandSyntaxException notAPlayer) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "/nodera debug extract reads the caller's own region — run it as a player."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.EXTRACT_NOT_PLAYER);
         }
         var level = player.serverLevel();
         var region = dev.nodera.core.region.RegionId.fromChunk(
@@ -569,38 +554,40 @@ public final class NoderaCommand {
                 level.getGameTime());
         long millis = (System.nanoTime() - started) / 1_000_000L;
 
-        StringBuilder out = new StringBuilder("Extracted ").append(region)
-                .append(" in ").append(millis).append(" ms")
-                .append("\n  chunks: ").append(extraction.snapshot().chunks().size())
-                .append(" (").append(extraction.missingChunks()).append(" not resident)")
-                .append("\n  dense sections: ").append(extraction.denseSections())
-                .append("\n  blocks outside the palette: ").append(extraction.excludedBlocks());
+        List<Row> rows = new ArrayList<>();
+        rows.add(Row.of(Cell.tr(CommandLang.EXTRACT_REGION, Semantic.HEADING,
+                String.valueOf(region), millis)));
+        rows.add(Row.of(Cell.tr(CommandLang.EXTRACT_CHUNKS, Semantic.NEUTRAL,
+                extraction.snapshot().chunks().size(), extraction.missingChunks())));
+        rows.add(Row.of(Cell.tr(CommandLang.EXTRACT_DENSE, Semantic.NEUTRAL,
+                extraction.denseSections())));
+        rows.add(Row.of(Cell.tr(CommandLang.EXTRACT_EXCLUDED, Semantic.NEUTRAL,
+                extraction.excludedBlocks())));
 
         var lane = dev.nodera.mod.common.NoderaHost.entityLaneRuntime();
         if (lane != null) {
             lane.validation().currentSnapshot(region).ifPresentOrElse(committed -> {
                 var report = new dev.nodera.shadow.InterferenceProbe()
                         .probe(committed, extraction.snapshot());
-                out.append("\n  drift from committed state: ").append(report.changedBlocks())
-                        .append(" block(s) across ").append(report.changedSections())
-                        .append(" section(s)");
-            }, () -> out.append("\n  (this node's lane does not hold the region — nothing to "
-                    + "compare against)"));
+                rows.add(Row.of(Cell.tr(CommandLang.EXTRACT_DRIFT, Semantic.DEGRADED,
+                        report.changedBlocks(), report.changedSections())));
+            }, () -> rows.add(Row.of(
+                    Cell.tr(CommandLang.EXTRACT_NO_COMMITTED, Semantic.SECONDARY))));
         }
-        String rendered = out.toString();
-        ctx.getSource().sendSuccess(() -> Component.literal(rendered), false);
+        CommandTree.sendPanel(ctx.getSource(),
+                Panel.titled(CommandLang.EXTRACT_TITLE, Semantic.HEADING, rows));
         return 1;
     }
 
     private static int relay(CommandContext<CommandSourceStack> ctx) {
         var lane = dev.nodera.mod.common.NoderaHost.entityLaneRelayMetrics();
         if (lane == null) {
-            ctx.getSource().sendFailure(Component.literal(
-                    "No live validation lane (share the world / join a shared world first)."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.RELAY_NONE);
         }
-        String text = lane.describe();
-        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        // The metric block itself is measured data from the lane, so it rides the pass-through
+        // cell; only the heading is prose, and that comes from the lang file.
+        CommandTree.sendPanel(ctx.getSource(), Panel.titled(CommandLang.RELAY_TITLE,
+                Semantic.HEADING, List.of(Row.of(Cell.raw(lane.describe())))));
         return 1;
     }
 
@@ -616,12 +603,12 @@ public final class NoderaCommand {
             ServerPlayer p = ctx.getSource().getPlayer();
             DiagnosticsService svc = service.get();
             if (p == null || svc == null) {
-                ctx.getSource().sendFailure(Component.literal("Run this as a player with the HUD online."));
-                return 0;
+                return CommandTree.fail(ctx, CommandLang.HUD_NOT_PLAYER);
             }
             svc.setPref(p.getUUID(), surface, on);
-            String label = surface == Surface.ALL ? "all surfaces" : surface.name().toLowerCase(java.util.Locale.ROOT);
-            ctx.getSource().sendSuccess(() -> Component.literal("HUD " + label + " " + (on ? "on" : "off")), false);
+            CommandTree.reply(ctx, CommandLang.HUD_SET,
+                    Component.translatable(CommandLang.hudSurfaceKey(surface.name())),
+                    Component.translatable(on ? CommandLang.ON : CommandLang.OFF));
             return 1;
         };
     }

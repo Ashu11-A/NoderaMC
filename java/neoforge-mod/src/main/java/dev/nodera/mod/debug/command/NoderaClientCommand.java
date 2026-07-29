@@ -5,13 +5,19 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
 import dev.nodera.diagnostics.DiagnosticsCollector;
 import dev.nodera.diagnostics.model.TelemetrySnapshot;
+import dev.nodera.diagnostics.state.Semantic;
+import dev.nodera.diagnostics.view.Cell;
 import dev.nodera.diagnostics.view.Panel;
+import dev.nodera.diagnostics.view.Row;
+import dev.nodera.diagnostics.view.TorrentWorldListView;
 import dev.nodera.diagnostics.view.ViewBuilder;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.peer.PeerRuntime;
 import net.minecraft.commands.CommandSourceStack;
 import com.mojang.brigadier.arguments.StringArgumentType;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 
 import static net.minecraft.commands.Commands.argument;
@@ -51,31 +57,30 @@ public final class NoderaClientCommand {
     /** {@code /noderac worker} — the always-on worker's live state over the control channel. */
     private static int worker(CommandContext<CommandSourceStack> ctx) {
         if (!dev.nodera.mod.common.CompanionLink.isPresent()) {
-            ctx.getSource().sendFailure(net.minecraft.network.chat.Component.literal(
-                    "No Nodera worker linked — start the companion app (or scripts/dev.sh)."));
-            return 0;
+            return CommandTree.fail(ctx, CommandLang.WORKER_ABSENT);
         }
         var info = dev.nodera.mod.common.CompanionLink.info();
         var state = dev.nodera.mod.common.CompanionLink.client().state().orElse(null);
         var hosted = dev.nodera.mod.common.WorkerStateParser.connectedWorlds(state);
-        StringBuilder out = new StringBuilder("Nodera worker: linked (protocol ")
-                .append(info.protocolVersion()).append(", version ")
-                .append(info.daemonVersion()).append(")");
+        // MC-GUI-5: a panel of key-bearing cells, not a StringBuilder — the same Panel/Row/Cell
+        // shape every other command renders through, so the words live in en_us.json.
+        List<Row> rows = new ArrayList<>();
+        rows.add(Row.of(Cell.tr(CommandLang.WORKER_LINKED, Semantic.HEALTHY,
+                info.protocolVersion(), info.daemonVersion())));
         if (hosted.isEmpty()) {
-            out.append("\n  hosting no worlds");
+            rows.add(Row.of(Cell.tr(CommandLang.WORKER_NO_WORLDS, Semantic.SECONDARY)));
         }
         for (var world : hosted) {
-            out.append("\n  ").append(world.name()).append(" — ")
-                    .append(dev.nodera.mod.debug.render.ComponentRenderer.text(
-                            dev.nodera.diagnostics.view.TorrentWorldListView
-                                    .playersCell(world.players(),
-                                            dev.nodera.diagnostics.state.Semantic.NEUTRAL))
-                            .getString())
-                    .append(", ")
-                    .append(world.mcRoute().isBlank() ? "game closed" : "joinable at " + world.mcRoute());
+            rows.add(Row.of(
+                    Cell.raw(world.name()),
+                    TorrentWorldListView.playersCell(world.players(), Semantic.NEUTRAL),
+                    world.mcRoute().isBlank()
+                            ? Cell.tr(CommandLang.WORLD_GAME_CLOSED, Semantic.SECONDARY)
+                            : Cell.tr(CommandLang.WORLD_JOINABLE_AT, Semantic.HEALTHY,
+                                    world.mcRoute())));
         }
-        String text = out.toString();
-        ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal(text), false);
+        CommandTree.sendPanel(ctx.getSource(),
+                Panel.titled(CommandLang.WORKER_TITLE, Semantic.HEADING, rows));
         return 1;
     }
 
@@ -83,26 +88,23 @@ public final class NoderaClientCommand {
     private static int worlds(CommandContext<CommandSourceStack> ctx) {
         var entries = dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed.snapshot();
         if (entries.isEmpty()) {
-            ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal(
-                    "No worlds known yet (worker + tracker feeds are empty)."), false);
-            return 0;
+            return CommandTree.reply(ctx, CommandLang.WORLDS_NONE_KNOWN);
         }
-        StringBuilder out = new StringBuilder("Worlds on the network:");
+        List<Row> rows = new ArrayList<>();
         for (var entry : entries) {
-            out.append("\n  ").append(entry.name());
+            List<Cell> cells = new ArrayList<>();
+            cells.add(Cell.raw(entry.name()));
             if (entry.hasHost()) {
-                out.append(" (by ").append(entry.hostName()).append(")");
+                cells.add(Cell.tr(CommandLang.WORLDS_BY_HOST, Semantic.SECONDARY, entry.hostName()));
             }
-            out.append(" — ")
-                    .append(dev.nodera.mod.debug.render.ComponentRenderer
-                            .text(entry.playersCell()).getString())
-                    .append(", ")
-                    .append(entry.mcRoute().isBlank()
-                            ? entry.health().name().toLowerCase(java.util.Locale.ROOT)
-                            : "joinable");
+            cells.add(entry.playersCell());
+            cells.add(entry.mcRoute().isBlank()
+                    ? Cell.tr(TorrentWorldListView.healthKey(entry.health()), Semantic.SECONDARY)
+                    : Cell.tr(CommandLang.WORLD_JOINABLE, Semantic.HEALTHY));
+            rows.add(new Row(cells));
         }
-        String text = out.toString();
-        ctx.getSource().sendSuccess(() -> net.minecraft.network.chat.Component.literal(text), false);
+        CommandTree.sendPanel(ctx.getSource(),
+                Panel.titled(CommandLang.WORLDS_TITLE, Semantic.HEADING, rows));
         return entries.size();
     }
 

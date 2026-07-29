@@ -63,7 +63,37 @@ public final class CommandTree {
 
     /** The "diagnostics offline" guard (server runtime not started / no snapshot yet). */
     public static int offline(CommandContext<CommandSourceStack> ctx) {
-        ctx.getSource().sendSuccess(() -> Component.literal("Nodera: diagnostics offline"), false);
+        return reply(ctx, CommandLang.OFFLINE);
+    }
+
+    /**
+     * Send one translated line to the source (MC-GUI-5).
+     *
+     * <p>Every command reply goes through here or through {@link #sendPanel}, so a subcommand never
+     * has a reason to hold a {@code String}: it names a key from {@link CommandLang} and hands over
+     * the values that fill it.
+     *
+     * @return {@code 0} — callers that succeeded return their own count instead.
+     */
+    public static int reply(CommandContext<CommandSourceStack> ctx, String key, Object... args) {
+        ctx.getSource().sendSuccess(() -> Component.translatable(key, args), false);
+        return 0;
+    }
+
+    /**
+     * As {@link #reply}, but announced to the other operators — for the commands that change the
+     * world's state rather than only describe it.
+     *
+     * @return {@code 1}, the conventional "did one thing" brigadier result.
+     */
+    public static int announce(CommandContext<CommandSourceStack> ctx, String key, Object... args) {
+        ctx.getSource().sendSuccess(() -> Component.translatable(key, args), true);
+        return 1;
+    }
+
+    /** Send one translated line as a command failure (red, never broadcast). @return {@code 0}. */
+    public static int fail(CommandContext<CommandSourceStack> ctx, String key, Object... args) {
+        ctx.getSource().sendFailure(Component.translatable(key, args));
         return 0;
     }
 }
