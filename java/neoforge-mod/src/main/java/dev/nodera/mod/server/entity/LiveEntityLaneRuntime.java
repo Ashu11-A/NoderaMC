@@ -225,6 +225,32 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     }
 
     /**
+     * L-12's submit path: a captured step becomes a signed {@code MovePlayerAction} on the same
+     * lane as every other action. Vanilla is never cancelled for it — movement stays
+     * vanilla-immediate and the committee's verdict reconciles the committed presence — so there
+     * is no {@link VanillaCancelGate} check here.
+     *
+     * <p><b>The presence gate.</b> {@code MovementRules} validates a step against the actor's
+     * committed {@link dev.nodera.core.state.EntityKind#PLAYER} entity, and a step for an actor
+     * with no such entity is rejected {@code ENTITY_NOT_FOUND} on every replica. Registering that
+     * entity is L-11's job, not this one's, and doing it here would be actively harmful: with a
+     * player entity present the engine routes pickups into the validated root inventory instead of
+     * the {@code InventoryCredit} stopgap this mod actually mirrors back into the vanilla
+     * inventory, so seeding an empty one would make picked-up items disappear from real
+     * inventories. So the step is proposed only once the committee already holds the presence it
+     * would move — which is honest about what is wired and costs a stationary lane nothing.
+     */
+    @Override
+    public boolean submitMove(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.MovePlayerAction move) {
+        NodeId actor = new NodeId(player.getUUID());
+        if (!PlayerLanePresence.registered(validation.currentSnapshot(region), actor)) {
+            return false;
+        }
+        return submit(player, region, move);
+    }
+
+    /**
      * The block-capture lane's entry point (minecraft Task 2 deliverable 1). Block actions take the
      * identical signed path as entity actions — nothing about a place or a break is special once it
      * is an {@link ActionEnvelope} — and vanilla is never cancelled for them, so there is no

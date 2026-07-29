@@ -67,6 +67,13 @@ public final class ObserverLaneRuntime implements EntityCaptureBridge.Runtime {
         return false;
     }
 
+    /** An observer delegates nothing, so it has no committed presence to move. */
+    @Override
+    public boolean submitMove(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.MovePlayerAction move) {
+        return false;
+    }
+
     @Override
     public void externalEntity(
             RegionId region, PersistedEntityState expected, PersistedEntityState replacement) {
