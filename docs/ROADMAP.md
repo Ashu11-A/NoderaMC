@@ -24,8 +24,11 @@ quietly moves.
 The **wire programme** ([`plans/Plan.7.md`](plans/Plan.7.md)) opened and landed on 2026-07-28:
 [network 14](network/Task.14.md), the cross-version protocol refactor. All eight phases are done and
 the whole gate is green — the frame is now `NDR2` with canonical TLV infrastructure bodies, in both
-languages, and the five root-cause rows L-86…L-90 are RETIRING. They are not RETIRED, because none
-of it has yet run as two real processes from different builds on one network.
+languages. **L-86 and L-89 retired 2026-07-28** (issue #97): their stated exit tests are entirely
+headless and all green, so they moved on the retire-on-green-exit-test rule. The remaining three
+root-cause rows L-87, L-88, L-90 are RETIRING — they are not RETIRED, because the negotiation/
+admission behaviour they cover has not yet run as two real processes from different builds on one
+network.
 
 The completion figure above is **not** recomputed for it — the weighting behind that number is not
 derivable from this table, and inventing one would be worse than a stale figure that says so.
@@ -282,7 +285,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Category | Register | Open/retiring rows |
 |---|---|---|
 | Engine | [`engine/LIMITATIONS.md`](engine/LIMITATIONS.md) | L-1, L-2, L-7, L-12, L-16, L-17, L-50 (L-51 and L-52 both retired 2026-07-28) |
-| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | OPEN: L-30, L-85 · RETIRING: L-33, L-76, L-84, L-86…L-91 (L-91 renumbered from a duplicate L-84 on 2026-07-28) |
+| Network | [`network/LIMITATIONS.md`](network/LIMITATIONS.md) | OPEN: L-30, L-85 · RETIRING: L-33, L-76, L-84, L-87, L-88, L-90, L-91 (L-86 + L-89 retired 2026-07-28, issue #97) |
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | L-81 (RETIRING — release signing key outstanding, a credential step not code) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |

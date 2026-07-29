@@ -211,7 +211,9 @@ public final class WorldReplicationService implements AutoCloseable {
     public synchronized void close() {
         startRequested = false;
         if (scheduler != null) {
-            scheduler.shutdownNow();
+            // Waits: a sweep in flight is writing fetched pieces into the content store, and the
+            // caller is entitled to delete that store the moment this returns.
+            Shutdown.stopAndWait(scheduler);
             scheduler = null;
         }
     }

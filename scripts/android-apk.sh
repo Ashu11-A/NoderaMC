@@ -36,6 +36,11 @@ BUILD_TOOLS="34.0.0"
 # Dexing needs a NEWER d8 than signing needs: Java 21 class files are only
 # readable by R8 8.3+, which ships in build-tools 35.
 DEX_BUILD_TOOLS="35.0.0"
+# The dex floor, and therefore the app's floor. ONE constant, because they are one decision: the
+# worker's classes are dexed at this API level, so an install below it is an app that starts and
+# then dies inside the worker. The generated Gradle project's `minSdk` is patched to match below —
+# it shipped as 24 while this said 26, and the comment beside them claimed they agreed (M-NET-4).
+DEX_MIN_API="26"
 
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 KEYSTORE="${NODERA_ANDROID_KEYSTORE:-$HOME/.nodera/android-release.jks}"
@@ -133,7 +138,8 @@ ALIGNED=""
 trap 'rm -rf "$STAGE"; [[ -n "$ALIGNED" ]] && rm -f "$ALIGNED"' EXIT
 mkdir -p "$STAGE/dex" "$STAGE/payload"
 
-# --min-api 26 matches the app's own minSdk. It is safe ONLY because no Java 21
+# --min-api $DEX_MIN_API is FORCED to match the app's own minSdk (patched below, and asserted
+# afterwards). It is safe ONLY because no Java 21
 # type-pattern switch survives in the sources this dexes.
 #
 # Those compile to an `invokedynamic` on `java.lang.runtime.SwitchBootstraps`,
@@ -153,7 +159,7 @@ mkdir -p "$STAGE/dex" "$STAGE/payload"
 #
 # So the fix is in the Java, not in a flag: every type-pattern switch is an
 # `instanceof` chain. `scripts/check-android-bytecode.sh` guards that.
-"$DEX_TOOLS/d8" --min-api 26 --output "$STAGE/dex" "$WORKER_DIST"/lib/*.jar
+"$DEX_TOOLS/d8" --min-api "$DEX_MIN_API" --output "$STAGE/dex" "$WORKER_DIST"/lib/*.jar
 
 for jar in "$WORKER_DIST"/lib/*.jar; do
   ( cd "$STAGE/payload" && unzip -qo -DD "$jar" \
@@ -175,9 +181,27 @@ KOTLIN_DST="$APP_DIR/gen/android/app/src/main/java/dev/nodera/app"
 mkdir -p "$KOTLIN_DST"
 cp "$APP_DIR/android/kotlin/"*.kt "$KOTLIN_DST/"
 
+# minSdk. Patched, not assumed: Tauri generates this file with its own floor (24), and the worker's
+# dex floor is $DEX_MIN_API. When they disagree the APK installs happily on API 24-25 and the worker
+# dies at runtime with an instruction the device cannot represent — an app that is broken only on the
+# oldest phones, which are the least likely to report it (M-NET-4).
+GRADLE_APP="$APP_DIR/gen/android/app/build.gradle.kts"
+if [[ -f "$GRADLE_APP" ]]; then
+  MIN_SDK_NOW="$(sed -n 's/.*minSdk *= *\([0-9]\+\).*/\1/p' "$GRADLE_APP" | head -1)"
+  if [[ -z "$MIN_SDK_NOW" ]]; then
+    die "no minSdk found in $GRADLE_APP — cannot prove the APK's floor matches the dex floor"
+  fi
+  if [[ "$MIN_SDK_NOW" != "$DEX_MIN_API" ]]; then
+    say "gradle     raising minSdk $MIN_SDK_NOW -> $DEX_MIN_API (the worker's dex floor)"
+    sed -i "s/minSdk *= *$MIN_SDK_NOW/minSdk = $DEX_MIN_API/" "$GRADLE_APP"
+  fi
+  MIN_SDK_NOW="$(sed -n 's/.*minSdk *= *\([0-9]\+\).*/\1/p' "$GRADLE_APP" | head -1)"
+  [[ "$MIN_SDK_NOW" == "$DEX_MIN_API" ]] \
+    || die "minSdk is $MIN_SDK_NOW but the worker is dexed at $DEX_MIN_API — refusing to build an APK that installs where it cannot run"
+fi
+
 # androidx.documentfile: needed to read the NAME of a folder chosen through the Storage Access
 # Framework. Added here because Tauri regenerates this Gradle file.
-GRADLE_APP="$APP_DIR/gen/android/app/build.gradle.kts"
 if [[ -f "$GRADLE_APP" ]] && ! grep -q "androidx.documentfile" "$GRADLE_APP"; then
   say "gradle     adding androidx.documentfile"
   python3 - "$GRADLE_APP" <<'PYEOF'
