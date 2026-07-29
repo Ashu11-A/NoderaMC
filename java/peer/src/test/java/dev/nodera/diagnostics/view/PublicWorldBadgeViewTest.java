@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/** Task 31b: the pure public-world badge view model — no GUI env. */
+/** Task 31b: the pure public-world badge view model — no GUI env, keys + arguments only. */
 final class PublicWorldBadgeViewTest {
 
     @Test
@@ -20,22 +20,27 @@ final class PublicWorldBadgeViewTest {
     }
 
     @Test
-    void sharedWorldBadgeShowsCountAndIsHealthyColoured() {
+    void sharedWorldBadgeCarriesCountAndIsHealthyColoured() {
         Cell cell = PublicWorldBadgeView.badge(new PublicWorldStatus("New World", true, 3));
-        assertEquals("● 3 online", cell.text());
+        assertEquals(PublicWorldBadgeView.BADGE_ONLINE, cell.key());
+        assertEquals(List.of(3L), cell.args());
         assertEquals(Semantic.WORLD_HEALTHY, cell.semantic());
     }
 
     @Test
-    void unknownCountFallsBackToPublicLabel() {
-        assertEquals("● Public", PublicWorldBadgeView.badgeText(-1));
+    void unknownCountFallsBackToThePublicKeyWithNoArguments() {
+        assertEquals(PublicWorldBadgeView.BADGE_PUBLIC,
+                PublicWorldBadgeView.badgeCell(-1).key());
         Cell cell = PublicWorldBadgeView.badge(new PublicWorldStatus("New World", true, -1));
-        assertEquals("● Public", cell.text());
+        assertEquals(PublicWorldBadgeView.BADGE_PUBLIC, cell.key());
+        assertEquals(List.of(), cell.args());
     }
 
     @Test
     void zeroOnlineStillReadsExplicitly() {
-        assertEquals("● 0 online", PublicWorldBadgeView.badgeText(0));
+        Cell cell = PublicWorldBadgeView.badgeCell(0);
+        assertEquals(PublicWorldBadgeView.BADGE_ONLINE, cell.key());
+        assertEquals(List.of(0L), cell.args());
     }
 
     @Test
@@ -45,15 +50,19 @@ final class PublicWorldBadgeViewTest {
                 PublicWorldStatus.notShared("B"),
                 new PublicWorldStatus("C", true, 0));
         assertEquals(2, PublicWorldBadgeView.sharedCount(worlds));
-        assertEquals("2 worlds shared to Nodera", PublicWorldBadgeView.summary(worlds));
+        Cell summary = PublicWorldBadgeView.summaryCell(worlds);
+        assertEquals(PublicWorldBadgeView.SUMMARY_MANY, summary.key());
+        assertEquals(List.of(2L), summary.args());
     }
 
     @Test
     void summarySingularAndEmpty() {
-        assertEquals("1 world shared to Nodera",
-                PublicWorldBadgeView.summary(List.of(new PublicWorldStatus("A", true, 1))));
-        assertNull(PublicWorldBadgeView.summary(List.of(PublicWorldStatus.notShared("B"))));
-        assertNull(PublicWorldBadgeView.summary(List.of()));
+        Cell one = PublicWorldBadgeView.summaryCell(
+                List.of(new PublicWorldStatus("A", true, 1)));
+        assertEquals(PublicWorldBadgeView.SUMMARY_ONE, one.key());
+        assertEquals(List.of(), one.args());
+        assertNull(PublicWorldBadgeView.summaryCell(List.of(PublicWorldStatus.notShared("B"))));
+        assertNull(PublicWorldBadgeView.summaryCell(List.of()));
     }
 
     @Test

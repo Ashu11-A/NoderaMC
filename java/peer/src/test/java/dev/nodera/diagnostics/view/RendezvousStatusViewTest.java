@@ -7,27 +7,29 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Task 31c: the Rendezvous-tab view model — no GUI env. */
+/** Task 31c: the Rendezvous-tab view model — no GUI env. Keys + arguments, never English. */
 final class RendezvousStatusViewTest {
 
     @Test
     void emptyEndpointsShowPlaceholderRow() {
         Panel panel = RendezvousStatusView.panel(List.of());
         assertEquals(1, panel.rows().size());
-        assertTrue(panel.rows().get(0).cells().get(0).text().contains("No rendezvous"));
+        assertEquals(RendezvousStatusView.NONE_CONFIGURED,
+                panel.rows().get(0).cells().get(0).key());
     }
 
     @Test
     void registeredRelayedEndpointRow() {
         Row row = RendezvousStatusView.rowOf(new RendezvousEndpointStatus(
                 "127.0.0.1:25601", true, 2, 5L * 1024 * 1024, PathKind.RELAYED));
-        assertEquals("127.0.0.1:25601", row.cells().get(0).text());
-        assertEquals("registered", row.cells().get(1).text());
-        assertEquals("relayed", row.cells().get(2).text());
-        assertEquals("2 relays", row.cells().get(3).text());
-        assertEquals("5.0 MB relayed", row.cells().get(4).text());
+        assertEquals(List.of("127.0.0.1:25601"), row.cells().get(0).args());
+        assertEquals(RendezvousStatusView.REGISTERED, row.cells().get(1).key());
+        assertEquals("nodera.rendezvous.path.relayed", row.cells().get(2).key());
+        assertEquals(RendezvousStatusView.RESERVATIONS, row.cells().get(3).key());
+        assertEquals(List.of(2), row.cells().get(3).args());
+        assertEquals(RendezvousStatusView.RELAYED, row.cells().get(4).key());
+        assertEquals(List.of("5.0 MB"), row.cells().get(4).args());
     }
 
     @Test
@@ -35,13 +37,15 @@ final class RendezvousStatusViewTest {
         RendezvousEndpointStatus s =
                 new RendezvousEndpointStatus("h:1", false, -1, 0, null);
         assertEquals(PathKind.NONE, s.path());
-        assertEquals("—", RendezvousStatusView.pathLabel(s.path()));
+        assertEquals("nodera.rendezvous.path.none", RendezvousStatusView.pathKey(s.path()));
     }
 
     @Test
-    void pathLabels() {
-        assertEquals("direct", RendezvousStatusView.pathLabel(PathKind.DIRECT));
-        assertEquals("hole-punched", RendezvousStatusView.pathLabel(PathKind.PUNCHED));
+    void pathKeys() {
+        assertEquals("nodera.rendezvous.path.direct",
+                RendezvousStatusView.pathKey(PathKind.DIRECT));
+        assertEquals("nodera.rendezvous.path.punched",
+                RendezvousStatusView.pathKey(PathKind.PUNCHED));
     }
 
     @Test

@@ -19,7 +19,21 @@ import java.util.List;
 public final class TrackerStatusView {
 
     /** Lang key for the Trackers tab title. */
-    public static final String TITLE = "nodera.multiplayer.tab.trackers";
+    public static final String TITLE = "nodera.multiplayer.panel.trackers";
+    /** Lang key for the "no trackers configured" placeholder row. */
+    public static final String NONE_CONFIGURED = "nodera.tracker.none_configured";
+    /** Lang key for a reachable endpoint. */
+    public static final String ONLINE = "nodera.tracker.online";
+    /** Lang key for an unreachable endpoint. */
+    public static final String OFFLINE = "nodera.tracker.offline";
+    /** Lang key for the indexed-world count ({@code %s} = count). */
+    public static final String WORLDS_INDEXED = "nodera.tracker.worlds_indexed";
+    /** Lang key for "acked N seconds ago" ({@code %s} = seconds). */
+    public static final String ACK_SECONDS = "nodera.tracker.ack_seconds";
+    /** Lang key for "acked N minutes ago" ({@code %s} = minutes). */
+    public static final String ACK_MINUTES = "nodera.tracker.ack_minutes";
+    /** Lang key for "never acked". */
+    public static final String ACK_NEVER = "nodera.tracker.ack_never";
 
     /**
      * One tracker endpoint's live status.
@@ -45,7 +59,7 @@ public final class TrackerStatusView {
     public static Panel panel(List<TrackerEndpointStatus> endpoints) {
         List<Row> rows = new ArrayList<>();
         if (endpoints == null || endpoints.isEmpty()) {
-            rows.add(Row.of(Cell.of("No trackers configured", Semantic.SECONDARY)));
+            rows.add(Row.of(Cell.tr(NONE_CONFIGURED, Semantic.SECONDARY)));
             return Panel.titled(TITLE, Semantic.HEADING, rows);
         }
         for (TrackerEndpointStatus e : endpoints) {
@@ -57,23 +71,23 @@ public final class TrackerStatusView {
     static Row rowOf(TrackerEndpointStatus e) {
         Semantic health = e.reachable() ? Semantic.HEALTHY : Semantic.CRITICAL;
         List<Cell> cells = new ArrayList<>(4);
-        cells.add(Cell.bold(e.endpoint(), health));
-        cells.add(Cell.of(e.reachable() ? "online" : "offline", health));
+        cells.add(Cell.boldRaw(e.endpoint(), health));
+        cells.add(Cell.tr(e.reachable() ? ONLINE : OFFLINE, health));
         if (e.worldsIndexed() >= 0) {
-            cells.add(Cell.of(e.worldsIndexed() + " worlds", Semantic.SECONDARY));
+            cells.add(Cell.tr(WORLDS_INDEXED, Semantic.SECONDARY, e.worldsIndexed()));
         }
-        cells.add(Cell.of(formatAck(e.secondsSinceAck()), Semantic.SECONDARY));
+        cells.add(ackCell(e.secondsSinceAck()));
         return new Row(cells);
     }
 
-    /** Seconds → {@code "ack 12s ago"} / {@code "no ack"}. */
-    static String formatAck(long seconds) {
+    /** Seconds since the last ack → a key + argument; never an assembled phrase (MC-GUI-5). */
+    static Cell ackCell(long seconds) {
         if (seconds < 0) {
-            return "no ack";
+            return Cell.tr(ACK_NEVER, Semantic.SECONDARY);
         }
         if (seconds < 60) {
-            return "ack " + seconds + "s ago";
+            return Cell.tr(ACK_SECONDS, Semantic.SECONDARY, seconds);
         }
-        return "ack " + (seconds / 60) + "m ago";
+        return Cell.tr(ACK_MINUTES, Semantic.SECONDARY, seconds / 60);
     }
 }

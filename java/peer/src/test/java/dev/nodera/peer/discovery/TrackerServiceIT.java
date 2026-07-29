@@ -279,8 +279,12 @@ final class TrackerServiceIT {
             Panel panel = TorrentWorldListView.panel(List.of(entry), "");
             assertThat(panel.rows()).hasSize(1);
             assertThat(panel.rows().get(0).cells())
-                    .extracting(cell -> cell.text())
-                    .contains("Survival", "1 online", "2 chunks", "94.0%", "HEALTHY");
+                    .extracting(dev.nodera.diagnostics.view.Cell::key)
+                    .contains(dev.nodera.diagnostics.view.Cell.RAW,
+                            TorrentWorldListView.KEY_PLAYERS,
+                            TorrentWorldListView.KEY_CHUNKS,
+                            TorrentWorldListView.KEY_RELIABILITY,
+                            TorrentWorldListView.healthKey(response.health()));
             assertThat(TorrentWorldListView.semanticOf(response.health()))
                     .isEqualTo(Semantic.WORLD_HEALTHY);
         }

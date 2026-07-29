@@ -24,6 +24,19 @@ public final class PieceMapView {
     /** Lang key for the piece-map panel/screen title. */
     public static final String TITLE = "nodera.piecemap.title";
 
+    /**
+     * Lang key for the aggregates line. Arguments, in order: world name, percentage held, pieces
+     * held, total pieces, complete seeders, peers sharing.
+     */
+    public static final String AGGREGATES = "nodera.piecemap.aggregates";
+
+    /** Lang key prefix for {@link PieceState}; the enum name (lower case) completes it. */
+    public static final String STATE_PREFIX = "nodera.piecemap.state.";
+    /** Lang key for the scroll hint ({@code %s} = first row, last row, total rows). */
+    public static final String SCROLL_HINT = "nodera.piecemap.scroll";
+    /** Lang key for the hovered-piece readout ({@code %s} = index, state). */
+    public static final String HOVER = "nodera.piecemap.hover";
+
     /** The state of one content piece, in colour-priority order for the legend. */
     public enum PieceState {
         /** Present locally and hash-verified — the green cell. */
@@ -152,6 +165,11 @@ public final class PieceMapView {
         return (pieceCount + perRow - 1) / perRow;
     }
 
+    /** @return the lang key naming this piece state — the legend word lives in the lang file. */
+    public static String stateKey(PieceState state) {
+        return STATE_PREFIX + state.name().toLowerCase(java.util.Locale.ROOT);
+    }
+
     /** The colour policy for a piece state — the widget maps this {@link Semantic} to a fill colour. */
     public static Semantic semanticOf(PieceState state) {
         return switch (state) {
@@ -174,12 +192,11 @@ public final class PieceMapView {
      * complete seeders but many partial holders is recoverable; a world with neither is not, and
      * collapsing them into one number hides exactly that distinction.
      */
-    public static String aggregates(PieceMap map) {
+    public static Cell aggregates(PieceMap map) {
         int permille = map.heldPermille();
-        String pct = (permille / 10) + "." + (permille % 10) + "%";
-        return map.worldName() + " · " + pct + " held · "
-                + map.count(PieceState.HELD) + "/" + map.total() + " pieces · "
-                + map.seeders() + " seeders · "
-                + map.holders() + " peers sharing";
+        String pct = (permille / 10) + "." + (permille % 10);
+        return Cell.tr(AGGREGATES, Semantic.NEUTRAL,
+                map.worldName(), pct, map.count(PieceState.HELD), map.total(),
+                map.seeders(), map.holders());
     }
 }

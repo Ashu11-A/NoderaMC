@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.ToIntFunction;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,13 +75,22 @@ final class PanelLayoutTest {
         return widths;
     }
 
+    /**
+     * Stands in for the lang file the GUI layer owns. Since MC-GUI-5 a {@link Cell} carries a key
+     * plus arguments, so the layout is measured against text of the shape a resolved cell produces
+     * rather than against the key alone.
+     */
+    private static final Function<Cell, String> TEXT = cell -> cell.args().isEmpty()
+            ? cell.key()
+            : cell.args().stream().map(String::valueOf).collect(Collectors.joining(" "));
+
     @Test
     void noTextIsEverPlacedOutsideThePanelAtAnyScale() {
         for (ToIntFunction<String> font : List.of(PROPORTIONAL, WIDE)) {
             for (int width : panelWidths()) {
                 for (Panel panel : List.of(trackers(), rendezvous())) {
                     PanelLayout.Laid laid = PanelLayout.lay("Trackers", panel, width, 60,
-                            ROW_HEIGHT, CELL_GAP, 0, font);
+                            ROW_HEIGHT, CELL_GAP, 0, font, TEXT);
                     for (PanelLayout.Placed placed : laid.placements()) {
                         assertThat(placed.x()).as("left edge at width %d", width)
                                 .isGreaterThanOrEqualTo(0);
@@ -96,7 +107,7 @@ final class PanelLayoutTest {
     void everyRowIsReachableByScrollingWhateverTheHeight() {
         for (int height : new int[]{24, 40, 60, 120, 400}) {
             PanelLayout.Laid laid = PanelLayout.lay("Trackers", trackers(), 224, height,
-                    ROW_HEIGHT, CELL_GAP, 0, PROPORTIONAL);
+                    ROW_HEIGHT, CELL_GAP, 0, PROPORTIONAL, TEXT);
             int contentHeight = laid.contentLines() * ROW_HEIGHT;
             if (contentHeight <= height) {
                 assertThat(laid.scrollable()).as("fits at height %d", height).isFalse();
@@ -106,7 +117,7 @@ final class PanelLayoutTest {
             // the LAST line is inside the viewport — which is what "reachable" means.
             assertThat(laid.scrollable()).as("overflows at height %d", height).isTrue();
             PanelLayout.Laid bottom = PanelLayout.lay("Trackers", trackers(), 224, height,
-                    ROW_HEIGHT, CELL_GAP, laid.maxScroll(), PROPORTIONAL);
+                    ROW_HEIGHT, CELL_GAP, laid.maxScroll(), PROPORTIONAL, TEXT);
             int lastLineTop = bottom.placements().stream()
                     .mapToInt(PanelLayout.Placed::y).max().orElseThrow();
             assertThat(lastLineTop).isGreaterThanOrEqualTo(0);
@@ -121,7 +132,7 @@ final class PanelLayoutTest {
         Panel panel = trackers();
         int cells = panel.rows().stream().mapToInt(r -> r.cells().size()).sum();
         PanelLayout.Laid laid = PanelLayout.lay("Trackers", panel, 224, 24, ROW_HEIGHT, CELL_GAP,
-                0, PROPORTIONAL);
+                0, PROPORTIONAL, TEXT);
         assertThat(laid.placements()).hasSize(cells + 1); // + the title line
     }
 
@@ -138,12 +149,12 @@ final class PanelLayoutTest {
     void scrollIsClampedIntoRangeRatherThanTrusted() {
         Panel panel = trackers();
         PanelLayout.Laid far = PanelLayout.lay("Trackers", panel, 224, 40, ROW_HEIGHT, CELL_GAP,
-                10_000, PROPORTIONAL);
+                10_000, PROPORTIONAL, TEXT);
         PanelLayout.Laid end = PanelLayout.lay("Trackers", panel, 224, 40, ROW_HEIGHT, CELL_GAP,
-                far.maxScroll(), PROPORTIONAL);
+                far.maxScroll(), PROPORTIONAL, TEXT);
         assertThat(far.placements()).isEqualTo(end.placements());
         PanelLayout.Laid negative = PanelLayout.lay("Trackers", panel, 224, 40, ROW_HEIGHT,
-                CELL_GAP, -50, PROPORTIONAL);
+                CELL_GAP, -50, PROPORTIONAL, TEXT);
         assertThat(negative.placements().getFirst().y()).isZero();
     }
 }

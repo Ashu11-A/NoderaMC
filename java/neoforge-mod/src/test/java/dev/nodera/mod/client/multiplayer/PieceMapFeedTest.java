@@ -101,7 +101,8 @@ final class PieceMapFeedTest {
         assertEquals(1000, map.heldPermille());
         assertEquals(1, map.seeders());
         assertEquals(2, map.holders());
-        assertEquals("Live · 100.0% held · 4/4 pieces · 1 seeders · 2 peers sharing",
-                PieceMapView.aggregates(map));
+        assertEquals(PieceMapView.AGGREGATES, PieceMapView.aggregates(map).key());
+        assertEquals(java.util.List.of("Live", "100.0", 4L, 4, 1, 2),
+                PieceMapView.aggregates(map).args());
     }
 }

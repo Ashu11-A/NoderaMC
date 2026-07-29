@@ -2,6 +2,7 @@ package dev.nodera.mod.client.multiplayer;
 
 import dev.nodera.diagnostics.view.Panel;
 import dev.nodera.diagnostics.view.PanelLayout;
+import dev.nodera.mod.debug.render.ComponentRenderer;
 import dev.nodera.mod.debug.render.Palette;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
@@ -49,8 +50,11 @@ public final class PanelWidget extends AbstractWidget {
         // MC-GUI-2: every placement decision — fit, wrap, truncate, scroll extent — is made by the
         // Minecraft-free PanelLayout against this font's own measurement, so it is true at whatever
         // GUI scale the player has rather than at the author's. This widget only paints.
+        // MC-GUI-5: the view model hands over a key + arguments, so resolution is injected here —
+        // the only layer that has a lang file.
         PanelLayout.Laid laid = PanelLayout.lay(getMessage().getString(), panel,
-                contentWidth(), getHeight(), ROW_HEIGHT, CELL_GAP, scroll, font::width);
+                contentWidth(), getHeight(), ROW_HEIGHT, CELL_GAP, scroll, font::width,
+                cell -> ComponentRenderer.text(cell).getString());
         this.maxScroll = laid.maxScroll();
         if (scroll > maxScroll) {
             scroll = maxScroll;

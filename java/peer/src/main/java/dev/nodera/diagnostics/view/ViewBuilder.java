@@ -25,19 +25,61 @@ import java.util.Map;
  * panels; every panel flows through the same {@code ComponentRenderer}, so all command output is a
  * uniform, colour-coded table. The snapshot → view mapping is pure and unit-tested (acceptance #1).
  *
+ * <p>MC-GUI-5: every label and every phrase this class emits is a translation <b>key</b> plus
+ * arguments ({@link Cell#tr}); only measured data goes out verbatim ({@link Cell#raw}). Being
+ * Minecraft-free is the reason this class exists — it must not therefore become the place English
+ * is assembled, because nothing downstream can translate a finished sentence.
+ *
  * <p>Thread-context: stateless; safe from any thread.
  */
 public final class ViewBuilder {
 
-    /** Panel keys (subcommand selectors). */
-    public static final String SESSION = "session";
-    public static final String PEERS = "peers";
-    public static final String NET = "net";
-    public static final String REGIONS = "regions";
-    public static final String ZONE = "zone";
-    public static final String ENTITIES = "entities";
-    public static final String SERVER = "server";
-    public static final String HEALTH = "health";
+    /** Panel title keys (also the subcommand selectors). */
+    public static final String SESSION = "nodera.diag.panel.session";
+    public static final String PEERS = "nodera.diag.panel.peers";
+    public static final String NET = "nodera.diag.panel.net";
+    public static final String REGIONS = "nodera.diag.panel.regions";
+    public static final String ZONE = "nodera.diag.panel.zone";
+    public static final String ENTITIES = "nodera.diag.panel.entities";
+    public static final String SERVER = "nodera.diag.panel.server";
+    public static final String HEALTH = "nodera.diag.panel.health";
+
+    /** Row-label keys. */
+    public static final String LBL_EPOCH = "nodera.diag.label.epoch";
+    public static final String LBL_GATEWAY = "nodera.diag.label.gateway";
+    public static final String LBL_ROLE = "nodera.diag.label.role";
+    public static final String LBL_MEMBERS = "nodera.diag.label.members";
+    public static final String LBL_PEERS = "nodera.diag.label.peers";
+    public static final String LBL_CHUNKS = "nodera.diag.label.chunks";
+    public static final String LBL_NOTE = "nodera.diag.label.note";
+    public static final String LBL_TOTAL = "nodera.diag.label.total";
+    public static final String LBL_STATE = "nodera.diag.label.state";
+    public static final String LBL_REASON = "nodera.diag.label.reason";
+    public static final String LBL_REGION = "nodera.diag.label.region";
+    public static final String LBL_OWNED = "nodera.diag.label.owned";
+    public static final String LBL_VALIDATOR = "nodera.diag.label.validator";
+    public static final String LBL_REPLICA = "nodera.diag.label.replica";
+    public static final String LBL_CERTIFIED = "nodera.diag.label.certified";
+    public static final String LBL_PENDING = "nodera.diag.label.pending";
+    public static final String LBL_SOLO = "nodera.diag.label.solo";
+
+    /** Value keys. */
+    public static final String VAL_NONE = "nodera.diag.value.none";
+    public static final String VAL_NO_PEERS = "nodera.diag.value.no_peers";
+    public static final String VAL_UP = "nodera.diag.value.up";
+    public static final String VAL_DOWN = "nodera.diag.value.down";
+    public static final String VAL_KEEPALIVES = "nodera.diag.value.keepalives";
+    public static final String VAL_TX = "nodera.diag.value.tx";
+    public static final String VAL_RX = "nodera.diag.value.rx";
+    public static final String VAL_BYTES_FRAMES = "nodera.diag.value.bytes_frames";
+    public static final String VAL_REGION_COUNT = "nodera.diag.value.region_count";
+    public static final String VAL_NO_REGIONS = "nodera.diag.value.no_regions";
+    public static final String VAL_CERTIFIED = "nodera.diag.value.certified";
+    public static final String VAL_PENDING = "nodera.diag.value.pending";
+    public static final String VAL_SOLO = "nodera.diag.value.solo";
+    public static final String VAL_ENTITY_COUNT_ONE = "nodera.diag.value.entity_count_one";
+    public static final String VAL_ENTITY_COUNT_MANY = "nodera.diag.value.entity_count_many";
+    public static final String VAL_NO_ENTITIES = "nodera.diag.value.no_entities";
 
     private ViewBuilder() {}
 
@@ -56,12 +98,14 @@ public final class ViewBuilder {
     public static Panel sessionPanel(TelemetrySnapshot s) {
         SessionInfo ses = s.session();
         List<Row> rows = new ArrayList<>();
-        rows.add(row("epoch", cell(String.valueOf(ses.epoch()), Semantic.NEUTRAL)));
+        rows.add(row(LBL_EPOCH, Cell.raw(ses.epoch())));
         NodeId gw = ses.gatewayId();
         Semantic gwSem = gw != null && gw.equals(s.self()) ? Semantic.SELF : Semantic.GATEWAY;
-        rows.add(row("gateway", Cell.bold(gw == null ? "—" : shortId(gw), gwSem)));
-        rows.add(row("role", cell(ses.selfRole(), Semantic.SELF)));
-        rows.add(row("members", cell(String.valueOf(ses.memberCount()), Semantic.NEUTRAL)));
+        rows.add(row(LBL_GATEWAY, gw == null
+                ? Cell.boldTr(VAL_NONE, gwSem)
+                : Cell.boldRaw(shortId(gw), gwSem)));
+        rows.add(row(LBL_ROLE, Cell.raw(ses.selfRole(), Semantic.SELF)));
+        rows.add(row(LBL_MEMBERS, Cell.raw(ses.memberCount())));
         return Panel.titled(SESSION, Semantic.HEADING, rows);
     }
 
@@ -75,14 +119,14 @@ public final class ViewBuilder {
                     : Semantic.NEUTRAL);
             Semantic upSem = p.up() ? Semantic.HEALTHY : Semantic.CRITICAL;
             rows.add(Row.of(
-                    Cell.bold(shortId(p.id()), idSem),
-                    cell(p.route(), Semantic.SECONDARY),
-                    cell(p.role(), Semantic.SECONDARY),
-                    Cell.of(p.up() ? "up" : "down", upSem),
-                    cell("ka=" + p.keepAlives(), Semantic.SECONDARY)));
+                    Cell.boldRaw(shortId(p.id()), idSem),
+                    Cell.raw(p.route(), Semantic.SECONDARY),
+                    Cell.raw(p.role(), Semantic.SECONDARY),
+                    Cell.tr(p.up() ? VAL_UP : VAL_DOWN, upSem),
+                    Cell.tr(VAL_KEEPALIVES, Semantic.SECONDARY, p.keepAlives())));
         }
         if (rows.isEmpty()) {
-            rows.add(row("peers", cell("(none)", Semantic.SECONDARY)));
+            rows.add(row(LBL_PEERS, Cell.tr(VAL_NO_PEERS, Semantic.SECONDARY)));
         }
         return Panel.titled(PEERS, Semantic.HEADING, rows);
     }
@@ -94,12 +138,12 @@ public final class ViewBuilder {
     public static Panel netPanel(TelemetrySnapshot s, String typeFilter) {
         NetStats n = s.net();
         List<Row> rows = new ArrayList<>();
-        rows.add(Row.of(Cell.of("▲ tx", Semantic.TX),
-                cell(formatBytes(n.bytesTx()) + " / " + n.framesTx() + " f", Semantic.NEUTRAL),
-                Cell.of(formatRate(n.bytesPerSecTx()), Semantic.TX)));
-        rows.add(Row.of(Cell.of("▼ rx", Semantic.RX),
-                cell(formatBytes(n.bytesRx()) + " / " + n.framesRx() + " f", Semantic.NEUTRAL),
-                Cell.of(formatRate(n.bytesPerSecRx()), Semantic.RX)));
+        rows.add(Row.of(Cell.tr(VAL_TX, Semantic.TX),
+                Cell.tr(VAL_BYTES_FRAMES, Semantic.NEUTRAL, formatBytes(n.bytesTx()), n.framesTx()),
+                Cell.raw(formatRate(n.bytesPerSecTx()), Semantic.TX)));
+        rows.add(Row.of(Cell.tr(VAL_RX, Semantic.RX),
+                Cell.tr(VAL_BYTES_FRAMES, Semantic.NEUTRAL, formatBytes(n.bytesRx()), n.framesRx()),
+                Cell.raw(formatRate(n.bytesPerSecRx()), Semantic.RX)));
         // Per-type breakdown (frame counts), filtered or all.
         for (Map.Entry<String, long[]> e : n.byType().entrySet()) {
             String name = e.getKey();
@@ -108,9 +152,9 @@ public final class ViewBuilder {
             }
             long[] tr = e.getValue();
             rows.add(Row.of(
-                    cell(name, Semantic.SECONDARY),
-                    Cell.of(String.valueOf(tr[0]), Semantic.TX),
-                    Cell.of(String.valueOf(tr[1]), Semantic.RX)));
+                    Cell.raw(name, Semantic.SECONDARY),
+                    Cell.raw(tr[0], Semantic.TX),
+                    Cell.raw(tr[1], Semantic.RX)));
         }
         return Panel.titled(NET, Semantic.HEADING, rows);
     }
@@ -119,16 +163,16 @@ public final class ViewBuilder {
     public static Panel regionsPanel(TelemetrySnapshot s) {
         RegionOwnership r = s.regions();
         List<Row> rows = new ArrayList<>();
-        rows.add(Row.of(Cell.bold("owned", Semantic.OWNED),
-                cell(r.primary().size() + " region(s)", Semantic.OWNED)));
-        rows.add(Row.of(Cell.bold("validator", Semantic.VALIDATING),
-                cell(r.validator().size() + " region(s)", Semantic.VALIDATING)));
-        rows.add(Row.of(Cell.bold("replica", Semantic.REPLICA),
-                cell(r.replica().size() + " region(s)", Semantic.REPLICA)));
-        rows.add(row("chunks", cell(String.valueOf(r.ownedChunks()), Semantic.NEUTRAL)));
+        rows.add(Row.of(Cell.boldTr(LBL_OWNED, Semantic.OWNED),
+                Cell.tr(VAL_REGION_COUNT, Semantic.OWNED, r.primary().size())));
+        rows.add(Row.of(Cell.boldTr(LBL_VALIDATOR, Semantic.VALIDATING),
+                Cell.tr(VAL_REGION_COUNT, Semantic.VALIDATING, r.validator().size())));
+        rows.add(Row.of(Cell.boldTr(LBL_REPLICA, Semantic.REPLICA),
+                Cell.tr(VAL_REGION_COUNT, Semantic.REPLICA, r.replica().size())));
+        rows.add(row(LBL_CHUNKS, Cell.raw(r.ownedChunks())));
         rows.addAll(certificationRows(r));
         if (r.isEmpty()) {
-            rows.add(row("note", Cell.of("no delegated regions (Task 6)", Semantic.UNASSIGNED)));
+            rows.add(row(LBL_NOTE, Cell.tr(VAL_NO_REGIONS, Semantic.UNASSIGNED)));
         }
         return Panel.titled(REGIONS, Semantic.HEADING, rows);
     }
@@ -147,17 +191,16 @@ public final class ViewBuilder {
             return rows;
         }
         if (certified > 0) {
-            rows.add(Row.of(Cell.bold("certified", Semantic.OWNED),
-                    cell(certified + " region(s) co-signed", Semantic.OWNED)));
+            rows.add(Row.of(Cell.boldTr(LBL_CERTIFIED, Semantic.OWNED),
+                    Cell.tr(VAL_CERTIFIED, Semantic.OWNED, certified)));
         }
         if (pending > 0) {
-            rows.add(Row.of(Cell.bold("pending", Semantic.VALIDATING),
-                    cell(pending + " region(s) awaiting quorum", Semantic.VALIDATING)));
+            rows.add(Row.of(Cell.boldTr(LBL_PENDING, Semantic.VALIDATING),
+                    Cell.tr(VAL_PENDING, Semantic.VALIDATING, pending)));
         }
         if (solo > 0) {
-            rows.add(Row.of(Cell.bold("solo", Semantic.UNASSIGNED),
-                    cell(solo + " region(s) self-signed — no other peer on this committee",
-                            Semantic.UNASSIGNED)));
+            rows.add(Row.of(Cell.boldTr(LBL_SOLO, Semantic.UNASSIGNED),
+                    Cell.tr(VAL_SOLO, Semantic.UNASSIGNED, solo)));
         }
         return rows;
     }
@@ -168,8 +211,8 @@ public final class ViewBuilder {
         OwnershipState state = ZoneClassifier.classify(dim, blockX, blockZ, s.regions());
         String coord = region.regionX() + "," + region.regionZ();
         List<Row> rows = List.of(
-                row("region", cell(coord, Semantic.NEUTRAL)),
-                row("state", Cell.bold(state.name(), ownershipSemantic(state))));
+                row(LBL_REGION, Cell.raw(coord)),
+                row(LBL_STATE, Cell.boldRaw(state.name(), ownershipSemantic(state))));
         return Panel.titled(ZONE, Semantic.HEADING, rows);
     }
 
@@ -177,14 +220,15 @@ public final class ViewBuilder {
     public static Panel entitiesPanel(TelemetrySnapshot s) {
         EntityControl ec = s.entities();
         List<Row> rows = new ArrayList<>();
-        rows.add(row("total", cell(String.valueOf(ec.totalCount()), Semantic.NEUTRAL)));
+        rows.add(row(LBL_TOTAL, Cell.raw(ec.totalCount())));
         for (Map.Entry<dev.nodera.core.region.RegionId, List<Long>> e : ec.entities().entrySet()) {
-            rows.add(row(regionKey(e.getKey()),
-                    cell(e.getValue().size() + " entit" + (e.getValue().size() == 1 ? "y" : "ies"),
-                            Semantic.SECONDARY)));
+            int n = e.getValue().size();
+            rows.add(Row.of(Cell.raw(regionKey(e.getKey()), Semantic.SECONDARY),
+                    Cell.tr(n == 1 ? VAL_ENTITY_COUNT_ONE : VAL_ENTITY_COUNT_MANY,
+                            Semantic.SECONDARY, n)));
         }
         if (ec.totalCount() == 0) {
-            rows.add(row("note", Cell.of("no controlled entities (Task 12)", Semantic.UNASSIGNED)));
+            rows.add(row(LBL_NOTE, Cell.tr(VAL_NO_ENTITIES, Semantic.UNASSIGNED)));
         }
         return Panel.titled(ENTITIES, Semantic.HEADING, rows);
     }
@@ -193,12 +237,12 @@ public final class ViewBuilder {
     public static Panel serverPanel(TelemetrySnapshot s) {
         SessionInfo ses = s.session();
         List<Row> rows = new ArrayList<>();
-        rows.add(row("role", cell(ses.selfRole(), Semantic.SELF)));
-        rows.add(row("members", cell(String.valueOf(ses.memberCount()), Semantic.NEUTRAL)));
-        rows.add(Row.of(Cell.of("▲ tx", Semantic.TX),
-                cell(formatBytes(s.net().bytesTx()), Semantic.NEUTRAL)));
-        rows.add(Row.of(Cell.of("▼ rx", Semantic.RX),
-                cell(formatBytes(s.net().bytesRx()), Semantic.NEUTRAL)));
+        rows.add(row(LBL_ROLE, Cell.raw(ses.selfRole(), Semantic.SELF)));
+        rows.add(row(LBL_MEMBERS, Cell.raw(ses.memberCount())));
+        rows.add(Row.of(Cell.tr(VAL_TX, Semantic.TX),
+                Cell.raw(formatBytes(s.net().bytesTx()))));
+        rows.add(Row.of(Cell.tr(VAL_RX, Semantic.RX),
+                Cell.raw(formatBytes(s.net().bytesRx()))));
         return Panel.titled(SERVER, Semantic.HEADING, rows);
     }
 
@@ -206,9 +250,9 @@ public final class ViewBuilder {
     public static Panel healthPanel(TelemetrySnapshot s) {
         Health h = s.health().state();
         List<Row> rows = new ArrayList<>();
-        rows.add(row("state", Cell.bold(h.name(), healthSemantic(h))));
+        rows.add(row(LBL_STATE, Cell.boldRaw(h.name(), healthSemantic(h))));
         if (!s.health().reason().isEmpty()) {
-            rows.add(row("reason", cell(s.health().reason(), Semantic.SECONDARY)));
+            rows.add(row(LBL_REASON, Cell.raw(s.health().reason(), Semantic.SECONDARY)));
         }
         return Panel.titled(HEALTH, Semantic.HEADING, rows);
     }
@@ -276,11 +320,7 @@ public final class ViewBuilder {
         return r.regionX() + "," + r.regionZ();
     }
 
-    private static Cell cell(String text, Semantic sem) {
-        return Cell.of(text, sem);
-    }
-
-    private static Row row(String label, Cell value) {
-        return Row.of(Cell.of(label, Semantic.SECONDARY), value);
+    private static Row row(String labelKey, Cell value) {
+        return Row.of(Cell.tr(labelKey, Semantic.SECONDARY), value);
     }
 }

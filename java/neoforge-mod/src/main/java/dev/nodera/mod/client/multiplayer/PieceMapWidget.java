@@ -47,7 +47,9 @@ public final class PieceMapWidget extends AbstractWidget {
         var font = Minecraft.getInstance().font;
 
         // Aggregates header line: % held, pieces, seeders, and how many peers share this world.
-        graphics.drawString(font, PieceMapView.aggregates(map), getX(), getY(),
+        graphics.drawString(font,
+                dev.nodera.mod.debug.render.ComponentRenderer.text(PieceMapView.aggregates(map)),
+                getX(), getY(),
                 colorOf(dev.nodera.diagnostics.state.Semantic.HEADING));
 
         int gridTop = getY() + HEADER_HEIGHT;
@@ -80,21 +82,22 @@ public final class PieceMapWidget extends AbstractWidget {
         for (int i = 0; i < Math.min(LEGEND_STATES, legend.length); i++) {
             PieceState s = legend[i];
             graphics.fill(lx, legendY, lx + 7, legendY + 7, fillColor(s));
-            String name = s.name().toLowerCase(java.util.Locale.ROOT);
+            Component name = Component.translatable(PieceMapView.stateKey(s));
             graphics.drawString(font, name, lx + 10, legendY, 0xFFAAAAAA);
             lx += 10 + font.width(name) + 10;
         }
         if (totalRows > visibleRows) {
-            String more = "rows " + (scrollRow + 1) + "-"
-                    + Math.min(totalRows, scrollRow + visibleRows) + " of " + totalRows
-                    + " (scroll)";
+            Component more = Component.translatable(PieceMapView.SCROLL_HINT, scrollRow + 1,
+                    Math.min(totalRows, scrollRow + visibleRows), totalRows);
             graphics.drawString(font, more, getX() + getWidth() - font.width(more), legendY,
                     0xFF888888);
         }
         if (hovered >= 0) {
             PieceCell c = map.cells().get(hovered);
-            graphics.drawString(font, "#" + c.index() + " " + c.state(), getX(), getY() + 7,
-                    0xFFFFFFFF);
+            graphics.drawString(font,
+                    Component.translatable(PieceMapView.HOVER, c.index(),
+                            Component.translatable(PieceMapView.stateKey(c.state()))),
+                    getX(), getY() + 7, 0xFFFFFFFF);
         }
     }
 
