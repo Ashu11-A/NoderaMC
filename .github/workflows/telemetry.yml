@@ -56,7 +56,11 @@ jobs:
         run: cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 
       - name: Java emitter tests
-        run: ./gradlew :peer:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
+        # `:endpoint` and not `:neoforge-mod`: ModTelemetry is Minecraft-free and moved to the
+        # endpoint library on 2026-07-30. Gradle FAILS a --tests filter that matches nothing, which
+        # is why this is the right way round — a filter pointed at the wrong module would otherwise
+        # report green while testing nothing.
+        run: ./gradlew :peer:test --tests '*Telemetry*' :endpoint:test --tests '*Telemetry*'
 
       # The scenario is headless — no display, no Minecraft — which is why it is the one live
       # lane that belongs in a per-push workflow rather than in the nightly matrix.

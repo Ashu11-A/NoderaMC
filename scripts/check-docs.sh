@@ -28,6 +28,7 @@ import sys
 
 links_only = "--links" in sys.argv[1:]
 docs = pathlib.Path("docs")
+SUBMODULES = (docs / "minecraft" / "upstream").resolve()
 
 # `[text](target)`, skipping anything that is not a path into this repository.
 LINK = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
@@ -47,8 +48,15 @@ for md in sorted(docs.rglob("*.md")):
             path, _, _anchor = target.partition("#")
             if not path:
                 continue          # a pure in-page anchor
+            resolved = (md.parent / path).resolve()
+            # `docs/minecraft/upstream/*` are git SUBMODULES. Whether they are on disk is a fact
+            # about how the repository was cloned, not about the documentation: they are present
+            # locally and absent on a CI runner that does not recurse. Checking them makes this
+            # gate environment-dependent, which is the one thing a gate must not be.
+            if SUBMODULES in resolved.parents or resolved == SUBMODULES:
+                continue
             checked += 1
-            if not (md.parent / path).resolve().exists():
+            if not resolved.exists():
                 broken.append(f"{md}:{line_no} → {target}")
 
 print(f"docs-links: {checked} relative links checked")
