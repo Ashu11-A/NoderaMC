@@ -5,8 +5,9 @@
      messages. If you find yourself adding a round of voting to pick a gateway, stop: the whole point
      is that no round is needed. Keep this header's status accurate. -->
 
-**Status:** 🚧 IN PROGRESS (membership, election, and continuity landed; migration end-to-end remains)
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
+**Status:** 🚧 IN PROGRESS (membership, election, continuity and the negotiation handshake landed;
+migration end-to-end remains)
+**Category:** network · **Owns:** L-30, L-84, L-85 · **Last audit:** 2026-07-29
 **Depends on:** [network 1](Task.1.md), [engine 5](../engine/Task.5.md)
 **Consumed by:** [worker 1](../worker/Task.1.md), [minecraft 2](../minecraft/Task.2.md), [rendezvous 3](../rendezvous/Task.3.md)
 
@@ -26,9 +27,27 @@ rotates members.
 `GatewayElection`; a real-TCP continuity beta (`SessionContinuityIT` — the base peer disconnects and
 the survivors stay connected after re-electing); `CommitteeManager` for authority-free certified
 committee changes (old-committee quorum of approvals, loud degradation when the population is too
-small); 3-of-4 quorum plumbing; `JoinAdmission` gating join **and** gossip ingest; per-peer traffic
-attribution; and `PeerDiscoveryService` sweeps that introduce this node to every routable peer found
-via trackers and rendezvous.
+small) — **correction 2026-07-29: implemented and tested, but with no production call site**, and
+**second correction 2026-07-30: it is not going to get one.** Its model is a nominated committee
+installed by a certificate meeting the *old* committee's quorum, which presumes committees rotate as
+discrete events. What shipped derives each region's committee deterministically from
+`EntityLaneBootstrap.plan` over inputs every member already holds, on every view change and every
+region-boundary crossing — there is no rotation event to certify, and adding one would put two
+rotation mechanisms in one lane. So the deliverable's ✅ is wrong rather than early: see
+[`REFACTORING.md`](REFACTORING.md) § Unwired capabilities for the wire-or-delete verdict;
+3-of-4 quorum plumbing; `JoinAdmission` gating join **and** gossip ingest; per-peer traffic
+attribution; `PeerDiscoveryService` sweeps that introduce this node to every routable peer found
+via trackers and rendezvous; and, from 2026-07-29, **the negotiation handshake on every announce
+path** — one `announceSelf` sends `Hello` ahead of `PeerJoin`, `onHello` answers via
+`Negotiation.respond` with the body's `nodeId` checked against the carrier-authenticated peer, both
+ends record the resulting `PeerSession`, and `sendTo` encodes through it so the writer finally knows
+who it is writing to (`HandshakeRunsInProductionTest`). Before that, the whole negotiation lane was
+reachable only from its own tests — see the audit correction in [`LIMITATIONS.md`](LIMITATIONS.md).
+
+**Also landed 2026-07-29 (L-30's code half):** every player's always-on worker joins the session its
+player is playing in, not just the host's, and the resident validator pool is a broadcast plan input
+so the host and the joining clients derive the *same* leases. What L-30 still needs is the live
+`mesh-soak` run; the two product gaps it had been reduced to are closed.
 
 **Remaining:** session-gateway **migration** end to end — freeze, reconnect, exactly-once resubmit
 with sequence dedupe — over direct, punched, and relayed paths, plus the recorded full-peer-down
@@ -47,7 +66,7 @@ demo. Cross-NAT runs ride [`rendezvous/Task.3.md`](../rendezvous/Task.3.md); liv
 | 1 | `PeerRuntime` — roles, membership, gossip, heartbeats | ✅ |
 | 2 | `GatewayElection` — capability-weighted, deterministic | ✅ |
 | 3 | `SessionContinuityIT` — base-peer disconnection continuity over real TCP | ✅ |
-| 4 | `CommitteeManager` — certified committee changes, rotation, resize | ✅ |
+| 4 | `CommitteeManager` — certified committee changes, rotation, resize | ❌ superseded — the shipped lane re-derives committees deterministically per view change, so there is no rotation event to certify (see Status detail) |
 | 5 | `JoinAdmission` — gates join and gossip ingest | ✅ |
 | 6 | `PeerDiscoveryService` — tracker + rendezvous sweeps feeding `announceTo` | ✅ |
 | 7 | Session-gateway migration: freeze → reconnect → exactly-once resubmit | 🚧 (`GatewayHandover` + `GatewayHandoverListener`, 21 tests — the core and its bind to `onGatewayChanged`; what remains is the live evidence, deliverable 8) |

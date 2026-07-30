@@ -108,6 +108,22 @@ public final class NoderaPeerService {
     private PeerRuntime clientRuntime;
     private DiagnosticsCollector clientCollector;
     private dev.nodera.peer.discovery.TrackerClient clientTrackerClient;
+    /**
+     * The session bootstrap this joiner dialed — the hosting game's P2P route.
+     *
+     * <p>Kept because the joiner's own always-on worker needs it: it is the address the worker
+     * dials to become a MEMBER of the world its player is playing in ({@link
+     * #bindCompanionToSession}).
+     */
+    private volatile String clientBootstrapRoute = "";
+    /**
+     * The (route, seed) pair the local companion is currently bound to, or {@code ""} when it is
+     * detached. Guards the re-plan cadence: a plan is broadcast on every region-boundary crossing,
+     * and re-issuing {@code MESH} for a binding that has not changed would re-announce the worker
+     * several times a minute for no gain — and a re-bind of the validation lane is refused outright
+     * while regions are active, so the retry would only log an error.
+     */
+    private volatile String companionBinding = "";
 
     private NoderaPeerService() {}
 
@@ -248,6 +264,7 @@ public final class NoderaPeerService {
         serverRuntime = PeerRuntime.bootstrap(serverIdentity, hostCaps,
                 serverMetered, serverTransport::listenRoute, PeerRuntimeConfig.defaults(),
                 new LoggingListener("host"), serverCounts);
+        serverRuntime.setLocalProfile(negotiationProfile(hostCaps));
         serverCollector = new DiagnosticsCollector(serverMeter, serverCounts)
                 .register(serverRuntime)
                 .register(dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.get())
@@ -284,6 +301,23 @@ public final class NoderaPeerService {
             LOG.warn("Nodera: companion session handoff failed: {}", e.toString());
         }
         return route;
+    }
+
+    /**
+     * What this build validates under, for the handshake (R2, network L-87).
+     *
+     * <p>Named from {@code FlatWorldRules} because that is the rule set the engine actually
+     * re-executes with, on both the host and the joiner lanes. A profile naming anything else would
+     * make the handshake's answer wrong in the one direction that matters — reporting agreement with
+     * a peer this node cannot in fact agree a state root with.
+     */
+    private static dev.nodera.protocol.session.Negotiation.LocalProfile negotiationProfile(
+            NodeCapabilities caps) {
+        return dev.nodera.protocol.session.Negotiation.LocalProfile.of(
+                dev.nodera.core.NoderaConstants.PRODUCT_VERSION,
+                dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
+                dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
+                dev.nodera.protocol.service.ServiceRecord.DEFAULT_NETWORK, caps);
     }
 
     /** Borrowed host I/O for live lanes; lifecycle remains owned by this service. */
@@ -821,6 +855,7 @@ public final class NoderaPeerService {
         // region id, which is a coordinate; seeding one to the worker needs the world's identity,
         // and this payload is where a joiner learns it (worker L-41).
         this.sessionWorldIdHex = worldIdHex == null ? "" : worldIdHex.trim();
+        this.clientBootstrapRoute = bootstrapRoute == null ? "" : bootstrapRoute.trim();
         clientIdentity = NodeIdentity.generate();
         String advertise = resolveHost(advertiseHost);
         // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
@@ -841,6 +876,7 @@ public final class NoderaPeerService {
                 new dev.nodera.peer.CompositePeerEventListener(
                         new LoggingListener("client"), clientGatewayListener()),
                 clientCounts);
+        clientRuntime.setLocalProfile(negotiationProfile(NodeCapabilities.initial()));
         clientTrackerClient = trackerClient(
                 selectedTrackerRoutes(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get()), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
@@ -851,10 +887,105 @@ public final class NoderaPeerService {
                 bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());
     }
 
+    /**
+     * Promote this joiner's always-on worker from a private daemon into a MEMBER of the world its
+     * player just joined (network L-30).
+     *
+     * <p>Until this existed, {@code MESH} was called on the <b>host</b> startup path only, and the
+     * joiner path called {@code mesh("", null)} — which detaches. So a joining player's worker was
+     * never part of the world it was playing in, and the session's resident population was capped
+     * at one however many workers were running. One seatable resident means one validator behind
+     * each player primary, which means exactly one inspectable holder per region and no two
+     * independently-computed roots to compare: the whole shape of L-30.
+     *
+     * <p><b>What authorises the worker to join.</b> Nothing beyond what already authorised the game:
+     * membership is not authority. A member is a node that dials the session's bootstrap over the
+     * authenticated transport and gets a {@code MembershipUpdate} back; what it may then <i>do</i>
+     * is bounded by the same rules as every other peer — a committee seat only entitles it to
+     * re-execute its regions and vote, every vote is signature-verified against the key in the plan,
+     * and a wrong vote loses to quorum. The worker is handed the same bootstrap route its own player
+     * was handed, by the process that is standing in the world, so it inherits that admission rather
+     * than inventing one. This is the trust model working as designed, not a new trust anchor:
+     * peers verify everything, so being in a session buys a node no belief.
+     *
+     * <p>Bound to the <b>seed</b> as well as the route because a seat can arrive as soon as the
+     * membership reply lands, and a replica activated on the wrong seed re-executes to roots nobody
+     * else computes — it would vote against every batch, with nothing in any log to say why. The
+     * seed is a plan input, which is why this is called from the plan broadcast rather than from the
+     * session payload: that is the first moment a joiner knows it.
+     *
+     * <p>Best-effort and self-catching. A world must still be playable with no companion linked, and
+     * this runs on a payload-handler path where an escaping exception would take the connection with
+     * it.
+     *
+     * <p>The control exchange runs on its own short-lived thread, not the caller's. The caller is
+     * the client main thread and {@code MESH} carries the 1.5 s probe budget on both connect and
+     * read, so an unresponsive worker would otherwise freeze rendering for up to three seconds on
+     * every region-boundary crossing.
+     *
+     * @param worldSeed the joined world's genesis seed, from the plan broadcast.
+     * @Thread-context any thread; the control call is dispatched off it.
+     */
+    public void bindCompanionToSession(long worldSeed) {
+        String route = clientBootstrapRoute;
+        if (isHosting() || route == null || route.isEmpty()) {
+            return; // the host path owns its own binding; a socket-only join has nothing to dial
+        }
+        String binding = route + "@" + worldSeed;
+        if (binding.equals(companionBinding) || !companionBindInFlight.compareAndSet(false, true)) {
+            return;
+        }
+        CompanionClient companion = CompanionLink.client();
+        if (companion == null) {
+            companionBindInFlight.set(false);
+            return;
+        }
+        Thread.ofPlatform().name("nodera-companion-bind").daemon().start(() -> {
+            try {
+                java.util.Optional<String> error = companion.mesh(route, worldSeed);
+                if (error.isPresent()) {
+                    LOG.warn("Nodera: this player's worker did not join the world session: {}",
+                            error.get());
+                    return;
+                }
+                companionBinding = binding;
+                LOG.info("Nodera: this player's worker joined the world session via {} — it "
+                        + "validates and keeps the world alive alongside the host's", route);
+            } catch (RuntimeException e) {
+                LOG.warn("Nodera: companion session bind failed: {}", e.toString());
+            } finally {
+                companionBindInFlight.set(false);
+            }
+        });
+    }
+
+    /** One companion bind at a time; see {@link #bindCompanionToSession}. */
+    private final java.util.concurrent.atomic.AtomicBoolean companionBindInFlight =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     /** Stop the client peer (on disconnect). Idempotent. */
     public synchronized void stopClient() {
         if (clientRuntime != null) {
             LOG.info("Nodera client peer leaving session");
+            // Detach the worker from a session this process is leaving, so it returns to its own
+            // session of one rather than heartbeating into a world it no longer has a player in.
+            // Mirrors the host teardown in stopHosting(), but off-thread: this runs on the client
+            // thread during logout, and MESH can spend its whole 1.5 s + 1.5 s probe budget on a
+            // worker that has already gone. Ordering against runtime.stop() below does not matter —
+            // a detach that loses the race leaves the worker heartbeating at a dead route, which is
+            // precisely the case it already handles by re-electing itself gateway.
+            CompanionClient companion = CompanionLink.client();
+            if (companion != null && !companionBinding.isEmpty()) {
+                Thread.ofPlatform().name("nodera-companion-detach").daemon().start(() -> {
+                    try {
+                        companion.mesh("", null);
+                    } catch (RuntimeException ignored) {
+                        // Teardown is best-effort; never let it surface on the disconnect path.
+                    }
+                });
+            }
+            companionBinding = "";
+            clientBootstrapRoute = "";
             clientRuntime.stop();
             clientRuntime = null;
         }

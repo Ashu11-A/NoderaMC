@@ -525,7 +525,15 @@ public final class ContentTransferService implements MessageHandler {
     @Override
     public void onMessage(PeerAddress from, byte[] frame) {
         Objects.requireNonNull(frame, "frame");
-        NoderaMessage msg = WireCodec.decode(frame);
+        // This handler's whole contract is "ignore what is not mine" — see the closing comment. A
+        // kind this build has no row for is the one case `decode` would not ignore but throw on,
+        // out of a transport receive callback, which is both the wrong answer and the wrong place
+        // for it. `decodeFrame` makes an unknown kind exactly what the contract already says it is.
+        WireCodec.DecodedFrame decoded = WireCodec.decodeFrame(frame);
+        if (decoded.unknownKind()) {
+            return;
+        }
+        NoderaMessage msg = decoded.message().orElseThrow();
         if (msg instanceof ContentRequest request) {
             serve(from, request);
         } else if (msg instanceof ContentChunk chunk) {

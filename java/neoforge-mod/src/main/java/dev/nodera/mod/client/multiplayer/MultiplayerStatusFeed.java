@@ -71,7 +71,15 @@ public final class MultiplayerStatusFeed {
             t.setDaemon(true);
             return t;
         });
-        scheduler.scheduleWithFixedDelay(() -> refresh(trk, rdv), 5, 5, TimeUnit.SECONDS);
+        // Survivable: one throw would cancel the schedule, and the tab would then show a frozen
+        // snapshot forever with every endpoint's status stuck at whatever it last was — worse than
+        // showing nothing, because a stale "up" reads as a live one.
+        scheduler.scheduleWithFixedDelay(
+                dev.nodera.core.concurrent.Recurring.survivable(
+                        () -> refresh(trk, rdv),
+                        e -> org.slf4j.LoggerFactory.getLogger("NoderaStatusFeed")
+                                .debug("status refresh failed: {}", e.toString())),
+                5, 5, TimeUnit.SECONDS);
     }
 
     private static void refresh(List<String> trk, List<String> rdv) {

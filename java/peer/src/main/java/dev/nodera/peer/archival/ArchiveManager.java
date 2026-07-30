@@ -97,18 +97,13 @@ public final class ArchiveManager {
         Objects.requireNonNull(held, "held");
         Objects.requireNonNull(assigned, "assigned");
 
-        Map<Bytes, Integer> retained = new LinkedHashMap<>();
+        // Everything starts retained; the cap below only ever moves UNASSIGNED roots out, which is
+        // what makes "never evict an assigned-region current piece" a property of the loop rather
+        // than a check. (This used to branch on `assigned.contains(root)` and do the same
+        // `retained.put` either way — a condition with no effect on the result, which read as if
+        // the assigned set were being enforced here when it is enforced below.)
+        Map<Bytes, Integer> retained = new LinkedHashMap<>(held);
         Map<Bytes, Integer> evictable = new LinkedHashMap<>();
-        for (Map.Entry<Bytes, Integer> e : held.entrySet()) {
-            Bytes root = e.getKey();
-            int pieces = e.getValue();
-            if (assigned.contains(root)) {
-                // Assigned-region current state: never evict, regardless of the cap.
-                retained.put(root, pieces);
-                continue;
-            }
-            retained.put(root, pieces);
-        }
 
         // The cap only binds non-exempt peers holding unassigned content. If the peer's total
         // unassigned share exceeds the cap, mark the most-recently-added unassigned manifests as

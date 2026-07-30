@@ -66,6 +66,13 @@ public final class WorldReplicationService implements AutoCloseable {
     /** Worlds adopted per sweep, so a fresh node ramps up instead of stampeding the swarm. */
     private static final int MAX_ADOPTIONS_PER_SWEEP = 2;
 
+    /**
+     * Volunteered replicas released per sweep. Deliberately smaller than the adoption limit: a
+     * release destroys local content and a mistaken one costs the swarm a copy, so even a
+     * systematically wrong placement answer can only drain a node one world per sweep.
+     */
+    private static final int MAX_RELEASES_PER_SWEEP = 1;
+
     /** Per-world fetch deadline. */
     private static final Duration FETCH_TIMEOUT = Duration.ofMinutes(5);
 
@@ -288,6 +295,13 @@ public final class WorldReplicationService implements AutoCloseable {
             return 0;
         }
         long held = replicatedBytes();
+        // Before deciding what to take on, give back what this node is no longer expected to hold.
+        // Ordered first deliberately: the freed bytes are spendable in this same sweep, so a node
+        // whose placement moved converges in one cycle instead of one release per five minutes.
+        long freed = release(held);
+        if (freed > 0) {
+            held = replicatedBytes();
+        }
         int adopted = 0;
         // Every sweep says what it DECIDED, per world, at INFO. This lane was silent by design —
         // an empty catalog returned 0, a declined placement logged nothing, and a failure went to
@@ -370,9 +384,9 @@ public final class WorldReplicationService implements AutoCloseable {
         }
         LOG.info("Replication sweep over {} world(s): {} adopted, {} brought up to date, "
                         + "{} already current here, {} not placed on this node, {} past the bounds, "
-                        + "{} could not be fetched ({} of {} byte(s) used)",
+                        + "{} could not be fetched, {} byte(s) released ({} of {} byte(s) used)",
                 catalog.size(), adopted, refreshed, skippedComplete, skippedUnplaced,
-                skippedBounded, failed, held, budgetBytes);
+                skippedBounded, failed, freed, held, budgetBytes);
         lastSweepFailures = failed;
         return adopted;
     }
@@ -410,6 +424,24 @@ public final class WorldReplicationService implements AutoCloseable {
     }
 
     /**
+     * What the placement policy says about this node and one world.
+     *
+     * <p>Three values, not two, because the two ways of not being placed have opposite consequences.
+     * Declining to <b>adopt</b> is safe under either — but releasing content already held is only
+     * safe under {@link #NOT_PLACED}. A tracker that is down, unreachable, or momentarily returning
+     * an empty peer set produces {@link #UNKNOWN}, and a node that treated that as "not placed"
+     * would empty itself during an outage and then re-fetch everything when the outage ended.
+     */
+    enum Placement {
+        /** The policy expects a replica here. */
+        PLACED,
+        /** The policy answered, and this node is not among the expected holders. */
+        NOT_PLACED,
+        /** No usable answer: no tracker response, no peers listed, or a malformed peer set. */
+        UNKNOWN
+    }
+
+    /**
      * Would the deterministic placement policy put this node among a world's expected holders?
      *
      * <p>The manifest root would be the ideal placement key, but a node that holds nothing of a
@@ -417,15 +449,15 @@ public final class WorldReplicationService implements AutoCloseable {
      * id is the stable stand-in: it is equally well-known to every node, so every node still
      * computes the same list, which is the property that makes the policy coordinator-free.
      */
-    private boolean placedFor(Bytes worldId) {
+    private Placement placementFor(Bytes worldId) {
         TrackerResponse response;
         try {
             response = tracker.query(worldId).orElse(null);
         } catch (RuntimeException e) {
-            return false;
+            return Placement.UNKNOWN;
         }
         if (response == null || response.peers().isEmpty()) {
-            return false;
+            return Placement.UNKNOWN;
         }
         LinkedHashSet<NodeId> eligible = new LinkedHashSet<>();
         Set<NodeId> fullArchive = new LinkedHashSet<>();
@@ -441,13 +473,119 @@ public final class WorldReplicationService implements AutoCloseable {
         try {
             List<NodeId> expected = policy.expectedHolders(worldId, ArchiveObjectClass.SNAPSHOT,
                     new ArrayList<>(eligible), fullArchive);
-            return expected.contains(self);
+            return expected.contains(self) ? Placement.PLACED : Placement.NOT_PLACED;
         } catch (RuntimeException e) {
             // A malformed peer set (e.g. a host the tracker did not also list as a peer) is the
             // tracker's problem; declining to adopt is the safe reading.
             LOG.debug("placement for {} failed: {}", worldId.toShortHex(6), e.getMessage());
+            return Placement.UNKNOWN;
+        }
+    }
+
+    /** @return whether the policy expects a replica of {@code worldId} on this node. */
+    private boolean placedFor(Bytes worldId) {
+        return placementFor(worldId) == Placement.PLACED;
+    }
+
+    /**
+     * Give the budget back: release volunteered replicas this node is no longer placed for.
+     *
+     * <h2>Why this exists</h2>
+     *
+     * <p>The sweep only ever grew. `withinBounds` stops adoptions once {@code budgetBytes} is used,
+     * and nothing ever freed a byte of it, so placement was effectively decided once — by whichever
+     * worlds happened to exist when a node first filled up. Placement is <b>not</b> a one-time
+     * decision: it is a deterministic function of the peer set, and the peer set changes every time
+     * anyone joins or leaves. A node that filled its budget in a five-peer swarm and then watched
+     * the swarm grow to fifty was, from then on, holding worlds no policy expected it to hold and
+     * refusing every world the policy did expect — permanently, and silently, because a full node's
+     * sweep summary reports "past the bounds" and looks like the bound working.
+     *
+     * <h2>Why it is safe</h2>
+     *
+     * <p>Four rules, each removing one way this could destroy content that is still needed:
+     *
+     * <ul>
+     *   <li><b>Only under pressure.</b> Nothing is released while the node is inside its budget. A
+     *       release is a pressure valve, never tidiness — so a node that is not full behaves exactly
+     *       as it did before, and a tracker misanswer costs it nothing.</li>
+     *   <li><b>Only volunteered content.</b> A world this node hosts is its own; {@code seeding()}
+     *       is the whole eligible set.</li>
+     *   <li><b>Only on a real answer.</b> {@link Placement#UNKNOWN} — no tracker, no peers listed,
+     *       a malformed set — keeps the world. This is the rule that matters most: without it a
+     *       tracker outage would empty every full node on the network at once and then have them all
+     *       re-fetch when it came back.</li>
+     *   <li><b>Bounded.</b> One world per sweep, so even a systematically wrong answer drains a node
+     *       slowly enough to be seen in the log it writes on the way.</li>
+     * </ul>
+     *
+     * @return bytes released this sweep.
+     */
+    private long release(long heldBytes) {
+        boolean budgetFull = heldBytes >= budgetBytes;
+        if (!budgetFull) {
+            return 0;
+        }
+        long freed = 0;
+        int released = 0;
+        for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
+            if (released >= MAX_RELEASES_PER_SWEEP) {
+                break;
+            }
+            if (!world.seeding()) {
+                continue;
+            }
+            Bytes worldId;
+            try {
+                worldId = Bytes.fromHex(world.worldIdHex());
+            } catch (RuntimeException notHex) {
+                continue;
+            }
+            // The placement query is a network round trip, so it is asked only for a world that has
+            // already passed every local reason not to release it.
+            if (!shouldRelease(true, placementFor(worldId), true, released)) {
+                continue;
+            }
+            WorldArchiveService.PieceReport report = archive.pieceReport(world.worldIdHex());
+            long bytes = report == null ? 0 : report.totalBytes();
+            // Announce STOPPED before dropping the bytes, so no window exists in which this node is
+            // still listed as a holder of content it can no longer serve — the W-DUP-1 failure, in
+            // reverse.
+            hosting.stop(world.worldIdHex());
+            archive.forget(world.worldIdHex());
+            freed += bytes;
+            released++;
+            LOG.info("Released world '{}' ({}) — this node is no longer among its expected holders "
+                            + "and its budget is full ({} byte(s) freed)",
+                    world.name(), shortId(world.worldIdHex()), bytes);
+        }
+        return freed;
+    }
+
+    /**
+     * Should this volunteered replica be given up? The sweep's release decision, as a pure function
+     * of what is known about one world, so every safety rule can be exercised without a tracker.
+     *
+     * @param seeding            whether this node holds the world for the network rather than
+     *                           hosting it. A hosted world is never released.
+     * @param placement          what the policy answered. Only {@link Placement#NOT_PLACED} — an
+     *                           actual answer that excludes this node — permits a release;
+     *                           {@link Placement#UNKNOWN} keeps the world, because an outage must
+     *                           not read as an eviction notice.
+     * @param budgetFull         whether the node is at or over its replication budget. Releasing is
+     *                           a pressure valve; an unfull node keeps everything it holds.
+     * @param releasedThisSweep  how many worlds this sweep has already released.
+     * @return whether to release.
+     */
+    static boolean shouldRelease(boolean seeding, Placement placement, boolean budgetFull,
+                                 int releasedThisSweep) {
+        if (!seeding || !budgetFull) {
             return false;
         }
+        if (releasedThisSweep >= MAX_RELEASES_PER_SWEEP) {
+            return false;
+        }
+        return placement == Placement.NOT_PLACED;
     }
 
     /** Fetch a world's archive and begin advertising it. @return bytes now held, or 0 on failure. */

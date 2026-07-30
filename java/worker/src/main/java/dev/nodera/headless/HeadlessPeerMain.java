@@ -128,6 +128,15 @@ public final class HeadlessPeerMain {
         PeerRuntime runtime = PeerRuntime.bootstrap(identity, caps, metered,
                 transport::listenRoute, PeerRuntimeConfig.defaults(),
                 sessionListener, counters);
+        // R2 (network L-87): declare the rule set and registry this worker re-executes under, so the
+        // handshake can answer a skew in one frame instead of letting it surface as an exception from
+        // inside the region engine minutes later. These are the same two values the validation lane
+        // is built with below — a profile that named anything else would be a lie about this peer.
+        runtime.setLocalProfile(dev.nodera.protocol.session.Negotiation.LocalProfile.of(
+                WORKER_VERSION,
+                dev.nodera.simulation.rules.FlatWorldRules.RULES_VERSION,
+                dev.nodera.simulation.rules.FlatWorldRules.registryFingerprint(),
+                dev.nodera.protocol.service.ServiceRecord.DEFAULT_NETWORK, caps));
 
         // Discovery services this worker announces hosted worlds to (Task 32 live lane). Defaults
         // match the mod's DEFAULT_TRACKER/RENDEZVOUS_ENDPOINTS so a fresh install is functional; the

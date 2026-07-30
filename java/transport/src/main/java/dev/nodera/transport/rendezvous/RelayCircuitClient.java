@@ -93,7 +93,16 @@ public final class RelayCircuitClient {
         while (true) {
             byte[] frame = Frames.read(reserved.socket().getInputStream()).orElseThrow(
                     () -> new IOException("control socket closed before a circuit arrived"));
-            message = WireCodec.decode(frame);
+            // decodeFrame, not decode: this loop's contract is "keep reading the control socket
+            // until a circuit arrives", and `decode` throws on a kind this build has no row for.
+            // A newer relay adding a second control message would therefore not be skipped — it
+            // would end the reservation with an IOException, on a socket that was perfectly fine.
+            // Skipping is the forward-compatibility rule the whole NDR2 frame exists to allow.
+            WireCodec.DecodedFrame decoded = WireCodec.decodeFrame(frame);
+            if (decoded.unknownKind()) {
+                continue;
+            }
+            message = decoded.message().orElseThrow();
             if (message instanceof ServiceDrainNotice notice) {
                 if (SIGNATURES.verify(notice.record().publicKey(),
                         notice.record().signedBytes(), notice.signature())) {

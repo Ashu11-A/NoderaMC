@@ -317,7 +317,13 @@ public final class WorldArchiveService implements AutoCloseable {
         // One tick opens both windows: the serve budget (bytes we hand out) and the request budget
         // (bytes we ask for). Sharing the cadence is what makes both settings read as "per second"
         // without either class touching a clock.
-        scheduler.scheduleWithFixedDelay(this::openTransferWindows,
+        // Survivable, because this tick is what lets ANY transfer happen: a throw here would be
+        // cancelled by the scheduler and never run again, so both budgets would stay closed and
+        // every serve and every download on this node would stop, permanently and silently, on a
+        // process that goes on looking healthy.
+        scheduler.scheduleWithFixedDelay(
+                dev.nodera.core.concurrent.Recurring.survivable(this::openTransferWindows,
+                        e -> LOG.warn("Transfer window tick failed: {}", e.toString())),
                 SERVE_WINDOW.toMillis(), SERVE_WINDOW.toMillis(), TimeUnit.MILLISECONDS);
     }
 

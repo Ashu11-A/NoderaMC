@@ -12,6 +12,7 @@ import dev.nodera.peer.validation.WorkerValidationService;
 import dev.nodera.peer.validation.WorldStoreExternalHeads;
 import dev.nodera.peer.validation.WorldStoreTransferJournal;
 import dev.nodera.peer.validation.WorldStoreVotePersistence;
+import dev.nodera.peer.sync.EventSyncService;
 import dev.nodera.simulation.engine.FlatWorldRegionEngine;
 import dev.nodera.storage.GenesisManifest;
 import dev.nodera.storage.rocksdb.RocksWorldStore;
@@ -118,12 +119,23 @@ public final class LiveEntityLaneSession implements AutoCloseable {
                 }
                 live.activate(region.level(), base, region.lease());
             }
+            // Task 9's forward event-sync, over the same transport the committee lane rides. It was
+            // implemented, proven headlessly (EventSyncOverTransportIT) and reached by nothing —
+            // and network L-30 cited that IT as evidence, so the register was claiming a mechanism
+            // no peer ran. The serve half is a dispatch arm; the ask half is `catchUp` below.
+            EventSyncService sync = new EventSyncService(store, host.transport());
             host.runtime().onApplicationMessage((from, message) -> {
-                if (active.get()) {
+                if (!active.get()) {
+                    return;
+                }
+                // Sync first, and only fall through when it did not own the message: the two lanes
+                // handle disjoint types, and asking the sync service costs one instanceof.
+                if (!sync.onMessage(from, message)) {
                     validation.onMessage(from, message);
                 }
             });
             handlerInstalled = true;
+            catchUp(sync, store, regions, peers);
             validation.recoverTransfers(transfers.recoverable(), transfers.completed());
             live.install();
             LiveEntityControlProvider.activate(live);
@@ -139,6 +151,44 @@ public final class LiveEntityLaneSession implements AutoCloseable {
             }
             store.close();
             throw failure;
+        }
+    }
+
+    /**
+     * Ask this session's committee peers for the certified events each region gained while this node
+     * was away (envelope A-3: under partition regions pause rather than fork, and rejoin is a
+     * forward sync).
+     *
+     * <p><b>Only for a region this node already has history for.</b> An empty log is a cold node,
+     * and a cold node's world arrives through the archive lane; asking for a region's whole event
+     * history would be one unbounded answer on a frame-bounded wire. So a rejoin syncs forward and a
+     * first join does not sync at all.
+     *
+     * <p>Best-effort by construction: the answer's certified chain is the authority, duplicates are
+     * skipped on ingest, and a peer that never answers costs this node nothing. Failures are
+     * contained here because this runs on the server thread inside a NeoForge lifecycle event, where
+     * an escaping exception ends the integrated server rather than the sync.
+     */
+    private static void catchUp(EventSyncService sync, RocksWorldStore store,
+                                List<RegionBinding> regions, List<CommitteePeer> peers) {
+        for (RegionBinding region : regions) {
+            long since;
+            try {
+                since = store.events().lastEventId(region.snapshot().region());
+            } catch (RuntimeException unreadable) {
+                continue;
+            }
+            if (since < 0) {
+                continue;
+            }
+            for (CommitteePeer peer : peers) {
+                try {
+                    sync.requestFrom(peer.address(), region.snapshot().region(), since);
+                } catch (RuntimeException unreachable) {
+                    LOG.debug("Event sync request to {} failed: {}",
+                            peer.address(), unreachable.toString());
+                }
+            }
         }
     }
 

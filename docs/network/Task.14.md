@@ -10,8 +10,13 @@
      status accurate. -->
 
 **Status:** 🚧 IN PROGRESS — all eight phases landed; L-86 and L-89 RETIRED on their green headless exit
-tests (issue #97); L-87, L-88, L-90 RETIRING pending a live mixed-release run
-**Category:** network · **Owns:** L-86, L-87, L-88, L-89, L-90 · **Last audit:** 2026-07-28
+tests (issue #97); L-87, L-88, L-90 RETIRING pending a live mixed-release run. **Correction
+2026-07-29:** phase 4 had shipped `Negotiation`/`PeerSession` with **no production call site** — the
+same "exists in the codec and its tests, no runtime handler" defect the phase was written to remove,
+moved one class along. Both are now wired into `PeerRuntime` (`HandshakeRunsInProductionTest`); the
+rows are unchanged in status, but they are now RETIRING on the live run rather than on green tests
+over unreachable code.
+**Category:** network · **Owns:** L-86, L-87, L-88, L-89, L-90 · **Last audit:** 2026-07-29
 **Depends on:** [network 1](Task.1.md), [network 2](Task.2.md), [tracker 5](../tracker/Task.5.md),
 [rendezvous 5](../rendezvous/Task.5.md)
 **Consumed by:** [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
