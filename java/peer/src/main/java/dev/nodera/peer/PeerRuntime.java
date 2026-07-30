@@ -482,7 +482,7 @@ public final class PeerRuntime implements DiagnosticsSource {
         } else if (msg instanceof dev.nodera.protocol.session.HelloAck a) { onHelloAck(from, a);
         } else if (msg instanceof PeerJoin j) { onPeerJoin(j);
         } else if (msg instanceof MembershipUpdate u) { onMembershipUpdate(u);
-        } else if (msg instanceof PeerGoodbye g) { onPeerGoodbye(g);
+        } else if (msg instanceof PeerGoodbye g) { onPeerGoodbye(from, g);
         } else if (msg instanceof GatewayClaim c) { onGatewayClaim(c);
         } else if (msg instanceof SessionKeepAlive k) { onKeepAlive(k);
         } else {
@@ -560,6 +560,13 @@ public final class PeerRuntime implements DiagnosticsSource {
     private boolean authorised(PeerAddress from, NoderaMessage msg) {
         NodeId authenticated = from == null ? null : from.nodeId();
         if (authenticated == null) {
+            return true;
+        }
+        if (msg instanceof PeerGoodbye) {
+            // The one row whose "a peer only speaks for itself" reading is wrong: eviction gossip
+            // legitimately names a third party, and refusing it here killed the fast departure path
+            // in a live run. `onPeerGoodbye` applies the rule that is actually correct for it —
+            // a goodbye about yourself is a departure, a goodbye about anybody else is a report.
             return true;
         }
         dev.nodera.protocol.wire.MessageType type;
@@ -819,8 +826,48 @@ public final class PeerRuntime implements DiagnosticsSource {
         }
     }
 
-    private void onPeerGoodbye(PeerGoodbye g) {
+    /**
+     * A departure, from the peer departing — or a report about somebody else, from a peer that
+     * watched their socket close.
+     *
+     * <h2>Why this is not a plain authorisation check</h2>
+     *
+     * <p>The NDR2 table lists {@code PeerGoodbye} as {@code TRANSPORT_SENDER_EQUALS}, on the reading
+     * that a goodbye is a statement a peer makes about itself. It is not, and a live run proved it:
+     * {@link #handleTransportDown} and the heartbeat sweep both broadcast a goodbye <b>naming
+     * somebody else</b> — "I saw X's socket close" — and that gossip is how the mesh converges on a
+     * departure faster than every node's own timeout. Enforcing the table here refused exactly those
+     * frames, three of them in one teardown, and left the fast path dead.
+     *
+     * <p>But the permissive reading is a real vulnerability: it lets any connected peer evict any
+     * member by asserting a departure that never happened. Both cannot be had by a yes/no check, so
+     * the two cases are separated by what they are:
+     *
+     * <ul>
+     *   <li><b>A goodbye naming its own sender is a departure.</b> The peer is the authority on its
+     *       own exit; remove it and propagate once.</li>
+     *   <li><b>A goodbye naming anybody else is a report.</b> It is not acted on as an eviction — it
+     *       expires the named member's liveness so the <i>local</i> heartbeat decides on the next
+     *       tick. A peer that really is gone is dropped a tick later, by this node's own observation;
+     *       a peer that is alive answers with a keep-alive that refreshes it, so the report costs
+     *       nothing and cannot evict it. The trust boundary lands where it belongs: believe a peer
+     *       about itself, believe only yourself about anybody else.</li>
+     * </ul>
+     *
+     * <p>A carrier that does not authenticate yields a null sender, and that is treated as the
+     * departure case — the same deferral the authorisation policy makes for every other kind.
+     */
+    private void onPeerGoodbye(PeerAddress from, PeerGoodbye g) {
         if (g.who().equals(selfId)) {
+            return;
+        }
+        NodeId sender = from == null ? null : from.nodeId();
+        if (sender != null && !sender.equals(g.who())) {
+            // A report about a third party: age its liveness instead of evicting it.
+            lastSeenNanos.computeIfPresent(g.who(), (id, seen) -> {
+                long expiresIn = config.failureTimeout().toNanos() - REPORTED_DOWN_GRACE_NANOS;
+                return Math.min(seen, System.nanoTime() - Math.max(0, expiresIn));
+            });
             return;
         }
         boolean removed = removeMember(g.who(), g.reason());
@@ -829,6 +876,15 @@ public final class PeerRuntime implements DiagnosticsSource {
             broadcast(g);
         }
     }
+
+    /**
+     * How long a member reported down by another peer has to prove otherwise.
+     *
+     * <p>One keep-alive interval would be the minimum; two gives a peer whose keep-alive is in
+     * flight, or whose reporter was simply wrong about a transient socket, a fair chance to be
+     * counted as present rather than evicted on a stranger's say-so.
+     */
+    private static final long REPORTED_DOWN_GRACE_NANOS = java.time.Duration.ofSeconds(4).toNanos();
 
     private void onGatewayClaim(GatewayClaim c) {
         if (c.epoch() >= epoch) {

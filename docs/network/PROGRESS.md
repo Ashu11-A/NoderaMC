@@ -36,6 +36,51 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-30 (fourth pass) — the first live run in this session, and what it found
+
+The previous three passes were headless. This one ran `nodera-test run mesh-soak` — L-30's own exit
+test — on this machine, and the result is worth more than a pass would have been.
+
+**The premise was wrong: this environment has a display.** `DISPLAY=:0` works and `~/.minecraft`
+carries `neoforge-21.1.238`. The sentence "it cannot be performed in an environment with no X
+display" was written in an earlier session, then copied forward into L-30's status cell and a PR
+body as though it were a property of the machine. It was never re-checked. Checking it took one
+command.
+
+**Every live scenario since the harness conversion ran with no tracker and no rendezvous.**
+`LiveStack` launched both services with `NODERA_TRACKER_BIND` / `NODERA_RENDEZVOUS_BIND`; they take
+`*_BIND_ADDR` and refuse to start on an unrecognised `NODERA_<SERVICE>_*` variable — deliberately, so
+a typo cannot silently run a service on defaults. Both binaries printed one line and exited. The key
+was introduced by the conversion itself ([#120](https://github.com/Ashu11-A/NoderaMC/pull/120)); the
+shell harness it replaced wrote a TOML config and never used that variable. What let it survive is
+that `startInfrastructure`'s javadoc claims it waits "until every one of them answers" and only ever
+probed the workers — so a service that exited left a stack that looked launched, and every symptom
+appeared one layer up, pointing at the product: `world 'world' is on NO tracker`, `0 seeder(s), 0
+routable`, soaks that observed nothing. Fixed both ways (correct keys, plus `awaitListening` with the
+process's log tail in the failure). The first run afterwards reached `Seeder lookup … 3 seeder(s), 3
+routable` — the first live discovery plane the Java harness has ever had.
+
+**L-30's exit test cannot pass in this build, and no register said so.**
+`ValidationLane.DETERMINISTIC_VALIDATION` is a compile-time `false`: deterministic re-execution and
+committee co-signing are deliberately out of scope for the initial release, and the host announces it
+on every share — *"runs WITHOUT deterministic region validation"*. There are no committees, no votes
+and no `committee_commits` to observe. L-30 has been recording "what remains is the run itself" about
+a run against a switched-off feature. The row now says so, and `HostWorldSupport` **skips** with the
+constant named instead of waiting 300 s for a line this build never prints — the difference between
+"this build does not have the feature" and "the feature is broken" is the whole point of a suite.
+
+**And the run caught a regression this PR had introduced.** Three `Refused a PeerGoodbye … it names a
+different peer as its sender` lines appeared at teardown: the NDR2 table lists `PeerGoodbye` as
+`TRANSPORT_SENDER_EQUALS`, but `handleTransportDown` and the heartbeat sweep both broadcast a goodbye
+**naming somebody else** — "I saw X's socket close" — and that gossip is the mesh's fast departure
+path. Pass 2's blanket enforcement killed it. The permissive reading is a genuine vulnerability
+though (any peer could evict any member), so the two cases are now separated by what they are: a
+goodbye naming its own sender is a *departure* and is acted on; a goodbye naming anybody else is a
+*report* that expires the named member's liveness so the local heartbeat decides on the next tick. A
+peer that really left is dropped a tick later by this node's own observation; a live one answers with
+a keep-alive and stays. Believe a peer about itself, believe only yourself about anybody else. Note
+that no headless test caught this — the fast path only fires when a real socket closes.
+
 ### 2026-07-30 (third pass) — the two ways a running node stops without saying so
 
 A fail-safety sweep rather than a feature pass. Two failure shapes, both of which leave a process up,

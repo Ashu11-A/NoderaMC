@@ -91,8 +91,8 @@ final class SenderAuthorisationIsEnforcedTest {
     }
 
     @Test
-    @DisplayName("a peer cannot evict another peer by sending a goodbye in its name")
-    void aForgedGoodbyeDoesNotEvictItsVictim() {
+    @DisplayName("a stranger's goodbye about a live peer is a report, not an eviction")
+    void aForgedGoodbyeDoesNotEvictALivePeer() {
         LoopbackNetwork net = LoopbackNetwork.newNetwork();
         NodeIdentity hostId = NodeIdentity.generate();
         NodeIdentity victimId = NodeIdentity.generate();
@@ -109,15 +109,22 @@ final class SenderAuthorisationIsEnforcedTest {
         LoopbackTransport attacker = rawPeer(NodeIdentity.generate().nodeId(), net);
         attacker.send(hostAddress,
                 WireCodec.encode(new PeerGoodbye(victimId.nodeId(), 0L, "evicted by a stranger")));
-        // The honest frame that orders the assertion: same state thread, sent second.
+        // The honest frame that orders the assertion: same state thread, sent second. A peer IS the
+        // authority on its own exit, so this one is acted on immediately.
         net.transportOf(decoyId.nodeId()).send(hostAddress,
                 WireCodec.encode(new PeerGoodbye(decoyId.nodeId(), 0L, "leaving")));
 
         Await.until("the decoy's own goodbye is honoured", 5_000,
                 () -> !holds(host, decoyId.nodeId()));
+        // The victim is alive and keeps sending keep-alives, so the report expires against its own
+        // liveness rather than removing it. Blanket-refusing the frame instead would have been
+        // wrong in the other direction: `handleTransportDown` and the heartbeat sweep broadcast
+        // goodbyes naming third parties, and that gossip is the mesh's fast departure path.
         assertThat(holds(host, victimId.nodeId()))
-                .as("a goodbye naming somebody else is a stranger's opinion, not their departure")
+                .as("a live peer is not evicted by a stranger asserting it left")
                 .isTrue();
+        Await.until("and it stays a member while it keeps talking", 3_000,
+                () -> holds(host, victimId.nodeId()));
     }
 
     @Test
