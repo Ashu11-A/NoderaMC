@@ -36,6 +36,40 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-30 (third pass) — the two ways a running node stops without saying so
+
+A fail-safety sweep rather than a feature pass. Two failure shapes, both of which leave a process up,
+healthy-looking, and no longer doing the thing it exists to do.
+
+**A recurring task that throws is cancelled forever.** `scheduleWithFixedDelay` and
+`scheduleAtFixedRate` cancel a task permanently the first time it throws, and report that only into a
+`Future` nobody reads. `WorldHostingService` had already learned this the expensive way — its
+`survivable` wrapper carries a live outage in its javadoc, where two peers each holding a full copy of
+a world answered every tracker query with `0 seeder(s), 0 routable`, because the announce heartbeat
+had thrown once. The sweep found three more schedules with no such guard, and the worst of them is
+`WorldArchiveService`'s transfer-window tick: it is what opens the serve and download budgets, so one
+throw would have stopped **every transfer on the node**, permanently and silently. Also guarded:
+`PeerRuntime`'s heartbeat (its lambda called `stateExec.execute` directly, so a
+`RejectedExecutionException` during teardown would cancel the heartbeat of a runtime still running)
+and the multiplayer status feed (whose failure mode is a frozen "up" that reads as a live one).
+
+The guard is now one shared, dependency-free helper — `dev.nodera.core.concurrent.Recurring.survivable`
+— with `RecurringTest` (4) asserting the property that actually matters: a real scheduler, a body that
+throws on every tick, and the assertion made on the tick *after* the throw. A plain try/catch test
+would pass without proving the schedule survived. `Error` is deliberately not caught, and
+`WorldHostingService.survivable` deliberately still does catch it for the announce heartbeat alone;
+both sides of that disagreement are now written down where each is, so neither gets "unified" away.
+
+**An unknown wire kind was still fatal in two more places.** The same defect the pass below fixed in
+`PeerRuntime` existed in `ContentTransferService.onMessage` — whose own closing comment promises "any
+other message type belongs to another handler; content transfer ignores it", true of every kind this
+build knows and false of every kind it does not, so the one message the contract could not describe
+was the one that threw out of a transport receive callback — and in
+`RelayCircuitClient.readIncoming`, whose loop exists precisely to read past control messages until a
+circuit arrives, and which would have ended a perfectly good reservation with an `IOException` the
+first time a newer relay sent a second kind of notice. Both now use `decodeFrame` and skip.
+`UnknownKindDoesNotBreakTheContentLaneTest`, verified failing without the fix.
+
 ### 2026-07-30 (second pass) — the register is discharged: three lanes closed, four verdicts settled on evidence
 
 Continuing the pass below, against the remaining § Unwired capabilities rows and the two open

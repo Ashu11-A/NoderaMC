@@ -833,6 +833,15 @@ public final class WorldHostingService implements AutoCloseable {
      *
      * @param what a name for the log line — the task is anonymous otherwise.
      * @param body the work.
+     * <p><b>Not</b> {@code dev.nodera.core.concurrent.Recurring.survivable}, and the difference is the
+     * point rather than an oversight: this one also catches {@link Error}. That is a deliberate,
+     * local judgement about this task only — an announce heartbeat is what tells the network the node
+     * exists, and a node that has silently stopped announcing is indistinguishable from a node that
+     * is gone, so it is better to keep saying "I am here" through a {@code LinkageError} in one cycle
+     * than to disappear. The shared helper does not catch {@code Error}, because for ordinary
+     * recurring work an {@code OutOfMemoryError} is not a tick to skip. Do not "unify" these without
+     * deciding which behaviour each caller actually wants.
+     *
      * @return a runnable that reports failures and always returns normally.
      */
     private Runnable survivable(String what, Runnable body) {

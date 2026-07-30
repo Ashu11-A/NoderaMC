@@ -241,8 +241,15 @@ public final class PeerRuntime implements DiagnosticsSource {
         this.selfRoute = Objects.requireNonNullElse(selfRouteSupplier.get(), "");
         stateExec.execute(this::onStarted);
         long periodMs = config.keepAliveInterval().toMillis();
+        // `submit`, not `stateExec.execute`: a direct execute throws RejectedExecutionException once
+        // the state executor is shutting down, and `scheduleAtFixedRate` cancels a task the first
+        // time it throws — so a single rejection during teardown would leave a still-running runtime
+        // with no heartbeat and no trace of why. The wrapper makes that structural rather than
+        // incidental: whatever the hand-off does, the schedule keeps this task.
         heartbeatExec.scheduleAtFixedRate(
-                () -> stateExec.execute(this::onHeartbeatTick),
+                dev.nodera.core.concurrent.Recurring.survivable(
+                        () -> submit(this::onHeartbeatTick),
+                        e -> LOG.debug("heartbeat hand-off failed: {}", e.toString())),
                 periodMs, periodMs, TimeUnit.MILLISECONDS);
     }
 
