@@ -368,13 +368,17 @@ mod tests {
     }
 
     /// Where `cargo build -p nodera-tracker` leaves the binary.
+    ///
+    /// Resolved by WALKING UP to the repository root, not by counting `..` from this crate. It
+    /// counted one level for as long as the cargo target directory was this crate's sibling; the
+    /// workspace manifest moved to the repository root and that stopped being true, which would
+    /// have turned this self-test into a silent `None` — a check that reports success by not
+    /// running is worse than one that fails.
     fn tracker_binary() -> Option<std::path::PathBuf> {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()?
-            .to_path_buf();
+        let target = nodera_codec::repo::dir("cargoTarget");
         ["release", "debug"]
             .iter()
-            .map(|profile| root.join("target").join(profile).join("nodera-tracker"))
+            .map(|profile| target.join(profile).join("nodera-tracker"))
             .find(|candidate| candidate.is_file())
     }
 

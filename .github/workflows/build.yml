@@ -63,7 +63,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            rust
+            .
             rust/nodera-app
       - name: Tauri system deps
         run: |
@@ -71,7 +71,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
       - name: Build service binaries + worker dist
         run: |
-          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
           ./gradlew :peer:installDist
           mkdir -p build
           cp -r java/peer/build/install/nodera-headless build/
@@ -133,21 +133,21 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
       # rust-toolchain.toml pins the channel; rustup honours it automatically.
       - run: rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
       - run: cargo fmt --check
       # `rust/nodera-app` is EXCLUDED from this workspace (Tauri native deps), so the line above
       # skipped it silently: the companion app had never been format-checked, and `src/api/store.rs`
       # sat drifted on main. rustfmt parses source and needs no dependencies, so the second
       # workspace is checked here — a formatting failure should not wait on a Tauri build. The
       # matching clippy run is in the `companion` job, which has the system deps to compile it.
-      - run: cargo fmt --check --manifest-path nodera-app/Cargo.toml
+      - run: cargo fmt --check --manifest-path rust/nodera-app/Cargo.toml
       - run: cargo clippy --all-targets -- -D warnings
       # Includes the cross-language conformance tests: the tag-registry mirror is asserted against
       # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
@@ -188,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous
@@ -196,6 +196,6 @@ jobs:
         with:
           name: nodera-services-${{ github.ref_name }}
           path: |
-            rust/target/release/nodera-tracker
-            rust/target/release/nodera-rendezvous
+            target/release/nodera-tracker
+            target/release/nodera-rendezvous
           if-no-files-found: error

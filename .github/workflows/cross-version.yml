@@ -60,9 +60,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
       - name: Rust half of the differential pair
-        working-directory: rust
+        working-directory: .
         run: cargo test -p nodera-codec
 
       # A fixture mutated by the run means the encoder drifted and something silently accepted it.

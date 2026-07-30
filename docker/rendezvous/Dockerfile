@@ -8,16 +8,18 @@
 #      adding a crate silently broke the image. Do not turn it back into a member list. -->
 #
 # The context is the repository root because `build.rs` stamps the product version from `/VERSION`.
-# The builder tracks rust/rust-toolchain.toml, not the workspace `rust-version` floor.
+# The builder tracks rust-toolchain.toml, not the workspace `rust-version` floor.
 FROM rust:1.93.1-alpine AS build
 # build-base, not just musl-dev: the update lane's TLS provider (rustls/ring) compiles C.
 RUN apk add --no-cache build-base
 WORKDIR /src
-COPY VERSION ./VERSION
+# The cargo workspace manifest lives at the repository root, so the build context is rooted
+# there too. Only the Rust tree is copied — the Java modules are not inputs to this image,
+# and copying them would bust the dependency layer on every unrelated edit.
+COPY VERSION Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY rust ./rust
-WORKDIR /src/rust
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/src/rust/target,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release -p nodera-rendezvous \
     && install -m 0755 target/release/nodera-rendezvous /usr/local/bin/nodera-rendezvous
 

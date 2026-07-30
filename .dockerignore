@@ -6,7 +6,7 @@
 # copied in and then shadowed by the container's own target directory, so it is pure waste.
 
 # Build output
-rust/target/
+target/
 build/
 java/*/build/
 java/*/bin/

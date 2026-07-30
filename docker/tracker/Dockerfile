@@ -12,20 +12,22 @@
 # The context is the repository root because `build.rs` stamps the product version from `/VERSION`,
 # and a build without that file silently falls back to the Cargo metadata.
 #
-# The builder tracks rust/rust-toolchain.toml, NOT the workspace's `rust-version` floor. The floor
+# The builder tracks rust-toolchain.toml, NOT the workspace's `rust-version` floor. The floor
 # says what this crate's own source needs (1.82); the toolchain pin is what the dependency graph
 # actually resolves against. Bump this with rust-toolchain.toml, in the same commit.
 FROM rust:1.93.1-alpine AS build
 # build-base, not just musl-dev: the update lane's TLS provider (rustls/ring) compiles C.
 RUN apk add --no-cache build-base
 WORKDIR /src
-COPY VERSION ./VERSION
+# The cargo workspace manifest lives at the repository root, so the build context is rooted
+# there too. Only the Rust tree is copied — the Java modules are not inputs to this image,
+# and copying them would bust the dependency layer on every unrelated edit.
+COPY VERSION Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY rust ./rust
-WORKDIR /src/rust
 # The cache mounts make a rebuild cheap; the binary is copied out inside the same RUN because a
-# cache mount is not part of the layer and /src/rust/target does not survive it.
+# cache mount is not part of the layer and /src/target does not survive it.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,target=/src/rust/target,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release -p nodera-tracker \
     && install -m 0755 target/release/nodera-tracker /usr/local/bin/nodera-tracker
 
