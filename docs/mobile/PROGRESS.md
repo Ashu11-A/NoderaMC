@@ -95,7 +95,7 @@ A full status reconciliation against the current tree.
   only platform `android-34`. A host provisioned solely by the toolchain is one SDK-pull away from a
   failed build. Owned by [Task.1](Task.1.md).
 * **Refactoring register added** ([`REFACTORING.md`](REFACTORING.md)): jscpd finds **0 clones** in
-  `rust/nodera-app/android/` (the Kotlin module is clean). jscpd does not scan shell, so the three
+  `app/android/` (the Kotlin module is clean). jscpd does not scan shell, so the three
   `scripts/android-*.sh` were reviewed manually — they share logging helpers, version pins and the
   `NODERA_ROOT` preamble worth sourcing from one library; the top sequencing item (centralising the
   version pins) is also the elimination path for M-9.

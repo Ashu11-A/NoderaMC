@@ -16,7 +16,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Scaffold + supervisor | ✅ COMPLETED | Attach mode; workspace-excluded crate |
-| [2](Task.2.md) | Live metrics dashboard | ✅ COMPLETED | Real worker data; 65 crate tests; Home now splits worlds you administer from worlds you support ([worker 6](../worker/Task.6.md)) |
+| [2](Task.2.md) | Live metrics dashboard | ✅ COMPLETED | Real worker data; 65 crate tests; Home now splits worlds you administer from worlds you support ([worker 6](../peer/Task.6.md)) |
 | [3](Task.3.md) | Packaging + CI | 🚧 IN PROGRESS | Build job green; installers and per-OS autostart remain |
 | [4](Task.4.md) | End-to-end acceptance | ⏳ BLOCKED | Gate-both-ways green; cross-machine half needs worker 3 + minecraft 1 |
 | [5](Task.5.md) | Telemetry consent | 🚧 IN PROGRESS | Modal + Privacy screen + 5 tests; a component test for button parity remains |
@@ -140,7 +140,7 @@ the crate was **not** re-run on this date — see TESTING.md). The ledger under-
 
 Task 1's Files section named a `tray.rs` that does not exist — the tray is built by `build_tray` in
 `lib.rs`. Corrected. A new [`REFACTORING.md`](REFACTORING.md) records the crate's structural debt:
-jscpd flags **zero** duplicated blocks in `rust/nodera-app/`, so the register is manual candidates
+jscpd flags **zero** duplicated blocks in `app/`, so the register is manual candidates
 only (the `lib.rs::run` god-function, `settings.rs`'s dual responsibility, the repeated wire→view
 conversions in `api::model`).
 
@@ -202,7 +202,7 @@ was dead and is now the Overview's pause control.
 
 ### 2026-07-26 — The app is how you use the network, not a window onto it
 
-Four surfaces landed, all on top of [worker 7](../worker/Task.7.md).
+Four surfaces landed, all on top of [worker 7](../peer/Task.7.md).
 
 **The LAN prompt.** Opening a world to LAN raises a modal offering three answers, not two: share,
 decline, and *not now*. The third changes nothing and is the reason the dashboard also carries a
@@ -231,7 +231,7 @@ rates 0 B/s, none of them changing. Nothing in the plumbing was broken. The scre
 "I do not know", so it said "zero" — and `0 ms` was a `-1` from the worker, which means *unreachable
 or never probed*, rendered as an instant handshake.
 
-**The API.** `rust/nodera-app/src/api/` is now the whole data path: `model` (typed, `Option`
+**The API.** `app/src/api/` is now the whole data path: `model` (typed, `Option`
 wherever unknown is a real answer, and a `link` block on every payload), `store` (one revisioned
 picture, rates measured against a real clock), `link` (the connection), `commands` (what React
 calls). `metrics.rs` stays as the wire mirror and nothing else reads it directly.
@@ -257,7 +257,7 @@ instead of freezing the screen, and an absent worker never claims data.
 The app was read end to end against a running worker looking for the broken link, and there was not
 one: `control.rs` connects, `NODERA-STATE` parses, the metrics pump emits, the UI renders. What the
 worker was sending was `"connected_worlds": []`, because it held its world set in memory and dropped
-it on every restart. The fix is [worker 6](../worker/Task.6.md); the app's part was to stop asking a
+it on every restart. The fix is [worker 6](../peer/Task.6.md); the app's part was to stop asking a
 question it could not answer correctly.
 
 **Home used to split on `seeding`** — "am I hosting this?" — under a heading that reads "Your worlds".

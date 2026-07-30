@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED
 **Category:** network · **Owns:** L-76 · **Last audit:** 2026-07-28
 **Depends on:** [network 11](Task.11.md), [telemetry 1](../telemetry/Task.1.md)
-**Consumed by:** [worker 5](../worker/Task.5.md), [minecraft 8](../minecraft/Task.8.md), [server 10](../server/Task.10.md)
+**Consumed by:** [worker 5](../peer/Task.5.md), [minecraft 8](../minecraft/Task.8.md), [server 10](../server/Task.10.md)
 
 ---
 
@@ -26,7 +26,7 @@ noticing.
 Complete and green: **21 tests** (`TelemetryEmitterTest`) plus the cross-language mirror
 (`TelemetryRegistryMirrorTest`, run against the real `nodera-telemetry --print-schema`).
 
-Landed in `java/peer/src/main/java/dev/nodera/telemetry/`: the three-valued consent gate; a typed
+Landed in `peer/src/main/java/dev/nodera/telemetry/`: the three-valued consent gate; a typed
 `TelemetryEvent` whose only string setter is checked against `TelemetryRegistry`; `Buckets` as the
 single place a measurement is coarsened; `SnapshotProjector` turning the diagnostics snapshot into
 windowed `net.traffic` / `region.ownership` / `engine.tick` events; a bounded oldest-dropped spool
@@ -89,8 +89,8 @@ report one windowed summary per interval rather than per occurrence; rare, high-
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/telemetry/{TelemetryConsent,TelemetryEvent,Buckets,SnapshotProjector,TelemetrySpool,TelemetrySender,InstallId}.java`
-- Tests alongside, in `java/peer/src/test/java/dev/nodera/telemetry/`
+- `peer/src/main/java/dev/nodera/telemetry/{TelemetryConsent,TelemetryEvent,Buckets,SnapshotProjector,TelemetrySpool,TelemetrySender,InstallId}.java`
+- Tests alongside, in `peer/src/test/java/dev/nodera/telemetry/`
 
 ## Testing
 

@@ -11,7 +11,7 @@
 **Category:** tracker · **Owns:** L-81 · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [tracker 2](Task.2.md), [network 1](../network/Task.1.md)
 **Consumed by:** [rendezvous 5](../rendezvous/Task.5.md), [network 13](../network/Task.13.md),
-[worker 3](../worker/Task.3.md), [app 2](../app/Task.2.md)
+[worker 3](../peer/Task.3.md), [app 2](../app/Task.2.md)
 
 ---
 
@@ -123,17 +123,17 @@ substituted manifest cannot choose the binary. A missing signature is a refusal,
 
 ## Files
 
-- `rust/nodera-tracker/src/services.rs` — the directory and the aggregation
-- `rust/nodera-tracker/src/service.rs` — dispatch, quotas, sibling directory
-- `rust/nodera-tracker/src/config.rs` — the new keys
-- `rust/nodera-service/` — identity, announce client, drain, update, lifecycle (shared with rendezvous)
-- `rust/nodera-codec/src/service.rs` — the wire family and the score function
-- `java/transport/.../protocol/service/` — the Java mirror of the family
-- `java/core/.../crypto/TypeTags.java` — 115–118
-- `java/transport/.../protocol/codec/MessageCodec.java` — 67–72
-- `java/peer/.../discovery/TrackerClient.java` — `serviceDirectory`, `reportServiceScores`
-- `java/peer/.../discovery/ServiceScoreBoard.java` — peer-local scoring + selection
-- `java/peer/.../discovery/RendezvousDirectory.java` — the sweep/probe/select driver
+- `tracker/src/services.rs` — the directory and the aggregation
+- `tracker/src/service.rs` — dispatch, quotas, sibling directory
+- `tracker/src/config.rs` — the new keys
+- `library/rust/nodera-service/` — identity, announce client, drain, update, lifecycle (shared with rendezvous)
+- `library/rust/nodera-codec/src/service.rs` — the wire family and the score function
+- `library/java/transport/.../protocol/service/` — the Java mirror of the family
+- `library/java/core/.../crypto/TypeTags.java` — 115–118
+- `library/java/transport/.../protocol/codec/MessageCodec.java` — 67–72
+- `peer/.../discovery/TrackerClient.java` — `serviceDirectory`, `reportServiceScores`
+- `peer/.../discovery/ServiceScoreBoard.java` — peer-local scoring + selection
+- `peer/.../discovery/RendezvousDirectory.java` — the sweep/probe/select driver
 - `fixtures/wire/service-*.bin` — the six golden frames
 
 ## Testing

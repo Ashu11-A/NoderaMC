@@ -6,8 +6,8 @@
      row, and move retired rows to a "Completed" section with the commit that did it. Never delete a
      row. -->
 
-Built 2026-07-28 from `jscpd` plus manual review. Scope: `java/worker/` (the `dev.nodera.headless`
-package) and `java/peer/.../dev/nodera/peer/control/` (the loopback control protocol). `build/`
+Built 2026-07-28 from `jscpd` plus manual review. Scope: `peer/` (the `dev.nodera.headless`
+package) and `peer/.../dev/nodera/peer/control/` (the loopback control protocol). `build/`
 excluded. Line counts from `build/loccount.txt`; `% duplicated` = (sum of this file's duplicated
 line-runs ÷ file lines) × 100, to one decimal. A `—` means jscpd did not flag the file and it is
 listed here on structural grounds (god class / long method).

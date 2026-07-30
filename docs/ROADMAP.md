@@ -31,7 +31,7 @@ admission behaviour they cover has not yet run as two real processes from differ
 network.
 
 **Correction 2026-07-29.** Two of those three rows were RETIRING over code nothing called.
-`:worker:structureReport` listed `dev.nodera.protocol.session.Negotiation` among "classes only tests
+`:peer:structureReport` listed `dev.nodera.protocol.session.Negotiation` among "classes only tests
 and benchmarks reference", and that was accurate — the phase-4 handshake had replaced tags 1–4 with
 `Hello`/`HelloAck` and left the *same* defect in place, a message family living in the codec and its
 tests with no runtime handler. It is now wired into `PeerRuntime` (every announce sends `Hello`, every
@@ -92,7 +92,7 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | [Tracker](tracker/Task.0.md) | 6 | 5 | 1 | 0 | Always-on discovery service |
 | [Rendezvous](rendezvous/Task.0.md) | 6 | 4 | 1 | 1 | NAT reach: punching + relay fallback |
 | [Minecraft](minecraft/Task.0.md) | 11 | 5 | 5 | 0 | The NeoForge mod — the playable product |
-| [Worker](worker/Task.0.md) | 8 | 6 | 2 | 0 | The always-on headless peer |
+| [Worker](peer/Task.0.md) | 8 | 6 | 2 | 0 | The always-on headless peer |
 | [App](app/Task.0.md) | 10 | 6 | 3 | 1 | The Tauri companion that supervises the worker |
 | [Mobile](mobile/Task.0.md) | 5 | 4 | 1 | 0 | The Android build — the worker itself, on a phone |
 | [Testing](testing/Task.0.md) | 1 | 1 | 0 | 0 | The test tooling: harness, scenarios, benchmarks, structural report |
@@ -194,18 +194,18 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [10](minecraft/Task.10.md) | A world is shown only when it can be played | 🚧 | minecraft 6, minecraft 7, worker 8 |
 | [11](minecraft/Task.11.md) | The mod's GUI, rebuilt on the vanilla layout API | ⬜ | minecraft 10 |
 
-### Worker — [`docs/worker/`](worker/Task.0.md)
+### Peer — [`docs/peer/`](peer/Task.0.md)
 
 | Task | Title | Status | Depends on |
 |---|---|---|---|
-| [1](worker/Task.1.md) | Boot + presence endpoint | ✅ | network 2, network 5 |
-| [2](worker/Task.2.md) | Control protocol v2 + live telemetry | ✅ | worker 1, network 11, network 3 |
-| [3](worker/Task.3.md) | Host/join delegation + world seeding | 🚧 | minecraft 5, network 4, tracker 2, rendezvous 2 |
-| [4](worker/Task.4.md) | Out-of-game committee validation | ✅ headless | engine 5, network 2 |
-| [5](worker/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
-| [6](worker/Task.6.md) | World ownership + durable world registry | ✅ | worker 2, worker 3, network 3 |
-| [7](worker/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
-| [8](worker/Task.8.md) | One world, one identity | 🚧 all 11 deliverables closed; open on live rows | worker 3, minecraft 6 |
+| [1](peer/Task.1.md) | Boot + presence endpoint | ✅ | network 2, network 5 |
+| [2](peer/Task.2.md) | Control protocol v2 + live telemetry | ✅ | worker 1, network 11, network 3 |
+| [3](peer/Task.3.md) | Host/join delegation + world seeding | 🚧 | minecraft 5, network 4, tracker 2, rendezvous 2 |
+| [4](peer/Task.4.md) | Out-of-game committee validation | ✅ headless | engine 5, network 2 |
+| [5](peer/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
+| [6](peer/Task.6.md) | World ownership + durable world registry | ✅ | worker 2, worker 3, network 3 |
+| [7](peer/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
+| [8](peer/Task.8.md) | One world, one identity | 🚧 all 11 deliverables closed; open on live rows | worker 3, minecraft 6 |
 
 ### App — [`docs/app/`](app/Task.0.md)
 
@@ -267,8 +267,8 @@ engine ──► network ──►┬─► tracker ──┐
 | **0 — now, parallel** | [minecraft 1](minecraft/Task.1.md) Xvfb `runClient` harness in CI · [tracker 3](tracker/Task.3.md) ops hardening · [app 3](app/Task.3.md) packaging + CI | Each is small, independent, and unblocks a batch of acceptance evidence downstream |
 | **1 — the live gate** | [minecraft 2](minecraft/Task.2.md) live validation lane | The single biggest remaining lane; capture mixins, `ServerLevel` applier, chunk tickets, live shadow → coordinator → committee → fallback wiring. Almost every ⏳ elsewhere waits on it |
 | **2 — GUI-deferred pool** | [minecraft 3](minecraft/Task.3.md) surface pass · [minecraft 4](minecraft/Task.4.md) live feeds + join flow · [minecraft 5](minecraft/Task.5.md) re-manifest + live encryption · [minecraft 6](minecraft/Task.6.md) world-list mixin + grant enforcement | One GUI environment unlocks all four at once — do them as one batch, not four visits |
-| **3 — network completion** | [network 2](network/Task.2.md) gateway migration end-to-end · [rendezvous 3](rendezvous/Task.3.md) cross-internet soak · [worker 3](worker/Task.3.md) seeding/announce delegation · [app 4](app/Task.4.md) cross-machine continuity | All four need a live/NAT environment; they share the same harness wave 1 produces |
-| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](worker/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [app 5](app/Task.5.md) all but a component test | Done in one pass, proven end to end by the `telemetry` scenario (`scripts/nodera-test.sh run telemetry`). What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
+| **3 — network completion** | [network 2](network/Task.2.md) gateway migration end-to-end · [rendezvous 3](rendezvous/Task.3.md) cross-internet soak · [worker 3](peer/Task.3.md) seeding/announce delegation · [app 4](app/Task.4.md) cross-machine continuity | All four need a live/NAT environment; they share the same harness wave 1 produces |
+| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](peer/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [app 5](app/Task.5.md) all but a component test | Done in one pass, proven end to end by the `telemetry` scenario (`scripts/nodera-test.sh run telemetry`). What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
 | **4 — parity program** | [engine 8](engine/Task.8.md) → [engine 9](engine/Task.9.md) → [engine 10](engine/Task.10.md) → [engine 11](engine/Task.11.md) → [engine 12](engine/Task.12.md) | Burns every category's `LIMITATIONS.md` to empty; engine 12 closes the ledger |
 
 **Biggest schedule lever:** wave 1. Nine tasks across five categories carry a "live evidence
@@ -285,7 +285,7 @@ Importance = how much it unblocks × how directly it proves the central bet × p
 | 1 | [minecraft 1](minecraft/Task.1.md) — CI run harness | Hours of work; converts every "proven live once by hand" claim into a repeatable gate |
 | 2 | [minecraft 2](minecraft/Task.2.md) — live validation lane | The determinism bet on real servers; the MVP gate's live half; unblocks waves 2–3 |
 | 3 | [engine 8](engine/Task.8.md) — entity lane completion | Headless and durable exits are green; live pickup/mob/pearl evidence makes the lane real |
-| 4 | [worker 3](worker/Task.3.md) — delegation + seeding | Makes "the world outlives its host" a property of the node, not of a lucky timing window |
+| 4 | [worker 3](peer/Task.3.md) — delegation + seeding | Makes "the world outlives its host" a property of the node, not of a lucky timing window |
 | 5 | [network 2](network/Task.2.md) — gateway migration | Session continuity under churn on direct, punched, and relayed paths |
 | 6 | [minecraft 4](minecraft/Task.4.md) — multiplayer GUI live feeds | The feature players actually see: worlds, health, piece map, join |
 | 7 | [engine 9](engine/Task.9.md) — validated redstone | High player value; palette v4 landed, contraption migration remains |
@@ -311,7 +311,7 @@ Difficulty = technical risk × breadth × novelty.
 | 5 | [engine 9](engine/Task.9.md) | Redstone semantic fidelity plus contraption ownership migration across region borders |
 | 6 | [engine 8](engine/Task.8.md) | Entity state in roots, ghost lanes, cross-region transfer with no dupes and no loss |
 | 7 | [network 2](network/Task.2.md) | Migration UX under failure: freeze, reconnect, exactly-once resubmit across three transport paths |
-| 8 | [worker 3](worker/Task.3.md) | Splitting "player session" from "node session" without a window where a world is announced but unserved |
+| 8 | [worker 3](peer/Task.3.md) | Splitting "player session" from "node session" without a window where a world is announced but unserved |
 | 9 | [app 4](app/Task.4.md) | Cross-machine acceptance in CI: two machines, an installer, a gate, and a timing-sensitive continuity assertion |
 | 10 | [minecraft 1](minecraft/Task.1.md) | Headless-display Minecraft in CI is fiddly, not deep |
 
@@ -328,7 +328,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Tracker | [`tracker/LIMITATIONS.md`](tracker/LIMITATIONS.md) | L-81 (RETIRING — release signing key outstanding, a credential step not code) |
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
-| Worker | [`worker/LIMITATIONS.md`](worker/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
+| Worker | [`peer/LIMITATIONS.md`](peer/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
 | App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, A-9, A-UX-1…5 |
 | Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | OPEN: M-1…M-5, M-9, M-NET-1, M-NET-3…4 · RETIRING: M-NET-2 (headless property/self-route proof green; physical phone pending) |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-73, L-74, L-75 (L-72 retired → [`LIMITATIONS.fixed.md`](telemetry/LIMITATIONS.fixed.md)) |

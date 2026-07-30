@@ -56,7 +56,7 @@ docs/
 ├── tracker/               ← category: standalone tracker service + its client
 ├── rendezvous/            ← category: rendezvous + relay service + its transport
 ├── minecraft/             ← category: the NeoForge mod (+ prior-art studies & upstream sources)
-├── worker/                ← category: the always-on headless peer worker
+├── peer/                  ← category: the node — peer runtime + its always-on services
 ├── app/                   ← category: the Tauri companion application
 ├── mobile/                ← category: the Android build — the same app and worker, on a phone
 ├── server/                ← category: the Paper/Folia endpoint plugin (plans/Plan.5.md)
@@ -142,22 +142,22 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 
 | Category | Component | Code | Tasks |
 |---|---|---|---|
-| [`engine/`](engine/Task.0.md) | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | `java/core`, `java/engine`, `java/testing` | 12 |
-| [`network/`](network/Task.0.md) | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | `java/transport`, `java/storage`, `java/peer`, `rust/nodera-codec` | 14 |
-| [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `rust/nodera-tracker`, `dev.nodera.peer.discovery` | 6 |
-| [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rust/nodera-rendezvous`, `dev.nodera.transport.rendezvous` | 6 |
-| [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `java/neoforge-mod` | 11 |
-| [`worker/`](worker/Task.0.md) | The required always-on headless peer and its loopback control protocol | `java/worker` (`dev.nodera.headless`), `dev.nodera.peer.control` | 8 |
-| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the worker | `rust/nodera-app` | 10 |
-| [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `rust/nodera-app/android`, `scripts/android-*.sh` | 5 |
-| [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | (unwritten) | 10 |
-| [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `rust/nodera-telemetry`, `docker/telemetry` | 3 |
-| [`testing/`](testing/Task.0.md) | The test tooling itself: the live harness, the acceptance scenarios, the benchmark lanes and the structural report, behind one `nodera-test` command | `java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh` | 1 |
+| [`engine/`](engine/Task.0.md) | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | `library/library/java/core`, `library/library/java/engine`, `library/library/java/testing` | 12 |
+| [`network/`](network/Task.0.md) | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | `library/library/java/transport`, `library/library/java/storage`, `peer`, `library/library/rust/nodera-codec` | 14 |
+| [`tracker/`](tracker/Task.0.md) | Always-on world/peer discovery service and its Java client | `tracker`, `dev.nodera.peer.discovery` | 6 |
+| [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rendezvous`, `dev.nodera.transport.rendezvous` | 6 |
+| [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `endpoints/neoforge-mod`, `library/java/endpoint` | 11 |
+| [`peer/`](peer/Task.0.md) | The node: peer runtime plus the always-on services that make it serve, and its loopback control protocol | `peer` (`dev.nodera.headless`, `dev.nodera.peer.control`) | 8 |
+| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the node | `app` | 10 |
+| [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `app/android`, `scripts/android-*.sh` | 5 |
+| [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | `endpoints/paper-plugin`, `library/java/endpoint` | 10 |
+| [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `telemetry`, `docker/telemetry` | 3 |
+| [`testing/`](testing/Task.0.md) | The test tooling itself: the live harness, the acceptance scenarios, the benchmark lanes and the structural report, behind one `nodera-test` command | `library/library/java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh` | 1 |
 
 Category boundaries are **documentation** boundaries; they do not always equal Gradle/Cargo module
 boundaries. The mapping from category to module is stated in each category's `Task.0.md` §Files,
 and every package carries its own `README.md` describing its architecture
-(`java/*/README.md`, `rust/*/README.md`).
+(each module's and crate's own `README.md`).
 
 ---
 
@@ -165,29 +165,54 @@ and every package carries its own `README.md` describing its architecture
 
 ### 4.1 Layout — polyglot monorepo
 
-- `java/<module>/` — nine Gradle modules plus build logic: `core` · `engine` · `transport` ·
-  `storage` · `peer` · `worker` · `testing` · `neoforge-mod` · `paper-plugin` (+ `build-logic`).
-- `rust/` — cargo workspace: `nodera-codec` (canonical-encoding conformance), `nodera-tracker`,
-  `nodera-rendezvous`, `nodera-telemetry`, and `nodera-app` (workspace-**excluded**: Tauri native
-  deps).
+**One top-level folder per component**, in either language, with the shared code under `library/`:
+
+```
+app/          the Tauri companion — desktop tray, dashboard, Android host
+web/          the static site served at noderamc.org
+peer/         the node: peer runtime AND the always-on services (`nodera-headless`)
+endpoints/    what makes a Minecraft server a node — neoforge-mod, paper-plugin
+tracker/      the world/peer discovery service
+rendezvous/   NAT reach: registration, hole punching, relay
+telemetry/    the consented-measurement ingest service
+library/
+  java/       core · engine · transport · storage · endpoint · testing · build-logic
+  rust/       nodera-codec · nodera-service
+docker/ scripts/ fixtures/ services/ gradle/ docs/
+```
+
+**`layout.properties` at the root is THE layout table**, and the block above is a description of it
+rather than a second copy. Gradle's settings script, `LayoutManifest`, the structural report,
+`scripts/lib/layout.{sh,py}` and `nodera_codec::repo` all read it; `LayoutManifestTest` fails the
+build when any of them drift from it. Never hardcode a module or crate directory anywhere else.
+
+Gradle module NAMES are independent of where the directory sits: `:core` is `:core` whether it lives
+in `library/java/core` or `library/library/java/core`, which is what lets a relocation be one line.
+
 - `docker/` — deployments that are never dependencies of the game (`docker/telemetry/`).
 - `fixtures/wire/` — golden canonical frames, emitted by Java and re-encoded byte-exactly by Rust.
   **Never edit a fixture by hand.**
 
 ### 4.2 Two toolchains, one gate
 
-`./gradlew check` **and** `cd rust && cargo test` must both be green. `scripts/dev.sh --test` runs
+`./gradlew check` **and** `cargo test` (from the repository root, which is the cargo workspace
+root) must both be green. `scripts/dev.sh --test` runs
 both plus the lint gate. Cross-language conformance tests (`fixtures/wire/*.bin` + the tag-registry
 mirror) hold the two canonical-encoding implementations to the same contract.
 
 ### 4.3 Layering
 
 1. `core` depends on nothing but the JDK.
-2. `engine`, `transport`, `storage` depend on `core`. `peer` depends on those four; `worker` depends
-   on `peer` and the libraries it composes. `testing` depends on `core` + `engine` + `transport`.
-3. **No Minecraft/NeoForge types outside `neoforge-mod`.** Where a Minecraft concept is needed,
-   `core` defines its own representation (`NBlockState` int id, `NBlockPos` record) and the mod owns
-   the mapping.
+2. `engine`, `transport`, `storage` depend on `core`. `peer` depends on those four and composes the
+   always-on node from them — a peer that does not run those services is not constructible, which is
+   why they are not a separate module. `endpoint` depends on `peer` and holds everything a
+   Minecraft-hosting process needs in order to BE a node, with no Minecraft in it. `testing` depends
+   on `core` + `engine` + `transport` + `peer`.
+3. **No Minecraft/NeoForge types outside `endpoints/neoforge-mod`, and no Paper types outside
+   `endpoints/paper-plugin`.** Where a Minecraft concept is needed, `core` defines its own
+   representation (`NBlockState` int id, `NBlockPos` record) and the endpoint owns the mapping. A
+   wire payload is split: the DATA is a record in `library/java/endpoint`, the `CustomPacketPayload`
+   wrapper that adds a `StreamCodec` to it stays in the mod.
 4. Client-only code lives only under `dev.nodera.mod.client`, guarded by `Dist.CLIENT`.
 5. All mutation of a real `ServerLevel` happens in exactly one class (`WorldMutationApplier`) on the
    server main thread. Everything else produces data (`RegionDelta`) and hands it off.
@@ -265,7 +290,7 @@ contains one line (`0.1.0`); comments and blank lines are allowed and ignored.
 | Toolchain | How it gets the version |
 |---|---|
 | Gradle | `settings.gradle.kts` reads `VERSION` and injects `noderaVersion`/`modVersion` into every project; the root build sets `version` from it |
-| Java runtime | `java/core` expands it into `nodera-version.properties`; `NoderaConstants.PRODUCT_VERSION` loads that resource (falling back to `0.0.0-unbuilt`, which means the build did not run) |
+| Java runtime | `library/java/core` expands it into `nodera-version.properties`; `NoderaConstants.PRODUCT_VERSION` loads that resource (falling back to `0.0.0-unbuilt`, which means the build did not run) |
 | NeoForge mod | The convention plugin stamps `modVersion` into `neoforge.mods.toml` |
 | Rust services | Each service crate's `build.rs` reads `VERSION` and sets `NODERA_VERSION`; binaries print that, not `CARGO_PKG_VERSION` |
 | Cargo / Tauri / npm manifests | **Mirrors** — formats that cannot read a file at build time. `scripts/version.sh` writes them and `--check` fails the gate when one drifts |

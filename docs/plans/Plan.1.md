@@ -124,7 +124,7 @@ Plan — Make the Nodera companion fully functional (real worker data, world ide
  already matches; App.tsx already renders it → real GB/peers/chunks/world appear.
 
  Files: nodera-headless/HeadlessPeerMain.java, new nodera-headless/.../WorkerState.java,
- peer-runtime/control/{ControlProtocol,ControlServer}.java, rust/nodera-app/src/{control.rs,main.rs}.
+ peer-runtime/control/{ControlProtocol,ControlServer}.java, app/src/{control.rs,main.rs}.
 
  Phase C — Per-world identity + authorship + shared-state persistence
 
@@ -251,7 +251,7 @@ Plan — Make the Nodera companion fully functional (real worker data, world ide
  .../client/multiplayer/NoderaMultiplayerScreen.java.
  - Worker + control: peer-runtime/.../control/{ControlProtocol,ControlServer}.java,
  nodera-headless/.../HeadlessPeerMain.java (+ new WorkerState.java, permission/host handlers).
- - Rust app: rust/nodera-app/src/{control.rs,main.rs,metrics.rs}, ui/src/App.tsx (already renders).
+ - Rust app: app/src/{control.rs,main.rs,metrics.rs}, ui/src/App.tsx (already renders).
  - World identity/perms: new storage-api/{WorldIdentity,WorldPermissionGrant}.java (+ append-only
  tags),
  core Role,

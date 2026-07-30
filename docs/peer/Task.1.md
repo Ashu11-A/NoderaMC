@@ -65,8 +65,8 @@ can classify skew as "update the app" or "update the mod" rather than failing wi
 
 ## Files
 
-- `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java`
-- `java/peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlServer}.java`
+- `peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java`
+- `peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlServer}.java`
 - `scripts/dev.sh`
 
 ## Testing

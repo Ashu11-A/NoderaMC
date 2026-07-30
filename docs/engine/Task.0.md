@@ -82,7 +82,7 @@ storage.
 
 **This category is consumed by:** [`network/`](../network/Task.0.md) (types and certificates),
 [`minecraft/`](../minecraft/Task.0.md) (which delivers every live half),
-[`worker/`](../worker/Task.0.md) (which runs the committee out of game).
+[`worker/`](../peer/Task.0.md) (which runs the committee out of game).
 
 ## 5. Task index
 
@@ -109,14 +109,14 @@ third-party rule packs: [`SDK.md`](SDK.md).
 
 | Path | Contents |
 |---|---|
-| `java/core/` | Identities, regions, actions, state, events, certificates, JDK-only crypto, canonical encoding |
-| `java/engine/` | `dev.nodera.simulation` (the engine), `consensus`, `shadow`, `coordinator`, `committee`, `fallback` |
-| `java/testing/` | `LoopbackTransport`, `FakeRegion`, fixture IO — the shared test library |
+| `library/java/core/` | Identities, regions, actions, state, events, certificates, JDK-only crypto, canonical encoding |
+| `library/java/engine/` | `dev.nodera.simulation` (the engine), `consensus`, `shadow`, `coordinator`, `committee`, `fallback` |
+| `library/java/testing/` | `LoopbackTransport`, `FakeRegion`, fixture IO — the shared test library |
 | `COMPATIBILITY.md` (repo root) | The normative mod-compatibility contract, written by task 7 |
 
-Package architecture: [`java/core/README.md`](../../java/core/README.md),
-[`java/engine/README.md`](../../java/engine/README.md),
-[`java/testing/README.md`](../../java/testing/README.md).
+Package architecture: [`library/java/core/README.md`](../../library/java/core/README.md),
+[`library/java/engine/README.md`](../../library/java/engine/README.md),
+[`library/java/testing/README.md`](../../library/java/testing/README.md).
 
 ## 7. Conventions specific to this category
 

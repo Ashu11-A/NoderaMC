@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (mod-side feed → [minecraft 4](../minecraft/Task.4.md))
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 2](Task.2.md)
-**Consumed by:** [tracker 2](../tracker/Task.2.md), [network 6](Task.6.md), [worker 1](../worker/Task.1.md)
+**Consumed by:** [tracker 2](../tracker/Task.2.md), [network 6](Task.6.md), [worker 1](../peer/Task.1.md)
 
 ---
 
@@ -76,7 +76,7 @@ sources would make the discovery plane an authority, which the trust model forbi
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/discovery/{PeerDirectory,ArchiveInventory,BootstrapClient,InvitationCodec,CachedPeerStore,PersistentIdentityStore,PeerDiscoveryService,TrackerClient}.java`
+- `peer/src/main/java/dev/nodera/peer/discovery/{PeerDirectory,ArchiveInventory,BootstrapClient,InvitationCodec,CachedPeerStore,PersistentIdentityStore,PeerDiscoveryService,TrackerClient}.java`
 
 ## Testing
 

@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (with a live call site since 2026-07-25)
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 5](../engine/Task.5.md), [network 7](Task.7.md)
-**Consumed by:** [minecraft 3](../minecraft/Task.3.md), [worker 4](../worker/Task.4.md)
+**Consumed by:** [minecraft 3](../minecraft/Task.3.md), [worker 4](../peer/Task.4.md)
 
 ---
 
@@ -78,10 +78,10 @@ cannot drift with the host's clock.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/diagnostics/{TickSkewMeter,TpsMeter}.java`
-- `java/peer/src/main/java/dev/nodera/peer/TickSync.java`
-- `java/engine/src/main/java/dev/nodera/coordinator/LagHandoffPolicy.java`
-- `java/engine/src/main/java/dev/nodera/committee/CommitteeFailover.java`
+- `peer/src/main/java/dev/nodera/diagnostics/{TickSkewMeter,TpsMeter}.java`
+- `peer/src/main/java/dev/nodera/peer/TickSync.java`
+- `library/java/engine/src/main/java/dev/nodera/coordinator/LagHandoffPolicy.java`
+- `library/java/engine/src/main/java/dev/nodera/committee/CommitteeFailover.java`
 
 ## Testing
 

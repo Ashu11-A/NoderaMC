@@ -72,22 +72,22 @@ Two planes must be kept apart when reading the code:
 
 | Layer | Contract | Files |
 |---|---|---|
-| Framing (TCP) | `u32` big-endian length + body, hard cap 16 MiB | `java/transport/.../transport/Frames.java:25`, `rust/nodera-codec/src/framing.rs:12` |
-| Framing (UDP) | the datagram *is* the frame, no length prefix | `rust/nodera-tracker/src/wire.rs:127` |
-| Message frame | `magic:u32 'NDR2'` + `epoch:u16` + `kind:u16` + `flags:u16` + `correlationId:u64` + `len:u32` + body | `java/transport/.../protocol/wire/NoderaFrame.java`, `rust/nodera-codec/src/frame.rs` |
-| Infrastructure body | canonical TLV: `fieldId:u16` `wireType:u8` `len:u32` `value`, ascending ids, each at most once | `.../wire/{TlvWriter,TlvReader}.java`, `rust/nodera-codec/src/tlv.rs` |
+| Framing (TCP) | `u32` big-endian length + body, hard cap 16 MiB | `library/java/transport/.../transport/Frames.java:25`, `library/rust/nodera-codec/src/framing.rs:12` |
+| Framing (UDP) | the datagram *is* the frame, no length prefix | `tracker/src/wire.rs:127` |
+| Message frame | `magic:u32 'NDR2'` + `epoch:u16` + `kind:u16` + `flags:u16` + `correlationId:u64` + `len:u32` + body | `library/java/transport/.../protocol/wire/NoderaFrame.java`, `library/rust/nodera-codec/src/frame.rs` |
+| Infrastructure body | canonical TLV: `fieldId:u16` `wireType:u8` `len:u32` `value`, ascending ids, each at most once | `.../wire/{TlvWriter,TlvReader}.java`, `library/rust/nodera-codec/src/tlv.rs` |
 | Consensus body | one opaque `BYTES` field holding the strict canonical encoding, untouched | `.../wire/WireCodec.java` |
-| Canonical encoding | `u16 typeTag` + `u16 version` + positional body; big-endian fixed-width, no varints, no floats in hashed state. Still what is hashed and signed — no longer what crosses a socket | `java/transport/.../protocol/codec/MessageCodec.java` |
-| Kind registry | frozen, append-only; kinds 1–75 assigned, `NEXT_KIND = 75`. **One declarative row each**, and everything else is derived or generated from it | `java/transport/.../protocol/wire/WireRegistry.java`; generated into `rust/nodera-codec/src/kinds.rs` |
-| Nested values | `TypeTags` (1–118) for `Encodable` values inside consensus bodies | `java/core/.../crypto/TypeTags.java`; `rust/nodera-codec/src/tags.rs:11` |
-| Cross-language parity | a test **parses the Java schema** and compares it with the generated Rust table, totally and both ways, plus uniqueness and contiguity | `rust/nodera-codec/tests/tag_mirror.rs` |
+| Canonical encoding | `u16 typeTag` + `u16 version` + positional body; big-endian fixed-width, no varints, no floats in hashed state. Still what is hashed and signed — no longer what crosses a socket | `library/java/transport/.../protocol/codec/MessageCodec.java` |
+| Kind registry | frozen, append-only; kinds 1–75 assigned, `NEXT_KIND = 75`. **One declarative row each**, and everything else is derived or generated from it | `library/java/transport/.../protocol/wire/WireRegistry.java`; generated into `library/rust/nodera-codec/src/kinds.rs` |
+| Nested values | `TypeTags` (1–118) for `Encodable` values inside consensus bodies | `library/java/core/.../crypto/TypeTags.java`; `library/rust/nodera-codec/src/tags.rs:11` |
+| Cross-language parity | a test **parses the Java schema** and compares it with the generated Rust table, totally and both ways, plus uniqueness and contiguity | `library/rust/nodera-codec/tests/tag_mirror.rs` |
 
 One encoding serves wire transport, hashing, and signing alike, which is what makes a signature
 verifiable against *received* bytes rather than a re-encoding — the tracker explicitly verifies the
-byte range it received (`rust/nodera-tracker/src/service.rs:114`).
+byte range it received (`tracker/src/service.rs:114`).
 
 Rust *decodes* only the discovery, rendezvous, and service subset (24 kinds,
-`rust/nodera-codec/src/tags.rs`, `SUPPORTED_MESSAGE_TAGS`) but now *knows* all 75, because the kind
+`library/rust/nodera-codec/src/tags.rs`, `SUPPORTED_MESSAGE_TAGS`) but now *knows* all 75, because the kind
 table is generated. Game, consensus, and storage logic never crosses into the Rust services by
 design.
 
@@ -135,7 +135,7 @@ Purpose: answer "which worlds exist, who is in this world, and where can I dial 
 **swarm directory** in the sense of `TRACKERS.md §1`: a set of claims about who is in a torrent, not
 an authority over its contents. The world's `genesisHash` plays the role of `info_hash` and a peer's
 `NodeId` the role of `peer_id` (`TRACKERS.md §4`, "Important fields"). Never authority
-(`rust/nodera-tracker/src/registry.rs:1`, `TRACKERS.md §20` — a tracker
+(`tracker/src/registry.rs:1`, `TRACKERS.md §20` — a tracker
 coordinates, a relay forwards; these roles must not be confused).
 
 * **Surfaces.** TCP (length-prefixed, one task per connection, `wire.rs:71`) and optional UDP (one
@@ -200,7 +200,7 @@ coordinates, a relay forwards; these roles must not be confused).
 ### 3.2 `nodera-rendezvous` (Rust) — introductions, punching, relaying
 
 Purpose: let two peers behind NATs find and reach each other. It introduces and forwards; peers
-authenticate each other end to end (`rust/nodera-rendezvous/src/service.rs:1`,
+authenticate each other end to end (`rendezvous/src/service.rs:1`,
 `RENDEZVOUS.md §1`/`§2.2`). The service occupies the spec's **discovery plane** and
 **connectivity-control plane** while staying out of the **data plane** except as a metered relay
 (`RENDEZVOUS.md §3.1`/`§3.2`/`§3.3`).
@@ -244,7 +244,7 @@ authenticate each other end to end (`rust/nodera-rendezvous/src/service.rs:1`,
 
 ### 3.3 The Java peer worker (`nodera-headless`) — the node that outlives the game
 
-`java/peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:57` wires the whole node:
+`peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:57` wires the whole node:
 
 * a **persistent identity** (`PersistentIdentityStore`, `~/.nodera/worker-identity.bin`) so the
   `NodeId` survives restarts;
@@ -266,7 +266,7 @@ authenticate each other end to end (`rust/nodera-rendezvous/src/service.rs:1`,
 Three consumers share one application-message lane; each ignores types it does not own
 (`HeadlessPeerMain.java:153`).
 
-### 3.4 The companion app (`rust/nodera-app`, Tauri)
+### 3.4 The companion app (`app`, Tauri)
 
 It is **not** a network participant. It supervises the worker process (spawn, restart with backoff,
 log capture — `daemon.rs`), or attaches to an already-running one (`NODERA_APP_ATTACH=1`), and speaks
@@ -292,7 +292,7 @@ its own short connection, so a stalled worker fails fast instead of freezing the
 
 Line-oriented ASCII on `127.0.0.1:25610`. `ControlProtocol` is the single source of truth; the mod's
 `CompanionProtocol` delegates to it and the Rust `control.rs` mirrors the constants
-(`java/peer/.../peer/control/ControlProtocol.java:19`). `PROTOCOL_VERSION = 2`. A mismatch is reported
+(`peer/.../peer/control/ControlProtocol.java:19`). `PROTOCOL_VERSION = 2`. A mismatch is reported
 as "update the app / update the mod", never a hang. Payloads that could contain spaces are base64,
 because `ControlServer.dispatch` splits on whitespace.
 
@@ -529,8 +529,8 @@ network-visible countdown, while the drop decision stays with the peers.
 
 | What | Default | Where |
 |---|---|---|
-| Tracker | `0.0.0.0:25600` TCP+UDP | `rust/nodera-tracker/src/config.rs:66` |
-| Rendezvous | `0.0.0.0:25601` TCP | `rust/nodera-rendezvous/src/config.rs:52` |
+| Tracker | `0.0.0.0:25600` TCP+UDP | `tracker/src/config.rs:66` |
+| Rendezvous | `0.0.0.0:25601` TCP | `rendezvous/src/config.rs:52` |
 | Worker control (loopback) | `127.0.0.1:25610` | `HeadlessPeerMain.java:59`, `NoderaConfig.java:217` |
 | Worker P2P | `25620` (or `NODERA_P2P_PORT_RANGE`) | `HeadlessPeerMain.java:61` |
 | Mod host P2P | `p2p.port = 25566` | `NoderaConfig.java:63` |
@@ -552,7 +552,7 @@ it without a config file.
 
 | Spec section | Where it lands |
 |---|---|
-| §1 swarm abstraction | `Swarm` keyed by `genesisHash`; `rust/nodera-tracker/src/registry.rs:49` |
+| §1 swarm abstraction | `Swarm` keyed by `genesisHash`; `tracker/src/registry.rs:49` |
 | §2 torrent start | `WorldHostingService.host` → `STARTED` announce; `:160` |
 | §3.1/§3.2/§3.4 announce lifecycle | `AnnounceEvent.STARTED` / `HEARTBEAT` / `STOPPED`; `registry.rs:153` |
 | §3.3 `completed` | **not implemented** (D5) |
@@ -603,7 +603,7 @@ it without a config file.
 | §4.7 path selection | `TransportSelector.select`; three rungs rather than six (D6); `:57` |
 | §4.8 relay shutdown / retention | reservation TTL + idle/byte/duration teardown; `circuit.rs:9` |
 | §5 sequence diagram | §5.2–§5.4 of this document is its NoderaMC instantiation |
-| §6 abstract protocol model | tags 35–43 in the frozen registry; `rust/nodera-codec/src/rendezvous.rs` |
+| §6 abstract protocol model | tags 35–43 in the frozen registry; `library/rust/nodera-codec/src/rendezvous.rs` |
 | §7 state machine | server-originated tags refused inbound; `service.rs:174` |
 | §8.1 cryptographic peer identity | signed records + the authenticated transport handshake; `TransportAuth.java` |
 | §8.2 end-to-end transport security | `EndToEndCipher` over relayed payloads |
@@ -635,23 +635,23 @@ it without a config file.
 
 | Concern | File |
 |---|---|
-| Frozen message registry + codec | `java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java` |
-| Frame codec (Java / Rust) | `java/transport/.../transport/Frames.java`, `rust/nodera-codec/src/framing.rs` |
-| Tag mirror test | `rust/nodera-codec/tests/tag_mirror.rs` |
-| Tracker service | `rust/nodera-tracker/src/{service,announce,registry,query,health,wire,config}.rs` |
-| Rendezvous service | `rust/nodera-rendezvous/src/{service,register,registry,discover,reservation,circuit,punch,wire,config}.rs` |
-| Tracker client (Java) | `java/peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java` |
-| Rendezvous client + transport | `java/transport/.../transport/rendezvous/{RendezvousClient,RendezvousPeerTransport,TransportSelector,RelayCircuit,HolePunchCoordinator,EndToEndCipher}.java` |
-| Authenticated socket | `java/transport/.../transport/socket/{SocketPeerTransport,TransportAuth}.java` |
-| Session runtime | `java/peer/src/main/java/dev/nodera/peer/{PeerRuntime,GatewayElection,TickSync}.java` |
-| Peer discovery sweep | `java/peer/.../peer/discovery/PeerDiscoveryService.java` |
-| Worker main + lanes | `java/peer/src/main/java/dev/nodera/headless/*.java` |
-| Control protocol + server | `java/peer/.../peer/control/{ControlProtocol,ControlServer,ControlHandler}.java`, `headless/WorkerControlHandler.java` |
-| Content plane | `java/peer/.../distribution/{ContentTransferService,PieceManifest,PieceDownloader,WorldArchive}.java` |
-| Mod ↔ worker | `java/neoforge-mod/.../mod/common/{CompanionProtocol,CompanionClient,CompanionGate,CompanionLink}.java` |
-| Mod peer lanes | `java/neoforge-mod/.../mod/common/{NoderaPeerService,NoderaHost,ModNetworking}.java` |
-| Worlds tab + join | `java/neoforge-mod/.../mod/client/multiplayer/{MultiplayerWorldFeed,NoderaWorldList,NoderaJoinFlow,MultiplayerStatusFeed}.java` |
-| Companion app | `rust/nodera-app/src/{control,daemon,settings,metrics}.rs` |
+| Frozen message registry + codec | `library/java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java` |
+| Frame codec (Java / Rust) | `library/java/transport/.../transport/Frames.java`, `library/rust/nodera-codec/src/framing.rs` |
+| Tag mirror test | `library/rust/nodera-codec/tests/tag_mirror.rs` |
+| Tracker service | `tracker/src/{service,announce,registry,query,health,wire,config}.rs` |
+| Rendezvous service | `rendezvous/src/{service,register,registry,discover,reservation,circuit,punch,wire,config}.rs` |
+| Tracker client (Java) | `peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java` |
+| Rendezvous client + transport | `library/java/transport/.../transport/rendezvous/{RendezvousClient,RendezvousPeerTransport,TransportSelector,RelayCircuit,HolePunchCoordinator,EndToEndCipher}.java` |
+| Authenticated socket | `library/java/transport/.../transport/socket/{SocketPeerTransport,TransportAuth}.java` |
+| Session runtime | `peer/src/main/java/dev/nodera/peer/{PeerRuntime,GatewayElection,TickSync}.java` |
+| Peer discovery sweep | `peer/.../peer/discovery/PeerDiscoveryService.java` |
+| Worker main + lanes | `peer/src/main/java/dev/nodera/headless/*.java` |
+| Control protocol + server | `peer/.../peer/control/{ControlProtocol,ControlServer,ControlHandler}.java`, `headless/WorkerControlHandler.java` |
+| Content plane | `peer/.../distribution/{ContentTransferService,PieceManifest,PieceDownloader,WorldArchive}.java` |
+| Mod ↔ worker | `endpoints/neoforge-mod/.../mod/common/{CompanionProtocol,CompanionClient,CompanionGate,CompanionLink}.java` |
+| Mod peer lanes | `endpoints/neoforge-mod/.../mod/common/{NoderaPeerService,NoderaHost,ModNetworking}.java` |
+| Worlds tab + join | `endpoints/neoforge-mod/.../mod/client/multiplayer/{MultiplayerWorldFeed,NoderaWorldList,NoderaJoinFlow,MultiplayerStatusFeed}.java` |
+| Companion app | `app/src/{control,daemon,settings,metrics}.rs` |
 | Normative architecture specs | `docs/tracker/REFERENCE.md`, `docs/rendezvous/REFERENCE.md` — full section mapping in §9 |
 | Known limitations | `docs/LIMITATIONS.md` |
 

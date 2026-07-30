@@ -4,7 +4,7 @@
      explaining itself in paragraphs, it has become documentation and belongs here instead. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `rust/nodera-app/ui/src/m3/`, `rust/nodera-app/ui/src/mobile/`
+**Category:** mobile · **Owns:** `app/ui/src/m3/`, `app/ui/src/mobile/`
 **Last audit:** 2026-07-28
 **Depends on:** [mobile 1](Task.1.md), [app 6](../app/Task.6.md)
 

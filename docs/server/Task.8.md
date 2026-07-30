@@ -143,7 +143,7 @@ testing less.
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/compat/{NoderaEndpointAPI,NoderaRegionDeniedEvent,ForeignWriteBridge,EventPriorityAudit}.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/compat/{NoderaEndpointAPI,NoderaRegionDeniedEvent,ForeignWriteBridge,EventPriorityAudit}.java`
 - `scripts/e2e-plugins.sh`
 
 ## Testing

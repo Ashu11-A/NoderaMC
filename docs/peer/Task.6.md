@@ -114,13 +114,13 @@ refuses to boot serves nothing, and one that boots having forgotten still serves
 
 ## Files
 
-- `java/storage/src/main/java/dev/nodera/storage/{PersistedWorldKey,WorldOwnership,WorldAdminProof,WorldRegistry}.java`
-- `java/worker/src/main/java/dev/nodera/headless/{WorldKeyStore,WorldRegistryStore,WorldOwnershipService,LocalFiles}.java`
-- `java/worker/src/main/java/dev/nodera/headless/WorldHostingService.java` (restore + write-through + `bindOwnership`)
-- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (`mintOwnership`, `worldsJson`, `proveAdmin`)
-- `java/peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlHandler,ControlServer}.java`
-- `java/transport/src/main/java/dev/nodera/protocol/membership/WorldOwnershipGossip.java` (tag 62)
-- `rust/nodera-app/src/metrics.rs`, `rust/nodera-app/ui/src/{ipc.ts,App.tsx,World.tsx}`
+- `library/java/storage/src/main/java/dev/nodera/storage/{PersistedWorldKey,WorldOwnership,WorldAdminProof,WorldRegistry}.java`
+- `peer/src/main/java/dev/nodera/headless/{WorldKeyStore,WorldRegistryStore,WorldOwnershipService,LocalFiles}.java`
+- `peer/src/main/java/dev/nodera/headless/WorldHostingService.java` (restore + write-through + `bindOwnership`)
+- `peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (`mintOwnership`, `worldsJson`, `proveAdmin`)
+- `peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlHandler,ControlServer}.java`
+- `library/java/transport/src/main/java/dev/nodera/protocol/membership/WorldOwnershipGossip.java` (tag 62)
+- `app/src/metrics.rs`, `app/ui/src/{ipc.ts,App.tsx,World.tsx}`
 
 ## Environment
 

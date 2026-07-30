@@ -95,10 +95,10 @@ player-root inventory survives only as a migration stopgap.
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/entity/` + `EntityRuleSet`
-- `java/core/src/main/java/dev/nodera/core/entity/`
-- `java/peer/src/main/java/dev/nodera/peer/entity/EntityLaneBootstrap.java`
-- Mod adapters: `java/neoforge-mod/src/main/java/dev/nodera/mod/` (capture bridge, projection,
+- `library/java/engine/src/main/java/dev/nodera/simulation/entity/` + `EntityRuleSet`
+- `library/java/core/src/main/java/dev/nodera/core/entity/`
+- `peer/src/main/java/dev/nodera/peer/entity/EntityLaneBootstrap.java`
+- Mod adapters: `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/` (capture bridge, projection,
   `LiveEntityLaneSession`) — [minecraft 2](../minecraft/Task.2.md)
 
 ## Testing

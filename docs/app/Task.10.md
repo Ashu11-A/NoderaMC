@@ -8,7 +8,7 @@
 
 **Status:** 🚧 IN PROGRESS
 **Category:** app · **Owns:** A-UX-1 … A-UX-5 · **Last audit:** 2026-07-28
-**Depends on:** [app 8](Task.8.md), [app 9](Task.9.md), [worker 2](../worker/Task.2.md)
+**Depends on:** [app 8](Task.8.md), [app 9](Task.9.md), [worker 2](../peer/Task.2.md)
 **Consumed by:** [mobile 5](../mobile/Task.5.md)
 
 ---
@@ -49,7 +49,7 @@ Remaining: the content pass (deliverables 5–6) and the settings-honesty pass (
 
 ## Dependencies
 
-- [worker 2](../worker/Task.2.md) owns the `NODERA-CONFIG` key list and which keys apply live.
+- [worker 2](../peer/Task.2.md) owns the `NODERA-CONFIG` key list and which keys apply live.
 - [app 9](Task.9.md) owns the tracker-stores screen this task restyles.
 
 ## Deliverables
@@ -114,20 +114,20 @@ disclosure in Settings, and the sentence-length `hint=`/`sub=` strings on cards 
 
 | Path | Role |
 |---|---|
-| `rust/nodera-app/src/api/store.rs` | banked totals, rate window |
-| `rust/nodera-app/src/lib.rs` | `DashboardStore::restored()` |
-| `rust/nodera-app/ui/src/App.tsx` | scrollport key, single subscription |
-| `rust/nodera-app/ui/src/TrackerStores.tsx` | shared shell-semantic colour roles |
-| `rust/nodera-app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
-| `rust/nodera-app/ui/tests/tracker-stores-style.test.mjs` | emitted desktop/mobile CSS and padding contract |
-| `rust/nodera-app/ui/tests/ux-honesty.test.mjs` | A-UX-1/2/3/5 exit tests over the sources |
-| `rust/nodera-app/ui/src/api.ts` | `isStale(link)` — a picture exists but is not current |
-| `rust/nodera-app/ui/src/Overview.tsx` | shows the worker's pause reason while paused |
-| `rust/nodera-app/ui/src/Settings.tsx` | settings-fault banner, notifications badge, restart banner |
-| `rust/nodera-app/ui/src/components.tsx` | `SCROLLPORT_ID`, `resetScrollport` |
-| `rust/nodera-app/ui/src/{Settings,World}.tsx` | tab-change scroll reset |
-| `rust/nodera-app/ui/src/mobile/{MobileApp,Settings}.tsx` | same, mobile shell |
-| `rust/nodera-app/src/settings.rs` | enforcement declarations (deliverable 8) |
+| `app/src/api/store.rs` | banked totals, rate window |
+| `app/src/lib.rs` | `DashboardStore::restored()` |
+| `app/ui/src/App.tsx` | scrollport key, single subscription |
+| `app/ui/src/TrackerStores.tsx` | shared shell-semantic colour roles |
+| `app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
+| `app/ui/tests/tracker-stores-style.test.mjs` | emitted desktop/mobile CSS and padding contract |
+| `app/ui/tests/ux-honesty.test.mjs` | A-UX-1/2/3/5 exit tests over the sources |
+| `app/ui/src/api.ts` | `isStale(link)` — a picture exists but is not current |
+| `app/ui/src/Overview.tsx` | shows the worker's pause reason while paused |
+| `app/ui/src/Settings.tsx` | settings-fault banner, notifications badge, restart banner |
+| `app/ui/src/components.tsx` | `SCROLLPORT_ID`, `resetScrollport` |
+| `app/ui/src/{Settings,World}.tsx` | tab-change scroll reset |
+| `app/ui/src/mobile/{MobileApp,Settings}.tsx` | same, mobile shell |
+| `app/src/settings.rs` | enforcement declarations (deliverable 8) |
 
 ## Testing
 

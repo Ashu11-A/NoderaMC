@@ -6,9 +6,9 @@
      script and in scripts/android-toolchain.sh; a drift between the two is limitation M-9. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `scripts/android-apk.sh`, `rust/nodera-app/android/kotlin/`
+**Category:** mobile · **Owns:** `scripts/android-apk.sh`, `app/android/kotlin/`
 **Last audit:** 2026-07-28
-**Depends on:** [app 1](../app/Task.1.md), [worker 1](../worker/Task.1.md)
+**Depends on:** [app 1](../app/Task.1.md), [worker 1](../peer/Task.1.md)
 
 ---
 
@@ -32,7 +32,7 @@ license/SDK-pull away from a failed build. See [`LIMITATIONS.md`](LIMITATIONS.md
 ## The pipeline
 
 ```text
-  ./gradlew :worker:installDist          the worker and its dependency closure
+  ./gradlew :peer:installDist          the worker and its dependency closure
         │
         ├─ d8 (build-tools 35) ─────────► classes.dex … classes5.dex
         ├─ jar resources, minus foreign natives
@@ -76,9 +76,9 @@ the Rust side connects to it exactly as on desktop.
 |---|---|
 | `scripts/android-apk.sh` | build → dex → align → sign → install |
 | `scripts/android-toolchain.sh` | one-time SDK/NDK/target provision |
-| `rust/nodera-app/android/kotlin/NoderaWorker.kt` | stages + loads the dex worker in-process |
-| `rust/nodera-app/android/kotlin/MainActivity.kt` | starts the worker before the WebView |
-| `rust/nodera-app/gen/android/app/build.gradle.kts` | generated Gradle project (compileSdk 36, minSdk 24) |
+| `app/android/kotlin/NoderaWorker.kt` | stages + loads the dex worker in-process |
+| `app/android/kotlin/MainActivity.kt` | starts the worker before the WebView |
+| `app/gen/android/app/build.gradle.kts` | generated Gradle project (compileSdk 36, minSdk 24) |
 
 ## Commands
 

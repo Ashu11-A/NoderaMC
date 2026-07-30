@@ -81,7 +81,7 @@ headless test, then consume it here.
    │   WorldMutationApplier (one per Nodera region) ◄── commit    │
    │                                       ▲                      │
    │   ┌───────────────────────────────────┴──────────────────┐   │
-   │   │  in-process PeerRuntime  (java/peer — the SAME peer  │   │
+   │   │  in-process PeerRuntime  (peer — the SAME peer  │   │
    │   │  the worker runs): membership, committee seats,      │   │
    │   │  WorldStore, WorldArchive, tracker + rendezvous      │   │
    │   └──────────────────────────┬───────────────────────────┘   │
@@ -107,7 +107,7 @@ one Nodera region runs on exactly one Folia region thread with no locking.
 **Depends on:** [`network/`](../network/Task.0.md) (the peer runtime it embeds),
 [`engine/`](../engine/Task.0.md) (the validation stack and the single world writer it drives),
 [`storage/` via network 3](../network/Task.3.md) (the world store, archives, joint transfer
-certificates), [`worker/Task.2.md`](../worker/Task.2.md) (the control protocol it mirrors in-process),
+certificates), [`worker/Task.2.md`](../peer/Task.2.md) (the control protocol it mirrors in-process),
 [`tracker/Task.2.md`](../tracker/Task.2.md) and [`rendezvous/Task.2.md`](../rendezvous/Task.2.md) (the
 services it dials), [`minecraft/Task.2.md`](../minecraft/Task.2.md) (the live-lane adapters this
 category re-expresses against Bukkit).
@@ -141,10 +141,10 @@ refactoring register: [`REFACTORING.md`](REFACTORING.md) · programme plan:
 
 | Path | Contents |
 |---|---|
-| `java/paper-plugin/` | The plugin (Gradle module `:paper-plugin`, artifact `nodera-endpoint`). 5 main + 3 test classes today — see [Task.1](Task.1.md) §Files |
-| `java/paper-plugin/src/main/resources/plugin.yml` | `folia-supported: true`, commands, the API version pin |
+| `endpoints/paper-plugin/` | The plugin (Gradle module `:paper-plugin`, artifact `nodera-endpoint`). 5 main + 3 test classes today — see [Task.1](Task.1.md) §Files |
+| `endpoints/paper-plugin/src/main/resources/plugin.yml` | `folia-supported: true`, commands, the API version pin |
 | `java/build-logic/src/main/kotlin/nodera.paper-plugin.gradle.kts` | The convention plugin: Paper API, shading, `runPaper`/`runFolia` |
-| `java/core/.../region/RegionAlignment.java` | The ALIGN-1 arithmetic the preflight calls (gained the multi-view overload in [server 3](Task.3.md)) |
+| `library/java/core/.../region/RegionAlignment.java` | The ALIGN-1 arithmetic the preflight calls (gained the multi-view overload in [server 3](Task.3.md)) |
 | `scripts/lib/e2e-server.sh` | The Paper/Folia/vanilla-bot half of the live launcher |
 | `scripts/lib/vanilla-bot.py` | The unmodified-client driver (vanilla protocol, offline mode) |
 | `scripts/e2e-endpoint.sh` · `e2e-folia.sh` · `e2e-plugins.sh` | The three live suites |

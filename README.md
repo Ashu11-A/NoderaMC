@@ -83,7 +83,7 @@ phone.
 
 ### Play with no mod installed
 
-<!-- AI-AGENT-INSTRUCTION: The lane described below is docs/worker/Task.7.md (the tunnel, the
+<!-- AI-AGENT-INSTRUCTION: The lane described below is docs/peer/Task.7.md (the tunnel, the
      multicast detection, the control verbs) and docs/app/Task.7.md (the modal, the directory, the
      Join button) — both ✅ COMPLETED and live-verified. Read those before editing this copy; do NOT
      cite them inline here, the visible text stays link-free. The two claims that must never be
@@ -219,7 +219,7 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | [**Tracker**](docs/tracker/Task.0.md) | Always-on world/peer discovery service + its Java client | 6 | 🚧 5 done |
 | [**Rendezvous**](docs/rendezvous/Task.0.md) | NAT reach: registration, hole punching, encrypted relay fallback | 6 | 🚧 4 done |
 | [**Minecraft**](docs/minecraft/Task.0.md) | The NeoForge mod: capture, live lanes, GUI, host lane, world identity | 11 | 🚧 5 done |
-| [**Worker**](docs/worker/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
+| [**Peer**](docs/peer/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
 | [**App**](docs/app/Task.0.md) | The Tauri desktop companion that supervises the worker | 10 | 🚧 6 done |
 | [**Mobile**](docs/mobile/Task.0.md) | The Android build: same app, same Java worker, one process on a phone | 5 | 🚧 4 done |
 | [**Telemetry**](docs/telemetry/Task.0.md) | Consented, de-identified measurement + the Big Data plane | 3 | 🚧 1 done |

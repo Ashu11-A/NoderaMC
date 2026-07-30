@@ -8,7 +8,7 @@
 
 **Status:** ✅ COMPLETED (headless) — live pass rides [minecraft 2](Task.2.md)
 **Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [worker 5](../worker/Task.5.md), [network 12](../network/Task.12.md), [minecraft 7](Task.7.md)
+**Depends on:** [worker 5](../peer/Task.5.md), [network 12](../network/Task.12.md), [minecraft 7](Task.7.md)
 **Consumed by:** [telemetry 3](../telemetry/Task.3.md)
 
 ---
@@ -37,7 +37,7 @@ which is gated on the same GUI environment as the rest of the category.
 
 ## Dependencies
 
-- [worker 5](../worker/Task.5.md) — the emitter every event is handed to.
+- [worker 5](../peer/Task.5.md) — the emitter every event is handed to.
 - [network 12](../network/Task.12.md) — the event and bucket types.
 - [minecraft 7](Task.7.md) — the companion presence gate; without a worker there is nobody to hand
   events to, and that is a valid state, not an error.
@@ -84,8 +84,8 @@ they actually are.
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/ModTelemetry.java`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/CompanionClient.java` (the telemetry verb)
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/ModTelemetry.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/CompanionClient.java` (the telemetry verb)
 - Call sites in the host lane, the join flow, the GUIs, and the command tree
 
 ## Testing
@@ -113,4 +113,4 @@ the expected event names with consent granted, and none with it denied.
 
 ## Limitations
 
-None owned. The consent record itself belongs to [`worker 5`](../worker/Task.5.md).
+None owned. The consent record itself belongs to [`worker 5`](../peer/Task.5.md).

@@ -60,7 +60,7 @@ The user-facing hosting specification is referenced throughout this category as 
 | 1 | Every peer seeds ≥ 25% of the network's data, adjusted as players join | [6](Task.6.md) |
 | 2 | Reliability = connectivity + uptime + availability + worlds-seeded, weighted | [7](Task.7.md) |
 | 3 | Redundant backups spread across peers; < 5% per peer when the network is large | [4](Task.4.md), [6](Task.6.md) |
-| 5 | On Minecraft close or crash, emergency-flush unshared pieces to the network | [9](Task.9.md) (full form: [worker](../worker/Task.0.md)) |
+| 5 | On Minecraft close or crash, emergency-flush unshared pieces to the network | [9](Task.9.md) (full form: [worker](../peer/Task.0.md)) |
 | 6 | An active player continuously streams their chunks to the swarm | [9](Task.9.md) |
 | 7 | Mob/entity/redstone exchange over P2P, batched away from 20 tps | engine, riding [4](Task.4.md) |
 | 9 | A tick-lag metric governs region-boundary sync; low-TPS peers hand off regions | [10](Task.10.md) |
@@ -75,7 +75,7 @@ The user-facing hosting specification is referenced throughout this category as 
 persists.
 
 **Consumed by:** [`tracker/`](../tracker/Task.0.md) and [`rendezvous/`](../rendezvous/Task.0.md)
-(their services speak this wire), [`worker/`](../worker/Task.0.md) (which *is* this peer runtime run
+(their services speak this wire), [`worker/`](../peer/Task.0.md) (which *is* this peer runtime run
 as a process), [`minecraft/`](../minecraft/Task.0.md) (which delivers every live half).
 
 ## 5. Task index
@@ -106,16 +106,16 @@ network architecture reference: [`REFERENCE.md`](REFERENCE.md).
 
 | Path | Contents |
 |---|---|
-| `java/transport/` | `dev.nodera.protocol` (frozen wire), `dev.nodera.transport` (seam), `.socket`, `.rendezvous` |
-| `java/storage/` | `dev.nodera.storage` (seam), `.event`, `.rocksdb`, `.client` |
-| `java/peer/` | `dev.nodera.peer` (runtime, discovery, archival, committee, control), `dev.nodera.distribution`, `dev.nodera.diagnostics`, `dev.nodera.headless` |
-| `rust/nodera-codec/` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror |
+| `library/java/transport/` | `dev.nodera.protocol` (frozen wire), `dev.nodera.transport` (seam), `.socket`, `.rendezvous` |
+| `library/java/storage/` | `dev.nodera.storage` (seam), `.event`, `.rocksdb`, `.client` |
+| `peer/` | `dev.nodera.peer` (runtime, discovery, archival, committee, control), `dev.nodera.distribution`, `dev.nodera.diagnostics`, `dev.nodera.headless` |
+| `library/rust/nodera-codec/` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror |
 | `fixtures/wire/` | Golden canonical frames — Java emits, Rust re-encodes byte-exactly |
 
-Package architecture: [`java/transport/README.md`](../../java/transport/README.md),
-[`java/storage/README.md`](../../java/storage/README.md),
-[`java/peer/README.md`](../../java/peer/README.md),
-[`rust/nodera-codec/README.md`](../../rust/nodera-codec/README.md).
+Package architecture: [`library/java/transport/README.md`](../../library/java/transport/README.md),
+[`library/java/storage/README.md`](../../library/java/storage/README.md),
+[`peer/README.md`](../../peer/README.md),
+[`library/rust/nodera-codec/README.md`](../../library/rust/nodera-codec/README.md).
 
 ## 7. Conventions specific to this category
 

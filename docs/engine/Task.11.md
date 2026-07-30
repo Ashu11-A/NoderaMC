@@ -94,8 +94,8 @@ server. A forced-divergence alarm rolls a species back to ghost rather than lett
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/rules/{SpawnRules,MobAiRules,MobCombatRules,ProjectileRules,TntRules,RailRules}.java`
-- `java/engine/src/main/java/dev/nodera/simulation/ai/`
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/{SpawnRules,MobAiRules,MobCombatRules,ProjectileRules,TntRules,RailRules}.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/ai/`
 
 ## Testing
 

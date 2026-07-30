@@ -12,7 +12,7 @@
 > earlier study did not address.
 
 > **Reference spec** — implemented for Nodera by **[Task 4](Task.1.md)** (legacy
-> [Task 29](Task.1.md)): `rust/nodera-rendezvous` plus the Java rendezvous transport, on the
+> [Task 29](Task.1.md)): `rendezvous` plus the Java rendezvous transport, on the
 > [Task 27](../network/Task.1.md) monorepo foundation. Binding protocol decisions live in the task file;
 > this document is the background architecture study those decisions draw on.
 

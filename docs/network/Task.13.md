@@ -11,7 +11,7 @@
 **Category:** network · **Owns:** L-91 · **Last audit:** 2026-07-28
 **Depends on:** [tracker 5](../tracker/Task.5.md), [rendezvous 5](../rendezvous/Task.5.md),
 [network 1](Task.1.md), [network 2](Task.2.md)
-**Consumed by:** [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
+**Consumed by:** [worker 3](../peer/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
 [app 2](../app/Task.2.md)
 
 ---
@@ -27,19 +27,19 @@ migrates when one says it is leaving — without a restart and without a gap.
 Landed and green (`./gradlew :core:test :transport:test :peer:test`, **579 peer-module tests**;
 30 new across three suites).
 
-- `java/peer/.../discovery/ServiceScoreBoard.java` — the peer's own measurement window and the
+- `peer/.../discovery/ServiceScoreBoard.java` — the peer's own measurement window and the
   selection. 20 tests.
-- `java/peer/.../discovery/RendezvousDirectory.java` — the sweep: query, verify, probe, select, report,
+- `peer/.../discovery/RendezvousDirectory.java` — the sweep: query, verify, probe, select, report,
   and the drain-notice migration. 11 tests against a real tracker socket.
-- `java/peer/.../discovery/TrackerClient.java` — `serviceDirectory` (verifying, merging) and
+- `peer/.../discovery/TrackerClient.java` — `serviceDirectory` (verifying, merging) and
   `reportServiceScores` (signed).
-- `java/transport/.../rendezvous/RendezvousPeerTransport.java` — a live endpoint list, reserve/connect
+- `library/java/transport/.../rendezvous/RendezvousPeerTransport.java` — a live endpoint list, reserve/connect
   failover across every endpoint, unbounded retry with capped backoff, drain-notice listeners.
-- `java/transport/.../rendezvous/RelayCircuitClient.java` — reads and **verifies** a drain notice on the
+- `library/java/transport/.../rendezvous/RelayCircuitClient.java` — reads and **verifies** a drain notice on the
   reservation's own control channel, then keeps waiting for a circuit.
-- `java/worker/.../HeadlessPeerMain.java` + `WorldHostingService.java` — the directory on a 60-second
+- `peer/.../HeadlessPeerMain.java` + `WorldHostingService.java` — the directory on a 60-second
   sweep, and a live rendezvous endpoint list that re-registers every hosted world when it changes.
-- `rust/nodera-app/src/daemon.rs` — passes `NODERA_RENDEZVOUS_ENDPOINTS`, which it never did.
+- `app/src/daemon.rs` — passes `NODERA_RENDEZVOUS_ENDPOINTS`, which it never did.
 
 The mod half landed on 2026-07-27: `WorkerStateParser.rendezvousRoutes` reads the worker's live
 selection out of the `NODERA-STATE` reply the mod already fetches, both transport-composition paths
@@ -146,14 +146,14 @@ the reachability half is tested directly on the scoreboard.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/discovery/ServiceScoreBoard.java`
-- `java/peer/src/main/java/dev/nodera/peer/discovery/RendezvousDirectory.java`
-- `java/peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java`
-- `java/transport/src/main/java/dev/nodera/transport/rendezvous/RendezvousPeerTransport.java`
-- `java/transport/src/main/java/dev/nodera/transport/rendezvous/RelayCircuitClient.java`
-- `java/transport/src/main/java/dev/nodera/protocol/service/` — the message family
-- `java/worker/src/main/java/dev/nodera/headless/{HeadlessPeerMain,WorldHostingService}.java`
-- `rust/nodera-app/src/daemon.rs`
+- `peer/src/main/java/dev/nodera/peer/discovery/ServiceScoreBoard.java`
+- `peer/src/main/java/dev/nodera/peer/discovery/RendezvousDirectory.java`
+- `peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java`
+- `library/java/transport/src/main/java/dev/nodera/transport/rendezvous/RendezvousPeerTransport.java`
+- `library/java/transport/src/main/java/dev/nodera/transport/rendezvous/RelayCircuitClient.java`
+- `library/java/transport/src/main/java/dev/nodera/protocol/service/` — the message family
+- `peer/src/main/java/dev/nodera/headless/{HeadlessPeerMain,WorldHostingService}.java`
+- `app/src/daemon.rs`
 
 ## Testing
 
@@ -161,7 +161,7 @@ the reachability half is tested directly on the scoreboard.
 ./gradlew :peer:test --tests '*ServiceScoreBoardTest*' --tests '*RendezvousDirectoryTest*'
 ./gradlew :transport:test --tests '*ServiceMessageCodecTest*'
 ./gradlew check                       # the whole Java gate
-cd rust/nodera-app && cargo test --lib daemon
+cd app && cargo test --lib daemon
 ```
 
 Decisive tests:

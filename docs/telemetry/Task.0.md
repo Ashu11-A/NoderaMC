@@ -2,7 +2,7 @@
 
 <!-- AI-AGENT-INSTRUCTION: This category collects data about people who chose to share it. Three rules
      govern everything here and must be refused if violated: (1) nothing is collected without an
-     explicit yes; (2) nothing outside rust/nodera-telemetry/src/schema.rs may be stored, and no
+     explicit yes; (2) nothing outside telemetry/src/schema.rs may be stored, and no
      free-text value may ever be added to it; (3) NOTHING in the network may read telemetry — it has
      no authority of any kind. The privacy model and the locked decisions live in
      ../plans/Plan.6.md — read it before editing any task file here. Keep the task index in
@@ -24,13 +24,13 @@ its authors observed on their own machines — a sample size of one, repeated.
 
 Two components:
 
-- **`nodera-telemetry`** (`rust/nodera-telemetry`) — the ingest service. It decides what may be
+- **`nodera-telemetry`** (`telemetry`) — the ingest service. It decides what may be
   stored: consent gate, schema allow-list, pseudonymisation, coarse geolocation, quotas, spool.
 - **The Big Data plane** (`docker/telemetry/`) — Vector → Redpanda → ClickHouse → Grafana, with
   Spark for batch jobs. Retention lives in the warehouse schema as TTLs.
 
 The **emitters** are not in this category. They belong to the components that measure themselves:
-[`network 12`](../network/Task.12.md), [`worker 5`](../worker/Task.5.md),
+[`network 12`](../network/Task.12.md), [`worker 5`](../peer/Task.5.md),
 [`app 5`](../app/Task.5.md), [`minecraft 8`](../minecraft/Task.8.md),
 [`tracker 4`](../tracker/Task.4.md), [`rendezvous 4`](../rendezvous/Task.4.md),
 [`server 10`](../server/Task.10.md).
@@ -41,7 +41,7 @@ The **emitters** are not in this category. They belong to the components that me
 the companion app's first-run modal, in plain language, at a moment the user is not blocked. "Not
 now" is a complete answer and is never asked again.
 
-**Nothing outside the registry.** `rust/nodera-telemetry/src/schema.rs` is the collection policy in
+**Nothing outside the registry.** `telemetry/src/schema.rs` is the collection policy in
 executable form, and the gate is at the *receiver*: a client that is buggy, modified, or hostile
 still cannot cause an undeclared value to be stored. No declared value can be free text, so a world
 name, a player name, a chat line, or a file path is not representable.
@@ -88,7 +88,7 @@ costs players nothing.
 
 ## 5. Files
 
-- `rust/nodera-telemetry/` — the ingest service (`schema`, `event`, `subject`, `geo`, `limits`,
+- `telemetry/` — the ingest service (`schema`, `event`, `subject`, `geo`, `limits`,
   `sink`, `service`, `wire`, `config`, `reporter`).
 - `docker/telemetry/` — compose stack, warehouse schema, Vector pipeline, Grafana provisioning,
   Spark jobs.

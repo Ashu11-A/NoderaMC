@@ -82,10 +82,10 @@ measured, not stopped being uploaded.
 
 ## Files
 
-- `java/worker/src/main/java/dev/nodera/headless/WorkerTelemetryService.java`
-- `java/peer/src/main/java/dev/nodera/telemetry/TelemetryConsentStore.java` (the consent record lives beside the worker's identity but in the `:peer` telemetry package)
-- `java/peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` (the `TELEMETRY` verb)
-- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (state block, verb handling)
+- `peer/src/main/java/dev/nodera/headless/WorkerTelemetryService.java`
+- `peer/src/main/java/dev/nodera/telemetry/TelemetryConsentStore.java` (the consent record lives beside the worker's identity but in the `:peer` telemetry package)
+- `peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` (the `TELEMETRY` verb)
+- `peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (state block, verb handling)
 
 ## Testing
 

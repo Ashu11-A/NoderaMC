@@ -78,8 +78,8 @@ authority.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/validation/WorkerValidationService.java`
-- `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` (composition root)
+- `peer/src/main/java/dev/nodera/peer/validation/WorkerValidationService.java`
+- `peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` (composition root)
 
 ## Testing
 

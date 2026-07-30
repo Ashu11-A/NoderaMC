@@ -47,6 +47,13 @@ jobs:
       # moved. This is the grep that notices.
       - name: Layout references resolve (workflows, Dockerfiles, tauri config)
         run: scripts/check-layout-drift.sh
+      # `docs/` is ~1,000 files that cross-reference each other by relative path, and nothing
+      # checked those links. The 2026-07-30 worker -> peer rename moved ninety-six of them at once;
+      # the only symptom of getting that wrong is a 404 for whoever clicks. Table shape is checked
+      # alongside it because a limitation row with a missing cell still RENDERS — as values under
+      # the wrong headings, which is worse than a row that fails.
+      - name: Docs links resolve and tables are square
+        run: scripts/check-docs.sh
 
   # L-47's exit job: build the companion app, prove the gate both ways, and prove a hosted
   # world survives the host closing Minecraft (the worker keeps it alive).

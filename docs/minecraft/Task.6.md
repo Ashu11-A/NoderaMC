@@ -7,7 +7,7 @@
 
 **Status:** 🚧 IN PROGRESS
 **Category:** minecraft · **Owns:** L-49 · **Last audit:** 2026-07-28
-**Depends on:** [worker 2](../worker/Task.2.md), [worker 3](../worker/Task.3.md), [task 1](Task.1.md)
+**Depends on:** [worker 2](../peer/Task.2.md), [worker 3](../peer/Task.3.md), [task 1](Task.1.md)
 **Consumed by:** players, world authors, and operators
 
 ---
@@ -37,8 +37,8 @@ the network, which rides the encryption lane's live half. That set is **L-49**.
 
 ## Dependencies
 
-- [worker 2](../worker/Task.2.md) — the identity mint and per-world status.
-- [worker 3](../worker/Task.3.md) — grant gossip on the mesh.
+- [worker 2](../peer/Task.2.md) — the identity mint and per-world status.
+- [worker 3](../peer/Task.3.md) — grant gossip on the mesh.
 - [task 1](Task.1.md) — the GUI environment to verify the mixin.
 
 ## Deliverables
@@ -83,10 +83,10 @@ restriction is a suggestion.
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/{NoderaWorldStore,OperatorBridge}.java`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/debug/command/` (`op` / `deop`)
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/mixin/` (the world-list entry mixin)
-- Types: `java/storage/.../{WorldIdentity,WorldPermissionGrant,WorldPermissions,WorldRole}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/{NoderaWorldStore,OperatorBridge}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/debug/command/` (`op` / `deop`)
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/mixin/` (the world-list entry mixin)
+- Types: `library/java/storage/.../{WorldIdentity,WorldPermissionGrant,WorldPermissions,WorldRole}.java`
 
 ## Testing
 
