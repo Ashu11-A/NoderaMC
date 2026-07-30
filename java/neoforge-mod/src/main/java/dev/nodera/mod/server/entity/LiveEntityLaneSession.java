@@ -1,5 +1,7 @@
 package dev.nodera.mod.server.entity;
 
+import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
+import dev.nodera.endpoint.lane.ObserverOwnership;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.region.RegionLease;

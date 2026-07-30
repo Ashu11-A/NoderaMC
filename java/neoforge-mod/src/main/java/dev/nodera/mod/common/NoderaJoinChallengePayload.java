@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.share.HostJoinGate;
 import dev.nodera.core.Bytes;
 import dev.nodera.distribution.WorldKeyMaterial;
 import net.minecraft.network.FriendlyByteBuf;

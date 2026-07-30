@@ -22,6 +22,7 @@ dependencies {
     // That is the opposite trade from the NeoForge mod — see java/worker/build.gradle.kts — and it
     // is deliberate: a server operator installs one jar, a player installs an app.
     implementation(project(":peer"))
+    implementation(project(":endpoint"))
 
     testImplementation(project(":core"))
 }
@@ -38,7 +39,7 @@ tasks.jar {
     from({
         configurations.runtimeClasspath.get()
             .filter { artifact ->
-                listOf("core", "transport", "engine", "storage", "peer")
+                listOf("core", "transport", "engine", "storage", "peer", "endpoint")
                     .any { artifact.name.startsWith("$it-") || artifact.name == "$it.jar" }
             }
             .map { if (it.isDirectory) it else zipTree(it) }

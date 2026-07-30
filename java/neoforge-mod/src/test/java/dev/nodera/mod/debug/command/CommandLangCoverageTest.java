@@ -1,5 +1,7 @@
 package dev.nodera.mod.debug.command;
 
+import dev.nodera.testkit.harness.LayoutManifest;
+import dev.nodera.endpoint.lang.CommandLang;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -124,21 +126,33 @@ final class CommandLangCoverageTest {
 
     /**
      * A key can also be typed straight into a {@code translatable} call without ever becoming a
-     * constant. The command sources are read here so that shape fails too.
+     * constant. The sources are read here so that shape fails too.
+     *
+     * <p>Two directories, because the two halves of a command live in different modules now: the
+     * KEYS are in {@code :endpoint}'s {@code dev.nodera.endpoint.lang} (Minecraft-free, so a Paper
+     * plugin can name the same key), and the Minecraft-bound commands that use them are here.
+     * Scanning only this one silently found zero keys the moment {@code CommandLang} moved — which
+     * is the failure that brought this comment into existence.
      */
     @Test
     void everyKeyTheCommandSourcesNameResolves() throws IOException {
         Map<String, String> lang = lang();
-        Path pkg = CommandsHaveNoHardcodedEnglishTest.commandPackage();
+        List<Path> packages = List.of(
+                CommandsHaveNoHardcodedEnglishTest.commandPackage(),
+                LayoutManifest.load().module("endpoint")
+                        .resolve("src/main/java/dev/nodera/endpoint/lang"));
         List<String> missing = new ArrayList<>();
         int found = 0;
-        try (var files = Files.list(pkg)) {
-            for (Path file : files.filter(p -> p.toString().endsWith(".java")).toList()) {
-                Matcher m = KEY_LITERAL.matcher(Files.readString(file, StandardCharsets.UTF_8));
-                while (m.find()) {
-                    found++;
-                    if (!lang.containsKey(m.group(1))) {
-                        missing.add(file.getFileName() + " → " + m.group(1));
+        for (Path pkg : packages) {
+            assertThat(pkg).as("scanned source package").isDirectory();
+            try (var files = Files.list(pkg)) {
+                for (Path file : files.filter(p -> p.toString().endsWith(".java")).toList()) {
+                    Matcher m = KEY_LITERAL.matcher(Files.readString(file, StandardCharsets.UTF_8));
+                    while (m.find()) {
+                        found++;
+                        if (!lang.containsKey(m.group(1))) {
+                            missing.add(file.getFileName() + " → " + m.group(1));
+                        }
                     }
                 }
             }

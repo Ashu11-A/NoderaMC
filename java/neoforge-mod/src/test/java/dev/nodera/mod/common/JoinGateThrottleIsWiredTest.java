@@ -1,5 +1,7 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.share.HostJoinGate;
+import dev.nodera.endpoint.share.JoinerIdentity;
 import dev.nodera.core.Bytes;
 import dev.nodera.distribution.JoinAttemptThrottle;
 import dev.nodera.distribution.JoinPasswordGate;

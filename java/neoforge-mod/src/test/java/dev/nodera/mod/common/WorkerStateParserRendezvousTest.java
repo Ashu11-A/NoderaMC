@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.state.WorkerStateParser;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

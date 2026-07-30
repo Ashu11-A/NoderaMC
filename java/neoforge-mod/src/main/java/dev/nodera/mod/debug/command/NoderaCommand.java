@@ -1,5 +1,10 @@
 package dev.nodera.mod.debug.command;
 
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.lang.CommandLang;
+import dev.nodera.endpoint.share.ShareOptions;
+import dev.nodera.endpoint.telemetry.ModTelemetry;
+import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
@@ -159,10 +164,10 @@ public final class NoderaCommand {
     /** {@code /nodera share} — put the currently-loaded world on the network (op). */
     private static int shareStart(CommandContext<CommandSourceStack> ctx) {
         var server = ctx.getSource().getServer();
-        dev.nodera.mod.common.ShareOptions current =
+        dev.nodera.endpoint.share.ShareOptions current =
                 dev.nodera.mod.common.NoderaPeerService.get().hostOptions();
         dev.nodera.mod.common.NoderaHost.activate(server,
-                current != null ? current : dev.nodera.mod.common.ShareOptions.playerDefault());
+                current != null ? current : dev.nodera.endpoint.share.ShareOptions.playerDefault());
         return CommandTree.announce(ctx, CommandLang.SHARE_STARTED,
                 server.getWorldData().getLevelName());
     }
@@ -187,7 +192,7 @@ public final class NoderaCommand {
     private static int sharePassword(CommandContext<CommandSourceStack> ctx) {
         var server = ctx.getSource().getServer();
         var svc = dev.nodera.mod.common.NoderaPeerService.get();
-        dev.nodera.mod.common.ShareOptions current = svc.hostOptions();
+        dev.nodera.endpoint.share.ShareOptions current = svc.hostOptions();
         if (!svc.isHosting() || current == null) {
             return CommandTree.fail(ctx, CommandLang.SHARE_NOT_SHARING);
         }
@@ -212,7 +217,7 @@ public final class NoderaCommand {
             return 1;
         }
         String game = svc.gameRoute();
-        boolean worker = dev.nodera.mod.common.CompanionLink.isPresent();
+        boolean worker = dev.nodera.endpoint.control.CompanionLink.isPresent();
         // The Share screen already had lang entries for the endpoint and worker lines; the command
         // reuses them rather than paraphrasing the same two facts in a second wording.
         CommandTree.sendPanel(ctx.getSource(), Panel.titled(CommandLang.SHARE_STATUS_TITLE,
@@ -236,9 +241,9 @@ public final class NoderaCommand {
      * person, and on a shared one the decision belongs to whoever runs it.
      */
     private static int telemetryStatus(CommandContext<CommandSourceStack> ctx) {
-        dev.nodera.mod.common.ModTelemetry.refresh();
+        dev.nodera.endpoint.telemetry.ModTelemetry.refresh();
         dev.nodera.telemetry.TelemetryConsent consent =
-                dev.nodera.mod.common.ModTelemetry.consent();
+                dev.nodera.endpoint.telemetry.ModTelemetry.consent();
         String stateKey = switch (consent) {
             case GRANTED -> CommandLang.TELEMETRY_GRANTED;
             case DENIED -> CommandLang.TELEMETRY_DENIED;
@@ -260,13 +265,13 @@ public final class NoderaCommand {
     /** {@code /nodera telemetry on|off} — record the decision on the node. */
     private static int telemetryConsent(CommandContext<CommandSourceStack> ctx, boolean granted) {
         java.util.Optional<String> error =
-                dev.nodera.mod.common.ModTelemetry.setConsent(granted);
+                dev.nodera.endpoint.telemetry.ModTelemetry.setConsent(granted);
         if (error.isPresent()) {
             return CommandTree.fail(ctx, CommandLang.TELEMETRY_ERROR, error.get());
         }
         // Report what the NODE confirmed, not what the command intended — the same discipline the
         // companion app's settings badges follow.
-        boolean live = dev.nodera.mod.common.ModTelemetry.collects();
+        boolean live = dev.nodera.endpoint.telemetry.ModTelemetry.collects();
         return CommandTree.announce(ctx,
                 live ? CommandLang.TELEMETRY_ON : CommandLang.TELEMETRY_OFF);
     }
@@ -366,13 +371,13 @@ public final class NoderaCommand {
             return CommandTree.fail(ctx, CommandLang.GRANT_UNAUTHORIZED);
         }
         ServerPlayer target = EntityArgument.getPlayer(ctx, "player");
-        dev.nodera.mod.common.PlayerNodeRegistry.PlayerNode node =
-                dev.nodera.mod.common.PlayerNodeRegistry.nodeOf(target.getUUID());
+        dev.nodera.endpoint.world.PlayerNodeRegistry.PlayerNode node =
+                dev.nodera.endpoint.world.PlayerNodeRegistry.nodeOf(target.getUUID());
         if (node == null) {
             return CommandTree.fail(ctx, CommandLang.GRANT_NO_IDENTITY,
                     target.getName().getString());
         }
-        if (!dev.nodera.mod.common.CompanionLink.isPresent()) {
+        if (!dev.nodera.endpoint.control.CompanionLink.isPresent()) {
             return CommandTree.fail(ctx, CommandLang.GRANT_NO_WORKER);
         }
         dev.nodera.core.identity.WorldRole role = grantOp
@@ -382,7 +387,7 @@ public final class NoderaCommand {
                 .map(g -> g.grantVersion() + 1).orElse(1L);
         String worldIdHex = perms.worldId().toHex();
         java.util.Optional<dev.nodera.core.Bytes> signed =
-                dev.nodera.mod.common.CompanionLink.client().grantRole(worldIdHex,
+                dev.nodera.endpoint.control.CompanionLink.client().grantRole(worldIdHex,
                         node.nodeId().value().toString(), node.publicKey(), role.ordinal(),
                         grantVersion);
         if (signed.isEmpty()) {
@@ -416,8 +421,8 @@ public final class NoderaCommand {
                 && dev.nodera.mod.common.NoderaHost.localWorkerIsAuthor(server)) {
             return true; // the integrated-server owner authoring this world
         }
-        dev.nodera.mod.common.PlayerNodeRegistry.PlayerNode node =
-                dev.nodera.mod.common.PlayerNodeRegistry.nodeOf(executor.getUUID());
+        dev.nodera.endpoint.world.PlayerNodeRegistry.PlayerNode node =
+                dev.nodera.endpoint.world.PlayerNodeRegistry.nodeOf(executor.getUUID());
         return node != null && perms.isOperator(node.nodeId(), node.publicKey());
     }
 

@@ -1,5 +1,8 @@
 package dev.nodera.mod.client.entity;
 
+import dev.nodera.mod.common.RegionSeedSpool;
+import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
+import dev.nodera.endpoint.lane.ValidationLane;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.identity.NodeId;
@@ -56,7 +59,7 @@ public final class ClientValidationLane {
         // all, so this is unreachable in a homogeneous network — and that is exactly why it is
         // here: a plan from an older or hostile peer must not start a lane this build has switched
         // off. See ValidationLane for the release decision.
-        if (!dev.nodera.mod.common.ValidationLane.deterministicValidationEnabled()) {
+        if (!dev.nodera.endpoint.lane.ValidationLane.deterministicValidationEnabled()) {
             LOG.debug("ignoring a region-ownership plan — deterministic validation is off");
             return;
         }
@@ -157,7 +160,7 @@ public final class ClientValidationLane {
         replicaView = view;
         activeRegions = mine;
         // The joiner's HUD region panel shows THIS player's real ownership (L-31 regions half).
-        dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.activate(lane, identity.nodeId());
+        dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.activate(lane, identity.nodeId());
         LOG.info("client validation lane active on {} region(s) — this player re-executes and "
                         + "votes for its own region set ({} member node(s) + {} resident peer(s) "
                         + "in the plan)", mine, views.size(), residents.size());
@@ -224,7 +227,7 @@ public final class ClientValidationLane {
 
     private static void stopLocked() {
         if (service != null) {
-            dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.deactivate(service);
+            dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.deactivate(service);
             var runtime = NoderaPeerService.get().clientRuntime();
             if (runtime != null) {
                 runtime.onApplicationMessage(null);

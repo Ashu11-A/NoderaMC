@@ -1,5 +1,6 @@
 package dev.nodera.mod.debug.command;
 
+import dev.nodera.endpoint.lang.CommandLang;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;

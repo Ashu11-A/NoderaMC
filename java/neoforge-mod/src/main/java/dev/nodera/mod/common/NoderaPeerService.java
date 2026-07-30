@@ -1,5 +1,10 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
+import dev.nodera.endpoint.share.ShareOptions;
+import dev.nodera.endpoint.state.WorkerStateParser;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
@@ -267,7 +272,7 @@ public final class NoderaPeerService {
         serverRuntime.setLocalProfile(negotiationProfile(hostCaps));
         serverCollector = new DiagnosticsCollector(serverMeter, serverCounts)
                 .register(serverRuntime)
-                .register(dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.get())
+                .register(dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.get())
                 .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
         serverDiagnostics = new dev.nodera.mod.debug.DiagnosticsService(serverRuntime, serverCollector);
 
@@ -881,7 +886,7 @@ public final class NoderaPeerService {
                 selectedTrackerRoutes(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get()), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
                 .register(clientRuntime)
-                .register(dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.get())
+                .register(dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.get())
                 .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
         LOG.info("Nodera client peer joining session via {} (node {}, listening {})",
                 bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());

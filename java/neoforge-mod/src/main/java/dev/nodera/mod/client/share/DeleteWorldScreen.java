@@ -1,7 +1,7 @@
 package dev.nodera.mod.client.share;
 
-import dev.nodera.mod.common.CompanionClient;
-import dev.nodera.mod.common.CompanionLink;
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.mod.common.NoderaPeerService;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;

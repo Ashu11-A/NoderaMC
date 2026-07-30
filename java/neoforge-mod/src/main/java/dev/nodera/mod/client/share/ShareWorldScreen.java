@@ -1,8 +1,9 @@
 package dev.nodera.mod.client.share;
 
+import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.mod.common.NoderaHost;
 import dev.nodera.mod.common.NoderaPeerService;
-import dev.nodera.mod.common.ShareOptions;
+import dev.nodera.endpoint.share.ShareOptions;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -172,7 +173,7 @@ public final class ShareWorldScreen extends Screen {
             guiGraphics.drawCenteredString(this.font, routeLine, this.width / 2,
                     this.height / 4 - 12, game == null ? 0xC9814E : 0x6FBF73);
         }
-        boolean worker = dev.nodera.mod.common.CompanionLink.isPresent();
+        boolean worker = dev.nodera.endpoint.control.CompanionLink.isPresent();
         Component workerLine = Component.translatable(worker
                 ? "nodera.share.status.worker.on" : "nodera.share.status.worker.off");
         guiGraphics.drawCenteredString(this.font, workerLine, this.width / 2,

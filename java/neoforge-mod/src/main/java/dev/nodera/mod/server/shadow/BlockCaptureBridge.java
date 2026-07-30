@@ -1,5 +1,6 @@
 package dev.nodera.mod.server.shadow;
 
+import dev.nodera.endpoint.lane.BlockCaptureRules;
 import dev.nodera.core.action.BreakBlockAction;
 import dev.nodera.core.action.GameAction;
 import dev.nodera.core.action.PlaceBlockAction;

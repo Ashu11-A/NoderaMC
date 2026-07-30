@@ -259,6 +259,7 @@ tasks.register<Test>("structureReport") {
         ":transport:classes", ":transport:testClasses",
         ":storage:classes", ":storage:testClasses",
         ":testing:classes",
+        ":endpoint:classes", ":endpoint:testClasses",
         ":neoforge-mod:classes", ":neoforge-mod:testClasses",
         ":paper-plugin:classes",
         tasks.named("classes"), tasks.named("testClasses"),

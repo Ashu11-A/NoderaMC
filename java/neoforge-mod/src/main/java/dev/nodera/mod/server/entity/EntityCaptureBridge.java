@@ -1,5 +1,6 @@
 package dev.nodera.mod.server.entity;
 
+import dev.nodera.endpoint.lane.PlayerMovementCapture;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.NetworkEntityId;
 import dev.nodera.core.state.PersistedEntityState;

@@ -1,5 +1,15 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
+import dev.nodera.endpoint.lane.ObserverOwnership;
+import dev.nodera.endpoint.lane.ValidationLane;
+import dev.nodera.endpoint.share.HostJoinGate;
+import dev.nodera.endpoint.share.ShareOptions;
+import dev.nodera.endpoint.telemetry.ModTelemetry;
+import dev.nodera.endpoint.world.NoderaWorldStore;
+import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.NoderaConstants;
@@ -697,12 +707,12 @@ public final class NoderaHost {
             String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
                     options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             java.util.Optional<CompanionClient.Rekeyed> reKeyed = java.util.Optional.empty();
-            if (dev.nodera.mod.common.CompanionLink.isPresent()) {
+            if (dev.nodera.endpoint.control.CompanionLink.isPresent()) {
                 try {
                     // Flush so the packed blob reflects the live world, then hand it to the worker.
                     server.saveEverything(true, true, true);
                     Path spool = WorldArchiver.packToSpool(saveRoot, worldIdHex);
-                    reKeyed = dev.nodera.mod.common.CompanionLink.client()
+                    reKeyed = dev.nodera.endpoint.control.CompanionLink.client()
                             .rekey(worldIdHex, spool, newPwdB64, encodeIdentity(currentId));
                 } catch (RuntimeException | java.io.IOException e) {
                     LOG.warn("Nodera: password re-key call failed for '{}': {}",
@@ -953,7 +963,7 @@ public final class NoderaHost {
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     planPrimaries.put(planned.region(), planned.lease().primary());
                 }
-                dev.nodera.mod.server.entity.ObserverOwnership.publish(planPrimaries);
+                dev.nodera.endpoint.lane.ObserverOwnership.publish(planPrimaries);
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive
@@ -1055,7 +1065,7 @@ public final class NoderaHost {
                 }
                 // The re-plan swap ends here, where the outcome is actually known: a lane that
                 // activated replaces the held ownership, one that did not drops it.
-                dev.nodera.mod.server.entity.LiveRegionOwnershipProvider
+                dev.nodera.endpoint.lane.LiveRegionOwnershipProvider
                         .endSwap(!bindings.isEmpty());
                 // Broadcast the plan inputs so every player's client derives the identical plan
                 // and activates its own regions (the shared-computation ownership model).
@@ -1089,7 +1099,7 @@ public final class NoderaHost {
                     }
                 });
             } catch (RuntimeException | LinkageError e) {
-                dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.endSwap(false);
+                dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.endSwap(false);
                 LOG.warn("Nodera: entity lane bootstrap failed: {}", e.toString());
             }
         });
@@ -1198,7 +1208,7 @@ public final class NoderaHost {
         Thread.ofPlatform().name("nodera-entity-lane-replan").daemon().start(() -> {
             // A re-plan is a swap, not a teardown: hold the outgoing ownership on the diagnostics
             // surfaces so the panels never blink to "no delegated regions" / UNASSIGNED mid-swap.
-            dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.beginSwap();
+            dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.beginSwap();
             try {
                 synchronized (NoderaHost.class) {
                     closeEntityLane();
@@ -1211,14 +1221,14 @@ public final class NoderaHost {
                         // When a plan is being computed its boot thread ends the swap once the
                         // outcome is known; when it never started, end it here.
                         if (!planning) {
-                            dev.nodera.mod.server.entity.LiveRegionOwnershipProvider
+                            dev.nodera.endpoint.lane.LiveRegionOwnershipProvider
                                     .endSwap(false);
                         }
                         REPLANNING.set(false);
                     }
                 });
             } catch (RuntimeException e) {
-                dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.endSwap(false);
+                dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.endSwap(false);
                 REPLANNING.set(false);
                 LOG.warn("Nodera: entity lane re-plan failed: {}", e.toString());
             }

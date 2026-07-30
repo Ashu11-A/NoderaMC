@@ -1,6 +1,6 @@
 package dev.nodera.mod.mixin;
 
-import dev.nodera.mod.server.redstone.RedstoneSuppression;
+import dev.nodera.endpoint.lane.RedstoneSuppression;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;

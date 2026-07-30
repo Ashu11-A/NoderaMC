@@ -1,5 +1,7 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.region.RegionId;
 import dev.nodera.core.state.RegionSnapshot;

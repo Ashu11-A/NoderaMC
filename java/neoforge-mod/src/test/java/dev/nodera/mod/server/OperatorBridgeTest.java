@@ -1,7 +1,8 @@
 package dev.nodera.mod.server;
 
+import dev.nodera.endpoint.lane.OpSyncDecision;
 import dev.nodera.core.identity.WorldRole;
-import dev.nodera.mod.server.OpSyncDecision.Action;
+import dev.nodera.endpoint.lane.OpSyncDecision.Action;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

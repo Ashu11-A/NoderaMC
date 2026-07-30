@@ -13,8 +13,11 @@
 > `scripts/check-layout-drift.sh` greps those in CI. The paths below are what the manifest says
 > today, not a second copy of it.
 
-- `java/<module>/` — **eight Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` ·
-  `storage` · `peer` · `testing` · `neoforge-mod` · `paper-plugin`. The old fine-grained modules
+- **Nine Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` · `storage` ·
+  `peer` · `endpoint` · `testing` · `neoforge-mod` · `paper-plugin`. `:endpoint`
+  (`library/java/endpoint`, `dev.nodera.endpoint.*`) is what a Minecraft-hosting process needs in
+  order to BE a node, with **no Minecraft and no Paper types in it** — both endpoints consume it,
+  which is what makes each of them a thin shell rather than the place the logic lives. The old fine-grained modules
   merged with **packages unchanged** (package map: `docs/README.md` §3) — e.g. `./gradlew :engine:test`
   runs what used to be `:simulation` + `:consensus` + `:coordinator` + `:committee` +
   `:shadow-validation` + `:fallback`.

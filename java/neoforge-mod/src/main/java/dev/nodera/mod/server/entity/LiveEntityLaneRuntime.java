@@ -1,5 +1,10 @@
 package dev.nodera.mod.server.entity;
 
+import dev.nodera.mod.common.RegionSeedSpool;
+import dev.nodera.endpoint.lane.ObserverOwnership;
+import dev.nodera.endpoint.lane.PlayerLanePresence;
+import dev.nodera.endpoint.lane.RedstoneSuppression;
+import dev.nodera.endpoint.lane.VanillaCancelGate;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.action.ActionEnvelope;
 import dev.nodera.core.action.DropItemAction;
@@ -173,7 +178,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         tickets.hold(level, snapshot.region());
         // Task 13: the engine is THE scheduler for this region now — vanilla scheduled
         // ticks for its chunks are cancelled at the source (LevelTicksMixin).
-        dev.nodera.mod.server.redstone.RedstoneSuppression.activate(
+        dev.nodera.endpoint.lane.RedstoneSuppression.activate(
                 snapshot.region().regionX(), snapshot.region().regionZ());
         for (PersistedEntityState entity : snapshot.entities()) {
             if (entity.kind() == EntityKind.GHOST) {
@@ -694,7 +699,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         }
         world.applierScope(null);
         for (RegionId region : regions) {
-            dev.nodera.mod.server.redstone.RedstoneSuppression.deactivate(
+            dev.nodera.endpoint.lane.RedstoneSuppression.deactivate(
                     region.regionX(), region.regionZ());
         }
         // Release per region, not per level: a session may hold regions in more than one
