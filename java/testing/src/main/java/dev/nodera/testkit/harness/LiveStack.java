@@ -180,9 +180,83 @@ public final class LiveStack implements AutoCloseable {
             int port = topology.trackerPortAt(i);
             started.push(ManagedProcess.start("tracker-" + i, paths.root(),
                     logDir.resolve("tracker-" + i + ".log"),
-                    ManagedProcess.env("NODERA_TRACKER_BIND", "127.0.0.1:" + port,
+                    // BIND_ADDR, not BIND. The service's config contract is "every key has an exact
+                    // environment twin, and nothing else": an unrecognised NODERA_TRACKER_* variable
+                    // is a hard startup refusal, by design, so a typo cannot silently run a service
+                    // on defaults. That is the right behaviour and it caught this — but the harness
+                    // then launched a tracker that exited immediately, and every live scenario ran
+                    // on a mesh with NO tracker and NO rendezvous. The symptom in the logs was never
+                    // "the service is down"; it was "world 'world' is on NO tracker — 0 of 1
+                    // answered", "0 seeder(s), 0 routable", and a soak that observed nothing.
+                    ManagedProcess.env("NODERA_TRACKER_BIND_ADDR", "127.0.0.1:" + port,
                             "RUST_LOG", "info"),
                     List.of(paths.trackerBinary().toString(), "--bind", "127.0.0.1:" + port)));
+            awaitListening("tracker-" + i, port);
+        }
+    }
+
+    /**
+     * Wait until a service this stack just launched is actually answering, and fail loudly if it is
+     * not.
+     *
+     * <p>{@link #startInfrastructure}'s own javadoc has always said it waits "until every one of
+     * them answers", and for the workers that was true — {@code ControlClient} probes each one. For
+     * the trackers and the rendezvous it was not: they were started and never checked. So a service
+     * that exited during startup left a stack that looked launched, and every scenario ran against a
+     * network with no discovery plane at all.
+     *
+     * <p>That was not hypothetical. The harness passed {@code NODERA_TRACKER_BIND} and
+     * {@code NODERA_RENDEZVOUS_BIND}; both services take {@code *_BIND_ADDR} and refuse to start on
+     * an unrecognised {@code NODERA_<SERVICE>_*} variable — deliberately, so a typo cannot silently
+     * run a service on defaults. Both binaries therefore printed one line and exited, and every live
+     * run since reported symptoms one layer up: "world 'world' is on NO tracker — 0 of 1 answered",
+     * "0 seeder(s), 0 routable", and mesh soaks that observed nothing. The service's own refusal was
+     * correct and the harness threw it away.
+     *
+     * <p>The failure message carries the process's log tail, because "tracker-0 never answered" on
+     * its own sends the reader to the wrong layer — which is exactly what happened here.
+     */
+    private void awaitListening(String name, int port) {
+        Duration timeout = topology.scaled(Duration.ofSeconds(20));
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            ManagedProcess process = processNamed(name);
+            if (process != null && !process.isAlive()) {
+                throw new HarnessException(name + " exited during startup (port " + port + ")"
+                        + logTail(name));
+            }
+            try (java.net.Socket probe = new java.net.Socket()) {
+                probe.connect(new java.net.InetSocketAddress("127.0.0.1", port), 500);
+                return;
+            } catch (IOException notYet) {
+                Topology.sleep(Duration.ofMillis(250));
+            }
+        }
+        throw new HarnessException(name + " never accepted a connection on port " + port
+                + " within " + timeout.toSeconds() + "s" + logTail(name));
+    }
+
+    private ManagedProcess processNamed(String name) {
+        for (ManagedProcess process : started) {
+            if (process.name().equals(name)) {
+                return process;
+            }
+        }
+        return null;
+    }
+
+    /** The last few lines of a managed process's log, for a failure message that names the cause. */
+    private String logTail(String name) {
+        Path log = logDir.resolve(name + ".log");
+        if (!Files.isReadable(log)) {
+            return " — no log at " + log;
+        }
+        try {
+            List<String> lines = Files.readAllLines(log);
+            List<String> tail = lines.subList(Math.max(0, lines.size() - 8), lines.size());
+            return " — " + log + " ends:\n    " + String.join("\n    ", tail);
+        } catch (IOException unreadable) {
+            return " — " + log + " could not be read: " + unreadable;
         }
     }
 
@@ -192,9 +266,11 @@ public final class LiveStack implements AutoCloseable {
             int port = topology.rendezvousPortAt(i);
             started.push(ManagedProcess.start("rendezvous-" + i, paths.root(),
                     logDir.resolve("rendezvous-" + i + ".log"),
-                    ManagedProcess.env("NODERA_RENDEZVOUS_BIND", "127.0.0.1:" + port,
+                    // BIND_ADDR, not BIND — see the tracker's note above; the same refusal applied.
+                    ManagedProcess.env("NODERA_RENDEZVOUS_BIND_ADDR", "127.0.0.1:" + port,
                             "RUST_LOG", "info"),
                     List.of(paths.rendezvousBinary().toString(), "--bind", "127.0.0.1:" + port)));
+            awaitListening("rendezvous-" + i, port);
         }
     }
 

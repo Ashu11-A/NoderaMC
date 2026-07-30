@@ -46,9 +46,9 @@ class HostJoinGateTest {
         HostJoinGate.Challenge toRight = gate.issue(right, 1_000L).orElseThrow();
         HostJoinGate.Challenge toWrong = gate.issue(wrong, 1_000L).orElseThrow();
 
-        assertThat(gate.verify(right, answer(toRight, "swordfish"), 1_100L))
+        assertThat(gate.verify(right, null, answer(toRight, "swordfish"), 1_100L))
                 .isEqualTo(HostJoinGate.Verdict.PASS);
-        assertThat(gate.verify(wrong, answer(toWrong, "swordfisl"), 1_100L))
+        assertThat(gate.verify(wrong, null, answer(toWrong, "swordfisl"), 1_100L))
                 .isEqualTo(HostJoinGate.Verdict.WRONG_PASSWORD);
     }
 
@@ -59,7 +59,7 @@ class HostJoinGateTest {
         gate.issue(connection, 0L);
 
         // The client answers "I have no password" with an empty proof; that is a refusal.
-        assertThat(gate.verify(connection, Bytes.empty(), 10L))
+        assertThat(gate.verify(connection, null, Bytes.empty(), 10L))
                 .isEqualTo(HostJoinGate.Verdict.WRONG_PASSWORD);
     }
 
@@ -74,7 +74,7 @@ class HostJoinGateTest {
 
         assertThat(toFirst.nonce()).isNotEqualTo(toSecond.nonce());
         // A correct answer for connection 1, replayed on connection 2, must not open connection 2.
-        assertThat(gate.verify(second, answer(toFirst, "pw"), 10L))
+        assertThat(gate.verify(second, null, answer(toFirst, "pw"), 10L))
                 .isEqualTo(HostJoinGate.Verdict.WRONG_PASSWORD);
     }
 
@@ -85,8 +85,8 @@ class HostJoinGateTest {
         HostJoinGate.Challenge challenge = gate.issue(connection, 0L).orElseThrow();
         Bytes correct = answer(challenge, "pw");
 
-        assertThat(gate.verify(connection, correct, 10L)).isEqualTo(HostJoinGate.Verdict.PASS);
-        assertThat(gate.verify(connection, correct, 20L))
+        assertThat(gate.verify(connection, null, correct, 10L)).isEqualTo(HostJoinGate.Verdict.PASS);
+        assertThat(gate.verify(connection, null, correct, 20L))
                 .isEqualTo(HostJoinGate.Verdict.NO_CHALLENGE);
     }
 
@@ -96,7 +96,7 @@ class HostJoinGateTest {
         Object connection = new Object();
         HostJoinGate.Challenge challenge = gate.issue(connection, 0L).orElseThrow();
 
-        assertThat(gate.verify(connection, answer(challenge, "pw"),
+        assertThat(gate.verify(connection, null, answer(challenge, "pw"),
                 HostJoinGate.TTL_MILLIS + 1)).isEqualTo(HostJoinGate.Verdict.NO_CHALLENGE);
     }
 
@@ -104,7 +104,7 @@ class HostJoinGateTest {
     void anAnswerWithNoOutstandingChallengeIsRefused() {
         gate.arm(WORLD, "pw".toCharArray());
 
-        assertThat(gate.verify(new Object(), Bytes.unsafeWrap(new byte[32]), 0L))
+        assertThat(gate.verify(new Object(), null, Bytes.unsafeWrap(new byte[32]), 0L))
                 .isEqualTo(HostJoinGate.Verdict.NO_CHALLENGE);
     }
 
@@ -131,7 +131,7 @@ class HostJoinGateTest {
         assertThat(gate.isArmed()).as("a sealed world still runs the gate step").isTrue();
         assertThat(gate.isSealed()).isTrue();
         assertThat(gate.issue(new Object(), 0L)).isEmpty();
-        assertThat(gate.verify(new Object(), Bytes.unsafeWrap(new byte[32]), 0L))
+        assertThat(gate.verify(new Object(), null, Bytes.unsafeWrap(new byte[32]), 0L))
                 .isEqualTo(HostJoinGate.Verdict.WRONG_PASSWORD);
     }
 
@@ -144,7 +144,7 @@ class HostJoinGateTest {
         assertThat(gate.isArmed()).isFalse();
         assertThat(gate.isSealed()).isFalse();
         assertThat(gate.outstanding()).isZero();
-        assertThat(gate.verify(new Object(), Bytes.empty(), 0L))
+        assertThat(gate.verify(new Object(), null, Bytes.empty(), 0L))
                 .isEqualTo(HostJoinGate.Verdict.NOT_GATED);
     }
 
@@ -156,7 +156,7 @@ class HostJoinGateTest {
 
         gate.arm(WORLD, "pw".toCharArray());   // the host re-shared: fresh salt, fresh key
 
-        assertThat(gate.verify(connection, answer(stale, "pw"), 10L))
+        assertThat(gate.verify(connection, null, answer(stale, "pw"), 10L))
                 .isEqualTo(HostJoinGate.Verdict.NO_CHALLENGE);
     }
 }

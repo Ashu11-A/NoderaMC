@@ -351,13 +351,6 @@ public final class WorldArchive {
         return ContentId.of(HASHES, blob);
     }
 
-    /** Convenience: split + manifest + return both, for callers that need the piece list too. */
-    public record Prepared(PieceManifest manifest, Bytes blob) {
-        public static Prepared of(long version, byte[] blob) {
-            return new Prepared(manifestFor(version, blob), Bytes.unsafeWrap(blob));
-        }
-    }
-
     /** The archive entries a fetched blob contains, as an ordered list of paths (diagnostics). */
     public static List<String> entryPaths(byte[] blob) {
         return new ArrayList<>(unpack(blob).keySet());

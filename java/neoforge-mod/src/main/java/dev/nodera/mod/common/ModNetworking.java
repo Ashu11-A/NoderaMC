@@ -155,15 +155,19 @@ public final class ModNetworking {
         } catch (IllegalArgumentException notBase64) {
             answer = dev.nodera.core.Bytes.empty();
         }
-        HostJoinGate.Verdict verdict = HostJoinGate.get()
-                .verify(context.connection(), answer, System.currentTimeMillis());
+        HostJoinGate.Verdict verdict = HostJoinGate.get().verify(
+                context.connection(),
+                JoinerIdentity.of(context.connection().getRemoteAddress()),
+                answer,
+                System.currentTimeMillis());
         if (verdict == HostJoinGate.Verdict.PASS || verdict == HostJoinGate.Verdict.NOT_GATED) {
             context.finishCurrentTask(JoinPasswordTask.TYPE);
             return;
         }
         org.slf4j.LoggerFactory.getLogger("NoderaJoin")
                 .info("Nodera: refused a joiner at the password gate ({})", verdict);
-        context.disconnect(JoinPasswordTask.REFUSED);
+        context.disconnect(verdict == HostJoinGate.Verdict.THROTTLED
+                ? JoinPasswordTask.THROTTLED : JoinPasswordTask.REFUSED);
     }
 
     /** Server-side: a player announced its peer node — record it and re-plan region ownership. */
@@ -214,6 +218,13 @@ public final class ModNetworking {
     /** Client-side: the session broadcast new plan inputs — hand them to the client lane. */
     private static void handleLanePlan(NoderaLanePlanPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
+            // Bind this player's own always-on worker into the session it is playing in (L-30).
+            // This is the first message that carries the world seed, which the worker's validation
+            // lane must be bound to before it can hold a seat — and it happens ahead of the lane
+            // listener, and outside the deterministic-validation switch that listener honours,
+            // because a worker's membership is worth having even where this build's client lane is
+            // off: it is what keeps the world alive when this game exits.
+            NoderaPeerService.get().bindCompanionToSession(payload.worldSeed());
             var listener = planListener;
             if (listener != null) {
                 listener.accept(payload);

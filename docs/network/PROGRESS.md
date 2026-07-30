@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-29 · Tasks completed: **12 / 15**
+**Category:** network · **Last audit:** 2026-07-30 · Tasks completed: **12 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -17,7 +17,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Wire protocol, transports, handshake | ✅ COMPLETED | Tags through 60; authenticated accept handshake (L-53 retired) |
-| [2](Task.2.md) | Peer runtime, membership, gateway | 🚧 IN PROGRESS | Election + continuity + certified committee changes ✅; migration end-to-end remains |
+| [2](Task.2.md) | Peer runtime, membership, gateway | 🚧 IN PROGRESS | Election + continuity + certified committee changes ✅; the negotiation handshake now runs on every announce (2026-07-29); every player's worker joins its own world's session, and the resident pool is a broadcast plan input (L-30's code half); migration end-to-end remains |
 | [3](Task.3.md) | Event-sourced + durable storage | ✅ COMPLETED | RocksDB tier, forced-kill recovery, certified forward sync |
 | [4](Task.4.md) | Torrent data plane | ✅ COMPLETED | Production consumer live (world-continuity lane); L-33 render half remains |
 | [5](Task.5.md) | Discovery + multi-bootstrap + identity | ✅ COMPLETED | Serving role moved to the tracker service |
@@ -29,12 +29,284 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 | [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-91, renumbered from a duplicate L-84 on 2026-07-28) |
-| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97); L-87/L-88/L-90 RETIRING pending a live mixed-release run |
+| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97). **The handshake was wired into `PeerRuntime` on 2026-07-29** — it had been RETIRING over a class with no production caller; L-87/L-88/L-90 still RETIRING pending a live mixed-release run |
 | [15](Task.15.md) | Structural benchmarking + structural code report | ✅ COMPLETED | Four JMH lanes (`:peer:jmh`), ranked report with load-scaling + baseline diff, bytecode dead-code/cost report and JDWP worker probe (`:worker:structureReport`), both ratcheted and both on the `benchmarks` workflow |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-30 (fourth pass) — the first live run in this session, and what it found
+
+The previous three passes were headless. This one ran `nodera-test run mesh-soak` — L-30's own exit
+test — on this machine, and the result is worth more than a pass would have been.
+
+**The premise was wrong: this environment has a display.** `DISPLAY=:0` works and `~/.minecraft`
+carries `neoforge-21.1.238`. The sentence "it cannot be performed in an environment with no X
+display" was written in an earlier session, then copied forward into L-30's status cell and a PR
+body as though it were a property of the machine. It was never re-checked. Checking it took one
+command.
+
+**Every live scenario since the harness conversion ran with no tracker and no rendezvous.**
+`LiveStack` launched both services with `NODERA_TRACKER_BIND` / `NODERA_RENDEZVOUS_BIND`; they take
+`*_BIND_ADDR` and refuse to start on an unrecognised `NODERA_<SERVICE>_*` variable — deliberately, so
+a typo cannot silently run a service on defaults. Both binaries printed one line and exited. The key
+was introduced by the conversion itself ([#120](https://github.com/Ashu11-A/NoderaMC/pull/120)); the
+shell harness it replaced wrote a TOML config and never used that variable. What let it survive is
+that `startInfrastructure`'s javadoc claims it waits "until every one of them answers" and only ever
+probed the workers — so a service that exited left a stack that looked launched, and every symptom
+appeared one layer up, pointing at the product: `world 'world' is on NO tracker`, `0 seeder(s), 0
+routable`, soaks that observed nothing. Fixed both ways (correct keys, plus `awaitListening` with the
+process's log tail in the failure). The first run afterwards reached `Seeder lookup … 3 seeder(s), 3
+routable` — the first live discovery plane the Java harness has ever had.
+
+**L-30's exit test cannot pass in this build, and no register said so.**
+`ValidationLane.DETERMINISTIC_VALIDATION` is a compile-time `false`: deterministic re-execution and
+committee co-signing are deliberately out of scope for the initial release, and the host announces it
+on every share — *"runs WITHOUT deterministic region validation"*. There are no committees, no votes
+and no `committee_commits` to observe. L-30 has been recording "what remains is the run itself" about
+a run against a switched-off feature. The row now says so, and `HostWorldSupport` **skips** with the
+constant named instead of waiting 300 s for a line this build never prints — the difference between
+"this build does not have the feature" and "the feature is broken" is the whole point of a suite.
+
+**And the run caught a regression this PR had introduced.** Three `Refused a PeerGoodbye … it names a
+different peer as its sender` lines appeared at teardown: the NDR2 table lists `PeerGoodbye` as
+`TRANSPORT_SENDER_EQUALS`, but `handleTransportDown` and the heartbeat sweep both broadcast a goodbye
+**naming somebody else** — "I saw X's socket close" — and that gossip is the mesh's fast departure
+path. Pass 2's blanket enforcement killed it. The permissive reading is a genuine vulnerability
+though (any peer could evict any member), so the two cases are now separated by what they are: a
+goodbye naming its own sender is a *departure* and is acted on; a goodbye naming anybody else is a
+*report* that expires the named member's liveness so the local heartbeat decides on the next tick. A
+peer that really left is dropped a tick later by this node's own observation; a live one answers with
+a keep-alive and stays. Believe a peer about itself, believe only yourself about anybody else. Note
+that no headless test caught this — the fast path only fires when a real socket closes.
+
+### 2026-07-30 (fifth pass) — the mesh soak passes, and L-30 is down to one counter
+
+With `ValidationLane.DETERMINISTIC_VALIDATION` flipped **locally** — reverted immediately, the shipped
+default is still `false` — `nodera-test run mesh-soak` passed all five stages on this machine. It is
+the first time the lane has been observed running live, and every number in it is a first:
+
+| Evidence | Before | This run |
+|---|---|---|
+| Worker-held region replicas | 0, then 64 on **one** worker | **152**, across the workers |
+| Resident peers in the plan / seats | 1 resident, 0 seats | **3 residents, 42 seats** |
+| Regions held by more than one peer at the same version | none — "no two inspectable peers to compare" | **67 of 67** |
+| Regions where those peers disagreed | — | **0** |
+| Client lane | — | `active on 11 region(s) — 2 member node(s) + 3 resident peer(s) in the plan` |
+
+The three resident peers and the 42 seats are the 2026-07-29 pass working live: the joiner's worker
+now joins the world its player is in, and the resident pool rides the plan payload so host and clients
+compute the same committees. Both were headless-only claims until this run.
+
+**What is left of L-30 is one counter.** Its exit test asks for two headless workers reporting
+non-zero `committee_commits` with agreeing roots. The roots agree — on 67 regions, not two. But all
+three workers report `votes_cast=0, votes_received=0, committee_commits=0` while holding 42 seats and
+152 replicas. They hold seats, hold state, and agree about it; they do not vote. That is the entire
+remaining question, and it is a far narrower one than "the live mesh has never been observed carrying
+validated state". The row stays **OPEN**: half an exit clause, on a flag this build does not ship, is
+not a retirement.
+
+### 2026-07-30 (third pass) — the two ways a running node stops without saying so
+
+A fail-safety sweep rather than a feature pass. Two failure shapes, both of which leave a process up,
+healthy-looking, and no longer doing the thing it exists to do.
+
+**A recurring task that throws is cancelled forever.** `scheduleWithFixedDelay` and
+`scheduleAtFixedRate` cancel a task permanently the first time it throws, and report that only into a
+`Future` nobody reads. `WorldHostingService` had already learned this the expensive way — its
+`survivable` wrapper carries a live outage in its javadoc, where two peers each holding a full copy of
+a world answered every tracker query with `0 seeder(s), 0 routable`, because the announce heartbeat
+had thrown once. The sweep found three more schedules with no such guard, and the worst of them is
+`WorldArchiveService`'s transfer-window tick: it is what opens the serve and download budgets, so one
+throw would have stopped **every transfer on the node**, permanently and silently. Also guarded:
+`PeerRuntime`'s heartbeat (its lambda called `stateExec.execute` directly, so a
+`RejectedExecutionException` during teardown would cancel the heartbeat of a runtime still running)
+and the multiplayer status feed (whose failure mode is a frozen "up" that reads as a live one).
+
+The guard is now one shared, dependency-free helper — `dev.nodera.core.concurrent.Recurring.survivable`
+— with `RecurringTest` (4) asserting the property that actually matters: a real scheduler, a body that
+throws on every tick, and the assertion made on the tick *after* the throw. A plain try/catch test
+would pass without proving the schedule survived. `Error` is deliberately not caught, and
+`WorldHostingService.survivable` deliberately still does catch it for the announce heartbeat alone;
+both sides of that disagreement are now written down where each is, so neither gets "unified" away.
+
+**An unknown wire kind was still fatal in two more places.** The same defect the pass below fixed in
+`PeerRuntime` existed in `ContentTransferService.onMessage` — whose own closing comment promises "any
+other message type belongs to another handler; content transfer ignores it", true of every kind this
+build knows and false of every kind it does not, so the one message the contract could not describe
+was the one that threw out of a transport receive callback — and in
+`RelayCircuitClient.readIncoming`, whose loop exists precisely to read past control messages until a
+circuit arrives, and which would have ended a perfectly good reservation with an `IOException` the
+first time a newer relay sent a second kind of notice. Both now use `decodeFrame` and skip.
+`UnknownKindDoesNotBreakTheContentLaneTest`, verified failing without the fix.
+
+### 2026-07-30 (second pass) — the register is discharged: three lanes closed, four verdicts settled on evidence
+
+Continuing the pass below, against the remaining § Unwired capabilities rows and the two open
+questions they implied.
+
+**An unsupported kind is answered instead of dropped.** NDR2's whole cross-version premise is that a
+peer newer than this one may exist, and `WireCodec.decodeFrame` already reports an unknown kind as a
+fact rather than a failure — but nothing on a production receive path called it. `PeerRuntime` used
+`decode`, which throws on an unknown kind exactly as it throws on corruption, so an older peer met a
+newer one's message with silence. Silence is the one answer a sender cannot act on: indistinguishable
+from a lost packet, a dead process or a network fault, recoverable only by timeout and diagnosable
+only by guess — the failure `MessageRouter`'s own comment describes, in the runtime that has no
+router. The receive path now answers a `Nack` naming the kind and the reason, bounded two ways: a
+frame already flagged `RESPONSE` is never answered (so two peers cannot refuse each other forever),
+and the answer is one small frame per received frame on the connection it arrived on, so it cannot
+amplify. `UnsupportedKindIsAnsweredTest` (2), both verified failing without the wiring.
+
+**The replication sweep gives the budget back.** The sweep only ever grew: `withinBounds` stops
+adopting once the byte budget is used and nothing ever freed a byte of it, so a node's placement was
+settled once and for all by whichever worlds happened to exist when it first filled up. Placement is
+not a one-time fact — it is a deterministic function of the peer set, which changes whenever anyone
+joins or leaves — so a node that filled up in a five-peer swarm and then watched it reach fifty held
+worlds no policy expected of it and refused every world the policy did expect, permanently. It even
+looked correct: a full node's sweep reports "past the bounds", which is what a working bound reports
+too. Releases are now part of the sweep, ordered before adoption so freed bytes are spendable in the
+same cycle, under four rules that each remove one way this could destroy a replica the swarm still
+needs — only under budget pressure, only volunteered content, only on a real placement answer
+(`Placement.UNKNOWN` from a tracker outage keeps the world, or one outage would empty every full node
+on the network at once), and at most one world per sweep. `ReplicationGivesTheBudgetBackTest` (6).
+
+**The durability question behind the flush lane is answered with a test, not a verdict.** Deciding
+`PeerShutdownHook`/`EmergencyFlush` needed an answer to "if nothing evacuates a departing node, what
+restores its replication factor?" The sweep does, and
+`DepartureIsRepairedByPlacementTest` (3) pins it: a departure promotes a peer that was not a holder,
+survivors keep their assignments (rendezvous hashing rather than modulo-N, so one departure is not a
+network-wide reshuffle), and a swarm below the replication factor keeps *every* peer as an expected
+holder rather than none — the failure that would otherwise let every remaining peer release a world at
+the moment it is closest to being lost. So evacuation is a second mechanism for a property already
+held, and a worse one: it depends on the departing node still being alive and reachable, which a crash
+and a closed laptop both violate. Verdict: delete both, do not build a push lane to feed them. The
+same evidence retires the archival audit→repair triangle for the same reason.
+
+Measured while writing that test and worth recording: `forWorldArchives(standard())` derives **R = 22**
+from a 35% availability assumption, and `factor` caps R at the network size — so below 22 peers a full
+copy of every world sits on every peer, every peer is always placed, and the new release rule cannot
+fire at all.
+
+**A retired row turned out to be false, and is reopened.** Engine **L-20** ("genesis is a single-signer
+trust root") was retired on `GenesisRecertification` + `GenesisApprovalFlow`, whose only construction
+site is `GenesisApprovalFlowIT`; meanwhile `CertifiedWorldGenesis` — the record production mints,
+persists and reuses — carries one author key and one signature and no founding set at all. Every world
+on the network is founded on exactly the trust root the row called a limitation. Reopened as engine
+**L-92** with an exit test demanding a production call path; L-20's evidence cell is left untouched as
+history, with an audit note above it. The blocker is a design decision — what the declared founding
+set is, and how it is persisted with the world — not a missing call. This is the first instance of the
+repository's dominant defect shape found inside a **retired** register, which is the one place nobody
+re-checks.
+
+**L-33's remaining half is bigger than "wiring".** Acting on `ChunkLockEditability`'s verdict found
+that `ChunkLockMap` has no producer at all — the single production `download` passes `null` for it and
+nothing calls `track`, so the map is empty and `isChunkEditable` answers false for every region;
+installing the adapter as it stands would lock the whole world against editing rather than lock an
+un-arrived section. Underneath that, there is no region-piece **fetch**: regions are seeded and their
+manifests travel, but nothing downloads a region's pieces and applies them, so no production path
+exists in which region content arrives piecewise into a world a player is editing. Both the row and
+the register now say so, including that the chunk→piece index does not travel with the manifest and
+that a coarser region-level lock would need no wire change.
+
+### 2026-07-30 — Two unreached security properties start biting, and the sync lane gains a caller
+
+The 2026-07-29 audit produced an inventory of implemented-but-unreached capabilities
+([`REFACTORING.md`](REFACTORING.md) § Unwired capabilities) with a wire-or-delete verdict each. This
+pass discharges the three whose verdict was "wire", and replaces two verdicts that turned out to be
+wrong questions.
+
+**The live-join password gate was an unlimited guessing oracle.** `JoinAttemptThrottle` — L-39's
+mechanism, complete and tested since Task 23 — had zero non-test references. The gate's challenge is
+single-use *per connection*, which bounds replay and nothing else: a client that reconnected drew a
+fresh nonce every time, so the memory-hard KDF protecting the world password offline protected
+nothing online. `HostJoinGate` now counts failures per (world, joiner) and refuses a locked-out
+joiner **before** issuing a challenge, so a grinding client cannot even make the host pay for the
+nonce; `verify` independently returns `THROTTLED`, so a caller that skips the pre-check still cannot
+grind. The joiner key is the remote address (`JoinerIdentity`), never the connection object — keying
+on the connection would reset the counter on exactly the action being throttled, which is the shape
+of throttle that looks like one and is not. Evidence: `JoinGateThrottleIsWiredTest` (7), four of
+which were verified failing with the failure record removed, and `JoinerIdentityTest` (4).
+
+**The NDR2 authorisation table was consulted by nothing.** `MessageType.permits` states that a peer
+may only speak for itself, and it had exactly one non-test caller in the repository — `MessageRouter`,
+which has no production caller either. So `PeerRuntime.dispatch` accepted every membership frame from
+any connected socket: the state the table's own comment describes as the defect it was written to
+remove. A peer could send a `PeerGoodbye` naming another member and evict it, or a `PeerJoin` naming a
+node that never joined and enrol it. The table is now applied once, before any handler runs. Six kinds
+carry `TRANSPORT_SENDER_EQUALS` and each is a self-statement never relayed for another peer, so a
+refusal cannot drop legitimate traffic; an unauthenticated carrier and a kind with no descriptor both
+still dispatch, which keeps the two documented escape hatches documented rather than accidental.
+Evidence: `SenderAuthorisationIsEnforcedTest` (2, both verified failing without the gate), ordered
+rather than timed — a legitimate frame sent *after* the forged one and observed to have taken effect
+proves the forged one was already handled, and makes each test its own positive control.
+
+**Task 9's forward event-sync gained the caller L-30 was citing.** `EventSyncService` had none, so
+L-30's citation of `EventSyncOverTransportIT` was evidence about a mechanism no peer ran.
+`LiveEntityLaneSession` now builds one over its own `RocksWorldStore` and the host transport, answers
+`EventSyncQuery` on the application-lane arm ahead of validation, and on open asks its committee peers
+for what each region gained while this node was away. A **cold** region is deliberately not asked:
+`lastEventId` is `-1` on an empty log and that request would be one unbounded answer on a
+frame-bounded wire, so a rejoin syncs forward (envelope A-3) and a first join takes its world from the
+archive lane. Guarded by `EventSyncIsWiredTest` (4), the source-scan shape
+`CompanionSessionBindingIsCalledTest` established for faults that are absences.
+
+**Two verdicts were the wrong question, and are recorded as such rather than half-wired.**
+`CommitteeManager` presumes committees rotate as discrete events a certificate can certify; what
+shipped re-derives each region's committee deterministically from `EntityLaneBootstrap.plan` on every
+view change and every region-boundary crossing, so there is nothing to certify and wiring it would put
+two rotation mechanisms in one lane. [`Task.2.md`](Task.2.md) deliverable 4 goes from ✅ to superseded.
+`PeerShutdownHook` is blocked on a capability rather than a call site: `EmergencyFlush.PieceTransfer`
+is a *push*, production moves content by pull only, and the two messages that would carry a push are
+tags 30/31 — already in the dead-tag table because their sender was never built.
+
+One real defect fell out of reading `ArchiveManager` for its verdict: both branches of
+`if (assigned.contains(root))` in `reconcile` performed the same `retained.put`, so a condition that
+reads as the enforcement of "never evict an assigned-region piece" had no effect on the result. The
+enforcement is real, but it lives in the eviction loop below; the loop now says so and the dead branch
+is gone.
+
+### 2026-07-29 — Every player's worker joins the world, the plan is genuinely shared, and the handshake is no longer decorative
+
+Three findings, all of them the same shape: code that existed, was tested, and was never reached from
+anything that ships.
+
+**L-30's two remaining product gaps are closed.** The row had already narrowed itself to "the
+joiner's companion is never bound to the session it joined"; that is fixed —
+`NoderaPeerService.bindCompanionToSession` runs from the plan broadcast, which is the first message a
+joiner receives carrying the world seed the worker's validation lane must be bound to before it can
+hold a seat, with the detach mirrored on `stopClient`. The trust question the diagnosis had left open
+needed no new mechanism: membership is not authority, a seat only entitles a node to re-execute and
+vote, and every vote is verified against the key already in the plan.
+
+Fixing it surfaced a second divergence nobody had looked for. The host planned with
+`residents.keySet()` and the client planned with the **four**-argument overload — no residents at all,
+because the resident pool was never a field on `NoderaLanePlanPayload`. "Every member derives the
+identical plan from the same pure inputs" was true of the function and false of the call: a client
+primaried a region with a players-only committee and then dropped the votes of the residents the host
+had just seated, as coming from outside the committee. The pool now rides the payload and both sides
+filter it by the same four rules (not self, not a player node, routable, key-bearing). Evidence:
+`ResidentPlanAgreementTest` (5 — the divergence verified failing without the fix),
+`ClientValidationLaneResidentPoolTest` (7), and `CompanionSessionBindingIsCalledTest` (5), which
+guards the call sites because the fault was an *absence* and absences do not fail unit tests.
+
+**The R2/R3 handshake was RETIRING on tests of a dead class.** `:worker:structureReport` listed
+`dev.nodera.protocol.session.Negotiation` under "classes only tests and benchmarks reference", and
+that was exactly right: `PeerRuntime.dispatch` never handled a `Hello`, so nothing constructed,
+sent or answered one — the same defect the L-87 row describes about the tags it replaced. It is now
+wired: one `announceSelf` sends `Hello` before `PeerJoin` on every announce path, `onHello` answers
+through `Negotiation.respond` (checking the body's `nodeId` against the carrier-authenticated peer,
+which production could never do before), both ends record the `PeerSession`, `sendTo` encodes through
+`PeerSession.encodeFor`, and `NoderaHost` refuses a resident committee seat to a peer that negotiated
+OBSERVER. The worker and both mod runtimes install a profile naming the rule set they actually
+re-execute under. Two non-properties are deliberate: the join is not withheld pending an answer, and
+an absent answer is not a refusal. Evidence: `HandshakeRunsInProductionTest` (4; three verified
+failing with the `Hello` send removed). L-87 and L-88 stay RETIRING — on the live mixed-release run
+they always named, no longer on green tests over unreachable code.
+
+The structural ratchet moved with it: `test_only_classes` 33 → 32, `severe_cost_findings` 7 → 4
+(`ViewOwnershipPlanner.planMultiView` and both lane region loops stopped re-scanning lists),
+`unreachable_methods` 316 → 311. `fixtures/structure/budget.json` is tightened to the new floor.
 
 ### 2026-07-29 — The peer system can be measured, and the tree can be audited (task 15)
 

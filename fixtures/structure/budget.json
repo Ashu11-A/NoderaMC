@@ -1,13 +1,13 @@
 {
   "note": "Ratchet for the structural code report (`./gradlew :worker:structureReport`). Every number below is production code that ships and does nothing: classes nothing references, methods only tests call, methods no entry point can reach, methods too big for the JIT, and severe in-loop cost findings. They may only go DOWN — raising a limit to make a build green defeats the point of measuring, so a rise fails the task. The task prints the tightened set whenever the tree improves; paste it here in the same commit.",
-  "measured": "2026-07-29 on the full tree (nine modules compiled, debugger probe run)",
+  "measured": "2026-07-30 on the full tree (nine modules compiled, static analysis). The drop from the 2026-07-29 set is the unwired-capability pass: the join throttle, the NDR2 authorisation table, the forward event-sync and the unsupported-kind answer each gained a production caller, and `WorldArchive.Prepared` — referenced by nothing at all, tests included — was deleted, which is what takes dead_classes to zero. See docs/network/PROGRESS.md and docs/network/REFACTORING.md § Unwired capabilities.",
   "limits": {
-    "dead_classes": 1,
-    "test_only_classes": 33,
-    "never_referenced_methods": 141,
-    "test_only_methods": 427,
-    "unreachable_methods": 316,
+    "dead_classes": 0,
+    "test_only_classes": 30,
+    "never_referenced_methods": 138,
+    "test_only_methods": 416,
+    "unreachable_methods": 283,
     "huge_methods": 0,
-    "severe_cost_findings": 7
+    "severe_cost_findings": 4
   }
 }

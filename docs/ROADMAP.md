@@ -30,8 +30,39 @@ root-cause rows L-87, L-88, L-90 are RETIRING — they are not RETIRED, because 
 admission behaviour they cover has not yet run as two real processes from different builds on one
 network.
 
+**Correction 2026-07-29.** Two of those three rows were RETIRING over code nothing called.
+`:worker:structureReport` listed `dev.nodera.protocol.session.Negotiation` among "classes only tests
+and benchmarks reference", and that was accurate — the phase-4 handshake had replaced tags 1–4 with
+`Hello`/`HelloAck` and left the *same* defect in place, a message family living in the codec and its
+tests with no runtime handler. It is now wired into `PeerRuntime` (every announce sends `Hello`, every
+`Hello` is answered against the carrier-authenticated identity, the negotiated profile governs both
+committee seats and emitted bytes), so L-87 and L-88 are RETIRING on the live mixed-release run they
+always named rather than on green tests over unreachable code. Nothing about their status changed;
+what changed is that the status is now honest.
+
 The completion figure above is **not** recomputed for it — the weighting behind that number is not
 derivable from this table, and inventing one would be worse than a stale figure that says so.
+
+**Correction 2026-07-30, and this one moves a row the wrong way.** The 2026-07-29 audit produced an
+inventory of implemented-but-unreached capabilities ([`network/REFACTORING.md`](network/REFACTORING.md)
+§ Unwired capabilities). Working through it closed four lanes and settled the rest on evidence — but it
+also found the defect shape inside a **retired** register, which is the one place nobody re-checks.
+Engine **L-20** ("genesis is a single-signer trust root") was retired on `GenesisRecertification` +
+`GenesisApprovalFlow`, whose only construction site is its own IT, while `CertifiedWorldGenesis` — the
+record production actually mints and persists — carries one author key, one signature, and no founding
+set. Every world on the network is founded on exactly the trust root that row called a limitation. It
+is reopened as engine **L-92** (OPEN, exit test demands a production call path), L-20's evidence cell
+left untouched as history with an audit note above it. Engine open/retiring rows go 6 → 7.
+
+What closed in the same pass, each verified failing without its fix: the live-join password gate stops
+being an unlimited online guessing oracle (`JoinAttemptThrottle` had no caller, and the gate's
+challenge is single-use per *connection*, so reconnecting bought unlimited guesses); the NDR2
+authorisation table is enforced at dispatch (`MessageType.permits` had one non-test caller, itself
+unwired, so a forged `PeerGoodbye` could evict any member); Task 9's forward event-sync gained the
+caller network L-30 was citing as evidence; an unsupported wire kind is answered with a `Nack` instead
+of dropped in silence; and the worker's replication sweep gives its byte budget back, so a node that
+filled up no longer refuses every world the placement policy expects of it for the rest of its life.
+The completion figure is again left as it stands, for the same reason.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
 
@@ -174,7 +205,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [5](worker/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
 | [6](worker/Task.6.md) | World ownership + durable world registry | ✅ | worker 2, worker 3, network 3 |
 | [7](worker/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
-| [8](worker/Task.8.md) | One world, one identity | 🚧 | worker 3, minecraft 6 |
+| [8](worker/Task.8.md) | One world, one identity | 🚧 all 11 deliverables closed; open on live rows | worker 3, minecraft 6 |
 
 ### App — [`docs/app/`](app/Task.0.md)
 

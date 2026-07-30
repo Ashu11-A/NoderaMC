@@ -5,7 +5,7 @@
      in totals. Crash tests here MUST use real OS processes and real SIGKILLs; a mocked daemon proves
      nothing about the property this category exists for. Keep counts and Last run current. -->
 
-**Category:** worker · **Last run:** 2026-07-28 · `java/worker` plus the peer-side lanes it drives
+**Category:** worker · **Last run:** 2026-07-30 · `java/worker` plus the peer-side lanes it drives
 (`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/nodera-test.sh run telemetry`
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
@@ -16,8 +16,8 @@ The worker is now its own Gradle module (`:worker`) — it was a package inside 
 fat jar included. The control endpoint and the tunnel lane stay in `:peer` because they are library
 code the Paper plugin uses too.
 
-**Test counts (Grep-verified 2026-07-28):** **197** `@Test` methods across the worker category —
-`java/worker/src/test/` (169 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
+**Test counts (`scripts/java-test-report.sh`, 2026-07-30):** **204** test cases in `:worker`, plus the peer-module cases named below —
+`java/worker/src/test/` (175 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
 plus `java/peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
 `ControlWatchStreamTest`, `WorkerEventStreamTest`). These are a SUBSET of the `:worker` + `:peer`
 module counts and must not be double-counted in totals.

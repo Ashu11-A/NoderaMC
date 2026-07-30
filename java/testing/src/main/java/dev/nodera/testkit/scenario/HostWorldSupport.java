@@ -164,8 +164,33 @@ public final class HostWorldSupport {
             clients.add(joinDedicated(context, "run-join3", PlayerRole.PLAYER_THREE,
                     "runClientJoinThree", "client-join3.log", "JoinerThree"));
         }
-        serverLog.await("entity lane live", Duration.ofSeconds(300));
+        awaitEntityLane(context, serverLog);
         return new DedicatedSession(server, List.copyOf(clients));
+    }
+
+    /**
+     * Wait for the validated lane — or say, at once, that this build cannot have one.
+     *
+     * <p>{@code ValidationLane.DETERMINISTIC_VALIDATION} is {@code false}: deterministic
+     * re-execution and committee co-signing are deliberately out of scope for the initial release,
+     * and the host says so on every share — <i>"'world' runs WITHOUT deterministic region validation
+     * — the deterministic validation lane is switched off for this release"</i>. So {@code "entity
+     * lane live"} is a line this build never prints, and every scenario built on this setup spent
+     * 300 s waiting for it and then failed as though something had broken.
+     *
+     * <p>A skip is the honest outcome and a timeout is not: the difference between "this build does
+     * not have the feature" and "the feature is broken" is exactly what a suite exists to tell a
+     * reader, and a five-minute wait for a compile-time constant tells them neither. The reason
+     * names the constant, so whoever flips it knows which suites come back.
+     */
+    private static void awaitEntityLane(ScenarioContext context, LogWatcher serverLog) {
+        if (serverLog.contains("runs WITHOUT deterministic region validation")) {
+            context.skip("the deterministic validation lane is switched off in this build "
+                    + "(ValidationLane.DETERMINISTIC_VALIDATION = false) — every stage below it "
+                    + "asserts committee behaviour that cannot run. Flip that constant to bring "
+                    + "this scenario back.");
+        }
+        serverLog.await("entity lane live", Duration.ofSeconds(300));
     }
 
     private static ManagedProcess joinDedicated(ScenarioContext context, String gameDirectory,

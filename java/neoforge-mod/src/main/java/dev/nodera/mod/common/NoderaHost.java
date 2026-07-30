@@ -927,6 +927,14 @@ public final class NoderaHost {
                     || entry.route().isEmpty() || !entry.hasPublicKey()) {
                 continue;
             }
+            // R2 (network L-87): a peer whose handshake answered OBSERVER cannot co-validate here —
+            // a differing rules version or registry fingerprint makes agreeing on a state root
+            // impossible, so seating it would guarantee a committee that never reaches quorum. Note
+            // this asks "did it answer observer", not "is it admitted": a peer that never completed
+            // a handshake is seated exactly as before, so a dropped frame cannot unvalidate a world.
+            if (host.runtime().isNegotiatedObserver(entry.nodeId())) {
+                continue;
+            }
             residents.put(entry.nodeId(), entry);
         }
         final ServerLevel level = anchorLevel;
@@ -951,8 +959,10 @@ public final class NoderaHost {
                     // Activate every region this node participates in: primary regions drive
                     // proposals, validator regions re-execute + vote (the committee model — the
                     // same rule every player's client applies to the same broadcast plan).
-                    if (planned.locallyPrimary()
-                            || planned.lease().validators().contains(local)) {
+                    // `lease.contains` is "primary or validator" — the same predicate, and the
+                    // client lane spells it the same way, which is the point: the two sides of the
+                    // shared computation should not read differently.
+                    if (planned.lease().contains(local)) {
                         bindings.add(new LiveEntityLaneSession.RegionBinding(
                                 level, EntityLaneBootstrap.initialSnapshot(planned.region()),
                                 planned.lease()));
@@ -1049,6 +1059,22 @@ public final class NoderaHost {
                         .endSwap(!bindings.isEmpty());
                 // Broadcast the plan inputs so every player's client derives the identical plan
                 // and activates its own regions (the shared-computation ownership model).
+                //
+                // The resident pool is one of those inputs. This node planned with
+                // `residents.keySet()`, so a client planning without it computes a different lease
+                // for every committee that has a leftover seat — and then rejects the votes of the
+                // very residents this node just seated, because they are not validators in the
+                // lease the client holds. Shipping the pool is what makes the two computations the
+                // same computation (network L-30).
+                List<NoderaLanePlanPayload.Resident> residentInputs =
+                        new ArrayList<>(residents.size());
+                for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
+                    residentInputs.add(new NoderaLanePlanPayload.Resident(
+                            entry.nodeId().value().toString(),
+                            java.util.Base64.getEncoder().encodeToString(
+                                    entry.publicKey().toArray()),
+                            entry.route()));
+                }
                 NoderaLanePlanPayload payload = new NoderaLanePlanPayload(
                         manifest.worldSeed(), manifest.rulesVersion(),
                         manifest.registryFingerprint(),
@@ -1056,7 +1082,7 @@ public final class NoderaHost {
                                 manifest.genesisRoot().hash().toArray()),
                         java.util.Base64.getEncoder().encodeToString(
                                 host.identity().publicKeyBytes().toArray()),
-                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members);
+                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs);
                 server.execute(() -> {
                     for (ServerPlayer p : server.getPlayerList().getPlayers()) {
                         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, payload);

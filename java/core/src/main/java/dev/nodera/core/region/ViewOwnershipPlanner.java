@@ -168,7 +168,11 @@ public final class ViewOwnershipPlanner {
             cs.sort(Comparator.comparingLong(Coverer::distSq).thenComparing(c -> c.node(), NODE_ORDER));
 
             NodeId primary = cs.get(0).node();
-            List<NodeId> validators = new ArrayList<>();
+            // A set, because "one node, one seat" is the rule and a set states it once. The list
+            // this replaced re-scanned itself for every resident it considered — harmless at a
+            // committee of three, quadratic by construction, and flagged as such by the structure
+            // report. Insertion order is preserved, so the plan is unchanged.
+            java.util.LinkedHashSet<NodeId> validators = new java.util.LinkedHashSet<>();
             for (int i = 1; i < cs.size() && validators.size() < maxCommitteeSize - 1; i++) {
                 validators.add(cs.get(i).node());
             }
@@ -179,14 +183,14 @@ public final class ViewOwnershipPlanner {
                 if (validators.size() >= maxCommitteeSize - 1) {
                     break;
                 }
-                if (!resident.equals(primary) && !validators.contains(resident)) {
+                if (!resident.equals(primary)) {
                     validators.add(resident);
                 }
             }
             // coverCount stays the number of PLAYERS that see the region — residents witness it,
             // they do not see it, and isSoloOwned() must keep meaning "only one player is here".
             plan.put(region, new RegionClaim(
-                    region, primary, validators, playersPerRegion.get(region)));
+                    region, primary, List.copyOf(validators), playersPerRegion.get(region)));
         }
         return plan;
     }
