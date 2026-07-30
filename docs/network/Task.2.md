@@ -27,9 +27,15 @@ rotates members.
 `GatewayElection`; a real-TCP continuity beta (`SessionContinuityIT` — the base peer disconnects and
 the survivors stay connected after re-electing); `CommitteeManager` for authority-free certified
 committee changes (old-committee quorum of approvals, loud degradation when the population is too
-small) — **correction 2026-07-29: implemented and tested, but with no production call site**, so
-this belongs under "remaining" until it is wired; see [`REFACTORING.md`](REFACTORING.md)
-§ Unwired capabilities; 3-of-4 quorum plumbing; `JoinAdmission` gating join **and** gossip ingest; per-peer traffic
+small) — **correction 2026-07-29: implemented and tested, but with no production call site**, and
+**second correction 2026-07-30: it is not going to get one.** Its model is a nominated committee
+installed by a certificate meeting the *old* committee's quorum, which presumes committees rotate as
+discrete events. What shipped derives each region's committee deterministically from
+`EntityLaneBootstrap.plan` over inputs every member already holds, on every view change and every
+region-boundary crossing — there is no rotation event to certify, and adding one would put two
+rotation mechanisms in one lane. So the deliverable's ✅ is wrong rather than early: see
+[`REFACTORING.md`](REFACTORING.md) § Unwired capabilities for the wire-or-delete verdict;
+3-of-4 quorum plumbing; `JoinAdmission` gating join **and** gossip ingest; per-peer traffic
 attribution; `PeerDiscoveryService` sweeps that introduce this node to every routable peer found
 via trackers and rendezvous; and, from 2026-07-29, **the negotiation handshake on every announce
 path** — one `announceSelf` sends `Hello` ahead of `PeerJoin`, `onHello` answers via
@@ -60,7 +66,7 @@ demo. Cross-NAT runs ride [`rendezvous/Task.3.md`](../rendezvous/Task.3.md); liv
 | 1 | `PeerRuntime` — roles, membership, gossip, heartbeats | ✅ |
 | 2 | `GatewayElection` — capability-weighted, deterministic | ✅ |
 | 3 | `SessionContinuityIT` — base-peer disconnection continuity over real TCP | ✅ |
-| 4 | `CommitteeManager` — certified committee changes, rotation, resize | ✅ |
+| 4 | `CommitteeManager` — certified committee changes, rotation, resize | ❌ superseded — the shipped lane re-derives committees deterministically per view change, so there is no rotation event to certify (see Status detail) |
 | 5 | `JoinAdmission` — gates join and gossip ingest | ✅ |
 | 6 | `PeerDiscoveryService` — tracker + rendezvous sweeps feeding `announceTo` | ✅ |
 | 7 | Session-gateway migration: freeze → reconnect → exactly-once resubmit | 🚧 (`GatewayHandover` + `GatewayHandoverListener`, 21 tests — the core and its bind to `onGatewayChanged`; what remains is the live evidence, deliverable 8) |

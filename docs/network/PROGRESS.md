@@ -36,6 +36,63 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-30 — Two unreached security properties start biting, and the sync lane gains a caller
+
+The 2026-07-29 audit produced an inventory of implemented-but-unreached capabilities
+([`REFACTORING.md`](REFACTORING.md) § Unwired capabilities) with a wire-or-delete verdict each. This
+pass discharges the three whose verdict was "wire", and replaces two verdicts that turned out to be
+wrong questions.
+
+**The live-join password gate was an unlimited guessing oracle.** `JoinAttemptThrottle` — L-39's
+mechanism, complete and tested since Task 23 — had zero non-test references. The gate's challenge is
+single-use *per connection*, which bounds replay and nothing else: a client that reconnected drew a
+fresh nonce every time, so the memory-hard KDF protecting the world password offline protected
+nothing online. `HostJoinGate` now counts failures per (world, joiner) and refuses a locked-out
+joiner **before** issuing a challenge, so a grinding client cannot even make the host pay for the
+nonce; `verify` independently returns `THROTTLED`, so a caller that skips the pre-check still cannot
+grind. The joiner key is the remote address (`JoinerIdentity`), never the connection object — keying
+on the connection would reset the counter on exactly the action being throttled, which is the shape
+of throttle that looks like one and is not. Evidence: `JoinGateThrottleIsWiredTest` (7), four of
+which were verified failing with the failure record removed, and `JoinerIdentityTest` (4).
+
+**The NDR2 authorisation table was consulted by nothing.** `MessageType.permits` states that a peer
+may only speak for itself, and it had exactly one non-test caller in the repository — `MessageRouter`,
+which has no production caller either. So `PeerRuntime.dispatch` accepted every membership frame from
+any connected socket: the state the table's own comment describes as the defect it was written to
+remove. A peer could send a `PeerGoodbye` naming another member and evict it, or a `PeerJoin` naming a
+node that never joined and enrol it. The table is now applied once, before any handler runs. Six kinds
+carry `TRANSPORT_SENDER_EQUALS` and each is a self-statement never relayed for another peer, so a
+refusal cannot drop legitimate traffic; an unauthenticated carrier and a kind with no descriptor both
+still dispatch, which keeps the two documented escape hatches documented rather than accidental.
+Evidence: `SenderAuthorisationIsEnforcedTest` (2, both verified failing without the gate), ordered
+rather than timed — a legitimate frame sent *after* the forged one and observed to have taken effect
+proves the forged one was already handled, and makes each test its own positive control.
+
+**Task 9's forward event-sync gained the caller L-30 was citing.** `EventSyncService` had none, so
+L-30's citation of `EventSyncOverTransportIT` was evidence about a mechanism no peer ran.
+`LiveEntityLaneSession` now builds one over its own `RocksWorldStore` and the host transport, answers
+`EventSyncQuery` on the application-lane arm ahead of validation, and on open asks its committee peers
+for what each region gained while this node was away. A **cold** region is deliberately not asked:
+`lastEventId` is `-1` on an empty log and that request would be one unbounded answer on a
+frame-bounded wire, so a rejoin syncs forward (envelope A-3) and a first join takes its world from the
+archive lane. Guarded by `EventSyncIsWiredTest` (4), the source-scan shape
+`CompanionSessionBindingIsCalledTest` established for faults that are absences.
+
+**Two verdicts were the wrong question, and are recorded as such rather than half-wired.**
+`CommitteeManager` presumes committees rotate as discrete events a certificate can certify; what
+shipped re-derives each region's committee deterministically from `EntityLaneBootstrap.plan` on every
+view change and every region-boundary crossing, so there is nothing to certify and wiring it would put
+two rotation mechanisms in one lane. [`Task.2.md`](Task.2.md) deliverable 4 goes from ✅ to superseded.
+`PeerShutdownHook` is blocked on a capability rather than a call site: `EmergencyFlush.PieceTransfer`
+is a *push*, production moves content by pull only, and the two messages that would carry a push are
+tags 30/31 — already in the dead-tag table because their sender was never built.
+
+One real defect fell out of reading `ArchiveManager` for its verdict: both branches of
+`if (assigned.contains(root))` in `reconcile` performed the same `retained.put`, so a condition that
+reads as the enforcement of "never evict an assigned-region piece" had no effect on the result. The
+enforcement is real, but it lives in the eviction loop below; the loop now says so and the dead branch
+is gone.
+
 ### 2026-07-29 — Every player's worker joins the world, the plan is genuinely shared, and the handshake is no longer decorative
 
 Three findings, all of them the same shape: code that existed, was tested, and was never reached from

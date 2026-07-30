@@ -34,6 +34,10 @@ public final class JoinPasswordTask implements ICustomConfigurationTask {
     public static final Component REFUSED =
             Component.translatable("nodera.join.error.password_required");
 
+    /** The disconnect reason a joiner inside a lockout window sees. */
+    public static final Component THROTTLED =
+            Component.translatable("nodera.join.error.too_many_attempts");
+
     private final ServerConfigurationPacketListener listener;
 
     /**
@@ -47,7 +51,15 @@ public final class JoinPasswordTask implements ICustomConfigurationTask {
     @Override
     public void run(Consumer<CustomPacketPayload> sender) {
         Connection connection = listener.getConnection();
-        HostJoinGate.get().issue(connection, System.currentTimeMillis())
+        long now = System.currentTimeMillis();
+        if (HostJoinGate.get().isThrottled(
+                JoinerIdentity.of(connection.getRemoteAddress()), now)) {
+            // Refused before the challenge is built: a client grinding the password must not be
+            // able to make the host issue nonces at the rate it can reconnect.
+            listener.disconnect(THROTTLED);
+            return;
+        }
+        HostJoinGate.get().issue(connection, now)
                 .map(NoderaJoinChallengePayload::of)
                 .ifPresentOrElse(sender::accept, () -> {
                     if (HostJoinGate.get().isSealed()) {

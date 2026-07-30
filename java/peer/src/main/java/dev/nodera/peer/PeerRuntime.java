@@ -66,6 +66,9 @@ import java.util.function.Supplier;
  */
 public final class PeerRuntime implements DiagnosticsSource {
 
+    private static final org.slf4j.Logger LOG =
+            org.slf4j.LoggerFactory.getLogger("NoderaPeerRuntime");
+
     private final NodeIdentity identity;
     private final NodeId selfId;
     private final NodeCapabilities capabilities;
@@ -457,6 +460,9 @@ public final class PeerRuntime implements DiagnosticsSource {
     // ---- dispatch (state thread) ---------------------------------------------------------
 
     private void dispatch(PeerAddress from, NoderaMessage msg) {
+        if (!authorised(from, msg)) {
+            return;
+        }
         if (msg instanceof dev.nodera.protocol.session.Hello h) { onHello(from, h);
         } else if (msg instanceof dev.nodera.protocol.session.HelloAck a) { onHelloAck(from, a);
         } else if (msg instanceof PeerJoin j) { onPeerJoin(j);
@@ -473,6 +479,48 @@ public final class PeerRuntime implements DiagnosticsSource {
                     app.onApplicationMessage(from, msg);
                 }
             }
+    }
+
+    /**
+     * The NDR2 authorisation table, applied once before any handler runs.
+     *
+     * <p>The table ({@code MessageTypes}) was built with the wire and then consulted by nothing: the
+     * only non-test reference to {@code MessageType.permits} was inside {@code MessageRouter}, which
+     * has no production caller either. So the property the table states — "a peer may only speak for
+     * itself" — held in its own tests and nowhere on a running node, and every membership row was
+     * accepted from any connected socket exactly as it was before the table existed. A peer could
+     * therefore announce a {@code GatewayClaim} naming somebody else, or a {@code PeerGoodbye}
+     * evicting them, and the mesh would act on it.
+     *
+     * <p>Only six kinds carry {@code TRANSPORT_SENDER_EQUALS}, and every one of them is a statement a
+     * peer makes about <b>itself</b> — join, goodbye, gateway claim, keep-alive, content
+     * availability, inventory advertisement. None is ever relayed on another peer's behalf, so
+     * refusing a mismatch cannot drop legitimate traffic.
+     *
+     * <p>Two deliberate non-refusals. A carrier that does not authenticate yields a null peer id and
+     * the check defers to the handler — that is the policy's own documented contract, not a gap
+     * introduced here. And a kind with no table row is dispatched rather than dropped: an unknown
+     * descriptor is this build's ignorance of the message, never evidence against its sender.
+     *
+     * @return whether the message may be acted on.
+     */
+    private boolean authorised(PeerAddress from, NoderaMessage msg) {
+        NodeId authenticated = from == null ? null : from.nodeId();
+        if (authenticated == null) {
+            return true;
+        }
+        dev.nodera.protocol.wire.MessageType type;
+        try {
+            type = dev.nodera.protocol.wire.MessageTypes.of(msg);
+        } catch (RuntimeException noDescriptor) {
+            return true;
+        }
+        if (type.permits(msg, authenticated)) {
+            return true;
+        }
+        LOG.warn("Refused a {} from {}: it names a different peer as its sender",
+                type.kind().name(), authenticated.value());
+        return false;
     }
 
     /**

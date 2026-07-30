@@ -6,9 +6,9 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-07-29 · **989 Java test cases + 73 Rust (`nodera-codec`)
+**Category:** network · **Last run:** 2026-07-30 · **991 Java test cases + 73 Rust (`nodera-codec`)
 `#[test]` · 0 failing at the last gate** — Java counts come from Gradle XML reports and sum the module
-table below (187 + 157 + 645). Worker-module cases are accounted under the worker category.
+table below (187 + 157 + 647). Worker-module cases are accounted under the worker category.
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
@@ -17,7 +17,7 @@ table below (187 + 157 + 645). Worker-module cases are accounted under the worke
 |---|---|---:|:---:|
 | `transport` | The `NDR2` wire and both planes: all 75 kinds sampled, fixtured and dispatch-tested; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard | 187 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes | 157 | ✅ |
-| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, the endpoint tenant boundary, the L-16 prediction feed | 645 | 🚧 |
+| `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 647 | 🚧 |
 | `rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 73 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything

@@ -138,6 +138,7 @@
   "nodera.join.error.host_offline": "The host's game is closed — the world is archived on the network but not currently playable.",
   "nodera.join.error.bad_route": "The host advertised an invalid address (%s).",
   "nodera.join.error.password_required": "This world is password-protected. Enter its password to join.",
+  "nodera.join.error.too_many_attempts": "Too many wrong passwords from this address. Wait a moment and try again.",
   "nodera.join.password.title": "World password",
   "nodera.join.password.detail": "\"%s\" is password-protected",
   "nodera.join.password.field": "World password",

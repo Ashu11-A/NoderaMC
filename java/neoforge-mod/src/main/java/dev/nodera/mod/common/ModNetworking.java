@@ -155,15 +155,19 @@ public final class ModNetworking {
         } catch (IllegalArgumentException notBase64) {
             answer = dev.nodera.core.Bytes.empty();
         }
-        HostJoinGate.Verdict verdict = HostJoinGate.get()
-                .verify(context.connection(), answer, System.currentTimeMillis());
+        HostJoinGate.Verdict verdict = HostJoinGate.get().verify(
+                context.connection(),
+                JoinerIdentity.of(context.connection().getRemoteAddress()),
+                answer,
+                System.currentTimeMillis());
         if (verdict == HostJoinGate.Verdict.PASS || verdict == HostJoinGate.Verdict.NOT_GATED) {
             context.finishCurrentTask(JoinPasswordTask.TYPE);
             return;
         }
         org.slf4j.LoggerFactory.getLogger("NoderaJoin")
                 .info("Nodera: refused a joiner at the password gate ({})", verdict);
-        context.disconnect(JoinPasswordTask.REFUSED);
+        context.disconnect(verdict == HostJoinGate.Verdict.THROTTLED
+                ? JoinPasswordTask.THROTTLED : JoinPasswordTask.REFUSED);
     }
 
     /** Server-side: a player announced its peer node — record it and re-plan region ownership. */

@@ -1,6 +1,7 @@
 package dev.nodera.mod.common;
 
 import dev.nodera.core.Bytes;
+import dev.nodera.distribution.JoinAttemptThrottle;
 import dev.nodera.distribution.JoinPasswordGate;
 import dev.nodera.distribution.WorldKeyMaterial;
 
@@ -32,6 +33,15 @@ import java.util.Optional;
  * has both a TTL and a hard cap; the oldest entry is evicted when the cap is reached. An evicted or
  * expired challenge is a refusal, never a pass.
  *
+ * <p><b>Throttled.</b> A challenge is single-use <i>per connection</i>, which bounds replay and
+ * nothing else: a client that reconnects gets a fresh nonce, so on its own the gate is an unlimited
+ * online guessing oracle against the world password. {@link JoinAttemptThrottle} is what closes
+ * that — failures are counted per (world, joiner) and open an exponentially growing lockout, and a
+ * throttled joiner is refused <b>before</b> a challenge is issued, so a grinding client cannot even
+ * make the host pay for the nonce. The joiner key is supplied by the caller (the remote address in
+ * production) rather than the connection object, because keying on the connection would reset the
+ * counter on exactly the action being throttled.
+ *
  * @Thread-context thread-safe; every method synchronizes on the instance. Armed from the server
  *     thread, issued and verified from network handler threads.
  */
@@ -56,7 +66,9 @@ public final class HostJoinGate {
         /** No outstanding challenge for this connection (never issued, expired, or evicted). */
         NO_CHALLENGE,
         /** An answer arrived and it was not the right one. */
-        WRONG_PASSWORD
+        WRONG_PASSWORD,
+        /** This joiner has failed too often too recently; the attempt is not judged at all. */
+        THROTTLED
     }
 
     /**
@@ -84,6 +96,13 @@ public final class HostJoinGate {
     private final Map<Object, Pending> outstanding =
             new LinkedHashMap<>(16, 0.75f, true);
 
+    /**
+     * Per-(world, joiner) failure history. Replaced on every arm/disarm/seal: a host session is the
+     * lifetime of a gate key, and carrying a lockout across one would punish a joiner for a password
+     * that is no longer the one being asked for.
+     */
+    private JoinAttemptThrottle throttle = new JoinAttemptThrottle();
+
     private HostJoinGate() {
     }
 
@@ -110,6 +129,7 @@ public final class HostJoinGate {
         this.gateKey = JoinPasswordGate.gateKey(password, this.material);
         this.sealed = false;
         this.outstanding.clear();
+        this.throttle = new JoinAttemptThrottle();
     }
 
     /** Disarm (the world stopped being hosted, or its password was removed). */
@@ -119,6 +139,7 @@ public final class HostJoinGate {
         gateKey = null;
         sealed = false;
         outstanding.clear();
+        throttle = new JoinAttemptThrottle();
     }
 
     /**
@@ -134,6 +155,7 @@ public final class HostJoinGate {
         gateKey = null;
         sealed = true;
         outstanding.clear();
+        throttle = new JoinAttemptThrottle();
     }
 
     /** @return whether the gate is sealed shut (no join can succeed until the host re-shares). */
@@ -147,6 +169,26 @@ public final class HostJoinGate {
      */
     public synchronized boolean isArmed() {
         return gateKey != null || sealed;
+    }
+
+    /**
+     * Whether this joiner is inside a lockout window and must be refused without being challenged.
+     *
+     * <p>Asked before {@link #issue} so a grinding client does not even cost the host a nonce. It is
+     * <b>not</b> the enforcement point — {@link #verify} refuses a throttled attempt on its own — so
+     * a caller that skips this check loses the early exit and nothing else.
+     *
+     * @param joiner    the joiner's stable identity across reconnects (the remote address in
+     *                  production); a null identity is never throttled, because refusing every
+     *                  unidentifiable joiner would be a denial of service rather than a throttle.
+     * @param nowMillis the current time.
+     * @return whether the joiner is locked out right now.
+     * @Thread-context any thread.
+     */
+    public synchronized boolean isThrottled(Bytes joiner, long nowMillis) {
+        return gateKey != null
+                && joiner != null
+                && !throttle.mayAttempt(worldId, joiner, nowMillis);
     }
 
     /**
@@ -177,24 +219,43 @@ public final class HostJoinGate {
      * client gets exactly one attempt per connection and a captured answer cannot be replayed.
      *
      * @param connection the connection the answer arrived on.
+     * @param joiner     the joiner's stable identity across reconnects, counted against the lockout
+     *                   policy; null disables throttling for this attempt (see {@link #isThrottled}).
      * @param answer     the joiner's MAC (may be null/empty — that is a refusal, not an error).
      * @param nowMillis  the current time.
      * @return the verdict.
      * @Thread-context any thread.
      */
-    public synchronized Verdict verify(Object connection, Bytes answer, long nowMillis) {
+    public synchronized Verdict verify(
+            Object connection, Bytes joiner, Bytes answer, long nowMillis) {
         if (sealed) {
             return Verdict.WRONG_PASSWORD;
         }
         if (gateKey == null) {
             return Verdict.NOT_GATED;
         }
+        if (joiner != null && !throttle.mayAttempt(worldId, joiner, nowMillis)) {
+            // Consume the challenge anyway: a locked-out joiner must not be able to park a valid
+            // nonce through the lockout and spend it the moment the window closes.
+            if (connection != null) {
+                outstanding.remove(connection);
+            }
+            return Verdict.THROTTLED;
+        }
         Pending pending = connection == null ? null : outstanding.remove(connection);
         if (pending == null || nowMillis > pending.expiresAtMillis()) {
             return Verdict.NO_CHALLENGE;
         }
-        return JoinPasswordGate.verify(gateKey, pending.nonce(), worldId, answer)
-                ? Verdict.PASS : Verdict.WRONG_PASSWORD;
+        if (JoinPasswordGate.verify(gateKey, pending.nonce(), worldId, answer)) {
+            if (joiner != null) {
+                throttle.recordSuccess(worldId, joiner);
+            }
+            return Verdict.PASS;
+        }
+        if (joiner != null) {
+            throttle.recordFailure(worldId, joiner, nowMillis);
+        }
+        return Verdict.WRONG_PASSWORD;
     }
 
     /** Drop a connection's outstanding challenge (it disconnected during configuration). */
