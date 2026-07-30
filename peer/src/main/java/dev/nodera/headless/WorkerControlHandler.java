@@ -1723,15 +1723,95 @@ public final class WorkerControlHandler implements ControlHandler {
      */
     static Map<String, String> parseFlatJson(String json) {
         Map<String, String> out = new java.util.LinkedHashMap<>();
-        java.util.regex.Matcher m = FLAT_FIELD.matcher(json);
-        while (m.find()) {
-            out.put(m.group(1), m.group(2).trim());
+        if (json == null) {
+            return out;
+        }
+        // Scanned in one pass rather than matched with a regex. The natural pattern for a JSON
+        // string — `"((?:[^"\\]|\\.)*)"` — backtracks POLYNOMIALLY: the two alternatives both
+        // match an ordinary character, so an unterminated run costs O(n^2) to fail. This input
+        // arrives from the control endpoint, so that is a denial of service reachable by anything
+        // that can open the socket. A scanner has no such shape and is easier to read besides.
+        int i = 0;
+        int n = json.length();
+        while (i < n) {
+            if (json.charAt(i) != '"') {
+                i++;
+                continue;
+            }
+            int keyEnd = endOfQuoted(json, i);
+            if (keyEnd < 0) {
+                break;                               // unterminated string: nothing further parses
+            }
+            String key = unescape(json, i + 1, keyEnd);
+            i = keyEnd + 1;
+            while (i < n && Character.isWhitespace(json.charAt(i))) {
+                i++;
+            }
+            if (i >= n || json.charAt(i) != ':') {
+                continue;                            // a string that was not a key; keep scanning
+            }
+            i++;
+            while (i < n && Character.isWhitespace(json.charAt(i))) {
+                i++;
+            }
+            if (i >= n) {
+                break;
+            }
+            int valueStart = i;
+            char first = json.charAt(i);
+            if (first == '"') {
+                int end = endOfQuoted(json, i);
+                if (end < 0) {
+                    break;
+                }
+                i = end + 1;
+            } else if (first == '[') {
+                int end = json.indexOf(']', i);
+                if (end < 0) {
+                    break;
+                }
+                i = end + 1;
+            } else {
+                while (i < n && json.charAt(i) != ',' && json.charAt(i) != '}'
+                        && !Character.isWhitespace(json.charAt(i))) {
+                    i++;
+                }
+            }
+            out.put(key, json.substring(valueStart, i).trim());
         }
         return out;
     }
 
-    private static final java.util.regex.Pattern FLAT_FIELD = java.util.regex.Pattern.compile(
-            "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*:\\s*(\\[[^\\]]*\\]|\"(?:[^\"\\\\]|\\\\.)*\"|[^,}\\s]+)");
+    /**
+     * Index of the closing quote of the string starting at {@code open}, or -1 if unterminated.
+     *
+     * <p>One pass, honouring backslash escapes. This replaces the regex both parsers used to share.
+     */
+    private static int endOfQuoted(String s, int open) {
+        for (int i = open + 1; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\') {
+                i++;                                 // skip whatever the backslash escapes
+            } else if (c == '"') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** The contents of a quoted range, with JSON backslash escapes resolved. */
+    private static String unescape(String s, int from, int toExclusive) {
+        StringBuilder out = new StringBuilder(toExclusive - from);
+        for (int i = from; i < toExclusive; i++) {
+            char c = s.charAt(i);
+            if (c == '\\' && i + 1 < toExclusive) {
+                out.append(s.charAt(++i));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
+    }
 
     /** Coerce a raw JSON scalar to a long, tolerating a quoted number (the app may send either). */
     private static long asLong(String raw) {
@@ -1760,10 +1840,20 @@ public final class WorkerControlHandler implements ControlHandler {
         List<String> out = new ArrayList<>();
         String v = raw.trim();
         if (v.startsWith("[")) {
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("\"((?:[^\"\\\\]|\\\\.)*)\"").matcher(v);
-            while (m.find()) {
-                String item = m.group(1).trim();
+            // Scanned, not matched: same polynomial-backtracking shape as parseFlatJson, same
+            // reachability from the control endpoint.
+            int i = 0;
+            while (i < v.length()) {
+                if (v.charAt(i) != '"') {
+                    i++;
+                    continue;
+                }
+                int end = endOfQuoted(v, i);
+                if (end < 0) {
+                    break;
+                }
+                String item = unescape(v, i + 1, end).trim();
+                i = end + 1;
                 if (!item.isEmpty()) {
                     out.add(item);
                 }
