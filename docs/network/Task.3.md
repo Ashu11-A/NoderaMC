@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (live forward sync + manager wiring → [minecraft 2](../minecraft/Task.2.md))
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md), [engine 1](../engine/Task.1.md)
-**Consumed by:** [network 4](Task.4.md), [network 9](Task.9.md), [worker 2](../worker/Task.2.md), [minecraft 5](../minecraft/Task.5.md)
+**Consumed by:** [network 4](Task.4.md), [network 9](Task.9.md), [worker 2](../peer/Task.2.md), [minecraft 5](../minecraft/Task.5.md)
 
 ---
 
@@ -20,7 +20,7 @@ certified chain, and an uncertified suffix can never advance it.
 
 ## Status detail
 
-Complete. `java/storage` carries 157 tests. Three tiers behind one `WorldStore` seam: an in-memory
+Complete. `library/java/storage` carries 157 tests. Three tiers behind one `WorldStore` seam: an in-memory
 event-sourced implementation, a **RocksDB archival tier** with WAL-backed column families, and a
 byte-budgeted client tier. `FsContentStore` provides content-addressed blobs with atomic
 temp-and-move writes and hash-verified, corrupt-blob-rejecting reads. Per-region heads are recovered
@@ -85,11 +85,11 @@ and the durability tests run against the real tier.
 
 ## Files
 
-- `java/storage/src/main/java/dev/nodera/storage/WorldStore.java`
-- `java/storage/src/main/java/dev/nodera/storage/event/{EventReplayer,PeerSyncFlow}.java`
-- `java/storage/src/main/java/dev/nodera/storage/rocksdb/{RocksWorldStore,FsContentStore}.java`
-- `java/storage/src/main/java/dev/nodera/storage/client/{BoundedClientWorldStore,StorageQuotaManager,ArchiveEvictionPolicy}.java`
-- `java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/WorldStore.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/event/{EventReplayer,PeerSyncFlow}.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/rocksdb/{RocksWorldStore,FsContentStore}.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/client/{BoundedClientWorldStore,StorageQuotaManager,ArchiveEvictionPolicy}.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java`
 
 ## Testing
 

@@ -11,7 +11,7 @@
 **Status:** ✅ DONE — twenty scenarios, one harness, one report, one command; the live matrix is
 carried over stage for stage and awaits its first full green nightly (row T-1)
 **Category:** testing · **Owns:** T-1, T-2, T-3 · **Last audit:** 2026-07-29
-**Depends on:** [worker 1](../worker/Task.1.md), [minecraft 5](../minecraft/Task.5.md),
+**Depends on:** [worker 1](../peer/Task.1.md), [minecraft 5](../minecraft/Task.5.md),
 [server 1](../server/Task.1.md), [network 15](../network/Task.15.md)
 **Consumed by:** every category with a live acceptance claim
 
@@ -85,13 +85,13 @@ gives to a verb that does not exist.
 
 | # | Deliverable | Where |
 |---|---|---|
-| 1 | Live harness (topology, processes, logs, control, lock, artefacts) | `java/testing/.../testkit/harness/` |
-| 2 | Scenario SPI, context, results, registry, runner | `java/testing/.../testkit/suite/` |
-| 3 | Twenty acceptance scenarios | `java/testing/.../testkit/scenario/` |
-| 4 | RCON client + Minecraft-protocol bot | `java/testing/.../testkit/mc/` |
-| 5 | One report over scenarios + benchmarks + structure | `java/testing/.../testkit/report/RunReport.java` |
-| 6 | The `nodera-test` CLI | `java/testing/.../testkit/cli/NoderaTestMain.java` |
-| 7 | Worker test mode + role | `java/worker/.../headless/TestMode.java`, `HeadlessPeerMain` |
+| 1 | Live harness (topology, processes, logs, control, lock, artefacts) | `library/java/testing/.../testkit/harness/` |
+| 2 | Scenario SPI, context, results, registry, runner | `library/java/testing/.../testkit/suite/` |
+| 3 | Twenty acceptance scenarios | `library/java/testing/.../testkit/scenario/` |
+| 4 | RCON client + Minecraft-protocol bot | `library/java/testing/.../testkit/mc/` |
+| 5 | One report over scenarios + benchmarks + structure | `library/java/testing/.../testkit/report/RunReport.java` |
+| 6 | The `nodera-test` CLI | `library/java/testing/.../testkit/cli/NoderaTestMain.java` |
+| 7 | Worker test mode + role | `peer/.../headless/TestMode.java`, `HeadlessPeerMain` |
 | 8 | The `NODERA-TEST` verb | `dev.nodera.peer.control.{ControlProtocol,ControlServer,ControlHandler}` |
 | 9 | The single entry script | `scripts/nodera-test.sh` |
 | 10 | CI rewired to the tool | `.github/workflows/e2e-live.yml` |
@@ -127,8 +127,8 @@ the worst outcome in the queue.
 ## Files
 
 ```
-java/testing/build.gradle.kts                      # application plugin, :peer dependency
-java/testing/src/main/java/dev/nodera/testkit/
+library/java/testing/build.gradle.kts                      # application plugin, :peer dependency
+library/java/testing/src/main/java/dev/nodera/testkit/
     harness/  TestPaths Topology PlayerRole ManagedProcess LogWatcher ControlClient
               LiveStack HarnessException
     suite/    Scenario ScenarioContext ScenarioRegistry ScenarioRunner ScenarioResult
@@ -137,7 +137,7 @@ java/testing/src/main/java/dev/nodera/testkit/
     mc/       RconClient ServerVanillaBot
     report/   RunReport
     cli/      NoderaTestMain
-java/worker/src/main/java/dev/nodera/headless/TestMode.java
+peer/src/main/java/dev/nodera/headless/TestMode.java
 scripts/nodera-test.sh
 .github/workflows/e2e-live.yml
 ```

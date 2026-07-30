@@ -23,7 +23,7 @@ every later task depends on.
 
 ## Status detail
 
-**Done.** `java/paper-plugin` builds `nodera-endpoint.jar` and all three live suites are green for the
+**Done.** `endpoints/paper-plugin` builds `nodera-endpoint.jar` and all three live suites are green for the
 task-1 surface:
 
 - **Paper 1.21.1** (`e2e-endpoint.sh`): the plugin enables, names its platform (*"Nodera endpoint on
@@ -57,7 +57,7 @@ the PaperMC API. **Paper 1.21.1-133 is resolved and green; Folia 1.21.1 does not
 
 | # | Deliverable | State |
 |---|---|---|
-| 1 | Gradle module `java/paper-plugin` (`:paper-plugin`, artifact `nodera-endpoint`) + `settings.gradle.kts` entry | ✅ |
+| 1 | Gradle module `endpoints/paper-plugin` (`:paper-plugin`, artifact `nodera-endpoint`) + `settings.gradle.kts` entry | ✅ |
 | 2 | `nodera.paper-plugin.gradle.kts` convention: Paper API `provided`, Nodera modules shaded, `runPaper`/`runFolia` dev runs | ✅ |
 | 3 | `plugin.yml` — `api-version`, `folia-supported: true`, `/nodera` command, no hard dependencies | ✅ |
 | 4 | `NoderaScheduler` seam + `FoliaSchedulers` / `PaperSchedulers` implementations | ⬜ deferred — lands with [3](Task.3.md)–[5](Task.5.md) |
@@ -125,20 +125,20 @@ unknown. Everything optional is discovered through the services manager at enabl
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/NoderaEndpointPlugin.java:23` — entry point:
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/NoderaEndpointPlugin.java:23` — entry point:
   detects platform, preflights ALIGN-1, reads `nodera-endpoint.yml`, links the external worker
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPlatform.java:15` — Paper / Folia /
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPlatform.java:15` — Paper / Folia /
   UNKNOWN detection via a classpath probe for the regionised scheduler
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointConfig.java:25` — `nodera-endpoint.yml`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointConfig.java:25` — `nodera-endpoint.yml`
   parser + validator (no Bukkit YAML reader; the contract is unit-testable with no server)
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/ControlClient.java:32` — one-line-exchange
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/ControlClient.java:32` — one-line-exchange
   with the worker's control socket (used by the external link in [server 2](Task.2.md))
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPeerLink.java:23` — background retry
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPeerLink.java:23` — background retry
   link + the `NODERA-HOST` verb (the external-mode half of [server 2](Task.2.md))
-- `java/core/src/main/java/dev/nodera/core/region/RegionAlignment.java` — ALIGN-1 arithmetic
+- `library/java/core/src/main/java/dev/nodera/core/region/RegionAlignment.java` — ALIGN-1 arithmetic
   (`preflight`, `regionsPerSectionAxis`, `DEFAULT_GRID_EXPONENT`), exhaustively tested over a ±64
   region grid × exponents 3–6 with no server on the classpath
-- `java/paper-plugin/src/main/resources/plugin.yml` — `folia-supported: true`, `api-version`, commands
+- `endpoints/paper-plugin/src/main/resources/plugin.yml` — `folia-supported: true`, `api-version`, commands
 - `java/build-logic/src/main/kotlin/nodera.paper-plugin.gradle.kts` — convention plugin
 - Tests: `EndpointConfigTest` (9) · `EndpointPlatformTest` (5) · `EndpointPeerLinkTest` (6) — **20
   unit tests, 0 failing** (see [`TESTING.md`](TESTING.md) §2)

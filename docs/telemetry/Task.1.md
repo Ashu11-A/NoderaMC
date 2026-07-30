@@ -10,7 +10,7 @@
 **Category:** telemetry · **Owns:** L-72 (L-73 retired) · **Last audit:** 2026-07-28
 **Category:** telemetry · **Owns:** L-73 · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md) (framing)
-**Consumed by:** [telemetry 2](Task.2.md), [network 12](../network/Task.12.md), [tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [worker 5](../worker/Task.5.md)
+**Consumed by:** [telemetry 2](Task.2.md), [network 12](../network/Task.12.md), [tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [worker 5](../peer/Task.5.md)
 
 ---
 
@@ -105,8 +105,8 @@ if liveness checks spent the same budget as real clients, a healthy service woul
 
 ## Files
 
-- `rust/nodera-telemetry/src/{schema,event,subject,geo,limits,sink,service,wire,config,reporter,main}.rs`
-- `rust/nodera-telemetry/{Cargo.toml,build.rs,README.md}`
+- `telemetry/src/{schema,event,subject,geo,limits,sink,service,wire,config,reporter,main}.rs`
+- `telemetry/{Cargo.toml,build.rs,README.md}`
 - `docker/telemetry/ingest/nodera-telemetry.toml` — the deployment's configuration
 
 ## Testing

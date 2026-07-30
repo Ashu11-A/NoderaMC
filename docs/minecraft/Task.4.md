@@ -8,7 +8,7 @@
 
 **Status:** 🚧 IN PROGRESS (built and wired; live GUI acceptance pending)
 **Category:** minecraft · **Owns:** L-43, L-46 · **Last audit:** 2026-07-28
-**Depends on:** [task 1](Task.1.md), [tracker 2](../tracker/Task.2.md), [rendezvous 2](../rendezvous/Task.2.md), [worker 2](../worker/Task.2.md)
+**Depends on:** [task 1](Task.1.md), [tracker 2](../tracker/Task.2.md), [rendezvous 2](../rendezvous/Task.2.md), [worker 2](../peer/Task.2.md)
 **Consumed by:** players
 
 ---
@@ -49,7 +49,7 @@ loop on a timer, which moves into the worker.
 
 - [task 1](Task.1.md) — the GUI environment for acceptance.
 - [tracker 2](../tracker/Task.2.md) — the directory and route queries.
-- [worker 2](../worker/Task.2.md) — hosted worlds, piece bitmaps, and status.
+- [worker 2](../peer/Task.2.md) — hosted worlds, piece bitmaps, and status.
 
 ## Deliverables
 
@@ -90,9 +90,9 @@ explicit terminal screen. A silent failure in a join flow is indistinguishable f
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/client/multiplayer/`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/client/worldlist/`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/client/share/`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/client/multiplayer/`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/client/worldlist/`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/client/share/`
 
 ## Testing
 

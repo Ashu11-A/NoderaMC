@@ -107,7 +107,7 @@ nothing in the shipped mod or plugin knows it exists. That is the property that 
 opt-in with genuinely zero cost when it is off.
 
 The one place Nodera code mentions spark at all is
-`java/neoforge-mod/src/main/java/dev/nodera/mod/debug/SparkProfileBridge.java`, and it does so by
+`endpoints/neoforge-mod/src/main/java/dev/nodera/mod/debug/SparkProfileBridge.java`, and it does so by
 **dispatching a command string** — no import, no classpath entry, no failure if spark is absent.
 
 ## PlaceholderAPI

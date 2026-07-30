@@ -92,7 +92,7 @@
 #   --no-build      Skip the build phase; use whatever is already collected in build/.
 #   --install-mod   After building, copy build/neoforge-mod.jar into the client mods/ dir
 #                   (NODERA_MC_DIR, default ~/.minecraft), then continue.
-#   --with-app      Build + launch the Tauri companion app (rust/nodera-app) in attach mode.
+#   --with-app      Build + launch the Tauri companion app (app) in attach mode.
 #                   INFRA mode: one app beside the single worker.
 #                   PLAY mode:  one app PER PLAYER, each attached to that player's worker.
 #                   Uses plain cargo build (no .deb / no bundle); skipped if cargo is absent.
@@ -128,18 +128,22 @@
 set -euo pipefail
 
 # --- paths ---------------------------------------------------------------
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUST_DIR="$NODERA_ROOT/rust"
-RUST_RELEASE="$RUST_DIR/target/release"
-LOG_DIR="${NODERA_LOG_DIR:-$NODERA_ROOT/run/logs}"
+# Directories come from `layout.properties` (see scripts/lib/layout.sh); the file names under them
+# are composed here, because `build/libs/neoforge-mod.jar` is a property of Gradle and the manifest
+# only describes the tree.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
+
+RUST_RELEASE="$NODERA_RUST_TARGET/release"
+LOG_DIR="${NODERA_LOG_DIR:-$NODERA_RUN_DIR/logs}"
 
 # The shared artifact directory: both toolchains' outputs land here together.
-BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ROOT/build}"
-SRC_MOD_JAR="$NODERA_ROOT/java/neoforge-mod/build/libs/neoforge-mod.jar"
+BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ARTIFACTS}"
+SRC_MOD_JAR="$NODERA_MOD_DIR/build/libs/neoforge-mod.jar"
 
 # The headless peer worker (Task 32): built via the `application` plugin's installDist.
-WORKER_SRC_DIST="$NODERA_ROOT/java/worker/build/install/nodera-headless"
-APP_DIR="$RUST_DIR/nodera-app"
+WORKER_SRC_DIST="$NODERA_PEER_MODULE/build/install/nodera-headless"
+APP_DIR="$NODERA_APP_DIR"
 
 # Runtime consumes the collected copies in build/ — never the per-toolchain output dirs.
 MOD_JAR="$BUILD_DIR/neoforge-mod.jar"
@@ -237,10 +241,10 @@ build_rust() {
         log "Version: scripts/version.sh --check"
         "$NODERA_ROOT/scripts/version.sh" --check
         log "Rust: cargo test (workspace)"
-        ( cd "$RUST_DIR" && cargo test )
+        ( cd "$NODERA_CARGO_WS" && cargo test )
     fi
     log "Rust: cargo build --release (codec + tracker + rendezvous + telemetry)"
-    ( cd "$RUST_DIR" && cargo build --release \
+    ( cd "$NODERA_CARGO_WS" && cargo build --release \
         --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry )
 }
 
@@ -257,8 +261,8 @@ build_mod() {
 
 # The headless peer worker — a runnable distribution (bin + all deps on the classpath).
 build_worker() {
-    log "Worker: ./gradlew :worker:installDist"
-    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist )
+    log "Worker: ./gradlew :peer:installDist"
+    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist )
     [[ -x "$WORKER_SRC_DIST/bin/nodera-headless" ]] \
         || die "expected worker launcher not found: $WORKER_SRC_DIST/bin/nodera-headless"
 }
@@ -275,17 +279,17 @@ collect_artifacts() {
     log "  $(basename "$TRACKER_BIN")     $(basename "$RENDEZVOUS_BIN")     $(basename "$MOD_JAR")     nodera-headless/"
 }
 
-# The Tauri companion app (rust/nodera-app), which supervises the worker + provides tray/dashboard.
+# The Tauri companion app (app), which supervises the worker + provides tray/dashboard.
 # Optional (--with-app): builds Rust binary + frontend, then runs in attach mode.
 # Uses plain cargo build (no --bundles/--deb), so no system packaging deps needed.
 build_app() {
     if ! command -v cargo >/dev/null 2>&1; then
         warn "Rust toolchain not found (need cargo + bun). Skipping the companion app."
-        warn "Install it per rust/nodera-app/README.md, or run without --with-app."
+        warn "Install it per app/README.md, or run without --with-app."
         WITH_APP=0
         return 0
     fi
-    log "App: bun install + frontend build + cargo build --release (rust/nodera-app)"
+    log "App: bun install + frontend build + cargo build --release (app)"
     ( cd "$APP_DIR/ui" && bun install && bun run build )
     ( cd "$APP_DIR" && cargo build --release )
 }

@@ -134,8 +134,8 @@ server is reachable here, because an endpoint's lane genuinely owns regions.
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/entity/{EndpointCaptureBridge,EndpointEntityLaneRuntime,BukkitEntityAdapters,ProjectionPinner,RegionTickDriver}.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/entity/RedstoneReconciler.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/entity/{EndpointCaptureBridge,EndpointEntityLaneRuntime,BukkitEntityAdapters,ProjectionPinner,RegionTickDriver}.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/entity/RedstoneReconciler.java`
 
 ## Testing
 

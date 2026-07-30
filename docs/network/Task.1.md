@@ -20,7 +20,7 @@ configuration-phase handshake that authenticates a peer and enforces assumption 
 
 ## Status detail
 
-Complete headlessly. `java/transport` carries 93 tests; message tags run through **60**. The
+Complete headlessly. `library/java/transport` carries 93 tests; message tags run through **60**. The
 `SocketPeerTransport` gained an **authenticated** mode: every connection opens with a fresh 32-byte
 challenge and answers the remote's challenge with an Ed25519-signed hello over
 `challenge ‖ nodeId ‖ route ‖ publicKey`, so a connection's NodeId attribution is key-proven. Legacy
@@ -44,7 +44,7 @@ client — [`minecraft/Task.2.md`](../minecraft/Task.2.md).
 | 4 | `SocketPeerTransport` — real TCP direct/LAN data plane | ✅ |
 | 5 | Authenticated challenge–response accept handshake | ✅ |
 | 6 | Configuration-phase handshake enforcing A0 + rules/registry match | ✅ |
-| 7 | `rust/nodera-codec` — the second implementation, held honest by fixtures | ✅ |
+| 7 | `library/rust/nodera-codec` — the second implementation, held honest by fixtures | ✅ |
 | 8 | NeoForge relay transport (the permanent in-game fallback lane) | → [minecraft 2](../minecraft/Task.2.md) |
 
 ## Design
@@ -71,10 +71,10 @@ roots is not a participant, and letting it in produces divergence with no clear 
 
 ## Files
 
-- `java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java` (+ `MessageCodecTypeTagTest`)
-- `java/transport/src/main/java/dev/nodera/transport/{PeerTransport,Frames,Reachability}.java`
-- `java/transport/src/main/java/dev/nodera/transport/socket/SocketPeerTransport.java`
-- `rust/nodera-codec/src/`, `rust/nodera-codec/tests/{fixtures,tag_mirror}.rs`, `fixtures/wire/`
+- `library/java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java` (+ `MessageCodecTypeTagTest`)
+- `library/java/transport/src/main/java/dev/nodera/transport/{PeerTransport,Frames,Reachability}.java`
+- `library/java/transport/src/main/java/dev/nodera/transport/socket/SocketPeerTransport.java`
+- `library/rust/nodera-codec/src/`, `library/rust/nodera-codec/tests/{fixtures,tag_mirror}.rs`, `fixtures/wire/`
 
 ## Testing
 

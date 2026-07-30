@@ -37,10 +37,11 @@
 # ===========================================================================
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
 cd "$NODERA_ROOT"
 
-TOOL="java/testing/build/install/nodera-test/bin/nodera-test"
+TOOL="$NODERA_TESTING_MODULE/build/install/nodera-test/bin/nodera-test"
 
 # Build the tool itself unless it is already there and the caller said --no-build.
 # The tool is not the thing under test, so this build is silent on success and

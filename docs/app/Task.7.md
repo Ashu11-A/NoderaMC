@@ -8,7 +8,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 6](Task.6.md), [worker 7](../worker/Task.7.md), [worker 6](../worker/Task.6.md)
+**Depends on:** [app 6](Task.6.md), [worker 7](../peer/Task.7.md), [worker 6](../peer/Task.6.md)
 **Consumed by:** [app 3](Task.3.md), [minecraft 7](../minecraft/Task.7.md)
 
 ---
@@ -70,11 +70,11 @@ the most confusing possible failure, because nothing goes wrong until the game s
 
 ## Files
 
-- `rust/nodera-app/src/api/network.rs` — LAN decisions, directory, join/leave, share links
-- `rust/nodera-app/src/api/modinstall.rs` — finding Minecraft, installing, removing
-- `rust/nodera-app/ui/src/{Lan,Browse,ModInstall}.tsx`, `network.ts`
-- `rust/nodera-app/ui/src/World.tsx` — the Share tab
-- `rust/nodera-app/ui/src/App.tsx` — the rail gains *Join a world* and *Minecraft mod*
+- `app/src/api/network.rs` — LAN decisions, directory, join/leave, share links
+- `app/src/api/modinstall.rs` — finding Minecraft, installing, removing
+- `app/ui/src/{Lan,Browse,ModInstall}.tsx`, `network.ts`
+- `app/ui/src/World.tsx` — the Share tab
+- `app/ui/src/App.tsx` — the rail gains *Join a world* and *Minecraft mod*
 
 ## Testing
 

@@ -28,14 +28,24 @@ on:
     branches: [main, 'feature/**']
     tags: ['v*']
     paths:
-      - 'rust/**'
+      - 'library/rust/**'
+      - 'tracker/**'
+      - 'rendezvous/**'
+      - 'telemetry/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'docker/**'
       - 'VERSION'
       - '.dockerignore'
       - '.github/workflows/containers.yml'
   pull_request:
     paths:
-      - 'rust/**'
+      - 'library/rust/**'
+      - 'tracker/**'
+      - 'rendezvous/**'
+      - 'telemetry/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'docker/**'
       - 'VERSION'
       - '.dockerignore'

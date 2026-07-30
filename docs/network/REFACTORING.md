@@ -1,7 +1,7 @@
 # Network — Refactoring Register
 
-Source: `build/jscpd/jscpd-report.json` (filtered to `java/transport`, `java/storage`,
-`java/peer`, `rust/nodera-codec`) + manual review of god classes, long methods, and dead code.
+Source: `build/jscpd/jscpd-report.json` (filtered to `library/java/transport`, `library/java/storage`,
+`peer`, `library/rust/nodera-codec`) + manual review of god classes, long methods, and dead code.
 Line counts from `build/loccount.txt`. Audited **2026-07-28**. Scope: the four modules this
 category owns; `build/`/`target/` and generated code are excluded. `% duplicated` is
 `(Σ duplicated line-runs ÷ file lines) × 100`, so a small file flagged against several partners
@@ -48,7 +48,7 @@ can exceed 100 %.
 
 ## Unwired capabilities — peer-system review, 2026-07-29
 
-Source: `./gradlew :worker:structureReport` §2.2 ("classes only tests and benchmarks reference"),
+Source: `./gradlew :peer:structureReport` §2.2 ("classes only tests and benchmarks reference"),
 cross-checked by grep for non-test call sites. These are **not** duplication candidates: each is a
 complete, tested capability with **zero production callers**. This repository's dominant defect is not
 broken code, it is unreached code — six instances were found in one sweep on 2026-07-24 and the
@@ -108,7 +108,7 @@ looked at the other two-thirds.
 
 Two rules for whoever takes this on. First, **a row is not dead because the tool says so** — the
 report excludes anything whose caller could be outside our bytecode, but a call site added in the
-same pass that reads this table will not be in it either; re-run `:worker:structureReport` rather than
+same pass that reads this table will not be in it either; re-run `:peer:structureReport` rather than
 trusting this list's date. Second, **wiring is not free**: every row above becomes a live code path
 with live failure modes, so a row wired without a test that would fail if the call site were removed
 has simply moved the defect (`CompanionSessionBindingIsCalledTest` is the cheap shape of that test).

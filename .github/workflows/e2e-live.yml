@@ -94,15 +94,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
       - name: Xvfb + GL
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb mesa-utils libgl1 libglx-mesa0 x11-apps imagemagick
       - name: Build stack
         run: |
-          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
-          ./gradlew :worker:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
+          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar :testing:installDist \
             -x test -x check
       - name: ${{ matrix.suite }} under Xvfb
         env:
@@ -120,8 +120,8 @@ jobs:
             run/results/${{ matrix.suite }}/
             build/reports/nodera/TEST-REPORT.md
             build/reports/nodera/test-report.json
-            java/neoforge-mod/run-host/logs/
-            java/neoforge-mod/run-join/logs/
-            java/neoforge-mod/run-join2/logs/
-            java/neoforge-mod/run-join3/logs/
+            endpoints/neoforge-mod/run-host/logs/
+            endpoints/neoforge-mod/run-join/logs/
+            endpoints/neoforge-mod/run-join2/logs/
+            endpoints/neoforge-mod/run-join3/logs/
           if-no-files-found: ignore

@@ -68,8 +68,8 @@ history of good ones should not make a peer unassailable. The EMA plus later mul
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/coordinator/{NodeRegistry,ReliabilityLedger,RegionAllocator,LeaseManager,HeartbeatMonitor,RegionPipeline,ProposalManager,ServerVerifier,WorldMutationApplier,DelegabilityPolicy}.java`
-- `java/engine/src/test/java/dev/nodera/coordinator/CoordinatorIT.java`
+- `library/java/engine/src/main/java/dev/nodera/coordinator/{NodeRegistry,ReliabilityLedger,RegionAllocator,LeaseManager,HeartbeatMonitor,RegionPipeline,ProposalManager,ServerVerifier,WorldMutationApplier,DelegabilityPolicy}.java`
+- `library/java/engine/src/test/java/dev/nodera/coordinator/CoordinatorIT.java`
 
 ## Testing
 

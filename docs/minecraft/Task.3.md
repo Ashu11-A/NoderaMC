@@ -81,9 +81,9 @@ certification states (certified / pending / solo) exist to preserve.
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/debug/` (palette, renderers, zone watcher,
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/debug/` (palette, renderers, zone watcher,
   diagnostics service, `command/`)
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/client/ClientStallReporter.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/client/ClientStallReporter.java`
 
 ## Testing
 

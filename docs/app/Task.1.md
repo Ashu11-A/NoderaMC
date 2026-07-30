@@ -6,7 +6,7 @@
 
 **Status:** ✅ COMPLETED (scaffold; CI build → [task 3](Task.3.md))
 **Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [worker 1](../worker/Task.1.md)
+**Depends on:** [worker 1](../peer/Task.1.md)
 **Consumed by:** [app 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md)
 
 ---
@@ -28,7 +28,7 @@ attach mode.
 
 ## Dependencies
 
-- [worker 1](../worker/Task.1.md) — the process being supervised and probed.
+- [worker 1](../peer/Task.1.md) — the process being supervised and probed.
 
 ## Deliverables
 
@@ -68,8 +68,8 @@ a dedicated build job is a named deliverable rather than an afterthought.
 
 ## Files
 
-- `rust/nodera-app/src/{main,lib,daemon}.rs` (the tray is built by `build_tray` in `lib.rs`), `rust/nodera-app/tauri.conf.json`
-- `rust/nodera-app/ui/`
+- `app/src/{main,lib,daemon}.rs` (the tray is built by `build_tray` in `lib.rs`), `app/tauri.conf.json`
+- `app/ui/`
 - `scripts/dev.sh` (`--with-app`)
 
 ## Testing

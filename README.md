@@ -20,7 +20,7 @@
 
 <!-- AI-AGENT-INSTRUCTION: Badges are <img> tags, NOT markdown `![]()`. Some renderers treat a URL
      containing dots (build.yml, 1.21.1) as a file path and dump the raw SVG into the page; an
-     <img> tag never does. Keep the version pins in sync with java/build-logic (NeoForge) and
+     <img> tag never does. Keep the version pins in sync with library/java/build-logic (NeoForge) and
      gradle/libs.versions.toml. -->
 
 <p>
@@ -83,7 +83,7 @@ phone.
 
 ### Play with no mod installed
 
-<!-- AI-AGENT-INSTRUCTION: The lane described below is docs/worker/Task.7.md (the tunnel, the
+<!-- AI-AGENT-INSTRUCTION: The lane described below is docs/peer/Task.7.md (the tunnel, the
      multicast detection, the control verbs) and docs/app/Task.7.md (the modal, the directory, the
      Join button) — both ✅ COMPLETED and live-verified. Read those before editing this copy; do NOT
      cite them inline here, the visible text stays link-free. The two claims that must never be
@@ -108,7 +108,7 @@ sole authority over its world.
      URL and the user decides, and nothing is fetched before they confirm. There is no privileged
      store: the bundled list is deletable like any other. The header button CANNOT be a `nodera://`
      href: GitHub's markdown sanitiser strips every scheme but http/https/mailto, so it points at
-     https://noderamc.org/add-store, which is site/add-store.html deployed by
+     https://noderamc.org/add-store, which is web/add-store.html deployed by
      scripts/deploy-site.sh — that page is the https hop that turns the click into the scheme. -->
 
 Trackers and rendezvous points are **hints, not authority** — every service proves its own identity
@@ -151,14 +151,16 @@ The mod **requires** the worker and aborts startup with an install prompt if not
 ```bash
 ./gradlew check                  # compile + every Java unit test (the gate)
 ./gradlew build                  # check + assemble jars
-cd rust && cargo test            # Rust unit + cross-language conformance tests (equally required)
-cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+cargo test                       # Rust unit + cross-language conformance (equally required)
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-# rust/nodera-app is a SEPARATE cargo workspace (Tauri native deps) held to the same standard
-cd rust/nodera-app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+# app is a SEPARATE cargo workspace (Tauri native deps) held to the same standard
+cd app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 scripts/version.sh --check       # every version mirror agrees with the root VERSION file
 scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
+scripts/check-layout-drift.sh    # workflow/Docker/Tauri paths still resolve
+scripts/check-docs.sh            # every docs/ link resolves; every table is square
 ```
 
 **End-to-end suites** — one command over the acceptance scenarios, the benchmarks and the structural
@@ -173,7 +175,7 @@ scripts/nodera-test.sh run       # the default queue (everything but 'hardware')
 scripts/nodera-test.sh all       # scenarios, then benchmarks, then structure
 
 ./gradlew :peer:benchmarkReport  # discovery / chunk sync / wire / runtime latency, ranked
-./gradlew :worker:structureReport # dead code + cost findings, debugger-verified
+./gradlew :peer:structureReport # dead code + cost findings, debugger-verified
 ```
 
 Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era language features.
@@ -183,7 +185,7 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 <!-- AI-AGENT-INSTRUCTION: Mirrors docs/<category>/TESTING.md — update both together. Status:
      ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. Keep the responsibility
      column to ONE short line; the full architecture of a module is in java/<module>/README.md or
-     rust/<crate>/README.md. The `rust/*` rows are parsed by scripts/test-counts.sh — do not change
+     <crate>/README.md. The Rust crate rows are parsed by scripts/test-counts.sh (keyed on the crate directory from layout.properties) — do not change
      their shape (backticked path, count as the second-to-last cell). -->
 
 | Module | Responsibility | Tests | Status |
@@ -192,17 +194,17 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 520 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 187 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 157 | ✅ |
-| `testing` | Shared test library: loopback transport, fake regions, fixture IO | 25 | ✅ |
-| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics | 653 | 🚧 |
-| `worker` | The always-on `nodera-headless` process and its control protocol | 198 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 216 | 🚧 |
+| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 32 | ✅ |
+| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 857 | 🚧 |
+| `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 100 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
 | `paper-plugin` | `nodera-endpoint.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
-| `rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 73 | ✅ |
-| `rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
-| `rust/nodera-tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
-| `rust/nodera-rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
-| `rust/nodera-telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
-| `rust/nodera-app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
+| `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
+| `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
+| `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
+| `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
+| `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
+| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap
@@ -219,7 +221,7 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | [**Tracker**](docs/tracker/Task.0.md) | Always-on world/peer discovery service + its Java client | 6 | 🚧 5 done |
 | [**Rendezvous**](docs/rendezvous/Task.0.md) | NAT reach: registration, hole punching, encrypted relay fallback | 6 | 🚧 4 done |
 | [**Minecraft**](docs/minecraft/Task.0.md) | The NeoForge mod: capture, live lanes, GUI, host lane, world identity | 11 | 🚧 5 done |
-| [**Worker**](docs/worker/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
+| [**Peer**](docs/peer/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
 | [**App**](docs/app/Task.0.md) | The Tauri desktop companion that supervises the worker | 10 | 🚧 6 done |
 | [**Mobile**](docs/mobile/Task.0.md) | The Android build: same app, same Java worker, one process on a phone | 5 | 🚧 4 done |
 | [**Telemetry**](docs/telemetry/Task.0.md) | Consented, de-identified measurement + the Big Data plane | 3 | 🚧 1 done |
@@ -235,4 +237,4 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
   contribution rules: one task = one issue = one branch = one PR, never merged on a red build
 
 Every package also carries its own `README.md` describing that package's architecture
-(`java/<module>/README.md`, `rust/<crate>/README.md`).
+(`java/<module>/README.md`, `<crate>/README.md`).

@@ -4,7 +4,7 @@
      registry, and the hash/signature choices are network-breaking to change. Do not "improve" an
      encoding, reorder a field, or reuse a retired tag. If a change is genuinely required, it is a
      version bump with a migration path documented here first, and a matching change in
-     rust/nodera-codec in the same commit. Keep this header's status accurate. -->
+     library/rust/nodera-codec in the same commit. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
 **Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
@@ -22,7 +22,7 @@ contract after this task**: changing it is a network-breaking change.
 
 ## Status detail
 
-Landed and stable. `java/core` carries 263 XML test executions (260 `@Test` methods and 3 jqwik
+Landed and stable. `library/java/core` carries 263 XML test executions (260 `@Test` methods and 3 jqwik
 `@Property` methods) covering canonical round-trips, deterministic arithmetic, golden-file
 encodings, signature verification, and tamper rejection.
 
@@ -83,10 +83,10 @@ a renumbering fails CI rather than a production mesh.
 
 ## Files
 
-- `java/core/src/main/java/dev/nodera/core/crypto/{CanonicalWriter,CanonicalReader,Encodable,TypeTags,HashService,SignatureService,StableHash}.java`
-- `java/core/src/main/java/dev/nodera/core/{Bytes,identity/,region/,action/,state/,event/}`
-- `java/core/src/main/java/dev/nodera/core/crypto/symmetric/`
-- Rust mirror: `rust/nodera-codec/src/` + `fixtures/wire/*.bin`
+- `library/java/core/src/main/java/dev/nodera/core/crypto/{CanonicalWriter,CanonicalReader,Encodable,TypeTags,HashService,SignatureService,StableHash}.java`
+- `library/java/core/src/main/java/dev/nodera/core/{Bytes,identity/,region/,action/,state/,event/}`
+- `library/java/core/src/main/java/dev/nodera/core/crypto/symmetric/`
+- Rust mirror: `library/rust/nodera-codec/src/` + `fixtures/wire/*.bin`
 
 ## Testing
 
@@ -104,7 +104,7 @@ See [`TESTING.md`](TESTING.md).
 1. ✅ Every domain type round-trips canonically and byte-identically against its golden fixture.
 2. ✅ `HashService` output is stable across JVMs and OSes for the same canonical input.
 3. ✅ Signature verification rejects tampering, wrong keys, and truncation.
-4. ✅ The type-tag registry snapshot test is green and mirrored in `rust/nodera-codec`.
+4. ✅ The type-tag registry snapshot test is green and mirrored in `library/rust/nodera-codec`.
 5. ✅ `core` has no dependency other than the JDK.
 
 ## Limitations

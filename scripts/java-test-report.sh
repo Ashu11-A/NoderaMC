@@ -20,23 +20,31 @@
 #   scripts/java-test-report.sh --summary  # also append the table to $GITHUB_STEP_SUMMARY
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
+cd "$NODERA_ROOT"
 
 python3 - "$@" <<'PY'
-import glob, os, sys, xml.etree.ElementTree as ET
+import glob, os, pathlib, sys, xml.etree.ElementTree as ET
+
+sys.path.insert(0, str(pathlib.Path("scripts/lib").resolve()))
+import layout  # noqa: E402
 
 summary = "--summary" in sys.argv[1:]
 
-# Every module with test sources MUST report. Derived from the tree, not from a hand-kept list, so
-# a new module is covered the day it is added.
-expected = sorted(
-    p.split("/")[1]
-    for p in glob.glob("java/*/src/test/java")
-)
+# Every module with test sources MUST report. Read from layout.properties rather than globbing one
+# parent directory, so a module that moves out from under `java/` stays covered instead of silently
+# dropping off the report.
+directories = {
+    name: directory
+    for name, directory in layout.modules().items()
+    if (directory / "src/test/java").is_dir()
+}
+expected = sorted(directories)
 
 rows, missing, total, failed, skipped = [], [], 0, 0, 0
 for module in expected:
-    files = glob.glob(f"java/{module}/build/test-results/test/TEST-*.xml")
+    files = glob.glob(f"{directories[module]}/build/test-results/test/TEST-*.xml")
     if not files:
         missing.append(module)
         rows.append((module, "—", "—", "—", "NO RESULTS"))

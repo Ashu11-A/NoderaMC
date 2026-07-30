@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED
 **Category:** engine · **Owns:** — (L-52 RETIRED) · **Last audit:** 2026-07-28
 **Depends on:** [engine 1](Task.1.md)
-**Consumed by:** [engine 3](Task.3.md)–[engine 12](Task.12.md), [network 4](../network/Task.4.md), [minecraft 2](../minecraft/Task.2.md), [worker 4](../worker/Task.4.md)
+**Consumed by:** [engine 3](Task.3.md)–[engine 12](Task.12.md), [network 4](../network/Task.4.md), [minecraft 2](../minecraft/Task.2.md), [worker 4](../peer/Task.4.md)
 
 ---
 
@@ -23,7 +23,7 @@ envelope.
 
 ## Status detail
 
-Landed and continuously extended. `java/engine` carries 508 XML-reported test cases, including 3
+Landed and continuously extended. `library/java/engine` carries 508 XML-reported test cases, including 3
 jqwik `@Property` determinism tests and the ArchUnit forbidden-API ban.
 
 The rule set has grown well past the MVP palette: containers, redstone (palette v4 including
@@ -82,11 +82,11 @@ branch, or the streams desynchronise. This constraint is load-bearing for tasks 
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`
-- `java/engine/src/main/java/dev/nodera/simulation/DeterministicRandom.java`
-- `java/engine/src/main/java/dev/nodera/simulation/rules/`
-- `java/core/src/main/java/dev/nodera/core/state/{FixedPoint,ChunkKey,PersistedEntityState}.java`
-- `java/engine/src/test/java/dev/nodera/simulation/{ForbiddenApiTest,DeterminismPropertyTest}.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/engine/FlatWorldRegionEngine.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/DeterministicRandom.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/`
+- `library/java/core/src/main/java/dev/nodera/core/state/{FixedPoint,ChunkKey,PersistedEntityState}.java`
+- `library/java/engine/src/test/java/dev/nodera/simulation/{ForbiddenApiTest,DeterminismPropertyTest}.java`
 
 ## Testing
 

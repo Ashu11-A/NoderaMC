@@ -419,7 +419,7 @@ Each is a coherent deliverable with its own acceptance criteria. Full specificat
 
 | # | Task | Delivers | Depends on |
 |---|---|---|---|
-| [1](../server/Task.1.md) | Plugin skeleton, build lane, platform abstraction | `java/paper-plugin` builds one jar that enables on Paper **and** Folia; `NoderaScheduler` seam; ALIGN-1 preflight | — |
+| [1](../server/Task.1.md) | Plugin skeleton, build lane, platform abstraction | `endpoints/paper-plugin` builds one jar that enables on Paper **and** Folia; `NoderaScheduler` seam; ALIGN-1 preflight | — |
 | [2](../server/Task.2.md) | Embedded peer + control plane | the real `PeerRuntime` in-process; identity; in-JVM control link; optional external worker attach | server 1 |
 | [3](../server/Task.3.md) | Region custody and the ownership bridge | C1–C5; multi-view `ViewOwnershipPlanner`; the Nodera↔Folia region map | server 2 |
 | [4](../server/Task.4.md) | World I/O: custody reconciler, chunk gating, save boundary | §5 in full, minus the refused mechanism | server 3 |
@@ -494,7 +494,7 @@ exists, the fallback — Paper-only endpoint suites plus a Folia suite pinned to
 
 | Level | What it proves |
 |---|---|
-| Minecraft-free unit tests (`java/paper-plugin` has none that need a server) | ALIGN-1 arithmetic, custody digests, tenant-id derivation, the scheduler seam's dispatch decisions, `NoderaScheduler` platform selection |
+| Minecraft-free unit tests (`endpoints/paper-plugin` has none that need a server) | ALIGN-1 arithmetic, custody digests, tenant-id derivation, the scheduler seam's dispatch decisions, `NoderaScheduler` platform selection |
 | `core`/`engine` unit tests | multi-view ownership planning; the min-distance rule; determinism under N views |
 | Plugin ITs on a real Paper server | enable/disable, event mirror fidelity, chunk gating, foreign-write certification |
 | `scripts/e2e-endpoint.sh` | **the headline drive:** an unmodified client and a modded client in the same world, one joining directly at the endpoint, one through the Nodera network, with an item passing between them exactly once |

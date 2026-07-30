@@ -27,7 +27,7 @@ jobs:
       # rust-toolchain.toml pins the channel; rustup (preinstalled on the runner) honours it.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
 
       # One command builds the Rust workspace + the mod jar and collects all three artifacts into
       # build/ — identical to a local `scripts/dev.sh --build-only`.

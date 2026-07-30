@@ -15,7 +15,7 @@ Rows moved here from [`LIMITATIONS.md`](LIMITATIONS.md) §B when their status re
 > [`LIMITATIONS.md`](LIMITATIONS.md) as L-92.** Its evidence cell below is left exactly as written,
 > per this file's own rule: it is the audit trail, and softening it would destroy the record that
 > makes the mistake checkable. The mistake: `GenesisApprovalFlow` and `GenesisRecertification` are
-> complete and tested and have **no production call site** — `:worker:structureReport` lists the flow
+> complete and tested and have **no production call site** — `:peer:structureReport` lists the flow
 > under "classes only tests and benchmarks reference", and `GenesisApprovalFlowIT` is its only
 > construction site. Meanwhile `CertifiedWorldGenesis`, the record production actually mints and
 > persists, carries one author key and one signature and no founding set at all. So the row was

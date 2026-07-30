@@ -23,10 +23,11 @@
 # ===========================================================================
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 TOOLS="$ANDROID_HOME/build-tools/35.0.0"
-DIST="$NODERA_ROOT/java/worker/build/install/nodera-headless"
+DIST="$NODERA_PEER_MODULE/build/install/nodera-headless"
 
 say()  { printf '\033[1;36m[bytecode]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[bytecode] FAIL\033[0m %s\n' "$*" >&2; exit 1; }
@@ -38,7 +39,7 @@ if [[ "${NODERA_SKIP_BUILD:-0}" == "1" ]]; then
     [[ -d "$DIST/lib" ]] || fail "NODERA_SKIP_BUILD=1 but there is no distribution at $DIST"
 else
     say "building the worker…"
-    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist -q )
+    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist -q )
 fi
 
 STAGE="$(mktemp -d -t nodera-bytecode-XXXXXX)"

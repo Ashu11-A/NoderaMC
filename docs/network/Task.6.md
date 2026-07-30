@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED (live churn soak → [minecraft 2](../minecraft/Task.2.md))
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-30
 **Depends on:** [network 4](Task.4.md), [network 5](Task.5.md)
-**Consumed by:** [network 7](Task.7.md), [network 9](Task.9.md), [worker 3](../worker/Task.3.md)
+**Consumed by:** [network 7](Task.7.md), [network 9](Task.9.md), [worker 3](../peer/Task.3.md)
 
 ---
 
@@ -100,8 +100,8 @@ moment the network is least healthy.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/archival/{RendezvousArchivePolicy,ReplicationFactors,SeedFloorPolicy,ArchiveAuditTask,ArchiveRepairService,ArchiveManager}.java`
-- `java/worker/src/main/java/dev/nodera/headless/WorldReplicationService.java` — the lane that runs
+- `peer/src/main/java/dev/nodera/peer/archival/{RendezvousArchivePolicy,ReplicationFactors,SeedFloorPolicy,ArchiveAuditTask,ArchiveRepairService,ArchiveManager}.java`
+- `peer/src/main/java/dev/nodera/headless/WorldReplicationService.java` — the lane that runs
 
 ## Testing
 

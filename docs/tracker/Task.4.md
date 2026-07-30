@@ -73,9 +73,9 @@ failure mode because a dashboard is unreachable.
 
 ## Files
 
-- `rust/nodera-tracker/src/telemetry.rs` — the reporter
-- `rust/nodera-tracker/src/config.rs` — `telemetry_endpoint`, `telemetry_interval_seconds`
-- `rust/nodera-tracker/src/service.rs` — counter access for the window
+- `tracker/src/telemetry.rs` — the reporter
+- `tracker/src/config.rs` — `telemetry_endpoint`, `telemetry_interval_seconds`
+- `tracker/src/service.rs` — counter access for the window
 
 ## Testing
 

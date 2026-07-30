@@ -128,11 +128,11 @@ region split across two threads is corruption with a delay fuse.
 
 ## Files
 
-- `java/core/src/main/java/dev/nodera/core/region/ViewOwnershipPlanner.java` (multi-view overload)
-- `java/core/src/main/java/dev/nodera/core/region/CustodyClass.java`
-- `java/peer/src/main/java/dev/nodera/peer/archival/CustodyDigest.java`
-- `java/peer/src/main/java/dev/nodera/peer/archival/CustodyAudit.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/region/{NoderaFoliaRegionMap,EndpointOwnershipPlanner,EndpointCustodyService}.java`
+- `library/java/core/src/main/java/dev/nodera/core/region/ViewOwnershipPlanner.java` (multi-view overload)
+- `library/java/core/src/main/java/dev/nodera/core/region/CustodyClass.java`
+- `peer/src/main/java/dev/nodera/peer/archival/CustodyDigest.java`
+- `peer/src/main/java/dev/nodera/peer/archival/CustodyAudit.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/region/{NoderaFoliaRegionMap,EndpointOwnershipPlanner,EndpointCustodyService}.java`
 
 ## Testing
 

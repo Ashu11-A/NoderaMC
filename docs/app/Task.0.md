@@ -54,8 +54,8 @@ externally started worker untouched: the app must never kill a process it did no
 
 ## 4. Dependencies
 
-**Depends on:** [`worker/Task.1.md`](../worker/Task.1.md) (the process it supervises),
-[`worker/Task.2.md`](../worker/Task.2.md) (the control endpoint it reads).
+**Depends on:** [`worker/Task.1.md`](../peer/Task.1.md) (the process it supervises),
+[`worker/Task.2.md`](../peer/Task.2.md) (the control endpoint it reads).
 
 **Consumed by:** players (it is the install target) and
 [`minecraft/Task.7.md`](../minecraft/Task.7.md), whose gate assumes the app keeps the worker alive.
@@ -82,20 +82,20 @@ Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md)
 
 | Path | Contents |
 |---|---|
-| `rust/nodera-app/Cargo.toml` | Tauri, autostart plugin, tokio, serde — **workspace-excluded** |
-| `rust/nodera-app/tauri.conf.json` | Tray, autostart, single-instance, window and bundle config |
-| `rust/nodera-app/src/main.rs` | Tray, window, single-instance, autostart, the metrics pump |
-| `rust/nodera-app/src/daemon.rs` | Worker supervisor: spawn bundled JVM or attach to an external worker |
-| `rust/nodera-app/src/control.rs` | Loopback control client — a strict mirror of `ControlProtocol` |
-| `rust/nodera-app/src/metrics.rs` | The `Metrics` struct the UI renders |
-| `rust/nodera-app/ui/` | React + Vite dashboard |
+| `app/Cargo.toml` | Tauri, autostart plugin, tokio, serde — **workspace-excluded** |
+| `app/tauri.conf.json` | Tray, autostart, single-instance, window and bundle config |
+| `app/src/main.rs` | Tray, window, single-instance, autostart, the metrics pump |
+| `app/src/daemon.rs` | Worker supervisor: spawn bundled JVM or attach to an external worker |
+| `app/src/control.rs` | Loopback control client — a strict mirror of `ControlProtocol` |
+| `app/src/metrics.rs` | The `Metrics` struct the UI renders |
+| `app/ui/` | React + Vite dashboard |
 
-Package architecture: [`rust/nodera-app/README.md`](../../rust/nodera-app/README.md).
+Package architecture: [`app/README.md`](../../app/README.md).
 
 ## 7. Conventions specific to this category
 
 - **The crate is workspace-excluded.** Tauri's native webkit dependencies would break the headless
-  `cargo test` gate, so it builds separately (`cd rust/nodera-app && cargo test`). **Do not read the
+  `cargo test` gate, so it builds separately (`cd app && cargo test`). **Do not read the
   green workspace Rust gate as covering this crate** — that is exactly what task 3's CI job fixes.
 - **`control.rs` is a strict mirror** of the worker's `ControlProtocol`: verbs, version, framing.
   Change all three mirrors in one commit and let the mod's gate classify skew.

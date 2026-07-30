@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (headless; live 3-client run → [minecraft 2](../minecraft/Task.2.md))
 **Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 4](Task.4.md)
-**Consumed by:** [engine 6](Task.6.md), [network 10](../network/Task.10.md), [worker 4](../worker/Task.4.md), [minecraft 2](../minecraft/Task.2.md)
+**Consumed by:** [engine 6](Task.6.md), [network 10](../network/Task.10.md), [worker 4](../peer/Task.4.md), [minecraft 2](../minecraft/Task.2.md)
 
 ---
 
@@ -24,7 +24,7 @@ under a new epoch. This task ends at the **MVP gate** — the canonical three-cl
 Complete headlessly, and **running out of game**: `WorkerValidationService` wires the committee stack
 into the always-on worker, so three companion-only nodes with no Minecraft process form a committee
 over the real transport, quorum-commit, persist the co-signed certificate on every member, and fail
-over to epoch+1 after primary loss ([worker 4](../worker/Task.4.md)).
+over to epoch+1 after primary loss ([worker 4](../peer/Task.4.md)).
 
 Proven headlessly by `CommitteeMvpIT` (quorum-commit, then primary failover under a bumped epoch),
 `ByzantineWorkerTest` (lying ballots at the session), and `ByzantineMeshIT` (a genuinely adversarial
@@ -78,10 +78,10 @@ merge.
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/committee/{CommitteeMember,CommitteeSession,VotePersistence,SpotCheckAuditor,CommitteeFailover}.java`
-- `java/engine/src/main/java/dev/nodera/consensus/{QuorumPolicy,VoteCollector,EquivocationDetector,SpotCheckPolicy}.java`
-- `java/engine/src/test/java/dev/nodera/committee/{CommitteeMvpIT,ByzantineWorkerTest}.java`
-- `java/peer/src/test/java/dev/nodera/peer/validation/ByzantineMeshIT.java`
+- `library/java/engine/src/main/java/dev/nodera/committee/{CommitteeMember,CommitteeSession,VotePersistence,SpotCheckAuditor,CommitteeFailover}.java`
+- `library/java/engine/src/main/java/dev/nodera/consensus/{QuorumPolicy,VoteCollector,EquivocationDetector,SpotCheckPolicy}.java`
+- `library/java/engine/src/test/java/dev/nodera/committee/{CommitteeMvpIT,ByzantineWorkerTest}.java`
+- `peer/src/test/java/dev/nodera/peer/validation/ByzantineMeshIT.java`
 
 ## Testing
 

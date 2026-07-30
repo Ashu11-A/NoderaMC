@@ -6,9 +6,9 @@
      nobody can regress. Keep this header's status accurate.
      Context: the live soak that proves the mechanism on real NAT. No sub-deliverable is code — all
      are measurement runs blocked on the live environment. Key files the soak drives:
-     java/peer/.../SessionContinuityIT.java (pure-relay run),
-     java/transport/.../rendezvous/TransportSelector.java:57 (the metrics surface),
-     rust/nodera-rendezvous/src/telemetry.rs:27 + punch.rs:96 (the population numbers source). Numbers
+     peer/.../SessionContinuityIT.java (pure-relay run),
+     library/java/transport/.../rendezvous/TransportSelector.java:57 (the metrics surface),
+     rendezvous/src/telemetry.rs:27 + punch.rs:96 (the population numbers source). Numbers
      land in ../plans/Plan.0.md. Depends on: ../network/Task.2.md (migration machinery),
      ../minecraft/Task.1.md (live environment). Consumed by: the project's reachability claims. -->
 
@@ -76,8 +76,8 @@ depend on it.
 
 ## Files
 
-- `java/peer/src/test/.../SessionContinuityIT.java` (to be run pure-relay)
-- `java/transport/.../rendezvous/TransportSelector.java` (metrics)
+- `peer/src/test/.../SessionContinuityIT.java` (to be run pure-relay)
+- `library/java/transport/.../rendezvous/TransportSelector.java` (metrics)
 - Numbers land in [`../plans/Plan.0.md`](../plans/Plan.0.md) notes
 
 ## Testing

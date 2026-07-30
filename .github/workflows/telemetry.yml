@@ -6,7 +6,7 @@
 #                 collects nothing, a consented worker's rows carry a rotating subject and no
 #                 address, an undeclared event is refused, revocation forgets the identifier, and
 #                 the node is unaffected when the collector dies (Plan.6 D10).
-#   registry-mirror  proves the Java emitter and rust/nodera-telemetry/src/schema.rs still agree.
+#   registry-mirror  proves the Java emitter and telemetry/src/schema.rs still agree.
 #                 Two implementations of one contract drift unless something mechanical fails.
 #   stack-smoke   brings the Big Data plane up and proves a submitted batch becomes a queryable
 #                 row — telemetry 2 deliverable 8.
@@ -17,14 +17,14 @@ name: telemetry
 on:
   push:
     paths:
-      - 'rust/nodera-telemetry/**'
-      - 'rust/nodera-tracker/src/telemetry.rs'
-      - 'rust/nodera-rendezvous/src/telemetry.rs'
-      - 'java/peer/src/**/telemetry/**'
-      - 'java/peer/src/**/headless/WorkerTelemetryService.java'
-      - 'java/neoforge-mod/src/**/ModTelemetry.java'
+      - 'telemetry/**'
+      - 'tracker/src/telemetry.rs'
+      - 'rendezvous/src/telemetry.rs'
+      - 'peer/src/**/telemetry/**'
+      - 'peer/src/**/headless/WorkerTelemetryService.java'
+      - 'endpoints/neoforge-mod/src/**/ModTelemetry.java'
       - 'docker/telemetry/**'
-      - 'java/testing/src/main/java/dev/nodera/testkit/**'
+      - 'library/java/testing/src/main/java/dev/nodera/testkit/**'
       - 'scripts/nodera-test.sh'
       - 'scripts/telemetry-stack.sh'
       - '.github/workflows/telemetry.yml'
@@ -45,18 +45,22 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
 
       - name: Rust unit tests (the gate at the receiver)
-        working-directory: rust
+        working-directory: .
         run: cargo test -p nodera-telemetry -p nodera-tracker -p nodera-rendezvous
 
       - name: Clippy
-        working-directory: rust
+        working-directory: .
         run: cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 
       - name: Java emitter tests
-        run: ./gradlew :peer:test --tests '*Telemetry*' :worker:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
+        # `:endpoint` and not `:neoforge-mod`: ModTelemetry is Minecraft-free and moved to the
+        # endpoint library on 2026-07-30. Gradle FAILS a --tests filter that matches nothing, which
+        # is why this is the right way round — a filter pointed at the wrong module would otherwise
+        # report green while testing nothing.
+        run: ./gradlew :peer:test --tests '*Telemetry*' :endpoint:test --tests '*Telemetry*'
 
       # The scenario is headless — no display, no Minecraft — which is why it is the one live
       # lane that belongs in a per-push workflow rather than in the nightly matrix.
@@ -86,19 +90,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
 
       # The mirror test SKIPS when the binary is absent, so building it first is what makes this
       # job meaningful rather than green-by-default.
       - name: Build the collector
-        working-directory: rust
+        working-directory: .
         run: cargo build --release -p nodera-telemetry
 
       - name: The registries agree
         run: ./gradlew :peer:test --tests '*TelemetryRegistryMirrorTest*'
 
       - name: The published registry is readable
-        run: rust/target/release/nodera-telemetry --print-schema | python3 -m json.tool > /dev/null
+        run: target/release/nodera-telemetry --print-schema | python3 -m json.tool > /dev/null
 
   stack-smoke:
     runs-on: ubuntu-latest

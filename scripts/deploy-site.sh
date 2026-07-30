@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish site/ to noderamc.org, and install the Caddy site block that serves it.
+# Publish web/ to noderamc.org, and install the Caddy site block that serves it.
 #
 # <!-- AI-AGENT-INSTRUCTION: This script touches a live host that runs OTHER PEOPLE'S sites out of
 #      the same Caddy. Four rules. (1) It may only ever write /var/www/noderamc and the single file
@@ -18,7 +18,8 @@
 
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
 
 VPS_HOST="${NODERA_VPS_HOST:-150.230.84.206}"
 VPS_USER="${NODERA_VPS_USER:-ubuntu}"
@@ -77,22 +78,22 @@ if [[ $STATUS_ONLY -eq 1 ]]; then
 fi
 
 for f in index.html add-store.html noderamc.caddy; do
-	[[ -f "$NODERA_ROOT/site/$f" ]] || die "site/$f is missing"
+	[[ -f "$NODERA_WEB_DIR/$f" ]] || die "web/$f is missing"
 done
 
 if [[ $DRY_RUN -eq 1 ]]; then
 	say "would publish to $VPS_USER@$VPS_HOST"
-	echo "  site/index.html      -> $WEB_ROOT/index.html"
-	echo "  site/add-store.html  -> $WEB_ROOT/add-store.html"
-	echo "  site/noderamc.caddy  -> $CADDY_FILE   (validated, then reload)"
+	echo "  web/index.html      -> $WEB_ROOT/index.html"
+	echo "  web/add-store.html  -> $WEB_ROOT/add-store.html"
+	echo "  web/noderamc.caddy  -> $CADDY_FILE   (validated, then reload)"
 	exit 0
 fi
 
 STAGE="/tmp/nodera-site.$$"
-say "sending site/ to $VPS_USER@$VPS_HOST"
+say "sending web/ to $VPS_USER@$VPS_HOST"
 remote "mkdir -p $STAGE"
 scp "${SSH_OPTS[@]/-p/-P}" -q \
-	"$NODERA_ROOT/site/index.html" "$NODERA_ROOT/site/add-store.html" "$NODERA_ROOT/site/noderamc.caddy" \
+	"$NODERA_WEB_DIR/index.html" "$NODERA_WEB_DIR/add-store.html" "$NODERA_WEB_DIR/noderamc.caddy" \
 	"$VPS_USER@$VPS_HOST:$STAGE/"
 
 say "installing"

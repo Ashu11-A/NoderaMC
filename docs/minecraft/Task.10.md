@@ -8,7 +8,7 @@
 
 **Status:** 🚧 IN PROGRESS
 **Category:** minecraft · **Owns:** MC-JOIN-1 … MC-JOIN-6 · **Last audit:** 2026-07-28
-**Depends on:** [minecraft 6](Task.6.md), [minecraft 7](Task.7.md), [worker 8](../worker/Task.8.md)
+**Depends on:** [minecraft 6](Task.6.md), [minecraft 7](Task.7.md), [worker 8](../peer/Task.8.md)
 **Consumed by:** [minecraft 11](Task.11.md)
 
 ---
@@ -55,7 +55,7 @@ loading screen that never resolves.
 
 ## Dependencies
 
-- [worker 8](../worker/Task.8.md) — a stability gate is meaningless while one world has several ids.
+- [worker 8](../peer/Task.8.md) — a stability gate is meaningless while one world has several ids.
 - [minecraft 7](Task.7.md) owns the companion gate whose `required=true` default is listed below.
 
 ## Deliverables

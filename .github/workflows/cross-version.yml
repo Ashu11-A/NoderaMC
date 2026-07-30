@@ -60,9 +60,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
       - name: Rust half of the differential pair
-        working-directory: rust
+        working-directory: .
         run: cargo test -p nodera-codec
 
       # A fixture mutated by the run means the encoder drifted and something silently accepted it.
@@ -168,7 +168,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          xml="java/transport/build/test-results/test/TEST-dev.nodera.protocol.wire.PreviousReleaseCorpusTest.xml"
+          xml="library/java/transport/build/test-results/test/TEST-dev.nodera.protocol.wire.PreviousReleaseCorpusTest.xml"
           if [ ! -f "$xml" ]; then
             echo "::error::$xml is missing: the cross-build test never ran, so this job asserted \
           nothing about compatibility with ${{ steps.previous.outputs.ref }}."

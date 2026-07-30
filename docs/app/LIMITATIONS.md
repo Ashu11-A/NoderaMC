@@ -37,8 +37,8 @@ Status values: `OPEN` → `RETIRING` → `RETIRED` (row moves to
 
 | Trade-off | Consequence | Owner |
 |---|---|---|
-| The crate is **workspace-excluded** from the headless `cargo test` gate (Tauri's native webkit dependencies would burden every unrelated Rust change) | CI does not compile the app until the dedicated build job covers every target. **Never read the green workspace Rust gate as covering this crate.** Its tests run via `cd rust/nodera-app && cargo test` | [3](Task.3.md) |
-| The app supervises a **Java** worker | Deliberate: Option B is locked by the single-engine rule ([`../worker/Task.0.md`](../worker/Task.0.md)). A Rust-native lightweight seeder mode remains a possible later addition, never a validator | [`../worker/`](../worker/Task.0.md) |
+| The crate is **workspace-excluded** from the headless `cargo test` gate (Tauri's native webkit dependencies would burden every unrelated Rust change) | CI does not compile the app until the dedicated build job covers every target. **Never read the green workspace Rust gate as covering this crate.** Its tests run via `cd app && cargo test` | [3](Task.3.md) |
+| The app supervises a **Java** worker | Deliberate: Option B is locked by the single-engine rule ([`../peer/Task.0.md`](../peer/Task.0.md)). A Rust-native lightweight seeder mode remains a possible later addition, never a validator | [`../peer/`](../peer/Task.0.md) |
 | The app is not a peer | It holds no signing keys and serves nothing to the network. Any behaviour that touches the network belongs in the worker or the Rust services — if you are adding peer logic here, stop | [1](Task.1.md) |
 
 ---
