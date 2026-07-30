@@ -84,6 +84,28 @@ product); a row nothing cites can be deleted, and deleting it is cheaper than ma
 | `transport.rendezvous.HolePunchCoordinator` | transport | **Checked 2026-07-30 — unwired, and it is a capacity claim rather than a correctness one** | Verified: the only non-test references are its own file and a `package-info` javadoc. `TransportSelector.Path` has exactly two values, `DIRECT` and `RELAYED` — there is no punched path for the selector to choose, so NAT traversal never runs and two peers that cannot reach each other directly are **always** relayed. That does not break envelope A-4: the bulk lane still reaches peers, through a relay. What it breaks is the cost model, because every such transfer is paid for by a third party's bandwidth, and the relay-scoring lane (`RendezvousDirectory`, service scoring) is what carries that cost today. Wire it only with a measurement that shows relay load is the binding constraint; until then the honest statement is "Nodera relays where it cannot dial", which is what `../network/Task.5.md` should say |
 | `protocol.wire.MessageType.expectsResponse` | transport | Rides `MessageRouter` | The third of the router's declared columns. Authorisation is enforced (2026-07-30) and the `UnknownKind` answer is now sent by `PeerRuntime` directly; correlation is what is left, and it needs `CorrelationTable`, so both move together |
 
+### The other two-thirds of the report — engine and storage, swept 2026-07-30
+
+The inventory above was scoped to the four modules this category owns, so thirteen of the thirty
+entries in `structureReport` §2.2 had never been read by anyone. They are listed here because the
+register they belong to does not exist, and leaving them unlisted is how the first sweep missed the
+handshake. **Not this category's to decide** — each needs its owning agent — but each was
+grep-verified, and the pattern in them is a single one.
+
+| Class | Module | What the grep found | Reading |
+|---|---|---|---|
+| `coordinator.RegionAllocator`, `ProposalManager`, `HeartbeatMonitor`, `ReliabilityScorer`, `ServerVerifier`, `RendezvousPlacementPolicy`, `NodeRegistry` (partly), `committee.CommitteeSession`, `committee.SpotCheckAuditor`, `shadow.ShadowCoordinator` | engine | zero production references; `RegionAllocator` and `ShadowCoordinator` survive only as javadoc mentions (`ViewOwnershipPlanner`, `package-info`) | **One finding, not ten: this is the retired central-coordinator design.** Task 30 removed the dedicated server, and ownership is now decided by `ViewOwnershipPlanner` from each player's render-distance disc — whose own javadoc says it is "a substitute for the server-side `RegionAllocator` in the decentralized model". So a whole server-authoritative layer is still compiled and shipped inside every jar. Deleting it is a category-sized decision for the engine agent, and it is the largest single block of dead weight the report measures |
+| `coordinator.interference.AsyncActionGate` | engine | zero production references; `MutationGuard` and the mod's `BlockWriteGuard` only **name** it, in an exception message | Sharper than it looks: engine **L-25** retired on the pair "a documented rejection *and* a legal API". The rejection is genuinely wired (`LevelChunkMixin` → `BlockWriteGuard`), so the safety half holds — but the escape hatch a rejected mod is told to use, `AsyncActionGate.submit`, has no caller and nothing drains it. A third-party mod that follows the error message finds a door with nothing behind it. Not a safety regression; a completeness one, and the engine agent should decide whether L-25's second clause survives |
+| `coordinator.EntityDelegabilityRules`, `coordinator.entity.JointTransferApprover` | engine | zero production references | `EntityDelegabilityRules` is the other half of the `RegionDelegabilityGate` row above — **both** implementations of delegability are unwired, so whatever refuses a region live is neither of them |
+| `simulation.border.ContraptionMigrator` (+ `.Groups`) | engine | zero production references | Cross-border contraption migration is a stated engine capability with no caller |
+| `storage.event.EventSourcedWorldStore` | storage | zero production references | Production is `RocksWorldStore` everywhere (`LiveEntityLaneSession`). The event-sourced tier ships, is tested, and stores nothing. Note it is *also* one half of the "route both stores through `EventChainGuard`" row in the duplication table above — that refactor would be deduplicating against a store nobody runs |
+| `storage.client.BoundedClientWorldStore` | storage | zero production references; `StorageQuotaManager`'s mention is javadoc | The quota manager it was written to consult is reached by `FsContentStore` instead |
+
+Read as one thing, the thirteen say: **the report's peer/transport third was the part anyone had ever
+audited.** Two of the three registers that leaned on unwired code (network L-30, engine L-20) were
+found by reading it; engine L-25's second clause is a third, found only because this sweep finally
+looked at the other two-thirds.
+
 Two rules for whoever takes this on. First, **a row is not dead because the tool says so** — the
 report excludes anything whose caller could be outside our bytecode, but a call site added in the
 same pass that reads this table will not be in it either; re-run `:worker:structureReport` rather than

@@ -48,7 +48,11 @@ final class TrackerClientUdpTest {
         final AtomicInteger requests = new AtomicInteger();
 
         UdpStub(boolean answer, String worldName) throws IOException {
-            this.socket = new DatagramSocket(0, InetAddress.getLoopbackAddress());
+            this(answer, worldName, 0);
+        }
+
+        UdpStub(boolean answer, String worldName, int port) throws IOException {
+            this.socket = new DatagramSocket(port, InetAddress.getLoopbackAddress());
             this.thread = new Thread(() -> {
                 byte[] buffer = new byte[64 * 1024];
                 while (running.get()) {
@@ -144,22 +148,64 @@ final class TrackerClientUdpTest {
         }
     }
 
+    /**
+     * A port number free on <b>both</b> UDP and TCP, with the two stubs already holding it.
+     *
+     * <p>This used to bind the UDP stub on an ephemeral port and then assume the same number was
+     * free on TCP. UDP and TCP are separate port spaces, so that is an assumption about what else is
+     * running on the machine — and on a busy CI runner it is regularly false:
+     * {@code java.net.BindException: Address already in use}, from the TCP bind, on a test about
+     * fallback behaviour that has nothing to do with port allocation. Retrying with a fresh
+     * candidate makes the test deterministic instead of dependent on the runner's spare ports.
+     *
+     * @return both stubs, bound on one number; the caller closes them.
+     */
+    private static Bound bindBothSurfaces(String tcpWorldName) throws IOException {
+        IOException last = null;
+        for (int attempt = 0; attempt < 25; attempt++) {
+            int candidate;
+            try (ServerSocket probe = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+                candidate = probe.getLocalPort();
+            }
+            UdpStub udp = null;
+            try {
+                udp = new UdpStub(false, "unused", candidate);
+                return new Bound(udp, new TcpStub(candidate, tcpWorldName));
+            } catch (IOException taken) {
+                last = taken;
+                if (udp != null) {
+                    udp.close();
+                }
+            }
+        }
+        throw new IOException("no port was free on both UDP and TCP after 25 attempts", last);
+    }
+
+    private record Bound(UdpStub udp, TcpStub tcp) implements AutoCloseable {
+        @Override
+        public void close() throws IOException {
+            try {
+                tcp.close();
+            } finally {
+                udp.close();
+            }
+        }
+    }
+
     @Test
     @DisplayName("a silent UDP service falls back to TCP at the same address, not to 'no peers'")
     void udpSilenceFallsBackToTcp() throws Exception {
-        // Bind the UDP stub first, then a TCP stub on the SAME port number — exactly the real
-        // tracker's shape, where both surfaces share one address and UDP stays deliberately silent
-        // when an answer would exceed its amplification bound.
-        try (UdpStub silent = new UdpStub(false, "unused")) {
-            try (TcpStub tcp = new TcpStub(silent.port(), "over-tcp");
-                 TrackerClient client = client(
-                         new Endpoint("127.0.0.1", silent.port(), TrackerClient.Transport.UDP))) {
-                Optional<TrackerResponse> response = client.query(WORLD);
-                assertTrue(response.isPresent(), "the TCP fallback should have answered");
-                assertEquals("over-tcp", response.get().worldName());
-                assertTrue(silent.requests.get() >= 1, "UDP should have been tried first");
-                assertEquals(1, tcp.requests.get());
-            }
+        // Both surfaces on ONE port number — exactly the real tracker's shape, where they share an
+        // address and UDP stays deliberately silent when an answer would exceed its amplification
+        // bound.
+        try (Bound bound = bindBothSurfaces("over-tcp");
+             TrackerClient client = client(
+                     new Endpoint("127.0.0.1", bound.udp().port(), TrackerClient.Transport.UDP))) {
+            Optional<TrackerResponse> response = client.query(WORLD);
+            assertTrue(response.isPresent(), "the TCP fallback should have answered");
+            assertEquals("over-tcp", response.get().worldName());
+            assertTrue(bound.udp().requests.get() >= 1, "UDP should have been tried first");
+            assertEquals(1, bound.tcp().requests.get());
         }
     }
 

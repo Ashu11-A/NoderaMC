@@ -24,6 +24,16 @@ Rows moved here from [`LIMITATIONS.md`](LIMITATIONS.md) §B when their status re
 > L-33 — green tests over an unreachable class — and it is worth noting that it can reach a *retired*
 > register, where nobody re-checks. The blocker is a design decision (what the declared founding set
 > is, and how it is persisted with the world), not a missing call; see L-92 for the exit test.
+>
+> **The same sweep found a second, milder case: L-25's two halves are not both wired.** That row
+> retired on "a documented rejection *and* a legal API", and its own evidence cell says the thing that
+> had been missing was a call site — "a guard nothing calls rejects nothing". The guard's call site is
+> real and the safety property holds: `LevelChunkMixin` → `BlockWriteGuard` routes every block write,
+> and an off-thread write is rejected with `AsyncWriteException`. But the **legal API** that exception
+> names, `AsyncActionGate.submit`, has zero production references — nothing constructs the gate,
+> nothing drains its FIFO. So a third-party mod that does exactly what the error message tells it to
+> do has no working path. The row's evidence stands as written (it is accurate about the guard); the
+> unwired half is carried by **L-93** in [`LIMITATIONS.md`](LIMITATIONS.md).
 
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|
