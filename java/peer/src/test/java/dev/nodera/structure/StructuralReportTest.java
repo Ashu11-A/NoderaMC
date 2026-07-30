@@ -2,6 +2,7 @@ package dev.nodera.structure;
 
 import dev.nodera.structure.CodeGraph.Finding;
 import dev.nodera.structure.HeadlessDebugProbe.RuntimeProfile;
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Tag;
@@ -35,11 +36,11 @@ import static org.assertj.core.api.Assertions.fail;
  * <h2>How to run it</h2>
  *
  * <pre>
- *   ./gradlew :worker:structureReport                  # analysis + debugger probe + report
- *   ./gradlew :worker:structureReport -Pstructure.debug=false   # static analysis only (fast)
+ *   ./gradlew :peer:structureReport                  # analysis + debugger probe + report
+ *   ./gradlew :peer:structureReport -Pstructure.debug=false   # static analysis only (fast)
  * </pre>
  *
- * <p>It is tagged {@code structure} and excluded from {@code :worker:test}, because it reads the
+ * <p>It is tagged {@code structure} and excluded from {@code :peer:test}, because it reads the
  * compiled output of EVERY module: running it inside the normal unit-test task would make one
  * module's fast feedback depend on nine modules being compiled first.
  *
@@ -53,14 +54,20 @@ class StructuralReportTest {
     /**
      * Modules whose compiled output MUST be present, or the analysis would invent dead code.
      *
-     * <p>The Minecraft-bound modules are on the list for exactly that reason: the mod and the Paper
-     * plugin are production callers of the peer libraries, and analysing the tree without them
-     * would report everything only they call as dead. `:testing` is absent because its main source
-     * set is scanned as test code, not as a caller.
+     * <p>Every module in {@code layout.properties} except {@code :testing}, whose main source set is
+     * scanned as test code rather than as a caller. Read from the manifest rather than listed here:
+     * a hand-kept copy went stale the moment {@code :worker} merged into {@code :peer}, and the
+     * failure it produced named a module that no longer exists.
+     *
+     * <p>The Minecraft-bound modules are included deliberately — the mod and the Paper plugin are
+     * production callers of the peer libraries, and analysing the tree without them would report
+     * everything only they call as dead.
      */
-    private static final List<String> REQUIRED_MODULES = List.of(
-            "core", "engine", "transport", "storage", "peer", "worker", "neoforge-mod",
-            "paper-plugin");
+    private static final List<String> REQUIRED_MODULES =
+            LayoutManifest.load().modules().keySet().stream()
+                    .filter(name -> !name.equals("testing"))
+                    .sorted()
+                    .toList();
 
     /**
      * Reports land in the REPOSITORY's build directory, beside `BENCHMARKS.md`: both artefacts
@@ -79,7 +86,7 @@ class StructuralReportTest {
     /**
      * Step 1 — run the real worker under a debugger and record what executes.
      *
-     * <p>Enabled by default under {@code :worker:structureReport}; turn it off with
+     * <p>Enabled by default under {@code :peer:structureReport}; turn it off with
      * {@code -Pstructure.debug=false} when you only want the static half. When it IS enabled it
      * must succeed: a probe that silently produced nothing would turn section 1 of the report into
      * a blank page that looks like good news.
@@ -135,7 +142,7 @@ class StructuralReportTest {
             fail("no compiled output for " + missing + ". Every module must be compiled before the "
                     + "structural report runs, or code called only from a missing module is "
                     + "reported as dead. Run `./gradlew classes testClasses` (the "
-                    + "`:worker:structureReport` task does this for you).");
+                    + "`:peer:structureReport` task does this for you).");
         }
 
         DeadCodeAnalysis analysis = DeadCodeAnalysis.of(graph);

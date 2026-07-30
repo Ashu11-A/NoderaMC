@@ -235,6 +235,10 @@ final class CodeGraph {
             // remove.
             Origin mainOrigin = name.equals("testing") ? Origin.TEST : Origin.PRODUCTION;
             roots.add(new ScanRoot(name, mainOrigin, classes.resolve("main")));
+            // `:peer`'s entry point. PRODUCTION, and load-bearing: it is the root of the reachability
+            // graph for every always-on service, so omitting it reported the whole of
+            // dev.nodera.headless as unreachable — 756 methods against a budget of 283.
+            roots.add(new ScanRoot(name, Origin.PRODUCTION, classes.resolve("headless")));
             roots.add(new ScanRoot(name, Origin.TEST, classes.resolve("test")));
             roots.add(new ScanRoot(name, Origin.HARNESS, classes.resolve("jmh")));
         });

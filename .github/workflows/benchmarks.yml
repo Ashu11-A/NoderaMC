@@ -7,7 +7,7 @@
 #      worker), and `scripts/bench-report.py` ranks them, shows how each grows with load, and diffs
 #      every number against `fixtures/bench/baseline.json`.
 #
-#   2. "Is the tree accumulating code that ships and does nothing?" — `:worker:structureReport`
+#   2. "Is the tree accumulating code that ships and does nothing?" — `:peer:structureReport`
 #      reads every module's bytecode for the reference graph and the in-loop cost smells, then runs
 #      the REAL `nodera-headless` worker under a JDWP debugger to see which of it executes. The
 #      counts are ratcheted by `fixtures/structure/budget.json`.
@@ -143,7 +143,7 @@ jobs:
       # Compiles every module (the task declares them), launches the real worker under a debugger,
       # drives the control verbs the companion app drives, and fails if any budget rose.
       - name: Structural code report
-        run: ./gradlew :worker:structureReport --stacktrace
+        run: ./gradlew :peer:structureReport --stacktrace
 
       - name: Publish the report to the job summary
         if: always()

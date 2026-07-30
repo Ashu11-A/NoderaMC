@@ -1,20 +1,39 @@
 # `java/peer`
 
-<!-- AI-AGENT-INSTRUCTION: This is the largest library module and hosts runtime, distribution, and
-     diagnostics concerns. Two rules govern all of them: (1) every cache keyed
-     by remote input is BOUNDED — that is a security property, not tidiness; (2) trackers and
-     rendezvous are HINTS, never authority: peers verify everything by hash and signature. `:worker`
-     composes this tested Java peer; do NOT create a second region engine in any language. Update this
-     file when a package is added or its responsibility changes. -->
+<!-- AI-AGENT-INSTRUCTION: This is the largest module and hosts runtime, distribution, diagnostics
+     AND the always-on node. Three rules govern them: (1) every cache keyed by remote input is
+     BOUNDED — that is a security property, not tidiness; (2) trackers and rendezvous are HINTS,
+     never authority: peers verify everything by hash and signature; (3) the ONLY class allowed in
+     `src/headless` is the entry point — anything else there is a service a peer would not be
+     running, and this module is bundled into the mod's fat jar. Do NOT create a second region
+     engine in any language. Update this file when a package is added or its responsibility
+     changes. -->
 
-**The node libraries:** peer runtime, torrent data plane, validation and diagnostics. The runnable
-worker lives in `java/worker`.
+**The node:** peer runtime, torrent data plane, validation, diagnostics, and the always-on services
+built from them. A peer IS a worker — that is why they are one module.
 
 - **Depends on:** `core`, `engine`, `transport`, `storage`.
-- **Depended on by:** `worker`, `neoforge-mod`, `paper-plugin`.
+- **Depended on by:** `neoforge-mod`, `paper-plugin`.
+- **Produces:** `nodera-headless` (`./gradlew :peer:installDist`) — the process the companion app
+  supervises. The launcher name is contract with `rust/nodera-app`, CI and every script.
 - **Docs:** [`docs/network/`](../../docs/network/Task.0.md) ·
   [`docs/worker/`](../../docs/worker/Task.0.md) ·
   [`docs/tracker/Task.2.md`](../../docs/tracker/Task.2.md)
+
+## Source sets
+
+| Source set | Holds | Ships in the mod's fat jar |
+|---|---|:--:|
+| `src/main` | the peer libraries **and** `dev.nodera.headless`'s always-on services | yes |
+| `src/headless` | `HeadlessPeerMain` — the entry point, and nothing else | **no** |
+| `src/test` | unit + integration tests, incl. the structural report (`structure` tag) | no |
+| `src/jmh` | the four benchmark lanes | no |
+
+`dev.nodera.headless` lived in a separate `:worker` module until 2026-07-30. Splitting it out kept
+an executable out of every player's `mods/` folder, but it also left a peer WITHOUT the always-on
+services constructible, so "every peer serves" was a convention rather than a fact. The source-set
+split keeps the first guarantee — `tasks.jar` carries `main` only, asserted on the built artefact by
+`:neoforge-mod`'s `ModJarCarriesNoEntryPointTest` — while making the second structural.
 
 ---
 
@@ -47,7 +66,31 @@ dev.nodera.diagnostics        TelemetrySnapshot, TrafficMeter, RateWindow, Messa
 ├── metric/ classify/ model/  PeerTrafficMeter, TickSkewMeter/TpsMeter, ZoneClassifier
 ├── source/ state/            and the Minecraft-free GUI view models the mod renders
 └── view/
+
+dev.nodera.headless           the always-on services (src/main), plus the entry point
+├── WorkerControlHandler      loopback control verbs and NODERA-STATE
+├── WorldHostingService       persisted host/seed claims and tracker/rendezvous announces
+├── WorldArchiveService       archive and committed-region piece seeding/fetch
+├── WorldRegistryStore        worlds.dat
+├── WorldKeyStore             per-world administrator private keys
+├── WorldTombstoneStore       durable owner-authorized deletion records
+├── WorldOwnershipService     ownership claims and gossip
+├── WorldReplicationService   placement, repair and the replication budget
+├── LanSessionService         unmodified Open-to-LAN discovery and tunnel control
+├── WorkerTelemetryService    the node's single telemetry emitter
+└── HeadlessPeerMain          (src/headless) composition root; opens durable state first
 ```
+
+## Durable state
+
+`LocalFiles` and `PersistentIdentityStore` both delegate to `storage.io.AtomicFileWriter
+.writeOwnerOnly`. On a POSIX `FileStore`, temporary files are created `0600` before secret bytes are
+written; a provider that advertises POSIX but rejects that attribute fails closed. A non-POSIX store
+omits the inapplicable attribute. Failed writes or moves attempt to delete the temporary file, with
+cleanup errors suppressed on the primary failure.
+
+`HeadlessPeerMain.openLocalState` is the production startup seam for node identity, world registry
+and world-key directory; `main` consumes the returned state before transport/runtime composition.
 
 ## Why it is shaped this way
 
@@ -75,8 +118,8 @@ trusting the write, is the lesson taken from prior art.
 **Seeders hold what they cannot read.** Encrypting before content addressing means the hash covers the
 ciphertext, so a stranger can help keep a world alive without being able to look at it.
 
-**The worker composes the node.** Once `java/worker` keeps this runtime and announce loop in a
-long-lived process, closing Minecraft is a *player-session* leave rather than a *node* leave.
+**The node outlives the game.** `HeadlessPeerMain` keeps this runtime and announce loop in a
+long-lived process, so closing Minecraft is a *player-session* leave rather than a *node* leave.
 
 **Private identity writes share one storage primitive.** `PersistentIdentityStore` delegates to
 `storage.io.AtomicFileWriter.writeOwnerOnly`; it does not carry a second permissions/move policy.
@@ -91,12 +134,15 @@ long-lived process, closing Minecraft is a *player-session* leave rather than a 
 
 ## Tests
 
-595 Gradle test cases, including `SessionContinuityIT`, `DistributionIT`, `MultiBootstrapIT`,
+857 Gradle test cases, including `SessionContinuityIT`, `DistributionIT`, `MultiBootstrapIT`,
 `ArchiveRepairIT`, `EncryptedDistributionIT`, `CrashRecoveryIT`, `ResidentQuorumIT`,
-`ByzantineMeshIT`, and real-binary `TrackerServiceIT`.
+`ByzantineMeshIT`, real-binary `TrackerServiceIT`, and — from the former `:worker` —
+`WorldContinuityIT`, `CompanionCrashSurvivalIT`, `SeedRegionVerbIT`, `WorldHostingPersistenceTest`
+and `HeadlessPeerMainStateTest`.
 
 ```bash
-./gradlew :peer:test
+./gradlew :peer:test                                     # the gate (excludes the `structure` tag)
+./gradlew :peer:structureReport -Pstructure.debug=false   # the whole-tree code report
 ```
 
 > Under maximum parallelism, real-TCP tests can starve on a busy machine. Reproduce a suspected

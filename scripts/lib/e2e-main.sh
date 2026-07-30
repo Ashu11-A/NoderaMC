@@ -97,7 +97,7 @@ nodera_paths() {
     layout_export
     RUST_RELEASE="${RUST_RELEASE:-$NODERA_RUST_TARGET/release}"
     MOD_DIR="${MOD_DIR:-$NODERA_MOD_DIR}"
-    WORKER_DIST="${WORKER_DIST:-$NODERA_WORKER_MODULE/build/install/nodera-headless/bin/nodera-headless}"
+    WORKER_DIST="${WORKER_DIST:-$NODERA_PEER_MODULE/build/install/nodera-headless/bin/nodera-headless}"
     E2E_LOCK_FILE="${E2E_LOCK_FILE:-$NODERA_RUN_DIR/.e2e-suite.lock}"
 }
 
@@ -505,14 +505,14 @@ build_stack() {
     # for build/libs/nodera-endpoint.jar and nothing else in the harness builds
     # it. A skip that is structural rather than circumstantial is not a skip, it
     # is a suite that never runs.
-    ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist :neoforge-mod:build :paper-plugin:jar -x test -x check ) \
+    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar -x test -x check ) \
         || fail "build: gradle"
 }
 
 check_binaries() {
     [[ -x "$RUST_RELEASE/nodera-tracker" && -x "$RUST_RELEASE/nodera-rendezvous" ]] \
         || fail "service binaries missing — run without --no-build first"
-    [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :worker:installDist)"
+    [[ -x "$WORKER_DIST" ]] || fail "worker dist missing (./gradlew :peer:installDist)"
 }
 
 # Preflight every port the topology is about to bind. A busy port gets a bounded WAIT before it

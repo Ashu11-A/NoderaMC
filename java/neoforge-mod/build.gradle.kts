@@ -62,3 +62,16 @@ tasks.named<Jar>("jar") {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from({ noderaBundled.map { zipTree(project(it).tasks.named<Jar>("jar").get().archiveFile) } })
 }
+
+// `ModJarCarriesNoEntryPointTest` inspects the jar above rather than this file, because what ships
+// to a player is the artefact and not the intent. `:peer` now carries the always-on services (a
+// peer IS a worker) AND the `nodera-headless` entry point, in separate source sets; only the first
+// belongs in a mods/ folder, and the boundary that used to enforce that was a whole Gradle module.
+// A test on the built jar is what replaces it.
+tasks.named<Test>("test") {
+    dependsOn(tasks.named<Jar>("jar"))
+    systemProperty(
+        "nodera.modJar",
+        tasks.named<Jar>("jar").flatMap { it.archiveFile }.get().asFile.absolutePath,
+    )
+}
