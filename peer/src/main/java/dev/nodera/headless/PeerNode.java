@@ -521,6 +521,11 @@ public final class PeerNode implements AutoCloseable {
                         Runtime.getRuntime().maxMemory() / (1024L * 1024L * 1024L)))
                 .build());
 
+        // Say what the endpoint will and will not touch. A verb refused for naming a path outside
+        // these roots reports the path but deliberately not the roots, so this line is where an
+        // operator finds out why — without it the guard is correct and undebuggable.
+        LOG.info("Control endpoint may read/write under: {}",
+                ControlPaths.fromEnvironment().roots());
         ControlServer control = new ControlServer(controlHost, controlPort, handler);
         control.start();
 
