@@ -32,13 +32,13 @@ final class HeadlessPeerMainStateTest {
             String worldId = new dev.nodera.core.crypto.HashService()
                     .sha256("zipfs".getBytes()).toHex();
 
-            HeadlessPeerMain.LocalState started =
-                    HeadlessPeerMain.openLocalState(identity, worlds, keys);
+            PeerNode.LocalState started =
+                    PeerNode.openLocalState(identity, worlds, keys);
             started.worldRegistry().put(worldId, "First name", false, Bytes.empty());
             started.worldRegistry().put(worldId, "Updated name", false, Bytes.empty());
 
-            HeadlessPeerMain.LocalState restarted =
-                    HeadlessPeerMain.openLocalState(identity, worlds, keys);
+            PeerNode.LocalState restarted =
+                    PeerNode.openLocalState(identity, worlds, keys);
             assertThat(restarted.identity().nodeId()).isEqualTo(started.identity().nodeId());
             assertThat(restarted.worldRegistry().find(worldId).orElseThrow().name())
                     .isEqualTo("Updated name");

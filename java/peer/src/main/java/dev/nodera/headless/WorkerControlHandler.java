@@ -226,7 +226,7 @@ public final class WorkerControlHandler implements ControlHandler {
     /**
      * Attach the integration-run mode ({@code --test-mode --role …}).
      *
-     * <p>Set once at startup by {@link HeadlessPeerMain} and never otherwise: a worker that was not
+     * <p>Set once at startup by {@link PeerNode} and never otherwise: a worker that was not
      * started with the flag leaves this null, {@link #testMode(String, String)} returns null, and
      * the control server answers every test verb with "unsupported" — the same answer it gives a
      * verb that does not exist. That is the whole security property of the mode, so this stays a
