@@ -20,7 +20,9 @@ name: benchmarks
 on:
   pull_request:
     paths:
-      - 'java/**'
+      - 'library/java/**'
+      - 'peer/**'
+      - 'endpoints/**'
       - 'gradle/**'
       - 'scripts/bench-report.py'
       - 'fixtures/bench/**'
@@ -29,7 +31,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'java/**'
+      - 'library/java/**'
+      - 'peer/**'
+      - 'endpoints/**'
       - 'gradle/**'
       - 'scripts/bench-report.py'
       - 'fixtures/bench/**'
@@ -89,7 +93,7 @@ jobs:
       - name: Render the report
         run: |
           python3 scripts/bench-report.py \
-            --results java/peer/build/results/jmh/results.json \
+            --results peer/build/results/jmh/results.json \
             --out build/reports/nodera/BENCHMARKS.md \
             --summary
 
@@ -101,14 +105,14 @@ jobs:
         continue-on-error: true
         run: |
           python3 scripts/bench-report.py \
-            --results java/peer/build/results/jmh/results.json \
+            --results peer/build/results/jmh/results.json \
             --out build/reports/nodera/BENCHMARKS.md \
             --check
 
       - name: Prove the run measured something
         run: |
           set -euo pipefail
-          count=$(python3 -c "import json;print(len(json.load(open('java/peer/build/results/jmh/results.json'))))")
+          count=$(python3 -c "import json;print(len(json.load(open('peer/build/results/jmh/results.json'))))")
           echo "benchmarks measured: $count"
           # A filtered or crashed run that produced two results would otherwise upload a green,
           # nearly empty report — the failure shape this repo has hit before.
@@ -120,7 +124,7 @@ jobs:
           name: peer-benchmarks
           path: |
             build/reports/nodera/BENCHMARKS.md
-            java/peer/build/results/jmh/results.json
+            peer/build/results/jmh/results.json
           # `warn`, not `error`: when a step above already failed, a second red X for a missing
           # artefact hides which failure was the real one.
           if-no-files-found: warn

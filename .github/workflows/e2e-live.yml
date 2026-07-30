@@ -120,8 +120,8 @@ jobs:
             run/results/${{ matrix.suite }}/
             build/reports/nodera/TEST-REPORT.md
             build/reports/nodera/test-report.json
-            java/neoforge-mod/run-host/logs/
-            java/neoforge-mod/run-join/logs/
-            java/neoforge-mod/run-join2/logs/
-            java/neoforge-mod/run-join3/logs/
+            endpoints/neoforge-mod/run-host/logs/
+            endpoints/neoforge-mod/run-join/logs/
+            endpoints/neoforge-mod/run-join2/logs/
+            endpoints/neoforge-mod/run-join3/logs/
           if-no-files-found: ignore
