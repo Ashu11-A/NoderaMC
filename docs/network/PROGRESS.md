@@ -81,6 +81,32 @@ peer that really left is dropped a tick later by this node's own observation; a 
 a keep-alive and stays. Believe a peer about itself, believe only yourself about anybody else. Note
 that no headless test caught this — the fast path only fires when a real socket closes.
 
+### 2026-07-30 (fifth pass) — the mesh soak passes, and L-30 is down to one counter
+
+With `ValidationLane.DETERMINISTIC_VALIDATION` flipped **locally** — reverted immediately, the shipped
+default is still `false` — `nodera-test run mesh-soak` passed all five stages on this machine. It is
+the first time the lane has been observed running live, and every number in it is a first:
+
+| Evidence | Before | This run |
+|---|---|---|
+| Worker-held region replicas | 0, then 64 on **one** worker | **152**, across the workers |
+| Resident peers in the plan / seats | 1 resident, 0 seats | **3 residents, 42 seats** |
+| Regions held by more than one peer at the same version | none — "no two inspectable peers to compare" | **67 of 67** |
+| Regions where those peers disagreed | — | **0** |
+| Client lane | — | `active on 11 region(s) — 2 member node(s) + 3 resident peer(s) in the plan` |
+
+The three resident peers and the 42 seats are the 2026-07-29 pass working live: the joiner's worker
+now joins the world its player is in, and the resident pool rides the plan payload so host and clients
+compute the same committees. Both were headless-only claims until this run.
+
+**What is left of L-30 is one counter.** Its exit test asks for two headless workers reporting
+non-zero `committee_commits` with agreeing roots. The roots agree — on 67 regions, not two. But all
+three workers report `votes_cast=0, votes_received=0, committee_commits=0` while holding 42 seats and
+152 replicas. They hold seats, hold state, and agree about it; they do not vote. That is the entire
+remaining question, and it is a far narrower one than "the live mesh has never been observed carrying
+validated state". The row stays **OPEN**: half an exit clause, on a flag this build does not ship, is
+not a retirement.
+
 ### 2026-07-30 (third pass) — the two ways a running node stops without saying so
 
 A fail-safety sweep rather than a feature pass. Two failure shapes, both of which leave a process up,
