@@ -56,7 +56,7 @@ jobs:
         run: cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 
       - name: Java emitter tests
-        run: ./gradlew :peer:test --tests '*Telemetry*' :worker:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
+        run: ./gradlew :peer:test --tests '*Telemetry*' :neoforge-mod:test --tests '*Telemetry*'
 
       # The scenario is headless — no display, no Minecraft — which is why it is the one live
       # lane that belongs in a per-push workflow rather than in the nightly matrix.

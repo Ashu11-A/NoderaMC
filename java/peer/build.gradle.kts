@@ -3,10 +3,13 @@ plugins {
     // The benchmark harness (`src/jmh/java`, task `:peer:jmh`). See the JMH section at the bottom
     // of this file for why the peer module owns the measurement lane.
     alias(libs.plugins.jmh)
+    // `nodera-headless` — the always-on node. See the HEADLESS section at the bottom for why the
+    // entry point compiles in its own source set rather than in main.
+    application
 }
 
-// peer: the unified Minecraft-free peer API (Java API unification, issue #30). One module, four
-// layers, one runnable worker:
+// peer: the unified Minecraft-free peer API (Java API unification, issue #30) AND the always-on
+// node built from it. One module, five layers:
 //
 //  - dev.nodera.distribution.*  — the torrent data plane (piece split/select/download/reassemble,
 //                                 encrypted manifests, ActivePlayerStream/EmergencyFlush).
@@ -15,16 +18,25 @@ plugins {
 //                                 archival placement/audit/repair, the loopback control endpoint
 //                                 (ControlProtocol v2 — the single wire the mod's CompanionClient
 //                                 and rust/nodera-app's control.rs mirror).
-//  - dev.nodera.diagnostics.*   — Minecraft-free telemetry + view models (consumed by the worker,
+//  - dev.nodera.diagnostics.*   — Minecraft-free telemetry + view models (consumed by the node,
 //                                 the mod's HUD/screens, and the Tauri dashboard's STATE JSON).
 //  - dev.nodera.peer.tunnel.*   — carrying somebody else's TCP connection across the network, so
 //                                 an UNMODIFIED Minecraft opened to LAN can be joined from
 //                                 anywhere. Detection (LanWatcher/LanBeacon) lives here too.
+//  - dev.nodera.headless.*      — the always-on services: hosting, archive seeding, world registry
+//                                 and key stores, ownership, replication, LAN sessions, the control
+//                                 handler. A PEER IS A WORKER; these are not optional extras.
 //
-// The always-on worker executable used to be a package in this module (`dev.nodera.headless`). It
-// is now `:worker`, because compiling it here put the worker inside anything that depends on the
-// peer library — including the NeoForge mod's fat jar. A library and an application have different
-// jobs; see `java/worker/build.gradle.kts`.
+// # Why `dev.nodera.headless` came back
+//
+// It was split out to `:worker` on 2026-07-26 for one good reason: compiling the executable here
+// put it inside everything that depends on the peer library, including the NeoForge mod's fat jar.
+// The cost was that a peer WITHOUT the always-on services stayed constructible, so "every peer
+// serves" was a convention somebody had to remember rather than something the code enforced.
+//
+// Both are now true at once. The services live in main, so there is no way to depend on the peer
+// stack and not get them. The entry point lives in `src/headless`, which `tasks.jar` does not
+// carry, so the fat jar still cannot contain a `main`. See the HEADLESS section at the bottom.
 dependencies {
     api(project(":core"))
     api(project(":transport"))
@@ -46,6 +58,9 @@ dependencies {
     testImplementation(project(":testing"))
     // Test-only: DistributionIT rebuilds the post-batch snapshot with the REAL Phase 1
     // SnapshotDeltaApplier, so the state it splits is the state a replica would actually hold.
+    // The structural report reads the whole tree's bytecode; ASM is how.
+    testImplementation(libs.asm)
+    testImplementation(libs.asm.tree)
 
     // The benchmark source set measures the REAL classes: it compiles against this module's main
     // output (the plugin wires that) plus the deterministic engine fixtures it needs to build a
@@ -55,6 +70,89 @@ dependencies {
     "jmhImplementation"(project(":storage"))
     "jmhImplementation"(project(":engine"))
 }
+
+// ---------------------------------------------------------------------------------------------
+// HEADLESS — the always-on node (`src/headless/java`, launcher `nodera-headless`)
+// ---------------------------------------------------------------------------------------------
+//
+// # Why the entry point gets its own source set
+//
+// `:peer` is bundled into the NeoForge mod's fat jar (neoforge-mod/build.gradle.kts zips this
+// module's `jar` output into the mod's). Putting `HeadlessPeerMain` in main would therefore ship a
+// launchable `main` inside every player's mods/ folder. `:worker` existed to make that impossible
+// STRUCTURALLY rather than by remembering — and that is worth keeping, so the guarantee moved here
+// instead of being dropped.
+//
+// `src/headless` compiles against main's output and is packaged only into the distribution.
+// `tasks.jar` carries main alone, so the fat jar physically cannot contain the entry point — see
+// `theModJarCarriesNoEntryPoint` in :neoforge-mod, which asserts exactly that on the built artifact.
+//
+// # What is in it
+//
+// One class. `HeadlessPeerMain` reads the environment, hands it to `PeerNode`, and waits. Every
+// service it composes lives in main, because a peer that does not run them is not a peer.
+val headless: SourceSet = sourceSets.create("headless") {
+    compileClasspath += sourceSets["main"].output + configurations["runtimeClasspath"]
+    runtimeClasspath += output + compileClasspath
+}
+
+// The tests exercise the entry point's own state machine (HeadlessPeerMainStateTest,
+// WorldContinuityIT, the structural probe), so the test source set sees it too.
+sourceSets["test"].apply {
+    compileClasspath += headless.output
+    runtimeClasspath += headless.output
+}
+
+// Declared here rather than in the block above because `sourceSets.create` is what CREATES these
+// configurations, and that call is three lines up.
+dependencies {
+    // The SLF4J BINDING, for the entry point only. A library must not choose a binding for its host
+    // — NeoForge provides log4j and would fight it — so this is scoped to the source set that IS an
+    // application. That scoping is what makes neoforge-mod's `exclude(slf4j-simple)` redundant
+    // rather than load-bearing.
+    "headlessRuntimeOnly"("org.slf4j:slf4j-simple:2.0.9")
+}
+
+val headlessJar = tasks.register<Jar>("headlessJar") {
+    description = "The always-on entry point, packaged apart from the peer library."
+    archiveClassifier.set("headless")
+    from(headless.output)
+}
+
+application {
+    mainClass.set("dev.nodera.headless.HeadlessPeerMain")
+    // CONTRACT. `rust/nodera-app`'s daemon.rs resolves `resources/nodera-headless/bin/nodera-headless`,
+    // tauri.{linux,macos,windows}.conf.json bundle `build/nodera-headless/**`, and CI plus every
+    // script stages that exact name. The Gradle task path changed with this merge
+    // (`:worker:installDist` → `:peer:installDist`); the ARTEFACT name did not, and must not.
+    applicationName = "nodera-headless"
+}
+
+// The `application` plugin's defaults are the peer LIBRARY's jar and runtime classpath, which is
+// everything except the entry point itself and its logging binding. Both halves are added here, to
+// the launcher and to the distribution, and they must stay in step: a start script whose classpath
+// disagrees with what `installDist` copied fails at run time with a NoClassDefFoundError and
+// nothing catches it at build time.
+val headlessDistFiles = files(headlessJar) + configurations["headlessRuntimeClasspath"]
+
+tasks.named<CreateStartScripts>("startScripts") {
+    classpath = headlessDistFiles + files(tasks.named<Jar>("jar")) + configurations["runtimeClasspath"]
+}
+
+distributions.named("main") {
+    contents {
+        // The peer library's own jar arrives from the plugin's default contents AND from the
+        // headless runtime classpath, which resolves it too. Same file, twice.
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        into("lib") { from(headlessDistFiles) }
+    }
+}
+
+// `application` attaches distTar/distZip to `assemble`; nothing consumes the archives (every
+// consumer stages `build/install/nodera-headless`), and building two of them on each `check` is
+// pure CI minutes.
+tasks.named("distTar") { enabled = false }
+tasks.named("distZip") { enabled = false }
 
 // ---------------------------------------------------------------------------------------------
 // JMH — the structural benchmark lane (`src/jmh/java`, package `dev.nodera.bench`)
@@ -127,4 +225,55 @@ tasks.register<Exec>("benchmarkReport") {
         "--results", layout.buildDirectory.file("results/jmh/results.json").get().asFile.absolutePath,
         "--out", root.file("build/reports/nodera/BENCHMARKS.md").asFile.absolutePath,
     )
+}
+
+// ---------------------------------------------------------------------------------------------
+// STRUCTURE — the whole-tree code report (`src/test/java/dev/nodera/structure`, tag `structure`)
+// ---------------------------------------------------------------------------------------------
+//
+//   ./gradlew :peer:structureReport                          # full: analysis + debugger probe
+//   ./gradlew :peer:structureReport -Pstructure.debug=false  # static half only (seconds)
+//
+// Outputs land in `build/reports/nodera/` (STRUCTURE.md, structure.json, runtime-profile.json).
+// Moved here from `:worker` with that module; the task path changed, nothing else did.
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("structure")
+    }
+}
+
+tasks.register<Test>("structureReport") {
+    group = "verification"
+    description = "Analyse the whole tree's bytecode + a debugger-instrumented worker run."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("structure")
+    }
+    // Compiled output of everything: the analysis is only as honest as the set of callers it can
+    // see, so a module that is not compiled is a module whose callers vanish. `:peer`'s own source
+    // sets are named rather than listed as project paths — they are this project.
+    dependsOn(
+        ":core:classes", ":core:testClasses",
+        ":engine:classes", ":engine:testClasses",
+        ":transport:classes", ":transport:testClasses",
+        ":storage:classes", ":storage:testClasses",
+        ":testing:classes",
+        ":neoforge-mod:classes", ":neoforge-mod:testClasses",
+        ":paper-plugin:classes",
+        tasks.named("classes"), tasks.named("testClasses"),
+        tasks.named("jmhClasses"), tasks.named("headlessClasses"),
+    )
+    // The debugger probe runs by default: without it the report can list expensive code but not
+    // say whether any of it executes. `-Pstructure.debug=false` skips just that half.
+    systemProperty("nodera.structure.debug",
+        providers.gradleProperty("structure.debug").getOrElse("true"))
+    // The JDI event pump plus a full-tree class graph; the 1g default is not enough.
+    maxHeapSize = "2g"
+    // The report is the output, and it is regenerated whenever anything it reads changes — which
+    // is "the whole tree", so caching it would mean reporting on a tree that no longer exists.
+    outputs.upToDateWhen { false }
+    testLogging {
+        showStandardStreams = true
+    }
 }

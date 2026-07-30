@@ -13,12 +13,16 @@
 > `scripts/check-layout-drift.sh` greps those in CI. The paths below are what the manifest says
 > today, not a second copy of it.
 
-- `java/<module>/` — **nine Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` ·
-  `storage` · `peer` · `worker` · `testing` · `neoforge-mod` · `paper-plugin`. Seven are the
-  unified API/product modules; `worker` and `paper-plugin` are separately packaged runtimes. The old
-  fine-grained modules merged with **packages unchanged** (package map: `docs/README.md` §3) — e.g.
-  `./gradlew :engine:test` runs what used to be `:simulation` + `:consensus` + `:coordinator` +
-  `:committee` + `:shadow-validation` + `:fallback`.
+- `java/<module>/` — **eight Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` ·
+  `storage` · `peer` · `testing` · `neoforge-mod` · `paper-plugin`. The old fine-grained modules
+  merged with **packages unchanged** (package map: `docs/README.md` §3) — e.g. `./gradlew :engine:test`
+  runs what used to be `:simulation` + `:consensus` + `:coordinator` + `:committee` +
+  `:shadow-validation` + `:fallback`.
+  **`:worker` is gone** (2026-07-30): `dev.nodera.headless` is back in `:peer`, so a peer cannot be
+  built without the always-on services that make it serve. The `nodera-headless` ENTRY POINT lives
+  in `:peer`'s `src/headless` source set, which `tasks.jar` does not carry, so the mod's fat jar
+  still cannot contain a launchable `main` (`ModJarCarriesNoEntryPointTest` asserts that on the
+  built artefact). `./gradlew :peer:installDist` builds it; the artefact name is unchanged.
 - `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
   `nodera-tracker` (Task 28), `nodera-rendezvous` (Task 29), `nodera-telemetry` (telemetry 1).
   Channel pinned in `rust/rust-toolchain.toml`; crate versions pinned in the workspace `Cargo.toml`
@@ -39,7 +43,7 @@
 - `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
 - `scripts/nodera-test.sh list|run|bench|structure|all` — **THE test entry point** (docs/testing/Task.0.md). One tool over the acceptance scenarios (`dev.nodera.testkit.scenario`, formerly the twenty `scripts/e2e-*.sh`), the benchmark lanes and the structural report; writes `build/reports/nodera/TEST-REPORT.md`. Live scenarios take `run/.e2e-suite.lock` and run one at a time
 - `./gradlew :peer:jmh -Pbench.quick` / `./gradlew :peer:benchmarkReport` — the peer benchmark lanes (discovery · chunk sync · wire · runtime latency) and the ranked report with load-scaling and a baseline diff (network task 15). NOT part of `check`: minutes, and not a correctness gate
-- `./gradlew :worker:structureReport` — the structural code report: dead code, in-loop cost findings, and a **debugger-profiled** run of the real `nodera-headless` worker. `-Pstructure.debug=false` skips the probe. Budgets in `fixtures/structure/budget.json` ratchet DOWN only
+- `./gradlew :peer:structureReport` — the structural code report: dead code, in-loop cost findings, and a **debugger-profiled** run of the real `nodera-headless` worker. `-Pstructure.debug=false` skips the probe. Budgets in `fixtures/structure/budget.json` ratchet DOWN only
 - `scripts/dev.sh --build-only` — compile both toolchains + collect artifacts (2 binaries + the jar) into `build/`; the CI `release-latest` workflow runs this on every push and attaches them to a rolling `latest` prerelease
 - `scripts/dev.sh --test` — build both toolchains + run the full gate (no server to start; Task 30 retired it)
 - `scripts/dev.sh` — build everything, then run the two infrastructure services (tracker + rendezvous) from `build/`, health-checked; worlds are hosted by a player's client (pause-menu "Share"), not a dedicated server. `--install-mod` drops the jar into `~/.minecraft/mods` for a real-client test
@@ -58,8 +62,8 @@ same frozen wire contract, so a codec regression is a consensus regression.
   entropy, IO, and concurrency APIs alongside `simulation/DeterminismPropertyTest`.
 
 ## Layering (Task 0 §7; module boundaries unified by issue #30 — inter-PACKAGE rules unchanged)
-- Module graph: `core` → JDK only. `engine`/`transport`/`storage` → `core`. `peer` → those four.
-  `worker` → `peer` + its library graph. `testing` → `core` + `engine` + `transport`.
+- Module graph: `core` → JDK only. `engine`/`transport`/`storage` → `core`. `peer` → those four,
+  and also composes the always-on node. `testing` → `core` + `engine` + `transport`.
   `neoforge-mod` → `core`/`engine`/`transport`/`storage`/`peer` (the ONLY module with
   Minecraft/NeoForge types). `paper-plugin` → `core` + `peer` and contains Paper types only.
 - `core` — Task 23's `core/crypto/symmetric` follows the JDK-only rule: AES-GCM-256, `ContentKey`,
@@ -126,10 +130,14 @@ same frozen wire contract, so a codec regression is a consensus regression.
     `control.rs` mirror.
   - `diagnostics`: Minecraft-free telemetry/view models; metrics accept injected monotonic time
     and never enter simulation, state roots, or certificates.
-- `worker` (`dev.nodera.headless`) carries the `application` plugin; launcher name
-  `nodera-headless` is a contract with `rust/nodera-app` (`daemon.rs`) and `scripts/dev.sh`.
-  `HeadlessPeerMain` composes the peer libraries; `WorkerControlHandler` owns NODERA-STATE;
-  `WorldHostingService` owns persisted hosting/announce state.
+  - `headless` (`dev.nodera.headless`): the ALWAYS-ON SERVICES, in `src/main` — a peer that does
+    not run them is not a peer, which is why they are not a separate module any more.
+    `WorkerControlHandler` owns NODERA-STATE; `WorldHostingService` owns persisted hosting/announce
+    state; `WorldRegistryStore`/`WorldKeyStore`/`WorldTombstoneStore` own durable local state.
+    The ENTRY POINT `HeadlessPeerMain` is the one class in `src/headless`, because `:peer` is zipped
+    into the mod's fat jar and a player's `mods/` folder must not contain a launchable `main`.
+    `./gradlew :peer:installDist`; launcher name `nodera-headless` is a contract with
+    `rust/nodera-app` (`daemon.rs`), `tauri.*.conf.json`, CI and `scripts/dev.sh`.
 - `testing` (`dev.nodera.testkit`): `LoopbackTransport` (chunks streams exactly like the real
   transports), `FakeRegion`, wire-fixture IO; future home of the multi-peer scenario suite.
 - `neoforge-mod` is onboarded via the `nodera.neoforge-mod` convention (ModDevGradle → NeoForge

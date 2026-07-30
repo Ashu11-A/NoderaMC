@@ -59,7 +59,7 @@ public record TestPaths(
                 layout.root(),
                 layout.dir("cargoTarget").resolve("release"),
                 layout.module("neoforge-mod"),
-                layout.module("worker")
+                layout.module("peer")
                         .resolve("build/install/nodera-headless/bin/nodera-headless"),
                 layout.module("paper-plugin").resolve("build/libs/nodera-endpoint.jar"),
                 run,

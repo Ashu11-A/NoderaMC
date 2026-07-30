@@ -128,8 +128,8 @@ if [[ "$SKIP_WORKER" == "1" && -f "$ASSETS/nodera-worker.jar" ]]; then
   say "worker     reusing $(numfmt --to=iec "$(stat -c %s "$ASSETS/nodera-worker.jar")") staged asset (--skip-worker)"
 else
 say "building the worker…"
-( cd "$NODERA_ROOT" && ./gradlew :worker:installDist -q )
-WORKER_DIST="$NODERA_WORKER_MODULE/build/install/nodera-headless"
+( cd "$NODERA_ROOT" && ./gradlew :peer:installDist -q )
+WORKER_DIST="$NODERA_PEER_MODULE/build/install/nodera-headless"
 [[ -d "$WORKER_DIST/lib" ]] || die "the worker distribution is missing at $WORKER_DIST"
 
 STAGE="$(mktemp -d -t nodera-worker-dex-XXXXXX)"
