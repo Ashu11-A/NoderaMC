@@ -161,7 +161,7 @@ same frozen wire contract, so a codec regression is a consensus regression.
 | Toolchain | How it reads `VERSION` |
 |---|---|
 | Gradle | `settings.gradle.kts` reads it and injects `noderaVersion` + `modVersion` into every project |
-| Java runtime | `java/core` expands it into `nodera-version.properties`; `NoderaConstants.PRODUCT_VERSION` loads it (`0.0.0-unbuilt` ⇒ the build did not run) |
+| Java runtime | `library/java/core` expands it into `nodera-version.properties`; `NoderaConstants.PRODUCT_VERSION` loads it (`0.0.0-unbuilt` ⇒ the build did not run) |
 | NeoForge mod | The convention plugin stamps `modVersion` into `neoforge.mods.toml` |
 | Rust services | Each service crate's `build.rs` sets `NODERA_VERSION`; binaries print that, **not** `CARGO_PKG_VERSION` |
 | Cargo/Tauri/npm manifests | Mirrors — they cannot read a file. `scripts/version.sh` writes them; `--check` fails the gate on drift |
@@ -176,7 +176,7 @@ scripts/version.sh --set 0.2.0    # release: bump VERSION + rewrite every mirror
 rewritten mirrors in **one** commit → tag → let CI publish. `NoderaVersionTest` and
 `scripts/version.sh --check` exist to catch the hand-edit.
 
-⚠️ **Do not edit `java/build-logic/src/main/kotlin/*.gradle.kts` to plumb a version through.** On
+⚠️ **Do not edit `library/java/build-logic/src/main/kotlin/*.gradle.kts` to plumb a version through.** On
 this toolchain any edit there re-triggers the kotlin-dsl accessor breakage documented in
 `gradle.properties`; inject the property from `settings.gradle.kts` instead — a `by project`
 delegate reads extra properties too.

@@ -8,9 +8,9 @@
 # Build output
 target/
 build/
-java/*/build/
-java/*/bin/
-java/build-logic/build/
+library/java/*/build/
+library/java/*/bin/
+library/java/build-logic/build/
 .gradle/
 node_modules/
 app/ui/dist/

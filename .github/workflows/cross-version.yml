@@ -168,7 +168,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          xml="java/transport/build/test-results/test/TEST-dev.nodera.protocol.wire.PreviousReleaseCorpusTest.xml"
+          xml="library/java/transport/build/test-results/test/TEST-dev.nodera.protocol.wire.PreviousReleaseCorpusTest.xml"
           if [ ! -f "$xml" ]; then
             echo "::error::$xml is missing: the cross-build test never ran, so this job asserted \
           nothing about compatibility with ${{ steps.previous.outputs.ref }}."

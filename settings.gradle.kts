@@ -85,7 +85,7 @@ layout.stringPropertyNames()
 // hardcoded `projectDir`, shows up here, is absent from the manifest, and fails the build. That is
 // the regression this manifest exists to prevent.
 //
-// Injected here, and never from `java/build-logic`: any edit to a precompiled script plugin on this
+// Injected here, and never from `library/java/build-logic`: any edit to a precompiled script plugin on this
 // toolchain re-triggers the kotlin-dsl accessor breakage documented in gradle.properties, and an
 // extra property is read by the same delegate.
 // The descriptor is captured here but READ inside `beforeProject`, and the distinction matters

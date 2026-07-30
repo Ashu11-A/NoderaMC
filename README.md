@@ -20,7 +20,7 @@
 
 <!-- AI-AGENT-INSTRUCTION: Badges are <img> tags, NOT markdown `![]()`. Some renderers treat a URL
      containing dots (build.yml, 1.21.1) as a file path and dump the raw SVG into the page; an
-     <img> tag never does. Keep the version pins in sync with java/build-logic (NeoForge) and
+     <img> tag never does. Keep the version pins in sync with library/java/build-logic (NeoForge) and
      gradle/libs.versions.toml. -->
 
 <p>
