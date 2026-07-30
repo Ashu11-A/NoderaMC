@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-29 · Tasks completed: **12 / 15**
+**Category:** network · **Last audit:** 2026-07-30 · Tasks completed: **12 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -35,6 +35,74 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-30 (second pass) — the register is discharged: three lanes closed, four verdicts settled on evidence
+
+Continuing the pass below, against the remaining § Unwired capabilities rows and the two open
+questions they implied.
+
+**An unsupported kind is answered instead of dropped.** NDR2's whole cross-version premise is that a
+peer newer than this one may exist, and `WireCodec.decodeFrame` already reports an unknown kind as a
+fact rather than a failure — but nothing on a production receive path called it. `PeerRuntime` used
+`decode`, which throws on an unknown kind exactly as it throws on corruption, so an older peer met a
+newer one's message with silence. Silence is the one answer a sender cannot act on: indistinguishable
+from a lost packet, a dead process or a network fault, recoverable only by timeout and diagnosable
+only by guess — the failure `MessageRouter`'s own comment describes, in the runtime that has no
+router. The receive path now answers a `Nack` naming the kind and the reason, bounded two ways: a
+frame already flagged `RESPONSE` is never answered (so two peers cannot refuse each other forever),
+and the answer is one small frame per received frame on the connection it arrived on, so it cannot
+amplify. `UnsupportedKindIsAnsweredTest` (2), both verified failing without the wiring.
+
+**The replication sweep gives the budget back.** The sweep only ever grew: `withinBounds` stops
+adopting once the byte budget is used and nothing ever freed a byte of it, so a node's placement was
+settled once and for all by whichever worlds happened to exist when it first filled up. Placement is
+not a one-time fact — it is a deterministic function of the peer set, which changes whenever anyone
+joins or leaves — so a node that filled up in a five-peer swarm and then watched it reach fifty held
+worlds no policy expected of it and refused every world the policy did expect, permanently. It even
+looked correct: a full node's sweep reports "past the bounds", which is what a working bound reports
+too. Releases are now part of the sweep, ordered before adoption so freed bytes are spendable in the
+same cycle, under four rules that each remove one way this could destroy a replica the swarm still
+needs — only under budget pressure, only volunteered content, only on a real placement answer
+(`Placement.UNKNOWN` from a tracker outage keeps the world, or one outage would empty every full node
+on the network at once), and at most one world per sweep. `ReplicationGivesTheBudgetBackTest` (6).
+
+**The durability question behind the flush lane is answered with a test, not a verdict.** Deciding
+`PeerShutdownHook`/`EmergencyFlush` needed an answer to "if nothing evacuates a departing node, what
+restores its replication factor?" The sweep does, and
+`DepartureIsRepairedByPlacementTest` (3) pins it: a departure promotes a peer that was not a holder,
+survivors keep their assignments (rendezvous hashing rather than modulo-N, so one departure is not a
+network-wide reshuffle), and a swarm below the replication factor keeps *every* peer as an expected
+holder rather than none — the failure that would otherwise let every remaining peer release a world at
+the moment it is closest to being lost. So evacuation is a second mechanism for a property already
+held, and a worse one: it depends on the departing node still being alive and reachable, which a crash
+and a closed laptop both violate. Verdict: delete both, do not build a push lane to feed them. The
+same evidence retires the archival audit→repair triangle for the same reason.
+
+Measured while writing that test and worth recording: `forWorldArchives(standard())` derives **R = 22**
+from a 35% availability assumption, and `factor` caps R at the network size — so below 22 peers a full
+copy of every world sits on every peer, every peer is always placed, and the new release rule cannot
+fire at all.
+
+**A retired row turned out to be false, and is reopened.** Engine **L-20** ("genesis is a single-signer
+trust root") was retired on `GenesisRecertification` + `GenesisApprovalFlow`, whose only construction
+site is `GenesisApprovalFlowIT`; meanwhile `CertifiedWorldGenesis` — the record production mints,
+persists and reuses — carries one author key and one signature and no founding set at all. Every world
+on the network is founded on exactly the trust root the row called a limitation. Reopened as engine
+**L-92** with an exit test demanding a production call path; L-20's evidence cell is left untouched as
+history, with an audit note above it. The blocker is a design decision — what the declared founding
+set is, and how it is persisted with the world — not a missing call. This is the first instance of the
+repository's dominant defect shape found inside a **retired** register, which is the one place nobody
+re-checks.
+
+**L-33's remaining half is bigger than "wiring".** Acting on `ChunkLockEditability`'s verdict found
+that `ChunkLockMap` has no producer at all — the single production `download` passes `null` for it and
+nothing calls `track`, so the map is empty and `isChunkEditable` answers false for every region;
+installing the adapter as it stands would lock the whole world against editing rather than lock an
+un-arrived section. Underneath that, there is no region-piece **fetch**: regions are seeded and their
+manifests travel, but nothing downloads a region's pieces and applies them, so no production path
+exists in which region content arrives piecewise into a world a player is editing. Both the row and
+the register now say so, including that the chunk→piece index does not travel with the manifest and
+that a coarser region-level lock would need no wire change.
 
 ### 2026-07-30 — Two unreached security properties start biting, and the sync lane gains a caller
 

@@ -431,12 +431,20 @@ public final class PeerRuntime implements DiagnosticsSource {
     private final class Handler implements MessageHandler {
         @Override
         public void onMessage(PeerAddress from, byte[] frame) {
-            final NoderaMessage msg;
+            final dev.nodera.protocol.wire.WireCodec.DecodedFrame decoded;
             try {
-                msg = WireCodec.decode(frame);
+                // decodeFrame, not decode: a kind this build has no row for is a fact about our age,
+                // not a malformed frame. `decode` throws on it, which is how an unsupported kind
+                // became indistinguishable from corruption and was dropped in silence.
+                decoded = WireCodec.decodeFrame(frame);
             } catch (RuntimeException e) {
-                return; // drop malformed frame
+                return; // genuinely malformed: we cannot even find the end of the body to answer
             }
+            if (decoded.unknownKind()) {
+                answerUnsupported(from, decoded);
+                return;
+            }
+            NoderaMessage msg = decoded.message().orElseThrow();
             if (messageCounters != null) {
                 messageCounters.recordRx(MessageCodec.typeName(MessageCodec.typeTagOf(msg)));
             }
@@ -479,6 +487,44 @@ public final class PeerRuntime implements DiagnosticsSource {
                     app.onApplicationMessage(from, msg);
                 }
             }
+    }
+
+    /**
+     * Answer a kind this build has no schema row for, instead of dropping it.
+     *
+     * <p>NDR2's whole cross-version premise is that a peer newer than this one is allowed to exist,
+     * and `WireCodec.decodeFrame` already reports an unknown kind as a fact rather than a failure —
+     * but nothing on a production receive path called it. `PeerRuntime` used `decode`, which throws
+     * on an unknown kind exactly as it throws on corruption, so an older peer met a newer one's
+     * message with silence. Silence is the one answer the sender cannot act on: it is
+     * indistinguishable from a lost packet, a dead process, or a network fault, so its only recovery
+     * was a timeout and its only diagnosis was a guess. A `Nack` names the kind and the reason.
+     *
+     * <p>Two bounds, because this is a reply to unvalidated remote input:
+     *
+     * <ul>
+     *   <li>A frame already flagged {@code RESPONSE} is never answered. Without that, two peers
+     *       whose builds each lack the other's `Nack` — or any mutual misunderstanding of a reply —
+     *       would answer each other's refusals forever.</li>
+     *   <li>The answer is one small frame per received frame, on the connection the frame arrived
+     *       on, so it can never amplify: a flood of unknown kinds costs the sender what it costs
+     *       us.</li>
+     * </ul>
+     */
+    private void answerUnsupported(PeerAddress from, WireCodec.DecodedFrame decoded) {
+        if (dev.nodera.protocol.wire.FrameFlags.has(
+                decoded.flags(), dev.nodera.protocol.wire.FrameFlags.RESPONSE)) {
+            return;
+        }
+        LOG.debug("Answering an unsupported kind {} from {} with a Nack", decoded.kind(), from);
+        try {
+            transport.send(from, WireCodec.encode(
+                    dev.nodera.protocol.session.Nack.unsupportedKind(
+                            decoded.kind(), decoded.correlationId()),
+                    dev.nodera.protocol.wire.FrameFlags.RESPONSE, decoded.correlationId()));
+        } catch (RuntimeException unreachable) {
+            // Telling a peer we did not understand it is best-effort by definition.
+        }
     }
 
     /**

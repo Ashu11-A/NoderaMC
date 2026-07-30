@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-29 · Tasks completed: **6 / 8**
+**Category:** worker · **Last audit:** 2026-07-30 · Tasks completed: **6 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -27,6 +27,45 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-30 — The replication sweep gives the budget back, and the join gate stops answering guesses
+
+**A full node stopped adopting forever.** `WorldReplicationService.sweep` only ever grew:
+`withinBounds` stops adoptions once `budgetBytes` is used, and nothing ever freed a byte of it. So a
+node's placement was settled once and for all by whichever worlds happened to exist when it first
+filled up. Placement is not a one-time fact — it is a deterministic function of the live peer set,
+which changes whenever anyone joins or leaves — so a node that filled its budget in a small swarm and
+then watched that swarm grow was holding worlds no policy expected of it and refusing every world the
+policy did expect, permanently. It even read as correct: a full node's sweep summary says "past the
+bounds", which is exactly what a working bound says.
+
+Releasing is now part of the sweep, ordered **before** adoption so freed bytes are spendable in the
+same cycle rather than one world per five minutes. Four rules, each removing one way this could
+destroy a replica the swarm still needs:
+
+- **Only under pressure.** Nothing is released while the node is inside its budget, so an unfull node
+  behaves exactly as before and a wrong placement answer costs it nothing.
+- **Only volunteered content.** A world this node hosts is its own; `seeding()` is the whole eligible
+  set.
+- **Only on a real answer.** `placementFor` became a tri-state, because the two ways of not being
+  placed have opposite consequences: `UNKNOWN` (no tracker response, no peers listed, a malformed peer
+  set) keeps the world. Without that rule one tracker outage would empty every full node on the
+  network simultaneously and have them all re-fetch when it ended.
+- **Bounded.** One world per sweep — deliberately below the adoption limit, because a release cannot
+  be undone locally — so even a systematically wrong answer drains a node slowly enough to be caught
+  in the log it writes on the way.
+
+Evidence: `ReplicationGivesTheBudgetBackTest` (6), on the same pure-decision shape as
+`shouldAdopt`. Related and worth knowing before reading a live log: `forWorldArchives(standard())`
+derives R = 22 and `factor` caps it at the network size, so **below 22 peers every peer is always an
+expected holder** and this rule can never fire.
+
+**The live-join password gate was an unlimited guessing oracle.** Its challenge is single-use per
+*connection*, so a client that reconnected drew a fresh nonce indefinitely and the memory-hard KDF
+bought nothing online. Failures are now counted per (world, joiner address) and a locked-out joiner is
+refused before a challenge is issued. See [`../network/PROGRESS.md`](../network/PROGRESS.md) for the
+full note; the worker side of it is that a world this node hosts is no longer brute-forceable at the
+rate an attacker can open sockets.
 
 ### 2026-07-29 — A launched worker keeps its identity and its registry on a FAT32 drive (W-DUP-3 retired)
 

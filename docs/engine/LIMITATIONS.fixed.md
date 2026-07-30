@@ -11,6 +11,20 @@
 
 Rows moved here from [`LIMITATIONS.md`](LIMITATIONS.md) §B when their status reached `RETIRED`.
 
+> **Audit 2026-07-30 — L-20's retirement does not hold, and the live claim now sits in
+> [`LIMITATIONS.md`](LIMITATIONS.md) as L-92.** Its evidence cell below is left exactly as written,
+> per this file's own rule: it is the audit trail, and softening it would destroy the record that
+> makes the mistake checkable. The mistake: `GenesisApprovalFlow` and `GenesisRecertification` are
+> complete and tested and have **no production call site** — `:worker:structureReport` lists the flow
+> under "classes only tests and benchmarks reference", and `GenesisApprovalFlowIT` is its only
+> construction site. Meanwhile `CertifiedWorldGenesis`, the record production actually mints and
+> persists, carries one author key and one signature and no founding set at all. So the row was
+> retired on a mechanism no world has ever used, and genesis is still the single-signer trust root the
+> row describes. This is the same defect shape the 2026-07-29 network audit found in L-87/L-88 and
+> L-33 — green tests over an unreachable class — and it is worth noting that it can reach a *retired*
+> register, where nobody re-checks. The blocker is a design decision (what the declared founding set
+> is, and how it is persisted with the world), not a missing call; see L-92 for the exit test.
+
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|
 | L-3 | Gravity blocks and fire excluded from the validated lane | `GravityRules` instant-settle (broken support drops the contiguous stack bottom-first; strictly vertical, so no border signalling) plus fuel-bounded fire in `RandomTickRules` (1-in-3 extinguish, 3×3×3 spread, always dies out). `GravityFireRulesTest` (5): instant landing, column drop, fuel-only spread with guaranteed burnout, 300-tick blaze with replica-identical roots | [10](Task.10.md) | 2026-07-24 |
