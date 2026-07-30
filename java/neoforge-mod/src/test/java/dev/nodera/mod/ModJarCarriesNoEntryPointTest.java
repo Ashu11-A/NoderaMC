@@ -77,6 +77,24 @@ final class ModJarCarriesNoEntryPointTest {
     }
 
     @Test
+    @DisplayName("the mod jar carries the endpoint library")
+    void theEndpointLibraryShips() throws IOException {
+        // The single highest-risk edit in the reorganisation. `:endpoint` has to be in BOTH
+        // hand-written lists in build.gradle.kts — `noderaModProjects` (so FML's module classloader
+        // can see it in a dev run) and `noderaBundled` (so the shipped jar contains it). Miss either
+        // and the failure is a NoClassDefFoundError at runtime, in front of a player, which no
+        // compile and no unit test would have caught.
+        assertThat(entries("dev/nodera/endpoint/"))
+                .as("the Minecraft-free endpoint logic must be inside the jar, not merely on the "
+                        + "build's compile path")
+                .hasSizeGreaterThanOrEqualTo(25);
+        assertThat(entries("dev/nodera/endpoint/control/CompanionClient"))
+                .as("the companion wire client specifically — it is what the mod refuses to start "
+                        + "without")
+                .isNotEmpty();
+    }
+
+    @Test
     @DisplayName("the mod jar carries no SLF4J binding")
     void noLoggingBindingShips() throws IOException {
         // NeoForge/log4j owns the binding inside a Minecraft runtime. Two bindings on one classpath

@@ -1,6 +1,6 @@
 package dev.nodera.mod.client.create;
 
-import dev.nodera.mod.common.PendingCreateShare;
+import dev.nodera.endpoint.share.PendingCreateShare;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.TitleScreen;

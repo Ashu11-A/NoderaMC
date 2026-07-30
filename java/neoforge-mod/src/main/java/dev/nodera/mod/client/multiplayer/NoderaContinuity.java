@@ -1,7 +1,7 @@
 package dev.nodera.mod.client.multiplayer;
 
 import dev.nodera.distribution.WorldArchive;
-import dev.nodera.mod.common.CompanionLink;
+import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.mod.common.NoderaPeerService;
 import net.minecraft.client.Minecraft;

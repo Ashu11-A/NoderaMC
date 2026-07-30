@@ -1,5 +1,6 @@
 package dev.nodera.mod.debug.command;
 
+import dev.nodera.endpoint.lang.CommandLang;
 import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.Test;
 

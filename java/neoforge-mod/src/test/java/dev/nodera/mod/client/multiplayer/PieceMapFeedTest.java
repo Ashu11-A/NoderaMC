@@ -3,8 +3,8 @@ package dev.nodera.mod.client.multiplayer;
 import dev.nodera.diagnostics.view.PieceMapView;
 import dev.nodera.diagnostics.view.PieceMapView.PieceMap;
 import dev.nodera.diagnostics.view.PieceMapView.PieceState;
-import dev.nodera.mod.common.WorkerPiecesParser;
-import dev.nodera.mod.common.WorkerPiecesParser.PieceInfo;
+import dev.nodera.endpoint.state.WorkerPiecesParser;
+import dev.nodera.endpoint.state.WorkerPiecesParser.PieceInfo;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

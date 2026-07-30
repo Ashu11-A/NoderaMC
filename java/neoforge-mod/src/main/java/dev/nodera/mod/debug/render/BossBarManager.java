@@ -1,5 +1,6 @@
 package dev.nodera.mod.debug.render;
 
+import dev.nodera.endpoint.lane.ValidationLane;
 import dev.nodera.diagnostics.classify.ZoneClassifier;
 import dev.nodera.diagnostics.model.TelemetrySnapshot;
 import dev.nodera.diagnostics.state.Health;
@@ -65,7 +66,7 @@ public final class BossBarManager {
         // claimed, and health reads "below quorum (3)" because quorum is a validation concept. Two
         // permanent red readings about a subsystem that is not running is worse than no reading —
         // it sent a live session hunting for a fault that was a scope decision.
-        if (dev.nodera.mod.common.ValidationLane.deterministicValidationEnabled()) {
+        if (dev.nodera.endpoint.lane.ValidationLane.deterministicValidationEnabled()) {
             OwnershipState zone = ZoneClassifier.classify(Dimensions.of(player),
                     player.blockPosition().getX(), player.blockPosition().getZ(), snap.regions());
             pb.updateZone(zone);

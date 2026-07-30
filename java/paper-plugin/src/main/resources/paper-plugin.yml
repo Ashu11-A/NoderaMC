@@ -2,7 +2,7 @@
 # the plugin refuses to enable on a Folia whose grid exponent would split a Nodera region.
 name: NoderaEndpoint
 version: '${version}'
-main: dev.nodera.endpoint.NoderaEndpointPlugin
+main: dev.nodera.endpoint.paper.NoderaEndpointPlugin
 api-version: '1.21'
 folia-supported: true
 description: Nodera decentralized validation for a Paper or Folia endpoint.

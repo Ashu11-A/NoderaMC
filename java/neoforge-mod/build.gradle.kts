@@ -8,7 +8,7 @@ plugins {
 // classloader isolates mod classes, so a plain project dependency on the run classpath is not
 // visible to the mod at runtime (runServer died with NoClassDefFoundError on dev.nodera.* until
 // these source sets joined the mod definition). Mirrors the production fat-jar bundling below.
-val noderaModProjects = listOf(":core", ":transport", ":engine", ":storage", ":peer")
+val noderaModProjects = listOf(":core", ":transport", ":engine", ":storage", ":peer", ":endpoint")
 noderaModProjects.forEach { evaluationDependsOn(it) }
 
 the<NeoForgeExtension>().mods.named("nodera") {
@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":engine"))
     implementation(project(":peer"))
     implementation(project(":storage"))
+    implementation(project(":endpoint"))
 
     // Test scope only, and deliberately: `LayoutManifest` is how the source-scanning tests here find
     // this module's own `src/main/java`. They used to guess it — a CWD-relative path with a
@@ -55,7 +56,7 @@ dependencies {
 // jar of our own code only — never Minecraft/NeoForge, which the loader provides).
 val noderaBundled = listOf(
     ":core", ":transport", ":engine",
-    ":storage", ":peer")
+    ":storage", ":peer", ":endpoint")
 
 tasks.named<Jar>("jar") {
     dependsOn(noderaBundled.map { "$it:jar" })

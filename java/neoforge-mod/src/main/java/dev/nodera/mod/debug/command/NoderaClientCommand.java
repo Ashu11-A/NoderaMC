@@ -1,5 +1,8 @@
 package dev.nodera.mod.debug.command;
 
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.lang.CommandLang;
+import dev.nodera.endpoint.state.WorkerStateParser;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.context.CommandContext;
@@ -56,12 +59,12 @@ public final class NoderaClientCommand {
 
     /** {@code /noderac worker} — the always-on worker's live state over the control channel. */
     private static int worker(CommandContext<CommandSourceStack> ctx) {
-        if (!dev.nodera.mod.common.CompanionLink.isPresent()) {
+        if (!dev.nodera.endpoint.control.CompanionLink.isPresent()) {
             return CommandTree.fail(ctx, CommandLang.WORKER_ABSENT);
         }
-        var info = dev.nodera.mod.common.CompanionLink.info();
-        var state = dev.nodera.mod.common.CompanionLink.client().state().orElse(null);
-        var hosted = dev.nodera.mod.common.WorkerStateParser.connectedWorlds(state);
+        var info = dev.nodera.endpoint.control.CompanionLink.info();
+        var state = dev.nodera.endpoint.control.CompanionLink.client().state().orElse(null);
+        var hosted = dev.nodera.endpoint.state.WorkerStateParser.connectedWorlds(state);
         // MC-GUI-5: a panel of key-bearing cells, not a StringBuilder — the same Panel/Row/Cell
         // shape every other command renders through, so the words live in en_us.json.
         List<Row> rows = new ArrayList<>();

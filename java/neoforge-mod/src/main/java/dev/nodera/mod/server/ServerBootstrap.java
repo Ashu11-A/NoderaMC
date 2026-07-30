@@ -1,10 +1,17 @@
 package dev.nodera.mod.server;
 
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionGate;
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.control.CompanionUnavailableException;
+import dev.nodera.endpoint.share.PendingCreateShare;
+import dev.nodera.endpoint.world.NoderaWorldStore;
+import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.mod.common.NoderaHost;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.mod.common.NoderaSessionPayload;
-import dev.nodera.mod.common.ShareOptions;
+import dev.nodera.endpoint.share.ShareOptions;
 import dev.nodera.mod.debug.DiagnosticsService;
 import dev.nodera.mod.debug.command.NoderaCommand;
 import dev.nodera.mod.server.entity.EntityCaptureBridge;
@@ -70,7 +77,7 @@ public final class ServerBootstrap {
      * listener exceptions rather than isolating them, so this catch is the only reliable lever. The
      * world continues in vanilla mode; the operator can retry Share.
      */
-    private static void safeActivate(MinecraftServer server, dev.nodera.mod.common.ShareOptions options) {
+    private static void safeActivate(MinecraftServer server, dev.nodera.endpoint.share.ShareOptions options) {
         try {
             NoderaHost.activate(server, options);
         } catch (RuntimeException | LinkageError e) {
@@ -101,7 +108,7 @@ public final class ServerBootstrap {
         // moment it first starts — the same NoderaHost.activate path as the pause-menu Share. The
         // brand-new-world guard (game time 0) keeps a stale parked choice from ever sharing a
         // pre-existing world.
-        var pendingShare = dev.nodera.mod.common.PendingCreateShare.consume();
+        var pendingShare = dev.nodera.endpoint.share.PendingCreateShare.consume();
         if (pendingShare.isPresent() && server.overworld() != null
                 && server.overworld().getGameTime() == 0L) {
             safeActivate(server, pendingShare.get());
@@ -111,8 +118,8 @@ public final class ServerBootstrap {
         // always restores its shared status when returning to the world (no need to press Share again).
         java.nio.file.Path saveRoot = server.getWorldPath(
                 net.minecraft.world.level.storage.LevelResource.ROOT);
-        if (dev.nodera.mod.common.NoderaWorldStore.isShared(saveRoot)) {
-            var id = dev.nodera.mod.common.NoderaWorldStore.read(saveRoot);
+        if (dev.nodera.endpoint.world.NoderaWorldStore.isShared(saveRoot)) {
+            var id = dev.nodera.endpoint.world.NoderaWorldStore.read(saveRoot);
             ShareOptions restored = id.map(w -> new ShareOptions(
                             "", true, w.listedOnTracker(), 5))
                     .orElse(ShareOptions.playerDefault());
@@ -121,28 +128,28 @@ public final class ServerBootstrap {
     }
 
     private static void linkServerWorker(MinecraftServer server) {
-        if (!server.isDedicatedServer() || dev.nodera.mod.common.CompanionLink.isPresent()) {
+        if (!server.isDedicatedServer() || dev.nodera.endpoint.control.CompanionLink.isPresent()) {
             return;
         }
         String endpoint = NoderaConfig.SERVER_COMPANION_CONTROL_ENDPOINT.get();
         boolean required = NoderaConfig.SERVER_COMPANION_REQUIRED.get();
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger("NoderaCompanion");
         try {
-            dev.nodera.mod.common.CompanionClient client =
-                    dev.nodera.mod.common.CompanionClient.parse(endpoint);
-            dev.nodera.mod.common.CompanionGate.GateResult result = required
-                    ? dev.nodera.mod.common.CompanionGate.requireRunning(client) // throws if absent
-                    : dev.nodera.mod.common.CompanionGate.evaluate(client);
+            dev.nodera.endpoint.control.CompanionClient client =
+                    dev.nodera.endpoint.control.CompanionClient.parse(endpoint);
+            dev.nodera.endpoint.control.CompanionGate.GateResult result = required
+                    ? dev.nodera.endpoint.control.CompanionGate.requireRunning(client) // throws if absent
+                    : dev.nodera.endpoint.control.CompanionGate.evaluate(client);
             if (result.ok()) {
                 client.probe().ifPresent(info ->
-                        dev.nodera.mod.common.CompanionLink.set(client, info));
+                        dev.nodera.endpoint.control.CompanionLink.set(client, info));
                 log.info("Nodera companion gate (server): {}", result.message());
             } else {
                 log.warn("Nodera companion gate (server, not enforced): {}", result.message());
             }
         } catch (IllegalArgumentException e) {
             if (required) {
-                throw new dev.nodera.mod.common.CompanionUnavailableException(
+                throw new dev.nodera.endpoint.control.CompanionUnavailableException(
                         "Nodera companion endpoint '" + endpoint + "' is malformed: " + e.getMessage());
             }
             log.warn("Nodera companion endpoint '{}' is malformed: {}", endpoint, e.getMessage());
@@ -155,7 +162,7 @@ public final class ServerBootstrap {
             d.onServerStopping();
         }
         NoderaHost.onServerStopping(event.getServer());
-        dev.nodera.mod.common.PlayerNodeRegistry.clear();
+        dev.nodera.endpoint.world.PlayerNodeRegistry.clear();
         OperatorBridge.get().reset();
     }
 
@@ -173,7 +180,7 @@ public final class ServerBootstrap {
             // The world identity rides the session payload so every joiner — whatever path it
             // used to connect — can arm the continuity lane for exactly this world.
             MinecraftServer server = player.serverLevel().getServer();
-            String worldIdHex = dev.nodera.mod.common.NoderaWorldStore
+            String worldIdHex = dev.nodera.endpoint.world.NoderaWorldStore
                     .read(server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT))
                     .map(id -> id.worldId().toHex()).orElse("");
             // Issue #36 F1: a fresh single-use announce challenge rides the session payload; the
@@ -219,7 +226,7 @@ public final class ServerBootstrap {
             OperatorBridge.get().onLogout(server, player);
             // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
             // and absorb its regions (the FOV planner reassigns deterministically).
-            dev.nodera.mod.common.PlayerNodeRegistry.forget(player.getUUID());
+            dev.nodera.endpoint.world.PlayerNodeRegistry.forget(player.getUUID());
             dev.nodera.mod.common.ModNetworking.announceChallenges().forget(player.getUUID());
             NoderaHost.replanEntityLane(server);
         }

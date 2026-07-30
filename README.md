@@ -194,7 +194,8 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 157 | ✅ |
 | `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 32 | ✅ |
 | `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 857 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 219 | 🚧 |
+| `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 100 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 119 | 🚧 |
 | `paper-plugin` | `nodera-endpoint.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
 | `rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |

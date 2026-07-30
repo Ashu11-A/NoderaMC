@@ -1,5 +1,7 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionProtocol;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;

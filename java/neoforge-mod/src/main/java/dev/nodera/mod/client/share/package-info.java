@@ -6,7 +6,7 @@
  * {@link net.minecraft.client.gui.screens.PauseScreen} (only when the client is hosting a local
  * integrated server, mirroring where vanilla shows "Open to LAN"), which opens
  * {@link dev.nodera.mod.client.share.ShareWorldScreen}. The screen collects a
- * {@link dev.nodera.mod.common.ShareOptions} (password + options) and asks the local integrated
+ * {@link dev.nodera.endpoint.share.ShareOptions} (password + options) and asks the local integrated
  * server to {@link dev.nodera.mod.common.NoderaHost#activate host} the world. Event hooks over
  * mixins — {@code nodera.mixins.json} stays empty, matching {@code client.multiplayer}.
  *

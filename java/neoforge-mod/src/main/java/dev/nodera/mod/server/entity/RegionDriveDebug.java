@@ -7,7 +7,7 @@ import dev.nodera.core.region.RegionId;
 import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.mod.common.NoderaHost;
 import dev.nodera.mod.common.NoderaPeerService;
-import dev.nodera.mod.common.PlayerNodeRegistry;
+import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import dev.nodera.peer.validation.EntityLaneBootstrap;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;

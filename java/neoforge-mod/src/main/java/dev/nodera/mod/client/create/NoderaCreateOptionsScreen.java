@@ -1,7 +1,7 @@
 package dev.nodera.mod.client.create;
 
-import dev.nodera.mod.common.PendingCreateShare;
-import dev.nodera.mod.common.ShareOptions;
+import dev.nodera.endpoint.share.PendingCreateShare;
+import dev.nodera.endpoint.share.ShareOptions;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;

@@ -1,10 +1,12 @@
 package dev.nodera.mod.client;
 
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.control.CompanionUnavailableException;
 import dev.nodera.mod.client.multiplayer.MultiplayerScreenAddon;
 import dev.nodera.mod.client.share.PauseScreenShareAddon;
 import dev.nodera.mod.client.worldlist.SelectWorldScreenAddon;
-import dev.nodera.mod.common.CompanionClient;
-import dev.nodera.mod.common.CompanionGate;
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionGate;
 import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.mod.debug.command.NoderaClientCommand;
@@ -117,7 +119,7 @@ public final class ClientBootstrap {
         } catch (IllegalArgumentException e) {
             LOG.warn("Nodera companion endpoint '{}' is malformed: {}", endpoint, e.getMessage());
             if (required) {
-                throw new dev.nodera.mod.common.CompanionUnavailableException(
+                throw new dev.nodera.endpoint.control.CompanionUnavailableException(
                         "Nodera companion endpoint '" + endpoint + "' is malformed: " + e.getMessage());
             }
             return;
@@ -140,7 +142,7 @@ public final class ClientBootstrap {
     /** Record the verified worker so the rest of the mod talks to the always-on node through it. */
     private static void linkWorker(CompanionClient client) {
         client.probe().ifPresent(info -> {
-            dev.nodera.mod.common.CompanionLink.set(client, info);
+            dev.nodera.endpoint.control.CompanionLink.set(client, info);
             LOG.info("Nodera worker linked: protocol {}, version {}",
                     info.protocolVersion(), info.daemonVersion());
         });

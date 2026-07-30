@@ -1,8 +1,9 @@
 package dev.nodera.mod.server;
 
+import dev.nodera.endpoint.lane.OpSyncDecision;
 import dev.nodera.core.identity.WorldRole;
 import dev.nodera.mod.common.NoderaHost;
-import dev.nodera.mod.common.PlayerNodeRegistry;
+import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;

@@ -1,5 +1,9 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.endpoint.share.ShareOptions;
+import dev.nodera.endpoint.world.NoderaWorldStore;
 import dev.nodera.distribution.WorldArchive;
 import dev.nodera.storage.WorldIdentity;
 import net.minecraft.server.MinecraftServer;

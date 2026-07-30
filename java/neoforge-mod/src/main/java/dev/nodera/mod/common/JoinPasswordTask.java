@@ -1,5 +1,7 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.share.HostJoinGate;
+import dev.nodera.endpoint.share.JoinerIdentity;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
