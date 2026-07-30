@@ -1,5 +1,6 @@
 package dev.nodera.mod.client.multiplayer;
 
+import dev.nodera.endpoint.client.ClientJoinPasswords;
 import dev.nodera.core.Bytes;
 import dev.nodera.distribution.WorldKeyMaterial;
 import org.junit.jupiter.api.BeforeEach;

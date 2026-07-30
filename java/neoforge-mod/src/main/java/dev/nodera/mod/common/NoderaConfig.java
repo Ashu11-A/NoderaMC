@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.config.NoderaSettings;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.ModConfigSpec;
@@ -119,10 +120,14 @@ public final class NoderaConfig {
     // announcing into nothing. For localhost development these point at the embedded services that
     // `scripts/dev.sh` runs (ports 25600 / 25601); a release build replaces these constants with the
     // known public network. A user can still override or clear the lists in the generated config.
+    //
+    // The VALUES live in `NoderaSettings.defaults()` and are read from there. They used to be
+    // declared here and hardcoded a second time in the headless node, with a comment promising the
+    // two agreed — a comment is not a mechanism.
     public static final java.util.List<String> DEFAULT_TRACKER_ENDPOINTS =
-            java.util.List.of("127.0.0.1:25600");
+            NoderaSettings.defaults().trackerEndpoints();
     public static final java.util.List<String> DEFAULT_RENDEZVOUS_ENDPOINTS =
-            java.util.List.of("127.0.0.1:25601");
+            NoderaSettings.defaults().rendezvousEndpoints();
 
     // Tracker endpoints (Task 28). Each entry is a `host:port` route of a standalone
     // `nodera-tracker` service. Defaults to the embedded dev network (above) so the host announces
@@ -296,5 +301,37 @@ public final class NoderaConfig {
     public static void register(ModContainer container) {
         container.registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
         container.registerConfig(ModConfig.Type.CLIENT, CLIENT_SPEC);
+        // Hand the Minecraft-free half of the codebase a way to read these without a NeoForge type
+        // on its path. Every value is read through the spec at CALL time, not captured here, so a
+        // config reload reaches the endpoint logic the same tick it reaches the mod.
+        NoderaSettings.install(SPEC_BACKED);
     }
+
+    /** Reads the specs above. The only place a {@code ModConfigSpec} value crosses into the library. */
+    private static final NoderaSettings SPEC_BACKED = new NoderaSettings() {
+        @Override
+        public java.util.List<String> trackerEndpoints() {
+            return java.util.List.copyOf(TRACKER_ENDPOINTS.get());
+        }
+
+        @Override
+        public java.util.List<String> rendezvousEndpoints() {
+            return java.util.List.copyOf(RENDEZVOUS_ENDPOINTS.get());
+        }
+
+        @Override
+        public java.util.List<String> clientTrackerEndpoints() {
+            return java.util.List.copyOf(CLIENT_TRACKER_ENDPOINTS.get());
+        }
+
+        @Override
+        public java.util.List<String> clientRendezvousEndpoints() {
+            return java.util.List.copyOf(CLIENT_RENDEZVOUS_ENDPOINTS.get());
+        }
+
+        @Override
+        public String joinPassword() {
+            return JOIN_PASSWORD.get();
+        }
+    };
 }

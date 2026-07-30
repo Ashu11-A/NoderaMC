@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.lane.LanePlan;
 import dev.nodera.endpoint.control.CompanionClient;
 import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
@@ -898,7 +899,7 @@ public final class NoderaHost {
         lastPlanKey = planKey(server);
         Map<NodeId, PlayerView> views = new java.util.LinkedHashMap<>();
         Map<NodeId, PlayerNodeRegistry.PlayerNode> memberNodes = new java.util.LinkedHashMap<>();
-        List<NoderaLanePlanPayload.Member> members = new ArrayList<>();
+        List<LanePlan.Member> members = new ArrayList<>();
         ServerLevel anchorLevel = null;
         int viewDistance = server.getPlayerList().getViewDistance();
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
@@ -919,7 +920,7 @@ public final class NoderaHost {
                     : nullToEmpty(NoderaPeerService.get().hostRoute());
             String keyB64 = java.util.Base64.getEncoder().encodeToString(
                     (node != null ? node.publicKey() : host.identity().publicKeyBytes()).toArray());
-            members.add(new NoderaLanePlanPayload.Member(
+            members.add(new LanePlan.Member(
                     memberNode.value().toString(), keyB64, route, p.getUUID().toString(),
                     MinecraftEntityAdapters.dimension(level).namespace(),
                     MinecraftEntityAdapters.dimension(level).path(),
@@ -1076,23 +1077,23 @@ public final class NoderaHost {
                 // very residents this node just seated, because they are not validators in the
                 // lease the client holds. Shipping the pool is what makes the two computations the
                 // same computation (network L-30).
-                List<NoderaLanePlanPayload.Resident> residentInputs =
+                List<LanePlan.Resident> residentInputs =
                         new ArrayList<>(residents.size());
                 for (dev.nodera.protocol.membership.PeerEntry entry : residents.values()) {
-                    residentInputs.add(new NoderaLanePlanPayload.Resident(
+                    residentInputs.add(new LanePlan.Resident(
                             entry.nodeId().value().toString(),
                             java.util.Base64.getEncoder().encodeToString(
                                     entry.publicKey().toArray()),
                             entry.route()));
                 }
-                NoderaLanePlanPayload payload = new NoderaLanePlanPayload(
+                NoderaLanePlanPayload payload = new NoderaLanePlanPayload(new LanePlan(
                         manifest.worldSeed(), manifest.rulesVersion(),
                         manifest.registryFingerprint(),
                         java.util.Base64.getEncoder().encodeToString(
                                 manifest.genesisRoot().hash().toArray()),
                         java.util.Base64.getEncoder().encodeToString(
                                 host.identity().publicKeyBytes().toArray()),
-                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs);
+                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs));
                 server.execute(() -> {
                     for (ServerPlayer p : server.getPlayerList().getPlayers()) {
                         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, payload);

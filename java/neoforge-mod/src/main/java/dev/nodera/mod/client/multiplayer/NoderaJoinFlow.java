@@ -1,5 +1,6 @@
 package dev.nodera.mod.client.multiplayer;
 
+import dev.nodera.endpoint.client.ClientJoinPasswords;
 import dev.nodera.endpoint.telemetry.ModTelemetry;
 import dev.nodera.core.Bytes;
 import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;

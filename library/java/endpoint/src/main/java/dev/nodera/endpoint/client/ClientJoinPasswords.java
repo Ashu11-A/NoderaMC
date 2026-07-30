@@ -1,8 +1,10 @@
-package dev.nodera.mod.client.multiplayer;
+package dev.nodera.endpoint.client;
 
+import dev.nodera.endpoint.config.NoderaSettings;
+import dev.nodera.endpoint.share.JoinChallenge;
 import dev.nodera.core.Bytes;
 import dev.nodera.distribution.JoinPasswordGate;
-import dev.nodera.mod.common.NoderaJoinChallengePayload;
+import dev.nodera.endpoint.share.JoinChallenge;
 
 import java.util.Locale;
 import java.util.Map;
@@ -115,7 +117,7 @@ public final class ClientJoinPasswords {
      * @return the MAC to send back, or empty when this client has no password for that world.
      * @Thread-context any thread; costs one memory-hard KDF derivation when a password is known.
      */
-    public static Optional<Bytes> answer(NoderaJoinChallengePayload challenge) {
+    public static Optional<Bytes> answer(JoinChallenge challenge) {
         return answer(challenge.worldIdHex(), challenge.material(), challenge.nonce());
     }
 
@@ -167,7 +169,7 @@ public final class ClientJoinPasswords {
      */
     private static String configuredFallback() {
         try {
-            return dev.nodera.mod.common.NoderaConfig.JOIN_PASSWORD.get();
+            return NoderaSettings.current().joinPassword();
         } catch (RuntimeException | LinkageError e) {
             return "";
         }

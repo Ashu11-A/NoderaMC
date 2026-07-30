@@ -1,6 +1,7 @@
 package dev.nodera.mod.common;
 
 import dev.nodera.testkit.harness.LayoutManifest;
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +53,7 @@ final class CompanionSessionBindingIsCalledTest {
     void theJoinerBindsItsWorker() throws IOException {
         assertThat(read("dev/nodera/mod/common/ModNetworking.java"))
                 .as("without this the joiner's worker never joins the world its player is in (L-30)")
-                .contains("bindCompanionToSession(payload.worldSeed())");
+                .contains("bindCompanionToSession(plan.worldSeed())");
     }
 
     @Test
@@ -87,9 +88,17 @@ final class CompanionSessionBindingIsCalledTest {
     @Test
     @DisplayName("the resident pool reaches the joiner: the plan payload carries it")
     void thePlanCarriesTheResidentPool() throws IOException {
-        assertThat(read("dev/nodera/mod/common/NoderaLanePlanPayload.java"))
+        // The plan is DATA and lives in `:endpoint` now; the mod file beside it is the wire
+        // wrapper. Both halves are asserted, because a field that exists on the record but that the
+        // codec forgets to write is exactly the shape this test exists to catch.
+        assertThat(Files.readString(LayoutManifest.load().module("endpoint")
+                        .resolve("src/main/java/dev/nodera/endpoint/lane/LanePlan.java"),
+                StandardCharsets.UTF_8))
                 .as("residents are a plan input; a member planning without them plans differently")
                 .contains("List<Resident> residents");
+        assertThat(read("dev/nodera/mod/common/NoderaLanePlanPayload.java"))
+                .as("and the wire has to carry them, or the joiner receives a plan without the pool")
+                .contains("plan.residents()");
         assertThat(read("dev/nodera/mod/common/NoderaHost.java"))
                 .as("the host must actually fill the field it now has")
                 .contains("residentInputs");
