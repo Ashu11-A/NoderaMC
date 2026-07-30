@@ -8,9 +8,9 @@
      Context: NAT reach — signed registration/discovery, hole punching, E2E-encrypted relay fallback.
      Tasks 1,2,4,6 ✅ COMPLETED/DONE; Task 3 ⏳ BLOCKED (live NAT env); Task 5 🚧 IN PROGRESS (owns
      L-83). Verified 2026-07-28: 71 Rust tests in nodera-rendezvous + 28 Java @Test in
-     dev.nodera.transport.rendezvous. Key entry points: rust/nodera-rendezvous/src/service.rs:192
+     dev.nodera.transport.rendezvous. Key entry points: rendezvous/src/service.rs:192
      (handle_frame), wire.rs:433 (run / socket surface), main.rs:265 (RendezvousHost lifecycle),
-     java/transport/.../rendezvous/RendezvousPeerTransport.java:50 (the transport). -->
+     library/java/transport/.../rendezvous/RendezvousPeerTransport.java:50 (the transport). -->
 
 **Category:** `rendezvous` · **Status:** 🚧 IN PROGRESS (4 of 6 tasks completed; 1 blocked, 1 in
 progress) · **Last audit:** 2026-07-28
@@ -57,7 +57,7 @@ same seam — call sites cannot tell which path carried a message.
 
 **Consumed by:** [`network/Task.2.md`](../network/Task.2.md) (cross-NAT migration),
 [`minecraft/Task.5.md`](../minecraft/Task.5.md) (the live host lane),
-[`worker/Task.3.md`](../worker/Task.3.md) (registration that persists across game sessions).
+[`worker/Task.3.md`](../peer/Task.3.md) (registration that persists across game sessions).
 
 ## 4. Task index
 
@@ -81,13 +81,13 @@ bind that reference to Nodera.
 
 | Path | Contents |
 |---|---|
-| `rust/nodera-rendezvous/src/` | `main`, `service`, `config`, `registry`, `register`, `discover`, `reservation`, `circuit`, `punch`, `limits`, `wire`, `telemetry`, `test_support` (reflexive-address observation lives inline in `service.rs::on_register`) |
-| `rust/nodera-service/src/` | Shared with the tracker: `identity`, `directory`, `drain`, `lifecycle`, `update`, `env`, `endpoint` |
-| `java/transport/.../transport/rendezvous/` | `RendezvousPeerTransport`, `RendezvousClient`, `CandidateDialer`, `RelayCircuitClient`, `RelayCircuit`, `HolePunchCoordinator`, `TransportSelector`, `EndToEndCipher`, `RendezvousEndpoint`, `package-info` |
-| `java/transport/.../protocol/rendezvous/` | The rendezvous/relay message family |
+| `rendezvous/src/` | `main`, `service`, `config`, `registry`, `register`, `discover`, `reservation`, `circuit`, `punch`, `limits`, `wire`, `telemetry`, `test_support` (reflexive-address observation lives inline in `service.rs::on_register`) |
+| `library/rust/nodera-service/src/` | Shared with the tracker: `identity`, `directory`, `drain`, `lifecycle`, `update`, `env`, `endpoint` |
+| `library/java/transport/.../transport/rendezvous/` | `RendezvousPeerTransport`, `RendezvousClient`, `CandidateDialer`, `RelayCircuitClient`, `RelayCircuit`, `HolePunchCoordinator`, `TransportSelector`, `EndToEndCipher`, `RendezvousEndpoint`, `package-info` |
+| `library/java/transport/.../protocol/rendezvous/` | The rendezvous/relay message family |
 
-Package architecture: [`rust/nodera-rendezvous/README.md`](../../rust/nodera-rendezvous/README.md),
-[`java/transport/README.md`](../../java/transport/README.md).
+Package architecture: [`rendezvous/README.md`](../../rendezvous/README.md),
+[`library/java/transport/README.md`](../../library/java/transport/README.md).
 
 ## 6. Conventions specific to this category
 

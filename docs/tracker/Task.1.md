@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED
 **Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md)
-**Consumed by:** [tracker 2](Task.2.md), [worker 3](../worker/Task.3.md), [minecraft 4](../minecraft/Task.4.md)
+**Consumed by:** [tracker 2](Task.2.md), [worker 3](../peer/Task.3.md), [minecraft 4](../minecraft/Task.4.md)
 
 ---
 
@@ -83,7 +83,7 @@ wants; the omission is deliberate.
 
 ## Files
 
-- `rust/nodera-tracker/src/{main,config,registry,announce,query,health,deletion,limits,wire,services,service,telemetry}.rs`
+- `tracker/src/{main,config,registry,announce,query,health,deletion,limits,wire,services,service,telemetry}.rs`
 
 ## Testing
 

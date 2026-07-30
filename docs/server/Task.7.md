@@ -136,9 +136,9 @@ mod's multiplayer screen with player counts, health, and a piece map, and quick-
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/net/{NoderaPluginChannel,EndpointHandshake,ModSetPolicy}.java`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/EndpointClientLink.java` (mod side)
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/ModNetworking.java` (payloads → optional)
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/net/{NoderaPluginChannel,EndpointHandshake,ModSetPolicy}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/EndpointClientLink.java` (mod side)
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/ModNetworking.java` (payloads → optional)
 
 ## Testing
 

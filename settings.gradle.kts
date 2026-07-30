@@ -42,52 +42,65 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "0.10.0"
 }
 
-includeBuild("java/build-logic")
-
-// --- Monorepo layout (Task 27, see MONOREPO.md) ---
-// Every Gradle module lives under `java/`; the Rust service crates live under `rust/`.
-// Module NAMES are unchanged (`:core`, `:peer-runtime`, …) — only their directories moved,
-// so `./gradlew :core:test` and every `build.gradle.kts` keep working untouched.
-fun module(name: String) {
-    include(name)
-    project(":$name").projectDir = file("java/$name")
+// --- Monorepo layout: read from `layout.properties`, never spelled out here ---
+//
+// Which directory holds which module is a property of the tree, not of Gradle, and five other
+// consumers in four other languages need the same answer (the live harness, the structural report,
+// the shell suites, the release scripts). They all read `layout.properties`; so does this file.
+// A module relocation is therefore one edit there plus a `git mv`, and `LayoutManifestTest` fails
+// the build if this file and that one ever disagree.
+//
+// Module NAMES come from the key suffix and are unchanged by any move, so `./gradlew :core:test`
+// and every `build.gradle.kts` project reference keep working untouched. Each module's rationale
+// lives next to its key in the manifest.
+val layout: java.util.Properties = java.util.Properties().apply {
+    val manifest = file("layout.properties")
+    if (!manifest.isFile) {
+        error("layout.properties is missing from the repository root — it is the layout table")
+    }
+    manifest.inputStream().use { load(it) }
 }
 
-// Phase 0 — pure-Java (Minecraft-free) modules. Built and tested in CI.
-module("core")
-// Unified deterministic-engine + validation API (issue #30): absorbs the former simulation /
-// consensus / coordinator / committee / shadow-validation / fallback modules — packages
-// unchanged, so the ArchUnit determinism ban on dev.nodera.simulation.. still bites.
-module("engine")
-// Unified network API (issue #30): absorbs the former protocol / transport-api /
-// transport-socket / transport-rendezvous modules — packages unchanged. The empty
-// transport-neoforge placeholder was deleted; the in-game relay lane lands in neoforge-mod.
-module("transport")
-// Unified storage API (issue #30): absorbs the former storage-api / storage-eventsourced /
-// storage-rocksdb / storage-client modules — packages unchanged (dev.nodera.storage.*).
-module("storage")
-// Unified peer API (issue #30): absorbs the former peer-runtime / distribution / diagnostics
-// modules — packages unchanged. A LIBRARY: the always-on worker that used to live in it moved to
-// `:worker` so that depending on the peer stack no longer compiles an executable into your jar.
-module("peer")
-// The always-on headless worker (`nodera-headless`). Depends on `:peer`; nothing depends on it
-// except the distribution, which is what keeps the worker out of the NeoForge mod's fat jar. The
-// installDist launcher name is contract (rust/nodera-app's daemon.rs + every script stage it).
-module("worker")
-// Shared test library (issue #30): LoopbackTransport, FakeRegion, wire-fixture IO. The planned
-// multi-peer scenario suite (old integration-tests) lands here when Task 5's live lane needs it.
-module("testing")
+fun layoutDir(key: String): File =
+    file(layout.getProperty(key) ?: error("layout.properties has no key '$key'"))
 
-// --- NeoForge-bound module (the only place Minecraft types may appear besides its tests) ---
-module("neoforge-mod")
+includeBuild(layoutDir("buildLogic"))
 
-// --- Paper/Folia endpoint plugin (server task 1) ---
-// Produces `nodera-endpoint.jar`, which scripts/lib/e2e-server.sh stages. The Paper API is
-// compileOnly and resolved from PaperMC's maven, declared inside the module so an outage there
-// cannot break the Minecraft-free build.
-module("paper-plugin")
+layout.stringPropertyNames()
+    .filter { it.startsWith("module.") }
+    .sorted()
+    .forEach { key ->
+        val name = key.removePrefix("module.")
+        include(name)
+        project(":$name").projectDir = layoutDir(key)
+    }
 
-// --- Later-phase modules (Tasks 12-16) ---
-// include("integration-tests")
+// What Gradle ACTUALLY configured, handed to `LayoutManifestTest` so it can prove the manifest and
+// the build agree rather than assuming it.
+//
+// Read from `rootProject.children` rather than from the loop above, and that distinction is the
+// whole point: a list built from the loop would be derived from the manifest and could never
+// disagree with it, so the test would pass vacuously forever. `children` is every project this
+// build really has — so a module re-added the old way, with a hand-written `include()` and a
+// hardcoded `projectDir`, shows up here, is absent from the manifest, and fails the build. That is
+// the regression this manifest exists to prevent.
+//
+// Injected here, and never from `library/java/build-logic`: any edit to a precompiled script plugin on this
+// toolchain re-triggers the kotlin-dsl accessor breakage documented in gradle.properties, and an
+// extra property is read by the same delegate.
+// The descriptor is captured here but READ inside `beforeProject`, and the distinction matters
+// twice. Reading it at this line would miss anything `include`d further down — the settings script
+// is still being evaluated — which is exactly the shape this check exists to catch, and a probe
+// proved it silently passed. Capturing it is also required: inside the lambda the receiver is a
+// `Project`, whose `rootProject` is another `Project` and has no children to enumerate.
+val settingsRoot = rootProject
+val repoRoot = rootDir.toPath()
+
+gradle.beforeProject {
+    project.extra["noderaConfiguredModules"] = settingsRoot.children
+        .map { "${it.name}=" + repoRoot.relativize(it.projectDir.toPath()).joinToString("/") }
+        .sorted()
+        .joinToString(";")
+}
 
 // Version catalog: gradle/libs.versions.toml is auto-imported as `libs` by default.

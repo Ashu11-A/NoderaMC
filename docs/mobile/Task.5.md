@@ -15,7 +15,7 @@
 
 **Status:** 🚧 IN PROGRESS
 **Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-07-28
-**Depends on:** [mobile 3](Task.3.md), [app 9](../app/Task.9.md), [worker 2](../worker/Task.2.md)
+**Depends on:** [mobile 3](Task.3.md), [app 9](../app/Task.9.md), [worker 2](../peer/Task.2.md)
 **Consumed by:** —
 
 ---
@@ -77,7 +77,7 @@ exit pending; deliverables 2 and 4–7 remain open. The network limitations are:
 ## Dependencies
 
 - [app 9](../app/Task.9.md) owns the tracker stores that populate the services list.
-- [worker 2](../worker/Task.2.md) owns which config keys apply live vs at spawn.
+- [worker 2](../peer/Task.2.md) owns which config keys apply live vs at spawn.
 
 ## Deliverables
 
@@ -136,20 +136,20 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 
 | Path | Role |
 |---|---|
-| `rust/nodera-app/android/kotlin/NoderaWorker.kt` | services-list path, P2P-property allowlist, worker boot |
-| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:103` | `SyncedServices.load` (boot-only — M-NET-1) |
-| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | environment-first P2P integer/property fallback; environment-only control integer |
-| `java/worker/src/test/java/dev/nodera/headless/AndroidPortPropertyTest.java` | real worker process reports the property-selected port in `self_route` |
-| `rust/nodera-app/src/daemon.rs` | one port encoder for desktop env and Android property handoff |
-| `rust/nodera-app/src/android/worker.rs` | one-shot context/setup startup gate |
-| `rust/nodera-app/android/kotlin/MainActivity.kt` | binds context; never infers setup completion |
-| `rust/nodera-app/ui/src/mobile/Settings.tsx` | random-port and validated fixed-range controls |
-| `rust/nodera-app/src/settings.rs` | `config_dir`, `sync_file_path`, `ANDROID_DATA_DIR` |
-| `rust/nodera-app/src/daemon.rs` | `supervise` — the desktop-only restart consumer (M-NET-3) |
-| `rust/nodera-app/gen/android/app/build.gradle.kts:22` | `minSdk = 24` (M-NET-4) |
+| `app/android/kotlin/NoderaWorker.kt` | services-list path, P2P-property allowlist, worker boot |
+| `peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java:103` | `SyncedServices.load` (boot-only — M-NET-1) |
+| `peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | environment-first P2P integer/property fallback; environment-only control integer |
+| `peer/src/test/java/dev/nodera/headless/AndroidPortPropertyTest.java` | real worker process reports the property-selected port in `self_route` |
+| `app/src/daemon.rs` | one port encoder for desktop env and Android property handoff |
+| `app/src/android/worker.rs` | one-shot context/setup startup gate |
+| `app/android/kotlin/MainActivity.kt` | binds context; never infers setup completion |
+| `app/ui/src/mobile/Settings.tsx` | random-port and validated fixed-range controls |
+| `app/src/settings.rs` | `config_dir`, `sync_file_path`, `ANDROID_DATA_DIR` |
+| `app/src/daemon.rs` | `supervise` — the desktop-only restart consumer (M-NET-3) |
+| `app/gen/android/app/build.gradle.kts:22` | `minSdk = 24` (M-NET-4) |
 | `scripts/android-apk.sh:156` | `--min-api 26` dex floor (M-NET-4) |
-| `rust/nodera-app/ui/src/TrackerStores.tsx` | shared desktop/mobile semantic roles |
-| `rust/nodera-app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
+| `app/ui/src/TrackerStores.tsx` | shared desktop/mobile semantic roles |
+| `app/ui/src/mobile/Settings.tsx` | selects the Material 3 role mapping |
 
 ## Testing
 
@@ -162,7 +162,7 @@ tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims th
 | `AndroidPortPropertyTest.p2pSystemPropertyAppearsInWorkerStateSelfRoute` | property-only worker boot selects and reports the requested P2P port |
 | `daemon::tests::{android_properties_match_the_fixed_port_settings_sent_on_desktop,android_properties_cannot_move_the_control_endpoint}` | desktop env compatibility and control-port agreement |
 | `daemon::tests::first_launch_and_changed_settings_replace_the_android_property_handoff` | first-launch write and later setting changes replace stale bytes |
-| `android::worker::tests::*first_launch*` | Activity-first and setup-first orders wait for both signals and start once |
+| `android::peer::tests::*first_launch*` | Activity-first and setup-first orders wait for both signals and start once |
 | `scripts/android-apk.sh --debug` | frontend, Android Rust target, Kotlin bridge and APK packaging compile together |
 | `scripts/android-e2e.sh --expect-p2p-port PORT` after selecting a one-port range and fully relaunching | exact M-NET-2 physical exit (not yet run) |
 

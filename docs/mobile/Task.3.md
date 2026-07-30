@@ -7,7 +7,7 @@
 **Status:** ✅ COMPLETED
 **Category:** mobile · **Owns:** `scripts/e2e-android-mesh.sh`
 **Last audit:** 2026-07-28
-**Depends on:** [mobile 1](Task.1.md), [worker 3](../worker/Task.3.md), [tracker 2](../tracker/Task.2.md)
+**Depends on:** [mobile 1](Task.1.md), [worker 3](../peer/Task.3.md), [tracker 2](../tracker/Task.2.md)
 
 ---
 

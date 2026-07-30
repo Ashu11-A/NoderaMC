@@ -7,7 +7,7 @@
      Context: the service's own counters + the NAT-pair punch statistics. Sub-deliverables 1-7 ✅;
      deliverable 8 (relayed byte VOLUME + median circuit DURATION, needs circuit-bridge metering
      plumbed into the reporter) remains ⬜ — the only open sub-item. Acceptance 5 defers to Task.3's
-     population, not to code here. Key files: rust/nodera-rendezvous/src/telemetry.rs:27 (windowed
+     population, not to code here. Key files: rendezvous/src/telemetry.rs:27 (windowed
      reporter), punch.rs:96 (PunchOutcomes inferred-success counter) + :47 (PairClass four classes),
      config.rs:63 (telemetry_endpoint, empty by default), circuit.rs:56 (CircuitMeter — has
      bytes_transferred but not yet exported). 71 Rust tests in the crate. Depends on: Task.1.md,
@@ -89,10 +89,10 @@ depend on a dashboard.
 
 ## Files
 
-- `rust/nodera-rendezvous/src/telemetry.rs` — the reporter
-- `rust/nodera-rendezvous/src/punch.rs` — outcome + pair-class counters
-- `rust/nodera-rendezvous/src/config.rs` — `telemetry_endpoint`, `telemetry_interval_seconds`
-- `rust/nodera-rendezvous/src/circuit.rs` — `CircuitMeter` (byte/duration/idle source for D8)
+- `rendezvous/src/telemetry.rs` — the reporter
+- `rendezvous/src/punch.rs` — outcome + pair-class counters
+- `rendezvous/src/config.rs` — `telemetry_endpoint`, `telemetry_interval_seconds`
+- `rendezvous/src/circuit.rs` — `CircuitMeter` (byte/duration/idle source for D8)
 
 ## Testing
 

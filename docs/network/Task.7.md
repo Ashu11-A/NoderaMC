@@ -74,9 +74,9 @@ surfaced deadline.
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/coordinator/{ReliabilityScorer,ReliabilityFactors,ReliabilityConfig}.java`
-- `java/storage/src/main/java/dev/nodera/storage/client/{BoundedClientWorldStore,StorageQuotaManager,ArchiveEvictionPolicy}.java`
-- `java/peer/src/main/java/dev/nodera/peer/archival/RetentionPolicy.java`
+- `library/java/engine/src/main/java/dev/nodera/coordinator/{ReliabilityScorer,ReliabilityFactors,ReliabilityConfig}.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/client/{BoundedClientWorldStore,StorageQuotaManager,ArchiveEvictionPolicy}.java`
+- `peer/src/main/java/dev/nodera/peer/archival/RetentionPolicy.java`
 
 ## Testing
 

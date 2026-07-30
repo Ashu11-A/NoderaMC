@@ -68,7 +68,7 @@ than the project's authors; without deployment notes, the practical answer to "w
 
 ## Files
 
-- `rust/nodera-tracker/src/{main,config,wire,limits}.rs`
+- `tracker/src/{main,config,wire,limits}.rs`
 - `scripts/dev.sh`, `.github/workflows/`, `docker/`, `scripts/deploy-vps.sh`
 - Operator documentation: [`SELF-HOSTING.md`](SELF-HOSTING.md)
 

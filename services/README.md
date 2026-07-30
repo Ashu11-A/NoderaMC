@@ -95,7 +95,7 @@ https://noderamc.org/add-store?url=<your index URL, percent-encoded>
 That page shows the address, hands it to the app when the visitor presses the button, and — for the
 majority of visitors, who do not have the app — offers the address to copy and a link to the
 releases. It runs no tracking and makes no requests of its own. The page is
-[`site/add-store.html`](../site/add-store.html) in this repository, deployed by
+[`web/add-store.html`](../web/add-store.html) in this repository, deployed by
 [`scripts/deploy-site.sh`](../scripts/deploy-site.sh); nothing about it is privileged, so a store
 that would rather host its own copy can serve the same file from its own domain.
 

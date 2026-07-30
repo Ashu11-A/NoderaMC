@@ -4,7 +4,7 @@
      of truth for the PRIVACY MODEL and the LOCKED DECISIONS behind them. When a task file
      contradicts a locked decision here, the task file is the bug — unless the decision is
      explicitly re-opened in §10. A change that widens what is collected MUST update §4 and
-     rust/nodera-telemetry/src/schema.rs in the same commit. Keep every AI-AGENT-INSTRUCTION
+     telemetry/src/schema.rs in the same commit. Keep every AI-AGENT-INSTRUCTION
      comment intact. -->
 
 > **Active programme plan.** Per-task specifications live in
@@ -79,7 +79,7 @@ paid with per-source quotas and with treating the data as aggregate-only evidenc
 poisoned aggregate costs the project a wrong graph, not a wrong world.
 
 **D4 — The registry is the collection policy, and it is enforced at ingest.** Only events and
-attributes declared in `rust/nodera-telemetry/src/schema.rs` can be stored. Undeclared *events* are
+attributes declared in `telemetry/src/schema.rs` can be stored. Undeclared *events* are
 rejected; undeclared *attributes* are dropped (so a newer client keeps reporting the fields this
 build does know). The gate is at the receiver, not in the emitters, because the emitters are the
 part that is hardest to audit: three languages, several processes, and a mod anyone can fork.
@@ -188,7 +188,7 @@ reader can audit the privacy claims in an afternoon. The file is the buffer; Vec
 | 2 | [`telemetry 2`](../telemetry/Task.2.md) | telemetry | The Big Data plane: compose stack, warehouse schema, rollups, retention |
 | 3 | [`telemetry 3`](../telemetry/Task.3.md) | telemetry | Analysis, dashboards, alerting, and the public transparency report |
 | 4 | [`network 12`](../network/Task.12.md) | network | ✅ Minecraft-free emitter core: event model, bucketing, consent gate, bounded spool, sender |
-| 5 | [`worker 5`](../worker/Task.5.md) | worker | ✅ The node's single emitter + `NODERA-TELEMETRY` control verb |
+| 5 | [`worker 5`](../peer/Task.5.md) | worker | ✅ The node's single emitter + `NODERA-TELEMETRY` control verb |
 | 6 | [`app 5`](../app/Task.5.md) | app | 🚧 First-run consent modal + Privacy settings landed; a component test remains |
 | 7 | [`minecraft 8`](../minecraft/Task.8.md) | minecraft | ✅ (headless) In-game consent mirror + gameplay events handed to the worker |
 | 8 | [`tracker 4`](../tracker/Task.4.md) | tracker | ✅ Service-side reporter, operator opt-in |

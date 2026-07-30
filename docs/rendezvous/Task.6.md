@@ -8,7 +8,7 @@
      Context: the published GHCR image + operator docs. All deliverables ✅. The difference from the
      tracker image is the stop grace period (60s here vs 45s) because a relay drains live transfers.
      Key files: docker/rendezvous/Dockerfile, docker/compose.yml, docker/.env.example,
-     rust/nodera-rendezvous/src/config.rs (env twins) + main.rs (--print-env),
+     rendezvous/src/config.rs (env twins) + main.rs (--print-env),
      .github/workflows/containers.yml, scripts/deploy-vps.sh. Operator doc: SELF-HOSTING.md.
      Depends on: Task.1.md, Task.5.md (the drain), ../tracker/Task.6.md (shared image reasoning).
      Consumed by: ../network/Task.13.md, ../app/Task.9.md. -->
@@ -72,7 +72,7 @@ the host rather than minting a new one, because a new key invalidates every outs
 ## Files
 
 - `docker/rendezvous/Dockerfile`
-- `rust/nodera-rendezvous/src/config.rs` · `src/main.rs`
+- `rendezvous/src/config.rs` · `src/main.rs`
 - `docker/compose.yml` · `docker/.env.example`
 - `.github/workflows/containers.yml` · `scripts/deploy-vps.sh`
 

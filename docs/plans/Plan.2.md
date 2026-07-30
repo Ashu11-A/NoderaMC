@@ -14,7 +14,7 @@
 > **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
 > mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
 > `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
-> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+> names as packages inside the new modules (mapping: [`docs/README.md`](../README.md) §3).
 
 ## Context
 
@@ -32,28 +32,28 @@ update docs, and keep/extend the test suite (979 Java + 144 Rust tests currently
    bytecode across module boundaries. "Modern" = records, sealed interfaces, pattern-matching
    switch, virtual threads — all available in 21. No bytecode split.
 2. **Granularity:** ONE Gradle module per unified API.
-3. **`protocol` lives in `java/transport`** (merging it into peer creates compile cycles:
+3. **`protocol` lives in `library/java/transport`** (merging it into peer creates compile cycles:
    transports + testkit need protocol while peer needs transports).
 4. **`fallback` is production code** (Task-8 runtime, currently orphaned) → merged into the engine
    cluster, not deleted, not put in a test lib.
-5. **Engine cluster consolidates too:** `java/engine` = simulation + consensus + coordinator +
+5. **Engine cluster consolidates too:** `library/java/engine` = simulation + consensus + coordinator +
    committee + shadow-validation + fallback. `dev.nodera.simulation` package preserved (ArchUnit
    determinism ban is package-scoped).
-6. **`diagnostics` is production telemetry** → merged into `java/peer`. Test library =
+6. **`diagnostics` is production telemetry** → merged into `peer`. Test library =
    testkit + shared fixtures only.
 
 ## Target architecture (22 modules → 7)
 
 ```
-java/core       dev.nodera.core.*          (unchanged; JDK only)
-java/engine     ← simulation, consensus, coordinator, committee, shadow-validation, fallback
-java/transport  ← protocol, transport-api, transport-socket, transport-rendezvous
+library/java/core       dev.nodera.core.*          (unchanged; JDK only)
+library/java/engine     ← simulation, consensus, coordinator, committee, shadow-validation, fallback
+library/java/transport  ← protocol, transport-api, transport-socket, transport-rendezvous
                   (transport-neoforge DELETED — no main source, placeholder smoke test only)
-java/storage    ← storage-api, storage-eventsourced, storage-rocksdb, storage-client
-java/peer       ← peer-runtime, distribution, diagnostics, nodera-headless
+library/java/storage    ← storage-api, storage-eventsourced, storage-rocksdb, storage-client
+peer       ← peer-runtime, distribution, diagnostics, nodera-headless
                   (application plugin; launcher stays `nodera-headless`)
-java/testing    ← testkit (LoopbackTransport, FakeRegion, FixtureWriter/Reader)
-java/neoforge-mod  (unchanged module; consumes the new modules)
+library/java/testing    ← testkit (LoopbackTransport, FakeRegion, FixtureWriter/Reader)
+endpoints/neoforge-mod  (unchanged module; consumes the new modules)
 java/build-logic   (convention plugins, updated)
 ```
 
@@ -85,7 +85,7 @@ module README describing its internal layering.
 - Control protocol v2 (`NODERA-PROBE/STATE/IDENTITY/HOST/JOIN/STOP/PASSWORD/STATUS/WORLDID`):
   `peer-runtime/control/ControlProtocol` remains single source; mod `CompanionProtocol` delegate
   and Rust `control.rs`/`metrics.rs` mirrors unchanged.
-- `rust/nodera-app` worker launch: `daemon.rs` resolves `NODERA_WORKER_BIN`, default
+- `app` worker launch: `daemon.rs` resolves `NODERA_WORKER_BIN`, default
   `resources/nodera-headless/bin/nodera-headless` — the `:peer` module keeps
   `applicationName = "nodera-headless"`, `mainClass = dev.nodera.headless.HeadlessPeerMain`, and
   the same `installDist` layout. `scripts/dev.sh` re-checked.
@@ -102,8 +102,8 @@ first or branch from its merged state).
   JaCoCo aggregation convention (coverage report per module + merged HTML/XML).
 - Delete stale `java/build-logic/bin/` accessor artifacts already `git rm`'d in the working tree.
 
-### Step 1 — `java/storage` (cleanest merge, proves the pattern)
-- `git mv` the four storage trees into `java/storage/src/{main,test}` (packages already disjoint:
+### Step 1 — `library/java/storage` (cleanest merge, proves the pattern)
+- `git mv` the four storage trees into `library/java/storage/src/{main,test}` (packages already disjoint:
   `storage`, `storage.event`, `storage.rocksdb`, `storage.client`).
 - `settings.gradle.kts`: replace 4 `module(...)` lines with `module("storage")`; repoint
   consumers (`distribution`→later `peer`, `neoforge-mod`, `nodera-headless`, `committee` test).
@@ -116,9 +116,9 @@ first or branch from its merged state).
   - merge `StorageFixtures`/`RocksFixtures` via `java-test-fixtures` plugin.
 - Preserve `RocksCrashRecoveryIT` (forked-JVM kill/recover) unchanged.
 
-### Step 2 — `java/transport`
+### Step 2 — `library/java/transport`
 - `git mv` protocol + transport-api + transport-socket + transport-rendezvous into
-  `java/transport`; delete `transport-neoforge` entirely (placeholder; note in LEGACY.md that the
+  `library/java/transport`; delete `transport-neoforge` entirely (placeholder; note in LEGACY.md that the
   future in-game relay lands in `neoforge-mod` per layering rule).
 - Unify duplications:
   - one `Frames` (length-prefixed, 16 MiB cap) used by `SocketPeerTransport`,
@@ -131,9 +131,9 @@ first or branch from its merged state).
   `dev.nodera.protocol.*` untouched on the wire; internal helpers get sealed/record treatment.
 - `RendezvousRelayIT` (real Rust binary) preserved.
 
-### Step 3 — `java/engine`
+### Step 3 — `library/java/engine`
 - `git mv` simulation, consensus, coordinator, committee, shadow-validation, fallback into
-  `java/engine` (all packages disjoint; deps of all six ⊆ {core, each other}).
+  `library/java/engine` (all packages disjoint; deps of all six ⊆ {core, each other}).
 - ArchUnit `ForbiddenApiTest` + `DeterminismPropertyTest` keep their `dev.nodera.simulation..`
   scope — verify they still run in the merged module.
 - `fallback` stops being an orphan module; stays an orphan *package* wired for Task-8 live soak —
@@ -143,11 +143,11 @@ first or branch from its merged state).
   land **after** Step 4, or temporarily point at the old modules. Simplest: do Step 3 after
   Step 4. (Final order: storage → transport → peer → engine → testing.)
 
-### Step 4 — `java/peer`
-- `git mv` peer-runtime, distribution, diagnostics, nodera-headless into `java/peer`.
+### Step 4 — `peer`
+- `git mv` peer-runtime, distribution, diagnostics, nodera-headless into `peer`.
 - Plugins: `java-library` + `application` (`mainClass dev.nodera.headless.HeadlessPeerMain`,
   `applicationName nodera-headless`). Verify `installDist` output path used by
-  `rust/nodera-app/src/daemon.rs` and `scripts/dev.sh` byte-for-byte.
+  `app/src/daemon.rs` and `scripts/dev.sh` byte-for-byte.
 - Internal layering inside the module (enforced by package convention + review, optionally
   ArchUnit): `distribution` (data plane) → `peer` runtime → `headless` worker; `diagnostics`
   telemetry consumed by all.
@@ -156,13 +156,13 @@ first or branch from its merged state).
 - All ITs preserved: `TrackerServiceIT`, `MultiBootstrapIT`, `SessionContinuityIT`,
   `DistributionIT`, `EncryptedDistributionIT`, `CrashRecoveryIT`, `LagHandoffIT`, control tests.
 
-### Step 5 — `java/testing` + neoforge-mod repoint
-- `git mv` testkit → `java/testing`; deps: core, engine, transport.
+### Step 5 — `library/java/testing` + neoforge-mod repoint
+- `git mv` testkit → `library/java/testing`; deps: core, engine, transport.
 - `neoforge-mod/build.gradle.kts`: depend on `:engine`, `:transport`, `:storage`, `:peer`;
   remove `:transport-neoforge`; fat-jar bundling list updated to the merged modules.
 - Mod-side adoption: `NoderaWorldStore` → `AtomicFileWriter`; `CompanionClient`/
   `MultiplayerStatusFeed` → `Reachability`.
-- Re-enable note for future `integration-tests` scenario suite: its home becomes `java/testing`
+- Re-enable note for future `integration-tests` scenario suite: its home becomes `library/java/testing`
   (update the commented `settings.gradle.kts` line + Task-0 note).
 
 ### Step 6 — dead-code sweep + modernization polish
@@ -177,8 +177,8 @@ first or branch from its merged state).
 - `docs/Task.0.md`: §4 module-task table (module names/paths), §5 package map, §7 layering rules
   (rule 3 now: "No Minecraft/NeoForge types outside `neoforge-mod`"), module-name mapping
   old→new appended to the legacy mapping table.
-- `docs/Task.1.md`–`Task.7.md`: path/module references (Task 1 → `java/engine` (+`core`),
-  Task 2 → `java/transport|storage|peer`, Task 6 → `java/peer` worker half).
+- `docs/Task.1.md`–`Task.7.md`: path/module references (Task 1 → `library/java/engine` (+`core`),
+  Task 2 → `library/java/transport|storage|peer`, Task 6 → `peer` worker half).
 - `AGENTS.md` (module list, build commands), `README.md` (module table, progress),
   `Tested.md` (rows collapsed to 7 modules, counts carried over, history note),
   `docs/LEGACY.md` (transport-neoforge deletion row), `docs/Roadmap.md` snapshot note,
@@ -205,7 +205,7 @@ state. Live `runClient` measurement remains L-50's final evidence gate.
 
 1. `./gradlew check` (all 979 tests) + `cd rust && cargo test` (144) + clippy/fmt gate.
 2. Wire conformance: `WireFixtureTest` + Rust fixture decode — proves no contract drift.
-3. Worker end-to-end: `./gradlew :peer:installDist` then `NODERA_WORKER_BIN=... rust/nodera-app`
+3. Worker end-to-end: `./gradlew :peer:installDist` then `NODERA_WORKER_BIN=... app`
    probe (`NODERA-PROBE` → `NODERA-OK`), or `scripts/dev.sh --test`; confirms Tauri↔worker path
    survived the merge.
 4. ITs that drive real binaries/processes: `RendezvousRelayIT`, `TrackerServiceIT`,

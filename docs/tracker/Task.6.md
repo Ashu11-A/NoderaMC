@@ -110,9 +110,9 @@ bridge network. The compose service name is the form that works, and is now the 
 
 ## Files
 
-- `rust/nodera-service/src/env.rs` · `rust/nodera-service/src/endpoint.rs`
-- `rust/nodera-tracker/src/config.rs` · `src/main.rs` (`--print-env`)
-- `rust/nodera-tracker/src/bin/nodera-query.rs` (`--services`)
+- `library/rust/nodera-service/src/env.rs` · `library/rust/nodera-service/src/endpoint.rs`
+- `tracker/src/config.rs` · `src/main.rs` (`--print-env`)
+- `tracker/src/bin/nodera-query.rs` (`--services`)
 - `docker/tracker/Dockerfile` · `docker/compose.yml` · `docker/.env.example` · `docker/README.md`
 - `.github/workflows/containers.yml`
 - `scripts/deploy-vps.sh`

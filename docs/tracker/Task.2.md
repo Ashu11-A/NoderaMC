@@ -4,10 +4,10 @@
      endpoint and never arbitrates between them; it must degrade cleanly when an endpoint is
      unreachable. Do not add a "primary tracker" concept. Keep this header's status accurate. -->
 
-**Status:** ✅ COMPLETED (periodic announce scheduling lives in [worker 3](../worker/Task.3.md))
+**Status:** ✅ COMPLETED (periodic announce scheduling lives in [worker 3](../peer/Task.3.md))
 **Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [network 5](../network/Task.5.md)
-**Consumed by:** [minecraft 4](../minecraft/Task.4.md), [worker 3](../worker/Task.3.md), [app 2](../app/Task.2.md)
+**Consumed by:** [minecraft 4](../minecraft/Task.4.md), [worker 3](../peer/Task.3.md), [app 2](../app/Task.2.md)
 
 ---
 
@@ -30,7 +30,7 @@ query (`TrackerRoutesQuery`/`Response`) so a row can be resolved to a live endpo
 carries its open Minecraft endpoint as an `mc/host:port` route claim.
 
 The announce **loop** is constructed here but scheduled elsewhere: it belongs in the always-on worker
-([`worker/Task.3.md`](../worker/Task.3.md)), so a host's world stays listed with Minecraft closed. A
+([`worker/Task.3.md`](../peer/Task.3.md)), so a host's world stays listed with Minecraft closed. A
 tracker endpoint is also bootstrap mechanism #4 for [`network/Task.5.md`](../network/Task.5.md).
 
 ## Dependencies
@@ -48,7 +48,7 @@ tracker endpoint is also bootstrap mechanism #4 for [`network/Task.5.md`](../net
 | 4 | `TrackerCatalogQuery`/`Response` — the world directory | ✅ |
 | 5 | `TrackerRoutesQuery`/`Response` — resolve a row to a live endpoint | ✅ |
 | 6 | Retention countdown carried on every announce | ✅ |
-| 7 | Announce loop scheduled on a timer | → [worker 3](../worker/Task.3.md) |
+| 7 | Announce loop scheduled on a timer | → [worker 3](../peer/Task.3.md) |
 | 8 | GUI rows rendered from real responses | → [minecraft 4](../minecraft/Task.4.md) |
 
 ## Design
@@ -76,8 +76,8 @@ is what makes it recoverable when one does not.
 
 ## Files
 
-- `java/transport/src/main/java/dev/nodera/protocol/discovery/{TrackerAnnounce,TrackerAnnounceAck,TrackerRoutesQuery}.java`
-- `java/peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java` — announce/query/catalog/routes, plus `serviceDirectory`/`reportServiceScores` (Task 5) and `onDeletionNotice`/`publishDeletion`
+- `library/java/transport/src/main/java/dev/nodera/protocol/discovery/{TrackerAnnounce,TrackerAnnounceAck,TrackerRoutesQuery}.java`
+- `peer/src/main/java/dev/nodera/peer/discovery/TrackerClient.java` — announce/query/catalog/routes, plus `serviceDirectory`/`reportServiceScores` (Task 5) and `onDeletionNotice`/`publishDeletion`
 - Mod config: `tracker.endpoints = []` in both TOML files
 
 ## Testing
@@ -94,7 +94,7 @@ is what makes it recoverable when one does not.
 2. ✅ An unreachable endpoint backs off and does not break discovery.
 3. ✅ Scheme-aware endpoints work over TCP and UDP with a correct fallback.
 4. ✅ A listed world can be resolved to a live route.
-5. ⏳ The loop runs on its ack-paced timer from the worker ([worker 3](../worker/Task.3.md)) and rows
+5. ⏳ The loop runs on its ack-paced timer from the worker ([worker 3](../peer/Task.3.md)) and rows
    render live in the GUI ([minecraft 4](../minecraft/Task.4.md)).
 
 ## Limitations

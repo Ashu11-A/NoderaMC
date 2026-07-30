@@ -14,7 +14,7 @@
 > **Module-unification note (issue #30, 2026-07-21):** the fine-grained Gradle modules this file
 > mentions were merged into the seven unified modules — `core` · `engine` · `transport` ·
 > `storage` · `peer` · `testing` · `neoforge-mod` — with **packages unchanged**. Read old module
-> names as packages inside the new modules (mapping: [`Task.0.md`](Task.0.md) §5).
+> names as packages inside the new modules (mapping: [`docs/README.md`](../README.md) §3).
 
 > **Nodera** — "derived from node; clean, modern, and suitable for an engine or platform."
 >
@@ -236,7 +236,7 @@ nodera/
 Minecraft-free (plain Java, unit-testable without a server). Only `neoforge-mod` and
 `transport-neoforge` touch NeoForge/NMS types.
 
-Task 27 ([`MONOREPO.md`](old/Task.27.md)) re-roots this layout as a **polyglot monorepo**: the
+Task 27 (`MONOREPO.md`, since retired) re-roots this layout as a **polyglot monorepo**: the
 Gradle modules above move under `java/` (module names unchanged), and a cargo workspace under
 `rust/` adds `nodera-codec` (canonical-encoding conformance + Ed25519 verify), `nodera-tracker`
 (Task 28), and `nodera-rendezvous` (Task 29), with shared golden fixtures under `fixtures/`.
@@ -406,8 +406,8 @@ clients). Server keeps **one** committee vote — no exclusive key, no override.
   tick-lag/TPS handoff (25, spills into Phase 7), and the multiplayer GUI (26,
   GUI-deferred acceptance).
 - **Standalone Rust infrastructure (Tasks 27–29)** backs this phase: the monorepo restructure +
-  `nodera-codec` conformance crate (27, [`MONOREPO.md`](old/Task.27.md)), the standalone tracker
-  binary that replaces the embedded Java `TrackerService` (28, [`LEGACY.md`](./LEGACY.md)), and
+  `nodera-codec` conformance crate (27, `MONOREPO.md`, since retired), the standalone tracker
+  binary that replaces the embedded Java `TrackerService` (28, `LEGACY.md`, since retired), and
   the rendezvous+relay service delivering NAT reach (29). Peers verify — never trust — these
   services (Task 0 §4 rule 7): an outage degrades discovery/reach, never correctness.
 
@@ -494,7 +494,7 @@ thread via the commit applier.
 | Deterministic mob AI cost (Task 15) | High | Nodera-defined behaviour instead of an NMS port; fixed-point integer pathfinding; species-by-species retirement with ghosts as a working fallback at every step |
 | Slow/hostile peers stalling regions | Medium | Leases with expiry; server fallback executor; bounded caches; MultiPaper lesson: timeouts on every barrier |
 | NeoForge/MC version churn breaking mixins | Medium | Mixins are observation-only for as long as possible; Minecraft-free core modules unaffected |
-| Third-party mods mutating delegated regions | High (Hole A) | Task 11 interference guard: single `setBlockState` choke point, CONVERT-to-certified-`ExternalDelta` default, STRICT for CI; the normative contract other mods can rely on is [`COMPATIBILITY.md`](../COMPATIBILITY.md) |
+| Third-party mods mutating delegated regions | High (Hole A) | Task 11 interference guard: single `setBlockState` choke point, CONVERT-to-certified-`ExternalDelta` default, STRICT for CI; the normative contract other mods can rely on is [`COMPATIBILITY.md`](../../COMPATIBILITY.md) |
 | Scope creep toward vanilla parity | High | The §"Recommended first implementation scope" restrictions are binding until the MVP gate passes |
 
 ---

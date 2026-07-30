@@ -19,7 +19,7 @@ over unreachable code.
 **Category:** network · **Owns:** L-86, L-87, L-88, L-89, L-90 · **Last audit:** 2026-07-29
 **Depends on:** [network 1](Task.1.md), [network 2](Task.2.md), [tracker 5](../tracker/Task.5.md),
 [rendezvous 5](../rendezvous/Task.5.md)
-**Consumed by:** [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
+**Consumed by:** [worker 3](../peer/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
 [app 2](../app/Task.2.md), [server 1](../server/Task.1.md)
 
 ---
@@ -54,7 +54,7 @@ body        = fieldId:u16 | wireType:u8 | len:u32 | value        (infrastructure
 | # | Phase | Landed as |
 |---|---|---|
 | 0 | Harness | Total sample registry, complete fixture corpus, fail-on-missing, total tag mirror, mutation fuzz in both languages |
-| 1 | Schema | `WireRegistry` — one declarative row per kind. `KNOWN_TAGS`, `typeName` and the 144-arm `instanceof` chain are now **views over it**. `rust/nodera-codec/src/kinds.rs` and `fixtures/wire/manifest.json` are **generated** from it, and `tag_mirror.rs` re-parses the Java source to prove the generated file is fresh |
+| 1 | Schema | `WireRegistry` — one declarative row per kind. `KNOWN_TAGS`, `typeName` and the 144-arm `instanceof` chain are now **views over it**. `library/rust/nodera-codec/src/kinds.rs` and `fixtures/wire/manifest.json` are **generated** from it, and `tag_mirror.rs` re-parses the Java source to prove the generated file is fresh |
 | 2 | Planes | `MessagePlane`, and the classification of all 75 kinds. Consensus payloads cross as one opaque `BYTES` field |
 | 3 | Frame | `NoderaFrame`, `TlvWriter`/`TlvReader`/`TlvOverlay`, `InfrastructureCodec` (one row per message, encoder and decoder adjacent), `WireCodec`. Mirrored in Rust by `frame.rs`, `tlv.rs`, `wire.rs`. Corpus regenerated; the v1 bytes retained under `fixtures/wire/v1-rejected/` as a **rejection set** both languages assert |
 | 4 | Negotiation | `Hello`/`HelloAck`/`Negotiation`/`PeerSession`, feature **intersection**, OBSERVER admission, coded rejects, identity bound to the transport |
@@ -145,18 +145,18 @@ no point negotiating a version space that should not exist.
 
 | Path | Role |
 |---|---|
-| `java/transport/src/main/java/dev/nodera/protocol/wire/WireRegistry.java` | **The schema.** One row per kind; everything else is derived or generated from it |
-| `java/transport/src/main/java/dev/nodera/protocol/wire/{MessagePlane,WireKind}.java` | The plane classification and the row type |
-| `java/transport/src/main/java/dev/nodera/protocol/wire/{NoderaFrame,FrameFlags}.java` | The `NDR2` frame |
-| `java/transport/src/main/java/dev/nodera/protocol/wire/{WireType,TlvField,TlvWriter,TlvReader,TlvOverlay}.java` | Canonical TLV, including preservation of what this build cannot read |
-| `java/transport/src/main/java/dev/nodera/protocol/wire/{InfrastructureCodec,WireCodec}.java` | The 50 TLV shapes, and the plane router that turns a message into a frame |
-| `java/transport/src/main/java/dev/nodera/protocol/wire/{WireEnum,WireEnums}.java` | Explicit enum wire codes, with a totality check at class initialisation |
-| `java/transport/src/main/java/dev/nodera/protocol/wire/{AuthPolicy,MessageType,MessageTypes,MessageRouter,CorrelationTable}.java` | Who may send what, and how it is dispatched |
-| `java/transport/src/main/java/dev/nodera/protocol/session/*.java` | `Hello`, `HelloAck`, `Nack`, `Negotiation`, `PeerSession`, `WireFeature`, `SessionRole`, `RejectCode` |
-| `java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java` | The **canonical** encoder: hashing, signing, and the consensus plane. No longer what crosses a socket |
-| `java/neoforge-mod/src/main/java/dev/nodera/mod/server/entity/PoseCodes.java` | Minecraft's `Pose`, renumbered into a table Nodera owns |
-| `rust/nodera-codec/src/{frame,tlv,wire}.rs` | The Rust half of the frame, TLV, and the 24 kinds the services speak |
-| `rust/nodera-codec/src/kinds.rs` | **Generated** from `WireRegistry.java` — never edited by hand |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/WireRegistry.java` | **The schema.** One row per kind; everything else is derived or generated from it |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/{MessagePlane,WireKind}.java` | The plane classification and the row type |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/{NoderaFrame,FrameFlags}.java` | The `NDR2` frame |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/{WireType,TlvField,TlvWriter,TlvReader,TlvOverlay}.java` | Canonical TLV, including preservation of what this build cannot read |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/{InfrastructureCodec,WireCodec}.java` | The 50 TLV shapes, and the plane router that turns a message into a frame |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/{WireEnum,WireEnums}.java` | Explicit enum wire codes, with a totality check at class initialisation |
+| `library/java/transport/src/main/java/dev/nodera/protocol/wire/{AuthPolicy,MessageType,MessageTypes,MessageRouter,CorrelationTable}.java` | Who may send what, and how it is dispatched |
+| `library/java/transport/src/main/java/dev/nodera/protocol/session/*.java` | `Hello`, `HelloAck`, `Nack`, `Negotiation`, `PeerSession`, `WireFeature`, `SessionRole`, `RejectCode` |
+| `library/java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java` | The **canonical** encoder: hashing, signing, and the consensus plane. No longer what crosses a socket |
+| `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/server/entity/PoseCodes.java` | Minecraft's `Pose`, renumbered into a table Nodera owns |
+| `library/rust/nodera-codec/src/{frame,tlv,wire}.rs` | The Rust half of the frame, TLV, and the 24 kinds the services speak |
+| `library/rust/nodera-codec/src/kinds.rs` | **Generated** from `WireRegistry.java` — never edited by hand |
 | `fixtures/wire/*.bin`, `fixtures/wire/java-only/*.bin` | The `NDR2` corpus — never edited by hand |
 | `fixtures/wire/v1-rejected/*.bin` | The retired pre-`NDR2` corpus, asserted to be **refused** by both languages |
 | `fixtures/wire/manifest.json` | **Generated**: which kind each fixture pins, and which plane governs it |

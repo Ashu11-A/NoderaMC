@@ -7,7 +7,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [worker 1](../worker/Task.1.md)
+**Depends on:** [worker 1](../peer/Task.1.md)
 **Consumed by:** every player; it is what makes the always-on node an actual guarantee
 
 ---
@@ -27,7 +27,7 @@ for development. The dedicated-server distribution enforces the same gate.
 
 ## Dependencies
 
-- [worker 1](../worker/Task.1.md) — the endpoint being probed.
+- [worker 1](../peer/Task.1.md) — the endpoint being probed.
 
 ## Deliverables
 
@@ -64,7 +64,7 @@ deliberate local choice, not a fallback the product ships in.
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/{CompanionGate,CompanionClient,CompanionLink,CompanionProtocol}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/{CompanionGate,CompanionClient,CompanionLink,CompanionProtocol}.java`
 
 ## Testing
 

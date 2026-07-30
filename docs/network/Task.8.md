@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (opt-in create/join UI → [minecraft 4](../minecraft/Task.4.md), [minecraft 5](../minecraft/Task.5.md))
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 4](Task.4.md)
-**Consumed by:** [minecraft 5](../minecraft/Task.5.md), [worker 3](../worker/Task.3.md)
+**Consumed by:** [minecraft 5](../minecraft/Task.5.md), [worker 3](../peer/Task.3.md)
 
 ---
 
@@ -81,8 +81,8 @@ versions are therefore evicted from the manifest table, from holdings, and from 
 
 ## Files
 
-- `java/core/src/main/java/dev/nodera/core/crypto/symmetric/`
-- `java/peer/src/main/java/dev/nodera/distribution/{EncryptedPiece,EncryptedRegion,ContentCipher,PasswordKeyDerivations,WorldKeyMaterial}.java`
+- `library/java/core/src/main/java/dev/nodera/core/crypto/symmetric/`
+- `peer/src/main/java/dev/nodera/distribution/{EncryptedPiece,EncryptedRegion,ContentCipher,PasswordKeyDerivations,WorldKeyMaterial}.java`
 
 ## Testing
 

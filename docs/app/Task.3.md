@@ -66,7 +66,7 @@ indistinguishable from malware to a cautious user, and this app asks to run at l
 
 ## Files
 
-- `rust/nodera-app/tauri.conf.json`, `rust/nodera-app/icons/`
+- `app/tauri.conf.json`, `app/icons/`
 - `.github/workflows/` (the companion build job)
 
 ## Testing

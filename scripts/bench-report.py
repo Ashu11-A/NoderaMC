@@ -32,9 +32,12 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_RESULTS = ROOT / "java/peer/build/results/jmh/results.json"
-DEFAULT_OUT = ROOT / "build/reports/nodera/BENCHMARKS.md"
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import layout  # noqa: E402
+
+ROOT = layout.root()
+DEFAULT_RESULTS = layout.module("peer") / "build/results/jmh/results.json"
+DEFAULT_OUT = layout.directory("artifacts") / "reports/nodera/BENCHMARKS.md"
 DEFAULT_BASELINE = ROOT / "fixtures/bench/baseline.json"
 
 # One lane per benchmark class. The lane is what the report groups by, because

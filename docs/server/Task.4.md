@@ -118,8 +118,8 @@ The reverse — generate a fresh world, certify genesis, publish, seed — is th
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/world/{BukkitWorldView,EndpointChunkGate,CustodyReconciler,SaveBoundaryArchiver,WorldAdoptionService}.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/world/CrossRegionCommit.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/world/{BukkitWorldView,EndpointChunkGate,CustodyReconciler,SaveBoundaryArchiver,WorldAdoptionService}.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/world/CrossRegionCommit.java`
 
 ## Testing
 

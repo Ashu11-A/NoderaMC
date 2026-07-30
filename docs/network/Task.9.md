@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (live commit/content/lifecycle adapters → [minecraft 2](../minecraft/Task.2.md))
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 4](Task.4.md), [network 6](Task.6.md), [network 7](Task.7.md)
-**Consumed by:** [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md)
+**Consumed by:** [worker 3](../peer/Task.3.md), [minecraft 5](../minecraft/Task.5.md)
 
 ---
 
@@ -33,7 +33,7 @@ snapshot ×5 into real destination stores, and replays the surviving certified l
 root.
 
 The full form of rule 5 — a separate OS process that survives a Minecraft crash — is the always-on
-worker ([`worker/Task.1.md`](../worker/Task.1.md)), which is a different process by construction.
+worker ([`worker/Task.1.md`](../peer/Task.1.md)), which is a different process by construction.
 
 ## Dependencies
 
@@ -79,9 +79,9 @@ bounded final flush and a seeded-version freshness marker fixed both.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/distribution/{ActivePlayerStream,EmergencyFlush}.java`
-- `java/peer/src/main/java/dev/nodera/peer/PeerShutdownHook.java`
-- `java/engine/src/main/java/dev/nodera/committee/VotePersistence.java`
+- `peer/src/main/java/dev/nodera/distribution/{ActivePlayerStream,EmergencyFlush}.java`
+- `peer/src/main/java/dev/nodera/peer/PeerShutdownHook.java`
+- `library/java/engine/src/main/java/dev/nodera/committee/VotePersistence.java`
 
 ## Testing
 
@@ -104,4 +104,4 @@ bounded final flush and a seeded-version freshness marker fixed both.
 ## Limitations
 
 None open. **L-40** is RETIRED — see [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). **L-41** (the
-separate OS sidecar) is owned by [`worker/LIMITATIONS.md`](../worker/LIMITATIONS.md).
+separate OS sidecar) is owned by [`worker/LIMITATIONS.md`](../peer/LIMITATIONS.md).

@@ -61,7 +61,7 @@ hold. Attacker cannot forge Ed25519 signatures or recover private keys.
   to carry the **real** author key, operator-signed grants to chain to a key-matching operator
   grant; **v1 grants can never carry OPERATOR+**. Key-checked `roleOf(NodeId, Bytes)` /
   `isOperator(NodeId, Bytes)`; `snapshot()`. NodeId-only `canJoin` kept for the mesh gate.
-- Files: `java/storage/.../{WorldPermissionGrant,WorldPermissions}.java`.
+- Files: `library/java/storage/.../{WorldPermissionGrant,WorldPermissions}.java`.
 
 ### Phase 2 — Challenge–response announce (F1) — neoforge-mod
 - `AnnounceChallenges`: per-login 32-byte `SecureRandom` nonce, single-use, expiring, keyed by MC

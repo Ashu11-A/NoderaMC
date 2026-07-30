@@ -7,7 +7,7 @@
      Keep counts and Last run current. -->
 
 **Category:** tracker · **Last run:** 2026-07-28 · **109 Rust `#[test]`s · 0 failing** (grep-verified)
-in `rust/nodera-tracker`, plus **89 `@Test` methods** in `java/peer/.../dev/nodera/peer/discovery/`
+in `tracker`, plus **89 `@Test` methods** in `peer/.../dev/nodera/peer/discovery/`
 (including `TrackerServiceIT` and the client tests on the Java gate, and 38 in the shared
 `nodera-service` crate).
 
@@ -71,7 +71,7 @@ Driven from Java against the real binary:
 5. **The exit scenario:** a world whose every Java seeder has gone silent past the TTL is still listed
    by name, with its countdown and a DEAD verdict.
 
-## 4. Client tests (`java/peer/.../discovery/`)
+## 4. Client tests (`peer/.../discovery/`)
 
 - `TrackerServiceIT` (7 `@Test`s) — the client against the real binary, including the deletion-notice
   hand-back and the service-directory + score-report round trips.

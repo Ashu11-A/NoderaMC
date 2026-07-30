@@ -71,8 +71,8 @@ validation (task 5) later generalises into a quorum with adaptive spot-checking.
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/shadow/{WorkerRuntime,ReplicaStore,SnapshotDeltaApplier,ShadowWorker,ShadowCoordinator,ServerRecompute,DivergenceTracker,InterferenceProbe}.java`
-- `java/engine/src/test/java/dev/nodera/shadow/ShadowValidationIT.java`
+- `library/java/engine/src/main/java/dev/nodera/shadow/{WorkerRuntime,ReplicaStore,SnapshotDeltaApplier,ShadowWorker,ShadowCoordinator,ServerRecompute,DivergenceTracker,InterferenceProbe}.java`
+- `library/java/engine/src/test/java/dev/nodera/shadow/ShadowValidationIT.java`
 
 ## Testing
 

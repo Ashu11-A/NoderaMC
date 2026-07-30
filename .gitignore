@@ -7,7 +7,7 @@ build/
 .idea/
 *.iml
 # IDE (Eclipse/VSCode-Java) compile output inside each module — never committed.
-java/*/bin/
+library/java/*/bin/
 .vscode/
 .eclipse/
 .classpath
@@ -49,17 +49,17 @@ claude_code_zai_env.sh
 .env
 
 # Rust build output (cargo workspace under rust/, Task 27).
-/rust/target/
+/target/
 
 # Local agent/plugin settings (per-machine, not project config).
 /.claude/
 
 # NeoForge dev runs (MDG runClient/runServer/runClientJoin game dirs)
-java/neoforge-mod/run/
-java/neoforge-mod/run-join/
-java/neoforge-mod/run-join2/
-java/neoforge-mod/run-join3/
-java/neoforge-mod/run-host/
+endpoints/neoforge-mod/run/
+endpoints/neoforge-mod/run-join/
+endpoints/neoforge-mod/run-join2/
+endpoints/neoforge-mod/run-join3/
+endpoints/neoforge-mod/run-host/
 
 # Telemetry deployment (docker/telemetry/) — secrets, TLS material, and collected data never land
 # in git. The .example files and the configuration ARE committed; what they point at is not.
@@ -69,7 +69,7 @@ docker/telemetry/edge/certs/*
 telemetry-spool/
 
 # Kotlin build-daemon crash logs from build-logic (per-machine, never useful in git).
-java/build-logic/.kotlin/
+library/java/build-logic/.kotlin/
 
 # Python bytecode (the Spark jobs are sources, never build output).
 __pycache__/

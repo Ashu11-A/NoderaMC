@@ -30,7 +30,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 | [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-91, renumbered from a duplicate L-84 on 2026-07-28) |
 | [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97). **The handshake was wired into `PeerRuntime` on 2026-07-29** — it had been RETIRING over a class with no production caller; L-87/L-88/L-90 still RETIRING pending a live mixed-release run |
-| [15](Task.15.md) | Structural benchmarking + structural code report | ✅ COMPLETED | Four JMH lanes (`:peer:jmh`), ranked report with load-scaling + baseline diff, bytecode dead-code/cost report and JDWP worker probe (`:worker:structureReport`), both ratcheted and both on the `benchmarks` workflow |
+| [15](Task.15.md) | Structural benchmarking + structural code report | ✅ COMPLETED | Four JMH lanes (`:peer:jmh`), ranked report with load-scaling + baseline diff, bytecode dead-code/cost report and JDWP worker probe (`:peer:structureReport`), both ratcheted and both on the `benchmarks` workflow |
 
 ---
 
@@ -290,7 +290,7 @@ filter it by the same four rules (not self, not a player node, routable, key-bea
 `ClientValidationLaneResidentPoolTest` (7), and `CompanionSessionBindingIsCalledTest` (5), which
 guards the call sites because the fault was an *absence* and absences do not fail unit tests.
 
-**The R2/R3 handshake was RETIRING on tests of a dead class.** `:worker:structureReport` listed
+**The R2/R3 handshake was RETIRING on tests of a dead class.** `:peer:structureReport` listed
 `dev.nodera.protocol.session.Negotiation` under "classes only tests and benchmarks reference", and
 that was exactly right: `PeerRuntime.dispatch` never handled a `Hello`, so nothing constructed,
 sent or answered one — the same defect the L-87 row describes about the tags it replaced. It is now
@@ -322,7 +322,7 @@ superlinear work is visible before the network is large enough for it to hurt), 
 `fixtures/bench/baseline.json` that calls a regression only when a result is both >25% slower and
 outside its own error bars.
 
-**`./gradlew :worker:structureReport` — the structural code report.** ASM reads every module's
+**`./gradlew :peer:structureReport` — the structural code report.** ASM reads every module's
 bytecode for the reference graph and for in-loop cost (allocation, boxing, string building, linear
 scans, regex compilation, monitors) plus methods past HotSpot's 8000-byte compile limit; then JDI
 attaches to the **real, unmodified `nodera-headless` process** over JDWP and records which classes
@@ -454,8 +454,8 @@ last, behind the fixture and tag-mirror gates, derive `MessageCodec`/`Infrastruc
 dispatch from `WireRegistry`.
 
 **Counts grep-verified.** `@Test` annotations: transport 184, storage 154, peer 574 (was listed
-595; `rg` over `java/peer/src/test` gives 574), `nodera-codec` `#[test]` 73. The headless-worker
-tests live in `java/worker` and are accounted under the worker category.
+595; `rg` over `peer/src/test` gives 574), `nodera-codec` `#[test]` 73. The headless-worker
+tests live in `peer` and are accounted under the worker category.
 
 ### 2026-07-28 — the wire was rebuilt, and a peer from another release can now stay on the network
 

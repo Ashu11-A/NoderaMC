@@ -8,8 +8,8 @@
 
 **Status:** 🚧 IN PROGRESS (genesis, continuity, re-key, and the live-join password gate all landed; live rendezvous composition + per-piece encryption at share remain)
 **Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [network 3](../network/Task.3.md), [network 8](../network/Task.8.md), [rendezvous 2](../rendezvous/Task.2.md), [worker 3](../worker/Task.3.md)
-**Consumed by:** players, [worker 3](../worker/Task.3.md)
+**Depends on:** [network 3](../network/Task.3.md), [network 8](../network/Task.8.md), [rendezvous 2](../rendezvous/Task.2.md), [worker 3](../peer/Task.3.md)
+**Consumed by:** players, [worker 3](../peer/Task.3.md)
 
 ---
 
@@ -53,7 +53,7 @@ seeds through the ordinary share activation. That is the last open half of this 
 
 - [network 8](../network/Task.8.md) — encryption and key material.
 - [network 3](../network/Task.3.md) — certified genesis and identity types.
-- [worker 3](../worker/Task.3.md) — hosting delegation and seeding.
+- [worker 3](../peer/Task.3.md) — hosting delegation and seeding.
 
 ## Deliverables
 
@@ -98,9 +98,9 @@ genesis; the host's signing key and runtime state do not.
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/{NoderaPeerService,NoderaHost,NoderaWorldStore}.java`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/client/share/`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/{WorldArchiver,NoderaContinuity}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/{NoderaPeerService,NoderaHost,NoderaWorldStore}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/client/share/`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/{WorldArchiver,NoderaContinuity}.java`
 
 ## Testing
 

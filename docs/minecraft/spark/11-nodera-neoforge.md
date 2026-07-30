@@ -41,7 +41,7 @@ names at runtime in *both* dev and production from 21.x, so no remapping step is
 by the same boot.
 
 **Do not put the jar on `additionalRuntimeClasspath`.** That is the module's seam for *libraries*
-(`java/neoforge-mod/build.gradle.kts` uses it for RocksDB, Caffeine and friends). It would put
+(`endpoints/neoforge-mod/build.gradle.kts` uses it for RocksDB, Caffeine and friends). It would put
 spark's classes on the classpath without FML ever registering it as a mod, so no commands, no tick
 hook, no `ClassSourceLookup`.
 
@@ -133,11 +133,11 @@ That left the single most important configuration in Nodera unmeasurable: the on
 hosts and most of our server-side logic actually runs. Since the mod is already inside that JVM,
 the mod dispatches the commands.
 
-`java/neoforge-mod/src/main/java/dev/nodera/mod/debug/SparkProfileBridge.java`:
+`endpoints/neoforge-mod/src/main/java/dev/nodera/mod/debug/SparkProfileBridge.java`:
 
 ```bash
 NODERA_SPARK=1 NODERA_SPARK_PROFILE=120 scripts/e2e-ownership.sh
-ls java/neoforge-mod/run-host/config/spark/*.sparkprofile
+ls endpoints/neoforge-mod/run-host/config/spark/*.sparkprofile
 ```
 
 How it behaves:

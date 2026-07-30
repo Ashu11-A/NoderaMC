@@ -39,6 +39,21 @@ jobs:
       # to make the documented claim true.
       - name: Every version mirror agrees with VERSION
         run: scripts/version.sh --check
+      # `layout.properties` is the one layout table, and `LayoutManifestTest` holds Gradle, the Java
+      # harness, the scripts and the Rust tests to it. Workflow YAML, Dockerfiles, `.dockerignore`
+      # and `tauri.*.conf.json` cannot read it — GitHub, Docker and Tauri parse them first — and
+      # those are exactly the files that fail SILENTLY: a `paths:` filter that matches nothing does
+      # not error, it stops firing, and the job goes on reporting green about a directory that
+      # moved. This is the grep that notices.
+      - name: Layout references resolve (workflows, Dockerfiles, tauri config)
+        run: scripts/check-layout-drift.sh
+      # `docs/` is ~1,000 files that cross-reference each other by relative path, and nothing
+      # checked those links. The 2026-07-30 worker -> peer rename moved ninety-six of them at once;
+      # the only symptom of getting that wrong is a 404 for whoever clicks. Table shape is checked
+      # alongside it because a limitation row with a missing cell still RENDERS — as values under
+      # the wrong headings, which is worse than a row that fails.
+      - name: Docs links resolve and tables are square
+        run: scripts/check-docs.sh
 
   # L-47's exit job: build the companion app, prove the gate both ways, and prove a hosted
   # world survives the host closing Minecraft (the worker keeps it alive).
@@ -55,46 +70,49 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            rust
-            rust/nodera-app
+            .
+            app
       - name: Tauri system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
       - name: Build service binaries + worker dist
         run: |
-          (cd rust && cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
-          ./gradlew :worker:installDist
+          (cargo build --release --bin nodera-tracker --bin nodera-rendezvous)
+          ./gradlew :peer:installDist
           mkdir -p build
-          cp -r java/worker/build/install/nodera-headless build/
+          cp -r peer/build/install/nodera-headless build/
       - uses: oven-sh/setup-bun@v2
       - name: Build the companion UI (tauri frontendDist)
-        run: cd rust/nodera-app/ui && bun install --frozen-lockfile && bun run build
+        run: cd app/ui && bun install --frozen-lockfile && bun run build
       - name: Build the companion app
-        run: cd rust/nodera-app && cargo build --release
+        run: cd app && cargo build --release
       # The app's own tests have never run in CI, which is how the settings model, the
       # NODERA-CONFIG golden string and the worker's spawn environment were all covered by tests
       # that only ever ran on somebody's laptop. `nodera-app` is outside the cargo workspace, so
       # the `rust` job's `cargo test` does not reach it.
       - name: Test the companion app
-        run: cd rust/nodera-app && cargo test
+        run: cd app && cargo test
       # The lint half of the same omission (the fmt half runs in the `rust` job, which needs no
-      # compilation). `rust/nodera-app` is its own cargo workspace, so `cargo clippy` in the `rust`
+      # compilation). `app` is its own cargo workspace, so `cargo clippy` in the `rust`
       # job never reached a line of it — the whole companion app was exempt from the `-D warnings`
       # standard the rest of the Rust tree is held to. It lives here rather than in `rust` because
       # linting Tauri needs the webkit2gtk system deps this job already installs.
       - name: Lint the companion app
         run: |
           rustup component add clippy
-          cd rust/nodera-app && cargo clippy --all-targets -- -D warnings
+          cd app && cargo clippy --all-targets -- -D warnings
       # The worker dist and ui/dist are both built above, so this is the run that also covers the
       # companion app's count.
       - name: README's test counts match the suites (all six crates)
         run: scripts/test-counts.sh --check
       - name: Gate both ways (worker present => start, absent => actionable abort)
-        run: ./gradlew :neoforge-mod:test --tests 'dev.nodera.mod.common.CompanionGateTest'
+        # `:endpoint`, not `:neoforge-mod`: CompanionGate is Minecraft-free and moved to the
+        # endpoint library on 2026-07-30. A --tests filter that matches nothing FAILS the build,
+        # which is what caught this — a filter is only a gate while it points at a real class.
+        run: ./gradlew :endpoint:test --tests 'dev.nodera.endpoint.control.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
-        run: ./gradlew :worker:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
+        run: ./gradlew :peer:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
 
   # M-5's exit job. Java 21 type-pattern switches (`case SomeType v ->`) compile to an
   # `invokedynamic` on `java.lang.runtime.SwitchBootstraps`; ART does not implement it and D8 cannot
@@ -125,21 +143,21 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
       # rust-toolchain.toml pins the channel; rustup honours it automatically.
       - run: rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
       - run: cargo fmt --check
-      # `rust/nodera-app` is EXCLUDED from this workspace (Tauri native deps), so the line above
+      # `app` is EXCLUDED from this workspace (Tauri native deps), so the line above
       # skipped it silently: the companion app had never been format-checked, and `src/api/store.rs`
       # sat drifted on main. rustfmt parses source and needs no dependencies, so the second
       # workspace is checked here — a formatting failure should not wait on a Tauri build. The
       # matching clippy run is in the `companion` job, which has the system deps to compile it.
-      - run: cargo fmt --check --manifest-path nodera-app/Cargo.toml
+      - run: cargo fmt --check --manifest-path app/Cargo.toml
       - run: cargo clippy --all-targets -- -D warnings
       # Includes the cross-language conformance tests: the tag-registry mirror is asserted against
       # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
@@ -180,7 +198,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: rust
+        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous
@@ -188,6 +206,6 @@ jobs:
         with:
           name: nodera-services-${{ github.ref_name }}
           path: |
-            rust/target/release/nodera-tracker
-            rust/target/release/nodera-rendezvous
+            target/release/nodera-tracker
+            target/release/nodera-rendezvous
           if-no-files-found: error

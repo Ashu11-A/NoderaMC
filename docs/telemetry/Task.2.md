@@ -93,7 +93,7 @@ iterative grouping step; running it against the instance that serves Grafana tur
 refresh into a timeout for everyone.
 
 **Nothing here is a dependency of NoderaMC.** Every container can be down without any peer, tracker,
-or rendezvous service behaving differently — the property [`worker 5`](../worker/Task.5.md) proves
+or rendezvous service behaving differently — the property [`worker 5`](../peer/Task.5.md) proves
 with `TelemetryOutageIT`.
 
 ## Files

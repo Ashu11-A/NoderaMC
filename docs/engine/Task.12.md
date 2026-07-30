@@ -114,10 +114,10 @@ applied commit) — what remains is the renderer bind and the capture-point pred
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/rules/{PlayerRules,MovementRules,ContainerRules,PortalRules,CommandRules,MobCombatRules}.java`
-- `java/engine/src/main/java/dev/nodera/simulation/pack/{PackRules,PackDelegatingRuleSet,RulePackRegistry}.java`
-- `java/peer/src/main/java/dev/nodera/peer/committee/CommitteeManager.java`
-- `java/peer/src/main/java/dev/nodera/peer/genesis/GenesisApprovalFlow.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/{PlayerRules,MovementRules,ContainerRules,PortalRules,CommandRules,MobCombatRules}.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/pack/{PackRules,PackDelegatingRuleSet,RulePackRegistry}.java`
+- `peer/src/main/java/dev/nodera/peer/committee/CommitteeManager.java`
+- `peer/src/main/java/dev/nodera/peer/genesis/GenesisApprovalFlow.java`
 
 ## Testing
 

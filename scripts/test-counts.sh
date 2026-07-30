@@ -21,10 +21,17 @@
 # ===========================================================================
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
 README="$NODERA_ROOT/README.md"
 
-WORKSPACE_CRATES=(nodera-codec nodera-service nodera-tracker nodera-rendezvous nodera-telemetry)
+# The workspace crates, from layout.properties rather than a hand-kept list — a crate added and not
+# added HERE is a suite this gate silently stops counting.
+mapfile -t WORKSPACE_CRATES < <(
+    python3 -c "
+import sys; sys.path.insert(0, '$NODERA_ROOT/scripts/lib'); import layout
+print('\n'.join(sorted(layout.workspace_crates())))"
+)
 
 # Enumerate, do not run: `--list` prints one `name: test` line per test.
 count_crate() {
@@ -36,36 +43,43 @@ count_crate() {
 measure() {
     local crate
     for crate in "${WORKSPACE_CRATES[@]}"; do
-        printf '%s\t%s\n' "$crate" "$(count_crate "$NODERA_ROOT/rust/Cargo.toml" "$crate")"
+        printf '%s\t%s\n' "$crate" "$(count_crate "$NODERA_CARGO_WS/Cargo.toml" "$crate")"
     done
     # The companion app's build script needs the bundled worker distribution and the built UI. When
     # they are absent the crate cannot even be enumerated, and reporting a zero would quietly erase
     # the largest suite in the tree — so say so and let --check decide what that means.
-    if [[ -d "$NODERA_ROOT/build/nodera-headless" && -d "$NODERA_ROOT/rust/nodera-app/ui/dist" ]]; then
-        printf '%s\t%s\n' nodera-app "$(count_crate "$NODERA_ROOT/rust/nodera-app/Cargo.toml" nodera-app)"
+    if [[ -d "$NODERA_ARTIFACTS/nodera-headless" && -d "$NODERA_APP_DIR/ui/dist" ]]; then
+        printf '%s\t%s\n' nodera-app "$(count_crate "$NODERA_APP_DIR/Cargo.toml" nodera-app)"
     else
         printf '%s\t%s\n' nodera-app skipped
     fi
 }
 
-# The README row for a crate is `| `rust/<crate>` | …description… | <count> | <status> |`. The count
-# is the second-to-last cell, which is why the substitution anchors on the trailing status cell
-# rather than trying to parse a description full of pipes-free prose.
+# The README row for a crate is `| `<dir>` | …description… | <count> | <status> |`, where `<dir>` is
+# the crate's directory from layout.properties — so a crate that moves moves its README row with it
+# instead of dropping out of this gate. The count is the second-to-last cell, which is why the
+# substitution anchors on the trailing status cell rather than trying to parse a prose description.
+readme_label() {
+    layout_get "crate.$1"
+}
+
 readme_count() {
-    local crate=$1
-    sed -n "s@^| \`rust/$crate\` |.*| \([0-9—-]*\) | .* |\$@\1@p" "$README"
+    local label
+    label="$(readme_label "$1")"
+    sed -n "s@^| \`$label\` |.*| \([0-9—-]*\) | .* |\$@\1@p" "$README"
 }
 
 readme_write() {
-    local crate=$1 count=$2
-    python3 - "$README" "$crate" "$count" <<'PY'
+    local crate=$1 count=$2 label
+    label="$(readme_label "$crate")"
+    python3 - "$README" "$label" "$count" <<'PY'
 import re, sys
-readme, crate, count = sys.argv[1], sys.argv[2], sys.argv[3]
+readme, label, count = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(readme, encoding='utf-8').read()
-pattern = re.compile(r'(^\| `rust/' + re.escape(crate) + r'` \|.*\| )[0-9—-]*( \| [^|]*\|)$', re.M)
+pattern = re.compile(r'(^\| `' + re.escape(label) + r'` \|.*\| )[0-9—-]*( \| [^|]*\|)$', re.M)
 new, n = pattern.subn(lambda m: m.group(1) + count + m.group(2), text)
 if n != 1:
-    sys.exit(f"test-counts: expected exactly one README row for rust/{crate}, found {n}")
+    sys.exit(f"test-counts: expected exactly one README row for {label}, found {n}")
 open(readme, 'w', encoding='utf-8').write(new)
 PY
 }

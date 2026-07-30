@@ -7,7 +7,7 @@
      exist yet; that belongs in the owning category's task file, not here. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `rust/nodera-app/src/android/network.rs`, the settings document
+**Category:** mobile · **Owns:** `app/src/android/network.rs`, the settings document
 **Last audit:** 2026-07-28
 **Depends on:** [mobile 2](Task.2.md), [mobile 3](Task.3.md), [app 7](../app/Task.7.md)
 
@@ -130,9 +130,9 @@ Nothing pinned that before, which is how the two replication keys went missing u
 
 | Path | Role |
 |---|---|
-| `rust/nodera-app/src/settings.rs` | `Stored`/`SettingsHandle`, damaged-file handling, `default_trackers()` |
-| `rust/nodera-app/src/config.rs` | `WorkerConfig`, `ENFORCEMENT`, the worker-key census test |
-| `rust/nodera-app/src/android/network.rs` | `transfer_network` policy + `NET_CAPABILITY_NOT_METERED` |
+| `app/src/settings.rs` | `Stored`/`SettingsHandle`, damaged-file handling, `default_trackers()` |
+| `app/src/config.rs` | `WorkerConfig`, `ENFORCEMENT`, the worker-key census test |
+| `app/src/android/network.rs` | `transfer_network` policy + `NET_CAPABILITY_NOT_METERED` |
 | `scripts/android-apk.sh` | bakes in `NODERA_DEFAULT_TRACKERS`, injects `ACCESS_NETWORK_STATE` |
 
 ## Testing

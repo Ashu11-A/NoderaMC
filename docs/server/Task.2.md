@@ -1,6 +1,6 @@
 # Server Task 2 — Embedded Peer + Control Plane
 
-<!-- AI-AGENT-INSTRUCTION: The endpoint runs THE peer (java/peer PeerRuntime), not a reimplementation
+<!-- AI-AGENT-INSTRUCTION: The endpoint runs THE peer (peer PeerRuntime), not a reimplementation
      and not a subset. Option B is locked for the worker and it is locked here for the same reason:
      no second region engine in any language. The control plane is the SAME verb table
      (ControlProtocol v2) — served in-process for the embedded mode and over the loopback socket for
@@ -8,7 +8,7 @@
 
 **Status:** 🚧 IN PROGRESS (config parsed/validated/enforced at enable; external worker link shipped and proven live; the in-process `PeerRuntime` remains)
 **Category:** server · **Owns:** — (L-71 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
-**Depends on:** [server 1](Task.1.md), [network 2](../network/Task.2.md), [network 5](../network/Task.5.md), [worker 2](../worker/Task.2.md)
+**Depends on:** [server 1](Task.1.md), [network 2](../network/Task.2.md), [network 5](../network/Task.5.md), [worker 2](../peer/Task.2.md)
 **Consumed by:** [server 3](Task.3.md) … [server 9](Task.9.md)
 
 ---
@@ -52,7 +52,7 @@ answer, it should host a node or be deleted, and deleting it is the honest end s
 - [server 1](Task.1.md) — the module, the jar, and the platform seam.
 - [network 2](../network/Task.2.md) — `PeerRuntime` is what gets embedded.
 - [network 5](../network/Task.5.md) — `PersistentIdentityStore` for the node key.
-- [worker 2](../worker/Task.2.md) — `ControlProtocol` is the single source of truth for the verbs;
+- [worker 2](../peer/Task.2.md) — `ControlProtocol` is the single source of truth for the verbs;
   this task adds a fourth *consumer*, never a fourth definition.
 
 ## Deliverables
@@ -81,7 +81,7 @@ may be referenced from a class the peer calls back into, except through the seam
 
 **Two peer modes, and the second one matters.** Embedding couples the node's lifetime to the server
 JVM's — a server crash takes the node down with it, which is the exact coupling the
-[`worker`](../worker/Task.0.md) category exists to remove.
+[`worker`](../peer/Task.0.md) category exists to remove.
 
 | Mode | Peer lives in | When |
 |---|---|---|
@@ -97,7 +97,7 @@ closed with an actionable message, never a silent no-network degrade). The prope
 source of truth. The endpoint implements `ControlHandler` against live plugin state; that is
 implementation number four of the *handler*, not of the *protocol*. Any protocol change still lands in
 `ControlProtocol`, the mod's `CompanionProtocol`, and the app's `control.rs` in one commit — this task
-adds a fifth file to that list and says so in [`../worker/Task.0.md`](../worker/Task.0.md) §3.
+adds a fifth file to that list and says so in [`../peer/Task.0.md`](../peer/Task.0.md) §3.
 
 **Why serve the loopback socket at all when the peer is in-process?** Because every diagnostic the
 project already has speaks that socket. `control_verb 25610 'NODERA-STATE 2'` works against an
@@ -111,15 +111,15 @@ problem; this task only carries it onto the wire.
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/NoderaEndpointPlugin.java:86` — `linkPeer()`:
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/NoderaEndpointPlugin.java:86` — `linkPeer()`:
   the external-mode wiring (probes, links, hosts through the worker)
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointConfig.java:25` — the parsed +
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointConfig.java:25` — the parsed +
   validated configuration (`PeerMode`, `Custody`, `problems()`)
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/ControlClient.java:32` — one exchange with the
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/ControlClient.java:32` — one exchange with the
   worker's control socket (`NODERA-PROBE`, `NODERA-HOST`)
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPeerLink.java:23` — background retry
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/EndpointPeerLink.java:23` — background retry
   link (linking is never a startup gate; only state changes are logged)
-- `java/paper-plugin/src/main/resources/nodera-endpoint.yml` — the file the harness stages
+- `endpoints/paper-plugin/src/main/resources/nodera-endpoint.yml` — the file the harness stages
 - Tests: `EndpointConfigTest` (9) · `EndpointPeerLinkTest` (6, against a real stand-in worker socket)
 - Live: `scripts/e2e-endpoint.sh` E1–E4 (E4 SIGKILLs the server JVM; the worker keeps hosting)
 - *Not yet created:* `endpoint/peer/{EndpointPeerService,EndpointControlHandler,ExternalWorkerLink}.java`,

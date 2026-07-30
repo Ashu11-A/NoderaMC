@@ -100,9 +100,9 @@ consent dialog is the one place where telling somebody what they are agreeing to
 
 ## Files
 
-- `rust/nodera-app/ui/src/{Overview,Worlds,Peers,Console,About,Network}.tsx` — new or renamed
-- `rust/nodera-app/ui/src/{App,World,Lan,ModInstall,Consent,api,ipc,network}.tsx|ts` — reworked
-- `rust/nodera-app/src/api/about.rs`, `rust/nodera-app/licences.json`
+- `app/ui/src/{Overview,Worlds,Peers,Console,About,Network}.tsx` — new or renamed
+- `app/ui/src/{App,World,Lan,ModInstall,Consent,api,ipc,network}.tsx|ts` — reworked
+- `app/src/api/about.rs`, `app/licences.json`
 - `scripts/collect-licenses.py`
 - Deleted: `Dashboard.tsx` (split into Overview / Worlds / Peers; its subscription hook moved to
   `api.ts`)

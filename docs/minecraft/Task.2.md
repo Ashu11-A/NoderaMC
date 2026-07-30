@@ -122,10 +122,10 @@ reopen rather than replayed.
 
 ## Files
 
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/server/` (shadow, coordinator, commit, fallback,
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/server/` (shadow, coordinator, commit, fallback,
   interference adapters)
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/mixin/`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/common/` (networking, attachments, adapters)
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/mixin/`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/` (networking, attachments, adapters)
 
 ## Testing
 

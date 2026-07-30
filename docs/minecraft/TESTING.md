@@ -170,7 +170,7 @@ is that the entity lane never boots and every ownership assertion in the bake-re
 with no obvious cause. Those suites now bail out immediately naming this. The fix is a re-bake:
 
 ```bash
-rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && scripts/nodera-test.sh run continuity
+rm -rf endpoints/neoforge-mod/run-host/saves/NoderaE2E && scripts/nodera-test.sh run continuity
 ```
 
 ## 1.6 The first-run trap: a game dir with no `options.txt`

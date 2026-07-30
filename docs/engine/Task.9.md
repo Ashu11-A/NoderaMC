@@ -89,10 +89,10 @@ older palette **refuses** to validate rather than silently diverging on a compon
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/rules/{RedstoneRules,PistonRules,PressurePlateRules,ObserverRules,ComparatorRules,HopperRules}.java`
-- `java/engine/src/main/java/dev/nodera/simulation/{ScheduledTickQueue,NeighborUpdateOrder}.java`
-- `java/engine/src/main/java/dev/nodera/simulation/border/BorderSignal.java`
-- Mod-side contraption migration: `java/neoforge-mod/.../contraption/` — [minecraft 2](../minecraft/Task.2.md)
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/{RedstoneRules,PistonRules,PressurePlateRules,ObserverRules,ComparatorRules,HopperRules}.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/{ScheduledTickQueue,NeighborUpdateOrder}.java`
+- `library/java/engine/src/main/java/dev/nodera/simulation/border/BorderSignal.java`
+- Mod-side contraption migration: `endpoints/neoforge-mod/.../contraption/` — [minecraft 2](../minecraft/Task.2.md)
 
 ## Testing
 
