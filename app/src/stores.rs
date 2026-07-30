@@ -3,7 +3,7 @@
 //! Modelled on how Mihon and Tachiyomi handle extension repositories, and for the same reason: the
 //! project cannot be the only source of infrastructure without becoming the authority the whole
 //! design avoids having. A store is a URL serving an index in the format documented at
-//! [`services/index.schema.json`](../../../services/index.schema.json); the project's own list is
+//! [`services/index.schema.json`](../../services/index.schema.json); the project's own list is
 //! one store among however many a user adds, and can be removed like any other.
 //!
 //! ## What adding a store does and does not mean
@@ -293,7 +293,7 @@ pub fn store_from(
 /// has a working network — and so an install that is never online still shows the user what the
 /// default is rather than an empty screen.
 pub fn built_in_store() -> Option<TrackerStore> {
-    const BUNDLED: &str = include_str!("../../../services/official.json");
+    const BUNDLED: &str = include_str!("../../services/official.json");
     parse_index(BUNDLED)
         .ok()
         .map(|index| store_from(OFFICIAL_STORE_URL, index, 0, true))

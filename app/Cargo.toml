@@ -1,9 +1,9 @@
 # Task 32 — the Nodera companion app (Tauri: Rust backend + React frontend).
 #
-# EXCLUDED from the rust/ workspace (see rust/Cargo.toml): Tauri needs per-OS native webview deps
+# EXCLUDED from the cargo workspace (see the root Cargo.toml): Tauri needs per-OS native webview deps
 # not present in the headless gate. Build it on a machine with the Tauri prerequisites installed:
-#   cd rust/nodera-app && cargo tauri dev      # dev run (window + tray + daemon supervisor)
-#   cd rust/nodera-app && cargo tauri build    # release installer
+#   cd app && cargo tauri dev      # dev run (window + tray + daemon supervisor)
+#   cd app && cargo tauri build    # release installer
 #
 # Option B (locked): this app SUPERVISES a bundled headless Java Nodera peer (reusing all tested Java
 # peer/validation logic). The Rust side is the UI + tray + autostart + control endpoint + daemon
@@ -33,7 +33,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-nodera-codec = { path = "../nodera-codec" }
+nodera-codec = { path = "../library/rust/nodera-codec" }
 # The mobile build IS the peer — there is no JVM on Android to supervise — so it signs its own
 # announces. Same curve, same canonical bytes, same tracker verification path as the Java peer.
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
@@ -41,7 +41,7 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # unreachable (L-78). A path dependency rather than a copied JSON file: two
 # hand-maintained copies of a privacy notice drift, and the stale one is the one
 # people read.
-nodera-telemetry = { path = "../nodera-telemetry" }
+nodera-telemetry = { path = "../telemetry" }
 tauri = { version = "2", features = ["tray-icon"] }
 # The native save dialog behind "Save logs" — the OS picker, not a path typed into the app.
 tauri-plugin-dialog = "2"

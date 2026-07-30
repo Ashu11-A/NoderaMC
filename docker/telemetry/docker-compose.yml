@@ -7,7 +7,7 @@
 # Why this shape:
 #
 # * **The ingest service writes files, not Kafka.** A broker outage must never block or drop a
-#   consented report, and the crate stays small enough to audit (`rust/nodera-telemetry/src/`).
+#   consented report, and the crate stays small enough to audit (`telemetry/src/`).
 #   The file IS the buffer; Vector owns retries and backpressure.
 # * **Redpanda, not Kafka.** One binary, no ZooKeeper/KRaft ceremony, the same protocol. A
 #   self-hosting community operator can run this whole file on one machine.

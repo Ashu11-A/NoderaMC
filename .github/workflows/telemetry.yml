@@ -6,7 +6,7 @@
 #                 collects nothing, a consented worker's rows carry a rotating subject and no
 #                 address, an undeclared event is refused, revocation forgets the identifier, and
 #                 the node is unaffected when the collector dies (Plan.6 D10).
-#   registry-mirror  proves the Java emitter and rust/nodera-telemetry/src/schema.rs still agree.
+#   registry-mirror  proves the Java emitter and telemetry/src/schema.rs still agree.
 #                 Two implementations of one contract drift unless something mechanical fails.
 #   stack-smoke   brings the Big Data plane up and proves a submitted batch becomes a queryable
 #                 row — telemetry 2 deliverable 8.
@@ -17,9 +17,9 @@ name: telemetry
 on:
   push:
     paths:
-      - 'rust/nodera-telemetry/**'
-      - 'rust/nodera-tracker/src/telemetry.rs'
-      - 'rust/nodera-rendezvous/src/telemetry.rs'
+      - 'telemetry/**'
+      - 'tracker/src/telemetry.rs'
+      - 'rendezvous/src/telemetry.rs'
       - 'java/peer/src/**/telemetry/**'
       - 'java/peer/src/**/headless/WorkerTelemetryService.java'
       - 'java/neoforge-mod/src/**/ModTelemetry.java'
