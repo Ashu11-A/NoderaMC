@@ -24,8 +24,8 @@ built from them. A peer IS a worker — that is why they are one module.
 
 | Source set | Holds | Ships in the mod's fat jar |
 |---|---|:--:|
-| `src/main` | the peer libraries **and** `dev.nodera.headless`'s always-on services | yes |
-| `src/headless` | `HeadlessPeerMain` — the entry point, and nothing else | **no** |
+| `src/main` | the peer libraries, `dev.nodera.headless`'s always-on services, and `PeerNode` | yes |
+| `src/headless` | `HeadlessPeerMain` — six lines of argv + lifecycle, and nothing else | **no** |
 | `src/test` | unit + integration tests, incl. the structural report (`structure` tag) | no |
 | `src/jmh` | the four benchmark lanes | no |
 
@@ -78,7 +78,9 @@ dev.nodera.headless           the always-on services (src/main), plus the entry 
 ├── WorldReplicationService   placement, repair and the replication budget
 ├── LanSessionService         unmodified Open-to-LAN discovery and tunnel control
 ├── WorkerTelemetryService    the node's single telemetry emitter
-└── HeadlessPeerMain          (src/headless) composition root; opens durable state first
+├── PeerNode                  THE composition root: start() builds every service above,
+│                             close() unwinds them in order, await() blocks until it does
+└── HeadlessPeerMain          (src/headless) argv, start, await
 ```
 
 ## Durable state
@@ -89,8 +91,13 @@ written; a provider that advertises POSIX but rejects that attribute fails close
 omits the inapplicable attribute. Failed writes or moves attempt to delete the temporary file, with
 cleanup errors suppressed on the primary failure.
 
-`HeadlessPeerMain.openLocalState` is the production startup seam for node identity, world registry
-and world-key directory; `main` consumes the returned state before transport/runtime composition.
+`PeerNode.openLocalState` is the production startup seam for node identity, world registry and
+world-key directory; `start` consumes the returned state before transport/runtime composition.
+
+`PeerNode.start` is the **only** way to construct a peer, and that is the point. The composition
+used to live in `HeadlessPeerMain.main`, in a module nothing else could depend on, so every other
+embedder assembled its own subset — and a peer that hosted nothing, seeded nothing and answered no
+control verb was an ordinary thing to build.
 
 ## Why it is shaped this way
 

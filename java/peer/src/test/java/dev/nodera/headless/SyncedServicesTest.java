@@ -47,7 +47,7 @@ class SyncedServicesTest {
     @Test
     @DisplayName("the file the app writes is the file this worker reads")
     void readsWhatTheAppWrote(@TempDir Path dir) throws IOException {
-        var synced = HeadlessPeerMain.SyncedServices.load(write(dir, WRITTEN).toString());
+        var synced = PeerNode.SyncedServices.load(write(dir, WRITTEN).toString());
 
         assertEquals("tcp://tracker.noderamc.org:6969,tcp://150.230.84.206:6969",
                 synced.trackersOr("127.0.0.1:25600"));
@@ -58,7 +58,7 @@ class SyncedServicesTest {
     @Test
     @DisplayName("no file means the defaults, not a failure to start")
     void anAbsentFileIsNotAnError(@TempDir Path dir) {
-        var synced = HeadlessPeerMain.SyncedServices.load(dir.resolve("nothing-here").toString());
+        var synced = PeerNode.SyncedServices.load(dir.resolve("nothing-here").toString());
 
         assertEquals("127.0.0.1:25600", synced.trackersOr("127.0.0.1:25600"));
         assertTrue(synced.trackers().isEmpty());
@@ -78,7 +78,7 @@ class SyncedServicesTest {
                 rendezvous
                 rendezvous tcp://relay.example.org:7500
                 """;
-        var synced = HeadlessPeerMain.SyncedServices.load(write(dir, damaged).toString());
+        var synced = PeerNode.SyncedServices.load(write(dir, damaged).toString());
 
         assertEquals("tcp://good.example.org:6969", synced.trackersOr("fallback"));
         assertEquals("tcp://relay.example.org:7500", synced.rendezvousOr("fallback"));
@@ -91,7 +91,7 @@ class SyncedServicesTest {
                 # Nodera synced services. Written by the companion app — do not edit.
                 # last synced epoch 1769500000
                 """;
-        var synced = HeadlessPeerMain.SyncedServices.load(write(dir, header).toString());
+        var synced = PeerNode.SyncedServices.load(write(dir, header).toString());
 
         assertEquals("127.0.0.1:25600", synced.trackersOr("127.0.0.1:25600"));
     }
