@@ -4,7 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionLink;
 import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.endpoint.state.WorkerStateParser;
 import dev.nodera.endpoint.state.WorkerStateParser.HostedWorldInfo;

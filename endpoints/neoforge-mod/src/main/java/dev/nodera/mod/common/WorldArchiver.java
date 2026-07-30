@@ -1,7 +1,7 @@
 package dev.nodera.mod.common;
 
-import dev.nodera.endpoint.control.CompanionClient;
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionClient;
+import dev.nodera.peer.control.CompanionLink;
 import dev.nodera.endpoint.share.ShareOptions;
 import dev.nodera.endpoint.world.NoderaWorldStore;
 import dev.nodera.distribution.WorldArchive;

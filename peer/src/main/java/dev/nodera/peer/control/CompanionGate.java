@@ -1,4 +1,4 @@
-package dev.nodera.endpoint.control;
+package dev.nodera.peer.control;
 
 import java.util.Optional;
 
@@ -50,7 +50,7 @@ public final class CompanionGate {
 
     /**
      * Evaluate the daemon's presence + compatibility against the mod's
-     * {@link CompanionProtocol#PROTOCOL_VERSION}.
+     * {@link ControlProtocol#PROTOCOL_VERSION}.
      */
     public static GateResult evaluate(CompanionProbe probe) {
         Optional<CompanionInfo> info;
@@ -66,7 +66,7 @@ public final class CompanionGate {
                             + INSTALL_URL + " and try again.");
         }
         int daemon = info.get().protocolVersion();
-        int mod = CompanionProtocol.PROTOCOL_VERSION;
+        int mod = ControlProtocol.PROTOCOL_VERSION;
         if (daemon < mod) {
             return new GateResult(Status.DAEMON_OUTDATED,
                     "The Nodera companion app is out of date (its protocol " + daemon

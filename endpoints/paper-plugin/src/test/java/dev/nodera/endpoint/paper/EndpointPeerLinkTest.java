@@ -1,5 +1,6 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.peer.control.CompanionClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -88,7 +89,7 @@ class EndpointPeerLinkTest {
         try (StandInWorker worker = new StandInWorker("NODERA-OK 2")) {
             List<String> logs = new ArrayList<>();
             EndpointPeerLink link = new EndpointPeerLink(
-                    ControlClient.loopback(worker.port()), logs::add, 1_000);
+                    CompanionClient.loopback(worker.port()), logs::add, 1_000);
 
             assertThat(link.probeOnce()).isTrue();
             assertThat(link.linked()).isTrue();
@@ -106,7 +107,7 @@ class EndpointPeerLinkTest {
         List<String> logs = new ArrayList<>();
         // Port 1 refuses immediately: unreachable without spending a timeout.
         EndpointPeerLink link = new EndpointPeerLink(
-                new ControlClient("127.0.0.1", 1, 500), logs::add, 1_000);
+                new CompanionClient("127.0.0.1", 1, 500), logs::add, 1_000);
 
         assertThat(link.probeOnce()).isFalse();
         assertThat(link.linked()).isFalse();
@@ -120,7 +121,7 @@ class EndpointPeerLinkTest {
     void repeatedFailuresDoNotFloodTheLog() throws Exception {
         List<String> logs = new ArrayList<>();
         EndpointPeerLink link = new EndpointPeerLink(
-                new ControlClient("127.0.0.1", 1, 300), logs::add, 1_000);
+                new CompanionClient("127.0.0.1", 1, 300), logs::add, 1_000);
 
         for (int i = 0; i < 5; i++) {
             assertThat(link.probeOnce()).isFalse();
@@ -129,7 +130,7 @@ class EndpointPeerLinkTest {
 
         try (StandInWorker worker = new StandInWorker("NODERA-OK 2")) {
             EndpointPeerLink up = new EndpointPeerLink(
-                    ControlClient.loopback(worker.port()), logs::add, 1_000);
+                    CompanionClient.loopback(worker.port()), logs::add, 1_000);
             up.probeOnce();
             up.probeOnce();
             up.probeOnce();
@@ -149,7 +150,7 @@ class EndpointPeerLinkTest {
         // change, not the socket's lifetime.
         try (StandInWorker worker = new StandInWorker("NODERA-OK 2")) {
             EndpointPeerLink link = new EndpointPeerLink(
-                    ControlClient.loopback(worker.port()), logs::add, 1_000);
+                    CompanionClient.loopback(worker.port()), logs::add, 1_000);
             assertThat(link.probeOnce()).isTrue();
 
             worker.goAway();
@@ -166,7 +167,7 @@ class EndpointPeerLinkTest {
     void aWrongAnswerIsNotALink() throws Exception {
         try (StandInWorker notAWorker = new StandInWorker("HTTP/1.1 200 OK")) {
             EndpointPeerLink link = new EndpointPeerLink(
-                    ControlClient.loopback(notAWorker.port()), s -> { }, 1_000);
+                    CompanionClient.loopback(notAWorker.port()), s -> { }, 1_000);
 
             assertThat(link.probeOnce())
                     .as("the port answered, but not with NODERA-OK — that is not a link")
@@ -177,12 +178,12 @@ class EndpointPeerLinkTest {
     @Test
     @DisplayName("the client refuses nonsense addresses rather than dialling them")
     void addressesAreValidated() {
-        assertThatThrownBy(() -> new ControlClient("", 25610, 1_000))
+        assertThatThrownBy(() -> new CompanionClient("", 25610, 1_000))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ControlClient("127.0.0.1", 0, 1_000))
+        assertThatThrownBy(() -> new CompanionClient("127.0.0.1", 0, 1_000))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new ControlClient("127.0.0.1", 70_000, 1_000))
+        assertThatThrownBy(() -> new CompanionClient("127.0.0.1", 70_000, 1_000))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(ControlClient.loopback(25610).address()).isEqualTo("127.0.0.1:25610");
+        assertThat(CompanionClient.loopback(25610).address()).isEqualTo("127.0.0.1:25610");
     }
 }

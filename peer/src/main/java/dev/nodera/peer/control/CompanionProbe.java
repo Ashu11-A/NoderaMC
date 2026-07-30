@@ -1,4 +1,4 @@
-package dev.nodera.endpoint.control;
+package dev.nodera.peer.control;
 
 import java.util.Optional;
 

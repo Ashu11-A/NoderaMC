@@ -97,6 +97,33 @@ for name in files:
             elif not ok:
                 stale.append(f"{name}:{lineno} → {candidate}")
 
+# --- build output must never be tracked ---------------------------------------------------
+#
+# Not a path-reference check, but the same failure and the same cause. `.gitignore` used to say
+# `java/*/bin/`, which stopped covering anything the moment modules moved out of `java/`; the next
+# `git add -A` committed 1,127 compiled .class files and nothing said a word. An ignore rule scoped
+# to a directory that no longer exists fails exactly as silently as a stale `paths:` filter.
+import subprocess
+
+tracked = subprocess.run(
+    ["git", "ls-files",
+     "*.class", "*.jar", "*.o", "*.so", "*.dylib", "*.dll", "*.exe", "*.rlib", "*.rmeta"],
+    capture_output=True, text=True, check=False,
+).stdout.split()
+# The Gradle wrapper jar is committed on purpose — that is how a wrapper bootstraps.
+artefacts = [f for f in tracked if f != "gradle/wrapper/gradle-wrapper.jar"]
+if artefacts:
+    shown = "\n".join(f"TRACKED {f}" for f in artefacts[:20])
+    more = f"\n  … and {len(artefacts) - 20} more" if len(artefacts) > 20 else ""
+    print(f"{shown}{more}", file=sys.stderr)
+    print(
+        f"\nbuild-output: {len(artefacts)} compiled artefact(s) are tracked in git.\n"
+        "Untrack them (`git rm -r --cached <dir>`) and make sure .gitignore covers where they are\n"
+        "now, not where they used to be.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 if listing:
     print(f"\nlayout-drift: {seen} path references inspected across {len(files)} files")
     sys.exit(0)

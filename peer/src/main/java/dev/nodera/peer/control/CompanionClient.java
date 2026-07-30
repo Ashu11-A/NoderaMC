@@ -1,4 +1,4 @@
-package dev.nodera.endpoint.control;
+package dev.nodera.peer.control;
 
 import dev.nodera.core.Bytes;
 
@@ -12,7 +12,7 @@ import java.util.Optional;
 
 /**
  * Task 32: the mod's thin control client for the Nodera companion daemon. Implements
- * {@link CompanionProbe} over a loopback TCP socket speaking {@link CompanionProtocol}. The presence
+ * {@link CompanionProbe} over a loopback TCP socket speaking {@link ControlProtocol}. The presence
  * probe ({@link #probe}) is what {@link CompanionGate} calls at startup; host/join/state control
  * methods land with the daemon (they ride this same connection).
  *
@@ -23,8 +23,8 @@ import java.util.Optional;
  */
 public final class CompanionClient implements CompanionProbe {
 
+    /** The default connect/read budget: right for "are you there?", short enough to fail fast. */
     private static final int CONNECT_TIMEOUT_MS = 1500;
-    private static final int READ_TIMEOUT_MS = 1500;
 
     /**
      * The read budget for verbs that perform work rather than answer a question.
@@ -39,9 +39,57 @@ public final class CompanionClient implements CompanionProbe {
     private final String host;
     private final int port;
 
+    /**
+     * Connect budget, and the default read budget, for THIS client.
+     *
+     * <p>Per-instance rather than a constant because callers have genuinely different needs: a mod
+     * probing at startup wants the 1.5 s default, and the Paper endpoint's retry loop wants a much
+     * shorter one so a missing worker does not stall the server tick that drives it. The Paper
+     * endpoint carried its own client largely for this; folding it in without the timeout would
+     * have quietly slowed that loop by a factor of three.
+     */
+    private final int timeoutMs;
+
+    /**
+     * @param host the worker's control host.
+     * @param port the worker's control port.
+     * @throws IllegalArgumentException if either is unusable. Validated HERE and not only in
+     *                                  {@link #parse}, because a caller that builds the pair itself
+     *                                  deserves the same answer as one that parses a string — the
+     *                                  Paper endpoint's own client validated it and this one did not,
+     *                                  which is the kind of difference that survives a merge of two
+     *                                  implementations unless it is stated.
+     */
     public CompanionClient(String host, int port) {
+        this(host, port, CONNECT_TIMEOUT_MS);
+    }
+
+    /**
+     * @param host      the worker's control host.
+     * @param port      the worker's control port.
+     * @param timeoutMs connect budget, and the default read budget. Floored at 100 ms.
+     * @throws IllegalArgumentException if host or port is unusable.
+     */
+    public CompanionClient(String host, int port, int timeoutMs) {
+        if (host == null || host.isBlank()) {
+            throw new IllegalArgumentException("host must not be blank");
+        }
+        if (port < 1 || port > 65535) {
+            throw new IllegalArgumentException("port out of range: " + port);
+        }
         this.host = host;
         this.port = port;
+        this.timeoutMs = Math.max(100, timeoutMs);
+    }
+
+    /** The loopback default: a worker on this machine. */
+    public static CompanionClient loopback(int port) {
+        return new CompanionClient("127.0.0.1", port);
+    }
+
+    /** @return {@code host:port}, for log lines that have to say which socket was meant. */
+    public String address() {
+        return host + ":" + port;
     }
 
     /**
@@ -72,7 +120,7 @@ public final class CompanionClient implements CompanionProbe {
 
     @Override
     public Optional<CompanionInfo> probe() {
-        return parseOk(exchange(CompanionProtocol.probeLine()));
+        return parseOk(exchange(ControlProtocol.probeLine()));
     }
 
     /**
@@ -81,13 +129,13 @@ public final class CompanionClient implements CompanionProbe {
      * fails fast).
      */
     public String exchange(String requestLine) {
-        return exchange(requestLine, READ_TIMEOUT_MS);
+        return exchange(requestLine, timeoutMs);
     }
 
     /** As {@link #exchange(String)}, with a caller-chosen read timeout (long-running verbs). */
     public String exchange(String requestLine, int readTimeoutMs) {
         try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
             socket.setSoTimeout(readTimeoutMs);
             OutputStream out = socket.getOutputStream();
             out.write((requestLine + "\n").getBytes(StandardCharsets.UTF_8));
@@ -103,17 +151,17 @@ public final class CompanionClient implements CompanionProbe {
 
     /** @return the worker's {@code "<nodeId> <publicKeyBase64>"} identity, or empty if unavailable. */
     public Optional<String> identity() {
-        String reply = exchange(CompanionProtocol.IDENTITY + " " + CompanionProtocol.PROTOCOL_VERSION);
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        String reply = exchange(ControlProtocol.IDENTITY + " " + ControlProtocol.PROTOCOL_VERSION);
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
-        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+        return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
     }
 
     /** @return the worker's one-line JSON metrics snapshot, or empty. */
     public Optional<String> state() {
-        String reply = exchange(CompanionProtocol.STATE + " " + CompanionProtocol.PROTOCOL_VERSION);
-        if (reply == null || reply.startsWith(CompanionProtocol.ERR)) {
+        String reply = exchange(ControlProtocol.STATE + " " + ControlProtocol.PROTOCOL_VERSION);
+        if (reply == null || reply.startsWith(ControlProtocol.ERR)) {
             return Optional.empty();
         }
         return Optional.of(reply);
@@ -126,9 +174,9 @@ public final class CompanionClient implements CompanionProbe {
      *         of which the caller must treat as "do not collect", never as consent.
      */
     public Optional<String> telemetryStatus() {
-        String reply = exchange(CompanionProtocol.TELEMETRY + " "
-                + CompanionProtocol.PROTOCOL_VERSION + " GET");
-        if (reply == null || reply.startsWith(CompanionProtocol.ERR)) {
+        String reply = exchange(ControlProtocol.TELEMETRY + " "
+                + ControlProtocol.PROTOCOL_VERSION + " GET");
+        if (reply == null || reply.startsWith(ControlProtocol.ERR)) {
             return Optional.empty();
         }
         return Optional.of(reply);
@@ -141,8 +189,8 @@ public final class CompanionClient implements CompanionProbe {
      * @return empty on success, or the worker's error message.
      */
     public Optional<String> setTelemetryConsent(boolean granted) {
-        String reply = exchange(CompanionProtocol.TELEMETRY + " "
-                + CompanionProtocol.PROTOCOL_VERSION + " SET " + (granted ? "granted" : "denied"));
+        String reply = exchange(ControlProtocol.TELEMETRY + " "
+                + ControlProtocol.PROTOCOL_VERSION + " SET " + (granted ? "granted" : "denied"));
         if (reply == null) {
             return Optional.of("the companion worker is not answering");
         }
@@ -161,7 +209,7 @@ public final class CompanionClient implements CompanionProbe {
     public void recordTelemetryEvent(String eventJson) {
         String payload = java.util.Base64.getEncoder().encodeToString(
                 eventJson.getBytes(StandardCharsets.UTF_8));
-        exchange(CompanionProtocol.TELEMETRY + " " + CompanionProtocol.PROTOCOL_VERSION
+        exchange(ControlProtocol.TELEMETRY + " " + ControlProtocol.PROTOCOL_VERSION
                 + " EVENT " + payload);
     }
 
@@ -173,9 +221,9 @@ public final class CompanionClient implements CompanionProbe {
      *         knows no manifest for the world.
      */
     public Optional<String> pieces(String worldIdHex) {
-        String reply = exchange(CompanionProtocol.PIECES + " " + CompanionProtocol.PROTOCOL_VERSION
+        String reply = exchange(ControlProtocol.PIECES + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldIdHex);
-        if (reply == null || reply.startsWith(CompanionProtocol.ERR)) {
+        if (reply == null || reply.startsWith(ControlProtocol.ERR)) {
             return Optional.empty();
         }
         return Optional.of(reply);
@@ -193,7 +241,7 @@ public final class CompanionClient implements CompanionProbe {
         // 'Asd'". The verb had succeeded; only the wait had not. A read timeout is not a refusal,
         // and treating it as one left the game and its own worker disagreeing about whether the
         // world was hosted.
-        return errorOf(exchange(CompanionProtocol.HOST + " " + CompanionProtocol.PROTOCOL_VERSION
+        return errorOf(exchange(ControlProtocol.HOST + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldId + " " + nameB64 + " " + optionsJson, HOST_TIMEOUT_MS));
     }
 
@@ -210,7 +258,7 @@ public final class CompanionClient implements CompanionProbe {
      * @return empty on success, else the error message.
      */
     public Optional<String> mesh(String bootstrapRoute, Long worldSeed) {
-        return errorOf(exchange(CompanionProtocol.MESH + " " + CompanionProtocol.PROTOCOL_VERSION
+        return errorOf(exchange(ControlProtocol.MESH + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + (bootstrapRoute == null ? "" : bootstrapRoute)
                 + (worldSeed == null ? "" : " " + worldSeed)));
     }
@@ -230,14 +278,14 @@ public final class CompanionClient implements CompanionProbe {
         String reasonB64 = reason == null || reason.isBlank() ? ""
                 : " " + java.util.Base64.getEncoder().encodeToString(
                         reason.getBytes(StandardCharsets.UTF_8));
-        String reply = exchange(CompanionProtocol.DELETE + " " + CompanionProtocol.PROTOCOL_VERSION
+        String reply = exchange(ControlProtocol.DELETE + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldId + reasonB64);
         if (reply == null) {
             return new DeleteOutcome(false, 0, "the Nodera worker is not running");
         }
-        if (reply.startsWith(CompanionProtocol.OK)) {
-            String tail = reply.length() > CompanionProtocol.OK.length()
-                    ? reply.substring(CompanionProtocol.OK.length()).trim() : "0";
+        if (reply.startsWith(ControlProtocol.OK)) {
+            String tail = reply.length() > ControlProtocol.OK.length()
+                    ? reply.substring(ControlProtocol.OK.length()).trim() : "0";
             int peers;
             try {
                 peers = Integer.parseInt(tail);
@@ -246,8 +294,8 @@ public final class CompanionClient implements CompanionProbe {
             }
             return new DeleteOutcome(true, peers, "");
         }
-        String error = reply.startsWith(CompanionProtocol.ERR + " ")
-                ? reply.substring(CompanionProtocol.ERR.length() + 1).trim() : reply;
+        String error = reply.startsWith(ControlProtocol.ERR + " ")
+                ? reply.substring(ControlProtocol.ERR.length() + 1).trim() : reply;
         return new DeleteOutcome(false, 0, error);
     }
 
@@ -306,13 +354,13 @@ public final class CompanionClient implements CompanionProbe {
                                        int playersInWorld) {
         String nameB64 = java.util.Base64.getEncoder().encodeToString(
                 (worldName == null ? "" : worldName).getBytes(StandardCharsets.UTF_8));
-        return errorOf(exchange(CompanionProtocol.JOIN + " " + CompanionProtocol.PROTOCOL_VERSION
+        return errorOf(exchange(ControlProtocol.JOIN + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldId + " " + nameB64 + " " + leaseSeconds + " " + playersInWorld));
     }
 
     /** Ask the worker to stop hosting a world. @return empty on success, else the error message. */
     public Optional<String> stop(String worldId) {
-        return errorOf(exchange(CompanionProtocol.STOP + " " + CompanionProtocol.PROTOCOL_VERSION
+        return errorOf(exchange(ControlProtocol.STOP + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldId));
     }
 
@@ -325,13 +373,13 @@ public final class CompanionClient implements CompanionProbe {
      *         worker, or a worker predating the archive lane).
      */
     public Optional<String> seedArchive(String worldId, java.nio.file.Path archivePath) {
-        String reply = exchange(CompanionProtocol.SEED + " " + CompanionProtocol.PROTOCOL_VERSION
+        String reply = exchange(ControlProtocol.SEED + " " + ControlProtocol.PROTOCOL_VERSION
                         + " " + worldId + " " + b64Path(archivePath),
                 30_000); // splitting + hashing a multi-MB save takes more than the probe budget
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
-        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+        return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
     }
 
     /**
@@ -347,14 +395,14 @@ public final class CompanionClient implements CompanionProbe {
      *         worker, or a worker predating the validated-lane seeding verb).
      */
     public Optional<String> seedRegion(String worldId, java.nio.file.Path snapshotPath) {
-        String reply = exchange(CompanionProtocol.SEED_REGION + " "
-                        + CompanionProtocol.PROTOCOL_VERSION
+        String reply = exchange(ControlProtocol.SEED_REGION + " "
+                        + ControlProtocol.PROTOCOL_VERSION
                         + " " + worldId + " " + b64Path(snapshotPath),
                 10_000); // a region is far smaller than a save, but still a split + hash
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
-        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+        return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
     }
 
     /**
@@ -383,21 +431,21 @@ public final class CompanionClient implements CompanionProbe {
     public Optional<String> fetchArchive(String worldId, java.nio.file.Path destPath,
                                          long timeoutSeconds, StringBuilder reason) {
         long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
-        String reply = exchange(CompanionProtocol.ARCHIVE + " " + CompanionProtocol.PROTOCOL_VERSION
+        String reply = exchange(ControlProtocol.ARCHIVE + " " + ControlProtocol.PROTOCOL_VERSION
                         + " " + worldId + " " + b64Path(destPath) + " " + seconds,
                 (int) Math.min(Integer.MAX_VALUE, (seconds + 10) * 1000));
         if (reply == null) {
             reason.append("the peer worker did not answer");
             return Optional.empty();
         }
-        if (!reply.startsWith(CompanionProtocol.OK + " ")) {
-            String text = reply.startsWith(CompanionProtocol.ERR)
-                    ? reply.substring(CompanionProtocol.ERR.length()).trim()
+        if (!reply.startsWith(ControlProtocol.OK + " ")) {
+            String text = reply.startsWith(ControlProtocol.ERR)
+                    ? reply.substring(ControlProtocol.ERR.length()).trim()
                     : reply.trim();
             reason.append(text.isEmpty() ? "the peer worker refused the fetch" : text);
             return Optional.empty();
         }
-        return Optional.of(reply.substring(CompanionProtocol.OK.length() + 1).trim());
+        return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
     }
 
     private static String b64Path(java.nio.file.Path path) {
@@ -420,17 +468,17 @@ public final class CompanionClient implements CompanionProbe {
         // `-` rather than an empty token: the verb is split on whitespace, so an empty argument in
         // the middle of a line would shift every following one.
         String pinned = pinnedWorldId == null || pinnedWorldId.isEmpty() ? "-" : pinnedWorldId.toHex();
-        String req = CompanionProtocol.WORLDID + " " + CompanionProtocol.PROTOCOL_VERSION
+        String req = ControlProtocol.WORLDID + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + b64(genesisRoot) + " " + createdAtEpoch
                 + " " + (shared ? 1 : 0) + " " + (listed ? 1 : 0) + " " + (encrypted ? 1 : 0)
                 + " " + b64(manifestRef) + " " + pinned;
         String reply = exchange(req);
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
         try {
             byte[] bytes = java.util.Base64.getDecoder().decode(
-                    reply.substring(CompanionProtocol.OK.length() + 1).trim());
+                    reply.substring(ControlProtocol.OK.length() + 1).trim());
             return Optional.of(Bytes.unsafeWrap(bytes));
         } catch (IllegalArgumentException e) {
             return Optional.empty();
@@ -450,12 +498,12 @@ public final class CompanionClient implements CompanionProbe {
      */
     public Optional<Rekeyed> rekey(String worldIdHex, java.nio.file.Path archivePath,
                                    String newPasswordB64, Bytes currentIdentity) {
-        String req = CompanionProtocol.REKEY + " " + CompanionProtocol.PROTOCOL_VERSION
+        String req = ControlProtocol.REKEY + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldIdHex + " " + b64Path(archivePath)
                 + " " + newPasswordB64 + " " + b64(currentIdentity);
         // splitting + Argon2id + hashing a multi-MB save takes more than the probe budget
         String reply = exchange(req, 30_000);
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
         try {
@@ -463,7 +511,7 @@ public final class CompanionClient implements CompanionProbe {
             // now seeds; the caller records it as this save's seeded version, so an encrypted
             // refresh keeps the freshness marker honest instead of leaving it pinned at whatever
             // the last plaintext seed reported.
-            String[] parts = reply.substring(CompanionProtocol.OK.length() + 1).trim()
+            String[] parts = reply.substring(ControlProtocol.OK.length() + 1).trim()
                     .split("\\s+");
             byte[] bytes = java.util.Base64.getDecoder().decode(parts[0]);
             long version = -1;
@@ -502,16 +550,16 @@ public final class CompanionClient implements CompanionProbe {
      */
     public Optional<Bytes> grantRole(String worldIdHex, String subjectNodeId, Bytes subjectPublicKey,
                                      int roleOrdinal, long grantVersion) {
-        String req = CompanionProtocol.GRANT + " " + CompanionProtocol.PROTOCOL_VERSION
+        String req = ControlProtocol.GRANT + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldIdHex + " " + subjectNodeId + " " + b64(subjectPublicKey)
                 + " " + roleOrdinal + " " + grantVersion;
         String reply = exchange(req);
-        if (reply == null || !reply.startsWith(CompanionProtocol.OK + " ")) {
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
             return Optional.empty();
         }
         try {
             byte[] bytes = java.util.Base64.getDecoder().decode(
-                    reply.substring(CompanionProtocol.OK.length() + 1).trim());
+                    reply.substring(ControlProtocol.OK.length() + 1).trim());
             return Optional.of(Bytes.unsafeWrap(bytes));
         } catch (IllegalArgumentException e) {
             return Optional.empty();
@@ -538,11 +586,11 @@ public final class CompanionClient implements CompanionProbe {
         if (reply == null) {
             return Optional.of("worker did not answer (is the peer worker running?)");
         }
-        if (reply.startsWith(CompanionProtocol.OK)) {
+        if (reply.startsWith(ControlProtocol.OK)) {
             return Optional.empty();
         }
-        if (reply.startsWith(CompanionProtocol.ERR)) {
-            return Optional.of(reply.substring(CompanionProtocol.ERR.length()).trim());
+        if (reply.startsWith(ControlProtocol.ERR)) {
+            return Optional.of(reply.substring(ControlProtocol.ERR.length()).trim());
         }
         return Optional.of(reply);
     }
@@ -553,7 +601,7 @@ public final class CompanionClient implements CompanionProbe {
             return Optional.empty();
         }
         String[] parts = line.trim().split("\\s+");
-        if (parts.length < 2 || !CompanionProtocol.OK.equals(parts[0])) {
+        if (parts.length < 2 || !ControlProtocol.OK.equals(parts[0])) {
             return Optional.empty();
         }
         int protocol;

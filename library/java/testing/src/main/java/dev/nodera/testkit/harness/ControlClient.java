@@ -1,12 +1,6 @@
 package dev.nodera.testkit.harness;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
+import dev.nodera.peer.control.CompanionClient;
 import java.time.Duration;
 import java.util.Optional;
 
@@ -27,6 +21,14 @@ public final class ControlClient {
     private final int port;
     private final Duration timeout;
 
+    /**
+     * The one control client. This class used to open its own socket and frame its own request —
+     * a third implementation of the same one-line-out/one-line-back wire, beside the mod's and the
+     * Paper plugin's. What is test-specific here is the WAITING (deadlines, polling, readable
+     * failures), not the protocol, so only that is left.
+     */
+    private final CompanionClient client;
+
     public ControlClient(int port) {
         this(port, Duration.ofSeconds(30));
     }
@@ -34,6 +36,7 @@ public final class ControlClient {
     public ControlClient(int port, Duration timeout) {
         this.port = port;
         this.timeout = timeout;
+        this.client = new CompanionClient("127.0.0.1", port, (int) timeout.toMillis());
     }
 
     public int port() {
@@ -47,18 +50,7 @@ public final class ControlClient {
      * @return the reply, or empty when the worker is not answering (not yet up, or gone).
      */
     public Optional<String> ask(String verb) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress("127.0.0.1", port), (int) timeout.toMillis());
-            socket.setSoTimeout((int) timeout.toMillis());
-            OutputStream out = socket.getOutputStream();
-            out.write((verb + "\n").getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            return Optional.ofNullable(reader.readLine());
-        } catch (IOException notAnswering) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(client.exchange(verb));
     }
 
     /**

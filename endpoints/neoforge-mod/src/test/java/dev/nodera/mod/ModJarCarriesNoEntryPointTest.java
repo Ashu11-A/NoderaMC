@@ -88,9 +88,15 @@ final class ModJarCarriesNoEntryPointTest {
                 .as("the Minecraft-free endpoint logic must be inside the jar, not merely on the "
                         + "build's compile path")
                 .hasSizeGreaterThanOrEqualTo(25);
-        assertThat(entries("dev/nodera/endpoint/control/CompanionClient"))
-                .as("the companion wire client specifically — it is what the mod refuses to start "
-                        + "without")
+        // The wire client lives in `:peer` now, beside the ControlServer it talks to: one socket
+        // implementation, one set of verb constants. It is still asserted here because it is what
+        // the mod refuses to start without, and because it reaches the jar through a different
+        // bundled module than the endpoint logic above.
+        assertThat(entries("dev/nodera/peer/control/CompanionClient"))
+                .as("the companion wire client — what the mod refuses to start without")
+                .isNotEmpty();
+        assertThat(entries("dev/nodera/peer/control/ControlProtocol"))
+                .as("and the verb constants both ends share")
                 .isNotEmpty();
     }
 
