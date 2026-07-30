@@ -28,6 +28,15 @@ import java.util.List;
  * @param gameTime            the tick the plan's leases start at.
  * @param committeeSize       the committee cap ({@code QUORUM_MVP_SIZE}).
  * @param members             every participating player node with its current field of view.
+ * @param residents           every playerless session member eligible for a leftover validator
+ *                            seat — the always-on workers. These are a <b>plan input</b>, not a
+ *                            courtesy: {@code ViewOwnershipPlanner} staffs leftover seats from
+ *                            them, so a member that derives the plan without them derives
+ *                            <i>different leases</i>. A client that then primaries a region drops
+ *                            the votes its own committee's resident validators send, because that
+ *                            validator is not in the lease the client computed. Both halves of the
+ *                            session have to see the same resident pool or the shared computation
+ *                            is not shared (network L-30).
  */
 public record NoderaLanePlanPayload(
         long worldSeed,
@@ -37,7 +46,8 @@ public record NoderaLanePlanPayload(
         String actionSignerKeyB64,
         long gameTime,
         int committeeSize,
-        List<Member> members) implements CustomPacketPayload {
+        List<Member> members,
+        List<Resident> residents) implements CustomPacketPayload {
 
     /**
      * One participating player node.
@@ -55,6 +65,20 @@ public record NoderaLanePlanPayload(
     public record Member(String nodeIdUuid, String publicKeyB64, String route, String actorUuid,
                          String dimNamespace, String dimPath, int blockX, int blockZ,
                          int viewDistance) {
+    }
+
+    /**
+     * One always-on session member that holds no player view.
+     *
+     * <p>It carries no field of view because it has none — that absence is exactly what makes it a
+     * resident. It carries a route and a key because a seat needs both: unaddressable means the
+     * proposal cannot reach it, unverifiable means its vote cannot be counted.
+     *
+     * @param nodeIdUuid   the resident's peer {@code NodeId} as a UUID string.
+     * @param publicKeyB64 base64 Ed25519 public key — the vote-verification key.
+     * @param route        dialable {@code host:port} P2P route.
+     */
+    public record Resident(String nodeIdUuid, String publicKeyB64, String route) {
     }
 
     /** The payload type id ({@code nodera:plan}). */
@@ -84,6 +108,12 @@ public record NoderaLanePlanPayload(
             buf.writeVarInt(m.blockZ());
             buf.writeVarInt(m.viewDistance());
         }
+        buf.writeVarInt(payload.residents().size());
+        for (Resident r : payload.residents()) {
+            buf.writeUtf(r.nodeIdUuid());
+            buf.writeUtf(r.publicKeyB64());
+            buf.writeUtf(r.route());
+        }
     }
 
     private static NoderaLanePlanPayload read(RegistryFriendlyByteBuf buf) {
@@ -101,8 +131,14 @@ public record NoderaLanePlanPayload(
                     buf.readUtf(), buf.readUtf(), buf.readVarInt(), buf.readVarInt(),
                     buf.readVarInt()));
         }
+        int residentCount = buf.readVarInt();
+        List<Resident> residents = new ArrayList<>(residentCount);
+        for (int i = 0; i < residentCount; i++) {
+            residents.add(new Resident(buf.readUtf(), buf.readUtf(), buf.readUtf()));
+        }
         return new NoderaLanePlanPayload(worldSeed, rulesVersion, registryFingerprint, genesisRoot,
-                actionSigner, gameTime, committeeSize, List.copyOf(members));
+                actionSigner, gameTime, committeeSize, List.copyOf(members),
+                List.copyOf(residents));
     }
 
     @Override

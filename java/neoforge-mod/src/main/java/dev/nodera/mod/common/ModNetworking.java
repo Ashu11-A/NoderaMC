@@ -214,6 +214,13 @@ public final class ModNetworking {
     /** Client-side: the session broadcast new plan inputs — hand them to the client lane. */
     private static void handleLanePlan(NoderaLanePlanPayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
+            // Bind this player's own always-on worker into the session it is playing in (L-30).
+            // This is the first message that carries the world seed, which the worker's validation
+            // lane must be bound to before it can hold a seat — and it happens ahead of the lane
+            // listener, and outside the deterministic-validation switch that listener honours,
+            // because a worker's membership is worth having even where this build's client lane is
+            // off: it is what keeps the world alive when this game exits.
+            NoderaPeerService.get().bindCompanionToSession(payload.worldSeed());
             var listener = planListener;
             if (listener != null) {
                 listener.accept(payload);

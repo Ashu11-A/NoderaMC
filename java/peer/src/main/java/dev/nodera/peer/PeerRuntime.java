@@ -95,6 +95,18 @@ public final class PeerRuntime implements DiagnosticsSource {
     private NodeId gatewayId;
     private long keepAliveSeqCounter;
     private String selfRoute = "";
+    /**
+     * What each peer agreed to, by the handshake (R2/R3, network L-87/L-88).
+     *
+     * <p>Written on the state thread and read from any thread ({@link #sessionOf} is asked by the
+     * lanes that hand out committee seats), hence concurrent rather than plain.
+     *
+     * <p>Bounded by the member set: an entry is dropped when the peer leaves or is evicted, so a
+     * stranger that says hello and disappears cannot accumulate. A map keyed by remote input and
+     * pruned by nothing is the shape of cache this category treats as a security bug.
+     */
+    private final Map<NodeId, dev.nodera.protocol.session.PeerSession> sessions =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private volatile SessionView currentView = new SessionView(0L, null, List.of());
     private volatile List<PeerLink> peerLinks = List.of();
 
@@ -244,7 +256,7 @@ public final class PeerRuntime implements DiagnosticsSource {
         } else {
             // Player: announce myself to the bootstrap; the reply seeds my view.
             publishView();
-            sendTo(bootstrapAddress, selfJoin());
+            announceSelf(bootstrapAddress);
         }
     }
 
@@ -277,7 +289,7 @@ public final class PeerRuntime implements DiagnosticsSource {
         if (remote == null || stopped.get()) {
             return;
         }
-        stateExec.execute(() -> sendTo(remote, selfJoin()));
+        stateExec.execute(() -> announceSelf(remote));
     }
 
     /**
@@ -304,7 +316,7 @@ public final class PeerRuntime implements DiagnosticsSource {
         if (remote.route() != null && remote.route().equals(selfRoute)) {
             return; // our own advertised route; dialing it would mesh us with ourselves
         }
-        stateExec.execute(() -> sendTo(remote, selfJoin()));
+        stateExec.execute(() -> announceSelf(remote));
     }
 
     /** @return the session peer this runtime dials, or {@code null} if it is a session of one. */
@@ -445,7 +457,9 @@ public final class PeerRuntime implements DiagnosticsSource {
     // ---- dispatch (state thread) ---------------------------------------------------------
 
     private void dispatch(PeerAddress from, NoderaMessage msg) {
-        if (msg instanceof PeerJoin j) { onPeerJoin(j);
+        if (msg instanceof dev.nodera.protocol.session.Hello h) { onHello(from, h);
+        } else if (msg instanceof dev.nodera.protocol.session.HelloAck a) { onHelloAck(from, a);
+        } else if (msg instanceof PeerJoin j) { onPeerJoin(j);
         } else if (msg instanceof MembershipUpdate u) { onMembershipUpdate(u);
         } else if (msg instanceof PeerGoodbye g) { onPeerGoodbye(g);
         } else if (msg instanceof GatewayClaim c) { onGatewayClaim(c);
@@ -500,6 +514,153 @@ public final class PeerRuntime implements DiagnosticsSource {
     /** Install the membership admission gate; null resets to admit-all. */
     public void setJoinAdmission(JoinAdmission admission) {
         this.joinAdmission = admission == null ? joiner -> true : admission;
+    }
+
+    // ---- the handshake (R2/R3, network L-87 and L-88) -------------------------------------
+
+    /**
+     * What this build is, for deciding who it can co-validate with.
+     *
+     * <p>Volatile and replaceable because the runtime starts before the world it will serve is
+     * known: a worker boots, elects itself gateway, and only later learns a rules version and a
+     * registry fingerprint. The default is this build's own identity with an unbound rule set, so
+     * two peers of the same build always agree and nothing regresses for a caller that never sets
+     * one; a caller that <i>does</i> set it is the one that can detect real skew.
+     */
+    private volatile dev.nodera.protocol.session.Negotiation.LocalProfile localProfile;
+
+    private final dev.nodera.core.crypto.SignatureService signatures =
+            new dev.nodera.core.crypto.SignatureService();
+
+    /**
+     * Declare the rule set and registry this runtime validates under, so the handshake can answer a
+     * skew instead of letting it be discovered mid-execution.
+     *
+     * @param profile this build's negotiation profile; {@code null} restores the default.
+     * @Thread-context any thread.
+     */
+    public void setLocalProfile(dev.nodera.protocol.session.Negotiation.LocalProfile profile) {
+        this.localProfile = profile == null ? defaultProfile() : profile;
+    }
+
+    private dev.nodera.protocol.session.Negotiation.LocalProfile profile() {
+        dev.nodera.protocol.session.Negotiation.LocalProfile p = localProfile;
+        if (p == null) {
+            p = defaultProfile();
+            localProfile = p;
+        }
+        return p;
+    }
+
+    private dev.nodera.protocol.session.Negotiation.LocalProfile defaultProfile() {
+        return dev.nodera.protocol.session.Negotiation.LocalProfile.of(
+                dev.nodera.core.NoderaConstants.PRODUCT_VERSION, 0, 0L,
+                dev.nodera.protocol.service.ServiceRecord.DEFAULT_NETWORK, capabilities);
+    }
+
+    /**
+     * What this peer negotiated with {@code peer}.
+     *
+     * <p>{@code conservative} for a peer that has not completed a handshake — the only safe
+     * assumption about an unknown peer is the smallest one. Callers that must not regress on a lost
+     * or unanswered {@code Hello} should ask {@link #isNegotiatedObserver(NodeId)} instead, which
+     * distinguishes "answered, and the answer was observer" from "never answered".
+     *
+     * @param peer the peer to ask about.
+     * @return the negotiated session profile.
+     * @Thread-context any thread.
+     */
+    public dev.nodera.protocol.session.PeerSession sessionOf(NodeId peer) {
+        dev.nodera.protocol.session.PeerSession s = sessions.get(peer);
+        return s != null ? s : dev.nodera.protocol.session.PeerSession.conservative(peer);
+    }
+
+    /**
+     * Whether the handshake positively answered "this peer cannot co-validate here".
+     *
+     * <p>The distinction from {@link #sessionOf} is deliberate and is what makes this safe to gate
+     * on. A peer that never completed a handshake is <b>not</b> reported as an observer: an absent
+     * answer is not a refusal, and treating it as one would turn a dropped frame into an
+     * unvalidatable world. Only a received {@code HelloAck} naming {@code OBSERVER} — a rules or
+     * registry mismatch, or an unshared consensus feature — answers {@code true} here.
+     *
+     * @param peer the peer to ask about.
+     * @return {@code true} only if this peer is known to be barred from co-validation.
+     * @Thread-context any thread.
+     */
+    public boolean isNegotiatedObserver(NodeId peer) {
+        dev.nodera.protocol.session.PeerSession s = sessions.get(peer);
+        return s != null && s.role() != dev.nodera.protocol.session.SessionRole.ADMITTED;
+    }
+
+    /** This peer's opening message, signed. */
+    private dev.nodera.protocol.session.Hello hello() {
+        return dev.nodera.protocol.session.Negotiation.hello(identity, profile());
+    }
+
+    /**
+     * Introduce this node to {@code remote}: say hello, then ask to join.
+     *
+     * <p>Every announce goes through here so there is exactly one place where the handshake can be
+     * forgotten, and it is not forgotten. The ordering is the useful part: both frames go out on the
+     * same carrier and are dispatched in order on the receiver's state thread, so by the time the
+     * {@code PeerJoin} is handled the answer to the {@code Hello} has already been decided.
+     *
+     * <p>It is deliberately <b>not</b> a request/response gate. The join is not withheld pending an
+     * answer, because a peer that cannot agree a state root can still seed, relay and tunnel, and
+     * because a lost {@code Hello} must not be able to cost a peer its membership. What the answer
+     * governs is co-validation — see {@link #isNegotiatedObserver}.
+     *
+     * @Thread-context the state thread.
+     */
+    private void announceSelf(PeerAddress remote) {
+        sendTo(remote, hello());
+        sendTo(remote, selfJoin());
+    }
+
+    /**
+     * Answer a peer's {@code Hello} and record what was agreed.
+     *
+     * <p>The identity in the body is checked against the identity the carrier authenticated, which
+     * is the one thing production could never do before: a peer used to be able to name itself and
+     * be believed. On an unauthenticated carrier {@code from.nodeId()} is null and the check is
+     * skipped — stated, rather than assumed, by passing it through.
+     */
+    private void onHello(PeerAddress from, dev.nodera.protocol.session.Hello h) {
+        dev.nodera.protocol.session.HelloAck ack = dev.nodera.protocol.session.Negotiation.respond(
+                h, profile(), from.nodeId(), signatures);
+        // Record our own view of the peer before answering: the answer IS the agreement, and a
+        // refusal recorded only on the far end is an agreement one side does not know about.
+        if (ack.role() == dev.nodera.protocol.session.SessionRole.REFUSED) {
+            sessions.remove(h.nodeId());
+        } else {
+            sessions.put(h.nodeId(), dev.nodera.protocol.session.PeerSession.of(h.nodeId(), ack));
+        }
+        // Answered on the address the frame arrived on. The Hello carries no route — a peer does not
+        // get to tell us where it lives any more than it gets to tell us who it is; the carrier
+        // already knows both.
+        sendTo(from, ack);
+    }
+
+    /**
+     * Record the answer to our own {@code Hello}.
+     *
+     * <p>A refusal is a coded statement and is kept as one: the peer is left with no session, so
+     * {@link #isNegotiatedObserver} reports it as unusable for co-validation and nothing here
+     * pretends the handshake succeeded. It is not a reason to tear down membership — a peer we
+     * cannot agree a root with can still seed, relay and tunnel, which is the whole point of the
+     * observer role.
+     */
+    private void onHelloAck(PeerAddress from, dev.nodera.protocol.session.HelloAck a) {
+        NodeId peer = from.nodeId();
+        if (peer == null) {
+            return; // an answer from nobody in particular cannot be attributed to a session
+        }
+        if (a.refused()) {
+            sessions.remove(peer);
+            return;
+        }
+        sessions.put(peer, dev.nodera.protocol.session.PeerSession.of(peer, a));
     }
 
     private void onPeerJoin(PeerJoin j) {
@@ -626,7 +787,7 @@ public final class PeerRuntime implements DiagnosticsSource {
             // The startup PeerJoin is a single message over a possibly-not-yet-listening socket
             // (sendTo swallows transport failures by design). If it was lost, this runtime would
             // never mesh — so re-announce every heartbeat until the membership view seeds.
-            sendTo(bootstrapAddress, selfJoin());
+            announceSelf(bootstrapAddress);
         }
         if (isGateway() && members.size() > 1) {
             // Anti-entropy: the join-time gossip is one message per event; a lost one leaves a
@@ -670,6 +831,9 @@ public final class PeerRuntime implements DiagnosticsSource {
         }
         lastSeenNanos.remove(who);
         heard.remove(who);
+        // What was negotiated with a peer is only meaningful while the peer is a member; keeping it
+        // is what would make `sessions` a map keyed by remote input that nothing prunes.
+        sessions.remove(who);
         listener.onPeerLeft(who, reason);
         if (who.equals(gatewayId)) {
             reElect();
@@ -806,7 +970,21 @@ public final class PeerRuntime implements DiagnosticsSource {
             if (messageCounters != null) {
                 messageCounters.recordTx(MessageCodec.typeName(MessageCodec.typeTagOf(msg)));
             }
-            transport.send(to, WireCodec.encode(msg));
+            // R3 (network L-88): encode through the peer's negotiated profile, not straight through
+            // WireCodec. This is the one place every membership send passes, which is why it is the
+            // only place the profile has to be honoured — a tolerant reader paired with an
+            // unconditional writer is what made compatibility one-directional, and the writer finally
+            // knows who it is writing to. A peer with no negotiated session encodes exactly as before
+            // (`conservative` demotes only where a feature is known to be unsupported, and an
+            // unnegotiated peer of the same build reads everything this build emits).
+            // The flags must stay what the one-argument WireCodec.encode would have used — these are
+            // events, and re-labelling every membership frame as a request while "honouring the
+            // profile" would be a wire change disguised as a compatibility fix.
+            NodeId peer = to.nodeId();
+            dev.nodera.protocol.session.PeerSession session = peer == null ? null : sessions.get(peer);
+            transport.send(to, session == null
+                    ? WireCodec.encode(msg)
+                    : session.encodeFor(msg, dev.nodera.protocol.wire.FrameFlags.EVENT, 0L));
         } catch (TransportException e) {
             // Send failed (peer unreachable / down). Liveness is handled by onPeerDown / timeout.
         } catch (RuntimeException e) {

@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -112,11 +113,24 @@ public final class ClientValidationLane {
             lane.registerActor(actorId, actionSigner);
         }
 
+        // The always-on peers of this session, and the other half of the seat: an address to send
+        // each one a proposal, and a key to verify the vote that comes back.
+        java.util.LinkedHashSet<NodeId> residents =
+                residentSeatPool(plan.residents(), identity.nodeId(), views.keySet());
+        for (NoderaLanePlanPayload.Resident r : plan.residents()) {
+            NodeId node = new NodeId(UUID.fromString(r.nodeIdUuid()));
+            if (residents.contains(node)) {
+                lane.registerPeer(node, PeerAddress.of(node, r.route()),
+                        Bytes.unsafeWrap(Base64.getDecoder().decode(r.publicKeyB64())));
+            }
+        }
+
         int mine = 0;
         for (EntityLaneBootstrap.PlannedRegion planned : EntityLaneBootstrap.plan(
-                views, identity.nodeId(), plan.gameTime(), plan.committeeSize())) {
-            if (planned.locallyPrimary()
-                    || planned.lease().validators().contains(identity.nodeId())) {
+                views, identity.nodeId(), plan.gameTime(), plan.committeeSize(), residents)) {
+            // `lease.contains` is "primary or validator", which is exactly this test — and unlike
+            // spelling it out, it keeps the membership scan out of the per-region loop's bytecode.
+            if (planned.lease().contains(identity.nodeId())) {
                 lane.activateRegion(
                         EntityLaneBootstrap.initialSnapshot(planned.region()), planned.lease());
                 mine++;
@@ -145,7 +159,54 @@ public final class ClientValidationLane {
         // The joiner's HUD region panel shows THIS player's real ownership (L-31 regions half).
         dev.nodera.mod.server.entity.LiveRegionOwnershipProvider.activate(lane, identity.nodeId());
         LOG.info("client validation lane active on {} region(s) — this player re-executes and "
-                + "votes for its own region set ({} member node(s) in the plan)", mine, views.size());
+                        + "votes for its own region set ({} member node(s) + {} resident peer(s) "
+                        + "in the plan)", mine, views.size(), residents.size());
+    }
+
+    /**
+     * The resident validator pool this client plans with, from the pool the session broadcast.
+     *
+     * <p>Residents are a <b>plan input</b>, not a decoration: {@code ViewOwnershipPlanner} staffs
+     * each committee's leftover validator seats from this list, so a member that derives the plan
+     * without it derives different leases. The failure was silent and cost a live diagnosis — this
+     * player primaries a region, a resident re-executes the same batch and votes, and the vote is
+     * dropped as coming from a node that is not in the committee the client computed (network L-30).
+     * Passing the pool is what makes the host's computation and this one the same computation.
+     *
+     * <p>Filtered, because the pool arrives from the network and a seat has requirements. Self is
+     * dropped (this node is ranked geometrically by its own view, not seated as a resident), a node
+     * that also appears as a player is dropped for the same reason, a routeless entry is dropped
+     * because a validator a proposal cannot reach is a seat that silently never votes, and a keyless
+     * one is dropped because a vote that cannot be verified cannot be counted. Those are the same
+     * four rules the host applies when it builds the pool, which is the point — a filter that
+     * disagreed with the host's would re-open the divergence from the other side. Order is
+     * preserved: the planner's seat assignment reads the pool in order, so a reordering here would
+     * be a different plan.
+     *
+     * <p>A {@code LinkedHashSet} rather than a list: the planner reads the pool in order, so the
+     * order is part of the plan and cannot be sorted away, while the caller also asks it "is this
+     * resident seated?" once per broadcast entry. A list would answer that with a linear scan per
+     * entry.
+     *
+     * @param residents   the broadcast pool.
+     * @param self        this node.
+     * @param playerNodes every node that carries a field of view in the same plan.
+     * @return the seatable residents, in broadcast order.
+     * @Thread-context any thread; pure.
+     */
+    static java.util.LinkedHashSet<NodeId> residentSeatPool(
+            List<NoderaLanePlanPayload.Resident> residents, NodeId self,
+            java.util.Set<NodeId> playerNodes) {
+        java.util.LinkedHashSet<NodeId> pool = new java.util.LinkedHashSet<>();
+        for (NoderaLanePlanPayload.Resident r : residents) {
+            NodeId node = new NodeId(UUID.fromString(r.nodeIdUuid()));
+            if (node.equals(self) || playerNodes.contains(node) || r.route().isBlank()
+                    || r.publicKeyB64().isBlank()) {
+                continue;
+            }
+            pool.add(node); // a repeated resident is one seat; the host's pool is keyed by node id
+        }
+        return pool;
     }
 
     /** Tear the lane down (logout / new plan). */
