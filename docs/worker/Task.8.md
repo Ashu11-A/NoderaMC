@@ -6,9 +6,10 @@
      Second rule: a world id is normalised (trim + lowercase) at exactly one place before it is used
      as a key. Keep this header's status accurate. -->
 
-**Status:** 🚧 IN PROGRESS
+**Status:** 🚧 IN PROGRESS — every deliverable is closed; the task stays open only while its
+world-continuity rows (W-FETCH-1/2, W-REPL-1/4) wait on a live run
 **Category:** worker · **Owns:** W-DUP-1…4, W-FETCH-1, W-REPL-1 (W-REPL-2 and W-REPL-3 retired
-2026-07-28) · **Last audit:** 2026-07-28
+2026-07-28; W-DUP-1/2/4 the same day; **W-DUP-3 retired 2026-07-29**) · **Last audit:** 2026-07-29
 **Depends on:** [worker 3](Task.3.md), [minecraft 6](../minecraft/Task.6.md)
 **Consumed by:** [app 10](../app/Task.10.md), [minecraft 10](../minecraft/Task.10.md)
 
@@ -63,10 +64,10 @@ Landed so far:
 | 3 | The worker-unreachable path uses the persisted id, not the genesis seed | ✅ |
 | 4 | A LAN session id survives a re-open on a different ephemeral port | ✅ |
 | 5 | One normalisation for world-id keys across `host` / `seed` / `stop` / `administers` | ✅ |
-| 6 | Registry reconciliation: a row this node can no longer serve stops being announced | ⬜ |
-| 7 | Ownership is not lost across `stop` → `seed` (re-bind from `WorldKeyStore` at boot) | ⬜ |
-| 8 | Worker identity and `LocalFiles.writeAtomically` survive a non-POSIX filesystem | 🚧 closest production startup seam green; launched-process exit pending |
-| 9 | A one-shot merge tool for registries that already hold duplicates | ⬜ |
+| 6 | Registry reconciliation: a row this node can no longer serve stops being announced | ✅ |
+| 7 | Ownership is not lost across `stop` → `seed` (re-bind from `WorldKeyStore` at boot) | ✅ |
+| 8 | Worker identity and `LocalFiles.writeAtomically` survive a non-POSIX filesystem | ✅ |
+| 9 | A one-shot merge tool for registries that already hold duplicates | ✅ |
 | 10 | An in-flight archive download is immune to the retention policy | ✅ |
 | 11 | `HOST` gets a work-sized control timeout, so a slow worker is not read as a refusal | ✅ |
 
@@ -152,6 +153,7 @@ cryptographic.
 | `WorldHostingServiceTest#aPaddedUpperCaseWorldIdCanStillBeStopped` | ✅ green | deliverable 5 |
 | `WorldHostingServiceTest#oneWorldIsOneEntryHoweverItIsSpelled` | ✅ green | deliverable 5 |
 | `HeadlessPeerMainStateTest#startupStateSurvivesANonPosixFileSystem` | ✅ green (closest production seam) | deliverable 8 mechanism — `HeadlessPeerMain.openLocalState` runs on zipfs with no POSIX `FileStore` view; identity reload and registry replacement succeed |
+| A launched `nodera-headless` on a FAT32 loop mount: boot → `NODERA-JOIN` → kill → boot | ✅ run 2026-07-29 | deliverable 8's exit — same node id and the pre-restart `worlds.dat` row recovered; a second pass wrote a `.worldkey` there too. Recorded in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md); not automatable in CI (needs a mount) |
 | `AtomicFileWriterTest` (3) | ✅ green | owner-only POSIX result, failed-move temp deletion, cleanup error suppression |
 | `FetchSurvivesSupersessionTest#aNewerVersionLearnedMidFetchDoesNotEvictTheOneBeingDownloaded` | ✅ green (verified failing without the guard) | deliverable 10 |
 | `FetchSurvivesSupersessionTest#aVersionNobodyIsFetchingIsStillSuperseded` | ✅ green | deliverable 10 keeps L-55 intact |
@@ -177,7 +179,7 @@ unaffected and not re-run for this Java-only fix.
 |---|---|---|
 | W-DUP-1 | Registry rows are immortal: nothing reconciles a row against the world still existing | deliverable 6 |
 | W-DUP-2 | `stop` → `seed` loses the ownership record, so an owned world reads as merely supported | deliverable 7 |
-| W-DUP-3 | Component and production startup-seam proofs are green, but no launched worker process has used non-POSIX state storage | Launch the worker distribution with identity and registry on a non-POSIX default/mounted filesystem, execute a registry-writing host operation, restart, and recover both records |
+| ~~W-DUP-3~~ | **RETIRED 2026-07-29.** The launched distribution was driven through boot, a registry write and a restart on a FAT32 mount | Was: launch the worker distribution with identity and registry on a non-POSIX filesystem, write the registry, restart, recover both records — [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) holds the run |
 | W-DUP-4 | Registries that already contain duplicates are not repaired by the fix, only stopped from growing | deliverable 9 |
 | W-FETCH-1 | An archive download could be evicted mid-transfer by the retention policy (fixed; live re-run is the exit) | deliverable 10 |
 | W-REPL-1 | A world this node claimed but held nothing of was never repaired (fixed; live 0%→100% is the exit) | [`LIMITATIONS.md`](LIMITATIONS.md) |
@@ -186,7 +188,14 @@ unaffected and not re-run for this Java-only fix.
 destroyed the only servable plaintext copy) and **W-REPL-3** (peers offered manifests for content
 they held nothing of) — moved to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
 
-**W-DUP-3 is RETIRING:** `HeadlessPeerMainStateTest` proves the actual startup-state constructor on
-zipfs, but zipfs is an in-process provider and the worker's environment paths resolve on the process
-default filesystem. That is not a launched worker boot, so the exact exit remains open in
-[`LIMITATIONS.md`](LIMITATIONS.md).
+**W-DUP-3 retired on 2026-07-29.** What had been missing was never the code — it was that zipfs is an
+in-process provider `NODERA_STATE_DIR` cannot name, so no *launched* worker had ever written its
+identity and registry to a filesystem without POSIX attributes. A FAT32 image on a loop mount can be
+named, and the built distribution was run against one: fresh identity, `NODERA-JOIN` registry write,
+kill, re-launch, same node id and the same row. `NODERA-WORLDID` on a second pass put a world's
+private key there as well, so all three secret-bearing writers are covered. Evidence in
+[`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
+
+With that, **all eleven deliverables are closed.** The task remains IN PROGRESS because the four
+world-continuity rows it also owns (W-FETCH-1, W-FETCH-2, W-REPL-1, W-REPL-4) are RETIRING on live
+clauses — two machines, one world, one host playing — and no amount of further code closes those.

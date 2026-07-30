@@ -30,6 +30,16 @@ root-cause rows L-87, L-88, L-90 are RETIRING — they are not RETIRED, because 
 admission behaviour they cover has not yet run as two real processes from different builds on one
 network.
 
+**Correction 2026-07-29.** Two of those three rows were RETIRING over code nothing called.
+`:worker:structureReport` listed `dev.nodera.protocol.session.Negotiation` among "classes only tests
+and benchmarks reference", and that was accurate — the phase-4 handshake had replaced tags 1–4 with
+`Hello`/`HelloAck` and left the *same* defect in place, a message family living in the codec and its
+tests with no runtime handler. It is now wired into `PeerRuntime` (every announce sends `Hello`, every
+`Hello` is answered against the carrier-authenticated identity, the negotiated profile governs both
+committee seats and emitted bytes), so L-87 and L-88 are RETIRING on the live mixed-release run they
+always named rather than on green tests over unreachable code. Nothing about their status changed;
+what changed is that the status is now honest.
+
 The completion figure above is **not** recomputed for it — the weighting behind that number is not
 derivable from this table, and inventing one would be worse than a stale figure that says so.
 
@@ -174,7 +184,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [5](worker/Task.5.md) | Telemetry emitter + consent record | ✅ | network 12, worker 2, telemetry 1 |
 | [6](worker/Task.6.md) | World ownership + durable world registry | ✅ | worker 2, worker 3, network 3 |
 | [7](worker/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
-| [8](worker/Task.8.md) | One world, one identity | 🚧 | worker 3, minecraft 6 |
+| [8](worker/Task.8.md) | One world, one identity | 🚧 all 11 deliverables closed; open on live rows | worker 3, minecraft 6 |
 
 ### App — [`docs/app/`](app/Task.0.md)
 

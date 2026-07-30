@@ -16,7 +16,7 @@ The worker is now its own Gradle module (`:worker`) — it was a package inside 
 fat jar included. The control endpoint and the tunnel lane stay in `:peer` because they are library
 code the Paper plugin uses too.
 
-**Test counts (Grep-verified 2026-07-28):** **197** `@Test` methods across the worker category —
+**Test counts (`scripts/java-test-report.sh`, 2026-07-29):** **198** test cases in `:worker`, plus the peer-module cases named below —
 `java/worker/src/test/` (169 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
 plus `java/peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
 `ControlWatchStreamTest`, `WorkerEventStreamTest`). These are a SUBSET of the `:worker` + `:peer`

@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-28 · Tasks completed: **6 / 8**
+**Category:** worker · **Last audit:** 2026-07-29 · Tasks completed: **6 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -22,11 +22,31 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [5](Task.5.md) | Telemetry emitter | ✅ COMPLETED | `TelemetryVerbIT` + the e2e outage lane; **L-77 RETIRED** |
 | [6](Task.6.md) | World ownership + durable registry | ✅ COMPLETED | `WorldHostingPersistenceTest`, `OwnershipGossipIT`, `WorldOwnershipVerbIT`; verified live against the built distribution |
 | [7](Task.7.md) | The LAN lane — playing without a mod | ✅ COMPLETED | `TunnelServiceIT`, `LanSessionServiceTest`, `LanBeaconTest`; verified live: two workers, a real tracker, a vanilla beacon, bytes reaching the host's game |
-| [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS | Pinned world ids, port-free LAN session ids, one key normalisation, and fail-closed non-POSIX-capable state writes landed; registry reconciliation, duplicate repair, and launched non-POSIX boot evidence remain |
+| [8](Task.8.md) | One world, one identity | 🚧 IN PROGRESS | **All eleven deliverables closed** — the last, a launched worker on a non-POSIX filesystem, was run on 2026-07-29 and retired W-DUP-3. Open only while the four world-continuity rows it also owns (W-FETCH-1/2, W-REPL-1/4) wait on a live two-machine run |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-29 — A launched worker keeps its identity and its registry on a FAT32 drive (W-DUP-3 retired)
+
+The last row of the registry-integrity bundle needed the one thing its component tests could not
+supply: a *launched* `nodera-headless` writing its state to a filesystem that advertises no POSIX
+attribute view. `HeadlessPeerMainStateTest` had driven the real `openLocalState` seam on zipfs, but
+zipfs is an in-process provider and `NODERA_STATE_DIR` cannot name one — so the exit clause stayed
+open, and "the worker works from a FAT-formatted drive" remained a claim about a code path.
+
+A FAT32 image on a loop mount can be named. The built distribution was pointed at one
+(`Files.getFileStore(...).supportsFileAttributeView("posix") == false`, asserted first) and driven
+through the exit clause verbatim: boot, mint an identity, `NODERA-JOIN` to write a registry row, kill,
+re-launch from the same paths. The second boot answered `NODERA-IDENTITY` with the same node id and
+`NODERA-WORLDS` with the row written before the restart. A second pass drove `NODERA-WORLDID`, so the
+third secret-bearing writer — a world's private key — landed there too, as
+`<worldId>.worldkey`. Neither log carried a POSIX or permission failure.
+
+Evidence and its limits are recorded in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md): this is a
+recorded manual run, not a CI test, because the exit needs a mount. `AtomicFileWriterTest` (3) and
+`HeadlessPeerMainStateTest` remain the halves CI can keep honest.
 
 ### 2026-07-28 — Registry integrity: stale rows stop announcing, ownership survives stop, duplicates repairable
 

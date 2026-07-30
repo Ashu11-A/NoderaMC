@@ -17,7 +17,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | Task | Title | Status | Notes |
 |---|---|---|---|
 | [1](Task.1.md) | Wire protocol, transports, handshake | ✅ COMPLETED | Tags through 60; authenticated accept handshake (L-53 retired) |
-| [2](Task.2.md) | Peer runtime, membership, gateway | 🚧 IN PROGRESS | Election + continuity + certified committee changes ✅; migration end-to-end remains |
+| [2](Task.2.md) | Peer runtime, membership, gateway | 🚧 IN PROGRESS | Election + continuity + certified committee changes ✅; the negotiation handshake now runs on every announce (2026-07-29); every player's worker joins its own world's session, and the resident pool is a broadcast plan input (L-30's code half); migration end-to-end remains |
 | [3](Task.3.md) | Event-sourced + durable storage | ✅ COMPLETED | RocksDB tier, forced-kill recovery, certified forward sync |
 | [4](Task.4.md) | Torrent data plane | ✅ COMPLETED | Production consumer live (world-continuity lane); L-33 render half remains |
 | [5](Task.5.md) | Discovery + multi-bootstrap + identity | ✅ COMPLETED | Serving role moved to the tracker service |
@@ -29,12 +29,54 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [11](Task.11.md) | Telemetry core | ✅ COMPLETED | Honest CERTIFIED/PENDING/SOLO region status |
 | [12](Task.12.md) | Telemetry emitter core | ✅ COMPLETED | 21 tests + the cross-language registry mirror; L-76 RETIRING |
 | [13](Task.13.md) | Measured service selection | 🚧 IN PROGRESS | 30 new Java tests; the mod's own transport still reads a static list (L-91, renumbered from a duplicate L-84 on 2026-07-28) |
-| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97); L-87/L-88/L-90 RETIRING pending a live mixed-release run |
+| [14](Task.14.md) | Cross-version wire protocol | 🚧 IN PROGRESS | All 8 phases landed; `NDR2` + TLV live on both languages; L-86 + L-89 RETIRED on green headless exit tests (issue #97). **The handshake was wired into `PeerRuntime` on 2026-07-29** — it had been RETIRING over a class with no production caller; L-87/L-88/L-90 still RETIRING pending a live mixed-release run |
 | [15](Task.15.md) | Structural benchmarking + structural code report | ✅ COMPLETED | Four JMH lanes (`:peer:jmh`), ranked report with load-scaling + baseline diff, bytecode dead-code/cost report and JDWP worker probe (`:worker:structureReport`), both ratcheted and both on the `benchmarks` workflow |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-07-29 — Every player's worker joins the world, the plan is genuinely shared, and the handshake is no longer decorative
+
+Three findings, all of them the same shape: code that existed, was tested, and was never reached from
+anything that ships.
+
+**L-30's two remaining product gaps are closed.** The row had already narrowed itself to "the
+joiner's companion is never bound to the session it joined"; that is fixed —
+`NoderaPeerService.bindCompanionToSession` runs from the plan broadcast, which is the first message a
+joiner receives carrying the world seed the worker's validation lane must be bound to before it can
+hold a seat, with the detach mirrored on `stopClient`. The trust question the diagnosis had left open
+needed no new mechanism: membership is not authority, a seat only entitles a node to re-execute and
+vote, and every vote is verified against the key already in the plan.
+
+Fixing it surfaced a second divergence nobody had looked for. The host planned with
+`residents.keySet()` and the client planned with the **four**-argument overload — no residents at all,
+because the resident pool was never a field on `NoderaLanePlanPayload`. "Every member derives the
+identical plan from the same pure inputs" was true of the function and false of the call: a client
+primaried a region with a players-only committee and then dropped the votes of the residents the host
+had just seated, as coming from outside the committee. The pool now rides the payload and both sides
+filter it by the same four rules (not self, not a player node, routable, key-bearing). Evidence:
+`ResidentPlanAgreementTest` (5 — the divergence verified failing without the fix),
+`ClientValidationLaneResidentPoolTest` (7), and `CompanionSessionBindingIsCalledTest` (5), which
+guards the call sites because the fault was an *absence* and absences do not fail unit tests.
+
+**The R2/R3 handshake was RETIRING on tests of a dead class.** `:worker:structureReport` listed
+`dev.nodera.protocol.session.Negotiation` under "classes only tests and benchmarks reference", and
+that was exactly right: `PeerRuntime.dispatch` never handled a `Hello`, so nothing constructed,
+sent or answered one — the same defect the L-87 row describes about the tags it replaced. It is now
+wired: one `announceSelf` sends `Hello` before `PeerJoin` on every announce path, `onHello` answers
+through `Negotiation.respond` (checking the body's `nodeId` against the carrier-authenticated peer,
+which production could never do before), both ends record the `PeerSession`, `sendTo` encodes through
+`PeerSession.encodeFor`, and `NoderaHost` refuses a resident committee seat to a peer that negotiated
+OBSERVER. The worker and both mod runtimes install a profile naming the rule set they actually
+re-execute under. Two non-properties are deliberate: the join is not withheld pending an answer, and
+an absent answer is not a refusal. Evidence: `HandshakeRunsInProductionTest` (4; three verified
+failing with the `Hello` send removed). L-87 and L-88 stay RETIRING — on the live mixed-release run
+they always named, no longer on green tests over unreachable code.
+
+The structural ratchet moved with it: `test_only_classes` 33 → 32, `severe_cost_findings` 7 → 4
+(`ViewOwnershipPlanner.planMultiView` and both lane region loops stopped re-scanning lists),
+`unreachable_methods` 316 → 311. `fixtures/structure/budget.json` is tightened to the new floor.
 
 ### 2026-07-29 — The peer system can be measured, and the tree can be audited (task 15)
 
