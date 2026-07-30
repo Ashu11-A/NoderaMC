@@ -215,13 +215,40 @@ These three rules apply to EVERY session and EVERY commit, no exceptions:
    the owning `docs/<category>/Task.<n>.md` status header and audit date, that category's
    `PROGRESS.md` (a dated note naming the evidence), `TESTING.md` (counts + last run),
    `LIMITATIONS.md` / `LIMITATIONS.fixed.md` if a row moved, `docs/ROADMAP.md`, the root
-   `README.md` bar and module table, and the affected package `README.md`.
+   `README.md` module + roadmap tables, and the affected package `README.md`. The root `README.md`
+   is capped at 200 visible lines and carries no narrative — never grow it back.
    Keep every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment.
-3. **Use the commit-message standard** (see README.md → "Commit message standard"):
-   ```
-   <emoji> [<overall-percentage>%] <change type>: <short description in English>
-   ```
-   Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
+3. **Use the commit-message standard** (defined in the next section).
+
+## Commit message standard
+
+<!-- AI-AGENT-INSTRUCTION: This section is the NORMATIVE home of the commit format (it used to live
+     in README.md, which is now the shop window and capped at 200 visible lines). EVERY
+     completed-task commit MUST use this exact format. -->
+
+```
+<emoji> [<overall-percentage>%] <change type>: <short description in English>
+```
+
+The percentage is the overall system completion figure from [`docs/ROADMAP.md`](docs/ROADMAP.md) §1.
+Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
+
+| Emoji | Change type | Use for |
+|---|---|---|
+| 🎉 | `init` | initial / repo bootstrap |
+| ✨ | `feature` | new module, type, or capability |
+| 🐛 | `fix` | bug fix (reference the issue: `fixes #N`) |
+| 🧪 | `test` | test additions/improvements only |
+| ♻️ | `refactor` | behaviour-preserving restructure |
+| 📝 | `docs` | README / docs / issue-system updates |
+| 🔧 | `chore` | build, deps, CI, tooling |
+| 🚀 | `release` | version bump / publish |
+
+```
+✨ [90%] feature: implement Phase 1 shadow capture mixins (refs #5)
+🐛 [90%] fix: align FlatWorldRules.MAX_Y with column ceiling (fixes #21)
+🧪 [90%] test: add jqwik property test for negative-coordinate halo reads
+```
 
 ## GitHub hygiene sweep (EVERY session, via the `gh` CLI — before starting new work)
 

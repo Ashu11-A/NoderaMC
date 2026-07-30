@@ -1,0 +1,41 @@
+# noderamc.org — the static signpost, and the https hop the README button needs.
+#
+# <!-- AI-AGENT-INSTRUCTION: Installed to /etc/caddy/conf.d/noderamc.caddy by
+#      scripts/deploy-site.sh, which is the ONLY thing that should write it. The host runs other
+#      people's sites out of the same conf.d; never edit, move, or reload anything in there that is
+#      not this one file. TLS comes from the global `acme_dns cloudflare` block in the parent
+#      Caddyfile — do not add a tls directive here, and do not copy that token into this repo.
+#      /.well-known is left served from disk on purpose: Android App Links will want an
+#      assetlinks.json there, and that must not need a Caddy change to land. -->
+#
+# Before this file existed the domain answered 525: Cloudflare proxies it to this host and Caddy had
+# no site block to terminate TLS with.
+
+noderamc.org, www.noderamc.org {
+	root * /var/www/noderamc
+
+	encode zstd gzip
+
+	# /add-store is the button's target, and it is add-store.html on disk. Extensionless first so
+	# the URL people paste into a page never carries a file extension.
+	try_files {path} {path}.html {path}/index.html
+
+	file_server
+
+	header {
+		# The page runs its own inline script and asks for nothing else, from anywhere.
+		Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/noderamc.log {
+			roll_size 20MiB
+			roll_keep_for 14d
+		}
+	}
+}
