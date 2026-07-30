@@ -11,23 +11,17 @@
 //! value.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 /// This crate's tag registry, parsed rather than imported, so the test sees the constants that
 /// *exist* rather than the ones somebody remembered to reference.
 const RUST_TAGS: &str = include_str!("../src/tags.rs");
 
-fn repo_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR = <repo>/rust/nodera-codec
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("repo root")
-        .to_path_buf()
-}
-
-fn java_source(relative: &str) -> String {
-    let path = repo_root().join(relative);
+/// Read one Java source file, given the Gradle module it lives in and the path inside that module.
+///
+/// The module directory comes from `layout.properties` rather than being spelled `java/core/...`
+/// here: a module that moves must not silently take this mirror out of service.
+fn java_source(module: &str, relative: &str) -> String {
+    let path = nodera_codec::repo::module(module).join(relative);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read Java source {}: {e}", path.display()))
 }
@@ -111,12 +105,13 @@ fn java_constants(source: &str) -> BTreeMap<String, u16> {
 /// Assert every Rust constant is mirrored in Java under `java_name(rust_name)`.
 fn assert_total_mirror(
     module: &str,
+    gradle_module: &str,
     file: &str,
     java_name: impl Fn(&str) -> String,
     watermark: (&str, &str),
 ) {
     let rust = rust_constants(module);
-    let java = java_constants(&java_source(file));
+    let java = java_constants(&java_source(gradle_module, file));
 
     for (name, rust_value) in &rust {
         let expected = if name == watermark.0 {
@@ -142,7 +137,8 @@ fn assert_total_mirror(
 fn type_tag_registry_mirrors_java() {
     assert_total_mirror(
         "type_tags",
-        "java/core/src/main/java/dev/nodera/core/crypto/TypeTags.java",
+        "core",
+        "src/main/java/dev/nodera/core/crypto/TypeTags.java",
         |name| name.to_string(),
         ("NEXT", "NEXT"),
     );
@@ -153,8 +149,8 @@ fn type_tag_registry_mirrors_java() {
 /// Parsed rather than trusted, for the same reason the type-tag mirror is: the point of the check
 /// is to see what the schema *declares*, not what somebody remembered to also write down here.
 fn java_schema() -> BTreeMap<u16, (String, String)> {
-    const FILE: &str = "java/transport/src/main/java/dev/nodera/protocol/wire/WireRegistry.java";
-    let source = java_source(FILE);
+    const FILE: &str = "src/main/java/dev/nodera/protocol/wire/WireRegistry.java";
+    let source = java_source("transport", FILE);
     let mut out = BTreeMap::new();
     for line in source.lines() {
         let line = line.trim();
@@ -227,8 +223,8 @@ fn message_kinds_are_unique_and_contiguous() {
 
 #[test]
 fn encoding_version_mirrors_java() {
-    const FILE: &str = "java/transport/src/main/java/dev/nodera/protocol/codec/MessageCodec.java";
-    let java = java_constants(&java_source(FILE));
+    const FILE: &str = "src/main/java/dev/nodera/protocol/codec/MessageCodec.java";
+    let java = java_constants(&java_source("transport", FILE));
     for (name, rust_value) in [
         ("ENCODING_VERSION", nodera_codec::ENCODING_VERSION),
         (

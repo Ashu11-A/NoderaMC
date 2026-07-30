@@ -41,8 +41,12 @@ from datetime import datetime, timezone
 from glob import glob
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-OUTPUT = ROOT / "rust" / "nodera-app" / "licences.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+import layout  # noqa: E402
+
+ROOT = layout.root()
+APP = layout.crate("nodera-app")
+OUTPUT = APP / "licences.json"
 
 UNKNOWN = ""
 
@@ -79,10 +83,18 @@ def cargo_license(name: str, version_req: str) -> tuple[str, str]:
 
 
 def rust_dependencies() -> list[dict]:
-    """Every crate named in a `[dependencies]` table under `rust/`, excluding our own crates."""
-    ours = {path.parent.name for path in (ROOT / "rust").glob("*/Cargo.toml")}
+    """Every crate named in a `[dependencies]` table of one of ours, excluding our own crates.
+
+    The crate list comes from layout.properties rather than a glob of one parent directory: a crate
+    that moves must not silently drop out of the licence file, because a missing attribution is a
+    compliance failure nothing else in this build would notice.
+    """
+    manifests = sorted(
+        directory / "Cargo.toml" for directory in layout.crates().values()
+    )
+    ours = {manifest.parent.name for manifest in manifests}
     seen: dict[str, dict] = {}
-    for manifest in sorted((ROOT / "rust").glob("*/Cargo.toml")):
+    for manifest in manifests:
         text = manifest.read_text()
         # Section-scoped so `[package]` metadata and `[features]` are not mistaken for dependencies.
         for section in re.finditer(
@@ -118,7 +130,7 @@ def rust_dependencies() -> list[dict]:
 
 
 def npm_dependencies() -> list[dict]:
-    manifest = ROOT / "rust" / "nodera-app" / "ui" / "package.json"
+    manifest = APP / "ui" / "package.json"
     if not manifest.is_file():
         return []
     document = json.loads(manifest.read_text())

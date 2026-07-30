@@ -1,5 +1,6 @@
 package dev.nodera.mod.client;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import dev.nodera.core.identity.WorldHealth;
 import dev.nodera.diagnostics.model.EntityControl;
 import dev.nodera.diagnostics.model.HealthStat;
@@ -266,21 +267,13 @@ final class LangKeyCoverageTest {
     }
 
     private static java.nio.file.Path hudPackage() {
-        java.nio.file.Path direct =
-                java.nio.file.Path.of("src/main/java/dev/nodera/mod/debug/render");
-        if (java.nio.file.Files.isDirectory(direct)) {
-            return direct;
+        java.nio.file.Path pkg = LayoutManifest.load()
+                .module("neoforge-mod")
+                .resolve("src/main/java/dev/nodera/mod/debug/render");
+        if (!java.nio.file.Files.isDirectory(pkg)) {
+            throw new AssertionError("cannot locate the debug render package sources at " + pkg);
         }
-        java.nio.file.Path cursor = java.nio.file.Path.of("").toAbsolutePath();
-        while (cursor != null) {
-            java.nio.file.Path candidate =
-                    cursor.resolve("java/neoforge-mod/src/main/java/dev/nodera/mod/debug/render");
-            if (java.nio.file.Files.isDirectory(candidate)) {
-                return candidate;
-            }
-            cursor = cursor.getParent();
-        }
-        throw new AssertionError("cannot locate the debug render package sources");
+        return pkg;
     }
 
     @Test

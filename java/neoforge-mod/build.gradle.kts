@@ -23,6 +23,12 @@ dependencies {
     implementation(project(":engine"))
     implementation(project(":peer"))
     implementation(project(":storage"))
+
+    // Test scope only, and deliberately: `LayoutManifest` is how the source-scanning tests here find
+    // this module's own `src/main/java`. They used to guess it — a CWD-relative path with a
+    // hardcoded `java/neoforge-mod/...` fallback, duplicated in six files. Nothing from `:testing`
+    // reaches the fat jar, which is built from `tasks.jar` plus `noderaBundled` below.
+    testImplementation(project(":testing"))
 }
 
 // NeoForge/log4j owns the SLF4J binding inside a Minecraft runtime; peer's slf4j-simple is for

@@ -25,9 +25,10 @@
 # ===========================================================================
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_DIR="$NODERA_ROOT/rust/nodera-app"
-OUT_DIR="$NODERA_ROOT/build"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
+APP_DIR="$NODERA_APP_DIR"
+OUT_DIR="$NODERA_ARTIFACTS"
 
 # Pinned to match scripts/android-toolchain.sh. A build that follows "latest"
 # produces a different artifact every month.
@@ -128,7 +129,7 @@ if [[ "$SKIP_WORKER" == "1" && -f "$ASSETS/nodera-worker.jar" ]]; then
 else
 say "building the worker…"
 ( cd "$NODERA_ROOT" && ./gradlew :worker:installDist -q )
-WORKER_DIST="$NODERA_ROOT/java/worker/build/install/nodera-headless"
+WORKER_DIST="$NODERA_WORKER_MODULE/build/install/nodera-headless"
 [[ -d "$WORKER_DIST/lib" ]] || die "the worker distribution is missing at $WORKER_DIST"
 
 STAGE="$(mktemp -d -t nodera-worker-dex-XXXXXX)"

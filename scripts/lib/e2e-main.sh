@@ -88,12 +88,17 @@ fi
 # ---------------------------------------------------------------------------
 
 # Repository roots + build outputs.
+#
+# Directories come from `layout.properties` via scripts/lib/layout.sh — this block used to spell
+# them out, and it was the second of five copies of the same table. Every value stays overridable
+# from the environment, which is how a caller points a suite at a staged copy.
 nodera_paths() {
-    NODERA_ROOT="${NODERA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-    RUST_RELEASE="${RUST_RELEASE:-$NODERA_ROOT/rust/target/release}"
-    MOD_DIR="${MOD_DIR:-$NODERA_ROOT/java/neoforge-mod}"
-    WORKER_DIST="${WORKER_DIST:-$NODERA_ROOT/java/worker/build/install/nodera-headless/bin/nodera-headless}"
-    E2E_LOCK_FILE="${E2E_LOCK_FILE:-$NODERA_ROOT/run/.e2e-suite.lock}"
+    source "$(dirname "${BASH_SOURCE[0]}")/layout.sh"
+    layout_export
+    RUST_RELEASE="${RUST_RELEASE:-$NODERA_RUST_TARGET/release}"
+    MOD_DIR="${MOD_DIR:-$NODERA_MOD_DIR}"
+    WORKER_DIST="${WORKER_DIST:-$NODERA_WORKER_MODULE/build/install/nodera-headless/bin/nodera-headless}"
+    E2E_LOCK_FILE="${E2E_LOCK_FILE:-$NODERA_RUN_DIR/.e2e-suite.lock}"
 }
 
 # The port plan. Extra trackers/rendezvous live in their own blocks so raising
@@ -493,7 +498,7 @@ PYEOF
 
 # Full build of everything a live suite needs (skipped by --no-build).
 build_stack() {
-    ( cd "$NODERA_ROOT/rust" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous ) \
+    ( cd "$NODERA_CARGO_WS" && cargo build --release --bin nodera-tracker --bin nodera-rendezvous ) \
         || fail "build: cargo"
     # :paper-plugin:jar is here because without it the three server-category
     # suites (endpoint, folia, profile) can only ever SKIP: their preflight looks

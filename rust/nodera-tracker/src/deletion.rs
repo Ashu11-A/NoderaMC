@@ -202,11 +202,7 @@ mod tests {
     use super::*;
 
     fn golden() -> Vec<u8> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(Path::parent)
-            .expect("repo root")
-            .join("fixtures/wire/world-deletion-gossip.bin");
+        let path = nodera_codec::repo::wire_fixtures().join("world-deletion-gossip.bin");
         let frame =
             std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
         // A consensus kind: unwrap the opaque payload the tolerant plane carries it in.

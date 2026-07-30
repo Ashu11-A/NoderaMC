@@ -1,5 +1,6 @@
 package dev.nodera.diagnostics.view;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -46,20 +47,13 @@ final class NoAssembledEnglishTest {
             "0 B", "0 B/s", "<1m");
 
     private static Path viewPackage() {
-        Path direct = Path.of("src/main/java/dev/nodera/diagnostics/view");
-        if (Files.isDirectory(direct)) {
-            return direct;
+        Path pkg = LayoutManifest.load()
+                .module("peer")
+                .resolve("src/main/java/dev/nodera/diagnostics/view");
+        if (!Files.isDirectory(pkg)) {
+            throw new AssertionError("cannot locate the diagnostics view package sources at " + pkg);
         }
-        // Fall back to walking up from the working directory (IDE runners vary).
-        Path cursor = Path.of("").toAbsolutePath();
-        while (cursor != null) {
-            Path candidate = cursor.resolve("java/peer/src/main/java/dev/nodera/diagnostics/view");
-            if (Files.isDirectory(candidate)) {
-                return candidate;
-            }
-            cursor = cursor.getParent();
-        }
-        throw new AssertionError("cannot locate the diagnostics view package sources");
+        return pkg;
     }
 
     /** @return true when the line is an exception message or a comment, not screen text. */

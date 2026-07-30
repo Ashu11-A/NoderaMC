@@ -1,5 +1,6 @@
 package dev.nodera.mod.debug.render;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -36,19 +37,13 @@ final class HudHasNoHardcodedEnglishTest {
     private static final Pattern WORDY = Pattern.compile("[A-Za-z]{3,}");
 
     private static Path renderPackage() {
-        Path direct = Path.of("src/main/java/dev/nodera/mod/debug/render");
-        if (Files.isDirectory(direct)) {
-            return direct;
+        Path pkg = LayoutManifest.load()
+                .module("neoforge-mod")
+                .resolve("src/main/java/dev/nodera/mod/debug/render");
+        if (!Files.isDirectory(pkg)) {
+            throw new AssertionError("cannot locate the debug render package sources at " + pkg);
         }
-        Path cursor = Path.of("").toAbsolutePath();
-        while (cursor != null) {
-            Path candidate = cursor.resolve("java/neoforge-mod/src/main/java/dev/nodera/mod/debug/render");
-            if (Files.isDirectory(candidate)) {
-                return candidate;
-            }
-            cursor = cursor.getParent();
-        }
-        throw new AssertionError("cannot locate the debug render package sources");
+        return pkg;
     }
 
     @Test

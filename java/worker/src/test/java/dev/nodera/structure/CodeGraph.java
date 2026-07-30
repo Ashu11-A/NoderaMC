@@ -1,5 +1,7 @@
 package dev.nodera.structure;
 
+import dev.nodera.testkit.harness.LayoutManifest;
+
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Opcodes;
@@ -217,29 +219,25 @@ final class CodeGraph {
     /**
      * The compiled output roots of every Gradle module in the tree.
      *
-     * <p>Derived from the directory layout rather than a hand-kept list, so a module added tomorrow
-     * is analysed the day it is added — the same reason {@code scripts/java-test-report.sh} derives
-     * its module list from the tree.
+     * <p>Read from {@code layout.properties} rather than a hand-kept list, so a module added
+     * tomorrow is analysed the day it is added. Listing a directory (what this did before) looked
+     * equivalent but was not: it also picked up {@code build-logic}, which is an included build with
+     * no {@code build/classes/java} at all, and it silently stopped finding anything the moment a
+     * module lived outside one parent directory.
      */
     static List<ScanRoot> outputRoots(Path repoRoot) {
         List<ScanRoot> roots = new ArrayList<>();
-        Path java = repoRoot.resolve("java");
-        try (Stream<Path> modules = Files.list(java)) {
-            modules.filter(Files::isDirectory).sorted().forEach(module -> {
-                String name = module.getFileName().toString();
-                Path classes = module.resolve("build/classes/java");
-                // `:testing` is a library FOR tests (LoopbackTransport, FakeRegion, fixture IO).
-                // Counting its main source set as production would let a test harness keep
-                // production code looking alive, which is the exact illusion this report exists to
-                // remove.
-                Origin mainOrigin = name.equals("testing") ? Origin.TEST : Origin.PRODUCTION;
-                roots.add(new ScanRoot(name, mainOrigin, classes.resolve("main")));
-                roots.add(new ScanRoot(name, Origin.TEST, classes.resolve("test")));
-                roots.add(new ScanRoot(name, Origin.HARNESS, classes.resolve("jmh")));
-            });
-        } catch (IOException e) {
-            throw new UncheckedIOException("cannot list " + java, e);
-        }
+        LayoutManifest.load(repoRoot).modules().forEach((name, directory) -> {
+            Path classes = directory.resolve("build/classes/java");
+            // `:testing` is a library FOR tests (LoopbackTransport, FakeRegion, fixture IO).
+            // Counting its main source set as production would let a test harness keep
+            // production code looking alive, which is the exact illusion this report exists to
+            // remove.
+            Origin mainOrigin = name.equals("testing") ? Origin.TEST : Origin.PRODUCTION;
+            roots.add(new ScanRoot(name, mainOrigin, classes.resolve("main")));
+            roots.add(new ScanRoot(name, Origin.TEST, classes.resolve("test")));
+            roots.add(new ScanRoot(name, Origin.HARNESS, classes.resolve("jmh")));
+        });
         return roots;
     }
 

@@ -12,7 +12,7 @@ use nodera_codec::rendezvous::RendezvousMessage;
 use nodera_codec::service::ServiceMessage;
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::WorldDeletionGossip;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Decode a golden frame with whichever family owns `tag`, and re-encode it.
 ///
@@ -87,12 +87,7 @@ fn tag_of(golden: &[u8]) -> u16 {
 }
 
 fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("repo root")
-        .join("fixtures")
-        .join("wire")
+    nodera_codec::repo::wire_fixtures()
 }
 
 fn fixture_files() -> Vec<PathBuf> {

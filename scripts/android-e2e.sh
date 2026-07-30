@@ -24,13 +24,14 @@
 # ===========================================================================
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
 ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export PATH="$PATH:$ANDROID_HOME/platform-tools"
 
 PACKAGE="dev.nodera.app"
 ACTIVITY="$PACKAGE/.MainActivity"
-APK="$NODERA_ROOT/build/nodera-release.apk"
+APK="$NODERA_ARTIFACTS/nodera-release.apk"
 TRACKER="${NODERA_TRACKER:-10.0.0.101:25600}"
 DO_INSTALL=1
 EXPECTED_P2P_PORT="${NODERA_ANDROID_EXPECT_P2P_PORT:-}"
@@ -76,7 +77,7 @@ say "tracker    $TRACKER"
 TRACKER_HOST="${TRACKER%%:*}"
 TRACKER_PORT="${TRACKER##*:}"
 if ! timeout 3 bash -c "</dev/tcp/$TRACKER_HOST/$TRACKER_PORT" 2>/dev/null; then
-  die "nothing is listening on $TRACKER — start it with: rust/target/release/nodera-tracker"
+  die "nothing is listening on $TRACKER — start it with: $NODERA_RUST_TARGET/release/nodera-tracker"
 fi
 say "the tracker is accepting connections"
 
@@ -160,7 +161,7 @@ fi
 # machine, over the same wire protocol, and either the tracker returns the
 # phone's node id or it does not.
 say "asking the tracker who it knows…"
-QUERY="$NODERA_ROOT/rust/target/release/nodera-query"
+QUERY="$NODERA_RUST_TARGET/release/nodera-query"
 [[ -x "$QUERY" ]] || die "build the querier first: cargo build --release -p nodera-tracker --bin nodera-query"
 QUERY_OUT="$("$QUERY" "$TRACKER" 2>&1)" || true
 echo "$QUERY_OUT" | sed 's/^/       /'

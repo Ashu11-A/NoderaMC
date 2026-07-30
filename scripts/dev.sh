@@ -128,18 +128,22 @@
 set -euo pipefail
 
 # --- paths ---------------------------------------------------------------
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUST_DIR="$NODERA_ROOT/rust"
-RUST_RELEASE="$RUST_DIR/target/release"
-LOG_DIR="${NODERA_LOG_DIR:-$NODERA_ROOT/run/logs}"
+# Directories come from `layout.properties` (see scripts/lib/layout.sh); the file names under them
+# are composed here, because `build/libs/neoforge-mod.jar` is a property of Gradle and the manifest
+# only describes the tree.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
+
+RUST_RELEASE="$NODERA_RUST_TARGET/release"
+LOG_DIR="${NODERA_LOG_DIR:-$NODERA_RUN_DIR/logs}"
 
 # The shared artifact directory: both toolchains' outputs land here together.
-BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ROOT/build}"
-SRC_MOD_JAR="$NODERA_ROOT/java/neoforge-mod/build/libs/neoforge-mod.jar"
+BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ARTIFACTS}"
+SRC_MOD_JAR="$NODERA_MOD_DIR/build/libs/neoforge-mod.jar"
 
 # The headless peer worker (Task 32): built via the `application` plugin's installDist.
-WORKER_SRC_DIST="$NODERA_ROOT/java/worker/build/install/nodera-headless"
-APP_DIR="$RUST_DIR/nodera-app"
+WORKER_SRC_DIST="$NODERA_WORKER_MODULE/build/install/nodera-headless"
+APP_DIR="$NODERA_APP_DIR"
 
 # Runtime consumes the collected copies in build/ — never the per-toolchain output dirs.
 MOD_JAR="$BUILD_DIR/neoforge-mod.jar"
@@ -237,10 +241,10 @@ build_rust() {
         log "Version: scripts/version.sh --check"
         "$NODERA_ROOT/scripts/version.sh" --check
         log "Rust: cargo test (workspace)"
-        ( cd "$RUST_DIR" && cargo test )
+        ( cd "$NODERA_CARGO_WS" && cargo test )
     fi
     log "Rust: cargo build --release (codec + tracker + rendezvous + telemetry)"
-    ( cd "$RUST_DIR" && cargo build --release \
+    ( cd "$NODERA_CARGO_WS" && cargo build --release \
         --bin nodera-tracker --bin nodera-rendezvous --bin nodera-telemetry )
 }
 

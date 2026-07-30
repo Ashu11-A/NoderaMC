@@ -46,3 +46,14 @@ application {
     mainClass.set("dev.nodera.testkit.cli.NoderaTestMain")
     applicationName = "nodera-test"
 }
+
+// `LayoutManifestTest` compares `layout.properties` against the projects Gradle really configured.
+// Only Gradle knows the second half, so `settings.gradle.kts` records it as an extra property and
+// this hands it across. Without it the comparison would have nothing to compare and would pass
+// vacuously — which is why the test asserts the property is present before using it.
+tasks.named<Test>("test") {
+    systemProperty(
+        "nodera.layout.modules",
+        project.extra["noderaConfiguredModules"] as String,
+    )
+}

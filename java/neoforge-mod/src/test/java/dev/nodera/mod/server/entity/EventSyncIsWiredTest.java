@@ -1,5 +1,6 @@
 package dev.nodera.mod.server.entity;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -23,19 +24,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 final class EventSyncIsWiredTest {
 
     private static String read(String relative) throws IOException {
-        Path direct = Path.of("src/main/java").resolve(relative);
-        if (Files.isRegularFile(direct)) {
-            return Files.readString(direct, StandardCharsets.UTF_8);
+        Path source = LayoutManifest.load()
+                .module("neoforge-mod")
+                .resolve("src/main/java")
+                .resolve(relative);
+        if (!Files.isRegularFile(source)) {
+            throw new AssertionError("cannot locate " + source);
         }
-        Path cursor = Path.of("").toAbsolutePath();
-        while (cursor != null) {
-            Path candidate = cursor.resolve("java/neoforge-mod/src/main/java").resolve(relative);
-            if (Files.isRegularFile(candidate)) {
-                return Files.readString(candidate, StandardCharsets.UTF_8);
-            }
-            cursor = cursor.getParent();
-        }
-        throw new AssertionError("cannot locate " + relative);
+        return Files.readString(source, StandardCharsets.UTF_8);
     }
 
     private static final String SESSION =

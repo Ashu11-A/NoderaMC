@@ -18,7 +18,8 @@
 
 set -euo pipefail
 
-NODERA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
 
 VPS_HOST="${NODERA_VPS_HOST:-150.230.84.206}"
 VPS_USER="${NODERA_VPS_USER:-ubuntu}"
@@ -77,7 +78,7 @@ if [[ $STATUS_ONLY -eq 1 ]]; then
 fi
 
 for f in index.html add-store.html noderamc.caddy; do
-	[[ -f "$NODERA_ROOT/site/$f" ]] || die "site/$f is missing"
+	[[ -f "$NODERA_WEB_DIR/$f" ]] || die "site/$f is missing"
 done
 
 if [[ $DRY_RUN -eq 1 ]]; then
@@ -92,7 +93,7 @@ STAGE="/tmp/nodera-site.$$"
 say "sending site/ to $VPS_USER@$VPS_HOST"
 remote "mkdir -p $STAGE"
 scp "${SSH_OPTS[@]/-p/-P}" -q \
-	"$NODERA_ROOT/site/index.html" "$NODERA_ROOT/site/add-store.html" "$NODERA_ROOT/site/noderamc.caddy" \
+	"$NODERA_WEB_DIR/index.html" "$NODERA_WEB_DIR/add-store.html" "$NODERA_WEB_DIR/noderamc.caddy" \
 	"$VPS_USER@$VPS_HOST:$STAGE/"
 
 say "installing"

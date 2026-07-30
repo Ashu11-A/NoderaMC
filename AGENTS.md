@@ -1,6 +1,18 @@
 # AGENTS.md — NoderaMC
 
 ## Repo layout (polyglot monorepo; unified Java API since issue #30, 2026-07-21)
+
+> **`layout.properties` at the repository root is THE layout table. Never hardcode a module or crate
+> directory anywhere else.** Gradle's settings script, the Java harness (`LayoutManifest`), the
+> structural report, `scripts/lib/layout.{sh,py}` and `nodera_codec::repo` all read it, and
+> `LayoutManifestTest` fails the build if any of them drift from it. Before it existed the same
+> table lived in five places and two were already wrong — a test had silently skipped for months
+> against a directory that had moved, and a CI workflow watched a file that was no longer there.
+> Neither failed; the copies just disagreed. Workflow YAML, Dockerfiles, `.dockerignore` and
+> `tauri.*.conf.json` cannot read it (GitHub, Docker and Tauri parse them first), so
+> `scripts/check-layout-drift.sh` greps those in CI. The paths below are what the manifest says
+> today, not a second copy of it.
+
 - `java/<module>/` — **nine Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` ·
   `storage` · `peer` · `worker` · `testing` · `neoforge-mod` · `paper-plugin`. Seven are the
   unified API/product modules; `worker` and `paper-plugin` are separately packaged runtimes. The old
