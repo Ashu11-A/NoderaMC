@@ -8,6 +8,12 @@
 # Option B (locked): this app SUPERVISES a bundled headless Java Nodera peer (reusing all tested Java
 # peer/validation logic). The Rust side is the UI + tray + autostart + control endpoint + daemon
 # supervisor + metrics aggregation; it depends on nodera-codec for the shared wire types.
+# Its own workspace, declared rather than inherited. The root manifest also excludes this path;
+# either alone is sufficient, and having both is the point — `cargo` invoked from inside this
+# directory stops here regardless of what the root says, and a future edit to the root's `exclude`
+# cannot silently pull webkit2gtk into `cargo test --workspace`.
+[workspace]
+
 [package]
 name = "nodera-app"
 version = "0.1.0"

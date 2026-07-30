@@ -45,14 +45,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
 
       - name: Rust unit tests (the gate at the receiver)
-        working-directory: rust
+        working-directory: .
         run: cargo test -p nodera-telemetry -p nodera-tracker -p nodera-rendezvous
 
       - name: Clippy
-        working-directory: rust
+        working-directory: .
         run: cargo clippy -p nodera-telemetry --all-targets -- -D warnings
 
       - name: Java emitter tests
@@ -86,19 +86,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: .
 
       # The mirror test SKIPS when the binary is absent, so building it first is what makes this
       # job meaningful rather than green-by-default.
       - name: Build the collector
-        working-directory: rust
+        working-directory: .
         run: cargo build --release -p nodera-telemetry
 
       - name: The registries agree
         run: ./gradlew :peer:test --tests '*TelemetryRegistryMirrorTest*'
 
       - name: The published registry is readable
-        run: rust/target/release/nodera-telemetry --print-schema | python3 -m json.tool > /dev/null
+        run: target/release/nodera-telemetry --print-schema | python3 -m json.tool > /dev/null
 
   stack-smoke:
     runs-on: ubuntu-latest
