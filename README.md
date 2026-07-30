@@ -151,14 +151,16 @@ The mod **requires** the worker and aborts startup with an install prompt if not
 ```bash
 ./gradlew check                  # compile + every Java unit test (the gate)
 ./gradlew build                  # check + assemble jars
-cd rust && cargo test            # Rust unit + cross-language conformance tests (equally required)
-cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+cargo test                       # Rust unit + cross-language conformance (equally required)
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-# rust/nodera-app is a SEPARATE cargo workspace (Tauri native deps) held to the same standard
-cd rust/nodera-app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+# app is a SEPARATE cargo workspace (Tauri native deps) held to the same standard
+cd app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 scripts/version.sh --check       # every version mirror agrees with the root VERSION file
 scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
+scripts/check-layout-drift.sh    # workflow/Docker/Tauri paths still resolve
+scripts/check-docs.sh            # every docs/ link resolves; every table is square
 ```
 
 **End-to-end suites** — one command over the acceptance scenarios, the benchmarks and the structural

@@ -26,10 +26,14 @@
   in `:peer`'s `src/headless` source set, which `tasks.jar` does not carry, so the mod's fat jar
   still cannot contain a launchable `main` (`ModJarCarriesNoEntryPointTest` asserts that on the
   built artefact). `./gradlew :peer:installDist` builds it; the artefact name is unchanged.
-- `rust/` — cargo workspace: `nodera-codec` (canonical-encoding port, Task 27),
-  `nodera-tracker` (Task 28), `nodera-rendezvous` (Task 29), `nodera-telemetry` (telemetry 1).
-  Channel pinned in `rust/rust-toolchain.toml`; crate versions pinned in the workspace `Cargo.toml`
-  and kept in step with the root `VERSION` file (see "Versioning" below).
+- **Cargo workspace rooted at the repository root** (`Cargo.toml`, `Cargo.lock`,
+  `rust-toolchain.toml`, output in `target/`): `library/rust/nodera-codec` (canonical-encoding port,
+  Task 27) and `library/rust/nodera-service` are the shared crates; `tracker/` (Task 28),
+  `rendezvous/` (Task 29) and `telemetry/` (telemetry 1) are the service binaries. `app/` — the
+  Tauri companion — is workspace-**excluded** (Tauri native deps) and declares its own
+  `[workspace]`; run its gate from inside it. Crate versions are kept in step with the root
+  `VERSION` file (see "Versioning" below).
+- `web/` — the static site served at noderamc.org, published by `scripts/deploy-site.sh`.
 - `docker/telemetry/` — the Big Data plane (Vector → Redpanda → ClickHouse → Grafana/Spark).
   **Never a dependency**: every container here can be down and no peer, tracker, or rendezvous
   service behaves differently.
@@ -42,8 +46,8 @@
 - `./gradlew build`        — check + assemble jars
 - `./gradlew :core:test`   — one module's tests (substitute module name)
 - `./gradlew check --rerun-tasks` — force tests to re-run (ignore up-to-date caching)
-- `cd rust && cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
-- `cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
+- `cargo test`  — Rust unit tests + the cross-language fixture/tag-mirror conformance
+- `cargo fmt --check && cargo clippy --all-targets -- -D warnings` — Rust lint gate
 - `scripts/nodera-test.sh list|run|bench|structure|all` — **THE test entry point** (docs/testing/Task.0.md). One tool over the acceptance scenarios (`dev.nodera.testkit.scenario`, formerly the twenty `scripts/e2e-*.sh`), the benchmark lanes and the structural report; writes `build/reports/nodera/TEST-REPORT.md`. Live scenarios take `run/.e2e-suite.lock` and run one at a time
 - `./gradlew :peer:jmh -Pbench.quick` / `./gradlew :peer:benchmarkReport` — the peer benchmark lanes (discovery · chunk sync · wire · runtime latency) and the ranked report with load-scaling and a baseline diff (network task 15). NOT part of `check`: minutes, and not a correctness gate
 - `./gradlew :peer:structureReport` — the structural code report: dead code, in-loop cost findings, and a **debugger-profiled** run of the real `nodera-headless` worker. `-Pstructure.debug=false` skips the probe. Budgets in `fixtures/structure/budget.json` ratchet DOWN only
@@ -66,9 +70,15 @@ same frozen wire contract, so a codec regression is a consensus regression.
 
 ## Layering (Task 0 §7; module boundaries unified by issue #30 — inter-PACKAGE rules unchanged)
 - Module graph: `core` → JDK only. `engine`/`transport`/`storage` → `core`. `peer` → those four,
-  and also composes the always-on node. `testing` → `core` + `engine` + `transport`.
-  `neoforge-mod` → `core`/`engine`/`transport`/`storage`/`peer` (the ONLY module with
-  Minecraft/NeoForge types). `paper-plugin` → `core` + `peer` and contains Paper types only.
+  and also composes the always-on node (`PeerNode.start` is the only way to build one).
+  `endpoint` → `core` + `peer`: what a Minecraft-hosting process needs in order to BE a node, with
+  **no Minecraft and no Paper types in it**. `testing` → `core` + `engine` + `transport` + `peer`.
+  `neoforge-mod` → those plus `endpoint` (the ONLY module with Minecraft/NeoForge types).
+  `paper-plugin` → `core` + `peer` + `endpoint` and contains Paper types only.
+- A wire payload is SPLIT: the data is a record in `library/java/endpoint`, and the
+  `CustomPacketPayload` wrapper that adds a `StreamCodec` to it stays in the mod. `NoderaConfig` is
+  read through `endpoint.config.NoderaSettings`, never directly — it is a `ModConfigSpec` holder and
+  a NeoForge type on the library's path is what kept 1,000 lines of peer wiring inside the mod.
 - `core` — Task 23's `core/crypto/symmetric` follows the JDK-only rule: AES-GCM-256, `ContentKey`,
   the `PasswordKeyDerivation` seam, and PBKDF2-HMAC-SHA256 use JDK crypto only.
 - `engine` (`dev.nodera.simulation` / `consensus` / `shadow` / `coordinator` / `committee` /
@@ -140,7 +150,7 @@ same frozen wire contract, so a codec regression is a consensus regression.
     The ENTRY POINT `HeadlessPeerMain` is the one class in `src/headless`, because `:peer` is zipped
     into the mod's fat jar and a player's `mods/` folder must not contain a launchable `main`.
     `./gradlew :peer:installDist`; launcher name `nodera-headless` is a contract with
-    `rust/nodera-app` (`daemon.rs`), `tauri.*.conf.json`, CI and `scripts/dev.sh`.
+    `app` (`daemon.rs`), `tauri.*.conf.json`, CI and `scripts/dev.sh`.
 - `testing` (`dev.nodera.testkit`): `LoopbackTransport` (chunks streams exactly like the real
   transports), `FakeRegion`, wire-fixture IO; future home of the multi-peer scenario suite.
 - `neoforge-mod` is onboarded via the `nodera.neoforge-mod` convention (ModDevGradle → NeoForge
@@ -188,7 +198,7 @@ delegate reads extra properties too.
 Three rules, refusable if violated:
 1. **Nothing is collected without an explicit yes.** Off by default; the question is asked once, in
    the companion app; absent consent = denied consent.
-2. **Only `rust/nodera-telemetry/src/schema.rs` may be stored,** and no value in it may be free
+2. **Only `telemetry/src/schema.rs` may be stored,** and no value in it may be free
    text. Adding an event or attribute is a *policy* change: it lands with `Plan.6.md` §4 in the same
    commit. The gate is at the receiver, so it holds for forked clients too.
 3. **Nothing in the network may read telemetry.** Stricter than the tracker/rendezvous rule — those
@@ -210,7 +220,7 @@ answer must be unchanged apart from the telemetry block and the clock.
 ## Frozen contracts (do not change without a version bump)
 - Canonical encoding: `core/crypto/CanonicalWriter` + `CanonicalReader` + `Encodable` + `TypeTags`.
   Every `Encodable.encode` starts with `writeU16(typeTag); writeU16(ENCODING_VERSION);`.
-  Since Task 27 there is a **second implementation** — `rust/nodera-codec` — held to the same
+  Since Task 27 there is a **second implementation** — `library/rust/nodera-codec` — held to the same
   contract by two mechanical checks: `tests/tag_mirror.rs` parses `TypeTags.java`/`MessageCodec.java`
   and fails on any drift, and `tests/fixtures.rs` re-encodes every `fixtures/wire/*.bin`
   byte-exactly. Appending a tag means appending it on BOTH sides in the same commit.
@@ -295,7 +305,7 @@ Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
    bug in the ledger itself.
 3. **Analyze failed actions.** `gh run list --limit 10` — any `failure` on `main` is a
    stop-the-line event: `gh run view <id> --log-failed` to isolate the failing step, reproduce
-   locally (`./gradlew check` / `cd rust && cargo test && cargo fmt --check && cargo clippy
+   locally (`./gradlew check` / `cargo test && cargo fmt --check && cargo clippy
    --all-targets -- -D warnings`), fix, push, then re-check `gh run list` until green. A push
    is not "done" until its `build` and `release-latest` runs pass; watch them with
    `gh run watch <id>` after every push to `main`.
