@@ -38,7 +38,7 @@ sanitiser built the same way — strips any scheme but `http`/`https`/`mailto`, 
 README button was a dead image. The link was never broken; there was nowhere to put it.
 
 `https://noderamc.org/add-store?url=…` is the hop that was missing, and it is a **static page, not a
-service**: `site/add-store.html`, served by Caddy from `site/noderamc.caddy`, deployed by
+service**: `web/add-store.html`, served by Caddy from `web/noderamc.caddy`, deployed by
 `scripts/deploy-site.sh`. It keeps this task's own line — a non-https index is refused before it is
 offered, the address is shown exactly as received, and the scheme is invoked only from a real click,
 because a page that redirects on load is a drive-by intent. Visitors without the app get the address

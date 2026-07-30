@@ -108,7 +108,7 @@ sole authority over its world.
      URL and the user decides, and nothing is fetched before they confirm. There is no privileged
      store: the bundled list is deletable like any other. The header button CANNOT be a `nodera://`
      href: GitHub's markdown sanitiser strips every scheme but http/https/mailto, so it points at
-     https://noderamc.org/add-store, which is site/add-store.html deployed by
+     https://noderamc.org/add-store, which is web/add-store.html deployed by
      scripts/deploy-site.sh — that page is the https hop that turns the click into the scheme. -->
 
 Trackers and rendezvous points are **hints, not authority** — every service proves its own identity
