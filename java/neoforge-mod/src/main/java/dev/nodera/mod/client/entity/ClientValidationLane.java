@@ -10,7 +10,7 @@ import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.DimensionKey;
 import dev.nodera.core.region.PlayerView;
 import dev.nodera.core.state.StateRoot;
-import dev.nodera.mod.common.NoderaLanePlanPayload;
+import dev.nodera.endpoint.lane.LanePlan;
 import dev.nodera.mod.common.NoderaPeerService;
 import dev.nodera.peer.validation.EntityLaneBootstrap;
 import dev.nodera.peer.validation.WorkerValidationService;
@@ -30,7 +30,7 @@ import java.util.UUID;
 
 /**
  * The player's own validation lane (the no-host processing rule made real on every client): when
- * the session broadcasts the region-ownership plan ({@link NoderaLanePlanPayload}), this client
+ * the session broadcasts the region-ownership plan ({@link LanePlan}), this client
  * derives the <b>identical</b> plan from the same pure inputs, activates every region where its
  * node is <i>primary or validator</i>, registers the other members as committee peers, and from
  * then on <b>re-executes and votes on its regions' batches with THE engine</b> over the P2P mesh.
@@ -54,7 +54,7 @@ public final class ClientValidationLane {
     }
 
     /** Derive the plan from the broadcast inputs and activate this player's region set. */
-    public static synchronized void apply(NoderaLanePlanPayload plan) {
+    public static synchronized void apply(LanePlan plan) {
         // The client half of the root switch. A session running this build broadcasts no plan at
         // all, so this is unreachable in a homogeneous network — and that is exactly why it is
         // here: a plan from an older or hostile peer must not start a lane this build has switched
@@ -97,7 +97,7 @@ public final class ClientValidationLane {
         Bytes actionSigner = Bytes.unsafeWrap(
                 Base64.getDecoder().decode(plan.actionSignerKeyB64()));
         Map<NodeId, PlayerView> views = new LinkedHashMap<>();
-        for (NoderaLanePlanPayload.Member m : plan.members()) {
+        for (LanePlan.Member m : plan.members()) {
             NodeId node = new NodeId(UUID.fromString(m.nodeIdUuid()));
             views.putIfAbsent(node, PlayerView.fromBlock(
                     DimensionKey.of(m.dimNamespace(), m.dimPath()),
@@ -120,7 +120,7 @@ public final class ClientValidationLane {
         // each one a proposal, and a key to verify the vote that comes back.
         java.util.LinkedHashSet<NodeId> residents =
                 residentSeatPool(plan.residents(), identity.nodeId(), views.keySet());
-        for (NoderaLanePlanPayload.Resident r : plan.residents()) {
+        for (LanePlan.Resident r : plan.residents()) {
             NodeId node = new NodeId(UUID.fromString(r.nodeIdUuid()));
             if (residents.contains(node)) {
                 lane.registerPeer(node, PeerAddress.of(node, r.route()),
@@ -198,10 +198,10 @@ public final class ClientValidationLane {
      * @Thread-context any thread; pure.
      */
     static java.util.LinkedHashSet<NodeId> residentSeatPool(
-            List<NoderaLanePlanPayload.Resident> residents, NodeId self,
+            List<LanePlan.Resident> residents, NodeId self,
             java.util.Set<NodeId> playerNodes) {
         java.util.LinkedHashSet<NodeId> pool = new java.util.LinkedHashSet<>();
-        for (NoderaLanePlanPayload.Resident r : residents) {
+        for (LanePlan.Resident r : residents) {
             NodeId node = new NodeId(UUID.fromString(r.nodeIdUuid()));
             if (node.equals(self) || playerNodes.contains(node) || r.route().isBlank()
                     || r.publicKeyB64().isBlank()) {

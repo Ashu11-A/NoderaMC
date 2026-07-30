@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.config.NoderaSettings;
 import dev.nodera.endpoint.control.CompanionClient;
 import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
@@ -278,7 +279,7 @@ public final class NoderaPeerService {
 
         // Announce to the tracker (Task 28) and keep re-announcing on its cadence.
         serverTrackerClient = trackerClient(
-                selectedTrackerRoutes(NoderaConfig.TRACKER_ENDPOINTS.get()), serverIdentity);
+                selectedTrackerRoutes(NoderaSettings.current().trackerEndpoints()), serverIdentity);
         if (!serverTrackerClient.endpoints().isEmpty()) {
             LOG.info("Nodera tracker endpoints: {}", serverTrackerClient.endpoints());
             startAnnouncing();
@@ -342,7 +343,7 @@ public final class NoderaPeerService {
      */
     private PeerTransport composeHostTransport(Bytes worldId) {
         java.util.List<? extends String> routes =
-                selectedRendezvousRoutes(NoderaConfig.RENDEZVOUS_ENDPOINTS.get());
+                selectedRendezvousRoutes(NoderaSettings.current().rendezvousEndpoints());
         if (routes == null || routes.isEmpty() || worldId == null) {
             return serverTransport;
         }
@@ -391,7 +392,7 @@ public final class NoderaPeerService {
             return clientTransport;
         }
         java.util.List<? extends String> routes =
-                selectedRendezvousRoutes(NoderaConfig.CLIENT_RENDEZVOUS_ENDPOINTS.get());
+                selectedRendezvousRoutes(NoderaSettings.current().clientRendezvousEndpoints());
         if (routes == null || routes.isEmpty()) {
             return clientTransport;
         }
@@ -883,7 +884,7 @@ public final class NoderaPeerService {
                 clientCounts);
         clientRuntime.setLocalProfile(negotiationProfile(NodeCapabilities.initial()));
         clientTrackerClient = trackerClient(
-                selectedTrackerRoutes(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get()), clientIdentity);
+                selectedTrackerRoutes(NoderaSettings.current().clientTrackerEndpoints()), clientIdentity);
         clientCollector = new DiagnosticsCollector(clientMeter, clientCounts)
                 .register(clientRuntime)
                 .register(dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.get())

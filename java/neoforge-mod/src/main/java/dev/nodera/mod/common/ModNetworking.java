@@ -1,5 +1,7 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.endpoint.share.JoinChallenge;
+import dev.nodera.endpoint.lane.LanePlan;
 import dev.nodera.endpoint.share.AnnounceChallenges;
 import dev.nodera.endpoint.share.HostJoinGate;
 import dev.nodera.endpoint.share.JoinerIdentity;
@@ -70,11 +72,11 @@ public final class ModNetworking {
      * mod-loading thread, read on the proof-derivation thread.
      */
     private static volatile java.util.function.Function<
-            NoderaJoinChallengePayload, java.util.Optional<dev.nodera.core.Bytes>> joinProofProvider;
+            JoinChallenge, java.util.Optional<dev.nodera.core.Bytes>> joinProofProvider;
 
     /** Register the client-side answerer for live-join password challenges. */
     public static void setJoinProofProvider(java.util.function.Function<
-            NoderaJoinChallengePayload, java.util.Optional<dev.nodera.core.Bytes>> provider) {
+            JoinChallenge, java.util.Optional<dev.nodera.core.Bytes>> provider) {
         joinProofProvider = provider;
     }
 
@@ -91,10 +93,10 @@ public final class ModNetworking {
     }
 
     /** Client-dist hook for the region-ownership plan payload (set by {@code ClientBootstrap}). */
-    private static volatile java.util.function.Consumer<NoderaLanePlanPayload> planListener;
+    private static volatile java.util.function.Consumer<LanePlan> planListener;
 
     /** Register the client-side listener for region-ownership plan broadcasts. */
-    public static void setPlanListener(java.util.function.Consumer<NoderaLanePlanPayload> listener) {
+    public static void setPlanListener(java.util.function.Consumer<LanePlan> listener) {
         planListener = listener;
     }
 
@@ -129,7 +131,7 @@ public final class ModNetworking {
             String proofB64 = "";
             try {
                 var proof = provider == null ? java.util.Optional.<dev.nodera.core.Bytes>empty()
-                        : provider.apply(payload);
+                        : provider.apply(payload.challenge());
                 if (proof.isPresent()) {
                     proofB64 = java.util.Base64.getEncoder()
                             .encodeToString(proof.get().toArray());
@@ -229,10 +231,11 @@ public final class ModNetworking {
             // listener, and outside the deterministic-validation switch that listener honours,
             // because a worker's membership is worth having even where this build's client lane is
             // off: it is what keeps the world alive when this game exits.
-            NoderaPeerService.get().bindCompanionToSession(payload.worldSeed());
+            LanePlan plan = payload.plan();
+            NoderaPeerService.get().bindCompanionToSession(plan.worldSeed());
             var listener = planListener;
             if (listener != null) {
-                listener.accept(payload);
+                listener.accept(plan);
             }
         });
     }

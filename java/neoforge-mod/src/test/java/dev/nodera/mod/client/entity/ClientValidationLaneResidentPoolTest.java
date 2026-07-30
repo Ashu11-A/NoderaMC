@@ -1,7 +1,7 @@
 package dev.nodera.mod.client.entity;
 
 import dev.nodera.core.identity.NodeId;
-import dev.nodera.mod.common.NoderaLanePlanPayload;
+import dev.nodera.endpoint.lane.LanePlan;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -30,8 +30,8 @@ final class ClientValidationLaneResidentPoolTest {
         return new NodeId(new UUID(0, id));
     }
 
-    private static NoderaLanePlanPayload.Resident resident(long id, String route) {
-        return new NoderaLanePlanPayload.Resident(new UUID(0, id).toString(), KEY, route);
+    private static LanePlan.Resident resident(long id, String route) {
+        return new LanePlan.Resident(new UUID(0, id).toString(), KEY, route);
     }
 
     @Test
@@ -80,7 +80,7 @@ final class ClientValidationLaneResidentPoolTest {
     @DisplayName("a keyless resident is not seated: a vote that cannot be verified cannot count")
     void anUnverifiableResidentIsDropped() {
         Set<NodeId> pool = ClientValidationLane.residentSeatPool(
-                List.of(new NoderaLanePlanPayload.Resident(
+                List.of(new LanePlan.Resident(
                                 new UUID(0, 90).toString(), "", "10.0.0.5:25610"),
                         resident(91, "10.0.0.6:25610")),
                 node(1), Set.of(node(1)));

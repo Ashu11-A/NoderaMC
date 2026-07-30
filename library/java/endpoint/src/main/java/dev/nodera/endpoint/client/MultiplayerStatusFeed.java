@@ -1,10 +1,10 @@
-package dev.nodera.mod.client.multiplayer;
+package dev.nodera.endpoint.client;
 
+import dev.nodera.endpoint.config.NoderaSettings;
 import dev.nodera.diagnostics.view.RendezvousStatusView.PathKind;
 import dev.nodera.diagnostics.view.RendezvousStatusView.RendezvousEndpointStatus;
 import dev.nodera.diagnostics.view.TrackerStatusView.TrackerEndpointStatus;
 import dev.nodera.transport.rendezvous.RendezvousEndpoint;
-import dev.nodera.mod.common.NoderaConfig;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
  * Task 31/33 fix: the live feed behind the multiplayer screen's Trackers/Rendezvous tabs. Previously
  * the tabs always read empty suppliers and showed "No trackers configured" even when
  * {@code nodera-client.toml} was correct — the bug was that no one built rows from the configured
- * endpoints. This reads {@link NoderaConfig#CLIENT_TRACKER_ENDPOINTS}/{@code CLIENT_RENDEZVOUS_ENDPOINTS},
+ * endpoints. This reads {@link NoderaSettings#clientTrackerEndpoints()}/{@link NoderaSettings#clientRendezvousEndpoints()},
  * probes each with a short TCP connect on a background cadence, and exposes cached
  * {@link TrackerEndpointStatus}/{@link RendezvousEndpointStatus} rows the screen's suppliers return —
  * never blocking the render thread.
@@ -61,8 +61,8 @@ public final class MultiplayerStatusFeed {
         if (scheduler != null) {
             return;
         }
-        List<String> trk = strings(NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get());
-        List<String> rdv = strings(NoderaConfig.CLIENT_RENDEZVOUS_ENDPOINTS.get());
+        List<String> trk = strings(NoderaSettings.current().clientTrackerEndpoints());
+        List<String> rdv = strings(NoderaSettings.current().clientRendezvousEndpoints());
         trackerLastOkMs = new long[trk.size()];
         rendezvousLastOkMs = new long[rdv.size()];
         refresh(trk, rdv); // immediate first snapshot so the tab is populated at once

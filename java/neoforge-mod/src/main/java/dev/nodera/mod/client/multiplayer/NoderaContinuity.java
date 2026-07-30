@@ -1,5 +1,6 @@
 package dev.nodera.mod.client.multiplayer;
 
+import dev.nodera.endpoint.client.ClientJoinPasswords;
 import dev.nodera.distribution.WorldArchive;
 import dev.nodera.endpoint.control.CompanionLink;
 import dev.nodera.mod.common.NoderaConfig;

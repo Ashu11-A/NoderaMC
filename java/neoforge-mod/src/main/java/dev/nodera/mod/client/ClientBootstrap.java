@@ -58,7 +58,7 @@ public final class ClientBootstrap {
         // L-52: answer a host's live-join password challenge from the passwords this player typed,
         // and offer the prompt on the disconnect screen when a join is refused for lack of one.
         dev.nodera.mod.common.ModNetworking.setJoinProofProvider(
-                dev.nodera.mod.client.multiplayer.ClientJoinPasswords::answer);
+                dev.nodera.endpoint.client.ClientJoinPasswords::answer);
         NeoForge.EVENT_BUS.addListener(
                 dev.nodera.mod.client.multiplayer.JoinPasswordScreen::onScreenInit);
         // No-host ownership: every plan broadcast re-derives this player's own region set and
@@ -88,11 +88,11 @@ public final class ClientBootstrap {
     private static void onClientSetup(FMLClientSetupEvent event) {
         // Task 31/33 fix: feed the multiplayer Trackers/Rendezvous tabs from the configured endpoints
         // (they were never wired, so they always said "No … configured").
-        dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed.start();
+        dev.nodera.endpoint.client.MultiplayerStatusFeed.start();
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setTrackerSupplier(
-                dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::trackers);
+                dev.nodera.endpoint.client.MultiplayerStatusFeed::trackers);
         dev.nodera.mod.client.multiplayer.NoderaMultiplayerScreen.setRendezvousSupplier(
-                dev.nodera.mod.client.multiplayer.MultiplayerStatusFeed::rendezvous);
+                dev.nodera.endpoint.client.MultiplayerStatusFeed::rendezvous);
         // Worlds tab: the union of this install's worker-hosted worlds (owner = the local player,
         // live joinability) and the tracker directory (other players' public worlds). The Refresh
         // button re-pulls both on demand; Join rides the default NoderaJoinFlow handler.
@@ -158,7 +158,7 @@ public final class ClientBootstrap {
         dev.nodera.mod.common.NoderaHost.setClientPlayerReady(true);
         // Being here means the gate, if there was one, let us through. Clearing the marker is what
         // keeps a later, genuine host loss from being mistaken for a password refusal.
-        dev.nodera.mod.client.multiplayer.ClientJoinPasswords.passedGate();
+        dev.nodera.endpoint.client.ClientJoinPasswords.passedGate();
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {

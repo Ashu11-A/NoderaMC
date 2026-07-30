@@ -1,5 +1,6 @@
 package dev.nodera.mod.client.multiplayer;
 
+import dev.nodera.endpoint.client.ClientJoinPasswords;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
