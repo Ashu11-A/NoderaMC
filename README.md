@@ -183,7 +183,7 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 <!-- AI-AGENT-INSTRUCTION: Mirrors docs/<category>/TESTING.md — update both together. Status:
      ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. Keep the responsibility
      column to ONE short line; the full architecture of a module is in java/<module>/README.md or
-     rust/<crate>/README.md. The `rust/*` rows are parsed by scripts/test-counts.sh — do not change
+     <crate>/README.md. The Rust crate rows are parsed by scripts/test-counts.sh (keyed on the crate directory from layout.properties) — do not change
      their shape (backticked path, count as the second-to-last cell). -->
 
 | Module | Responsibility | Tests | Status |
@@ -197,12 +197,12 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 100 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
 | `paper-plugin` | `nodera-endpoint.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
-| `rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
-| `rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
-| `rust/nodera-tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
-| `rust/nodera-rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
-| `rust/nodera-telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
-| `rust/nodera-app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
+| `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
+| `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
+| `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
+| `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
+| `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
+| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap
@@ -235,4 +235,4 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
   contribution rules: one task = one issue = one branch = one PR, never merged on a red build
 
 Every package also carries its own `README.md` describing that package's architecture
-(`java/<module>/README.md`, `rust/<crate>/README.md`).
+(`java/<module>/README.md`, `<crate>/README.md`).

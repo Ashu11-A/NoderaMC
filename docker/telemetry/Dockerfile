@@ -23,7 +23,15 @@ WORKDIR /src
 # there too. Only the Rust tree is copied — the Java modules are not inputs to this image,
 # and copying them would bust the dependency layer on every unrelated edit.
 COPY VERSION Cargo.toml Cargo.lock rust-toolchain.toml ./
-COPY rust ./rust
+# Every cargo workspace MEMBER, because cargo refuses to parse a manifest whose members are absent.
+# Enumerated rather than `COPY . .`: the Java tree is not an input to this image, and copying it
+# would bust the dependency layer on every unrelated edit. `scripts/check-layout-drift.sh` fails the
+# build if one of these stops resolving — the previous version of this file said `COPY rust ./rust`
+# and silently broke the image once already.
+COPY library/rust ./library/rust
+COPY tracker ./tracker
+COPY rendezvous ./rendezvous
+COPY telemetry ./telemetry
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
     cargo build --release -p nodera-telemetry \

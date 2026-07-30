@@ -92,7 +92,7 @@
 #   --no-build      Skip the build phase; use whatever is already collected in build/.
 #   --install-mod   After building, copy build/neoforge-mod.jar into the client mods/ dir
 #                   (NODERA_MC_DIR, default ~/.minecraft), then continue.
-#   --with-app      Build + launch the Tauri companion app (rust/nodera-app) in attach mode.
+#   --with-app      Build + launch the Tauri companion app (app) in attach mode.
 #                   INFRA mode: one app beside the single worker.
 #                   PLAY mode:  one app PER PLAYER, each attached to that player's worker.
 #                   Uses plain cargo build (no .deb / no bundle); skipped if cargo is absent.
@@ -279,17 +279,17 @@ collect_artifacts() {
     log "  $(basename "$TRACKER_BIN")     $(basename "$RENDEZVOUS_BIN")     $(basename "$MOD_JAR")     nodera-headless/"
 }
 
-# The Tauri companion app (rust/nodera-app), which supervises the worker + provides tray/dashboard.
+# The Tauri companion app (app), which supervises the worker + provides tray/dashboard.
 # Optional (--with-app): builds Rust binary + frontend, then runs in attach mode.
 # Uses plain cargo build (no --bundles/--deb), so no system packaging deps needed.
 build_app() {
     if ! command -v cargo >/dev/null 2>&1; then
         warn "Rust toolchain not found (need cargo + bun). Skipping the companion app."
-        warn "Install it per rust/nodera-app/README.md, or run without --with-app."
+        warn "Install it per app/README.md, or run without --with-app."
         WITH_APP=0
         return 0
     fi
-    log "App: bun install + frontend build + cargo build --release (rust/nodera-app)"
+    log "App: bun install + frontend build + cargo build --release (app)"
     ( cd "$APP_DIR/ui" && bun install && bun run build )
     ( cd "$APP_DIR" && cargo build --release )
 }

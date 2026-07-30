@@ -13,7 +13,7 @@ nodera-telemetry ──NDJSON files──► Vector ──Kafka API──► Red
 
 | Component | Role | Why this one |
 |---|---|---|
-| `ingest` | The only component that sees client data before de-identification | Ours: `rust/nodera-telemetry` |
+| `ingest` | The only component that sees client data before de-identification | Ours: `telemetry` |
 | `vector` | Tails the spool, delivers at-least-once to the bus | Checkpointing, retries and backpressure are the hard part; it does them |
 | `redpanda` | Kafka-API log bus | One binary, no ZooKeeper — a community operator can run this on one machine |
 | `clickhouse` | Warehouse + rollups + retention TTLs | Telemetry queries are `GROUP BY event, country, day` over narrow rows |
@@ -38,7 +38,7 @@ Point a service at it with `telemetry_endpoint = "tcp://<host>:25620"` (or `2562
 
 ## What actually reaches this stack
 
-Only what `rust/nodera-telemetry/src/schema.rs` declares. Ask the running binary:
+Only what `telemetry/src/schema.rs` declares. Ask the running binary:
 
 ```bash
 docker compose exec ingest nodera-telemetry --print-schema | jq

@@ -8,7 +8,7 @@ An attribution list maintained by a person is wrong the day after somebody adds 
 nobody notices because nothing checks it. This reads the same manifests the build reads, so the list
 is a fact about the project rather than a claim about it.
 
-Output: ``rust/nodera-app/licences.json``, which the companion app embeds and its About screen shows.
+Output: ``app/licences.json``, which the companion app embeds and its About screen shows.
 
 What it reports, and what it refuses to
 ---------------------------------------

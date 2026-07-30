@@ -2,7 +2,7 @@
 #
 # Every image here builds from the repository root, because the Rust build needs `/VERSION` and the
 # whole `rust/` workspace. Without this file that context is several gigabytes of build output and
-# git history, which is slow locally and slower in CI — and `rust/target` in particular would be
+# git history, which is slow locally and slower in CI — and the cargo `target/` in particular would be
 # copied in and then shadowed by the container's own target directory, so it is pure waste.
 
 # Build output
@@ -13,9 +13,9 @@ java/*/bin/
 java/build-logic/build/
 .gradle/
 node_modules/
-rust/nodera-app/ui/dist/
-rust/nodera-app/ui/node_modules/
-rust/nodera-app/gen/
+app/ui/dist/
+app/ui/node_modules/
+app/gen/
 
 # Version control and tooling
 .git/
