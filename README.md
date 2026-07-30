@@ -1,402 +1,238 @@
+<!-- AI-AGENT-INSTRUCTION: This README is the SHOP WINDOW, not the manual. Hard cap: 200 visible
+     lines. Do NOT add project layout, commit-message rules, documentation discipline, milestone
+     narrative or per-limitation prose here — those live in the docs tree and MUST be read there:
+
+       · What NoderaMC is, conventions, layering, frozen contracts, doc format .. docs/README.md
+       · Central roadmap, ordering, priority, difficulty, completion figure .. docs/ROADMAP.md
+       · Per-category tasks / progress / testing / limitations ............... docs/<category>/
+       · Agent memory: build commands, disciplines, commit format, workflow .. AGENTS.md
+       · Issue workflow (one task = one issue = one branch = one PR) ......... .github/ISSUE_SYSTEM.md
+       · Programme plans .................................................... docs/plans/
+
+     Only two things in this file are living data: the module-status table and the roadmap table.
+     Update the owning docs/<category>/Task.<n>.md FIRST, then that category's PROGRESS.md /
+     TESTING.md, then docs/ROADMAP.md, then the tables here — in the SAME commit as the code.
+     Keep every AI-AGENT-INSTRUCTION comment intact. -->
+
+<div align="center">
+
 # NoderaMC
 
-> **Nodera** — "derived from node; clean, modern, and suitable for an engine or platform."
->
-> A NeoForge-based system where the Minecraft world is partitioned into chunk regions, each simulated
-> and validated by a small committee of player-run peers. **Any player can host a world directly** —
-> share an existing world to the network from the pause menu (like "Open to LAN"), and peers reach
-> each other through a tracker + rendezvous relay. **No central server is required** (Task 5e); an
-> optional dedicated server is just a well-provisioned archival peer with a single, non-authoritative
-> vote.
+<!-- AI-AGENT-INSTRUCTION: Badges are <img> tags, NOT markdown `![]()`. Some renderers treat a URL
+     containing dots (build.yml, 1.21.1) as a file path and dump the raw SVG into the page; an
+     <img> tag never does. Keep the version pins in sync with java/build-logic (NeoForge) and
+     gradle/libs.versions.toml. -->
 
-<!-- AI-AGENT-INSTRUCTION: README.md is a living document. Every commit that completes a task or
-     changes test status MUST update: (1) the progress bar below, (2) the module status table,
-     (3) docs/minecraft/TESTING.md. Keep comments like this one intact — they guide future agents. See
-     .github/ISSUE_SYSTEM.md and AGENTS.md for the full workflow. -->
+<p>
+<img alt="Stars" src="https://img.shields.io/github/stars/Ashu11-A/NoderaMC?style=for-the-badge&color=302D41&labelColor=f9e2af">
+<img alt="Last commit" src="https://img.shields.io/github/last-commit/Ashu11-A/NoderaMC?style=for-the-badge&color=302D41&labelColor=b4befe">
+<img alt="Repo size" src="https://img.shields.io/github/repo-size/Ashu11-A/NoderaMC?style=for-the-badge&color=302D41&labelColor=89dceb">
+</p>
 
----
+<p>
+<img alt="Build" src="https://img.shields.io/github/actions/workflow/status/Ashu11-A/NoderaMC/build.yml?style=for-the-badge&color=302D41&labelColor=a6e3a1&label=Build">
+<img alt="Benchmarks" src="https://img.shields.io/github/actions/workflow/status/Ashu11-A/NoderaMC/benchmarks.yml?style=for-the-badge&color=302D41&labelColor=94e2d5&label=Benchmarks">
+<img alt="Version" src="https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fmain%2FVERSION&search=(.*)&replace=%241&style=for-the-badge&color=302D41&labelColor=f9e2af&label=Version">
+</p>
 
-## Progress
+<p>
+<img alt="Minecraft 1.21.1" src="https://img.shields.io/badge/Minecraft-1.21.1-302D41?style=for-the-badge&labelColor=f5c2e7">
+<img alt="NeoForge 21.1.238" src="https://img.shields.io/badge/NeoForge-21.1.238-302D41?style=for-the-badge&labelColor=fab387">
+<img alt="Java 21" src="https://img.shields.io/badge/Java-21-302D41?style=for-the-badge&labelColor=cba6f7">
+<img alt="Rust stable" src="https://img.shields.io/badge/Rust-stable-302D41?style=for-the-badge&labelColor=f38ba8">
+</p>
 
-<!-- AI-AGENT-INSTRUCTION: Recompute `overall` as the weighted fraction of completed tasks across the
-     seven categories (docs/ROADMAP.md §1) and keep filled blocks / 20 ≈ the percentage. The DETAILED
-     per-task ledgers live in docs/<category>/PROGRESS.md — update THOSE (and the category's
-     TESTING.md) on every outcome-changing commit; this section keeps only the bar. -->
+<br>
 
-**Overall system completion: `90.4%`**
-`██████████████████░░`
+<p align="center">
+<strong>Minecraft without a server.</strong>
+<br>
+<sub>
+The world is split into <strong>8×8-chunk regions</strong>; each one is simulated and validated by a
+small <strong>committee of player-run peers</strong>.
+<br>
+Any player shares a world straight from the pause menu — <strong>"Open to Nodera"</strong> — and peers
+find each other through an untrusted tracker and rendezvous relay.
+<br>
+<br>
+No central server is required. A dedicated server, if you run one, is just a well-provisioned
+archival peer with a single, non-authoritative vote.
+</sub>
+</p>
 
-**90.4% remains unchanged:** issue #97 retires network **L-86** and **L-89** — the cross-version
-forward-compatibility rows whose stated exit tests are entirely headless and all green
-(`ForwardCompatibilityTest` + `CrossVersionIT.aFutureFieldSurvivesARelay`). Task 14 itself stays in
-progress: L-87/L-88/L-90 remain RETIRING pending a live mixed-release run. Full Java gate:
-**2,249 tests, zero failures** (`scripts/java-test-report.sh`, 2026-07-30).
+<p align="center">
+<a href="https://github.com/Ashu11-A/NoderaMC/stargazers"><img alt="Star Repo" src="https://img.shields.io/badge/Leave%20a%20Star%20🌟-302D41?style=for-the-badge&color=302D41&labelColor=f9e2af"></a>
+<a href="https://noderamc.org/add-store?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fmain%2Fservices%2Fofficial.json"><img alt="Add the official service list" src="https://img.shields.io/badge/Add%20the%20official%20list%20📡-302D41?style=for-the-badge&color=302D41&labelColor=89dceb"></a>
+</p>
 
-**90.4% is not raised by the 2026-07-29 peer-system pass, and one row moved the other way.** Network
-**L-33 returns to OPEN**: its "the edit half is done" claim describes a guard that production never
-installs (`WorldMutationApplier` is constructed with `ALL_EDITABLE`; the `ChunkLockEditability`
-adapter is reachable from tests only). L-87 and L-88 keep their RETIRING status but for the right
-reason now — the negotiation handshake they cite had **no production call site** until it was wired
-into `PeerRuntime` in this pass. On the credit side, network L-30's two remaining product gaps are
-closed (every player's worker joins the world its player is in; the resident validator pool is a
-broadcast plan input, so host and clients derive the same committees) and worker **W-DUP-3 retired**
-on a launched worker keeping its identity and registry across a restart on a FAT32 mount. Both L-30
-and the worker's four continuity rows are now waiting on live runs rather than on code. The full
-inventory of implemented-but-unreached capabilities is in
-[`docs/network/REFACTORING.md`](docs/network/REFACTORING.md) § Unwired capabilities.
-
-Also unchanged at 90.4%: issue #95 retires telemetry **L-72** without opening or closing a task.
-The ingest service stopped holding a pseudonymisation secret the operator could read: each rotation
-period now mints a fresh 32-byte key from the OS CSPRNG, holds it only in process memory, and wipes
-it the moment the period rolls, so past periods are unrecoverable even to the operator — and
-`subject_secret` is gone from the config schema and every deploy artefact. Telemetry's register is
-now three open rows. Rust gate: **415 tests, zero failures** (`cargo test --workspace` in `rust/`, 2026-07-29); clippy clean.
-
-Previously, issue #87 advanced worker W-DUP-3 to RETIRING without completing Task 8. Worker identity
-and registry writes now survive filesystems without POSIX attributes through the production
-startup-state seam; launched-process proof remains. *(Superseded 2026-07-29: that proof was run — see
-the paragraph above and `docs/worker/LIMITATIONS.fixed.md`.)*
-
-99.2 → **97.4 %**: the **service-directory lane** opened three tasks
-([tracker 5](docs/tracker/Task.5.md), [rendezvous 5](docs/rendezvous/Task.5.md),
-[network 13](docs/network/Task.13.md)) and finished none of them yet, so the figure fell against a
-larger scope. What landed inside them is substantial: peers discover rendezvous points through
-trackers instead of reading a configuration string, score them on their own measured latency and
-availability, use several at once, and migrate when one drains — and the services themselves announce,
-drain and self-update from a GitHub release. Two real defects fell out on the way: a peer's relay
-accept loop used to *end* after one failed re-reservation, so a rendezvous restart was a permanent
-invisible outage for anybody who had reserved there; and the companion app never passed the
-rendezvous setting it collected to the worker at all. Four limitation rows opened rather than being
-papered over (**L-81** release provenance, **L-82** the `curl` fetcher, **L-83** a drain grace that
-can still truncate, **L-84** the mod's still-static list).
-
-91.3 → **95.3 %**: the live validation lane's block half landed (issue #5) — the vanilla↔palette
-binding, capture at the documented event priority, real chunk extraction, committed blocks projected
-back into the world, exact interference measurement, session chunk tickets, and the single
-`setBlockState` choke point, which finally gave engine **L-25** the call site it had been waiting
-for. A dead-code sweep then found two of the coordinator's own components unwired — committee
-outcomes never reached the reliability ledger, and epochs and reputations did not survive a restart —
-and the environment lane gained lava/water interactions, crops, and the random-tick suppression
-mixin that makes a delegated region's farm the engine's business alone. Then the server category's
-gate opened: `nodera-endpoint.jar` builds and enables on a real Paper 1.21.1, with ALIGN-1 — the
-invariant that keeps one Nodera region on one Folia thread — living in `core` and tested
-exhaustively rather than by eye, and **refusing** on a real Folia configured to split a region. The figure moved 93.1 → 85.7 → 91.3 in one earlier day and both of those moves were real too:
-the telemetry programme added ten tasks before it delivered seven. A percentage that only ever rises
-is a percentage measured against a scope that quietly moves.
-
-99.0 → **99.2 %**: the worker category emptied. L-41's last clause asked for a world that stays
-announced **and** seeded — whole-save archive *and* validated-lane region pieces — on the worker's
-own timer after the driving game disconnects. The archive half was old; the region half had never
-been built, and `RegionSnapshotSplitter` (which does exactly that split) had no caller outside
-tests. It needed no new wire message: `PieceManifest` already carries the region and the snapshot
-version, so which lane a manifest belongs to is written on the manifest. `NODERA-SEED-REGION` takes
-a committed snapshot from whichever process holds the seat — usually a game client, the one process
-guaranteed to go away — and the mod's `RegionSeedSpool` pushes without the commit path ever touching
-disk or a socket.
-
-Per-category detail + milestone notes: `docs/<category>/PROGRESS.md` · test counts:
-`docs/<category>/TESTING.md` · order, priority, and difficulty:
-[`docs/ROADMAP.md`](docs/ROADMAP.md) · documentation entry point:
-[`docs/README.md`](docs/README.md)
+</div>
 
 ---
 
-## Module status
+## How it works
 
-<!-- AI-AGENT-INSTRUCTION: This table mirrors docs/minecraft/TESTING.md. Update both together. Status emojis:
-     ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. -->
+The central bet is a **bit-for-bit deterministic region engine**. Everything downstream gates on it:
+if two honest peers cannot reproduce the same `StateRoot` from the same inputs, there is nothing to
+agree on. Given that, a region's committee re-executes every action, votes, and commits, so
+correctness never depends on any single machine — and the infrastructure services are *verified,
+never trusted*: an outage degrades discovery and reachability, never correctness.
 
-| Module | Responsibility | Tests | Status |
-|---|---|---|---|
-| `core` | domain types, JDK-only crypto, canonical encoding, transition-bound authority/vote/joint-transfer certificates, Task 12 entity records, and shared deterministic fixed-point/chunk-key helpers, plus `Recurring` — the one wrapper that stops a periodic task from cancelling itself the first time it throws | 267 | ✅ |
-| `engine` | **unified deterministic-engine + validation API (issue #30)** — deterministic engine + consensus/shadow/coordinator/committee/fallback; Task 12 adds fixed-point items, throttled ghost interference, playerless isolation, transfer recovery, pearl policy, and soak metrics; Task 16 adds the **rule-pack SDK** (L-21) — `PackRules` execution hooks dispatched by declared palette ownership through `PackDelegatingRuleSet`, canonical namespace tick order, and a registry-derived engine fingerprint (`docs/engine/SDK.md` is the public contract), the **deterministic command subset** (L-14 — `CommandAction` tag 108 + `CommandRules`: engine-side authority against a committee-agreed operator set on `RegionExecutionContext`, no minting of unplaceable states, volume-bounded fills, `/time set` refused as a context input), the combat-vitals `@Invariant(10)` extension (L-13), and **palette v2 completed** (L-26 — pressure plates couple the entity lane to the redstone lane; sticky pistons pull on retraction; `RULES_VERSION` 4 / `palette.v4`), and the **vanilla↔palette binding** (`VanillaPalette` — every palette id against its vanilla block key and meaning-carrying properties, both directions, with a round-trip test that fails the day the palette outgrows the live capture lane) plus exact block-level interference counting and `RegionChunkHolds`; L-52 centralizes fixed-point multiply, entity motion copies, and packed chunk keys; L-51 fixes dense halo fluid inflow seeding | 520 | ✅ |
-| `transport` | **unified network API (issue #30)** — append-only wire plane + socket/rendezvous carriers; message tags through 60 (transfer prepare/accept/commit, tracker routes, continuity-lane `WorldManifestQuery`/`Answer`, genesis approval, `WorldGrantGossip`); shared golden fixtures remain byte-exact; issue #39 pins the socket bind-failure + ephemeral-retry invariants; issue #41 (L-53) adds the authenticated challenge-response handshake — key-proven NodeId attribution at accept | 187 | ✅ |
-| `storage` | **unified storage API (issue #30)** — event-sourced and RocksDB tiers include atomic paired event append, joint transfer certificates, and durable transfer stages alongside checkpoints/content/certificates; issue #36/33 signed identity/permission stores; `AtomicFileWriter` owns fail-closed owner-only writes and failure cleanup (W-DUP-3) | 157 | ✅ |
-| `testing` | shared test library (issue #30; formerly `testkit`): `LoopbackTransport`, `FakeRegion`, `FixtureWriter/Reader` | 25 | ✅ |
-| `peer` | **unified peer API (issue #30)** — distribution/runtime/discovery/archival/control/diagnostics plus authenticated validation, disjoint-committee transfer routing, durable journals, mesh-population and boundary-independence lanes, and the NDR2 authorisation table enforced at dispatch (a peer may only speak for itself) | 653 | 🚧 |
-| `worker` | always-on `nodera-headless` process: identity, host/join control, archive and region seeding, world registry/keys/tombstones, LAN tunnel, replication, and telemetry; issue #87 has closest-production non-POSIX proof, with launched-process evidence pending | 198 | 🚧 |
-| `neoforge-mod` | `@Mod` entrypoints + role-driven host wiring, Task 12 adapters, the continuity halves (`WorldArchiver` share/stop seeding + `packToSpool` re-key blob, `NoderaContinuity` disconnect-rehost, server-dist companion gate), the #36/33/37 permission/identity/re-key lanes (`OperatorBridge`, `/nodera op\|deop`, `CompanionClient.rekey`), the #39 crash-resilience degrade (a P2P bind failure never crashes the integrated server), the #43 continuity hardening (continuous archive streaming + bounded final flush + freshness guard + exit-screen progress), the #44 vanilla-cancel contract (`VanillaCancelGate` — vanilla is only cancelled on the synchronous local-primary path), `ClientStallReporter` (names the screen a stuck client is sitting on — the fact every opaque L-45 CI failure was missing), and the `/nodera selftest` in-game command test+benchmark drive, and the **live block lane** (issue #5): `PaletteMapper`, `BlockCaptureBridge` (place/break at `EventPriority.LOW` onto the signed submit path, vanilla never cancelled), `LiveSnapshotExtractor`, committed-block projection, `ChunkTicketService`, and `LevelChunkMixin` + `BlockWriteGuard` — the single write choke point, inert until a lane installs, which retired engine L-25; Task 5b soak evidence remains, and `RegionSeedSpool` — committed regions reach the worker without the commit path touching disk or a socket (worker L-41), plus the **profiling lane** (minecraft 9): `SparkProfileBridge` drives the spark profiler on a player-hosted world, which RCON cannot reach, and is inert unless `-Dnodera.spark.profile` is set, plus the join-gate lockout (a world password stopped being an unlimited online guessing oracle) and the forward event-sync call sites | 216 | 🚧 |
-| `paper-plugin` | (server task 1) `nodera-endpoint.jar` — the Paper/Folia endpoint plugin: platform detection by the presence of the regionised scheduler (a fork renames itself; the scheduler is the load-bearing difference), and the **ALIGN-1 preflight** that refuses to enable where a Nodera region would straddle two Folia sections. Green on real Paper 1.21.1 and Folia (`e2e-endpoint.sh`, `e2e-folia.sh`, `e2e-plugins.sh`), `nodera-endpoint.yml` is parsed and enforced at enable, and `peer.mode: external` links the endpoint to an always-on worker over the worker's own control socket — the node lives outside the server JVM and the world **survives a `kill -9` of the server** (L-71 retired) | 20 | 🚧 |
-| `rust/nodera-codec` | (Task 27) Rust canonical-encoding conformance crate: byte-exact port + Ed25519 verify + tag mirror through Java type tag 102/message tag 48 + socket framing | 73 | ✅ |
-| `rust/nodera-service` | shared service crate behind the tracker and the rendezvous binaries: the signed service directory and its records, availability/latency scoring from many reporters (a median, so one liar cannot move the ordering), drain deadlines, and the bounded reporter table | 64 | ✅ |
-| `rust/nodera-tracker` | (Task 28) standalone tracker service binary — signed announce lifecycle, per-world swarm registry, TTL expiry, sampling with a seeder floor, health + retention countdown, per-IP quotas; embedded Java `TrackerService` deleted (L-44 RETIRED); tracker 4 adds the windowed self-report, **off unless an operator configures an endpoint** | 109 | ✅ |
-| `rust/nodera-rendezvous` | (Task 29) rendezvous + relay service binary — signed registration/discovery, HMAC relay reservations + metered tokio circuit bridging, hole-punch coordination (L-23/L-27 RETIRED); rendezvous 4 adds **NAT-pair punch statistics** (four coarse classes, success inferred from whether the pair falls back to a relay) | 71 | ✅ |
-| `rust/nodera-telemetry` | (telemetry 1–2) telemetry ingest service — the consent gate, the event registry that no free-text value can enter, forward-secret rotating pseudonymisation (per-period OS-CSPRNG key, memory-only, wiped on rotation), coarse country/ASN geolocation with the address discarded, per-source quotas, and a rotating NDJSON spool for the Big Data plane in `docker/telemetry/`. Carries **no authority**: nothing in the network reads it | 98 | ✅ |
-| `rust/nodera-app` | (Task 32 · app 5) Tauri companion app — always-on headless-peer supervisor (Option B: bundled Java peer) + loopback control endpoint (mod presence gate) + system tray + autostart + React dashboard (chunks/GB/peers/world). Workspace-EXCLUDED (Tauri native deps); built separately | 189 | 🚧 |
-| `integration-tests` | three-client-quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
+Alongside the mod, an always-on headless **peer worker** keeps your world on the network with
+Minecraft closed, and a **Tauri companion app** supervises it from the desktop tray or an Android
+phone.
 
----
+### Play with no mod installed
 
-## Build & test
+<!-- AI-AGENT-INSTRUCTION: The lane described below is docs/worker/Task.7.md (the tunnel, the
+     multicast detection, the control verbs) and docs/app/Task.7.md (the modal, the directory, the
+     Join button) — both ✅ COMPLETED and live-verified. Read those before editing this copy; do NOT
+     cite them inline here, the visible text stays link-free. The two claims that must never be
+     softened or lost: (1) joining does NOT download the world — the tunnel carries the game's own
+     TCP connection and no save is ever copied; (2) a guest names a SESSION, never an address, which
+     is what stops every peer being an open proxy into its own loopback. Detection is not consent:
+     nothing is announced until the player says so. -->
 
-<!-- AI-AGENT-INSTRUCTION: ALWAYS run `./gradlew check` before committing. Never commit on a red
-     build. If a test fails and you cannot fix it immediately, open an issue (see
-     .github/ISSUE_SYSTEM.md) and do NOT commit the regression. -->
+The companion app is also how you **browse and join NoderaMC worlds with an unmodified Minecraft**.
+The host presses vanilla's own *Open to LAN*; the worker hears the multicast beacon, asks for
+consent, and publishes the session. A guest browses the directory in the app, presses **Join**, and
+the worker **binds a local port** — the stock client joins it through *Direct Connect*, and from
+Minecraft's point of view it is a server on `127.0.0.1`. Nothing is installed into either game and
+**no save is ever downloaded**: the tunnel carries the game's own connection, and the host stays the
+sole authority over its world.
 
-```bash
-./gradlew check                 # compile + all Java unit tests (the gate)
-./gradlew build                 # check + assemble jars
-./gradlew :core:test            # one module's tests (names unchanged after the java/ move)
-./gradlew check --rerun-tasks   # force re-run (ignore up-to-date caching)
+### Import a service list
 
-cd rust && cargo test           # Rust unit + cross-language conformance tests (equally required)
-cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+<!-- AI-AGENT-INSTRUCTION: This is app Task.9 (✅) + tracker Task.6 + mobile Task.5; the format and
+     the publishing guide live in services/README.md and services/index.schema.json. The rule that
+     must never be softened: a deep link RECORDS a URL, it never adds a store — the app shows the
+     URL and the user decides, and nothing is fetched before they confirm. There is no privileged
+     store: the bundled list is deletable like any other. The header button CANNOT be a `nodera://`
+     href: GitHub's markdown sanitiser strips every scheme but http/https/mailto, so it points at
+     https://noderamc.org/add-store, which is site/add-store.html deployed by
+     scripts/deploy-site.sh — that page is the https hop that turns the click into the scheme. -->
 
-# `rust/nodera-app` is a SEPARATE cargo workspace (Tauri native deps), so none of the commands
-# above reach it. It is held to the identical standard and gated by CI in its own right:
-cd rust/nodera-app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
+Trackers and rendezvous points are **hints, not authority** — every service proves its own identity
+before a peer dials it — so the app takes lists of them from anyone. Press the button above, follow
+any publisher's `nodera://tracker-store?url=…` link (registered on desktop **and** Android), or
+paste the address by hand under **Settings → Tracker stores**.
 
-scripts/version.sh --check      # every version mirror agrees with the root VERSION file
-scripts/test-counts.sh --check  # the Rust test counts in the table above are the measured ones
-scripts/test-counts.sh --write  # …and this rewrites them, so they are never hand-typed
-```
+A link only *records* the URL: the app shows it, you decide, and nothing is fetched before you
+confirm. The list the app ships with is one store among however many you add, and is deletable like
+any other. Publishing your own is a JSON file against `services/index.schema.json` — the format, and
+how to get a service listed, are in [`services/README.md`](services/README.md).
 
-**The test tool** (testing task 1 — one command over the acceptance scenarios, the benchmarks and
-the structural report; it replaced twenty `scripts/e2e-*.sh` suites and their batch runner):
+## Quick start
 
-```bash
-scripts/nodera-test.sh list                    # every scenario, its tags, what a pass proves
-scripts/nodera-test.sh run                     # the default queue (everything but 'hardware')
-scripts/nodera-test.sh run continuity crash    # a selection, in the order given
-scripts/nodera-test.sh run --tag server        # everything carrying a tag
-scripts/nodera-test.sh all                     # scenarios, then benchmarks, then structure
-```
-
-The report lands in `build/reports/nodera/TEST-REPORT.md` (+ `.json`); each run's logs, client logs
-and worker state snapshots land in `run/results/<scenario>/`. Live scenarios take
-`run/.e2e-suite.lock` and run strictly one at a time. Workers in a run are started
-`nodera-headless --test-mode --role player1|player2`, so a cross-node assertion can name its
-subject instead of guessing from a port number. See [`docs/testing/`](docs/testing/Task.0.md).
-
-**Measurement lanes** (network task 15 — minutes, not seconds, so they are NOT part of `check`; the
-`benchmarks` workflow runs both on every pull request, on `main`, and weekly):
-
-```bash
-./gradlew :peer:jmh -Pbench.quick   # peer discovery / chunk sync / wire / runtime latency
-./gradlew :peer:benchmarkReport     # …plus build/reports/nodera/BENCHMARKS.md, ranked + diffed
-python3 scripts/bench-report.py --check          # regression vs fixtures/bench/baseline.json
-python3 scripts/bench-report.py --write-baseline # accept a run you trust as the new baseline
-
-./gradlew :worker:structureReport                # dead code + cost findings + a DEBUGGER-profiled
-                                                 # run of the real nodera-headless worker
-./gradlew :worker:structureReport -Pstructure.debug=false   # static half only (~5 s)
-```
-
-The structural report writes `build/reports/nodera/STRUCTURE.md`: what nothing references, what only
-tests reference, what no entry point can reach, which loops allocate/box/scan linearly, and which of
-all that the debugger actually watched execute. Its counts are ratcheted by
-`fixtures/structure/budget.json` and may only go down.
-
-> **After every push, verify the build actually passed.** A green local `./gradlew check` does
-> NOT guarantee a green Action: CI runners are slower and have repeatedly exposed
-> timing-sensitive integration tests that pass locally but fail remotely. A few minutes after
-> pushing, run `gh run list --limit 3` (or `gh run watch <id>`) and treat any failure on `main`
-> as stop-the-line — harden the racy wait, never delete the test. Full procedure: `AGENTS.md`
-> § "GitHub hygiene sweep" items 3–4.
-
-## Run the local stack
-
-Task 30 retired the central NeoForge dedicated server; Task 32 added the always-on **peer worker**
-(`nodera-headless`) that keeps a player on the network with Minecraft closed and that the mod
-**requires**. One script builds the toolchains and runs the two **untrusted** infrastructure services
-— `nodera-tracker` (peers locate worlds) and `nodera-rendezvous` (NAT hole-punch + relay) — plus the
-peer worker (the control endpoint the mod probes):
+Drop `build/neoforge-mod.jar` into a **NeoForge 1.21.1** client's `mods/` folder, keep the worker
+running, open a world, then press **"Open to Nodera"** in the pause menu.
 
 ```bash
 scripts/dev.sh                   # build Rust + mod + worker, run tracker + rendezvous + worker
-scripts/dev.sh --with-app        # also build + launch the Tauri companion app (attach mode) alongside the worker
-scripts/dev.sh --install-mod     # also copy build/neoforge-mod.jar into ~/.minecraft/mods (NODERA_MC_DIR)
-scripts/dev.sh --no-worker       # infra services only (mod will refuse to launch without a worker)
-scripts/dev.sh --build-only      # compile everything, collect artifacts into build/, then exit
-scripts/dev.sh --test            # run the full gate (gradlew build + cargo test) as part of the build
-scripts/dev.sh --help            # options + env overrides (ports, dirs)
+scripts/dev.sh --install-mod     # …and copy the built mod into ~/.minecraft/mods
+scripts/dev.sh --with-app        # …and launch the Tauri companion app alongside the worker
+scripts/dev.sh --build-only      # compile everything into build/, then exit
+scripts/dev.sh --help            # all options + env overrides (ports, dirs)
 
-scripts/nodera-test.sh run telemetry  # the consent lane end to end (headless — no GUI, no Minecraft)
-scripts/telemetry-stack.sh up    # the Big Data plane: Vector → Redpanda → ClickHouse → Grafana
-scripts/telemetry-stack.sh smoke # …and prove a submitted batch becomes a queryable row
-
-# Hands-on two-player session on one machine (absorbed the former scripts/play-two.sh):
-scripts/dev.sh --play            # 2 Minecraft clients + 1 tracker + 1 rendezvous + 3 peer workers
-scripts/dev.sh --play --with-app # …plus ONE Tauri companion window per player, each attached to
-                                 #   that player's own worker — two dashboards, two nodes, live
-scripts/dev.sh --play --apps 1   # exactly one companion window instead of one per player
-scripts/dev.sh --play --spare-peers 0   # thin the swarm below the quorum floor and watch it degrade
+# Hands-on session on one machine: 2 clients, 1 tracker, 1 rendezvous, 3 peer workers
+scripts/dev.sh --play
+scripts/dev.sh --play --spare-peers 0    # thin the swarm below quorum and watch it degrade
 ```
 
-To play/test: drop `build/neoforge-mod.jar` into a **NeoForge 1.21.1** client's `mods/` folder (or
-use `--install-mod`), **keep `scripts/dev.sh` running** (the mod requires the peer worker — it aborts
-startup with an install prompt if the worker is not answering on `127.0.0.1:25610`), launch the
-client, open a world, and press **"Open to Nodera"** in the pause menu to broadcast it to the network
-— with an optional password. (To run the mod without the worker, set `companion.required = false` in
-`config/nodera-client.toml`.)
+The mod **requires** the worker and aborts startup with an install prompt if nothing answers on
+`127.0.0.1:25610` (set `companion.required = false` in `config/nodera-client.toml` to opt out).
 
-Every build collects both toolchains' outputs — the `nodera-tracker` and `nodera-rendezvous`
-binaries and `neoforge-mod.jar` — together into the top-level `build/` directory, and the run phase
-starts the tracker + rendezvous from there and health-checks each on its port. CI
-(`.github/workflows/release-latest.yml`) runs the same `scripts/dev.sh --build-only` on every push
-and attaches the three artifacts to a rolling `latest` GitHub **prerelease** (marked latest, not an
-officially published release). Ctrl-C stops both services.
+## Build & test
 
-Host runs JDK **25**; Task 0 pins Java 21. The pure-Java modules use only Java 21-era features
-(records, sealed interfaces, virtual threads, pattern matching) so they stay source-compatible when
-the 21 toolchain is restored.
+<!-- AI-AGENT-INSTRUCTION: ALWAYS run `./gradlew check` AND `cargo test` before committing; never
+     commit on a red build. If a test fails and you cannot fix it, open a `bug` issue and do NOT
+     commit the regression. After pushing, verify the Action actually passed (`gh run list`) — CI
+     runners are slower and have repeatedly exposed timing-sensitive tests that pass locally. -->
 
----
+```bash
+./gradlew check                  # compile + every Java unit test (the gate)
+./gradlew build                  # check + assemble jars
+cd rust && cargo test            # Rust unit + cross-language conformance tests (equally required)
+cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-## Project layout
+# rust/nodera-app is a SEPARATE cargo workspace (Tauri native deps) held to the same standard
+cd rust/nodera-app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-Polyglot monorepo (Task 27): Java modules under `java/`, Rust service crates under `rust/`, one
-shared `fixtures/` corpus proving the two encodings agree byte-for-byte.
-
+scripts/version.sh --check       # every version mirror agrees with the root VERSION file
+scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
 ```
-nodera/
-├── java/                ALL Gradle modules (names unchanged: `./gradlew :core:test` still works)
-│   ├── build-logic/         convention plugins (java-library)
-│   ├── core/                identity, region, action, state, event, certificates, JDK crypto (incl. AES-GCM/PBKDF2)
-│   ├── engine/              unified engine+validation API (issue #30): simulation (determinism ban intact) + consensus + shadow/coordinator/committee/fallback phases
-│   ├── transport/           unified network API (issue #30): protocol wire plane + PeerTransport carriers (socket, rendezvous) + Frames/Reachability
-│   ├── storage/             unified storage API (issue #30): WorldStore seam + event-sourced, RocksDB, and bounded-client tiers + EventChainGuard/RegionOrder/AtomicFileWriter
-│   ├── peer/                unified peer API (issue #30): distribution data plane + peer runtime/discovery/archival/control + diagnostics telemetry
-│   ├── worker/              always-on nodera-headless process; depends on peer and stays out of the mod jar
-│   ├── testing/             shared test library: LoopbackTransport, FakeRegion, FixtureWriter/Reader
-│   ├── neoforge-mod/        (Task 1) @Mod entrypoints + bootstrap-peer wiring, redesigned /nodera diagnostics tree + /noderac + HUD surfaces; runServer/runClient deferred
-├── rust/                cargo workspace (rust-toolchain.toml pins the channel)
-│   ├── nodera-codec/        (Task 27) byte-exact canonical-encoding port + Ed25519 verify + tag mirror + framing
-│   ├── nodera-tracker/      (Task 28) standalone tracker service — announce/query, real binary driven by TrackerServiceIT
-│   └── nodera-rendezvous/   (Task 29) rendezvous + relay service — registration/discovery/reservations/circuit bridging
-│   ├── nodera-telemetry/    (telemetry 1) consented, schema-bounded, de-identified telemetry ingest
-│   └── nodera-app/          (workspace-excluded) Tauri companion app — supervises the peer worker
-├── docker/telemetry/    the Big Data plane (Vector → Redpanda → ClickHouse → Grafana/Spark).
-│                        NEVER a dependency: everything here can be down and nothing changes
-├── VERSION              the ONE product version; every toolchain reads it (scripts/version.sh)
-├── fixtures/wire/       golden canonical frames, emitted by Java, re-encoded byte-exactly by Rust
-├── scripts/             dev (build Rust + mod, run tracker + rendezvous; --install-mod for a real client)
-└── docs/                README.md (entry point + documentation format), ROADMAP.md (the central
-                         roadmap), plans/ (programme plans), and ONE FOLDER PER CATEGORY —
-                         engine/ network/ tracker/ rendezvous/ minecraft/ worker/ app/ — each with
-                         Task.0..n.md, PROGRESS.md, TESTING.md, LIMITATIONS.md, LIMITATIONS.fixed.md
+
+**End-to-end suites** — one command over the acceptance scenarios, the benchmarks and the structural
+report. Results land in `build/reports/nodera/TEST-REPORT.md`; see [`docs/testing/`](docs/testing/Task.0.md).
+
+The **measurement lanes** take minutes, so they are not part of `check`; the `benchmarks` workflow
+runs them on every pull request, on `main`, and weekly.
+
+```bash
+scripts/nodera-test.sh list      # every scenario, its tags, what a pass proves
+scripts/nodera-test.sh run       # the default queue (everything but 'hardware')
+scripts/nodera-test.sh all       # scenarios, then benchmarks, then structure
+
+./gradlew :peer:benchmarkReport  # discovery / chunk sync / wire / runtime latency, ranked
+./gradlew :worker:structureReport # dead code + cost findings, debugger-verified
 ```
+
+Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era language features.
+
+## Module status
+
+<!-- AI-AGENT-INSTRUCTION: Mirrors docs/<category>/TESTING.md — update both together. Status:
+     ✅ done · 🚧 partial · ⏳ in progress · ⬜ not started · ❌ failing. Keep the responsibility
+     column to ONE short line; the full architecture of a module is in java/<module>/README.md or
+     rust/<crate>/README.md. The `rust/*` rows are parsed by scripts/test-counts.sh — do not change
+     their shape (backticked path, count as the second-to-last cell). -->
+
+| Module | Responsibility | Tests | Status |
+|---|---|---|---|
+| `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 267 | ✅ |
+| `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 520 | ✅ |
+| `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 187 | ✅ |
+| `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 157 | ✅ |
+| `testing` | Shared test library: loopback transport, fake regions, fixture IO | 25 | ✅ |
+| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics | 653 | 🚧 |
+| `worker` | The always-on `nodera-headless` process and its control protocol | 198 | 🚧 |
+| `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 216 | 🚧 |
+| `paper-plugin` | `nodera-endpoint.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
+| `rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 73 | ✅ |
+| `rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
+| `rust/nodera-tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
+| `rust/nodera-rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
+| `rust/nodera-telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
+| `rust/nodera-app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
+| `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
+
+## Roadmap
+
+<!-- AI-AGENT-INSTRUCTION: MIRRORS docs/ROADMAP.md §1, which mirrors each docs/<category>/Task.<n>.md
+     status header. The task file is the source of truth for scope; update it FIRST. Never renumber
+     a category's tasks — the numbers are cited by issues and commit messages. The overall completion
+     figure is NOT raw done/total and lives in docs/ROADMAP.md §1, not here. -->
+
+| Category | Scope | Tasks | Status |
+|---|---|---|---|
+| [**Engine**](docs/engine/Task.0.md) | Deterministic region engine, shadow validation, committees, fallback | 12 | 🚧 7 done |
+| [**Network**](docs/network/Task.0.md) | Wire protocol, transports, peer runtime, storage, discovery, replication | 14 | 🚧 11 done |
+| [**Tracker**](docs/tracker/Task.0.md) | Always-on world/peer discovery service + its Java client | 6 | 🚧 5 done |
+| [**Rendezvous**](docs/rendezvous/Task.0.md) | NAT reach: registration, hole punching, encrypted relay fallback | 6 | 🚧 4 done |
+| [**Minecraft**](docs/minecraft/Task.0.md) | The NeoForge mod: capture, live lanes, GUI, host lane, world identity | 11 | 🚧 5 done |
+| [**Worker**](docs/worker/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
+| [**App**](docs/app/Task.0.md) | The Tauri desktop companion that supervises the worker | 10 | 🚧 6 done |
+| [**Mobile**](docs/mobile/Task.0.md) | The Android build: same app, same Java worker, one process on a phone | 5 | 🚧 4 done |
+| [**Telemetry**](docs/telemetry/Task.0.md) | Consented, de-identified measurement + the Big Data plane | 3 | 🚧 1 done |
+| [**Server**](docs/server/Task.0.md) | The Paper/Folia endpoint plugin | 10 | ⬜ 0 done |
+
+## Documentation
+
+- [`docs/README.md`](docs/README.md) — entry point: what NoderaMC is, conventions, frozen contracts
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the single central roadmap, with delivery order and the
+  overall completion figure; `docs/<category>/` holds tasks, progress, testing and limitations
+- [`AGENTS.md`](AGENTS.md) — agent memory: build commands, layering rules, the commit standard
+- [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) — how work is tracked, and the normative
+  contribution rules: one task = one issue = one branch = one PR, never merged on a red build
 
 Every package also carries its own `README.md` describing that package's architecture
 (`java/<module>/README.md`, `rust/<crate>/README.md`).
-
-> **Monorepo is the default architecture.** Module names did not change — only paths — so every
-> `./gradlew` invocation and every `build.gradle.kts` kept working untouched. The conventions,
-> layering rules, and frozen contracts live in [`docs/README.md`](docs/README.md).
-
----
-
-## Commit message standard
-
-<!-- AI-AGENT-INSTRUCTION: EVERY completed-task commit MUST use this exact format. Pick the emoji
-     + change type from the legend. Update the README progress bar in the SAME commit. -->
-
-```
-<emoji> [<overall-percentage>%] <change type>: <short description in English>
-```
-
-**Legend**
-
-| Emoji | Change type | Use for |
-|---|---|---|
-| 🎉 | `init` | initial / repo bootstrap |
-| ✨ | `feature` | new module, type, or capability |
-| 🐛 | `fix` | bug fix (reference the issue: `fixes #N`) |
-| 🧪 | `test` | test additions/improvements only |
-| ♻️ | `refactor` | behaviour-preserving restructure |
-| 📝 | `docs` | README / docs / issue-system updates |
-| 🔧 | `chore` | build, deps, CI, tooling |
-| 🚀 | `release` | version bump / publish |
-
-**Examples**
-```
-✨ [14%] feature: implement Phase 1 shadow capture mixins (refs #5)
-🐛 [14%] fix: align FlatWorldRules.MAX_Y with column ceiling (fixes #21)
-🧪 [13%] test: add jqwik property test for negative-coordinate halo reads
-```
-
----
-
-## GitHub issue system (how work is tracked)
-
-<!-- AI-AGENT-INSTRUCTION: Treat GitHub issues as the source of truth for what to do next. Open an
-     issue for every task AND every detected problem. Full rules: .github/ISSUE_SYSTEM.md. -->
-
-- **Every task is an issue.** The roadmap lives at the GitHub Issues tab, labelled `task`. See
-  `.github/ISSUE_SYSTEM.md` for the complete workflow (open / assign / branch / commit / close /
-  reopen) and the issue templates in `.github/ISSUE_TEMPLATE/`.
-- **Every detected problem becomes an issue**, labelled `bug`, before (not after) a regression
-  reaches `main`.
-- **One task = one branch = one PR.** Branch name: `<emoji-less-type>/<short-slug>-#<issue>` e.g.
-  `feature/shadow-capture-#5`. Commits cite the issue (`refs #5` while working, `fixes #5` /
-  `closes #5` to close).
-- **Closing an issue requires**: `./gradlew check` green, README progress + docs/minecraft/TESTING.md updated, the
-  task's acceptance criteria linked from the PR description.
-
-See [`.github/ISSUE_SYSTEM.md`](.github/ISSUE_SYSTEM.md) for the normative rules.
-
----
-
-## Roadmap (categories → tasks)
-
-<!-- AI-AGENT-INSTRUCTION: This table MIRRORS docs/ROADMAP.md §1, which itself mirrors each
-     docs/<category>/Task.<n>.md status header. The task file is the source of truth for scope;
-     update it FIRST, then docs/<category>/PROGRESS.md, then docs/ROADMAP.md, then this table.
-     GitHub issues keep their historical titles — find them by title, never by number. -->
-
-**2026-07-25 reorganization:** the documentation is organised into **one folder per system
-category**, each with its own sequential task set and its own status, testing, and limitation
-registers. The entry point is [`docs/README.md`](docs/README.md); the single central roadmap is
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-| Category | Scope | Docs | Tasks | Status |
-|---|---|---|---|---|
-| **Engine** | Deterministic region engine, shadow validation, coordinator, committee quorum, fallback router, interference guard, parity program | [`docs/engine/`](docs/engine/Task.0.md) | 12 | 🚧 7 done |
-| **Network** | Wire protocol, transports, peer runtime, event-sourced storage, torrent data plane, discovery, replication, encryption, crash safety, telemetry | [`docs/network/`](docs/network/Task.0.md) | 14 | 🚧 11 done |
-| **Tracker** | Always-on world/peer discovery service + its Java client | [`docs/tracker/`](docs/tracker/Task.0.md) | 6 | 🚧 5 done |
-| **Rendezvous** | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | [`docs/rendezvous/`](docs/rendezvous/Task.0.md) | 6 | 🚧 4 done |
-| **Minecraft** | The NeoForge mod: capture, live lanes, GUI, host lane, world identity, companion gate | [`docs/minecraft/`](docs/minecraft/Task.0.md) | 11 | 🚧 5 done |
-| **Worker** | The required always-on headless peer + its loopback control protocol | [`docs/worker/`](docs/worker/Task.0.md) | 8 | 🚧 6 done |
-| **App** | The Tauri desktop companion that supervises the worker | [`docs/app/`](docs/app/Task.0.md) | 10 | 🚧 6 done |
-| **Mobile** | The Android build: the same app and the same Java worker, in one process on a phone | [`docs/mobile/`](docs/mobile/Task.0.md) | 5 | 🚧 4 done |
-| **Telemetry** | Consented, de-identified measurement: the Rust ingest service + the Big Data plane | [`docs/telemetry/`](docs/telemetry/Task.0.md) | 3 | 🚧 1 done |
-| **Server** | The Paper/Folia endpoint plugin ([`Plan.5`](docs/plans/Plan.5.md)) — excluded from the completion figure until it starts | [`docs/server/`](docs/server/Task.0.md) | 10 | ⬜ 0 done |
-
-> Task counts and done-counts above refreshed 2026-07-28 against the tree. The headline completion
-> figure at the top of this README is **not** recomputed on this sweep — its weighting is not raw
-> done/total; see [`docs/ROADMAP.md`](docs/ROADMAP.md) §1.
-
-The **"torrent hosting" feature** (a world becomes a shared, content-addressed, multi-seeder
-resource) is network tasks 4–10 plus the minecraft GUI and host tasks. It is additive to committee
-validation: seeders store and propagate only; the active region's committee still re-executes and
-commits.
-
-The **Rust infrastructure services** (tracker, rendezvous) are verified-never-trusted: an outage
-degrades discovery and reachability, never correctness.
-
-Delivery order, priority, and difficulty: [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
----
-
-## Agent memory & discipline
-
-<!-- AI-AGENT-INSTRUCTION: AGENTS.md is the always-loaded agent memory. The three non-negotiable
-     disciplines are: (1) run tests before commit, (2) update README progress + docs/minecraft/TESTING.md, (3) use
-     the commit-message standard above. Re-read AGENTS.md at the start of every session. -->
-
-The single source of agent instructions is [`AGENTS.md`](AGENTS.md). It is auto-loaded by coding
-agents (opencode, Cursor, Claude Code, …) and encodes: build/test commands, layering rules, the
-frozen contracts, the test-before-commit / update-README / commit-format disciplines, and the
-GitHub issue workflow. **Read it before doing anything.**
-
-The **documentation entry point** — the documentation format, the binding conventions (layering,
-frozen contracts, determinism rules, naming, version pins), where progress lives, and the mandatory
-documentation-maintenance discipline — is [`docs/README.md`](docs/README.md).
-
-<!-- AI-AGENT-INSTRUCTION: Documentation is part of the deliverable, not a follow-up. On every
-     outcome-changing commit, update the owning docs/<category>/Task.<n>.md, that category's
-     PROGRESS.md / TESTING.md / LIMITATIONS.md, docs/ROADMAP.md, this README, and the affected
-     package README — in the SAME commit as the code. The full rule is docs/README.md §5. -->
-
-**Documentation discipline:** a commit that changes behaviour and leaves the docs stale is an
-incomplete delivery. The mandatory checklist is [`docs/README.md`](docs/README.md) §5.

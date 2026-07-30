@@ -27,7 +27,7 @@ assignees: ''
 - [ ] criterion 1
 - [ ] criterion 2
 - [ ] `./gradlew check` green
-- [ ] `README.md` progress bar + module table updated
+- [ ] `docs/ROADMAP.md` figure + `README.md` module/roadmap tables updated
 - [ ] `docs/<category>/TESTING.md` updated
 - [ ] `LIMITATIONS.md` updated if a §B row is staged/retired
 - [ ] Closes via `Closes #N`

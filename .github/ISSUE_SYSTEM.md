@@ -64,11 +64,11 @@ Before committing, the agent MUST, in order:
 
 1. **Run `./gradlew check` and confirm it is green.** Never commit on a red build. If a test fails
    and you cannot fix it, open a `bug` issue and stop.
-2. **Update `README.md`** — recompute the progress bar percentage and update the module status
-   table / roadmap ticks.
+2. **Update `docs/ROADMAP.md`** — recompute the overall completion figure (§1) and the category row.
+   Then update `README.md`'s module status table / roadmap ticks to match.
 3. **Update `docs/<category>/TESTING.md`** — adjust test counts, `Last run` date, and emojis for any module whose
    status changed.
-4. **Commit using the exact format** (see README.md → "Commit message standard"):
+4. **Commit using the exact format** (see AGENTS.md → "Commit message standard"):
    ```
    <emoji> [<overall-percentage>%] <change type>: <short description in English>
    ```
@@ -102,15 +102,17 @@ Before committing, the agent MUST, in order:
 
 ## 8. Editing README.md
 
-`README.md` is machine- and human- read. Rules:
+`README.md` is machine- and human- read, and it is the **shop window**: capped at **200 visible
+lines**, no narrative, no project layout, no milestone prose. Rules:
 
 - Keep every `<!-- AI-AGENT-INSTRUCTION: ... -->` comment. They tell the next agent exactly what to
   change. Add new ones when you introduce a new machine-maintained field.
-- The progress bar (`Overall system completion: <p>%` + the block line) is recomputed every commit.
-- The module status table and the roadmap table stay in lock-step with `docs/<category>/TESTING.md` and the GitHub
-  issues respectively.
-- Never delete the "Commit message standard" or "GitHub issue system" sections — new agents rely on
-  them.
+- Only two things there are living data: the **module status table** and the **roadmap table**. They
+  stay in lock-step with `docs/<category>/TESTING.md` and the GitHub issues respectively.
+- The `rust/*` rows are parsed by `scripts/test-counts.sh` (a CI gate). Do not change their shape.
+- Everything else belongs in the docs tree: the completion figure and its history in
+  `docs/ROADMAP.md`, the commit standard and disciplines in `AGENTS.md`, conventions and layout in
+  `docs/README.md`. If a section grows past a screen, move it there and link instead.
 
 ---
 
