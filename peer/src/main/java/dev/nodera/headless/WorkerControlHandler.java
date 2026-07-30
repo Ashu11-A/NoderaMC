@@ -42,6 +42,13 @@ public final class WorkerControlHandler implements ControlHandler {
     private final TrafficMeter meter;
     private final WorldHostingService hosting;
     private final dev.nodera.peer.validation.WorkerValidationService validation;
+    /**
+     * Where this endpoint will read and write on a client's say-so. Every client-supplied path goes
+     * through it — see {@link ControlPaths} for why an unguarded one made the loopback endpoint an
+     * arbitrary file read/write primitive for any local process.
+     */
+    private final ControlPaths controlPaths = ControlPaths.fromEnvironment();
+
     private final WorldArchiveService archive;
     private final PeerTrafficMeter peerMeter; // nullable — per-peer rows fall back to zeros
     private final dev.nodera.peer.discovery.PeerDiscoveryService discovery; // nullable
@@ -798,9 +805,10 @@ public final class WorkerControlHandler implements ControlHandler {
         if (worldId == null || worldId.isBlank() || path.isBlank()) {
             throw new IllegalArgumentException("missing worldId/archive path");
         }
+        java.nio.file.Path archiveFile = controlPaths.resolve(path, "archive path");
         byte[] blob;
         try {
-            blob = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(path));
+            blob = java.nio.file.Files.readAllBytes(archiveFile);
         } catch (java.io.IOException e) {
             throw new IllegalStateException("cannot read archive file: " + e.getMessage());
         }
@@ -821,9 +829,10 @@ public final class WorkerControlHandler implements ControlHandler {
         if (worldId == null || worldId.isBlank() || path.isBlank()) {
             throw new IllegalArgumentException("missing worldId/snapshot path");
         }
+        java.nio.file.Path snapshotFile = controlPaths.resolve(path, "region snapshot path");
         byte[] encoded;
         try {
-            encoded = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(path));
+            encoded = java.nio.file.Files.readAllBytes(snapshotFile);
         } catch (java.io.IOException e) {
             throw new IllegalStateException("cannot read region snapshot file: " + e.getMessage());
         }
@@ -859,7 +868,7 @@ public final class WorkerControlHandler implements ControlHandler {
         long version = archive.newestManifest(worldId)
                 .map(m -> m.version().value()).orElse(0L);
         try {
-            java.nio.file.Path dest = java.nio.file.Path.of(path);
+            java.nio.file.Path dest = controlPaths.resolve(path, "archive destination");
             if (dest.getParent() != null) {
                 java.nio.file.Files.createDirectories(dest.getParent());
             }
@@ -1110,7 +1119,8 @@ public final class WorkerControlHandler implements ControlHandler {
             throw new IllegalArgumentException("missing current world identity");
         }
         // 1. read the freshly-packed plaintext blob.
-        java.nio.file.Path archiveFile = java.nio.file.Path.of(decodeB64(archivePathB64));
+        java.nio.file.Path archiveFile =
+                controlPaths.resolve(decodeB64(archivePathB64), "archive path");
         byte[] blob;
         try {
             blob = java.nio.file.Files.readAllBytes(archiveFile);
@@ -1591,7 +1601,11 @@ public final class WorkerControlHandler implements ControlHandler {
                 if (path.isEmpty()) {
                     return "an empty archive directory is not a location";
                 }
-                config.contentStore.relocateTo(java.nio.file.Path.of(path));
+                // Same guard as the seed/fetch verbs: this one MOVES every blob this node holds,
+                // so an unconstrained destination is a write primitive with the node's whole
+                // content store behind it.
+                config.contentStore.relocateTo(
+                        controlPaths.resolve(path, "archive directory"));
                 return null;
             }
             default -> {
