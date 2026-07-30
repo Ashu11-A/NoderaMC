@@ -21,7 +21,7 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [2](Task.2.md) | Deterministic region engine | ✅ COMPLETED | `RULES_VERSION` 7, palette literal `palette.v6` (v7 fixes dense-halo fluid seeding; palette unchanged) |
 | [3](Task.3.md) | Shadow validation | ✅ COMPLETED (headless) | Live capture soak → [minecraft 2](../minecraft/Task.2.md) |
 | [4](Task.4.md) | Coordinator | ✅ COMPLETED (headless) | Live `ServerLevel` applier → [minecraft 2](../minecraft/Task.2.md) |
-| [5](Task.5.md) | Committee validation — MVP gate | ✅ COMPLETED (headless) | Also running out of game via [worker 4](../worker/Task.4.md) |
+| [5](Task.5.md) | Committee validation — MVP gate | ✅ COMPLETED (headless) | Also running out of game via [worker 4](../peer/Task.4.md) |
 | [6](Task.6.md) | Fallback lane + cross-region router | ✅ COMPLETED (headless) | > 90% committee-commit proven; live soak deferred |
 | [7](Task.7.md) | Interference guard + delegability | ✅ COMPLETED (headless) | Mixins/tickets → [minecraft 2](../minecraft/Task.2.md); L-25 open |
 | [8](Task.8.md) | Entity & mob lane | 🚧 IN PROGRESS | Headless/durable green; proven live; scripted CI drives remain (L-50) |

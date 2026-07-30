@@ -52,7 +52,7 @@ and the retired-limitation register. Net status changes:
   [`Task.10.md`](Task.10.md); reconciled). Its six MC-JOIN rows stay open; MC-JOIN-4 is RETIRING with
   `ClientJoinPasswordsGateMarkerTest` (3) green headlessly.
 
-Module unit-test count re-verified by grep: **155 `@Test`** in `java/neoforge-mod/src/test`
+Module unit-test count re-verified by grep: **155 `@Test`** in `endpoints/neoforge-mod/src/test`
 (`rg -c '@Test'` summed across the 27 test files — was reported as 118/97); live suites re-counted at
 **15** (was 14; `e2e-profile` was omitted from the header). No limitation retired on this pass: L-43,
 L-46, L-49, L-50, and L-80 all have **live** exit tests that cannot be verified green from a static
@@ -132,7 +132,7 @@ in a test that fails loudly rather than in a coupling that fails silently in the
 
 The presence gate (`companion.required`) is already `true` on both client and server: the mod refuses
 to launch without a running worker, which is now also how an unmodified player's LAN world reaches
-the network ([worker 7](../worker/Task.7.md)).
+the network ([worker 7](../peer/Task.7.md)).
 
 ### 2026-07-26 — The tick has a breakdown now: the spark profiler lane (task 9)
 

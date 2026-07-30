@@ -7,7 +7,7 @@
 
 **Status:** ⏳ BLOCKED (needs the worker's own announce timer and the joining-client harness)
 **Category:** app · **Owns:** L-47 (shared) · **Last audit:** 2026-07-28
-**Depends on:** [worker 3](../worker/Task.3.md), [minecraft 1](../minecraft/Task.1.md)
+**Depends on:** [worker 3](../peer/Task.3.md), [minecraft 1](../minecraft/Task.1.md)
 **Consumed by:** the project's product claim
 
 ---
@@ -31,12 +31,12 @@ process.
 
 What remains is the genuinely **cross-machine** half, which needs two things that belong to other
 categories: the worker owning its announce and rendezvous-registration timers independent of any game
-process ([`worker/Task.3.md`](../worker/Task.3.md)), and a scripted joining client
+process ([`worker/Task.3.md`](../peer/Task.3.md)), and a scripted joining client
 ([`minecraft/Task.1.md`](../minecraft/Task.1.md)).
 
 ## Dependencies
 
-- [worker 3](../worker/Task.3.md) — announce and seeding that persist without a game.
+- [worker 3](../peer/Task.3.md) — announce and seeding that persist without a game.
 - [minecraft 1](../minecraft/Task.1.md) — the harness that drives the joining side.
 
 ## Deliverables
@@ -72,7 +72,7 @@ actually meet, and a stack trace there is a support burden rather than a diagnos
 ## Files
 
 - `.github/workflows/` (the companion job)
-- `java/neoforge-mod/.../common/CompanionGate.java` (the gate under test)
+- `endpoints/neoforge-mod/.../common/CompanionGate.java` (the gate under test)
 - `scripts/` (the joining-client drive)
 
 ## Testing
@@ -92,5 +92,5 @@ actually meet, and a stack trace there is a support burden rather than a diagnos
 ## Limitations
 
 - **L-47** — the automated installer-plus-continuity acceptance. See
-  [`LIMITATIONS.md`](LIMITATIONS.md). Shared with [`worker/Task.3.md`](../worker/Task.3.md): one job,
+  [`LIMITATIONS.md`](LIMITATIONS.md). Shared with [`worker/Task.3.md`](../peer/Task.3.md): one job,
   two owners.

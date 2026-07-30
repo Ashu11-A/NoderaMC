@@ -53,7 +53,7 @@ did the world list.
 service speaks, and the `nodera-codec` crate that decodes it.
 
 **Consumed by:** [`minecraft/Task.4.md`](../minecraft/Task.4.md) (the multiplayer world list),
-[`worker/Task.3.md`](../worker/Task.3.md) (the announce loop that keeps a host's world listed with
+[`worker/Task.3.md`](../peer/Task.3.md) (the announce loop that keeps a host's world listed with
 Minecraft closed), [`app/Task.2.md`](../app/Task.2.md) (the dashboard's trackers panel).
 
 ## 4. Task index
@@ -77,13 +77,13 @@ expiry, sampling, and abuse defences. The task files bind that reference to Node
 
 | Path | Contents |
 |---|---|
-| `rust/nodera-tracker/src/` | The service: `main`, `config`, `registry`, `announce`, `query`, `health`, `deletion`, `limits`, `wire`, `services` (the service directory), `service` (dispatch), `telemetry` (Task 4); `bin/nodera-query.rs` (Task 6 diagnostic) |
-| `rust/nodera-service/src/` | Shared with the rendezvous: `identity`, `directory`, `drain`, `lifecycle`, `update` |
-| `java/transport/.../protocol/discovery/` | `TrackerAnnounce`, `TrackerAnnounceAck` and the query family |
-| `java/peer/.../discovery/TrackerClient.java` | Announce loop, query API, scheme-aware endpoints |
-| `java/peer/src/test/.../TrackerServiceIT.java` | Drives the **real** release binary from Java |
+| `tracker/src/` | The service: `main`, `config`, `registry`, `announce`, `query`, `health`, `deletion`, `limits`, `wire`, `services` (the service directory), `service` (dispatch), `telemetry` (Task 4); `bin/nodera-query.rs` (Task 6 diagnostic) |
+| `library/rust/nodera-service/src/` | Shared with the rendezvous: `identity`, `directory`, `drain`, `lifecycle`, `update` |
+| `library/java/transport/.../protocol/discovery/` | `TrackerAnnounce`, `TrackerAnnounceAck` and the query family |
+| `peer/.../discovery/TrackerClient.java` | Announce loop, query API, scheme-aware endpoints |
+| `peer/src/test/.../TrackerServiceIT.java` | Drives the **real** release binary from Java |
 
-Package architecture: [`rust/nodera-tracker/README.md`](../../rust/nodera-tracker/README.md).
+Package architecture: [`tracker/README.md`](../../tracker/README.md).
 
 ## 6. Conventions specific to this category
 

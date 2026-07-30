@@ -7,7 +7,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [worker 2](../worker/Task.2.md)
+**Depends on:** [worker 2](../peer/Task.2.md)
 **Consumed by:** players
 
 ---
@@ -35,7 +35,7 @@ enforcement-badge invariants.
 
 ## Dependencies
 
-- [worker 2](../worker/Task.2.md) — the control verbs and the `STATE` payload.
+- [worker 2](../peer/Task.2.md) — the control verbs and the `STATE` payload.
 
 ## Deliverables
 
@@ -76,8 +76,8 @@ merely slow to start.
 
 ## Files
 
-- `rust/nodera-app/src/{control,metrics}.rs`
-- `rust/nodera-app/ui/src/App.tsx`, `ui/src/panels/`, `ui/src/ipc.ts`
+- `app/src/{control,metrics}.rs`
+- `app/ui/src/App.tsx`, `ui/src/panels/`, `ui/src/ipc.ts`
 
 ## Testing
 

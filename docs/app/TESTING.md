@@ -9,10 +9,10 @@
 **193 tests** (187 Rust + 6 frontend), all re-run
 
 ```bash
-cd rust/nodera-app && cargo test        # REQUIRED — the workspace gate does not cover this crate
+cd app && cargo test        # REQUIRED — the workspace gate does not cover this crate
 cd rust && cargo test                   # does NOT include nodera-app
-cd rust/nodera-app/ui && bun run test   # type-check + bundle + emitted-CSS contracts
-cd rust/nodera-app/ui && bun run build  # same production gate used by CI
+cd app/ui && bun run test   # type-check + bundle + emitted-CSS contracts
+cd app/ui && bun run build  # same production gate used by CI
 ```
 
 ---
@@ -47,7 +47,7 @@ The app is deliberately the thinnest layer in the project, and its test strategy
 
 ### Test counts (run 2026-07-28)
 
-A count of `#[test]` / `#[tokio::test]` attributes in `rust/nodera-app/src/`, plus the frontend's
+A count of `#[test]` / `#[tokio::test]` attributes in `app/src/`, plus the frontend's
 Node tests, re-run after the UX honesty bundle (issue #98). The Rust total is unchanged at 187: two
 tests for deleted code went with it (`the_unenforced_shim_lists_exactly_the_non_live_keys` and the
 invitation-file round trip, whose reader half was an uncalled command), one direct assertion on the

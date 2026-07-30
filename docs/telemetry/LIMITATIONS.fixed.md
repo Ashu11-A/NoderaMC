@@ -64,7 +64,7 @@ window; it does not remove the capability. Elimination path: move the derivation
 process holds only in memory and discards on rotation, so past periods are unrecoverable even to the
 operator.*
 
-**Why it retired.** The pseudonymiser (`rust/nodera-telemetry/src/subject.rs`) now mints a fresh
+**Why it retired.** The pseudonymiser (`telemetry/src/subject.rs`) now mints a fresh
 32-byte key from `/dev/urandom` the first time a period is observed, caches it for the period, and
 wipes it (zero-then-drop) the instant the period rolls — eagerly from the ingest sweep, lazily from
 the next batch. The `subject_secret` field and its environment override were removed from

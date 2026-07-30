@@ -14,8 +14,8 @@ diff, the bytecode structural report, the JDWP worker probe, the ratchet, and th
 workflow all landed and ran green
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-29
 **Depends on:** [network 2](Task.2.md), [network 4](Task.4.md), [network 5](Task.5.md),
-[worker 1](../worker/Task.1.md)
-**Consumed by:** every task that changes `java/peer` or `java/worker`
+[worker 1](../peer/Task.1.md)
+**Consumed by:** every task that changes `peer` or `peer`
 
 ---
 
@@ -98,16 +98,16 @@ used (every `static final` singleton is constructed there). After both, section 
 
 | # | Deliverable | Where |
 |---|---|---|
-| 1 | Four JMH benchmark lanes | `java/peer/src/jmh/java/dev/nodera/bench/` |
-| 2 | JMH wiring + `benchmarkReport` task | `java/peer/build.gradle.kts` |
+| 1 | Four JMH benchmark lanes | `peer/src/jmh/java/dev/nodera/bench/` |
+| 2 | JMH wiring + `benchmarkReport` task | `peer/build.gradle.kts` |
 | 3 | Ranked report with scaling + baseline diff | `scripts/bench-report.py` |
 | 4 | Committed benchmark baseline | `fixtures/bench/baseline.json` |
-| 5 | Bytecode reference graph + cost scanner | `java/worker/src/test/java/dev/nodera/structure/CodeGraph.java` |
+| 5 | Bytecode reference graph + cost scanner | `peer/src/test/java/dev/nodera/structure/CodeGraph.java` |
 | 6 | Reachability / dead-code verdicts | `.../structure/DeadCodeAnalysis.java` |
 | 7 | JDWP probe of the real worker | `.../structure/HeadlessDebugProbe.java` |
 | 8 | Report renderer + JSON | `.../structure/StructureReport.java` |
 | 9 | The suite and the ratchet | `.../structure/StructuralReportTest.java`, `fixtures/structure/budget.json` |
-| 10 | `structureReport` task | `java/worker/build.gradle.kts` |
+| 10 | `structureReport` task | `peer/build.gradle.kts` |
 | 11 | CI workflow (PR, main, weekly, manual) | `.github/workflows/benchmarks.yml` |
 
 ## Design
@@ -133,18 +133,18 @@ coverage only, never durations**: speed is the benchmark lane's job, on an unins
 
 ### Why `:testing` main is scanned as test code
 
-`java/testing`'s main source set is a library *for* tests. Counting it as production would let a test
+`library/java/testing`'s main source set is a library *for* tests. Counting it as production would let a test
 harness keep production code looking alive — the exact illusion the report exists to remove.
 
 ## Files
 
 ```
-java/peer/build.gradle.kts                                  # jmh plugin, lanes, benchmarkReport
-java/peer/src/jmh/java/dev/nodera/bench/
+peer/build.gradle.kts                                  # jmh plugin, lanes, benchmarkReport
+peer/src/jmh/java/dev/nodera/bench/
     BenchFixtures.java  DiscoveryBenchmark.java  ChunkSyncBenchmark.java
     WireBenchmark.java  RuntimeBenchmark.java    README.md
-java/worker/build.gradle.kts                                # structureReport task, tag exclusion
-java/worker/src/test/java/dev/nodera/structure/
+peer/build.gradle.kts                                # structureReport task, tag exclusion
+peer/src/test/java/dev/nodera/structure/
     CodeGraph.java  DeadCodeAnalysis.java  HeadlessDebugProbe.java
     StructureReport.java  StructuralReportTest.java  README.md
 scripts/bench-report.py
@@ -161,11 +161,11 @@ fixtures/structure/budget.json
 python3 scripts/bench-report.py --check      # regression gate against the baseline
 python3 scripts/bench-report.py --write-baseline
 
-./gradlew :worker:structureReport                          # analysis + debugger probe
-./gradlew :worker:structureReport -Pstructure.debug=false  # static half only (~5 s)
+./gradlew :peer:structureReport                          # analysis + debugger probe
+./gradlew :peer:structureReport -Pstructure.debug=false  # static half only (~5 s)
 ```
 
-`:worker:structureReport` is tagged `structure` and excluded from `:worker:test`, so `./gradlew
+`:peer:structureReport` is tagged `structure` and excluded from `:peer:test`, so `./gradlew
 check` is unchanged in scope and runtime. The task declares every module's `classes`/`testClasses`
 as dependencies, which is what makes "a module was not compiled, so its callers vanished" impossible
 rather than merely unlikely.

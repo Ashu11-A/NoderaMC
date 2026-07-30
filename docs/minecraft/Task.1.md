@@ -87,7 +87,7 @@ that this harness closes. Its own cost is small; its unblocking value is the lar
 ## Files
 
 - `java/build-logic/src/main/kotlin/nodera.neoforge-mod.gradle.kts`
-- `java/neoforge-mod/src/main/java/dev/nodera/mod/{NoderaMod,NoderaClientMod}.java`
+- `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/{NoderaMod,NoderaClientMod}.java`
 - `scripts/run-tests.sh`, `scripts/lib/e2e-main.sh`, `scripts/e2e-*.sh`
 - `.github/workflows/` (the live workflow, dispatch + nightly)
 

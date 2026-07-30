@@ -10,8 +10,8 @@
      suite can pass on a state the product cannot see. -->
 
 **Category:** testing · **Owns:** the test tooling · **Last audit:** 2026-07-29
-**Code:** `java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh`, `scripts/bench-report.py`,
-`java/peer/src/jmh`, `java/worker/src/test/java/dev/nodera/structure`
+**Code:** `library/java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh`, `scripts/bench-report.py`,
+`peer/src/jmh`, `peer/src/test/java/dev/nodera/structure`
 
 ---
 
@@ -33,7 +33,7 @@ clean — three artefacts, three formats, and nobody read all three.
 
 ```
 scripts/nodera-test.sh          builds and execs the tool; the only shell left in the test lane
-  └── nodera-test (java/testing, application plugin)
+  └── nodera-test (library/java/testing, application plugin)
         ├── dev.nodera.testkit.cli        the subcommands: list · run · bench · structure · all
         ├── dev.nodera.testkit.suite      Scenario SPI, context, stage results, runner, registry
         ├── dev.nodera.testkit.scenario   one class per acceptance scenario

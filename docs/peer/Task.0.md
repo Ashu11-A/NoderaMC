@@ -1,4 +1,4 @@
-# Worker — Category Charter
+# Peer — Category Charter
 
 <!-- AI-AGENT-INSTRUCTION: Option B is LOCKED: the worker is the existing, tested Java peer run
      headlessly. Do NOT port peer logic to Rust and do NOT create a second region engine in any
@@ -6,18 +6,30 @@
      versioned, and NON-AUTHORITATIVE: requiring the worker is a persistence and reachability
      convenience, never a new trust anchor. Keep the task index in agreement with ../ROADMAP.md §2. -->
 
-**Category:** `worker` · **Status:** 🚧 IN PROGRESS (6 of 8 tasks completed) ·
-**Last audit:** 2026-07-28
+**Category:** `peer` · **Status:** 🚧 IN PROGRESS (6 of 8 tasks completed) ·
+**Last audit:** 2026-07-30
 
 ---
 
 ## 1. What this category is
 
-The **required always-on headless peer**: a Minecraft-free `main` that boots the full Java
-`PeerRuntime` — persistent identity, membership, gateway candidacy, tracker announce, rendezvous
-registration, distribution seeding, and out-of-game committee validation — as a long-lived OS
-process, and serves the **loopback control endpoint** (`127.0.0.1:25610`) that the mod probes,
-queries, and delegates hosting to.
+**The node.** A Minecraft-free process that boots the full Java `PeerRuntime` — persistent identity,
+membership, gateway candidacy, tracker announce, rendezvous registration, distribution seeding, and
+out-of-game committee validation — as a long-lived OS process, and serves the **loopback control
+endpoint** (`127.0.0.1:25610`) that the mod probes, queries, and delegates hosting to.
+
+> **Renamed from `worker` on 2026-07-30, and the rename is the point.** `dev.nodera.headless` was a
+> separate `:worker` Gradle module from 2026-07-26 until then. That kept a launchable `main` out of
+> every player's `mods/` folder, which was worth having — but it also left a peer WITHOUT the
+> always-on services constructible, so "every peer serves" was a convention rather than a fact.
+> Both guarantees now hold at once: the services are in `peer`'s `src/main`, so depending on the
+> peer stack means getting them and `PeerNode.start` is the only way to build one; the entry point
+> is alone in `src/headless`, which `tasks.jar` does not carry, asserted on the built artefact by
+> `ModJarCarriesNoEntryPointTest`. Task numbers 0–8 are unchanged — they are cited by issues and
+> commits, and this category never renumbers.
+>
+> The artefact is still `nodera-headless`; only the Gradle task moved
+> (`:worker:installDist` → `:peer:installDist`).
 
 This is what makes player-hosted worlds survive the host closing their game. It is also the project's
 answer to the "separate OS process for emergency flush" requirement: the worker is a different
@@ -83,21 +95,21 @@ refactoring register: [`REFACTORING.md`](REFACTORING.md).
 ## 6. Files
 
 > Paths reflect the 2026-07-26 module split: `dev.nodera.headless` moved from `:peer` into the new
-> `:worker` Gradle module (`java/worker/`). The control endpoint and the tunnel lane stay in
-> `:peer` (`java/peer/.../dev/nodera/peer/control/`) because the Paper plugin reuses that library
+> `:worker` Gradle module (`peer/`). The control endpoint and the tunnel lane stay in
+> `:peer` (`peer/.../dev/nodera/peer/control/`) because the Paper plugin reuses that library
 > code. `WorkerState` is **not** a separate file in this category — the live state snapshot lives in
 > `WorkerControlHandler.stateJson` (a `dev.nodera.shadow.WorkerState` exists in `:engine`, unrelated).
 
 | Path | Contents |
 |---|---|
-| `java/worker/.../headless/HeadlessPeerMain.java` | Boots the runtime, holds the identity, serves the control endpoint |
-| `java/worker/.../headless/WorkerControlHandler.java` | Answers the verb table; builds the live `STATE` snapshot from runtime state |
-| `java/peer/.../peer/control/ControlProtocol.java` | The wire: verbs and version — the single source of truth |
-| `java/peer/.../peer/control/ControlServer.java` | Loopback listener + handler dispatch |
-| Mirrors | `java/neoforge-mod/.../common/CompanionProtocol.java`, `rust/nodera-app/src/control.rs` |
+| `peer/.../headless/HeadlessPeerMain.java` | Boots the runtime, holds the identity, serves the control endpoint |
+| `peer/.../headless/WorkerControlHandler.java` | Answers the verb table; builds the live `STATE` snapshot from runtime state |
+| `peer/.../peer/control/ControlProtocol.java` | The wire: verbs and version — the single source of truth |
+| `peer/.../peer/control/ControlServer.java` | Loopback listener + handler dispatch |
+| Mirrors | `endpoints/neoforge-mod/.../common/CompanionProtocol.java`, `app/src/control.rs` |
 
-Package architecture: [`java/peer/README.md`](../../java/peer/README.md),
-[`java/worker/README.md`](../../java/worker/README.md).
+Package architecture: [`peer/README.md`](../../peer/README.md),
+[`peer/README.md`](../../peer/README.md).
 
 ## 7. Conventions specific to this category
 

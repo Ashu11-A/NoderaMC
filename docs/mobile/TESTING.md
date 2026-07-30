@@ -80,13 +80,13 @@ scripts/android-apk.sh --help
 
 What it does, in order — each step exists because something broke without it:
 
-1. **Builds the worker** (`./gradlew :worker:installDist`) and **dexes** its whole dependency closure
+1. **Builds the worker** (`./gradlew :peer:installDist`) and **dexes** its whole dependency closure
    with `d8` from build-tools 35.
 2. **Merges the jar resources back in.** `d8` emits classes only; without this the worker starts and
    then dies on a missing `VERSION`, and finds no SLF4J provider.
 3. **Strips foreign natives** (`*.so`, `*.dll`, `*.jnilib` for desktop ABIs) — 60 MB the phone can
    never load, and the worker reaches `online` without them.
-4. **Copies the Kotlin** from `rust/nodera-app/android/kotlin/` into the generated project, because
+4. **Copies the Kotlin** from `app/android/kotlin/` into the generated project, because
    `gen/` is disposable and Tauri regenerates it.
 5. **Patches the generated project**, idempotently: the `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
    permission, the `androidx.documentfile` dependency, and R8 **keep rules** for the three classes
@@ -101,10 +101,10 @@ It exists so the APK installs; it is not a Play Store upload key. Override with
 ### 2.2 The desktop app, for comparison
 
 ```bash
-cd rust/nodera-app && cargo tauri build     # installer
-cd rust/nodera-app && cargo tauri dev       # window + tray + worker supervisor
-./gradlew :worker:installDist               # the worker on its own
-rust/target/release/nodera-tracker          # a tracker to announce to
+cd app && cargo tauri build     # installer
+cd app && cargo tauri dev       # window + tray + worker supervisor
+./gradlew :peer:installDist               # the worker on its own
+target/release/nodera-tracker          # a tracker to announce to
 ```
 
 ### 2.3 Rebuild loops that do not waste time
@@ -186,7 +186,7 @@ without it, an abort leaves nothing behind at all.
 ### 4.1 The end-to-end test
 
 ```bash
-rust/target/release/nodera-tracker &          # something to announce to
+target/release/nodera-tracker &          # something to announce to
 scripts/android-e2e.sh                        # install, launch, prove
 scripts/android-e2e.sh --no-install           # test what is already installed
 scripts/android-e2e.sh --tracker 10.0.0.101:25600
@@ -248,8 +248,8 @@ worker log the standard launcher collects.
 
 ```bash
 cargo build --release -p nodera-tracker --bin nodera-query
-rust/target/release/nodera-query 10.0.0.101:25600             # the mobile commons world
-rust/target/release/nodera-query 10.0.0.101:25600 <worldIdHex>
+target/release/nodera-query 10.0.0.101:25600             # the mobile commons world
+target/release/nodera-query 10.0.0.101:25600 <worldIdHex>
 ```
 
 Prints the world, its health, and every peer the tracker knows with its dial route. It uses
@@ -270,7 +270,7 @@ adb shell '(printf "NODERA-WATCH 2 1000\n"; sleep 3) | timeout 6 toybox nc 127.0
 ```
 
 `self_route` is a LAN address, not loopback — other peers can dial this phone. The full verb list is
-in [`worker/Task.2.md`](../worker/Task.2.md).
+in [`worker/Task.2.md`](../peer/Task.2.md).
 
 ### 4.5 Memory, when something feels wrong
 
@@ -286,10 +286,10 @@ in five seconds, then the OS killed the app).
 ### 4.6 Unit and integration suites
 
 ```bash
-cd rust/nodera-app && cargo test              # the app's own tests, incl. storage and battery
+cd app && cargo test              # the app's own tests, incl. storage and battery
 cd rust && cargo test --workspace             # codec, tracker, rendezvous, telemetry
 ./gradlew :core:test                          # includes ThreadsTest — the virtual-thread probe
-./gradlew :worker:test
+./gradlew :peer:test
 ```
 
 Last app run on 2026-07-28: **188 passed**, including Android property/desktop environment parity,
@@ -335,8 +335,8 @@ and a stray tap lands in whatever app happens to be in front. Prefer tapping the
 | `scripts/android-apk.sh` | Build → dex the worker → sign → `build/` | `--debug`, `--install`, `--skip-worker`, `--target` |
 | `scripts/android-e2e.sh` | Install, launch, prove the node, optionally assert its selected P2P port from state | `--no-install`, `--tracker`, `--apk`, `--expect-p2p-port` |
 | `scripts/nodera-test.sh run android-mesh` | The phone in the mesh with the Linux peers, receiving bytes | `--no-game`, `--no-apk`, `--no-build`, `--serial` |
-| `rust/target/release/nodera-query` | Ask a tracker who it knows, from another machine | `<host:port> [worldIdHex]` |
-| `rust/target/release/nodera-tracker` | The tracker itself; binds `0.0.0.0:25600` TCP+UDP | env-configured |
+| `target/release/nodera-query` | Ask a tracker who it knows, from another machine | `<host:port> [worldIdHex]` |
+| `target/release/nodera-tracker` | The tracker itself; binds `0.0.0.0:25600` TCP+UDP | env-configured |
 
 Environment variables the scripts read:
 
@@ -383,7 +383,7 @@ Environment variables the scripts read:
 scripts/android-toolchain.sh
 
 # a tracker for the phone to find
-rust/target/release/nodera-tracker > run/logs/tracker.log 2>&1 &
+target/release/nodera-tracker > run/logs/tracker.log 2>&1 &
 
 # the phone, over Wi-Fi
 adb tcpip 5555
@@ -396,5 +396,5 @@ scripts/android-e2e.sh --no-install
 
 # watch it work
 adb logcat -s NoderaMC:V
-rust/target/release/nodera-query 10.0.0.101:25600
+target/release/nodera-query 10.0.0.101:25600
 ```

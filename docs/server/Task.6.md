@@ -130,9 +130,9 @@ piece progress on surfaces they already have.
 
 ## Files
 
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/tenant/{TenantId,TenantRoster,TenantSession,TenantLimbo}.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/permission/{EndpointOperatorBridge,EndpointJoinGate}.java`
-- `java/paper-plugin/src/main/java/dev/nodera/endpoint/ui/EndpointSurfaces.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/tenant/{TenantId,TenantRoster,TenantSession,TenantLimbo}.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/permission/{EndpointOperatorBridge,EndpointJoinGate}.java`
+- `endpoints/paper-plugin/src/main/java/dev/nodera/endpoint/ui/EndpointSurfaces.java`
 
 ## Testing
 

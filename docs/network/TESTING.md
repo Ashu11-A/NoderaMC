@@ -18,7 +18,7 @@ table below (187 + 157 + 653). Worker-module cases are accounted under the worke
 | `transport` | The `NDR2` wire and both planes: all 75 kinds sampled, fixtured and dispatch-tested; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard | 187 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes | 157 | ✅ |
 | `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 653 | 🚧 |
-| `rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 73 | ✅ |
+| `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 73 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything
 fails.
@@ -108,16 +108,16 @@ manual) and both are ratcheted so their numbers cannot quietly get worse.
 ./gradlew :peer:jmh -Pbench.quick     # 79 measurements, ~8 min (full run: drop the flag)
 ./gradlew :peer:benchmarkReport       # + build/reports/nodera/BENCHMARKS.md
 python3 scripts/bench-report.py --check           # vs fixtures/bench/baseline.json
-./gradlew :worker:structureReport                 # + STRUCTURE.md, structure.json, the JDWP profile
-./gradlew :worker:structureReport -Pstructure.debug=false   # static half only (~5 s)
+./gradlew :peer:structureReport                 # + STRUCTURE.md, structure.json, the JDWP profile
+./gradlew :peer:structureReport -Pstructure.debug=false   # static half only (~5 s)
 ```
 
 | Lane | Asserts | Evidence |
 |---|---|---|
 | `:peer:jmh` (`dev.nodera.bench`) | discovery / chunk-sync / wire / runtime latency are measured per stage, ranked, and diffed against a baseline; superlinear growth is detected from the `@Param` sweep rather than guessed | `build/reports/nodera/BENCHMARKS.md` |
-| `:worker:structureReport` (`dev.nodera.structure`) | the debugger observes the real worker loading classes, executing methods, and answering all twelve control verbs; the analysis reaches >1000 methods; every budget in `fixtures/structure/budget.json` holds | `build/reports/nodera/STRUCTURE.md` |
+| `:peer:structureReport` (`dev.nodera.structure`) | the debugger observes the real worker loading classes, executing methods, and answering all twelve control verbs; the analysis reaches >1000 methods; every budget in `fixtures/structure/budget.json` holds | `build/reports/nodera/STRUCTURE.md` |
 
-`StructuralReportTest` is tagged `structure` and **excluded from `:worker:test`**, so the module test
+`StructuralReportTest` is tagged `structure` and **excluded from `:peer:test`**, so the module test
 counts in the table above are unchanged by it. That exclusion is why `structureReport` declares every
 module's `classes`/`testClasses` as task dependencies: an uncompiled module is a module whose callers
 vanish, and the analysis would report their callees as dead.
@@ -166,7 +166,7 @@ The decisive ones:
   scoring best.
 - `ServiceScoreBoardTest.a_recent_recovery_pulls_the_score_back_up` — an outage ages out of the window
   instead of condemning a relay forever.
-- `ServiceMessageCodecTest` + `rust/nodera-codec/tests/fixtures.rs` — the six frames round-trip
+- `ServiceMessageCodecTest` + `library/rust/nodera-codec/tests/fixtures.rs` — the six frames round-trip
   byte-exactly across languages, **and** the Java-computed composite equals the Rust-computed one. A
   divergence there would silently reorder every peer's failover list.
 

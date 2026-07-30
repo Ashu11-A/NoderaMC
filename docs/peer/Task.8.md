@@ -53,7 +53,7 @@ Landed so far:
 - [worker 3](Task.3.md) owns `WorldHostingService`, the registry and the announce lane.
 - [minecraft 6](../minecraft/Task.6.md) owns `NoderaHost` and the world-identity file in the save.
 - No wire change on the tracker side: `genesis_hash` is already the sole identity, and the tracker
-  correctly refuses to treat names as identifying (`rust/nodera-tracker/src/registry.rs:50-52`).
+  correctly refuses to treat names as identifying (`tracker/src/registry.rs:50-52`).
 
 ## Deliverables
 
@@ -128,19 +128,19 @@ cryptographic.
 
 | Path | Role |
 |---|---|
-| `java/storage/src/main/java/dev/nodera/storage/WorldIdentity.java` | `createPinned` |
-| `java/peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` | `NODERA-WORLDID` grammar |
-| `java/peer/src/main/java/dev/nodera/peer/control/ControlServer.java` | optional 8th argument |
-| `java/peer/src/main/java/dev/nodera/peer/control/ControlHandler.java` | verb signature |
-| `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` | pin honoured on mint |
-| `java/worker/src/main/java/dev/nodera/headless/WorldHostingService.java` | key normalisation |
-| `java/worker/src/main/java/dev/nodera/headless/LanSessionService.java` | port-free session id |
-| `java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java` | shared owner-only creation, atomic replacement and failure cleanup |
-| `java/worker/src/main/java/dev/nodera/headless/LocalFiles.java` | worker-state wrapper over the shared writer |
-| `java/peer/src/main/java/dev/nodera/peer/discovery/PersistentIdentityStore.java` | worker identity wrapper over the shared writer |
-| `java/worker/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | production `openLocalState` startup seam |
-| `java/neoforge-mod/src/main/java/dev/nodera/mod/common/NoderaHost.java` | pin sent, persisted-id fallback |
-| `java/neoforge-mod/src/main/java/dev/nodera/mod/common/CompanionClient.java` | pin on the wire |
+| `library/java/storage/src/main/java/dev/nodera/storage/WorldIdentity.java` | `createPinned` |
+| `peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java` | `NODERA-WORLDID` grammar |
+| `peer/src/main/java/dev/nodera/peer/control/ControlServer.java` | optional 8th argument |
+| `peer/src/main/java/dev/nodera/peer/control/ControlHandler.java` | verb signature |
+| `peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` | pin honoured on mint |
+| `peer/src/main/java/dev/nodera/headless/WorldHostingService.java` | key normalisation |
+| `peer/src/main/java/dev/nodera/headless/LanSessionService.java` | port-free session id |
+| `library/java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java` | shared owner-only creation, atomic replacement and failure cleanup |
+| `peer/src/main/java/dev/nodera/headless/LocalFiles.java` | worker-state wrapper over the shared writer |
+| `peer/src/main/java/dev/nodera/peer/discovery/PersistentIdentityStore.java` | worker identity wrapper over the shared writer |
+| `peer/src/main/java/dev/nodera/headless/HeadlessPeerMain.java` | production `openLocalState` startup seam |
+| `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/NoderaHost.java` | pin sent, persisted-id fallback |
+| `endpoints/neoforge-mod/src/main/java/dev/nodera/mod/common/CompanionClient.java` | pin on the wire |
 
 ## Testing
 

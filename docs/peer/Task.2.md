@@ -78,9 +78,9 @@ verb; nothing password-shaped is logged or serialized.
 
 ## Files
 
-- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (verb table + `STATE` snapshot)
-- `java/peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java`
-- Mirrors: `java/neoforge-mod/.../common/CompanionProtocol.java`, `rust/nodera-app/src/control.rs`
+- `peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (verb table + `STATE` snapshot)
+- `peer/src/main/java/dev/nodera/peer/control/ControlProtocol.java`
+- Mirrors: `endpoints/neoforge-mod/.../common/CompanionProtocol.java`, `app/src/control.rs`
 
 ## Testing
 

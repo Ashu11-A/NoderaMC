@@ -57,7 +57,7 @@ what an announce will hand it.
 
 ### 2026-07-28 — Documentation sweep: statuses reconciled against the actual code
 
-A category-wide audit against the tree (5 main + 3 test classes in `java/paper-plugin`, 20 unit tests;
+A category-wide audit against the tree (5 main + 3 test classes in `endpoints/paper-plugin`, 20 unit tests;
 jscpd duplicated-block count for the module: **0**) reconciled every task header with the code. Three
 headers had been lying: [Task.1](Task.1.md)'s status detail still read "Not started" under a ✅
 COMPLETED header; [Task.2](Task.2.md)'s still read "Not started" while its external-mode link and
@@ -179,7 +179,7 @@ is the endpoint hosting a peer.
 ### 2026-07-26 — There is a plugin, and it enables on a real Paper
 
 The category's gate row said "the plugin does not exist", and eight rows sat behind it. It exists
-now, for exactly what task 1 covers: `java/paper-plugin` builds `nodera-endpoint.jar`, and
+now, for exactly what task 1 covers: `endpoints/paper-plugin` builds `nodera-endpoint.jar`, and
 `scripts/e2e-endpoint.sh` runs it against a downloaded **Paper 1.21.1** — the plugin enables, names
 its platform, reports ALIGN-1, and disables cleanly with no exception in the log.
 

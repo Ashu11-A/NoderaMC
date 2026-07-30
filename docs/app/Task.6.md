@@ -9,7 +9,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 2](Task.2.md), [worker 2](../worker/Task.2.md), [worker 6](../worker/Task.6.md)
+**Depends on:** [app 2](Task.2.md), [worker 2](../peer/Task.2.md), [worker 6](../peer/Task.6.md)
 **Consumed by:** [app 3](Task.3.md), [app 5](Task.5.md)
 
 ---
@@ -99,10 +99,10 @@ already talking to. Verification is what other peers do, against the world's pub
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlServer}.java` — the verb
-- `rust/nodera-app/src/api/{mod,model,store,link,commands}.rs`
-- `rust/nodera-app/ui/src/{api.ts,Dashboard.tsx,App.tsx,World.tsx}`
-- `rust/nodera-app/src/{control,daemon,power,main}.rs` — the old poll loop and `MetricsHandle`
+- `peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlServer}.java` — the verb
+- `app/src/api/{mod,model,store,link,commands}.rs`
+- `app/ui/src/{api.ts,Dashboard.tsx,App.tsx,World.tsx}`
+- `app/src/{control,daemon,power,main}.rs` — the old poll loop and `MetricsHandle`
   removed; the store is now the single source the power rules read too
 
 ## Testing

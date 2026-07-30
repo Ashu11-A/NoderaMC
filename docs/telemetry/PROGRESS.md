@@ -123,7 +123,7 @@ crash-looping dependency until the job timed out and killed the log-collection s
 
 The receiver had no senders when this category opened. It has six now: the emitter core
 ([network 12](../network/Task.12.md)), the worker that owns the consent record
-([worker 5](../worker/Task.5.md)), the game-side façade ([minecraft 8](../minecraft/Task.8.md)),
+([worker 5](../peer/Task.5.md)), the game-side façade ([minecraft 8](../minecraft/Task.8.md)),
 both service reporters ([tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md)),
 and the companion's first-run question ([app 5](../app/Task.5.md)).
 
@@ -147,7 +147,7 @@ The measurement plane starts from the receiver rather than from the emitters, an
 the decision worth recording. Writing the emitters first would have meant deciding what to collect
 in six places (mod, worker, app, tracker, rendezvous, endpoint) and then trying to keep six
 implementations honest. Building `nodera-telemetry` first means the answer to "what does NoderaMC
-collect?" is one file — `rust/nodera-telemetry/src/schema.rs` — enforced against every client,
+collect?" is one file — `telemetry/src/schema.rs` — enforced against every client,
 including clients the project did not write.
 
 Landed with evidence:
@@ -170,5 +170,5 @@ tables that live 400 days carry no per-installation identifier at all. Only the 
 one, and it deletes itself. That is what makes a long retention window on trend data defensible.
 
 Not yet true, and tracked rather than implied: nothing is emitting. Until
-[`worker 5`](../worker/Task.5.md) lands, this category is a receiver with no senders, and
+[`worker 5`](../peer/Task.5.md) lands, this category is a receiver with no senders, and
 [`telemetry 3`](Task.3.md) has nothing to analyse.

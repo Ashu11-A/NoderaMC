@@ -1,12 +1,12 @@
 # Worker — Testing
 
-<!-- AI-AGENT-INSTRUCTION: The worker has its own `java/worker` module; control and tunnel library
-     tests remain in `java/peer`, so category counts span both modules and must not be double-counted
+<!-- AI-AGENT-INSTRUCTION: The worker has its own `peer` module; control and tunnel library
+     tests remain in `peer`, so category counts span both modules and must not be double-counted
      in totals. Crash tests here MUST use real OS processes and real SIGKILLs; a mocked daemon proves
      nothing about the property this category exists for. Keep counts and Last run current. -->
 
-**Category:** worker · **Last run:** 2026-07-30 · `java/worker` plus the peer-side lanes it drives
-(`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `java/peer`, plus `scripts/nodera-test.sh run telemetry`
+**Category:** worker · **Last run:** 2026-07-30 · `peer` plus the peer-side lanes it drives
+(`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `peer`, plus `scripts/nodera-test.sh run telemetry`
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
@@ -17,13 +17,13 @@ fat jar included. The control endpoint and the tunnel lane stay in `:peer` becau
 code the Paper plugin uses too.
 
 **Test counts (`scripts/java-test-report.sh`, 2026-07-30):** **204** test cases in `:worker`, plus the peer-module cases named below —
-`java/worker/src/test/` (175 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
-plus `java/peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
+`peer/src/test/` (175 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
+plus `peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
 `ControlWatchStreamTest`, `WorkerEventStreamTest`). These are a SUBSET of the `:worker` + `:peer`
 module counts and must not be double-counted in totals.
 
 ```bash
-./gradlew :worker:test
+./gradlew :peer:test
 ./gradlew :peer:test --tests '*Control*' --tests '*Tunnel*' --tests '*Lan*'
 printf 'NODERA-STATE 2\n' | nc 127.0.0.1 25610     # manual live check against a running worker
 printf 'NODERA-LAN 2 LIST\n' | nc 127.0.0.1 25610  # what this machine has open to LAN

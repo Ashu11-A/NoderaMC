@@ -10,12 +10,12 @@
      punch.rs:137 (PunchCoordinator go-signal), registry.rs:102 (Registry namespace bookkeeping),
      limits.rs:24 (RequestQuota per-IP), register.rs:90 (admit signature/freshness), discover.rs:15
      (paged answer). Depends on: ../network/Task.1.md (canonical encoding + framing). Consumed by:
-     Task.2.md (Java transport), ../worker/Task.3.md, ../minecraft/Task.5.md. -->
+     Task.2.md (Java transport), ../peer/Task.3.md, ../minecraft/Task.5.md. -->
 
 **Status:** ✅ COMPLETED
 **Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 1](../network/Task.1.md)
-**Consumed by:** [rendezvous 2](Task.2.md), [worker 3](../worker/Task.3.md), [minecraft 5](../minecraft/Task.5.md)
+**Consumed by:** [rendezvous 2](Task.2.md), [worker 3](../peer/Task.3.md), [minecraft 5](../minecraft/Task.5.md)
 
 ---
 
@@ -85,7 +85,7 @@ carried, not what.
 
 ## Files
 
-- `rust/nodera-rendezvous/src/{main,config,registry,register,discover,reservation,circuit,punch,limits,service,wire,telemetry,test_support}.rs`
+- `rendezvous/src/{main,config,registry,register,discover,reservation,circuit,punch,limits,service,wire,telemetry,test_support}.rs`
   — the service, its TCP surface, the telemetry reporter, and shared test builders. Reflexive-address
   observation lives in `service.rs::on_register` (no separate `observed.rs` file).
 

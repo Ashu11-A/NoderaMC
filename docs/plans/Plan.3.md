@@ -12,9 +12,9 @@
 # Plan.3.md — Limitation Burn-Down Plan (full-register remediation)
 
 > Goal (2026-07-23 directive): remove every §B limitation in
-> [`LIMITATIONS.md`](LIMITATIONS.md). This plan is the consolidated remediation program:
+> each category's `LIMITATIONS.md` (indexed in [`../ROADMAP.md`](../ROADMAP.md) §6). This plan is the consolidated remediation program:
 > one section per outstanding row, grounded in a code audit of each limitation's actual
-> enforcement points. Rows move to [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) as their
+> enforcement points. Rows move to that category's `LIMITATIONS.fixed.md` as their
 > exit tests go green; every removal ships a regression test suite so the limitation
 > cannot silently recur.
 

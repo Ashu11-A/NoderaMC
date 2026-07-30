@@ -85,9 +85,9 @@ error naming that path — never a silent block. The contract is published in
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/coordinator/interference/{MutationGuard,InterferenceBuffer,InterferenceStats,InterferenceCommitter}.java`
-- `java/engine/src/main/java/dev/nodera/coordinator/{DelegabilityPolicy,DelegabilityMonitor}.java`
-- `java/core/src/main/java/dev/nodera/core/state/ServerAuthorityCertificate.java`
+- `library/java/engine/src/main/java/dev/nodera/coordinator/interference/{MutationGuard,InterferenceBuffer,InterferenceStats,InterferenceCommitter}.java`
+- `library/java/engine/src/main/java/dev/nodera/coordinator/{DelegabilityPolicy,DelegabilityMonitor}.java`
+- `library/java/core/src/main/java/dev/nodera/core/state/ServerAuthorityCertificate.java`
 - `COMPATIBILITY.md` (repository root — normative)
 
 ## Testing

@@ -14,12 +14,12 @@
      RendezvousClient.java:45 (register/discover/reserve/openConnect), RendezvousEndpoint.java:35
      (parse tcp://host:port). 28 Java @Test in dev.nodera.transport.rendezvous (incl. RendezvousRelayIT).
      Depends on: Task.1.md, ../network/Task.1.md, ../network/Task.2.md. Consumed by: ../network/Task.2.md,
-     ../minecraft/Task.5.md, ../worker/Task.1.md. -->
+     ../minecraft/Task.5.md, ../peer/Task.1.md. -->
 
 **Status:** ✅ COMPLETED (live cross-internet numbers → [task 3](Task.3.md))
 **Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [rendezvous 1](Task.1.md), [network 1](../network/Task.1.md), [network 2](../network/Task.2.md)
-**Consumed by:** [network 2](../network/Task.2.md), [minecraft 5](../minecraft/Task.5.md), [worker 1](../worker/Task.1.md)
+**Consumed by:** [network 2](../network/Task.2.md), [minecraft 5](../minecraft/Task.5.md), [worker 1](../peer/Task.1.md)
 
 ---
 
@@ -99,8 +99,8 @@ transport handshake regardless of which path delivered the bytes.
 
 ## Files
 
-- `java/transport/src/main/java/dev/nodera/transport/rendezvous/{RendezvousPeerTransport,CandidateDialer,RelayCircuitClient,RelayCircuit,HolePunchCoordinator,TransportSelector,EndToEndCipher,RendezvousClient,RendezvousEndpoint,package-info}.java`
-- `java/transport/src/main/java/dev/nodera/protocol/rendezvous/` — the rendezvous/relay message family
+- `library/java/transport/src/main/java/dev/nodera/transport/rendezvous/{RendezvousPeerTransport,CandidateDialer,RelayCircuitClient,RelayCircuit,HolePunchCoordinator,TransportSelector,EndToEndCipher,RendezvousClient,RendezvousEndpoint,package-info}.java`
+- `library/java/transport/src/main/java/dev/nodera/protocol/rendezvous/` — the rendezvous/relay message family
 
 ## Testing
 

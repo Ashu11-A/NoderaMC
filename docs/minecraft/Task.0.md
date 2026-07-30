@@ -41,7 +41,7 @@ that rule is broken, the project loses its central property: a capability proven
 ## 3. Architecture
 
 ```
-java/neoforge-mod/src/main/java/dev/nodera/mod/
+endpoints/neoforge-mod/src/main/java/dev/nodera/mod/
 ├── NoderaMod.java / NoderaClientMod.java   both-dist + client entrypoints
 ├── common/   config, networking, attachments, adapters, NoderaPeerService,
 │             NoderaHost, NoderaWorldStore, CompanionGate/Client/Link/Protocol
@@ -61,7 +61,7 @@ Dist discipline is enforced: `net.minecraft.client.*` only under `dev.nodera.mod
 **Depends on:** [`engine/`](../engine/Task.0.md) (the validation stack it wires live),
 [`network/`](../network/Task.0.md) (the network stack it wires live),
 [`tracker/Task.2.md`](../tracker/Task.2.md) and [`rendezvous/Task.2.md`](../rendezvous/Task.2.md)
-(the client sides it composes), [`worker/`](../worker/Task.0.md) (the process it requires).
+(the client sides it composes), [`worker/`](../peer/Task.0.md) (the process it requires).
 
 **Consumed by:** players. **This module delivers the live halves of the engine and network
 categories** — which is why so many of their tasks carry a "live evidence pending" clause pointing
@@ -91,7 +91,7 @@ Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and the live suites:
 
 | Path | Contents |
 |---|---|
-| `java/neoforge-mod/` | The mod (see the tree above) |
+| `endpoints/neoforge-mod/` | The mod (see the tree above) |
 | `java/build-logic/` | The convention plugin, including the dev-run configuration |
 | `COMPATIBILITY.md` (repo root) | The normative mod-compatibility contract |
 | [`RESEARCH.md`](RESEARCH.md) | The origin research: what exists, what does not, and why this design |
@@ -99,8 +99,8 @@ Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests and the live suites:
 | [`spark/`](spark/) | The spark profiler (lucko): how it works, how per-mod attribution is computed, and how Nodera drives it in test runs |
 | [`upstream/`](upstream/) | The upstream sources those studies were derived from — pinned submodules, see `.gitmodules` |
 
-Package architecture: [`java/neoforge-mod/README.md`](../../java/neoforge-mod/README.md),
-[`java/build-logic/README.md`](../../java/build-logic/README.md).
+Package architecture: [`endpoints/neoforge-mod/README.md`](../../endpoints/neoforge-mod/README.md),
+[`java/build-logic/README.md`](../../library/java/build-logic/README.md).
 
 ## 7. Conventions specific to this category
 

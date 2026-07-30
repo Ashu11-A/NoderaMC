@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED (renderer/applier lock-map consumers → [minecraft 2](../minecraft/Task.2.md))
 **Category:** network · **Owns:** L-33 · **Last audit:** 2026-07-28
 **Depends on:** [network 1](Task.1.md), [network 3](Task.3.md), [engine 2](../engine/Task.2.md)
-**Consumed by:** [network 6](Task.6.md), [network 8](Task.8.md), [network 9](Task.9.md), [worker 3](../worker/Task.3.md)
+**Consumed by:** [network 6](Task.6.md), [network 8](Task.8.md), [network 9](Task.9.md), [worker 3](../peer/Task.3.md)
 
 ---
 
@@ -78,7 +78,7 @@ explicit `retryPending`.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/distribution/{RegionSnapshotSplitter,PieceManifest,PieceSelector,PieceDownloader,PieceReassembler,ChunkLockMap,ContentTransferService,WorldArchive}.java`
+- `peer/src/main/java/dev/nodera/distribution/{RegionSnapshotSplitter,PieceManifest,PieceSelector,PieceDownloader,PieceReassembler,ChunkLockMap,ContentTransferService,WorldArchive}.java`
 
 ## Testing
 

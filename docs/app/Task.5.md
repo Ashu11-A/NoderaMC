@@ -8,7 +8,7 @@
 
 **Status:** 🚧 IN PROGRESS
 **Category:** app · **Owns:** — (L-78 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
-**Depends on:** [worker 5](../worker/Task.5.md), [app 2](Task.2.md)
+**Depends on:** [worker 5](../peer/Task.5.md), [app 2](Task.2.md)
 **Consumed by:** every player; [telemetry 3](../telemetry/Task.3.md)
 
 ---
@@ -21,7 +21,7 @@ time, and watch the change take effect.
 
 ## Status detail
 
-Landed and green (`cargo test` in `rust/nodera-app`: **61 tests**, 5 of them telemetry).
+Landed and green (`cargo test` in `app`: **61 tests**, 5 of them telemetry).
 
 `src/telemetry.rs` reads and writes the decision through the worker's verb and models the three
 states the UI must tell apart — granted, denied, and *the worker cannot* (an older worker answering
@@ -36,7 +36,7 @@ live pass of the modal in a packaged build.
 
 ## Dependencies
 
-- [worker 5](../worker/Task.5.md) — the verb the decision is written to.
+- [worker 5](../peer/Task.5.md) — the verb the decision is written to.
 - [app 2](Task.2.md) — the dashboard and settings surfaces this extends.
 
 ## Deliverables
@@ -87,11 +87,11 @@ omission.
 
 ## Files
 
-- `rust/nodera-app/src/telemetry.rs` — consent state, worker push, schema fetch
-- `rust/nodera-app/src/settings.rs` — the `privacy` section and its enforcement badge
-- `rust/nodera-app/ui/src/Consent.tsx` — the modal
-- `rust/nodera-app/ui/src/Settings.tsx` — the Privacy card
-- `rust/nodera-app/ui/src/ipc.ts` — the commands and events
+- `app/src/telemetry.rs` — consent state, worker push, schema fetch
+- `app/src/settings.rs` — the `privacy` section and its enforcement badge
+- `app/ui/src/Consent.tsx` — the modal
+- `app/ui/src/Settings.tsx` — the Privacy card
+- `app/ui/src/ipc.ts` — the commands and events
 
 ## Testing
 

@@ -106,11 +106,11 @@ skip is free.
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/simulation/rules/RandomTickRules.java` — random-tick selection, grass spread, **fire** (fuel-bounded spread/burnout lives in `applyFireTick` here, not a separate `FireRules`), and crop growth.
-- `java/engine/src/main/java/dev/nodera/simulation/rules/FluidRules.java` — the finite fluid automaton + lava/water interactions.
-- `java/engine/src/main/java/dev/nodera/simulation/rules/GravityRules.java` — instant-settle gravity.
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/RandomTickRules.java` — random-tick selection, grass spread, **fire** (fuel-bounded spread/burnout lives in `applyFireTick` here, not a separate `FireRules`), and crop growth.
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/FluidRules.java` — the finite fluid automaton + lava/water interactions.
+- `library/java/engine/src/main/java/dev/nodera/simulation/rules/GravityRules.java` — instant-settle gravity.
 - Observer + quasi-connectivity and the daylight sensor live in `RedstoneRules.java` (not separate files): `RedstoneRules.isObserver/observer*/daylightOutput` and the comparator fill signal.
-- `java/engine/src/main/java/dev/nodera/simulation/lighting/LightField.java` — deterministic sky/block light as a pure function of committed state.
+- `library/java/engine/src/main/java/dev/nodera/simulation/lighting/LightField.java` — deterministic sky/block light as a pure function of committed state.
 
 ## Testing
 

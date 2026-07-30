@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED (headless; live soak → [minecraft 2](../minecraft/Task.2.md))
 **Category:** engine · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [engine 5](Task.5.md), [engine 7](Task.7.md)
-**Consumed by:** [minecraft 2](../minecraft/Task.2.md), [worker 4](../worker/Task.4.md)
+**Consumed by:** [minecraft 2](../minecraft/Task.2.md), [worker 4](../peer/Task.4.md)
 
 ---
 
@@ -67,9 +67,9 @@ metric is deliberately awkward to game — the fallback path increments it in th
 
 ## Files
 
-- `java/engine/src/main/java/dev/nodera/fallback/{CrossRegionRouter,FallbackExecutor,SoakMetrics}.java`
-- `java/engine/src/test/java/dev/nodera/fallback/FallbackRoutingIT.java`
-- Live driver: `java/peer/src/main/java/dev/nodera/peer/validation/WorkerValidationService.java`
+- `library/java/engine/src/main/java/dev/nodera/fallback/{CrossRegionRouter,FallbackExecutor,SoakMetrics}.java`
+- `library/java/engine/src/test/java/dev/nodera/fallback/FallbackRoutingIT.java`
+- Live driver: `peer/src/main/java/dev/nodera/peer/validation/WorkerValidationService.java`
 
 ## Testing
 

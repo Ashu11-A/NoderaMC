@@ -20,7 +20,7 @@ becoming authority.
 
 ## Status detail
 
-Landed 2026-07-27. `rust/nodera-app/src/stores.rs` with 13 tests; the screen serves both the desktop
+Landed 2026-07-27. `app/src/stores.rs` with 13 tests; the screen serves both the desktop
 rail and the mobile settings page; `nodera://tracker-store?url=…` is registered on desktop and on
 Android. 172 `nodera-app` tests green — and now running in CI, which they never were.
 
@@ -107,22 +107,22 @@ do nothing until a restart and the user would have no way to tell which they wer
 
 ## Files
 
-- `rust/nodera-app/src/stores.rs` — including `sync_file_body` / `write_sync_file`
-- `rust/nodera-app/src/lib.rs` — `sync_stores_forever`
-- `rust/nodera-app/android/kotlin/NoderaWorker.kt` — the Android path
-- `java/worker/.../HeadlessPeerMain.java` — `SyncedServices`, the reader
-- `rust/nodera-app/src/settings.rs` — `network.tracker_stores` + its enforcement row
-- `rust/nodera-app/src/daemon.rs` · `src/config.rs` — the merge into both push paths
-- `rust/nodera-app/src/lib.rs` — five commands, the deep-link handler, `PendingStore`
-- `rust/nodera-app/ui/src/TrackerStores.tsx` — one screen, both layouts
-- `rust/nodera-app/tauri.conf.json` · `capabilities/default.json`
+- `app/src/stores.rs` — including `sync_file_body` / `write_sync_file`
+- `app/src/lib.rs` — `sync_stores_forever`
+- `app/android/kotlin/NoderaWorker.kt` — the Android path
+- `peer/.../HeadlessPeerMain.java` — `SyncedServices`, the reader
+- `app/src/settings.rs` — `network.tracker_stores` + its enforcement row
+- `app/src/daemon.rs` · `src/config.rs` — the merge into both push paths
+- `app/src/lib.rs` — five commands, the deep-link handler, `PendingStore`
+- `app/ui/src/TrackerStores.tsx` — one screen, both layouts
+- `app/tauri.conf.json` · `capabilities/default.json`
 - `scripts/android-apk.sh` — the manifest intent-filter
 
 ## Testing
 
 ```bash
-cd rust/nodera-app && cargo test
-cd rust/nodera-app/ui && bun run build
+cd app && cargo test
+cd app/ui && bun run build
 ```
 
 Decisive tests:

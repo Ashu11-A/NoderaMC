@@ -133,7 +133,7 @@ only on `AtomicMoveNotSupportedException`.
 
 Evidence: `WorldRegistryStoreTest#workerStateSurvivesANonPosixFileSystem` uses JDK zipfs, asserts its
 attribute views exclude `posix`, creates and reloads one node identity, then writes and replaces one
-registry and reloads the updated value. Focused `:worker:test` and full `./gradlew check` green under
+registry and reloads the updated value. Focused `:peer:test` and full `./gradlew check` green under
 the serialized two-worker build gate required by issue #87.
 
 ### 2026-07-28 — Documentation sweep: status reconciliation + refactoring register
@@ -143,12 +143,12 @@ status reconciliations so the ledger matches reality.
 
 - **Task.0 charter**: the header status moved from the stale "(4 of 5 tasks completed)" to
   **"6 of 8"**, matching the task index that grew to Tasks 1–8. The §6 Files table was corrected for
-  the 2026-07-26 module split (`dev.nodera.headless` lives in `java/worker/`, not `java/peer/`) and
+  the 2026-07-26 module split (`dev.nodera.headless` lives in `peer/`, not `peer/`) and
   the dead `WorkerState.java` row was removed — there is no such file in this category; the live
   `STATE` snapshot is built in `WorkerControlHandler.stateJson` (the `dev.nodera.shadow.WorkerState`
   in `:engine` is unrelated).
 - **Tasks 1–7**: every `Last audit` date bumped to 2026-07-28 and file-path prefixes corrected to
-  `java/worker/` where the code now lives. No status changes — the headless evidence for each is
+  `peer/` where the code now lives. No status changes — the headless evidence for each is
   unchanged and still green.
 - **Task 8**: `Owns` refreshed to `W-DUP-1…4, W-FETCH-1, W-REPL-1` after W-REPL-2 and W-REPL-3 retired
   (below).
@@ -156,7 +156,7 @@ status reconciliations so the ledger matches reality.
   [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). Both had purely headless exit tests
   (`SupersededManifestEvictionTest` + `ArchiveFetchOverSocketsIT`, including
   `#onlyHeldVersionsAreOffered` and `#aSilentBystanderDoesNotStallTheFetch`), all named methods exist
-  in `java/worker/src/test/java/dev/nodera/headless/`, and the 2026-07-27 PROGRESS notes already
+  in `peer/src/test/java/dev/nodera/headless/`, and the 2026-07-27 PROGRESS notes already
   recorded "1,970 Java tests green" with these as the evidence. The open/retiring count dropped
   8 → 6, and a pre-existing header miscount (it read 7) was corrected.
 - **Still RETIRING**: W-FETCH-1 and W-REPL-1 — both state a **live** cross-session bar

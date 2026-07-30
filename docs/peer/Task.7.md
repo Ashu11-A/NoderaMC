@@ -112,12 +112,12 @@ no password, which is what makes it safe to forward.
 
 ## Files
 
-- `java/transport/src/main/java/dev/nodera/protocol/tunnel/{TunnelOpen,TunnelData,TunnelClose}.java`
-- `java/peer/src/main/java/dev/nodera/peer/tunnel/{TunnelService,LanWatcher,LanBeacon}.java`
-- `java/worker/src/main/java/dev/nodera/headless/LanSessionService.java`
-- `java/worker/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (`LiveLanes` + the verbs)
-- `java/storage/src/main/java/dev/nodera/storage/WorldShareLink.java`
-- `java/peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlHandler,ControlServer}.java`
+- `library/java/transport/src/main/java/dev/nodera/protocol/tunnel/{TunnelOpen,TunnelData,TunnelClose}.java`
+- `peer/src/main/java/dev/nodera/peer/tunnel/{TunnelService,LanWatcher,LanBeacon}.java`
+- `peer/src/main/java/dev/nodera/headless/LanSessionService.java`
+- `peer/src/main/java/dev/nodera/headless/WorkerControlHandler.java` (`LiveLanes` + the verbs)
+- `library/java/storage/src/main/java/dev/nodera/storage/WorldShareLink.java`
+- `peer/src/main/java/dev/nodera/peer/control/{ControlProtocol,ControlHandler,ControlServer}.java`
 
 ## Environment
 

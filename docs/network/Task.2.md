@@ -9,7 +9,7 @@
 migration end-to-end remains)
 **Category:** network · **Owns:** L-30, L-84, L-85 · **Last audit:** 2026-07-29
 **Depends on:** [network 1](Task.1.md), [engine 5](../engine/Task.5.md)
-**Consumed by:** [worker 1](../worker/Task.1.md), [minecraft 2](../minecraft/Task.2.md), [rendezvous 3](../rendezvous/Task.3.md)
+**Consumed by:** [worker 1](../peer/Task.1.md), [minecraft 2](../minecraft/Task.2.md), [rendezvous 3](../rendezvous/Task.3.md)
 
 ---
 
@@ -101,9 +101,9 @@ authority, which rule 7 forbids.
 
 ## Files
 
-- `java/peer/src/main/java/dev/nodera/peer/{PeerRuntime,GatewayElection,TickSync}.java`
-- `java/peer/src/main/java/dev/nodera/peer/committee/CommitteeManager.java`
-- `java/peer/src/main/java/dev/nodera/peer/discovery/PeerDiscoveryService.java`
+- `peer/src/main/java/dev/nodera/peer/{PeerRuntime,GatewayElection,TickSync}.java`
+- `peer/src/main/java/dev/nodera/peer/committee/CommitteeManager.java`
+- `peer/src/main/java/dev/nodera/peer/discovery/PeerDiscoveryService.java`
 
 ## Testing
 
