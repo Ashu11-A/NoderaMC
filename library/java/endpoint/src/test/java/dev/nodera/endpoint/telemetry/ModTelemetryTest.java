@@ -1,6 +1,6 @@
 package dev.nodera.endpoint.telemetry;
 
-import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.peer.control.CompanionClient;
 import dev.nodera.endpoint.telemetry.ModTelemetry;
 import dev.nodera.telemetry.TelemetryConsent;
 import org.junit.jupiter.api.AfterEach;

@@ -4,7 +4,7 @@ import dev.nodera.diagnostics.view.PieceMapView;
 import dev.nodera.diagnostics.view.PieceMapView.PieceMap;
 import dev.nodera.diagnostics.view.PieceMapView.PieceState;
 import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionLink;
 import dev.nodera.endpoint.state.WorkerPiecesParser;
 import dev.nodera.endpoint.state.WorkerPiecesParser.PieceInfo;
 import org.slf4j.Logger;
