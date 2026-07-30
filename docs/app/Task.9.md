@@ -159,8 +159,40 @@ Decisive tests:
    the synchronisation file's contents and the confirm dialog were not inspected on-device; both are
    covered by unit tests on each side of the boundary.
 
+## The https hop (added 2026-07-30)
+
+The task shipped assuming a publisher could put a `nodera://tracker-store?url=…` href on a page.
+Most places will not carry one: GitHub's markdown sanitiser — and every other sanitiser built the
+same way — strips any scheme that is not `http`, `https` or `mailto`, so the project's own README
+button rendered as a dead image. The link was never broken; there was simply nowhere to put it.
+
+`https://noderamc.org/add-store?url=…` is the missing hop. It is a **static page, not a service**:
+[`site/add-store.html`](../../site/add-store.html), served by Caddy from
+[`site/noderamc.caddy`](../../site/noderamc.caddy) and published by
+[`scripts/deploy-site.sh`](../../scripts/deploy-site.sh). It holds the same line this task's design
+holds — it refuses a non-https index before offering it, shows the address exactly as received, and
+invokes the scheme only from a real click, never on load, because a page that redirects on load is a
+drive-by intent. For the majority of visitors, who do not have the app installed, it degrades to the
+address plus a copy button and a link to the releases rather than a button that silently does
+nothing. Nothing about the domain is privileged: the file is in this repository and a third-party
+store can serve its own copy.
+
+Live since 2026-07-30 (`noderamc.org` and `www.noderamc.org`, Let's Encrypt via the host's existing
+`acme_dns cloudflare`). Two things worth knowing before touching the deployment: `caddy validate`
+does not open log files, so a block that validates can still fail its reload — the script therefore
+rolls back on either — and the host serves other people's sites from the same `conf.d`, so the
+script may only ever write its own file.
+
 ## Limitations
 
 Owns none. Criterion 6 is unverified rather than broken: the manifest patch is asserted by running it
 over a realistic manifest and checking idempotency and XML validity, but no one has yet tapped a
 `nodera://` link on a handset.
+
+**Android App Links are the follow-up.** The manifest patch writes `autoVerify="false"` and matches
+the `nodera` scheme only, so on a handset the button goes browser → page → intent: one extra tap. An
+`https` intent-filter for `noderamc.org` with `autoVerify="true"` plus a
+`/.well-known/assetlinks.json` would open the app directly — but assetlinks pins a signing
+certificate's SHA-256, and `scripts/android-apk.sh` generates a *development* key. That needs a
+stable release key first, which is why it is not part of this landing. The `/.well-known` path is
+already served from disk, so publishing the file will not need a Caddy change.

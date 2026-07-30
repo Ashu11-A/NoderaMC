@@ -1,0 +1,52 @@
+<!doctype html>
+<!--
+  AI-AGENT-INSTRUCTION: The apex exists so noderamc.org is not a 404 next to a working /add-store.
+  It is deliberately a signpost, not a product page — the project's documentation lives in the
+  repository and duplicating it here would give it a second copy to go stale. Keep it self-contained
+  (no external requests) and keep it short.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoderaMC</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f4f4f6; --card:#fff; --ink:#1b1b1f; --muted:#5d5d68;
+          --line:#dededf; --accent:#4b7fd8; --accent-ink:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16161a; --card:#1f1f25; --ink:#ecedf1; --muted:#9b9ba8; --line:#33333d;
+            --accent:#7aa2e8; --accent-ink:#14141a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         padding:24px; background:var(--bg); color:var(--ink);
+         font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:34rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:30px 26px; }
+  h1 { margin:0 0 4px; font-size:1.6rem; letter-spacing:-0.02em; }
+  .tag { color:var(--muted); margin:0 0 16px; }
+  p { margin:0 0 14px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
+  .btn { display:inline-block; border-radius:9px; padding:11px 18px; font-weight:600;
+         text-decoration:none; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  .primary { background:var(--accent); color:var(--accent-ink); border-color:transparent; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>NoderaMC</h1>
+    <p class="tag">Minecraft without a server.</p>
+    <p>The world is split into 8×8-chunk regions, each simulated and validated by a small committee
+      of player-run peers. Any player shares a world straight from the pause menu, and peers find
+      each other through an untrusted tracker and rendezvous relay.</p>
+    <p>No central server is required — including this one. This domain runs a tracker and a relay as
+      a convenience; both are replaceable, and neither holds authority over anybody's world.</p>
+    <div class="row">
+      <a class="btn primary" href="https://github.com/Ashu11-A/NoderaMC">The project</a>
+      <a class="btn" href="https://github.com/Ashu11-A/NoderaMC/blob/main/services/README.md">Service lists</a>
+    </div>
+  </div>
+</main>
+</body>
+</html>

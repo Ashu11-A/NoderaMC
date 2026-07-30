@@ -1,0 +1,202 @@
+<!doctype html>
+<!--
+  AI-AGENT-INSTRUCTION: This page is the ONLY reason the README's "Import a service list" button can
+  work: GitHub's markdown sanitiser strips any href whose scheme is not http/https/mailto, so a
+  `nodera://` button renders dead on the repo page. This page is the https hop that turns a click
+  into that scheme.
+
+  Three rules it exists to keep, none of which may be traded for convenience:
+
+    1. NOTHING FIRES ON LOAD. The scheme is only ever invoked from a real click. A page that
+       redirects on load is a drive-by intent: any link, from anywhere, would reach into the app.
+    2. THE URL IS SHOWN BEFORE IT IS USED, exactly as received, never repaired. The whole decision
+       being made here is "do I trust this publisher", and it cannot be made against a string the
+       page rewrote.
+    3. NOT-INSTALLED IS THE COMMON CASE. Most visitors will not have the app. They must leave with
+       the URL in their clipboard and a way to get the app, never with a dead button.
+
+  The app itself still shows its own confirmation dialog and never adds a store from a link — see
+  rust/nodera-app/src/stores.rs and docs/app/Task.9.md. This page is defence in depth, not the gate.
+
+  Deployed to noderamc.org by scripts/deploy-site.sh. Self-contained on purpose: no external CSS,
+  no fonts, no analytics, no requests of any kind.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Add a service list — NoderaMC</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f4f6; --card: #ffffff; --ink: #1b1b1f; --muted: #5d5d68;
+    --line: #dededf; --accent: #4b7fd8; --accent-ink: #ffffff;
+    --warn-bg: #fdf3d8; --warn-ink: #6b4e05; --warn-line: #e8d191;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --card: #1f1f25; --ink: #ecedf1; --muted: #9b9ba8;
+      --line: #33333d; --accent: #7aa2e8; --accent-ink: #14141a;
+      --warn-bg: #33290d; --warn-ink: #f2d98d; --warn-line: #574611;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { width: 100%; max-width: 34rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 28px 26px;
+  }
+  h1 { margin: 0 0 6px; font-size: 1.4rem; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; color: var(--muted); }
+  p.lead { color: var(--ink); }
+  .url {
+    display: block; width: 100%; margin: 18px 0 6px; padding: 12px 14px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink); word-break: break-all; overflow-wrap: anywhere;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  button, .btn {
+    appearance: none; cursor: pointer; border-radius: 9px; padding: 11px 18px;
+    font: inherit; font-weight: 600; text-decoration: none; border: 1px solid var(--line);
+    background: var(--card); color: var(--ink);
+  }
+  .primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note {
+    margin-top: 20px; padding: 13px 15px; border-radius: 9px;
+    background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line);
+    font-size: 0.9rem;
+  }
+  .note p { color: inherit; }
+  .note :last-child { margin-bottom: 0; }
+  .foot { margin: 18px 2px 0; font-size: 0.82rem; }
+  .foot a { color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Add a service list</h1>
+
+    <!-- The happy path: a well-formed https index URL was handed to us. -->
+    <div id="ok" hidden>
+      <p class="lead">A publisher is offering NoderaMC this list of trackers and rendezvous points:</p>
+      <code class="url" id="url"></code>
+      <p style="font-size:.86rem">Opening it only <strong>records</strong> the address. The app shows
+        it to you again and adds nothing until you confirm.</p>
+      <div class="row">
+        <button class="primary" id="open" type="button">Open in NoderaMC</button>
+        <button id="copy" type="button">Copy the address</button>
+      </div>
+      <div class="note" id="fallback" hidden>
+        <p><strong>Nothing opened?</strong> Then the app is not installed on this device, or it is
+          not registered to handle <code>nodera://</code> links yet.</p>
+        <p>Copy the address above and paste it into the app under
+          <strong>Settings → Tracker stores</strong>. The desktop and Android builds both have that
+          screen.</p>
+        <p style="margin-top:10px"><a href="https://github.com/Ashu11-A/NoderaMC/releases/latest">Get
+          NoderaMC →</a></p>
+      </div>
+    </div>
+
+    <!-- No url, or one we refuse to hand on. -->
+    <div id="bad" hidden>
+      <p class="lead" id="badwhy"></p>
+      <p>A service list is a JSON index served over <strong>https</strong>. You can always add one by
+        hand in the app under <strong>Settings → Tracker stores</strong>.</p>
+      <div class="row">
+        <a class="btn primary" href="https://github.com/Ashu11-A/NoderaMC/blob/main/services/README.md">What
+          a service list is</a>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">
+    A tracker or a relay is a hint about where to start looking, never an authority: every service
+    proves its own identity before a peer will use it, and no service can touch world state.
+    <a href="https://github.com/Ashu11-A/NoderaMC">NoderaMC</a>
+  </p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var raw = new URLSearchParams(window.location.search).get("url");
+
+  function refuse(why) {
+    document.getElementById("badwhy").textContent = why;
+    document.getElementById("bad").hidden = false;
+  }
+
+  if (!raw) {
+    refuse("This link did not carry a list address, so there is nothing to add.");
+    return;
+  }
+
+  // Refuse anything that is not https BEFORE offering it. A list served in the clear is a list
+  // anyone on the path can rewrite, which hands the user's trust decision to somebody else. The app
+  // refuses it too (stores.rs); refusing here means the user never gets as far as a dialog that
+  // cannot end well.
+  var parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (e) {
+    refuse("The address in this link is not a valid URL, so it is not being offered to the app.");
+    return;
+  }
+  if (parsed.protocol !== "https:") {
+    refuse("This link points at a " + parsed.protocol.replace(":", "") +
+           " address. Service lists must be served over https, so it is not being offered.");
+    return;
+  }
+
+  // Shown exactly as received. Never the re-serialised URL: the user is deciding about this string.
+  document.getElementById("url").textContent = raw;
+  document.getElementById("ok").hidden = false;
+
+  var fallbackTimer = null;
+
+  document.getElementById("open").addEventListener("click", function () {
+    // Nothing above this line touches the scheme. Only a real click does.
+    window.location.href = "nodera://tracker-store?url=" + encodeURIComponent(raw);
+
+    // If the app takes over, this tab is backgrounded and the timer never gets to run. If it is
+    // still here a moment later, nothing handled the scheme — say so instead of leaving a button
+    // that silently did nothing.
+    clearTimeout(fallbackTimer);
+    fallbackTimer = setTimeout(function () {
+      if (!document.hidden) document.getElementById("fallback").hidden = false;
+    }, 2000);
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) clearTimeout(fallbackTimer);
+  });
+
+  var copy = document.getElementById("copy");
+  copy.addEventListener("click", function () {
+    var done = function () { copy.textContent = "Copied"; setTimeout(function () {
+      copy.textContent = "Copy the address"; }, 1600); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(raw).then(done, function () { copy.textContent = "Copy failed"; });
+    } else {
+      // http, or an older browser. Select it so the user can copy it themselves rather than
+      // being told the button does not work.
+      var node = document.getElementById("url"), sel = window.getSelection(), range = document.createRange();
+      range.selectNodeContents(node); sel.removeAllRanges(); sel.addRange(range);
+      copy.textContent = "Selected — press Ctrl/⌘+C";
+    }
+  });
+})();
+</script>
+</body>
+</html>

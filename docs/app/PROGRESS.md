@@ -30,6 +30,26 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-07-30 — The tracker-store deep link gets somewhere it can be linked from
+
+App [task 9](Task.9.md) shipped a working `nodera://tracker-store?url=…` handler and assumed a
+publisher could put that href on a page. Most cannot: GitHub's markdown sanitiser — and every
+sanitiser built the same way — strips any scheme but `http`/`https`/`mailto`, so the project's own
+README button was a dead image. The link was never broken; there was nowhere to put it.
+
+`https://noderamc.org/add-store?url=…` is the hop that was missing, and it is a **static page, not a
+service**: `site/add-store.html`, served by Caddy from `site/noderamc.caddy`, deployed by
+`scripts/deploy-site.sh`. It keeps this task's own line — a non-https index is refused before it is
+offered, the address is shown exactly as received, and the scheme is invoked only from a real click,
+because a page that redirects on load is a drive-by intent. Visitors without the app get the address
+and a copy button rather than a button that silently does nothing.
+
+Evidence: live on 2026-07-30, `noderamc.org` and `www.noderamc.org` both `200` with Let's Encrypt
+certificates issued through the host's existing `acme_dns cloudflare`; the apex answered **525**
+before this (Cloudflare proxied the domain to a Caddy with no site block for it). Android still
+needs one extra tap through the browser — App Links want a stable release signing key, recorded as
+the follow-up in [`Task.9.md`](Task.9.md).
+
 ### 2026-07-28 — Android worker startup waits for both lifecycle halves
 
 Issue #86 review hardening replaces Activity-timed worker boot with a one-shot Rust gate: Android

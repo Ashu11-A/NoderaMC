@@ -82,6 +82,26 @@ Setting up the service itself: [`docs/tracker/SELF-HOSTING.md`](../docs/tracker/
 users can add it in the app under **Settings → Tracker stores**, the same way Mihon users add an
 extension repository — paste the URL, or follow a `nodera://tracker-store?url=…` link from a website.
 
+### Linking to your own list
+
+A `nodera://` href does not survive most websites' link sanitisers (GitHub strips every scheme but
+http/https/mailto), so the one-click path goes through an ordinary https page that invokes the scheme
+on a *click*:
+
+```
+https://noderamc.org/add-store?url=<your index URL, percent-encoded>
+```
+
+That page shows the address, hands it to the app when the visitor presses the button, and — for the
+majority of visitors, who do not have the app — offers the address to copy and a link to the
+releases. It runs no tracking and makes no requests of its own. The page is
+[`site/add-store.html`](../site/add-store.html) in this repository, deployed by
+[`scripts/deploy-site.sh`](../scripts/deploy-site.sh); nothing about it is privileged, so a store
+that would rather host its own copy can serve the same file from its own domain.
+
+Neither the page nor the link can *add* anything: both ends of this only record an address, and the
+app asks before it fetches.
+
 This file is simply the store that ships with the app. There is no privileged format and no
 privileged host: the built-in list is one store among however many a user chooses to trust, and can
 be removed like any other.
