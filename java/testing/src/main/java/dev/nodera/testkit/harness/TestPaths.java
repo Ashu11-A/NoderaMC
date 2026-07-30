@@ -32,38 +32,49 @@ public record TestPaths(
     /**
      * Resolve the layout from the repository root.
      *
-     * @param root the repository root (the directory holding {@code settings.gradle.kts}).
+     * <p>Directories come from {@link LayoutManifest}; the file names under them are composed here,
+     * because {@code build/libs/nodera-endpoint.jar} is a property of the build system and the
+     * manifest only describes the tree.
+     *
+     * <p>The layout SHAPE always comes from the repository's own manifest; only the root is the
+     * caller's. That is what lets a preflight test pass an empty temporary directory and get a
+     * correctly-shaped layout in which nothing is built.
+     *
+     * @param root the directory to resolve the layout against.
      * @return the resolved paths.
      */
     public static TestPaths of(Path root) {
-        Path absolute = root.toAbsolutePath().normalize();
+        return of(LayoutManifest.load().rebasedOn(root));
+    }
+
+    /**
+     * Resolve the layout from an already-loaded manifest.
+     *
+     * @param layout the layout table.
+     * @return the resolved paths.
+     */
+    public static TestPaths of(LayoutManifest layout) {
+        Path run = layout.dir("run");
         return new TestPaths(
-                absolute,
-                absolute.resolve("rust/target/release"),
-                absolute.resolve("java/neoforge-mod"),
-                absolute.resolve("java/worker/build/install/nodera-headless/bin/nodera-headless"),
-                absolute.resolve("java/paper-plugin/build/libs/nodera-endpoint.jar"),
-                absolute.resolve("run"),
-                absolute.resolve("run/.e2e-suite.lock"),
-                absolute.resolve("run/results"));
+                layout.root(),
+                layout.dir("cargoTarget").resolve("release"),
+                layout.module("neoforge-mod"),
+                layout.module("worker")
+                        .resolve("build/install/nodera-headless/bin/nodera-headless"),
+                layout.module("paper-plugin").resolve("build/libs/nodera-endpoint.jar"),
+                run,
+                run.resolve(".e2e-suite.lock"),
+                run.resolve("results"));
     }
 
     /**
      * Find the repository root by walking up from the working directory.
      *
      * @return the resolved layout.
-     * @throws IllegalStateException if no {@code settings.gradle.kts} is found on the way up.
+     * @throws IllegalStateException if the repository root is not found on the way up.
      */
     public static TestPaths discover() {
-        Path candidate = Path.of("").toAbsolutePath();
-        while (candidate != null && !Files.exists(candidate.resolve("settings.gradle.kts"))) {
-            candidate = candidate.getParent();
-        }
-        if (candidate == null) {
-            throw new IllegalStateException(
-                    "cannot find the repository root from " + Path.of("").toAbsolutePath());
-        }
-        return of(candidate);
+        return of(LayoutManifest.load());
     }
 
     /** The tracker service binary. */

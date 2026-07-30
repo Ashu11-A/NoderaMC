@@ -16,7 +16,9 @@
 # gate and will fail the build.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+layout_export
+ROOT="$NODERA_ROOT"
 VERSION_FILE="$ROOT/VERSION"
 
 read_version() {
@@ -33,12 +35,19 @@ read_version() {
 
 # Every file that carries a COPY of the version, with the pattern that finds it. Each entry is
 # "<path>|<sed match>|<sed replacement using @V@>"; @V@ is substituted with the version.
+#
+# The DIRECTORIES come from layout.properties; only the file names are spelled here. A crate that
+# moves must not silently drop out of this list — an unmirrored version ships a mislabelled artifact,
+# which is the one failure mode this script exists to prevent.
 mirrors() {
-    cat <<'EOF'
-rust/Cargo.toml|^version = ".*"$|version = "@V@"
-rust/nodera-app/Cargo.toml|^version = ".*"$|version = "@V@"
-rust/nodera-app/tauri.conf.json|^  "version": ".*",$|  "version": "@V@",
-rust/nodera-app/ui/package.json|^  "version": ".*",$|  "version": "@V@",
+    local ws app
+    ws="$(layout_get dir.cargoWorkspace)"
+    app="$(layout_get crate.nodera-app)"
+    cat <<EOF
+$ws/Cargo.toml|^version = ".*"\$|version = "@V@"
+$app/Cargo.toml|^version = ".*"\$|version = "@V@"
+$app/tauri.conf.json|^  "version": ".*",\$|  "version": "@V@",
+$app/ui/package.json|^  "version": ".*",\$|  "version": "@V@",
 EOF
 }
 

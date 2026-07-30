@@ -39,6 +39,14 @@ jobs:
       # to make the documented claim true.
       - name: Every version mirror agrees with VERSION
         run: scripts/version.sh --check
+      # `layout.properties` is the one layout table, and `LayoutManifestTest` holds Gradle, the Java
+      # harness, the scripts and the Rust tests to it. Workflow YAML, Dockerfiles, `.dockerignore`
+      # and `tauri.*.conf.json` cannot read it — GitHub, Docker and Tauri parse them first — and
+      # those are exactly the files that fail SILENTLY: a `paths:` filter that matches nothing does
+      # not error, it stops firing, and the job goes on reporting green about a directory that
+      # moved. This is the grep that notices.
+      - name: Layout references resolve (workflows, Dockerfiles, tauri config)
+        run: scripts/check-layout-drift.sh
 
   # L-47's exit job: build the companion app, prove the gate both ways, and prove a hosted
   # world survives the host closing Minecraft (the worker keeps it alive).

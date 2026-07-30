@@ -192,12 +192,12 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 520 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 187 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 157 | ✅ |
-| `testing` | Shared test library: loopback transport, fake regions, fixture IO | 25 | ✅ |
+| `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 32 | ✅ |
 | `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics | 653 | 🚧 |
 | `worker` | The always-on `nodera-headless` process and its control protocol | 198 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 216 | 🚧 |
 | `paper-plugin` | `nodera-endpoint.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
-| `rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 73 | ✅ |
+| `rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
 | `rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
 | `rust/nodera-tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rust/nodera-rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |

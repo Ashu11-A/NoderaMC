@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +34,9 @@ final class ValidationLaneRootSwitchTest {
     @Test
     @DisplayName("both activation roots consult the switch")
     void bothRootsAreGated() throws Exception {
-        Path source = Path.of("src/main/java/dev/nodera/mod");
+        Path source = LayoutManifest.load()
+                .module("neoforge-mod")
+                .resolve("src/main/java/dev/nodera/mod");
         assertThat(Files.readString(source.resolve("common/NoderaHost.java")))
                 .as("the session server's ownership bootstrap")
                 .contains("ValidationLane.deterministicValidationEnabled()");

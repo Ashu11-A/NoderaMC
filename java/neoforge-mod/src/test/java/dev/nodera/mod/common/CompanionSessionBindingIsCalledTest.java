@@ -1,5 +1,6 @@
 package dev.nodera.mod.common;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -32,19 +33,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 final class CompanionSessionBindingIsCalledTest {
 
     private static Path source(String relative) {
-        Path direct = Path.of("src/main/java").resolve(relative);
-        if (Files.isRegularFile(direct)) {
-            return direct;
+        Path source = LayoutManifest.load()
+                .module("neoforge-mod")
+                .resolve("src/main/java")
+                .resolve(relative);
+        if (!Files.isRegularFile(source)) {
+            throw new AssertionError("cannot locate " + source);
         }
-        Path cursor = Path.of("").toAbsolutePath();
-        while (cursor != null) {
-            Path candidate = cursor.resolve("java/neoforge-mod/src/main/java").resolve(relative);
-            if (Files.isRegularFile(candidate)) {
-                return candidate;
-            }
-            cursor = cursor.getParent();
-        }
-        throw new AssertionError("cannot locate " + relative);
+        return source;
     }
 
     private static String read(String relative) throws IOException {

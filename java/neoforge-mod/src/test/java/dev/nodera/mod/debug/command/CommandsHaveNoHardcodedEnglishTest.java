@@ -1,5 +1,6 @@
 package dev.nodera.mod.debug.command;
 
+import dev.nodera.testkit.harness.LayoutManifest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -41,20 +42,13 @@ final class CommandsHaveNoHardcodedEnglishTest {
     private static final Pattern WORDY = Pattern.compile("[A-Za-z]{3,}");
 
     static Path commandPackage() {
-        Path direct = Path.of("src/main/java/dev/nodera/mod/debug/command");
-        if (Files.isDirectory(direct)) {
-            return direct;
+        Path pkg = LayoutManifest.load()
+                .module("neoforge-mod")
+                .resolve("src/main/java/dev/nodera/mod/debug/command");
+        if (!Files.isDirectory(pkg)) {
+            throw new AssertionError("cannot locate the debug command package sources at " + pkg);
         }
-        Path cursor = Path.of("").toAbsolutePath();
-        while (cursor != null) {
-            Path candidate =
-                    cursor.resolve("java/neoforge-mod/src/main/java/dev/nodera/mod/debug/command");
-            if (Files.isDirectory(candidate)) {
-                return candidate;
-            }
-            cursor = cursor.getParent();
-        }
-        throw new AssertionError("cannot locate the debug command package sources");
+        return pkg;
     }
 
     @Test

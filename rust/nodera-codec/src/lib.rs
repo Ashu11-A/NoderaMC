@@ -18,6 +18,7 @@ pub mod kinds;
 pub mod messages;
 pub mod reader;
 pub mod rendezvous;
+pub mod repo;
 pub mod service;
 pub mod sig;
 pub mod tags;

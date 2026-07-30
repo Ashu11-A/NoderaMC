@@ -254,11 +254,7 @@ mod tests {
 
     /// The Java-emitted golden deletion, as a peer would receive it: an `NDR2` frame.
     fn golden_frame() -> Vec<u8> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(std::path::Path::parent)
-            .expect("repo root")
-            .join("fixtures/wire/world-deletion-gossip.bin");
+        let path = crate::repo::wire_fixtures().join("world-deletion-gossip.bin");
         std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
     }
 

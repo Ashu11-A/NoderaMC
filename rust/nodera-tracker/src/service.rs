@@ -574,11 +574,7 @@ mod tests {
 
     /// The Java-emitted golden deletion — the same bytes a peer would relay to a tracker.
     fn deletion_frame() -> Vec<u8> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .and_then(std::path::Path::parent)
-            .expect("repo root")
-            .join("fixtures/wire/world-deletion-gossip.bin");
+        let path = nodera_codec::repo::wire_fixtures().join("world-deletion-gossip.bin");
         std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
     }
 

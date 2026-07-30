@@ -16,7 +16,7 @@ use nodera_codec::rendezvous::RendezvousMessage;
 use nodera_codec::service::ServiceMessage;
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::WorldDeletionGossip;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Bit patterns XOR-ed into a byte: low bit, high bit, and a full flip.
 const PATTERNS: [u8; 3] = [0x01, 0x80, 0xFF];
@@ -29,12 +29,7 @@ const MAX_SITES: usize = 96;
 const HEADER_BYTES: usize = nodera_codec::frame::HEADER_BYTES;
 
 fn fixtures_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("repo root")
-        .join("fixtures")
-        .join("wire")
+    nodera_codec::repo::wire_fixtures()
 }
 
 fn fixture_files() -> Vec<PathBuf> {
