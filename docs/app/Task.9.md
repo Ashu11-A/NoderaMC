@@ -167,8 +167,8 @@ same way — strips any scheme that is not `http`, `https` or `mailto`, so the p
 button rendered as a dead image. The link was never broken; there was simply nowhere to put it.
 
 `https://noderamc.org/add-store?url=…` is the missing hop. It is a **static page, not a service**:
-[`site/add-store.html`](../../site/add-store.html), served by Caddy from
-[`site/noderamc.caddy`](../../site/noderamc.caddy) and published by
+[`web/add-store.html`](../../web/add-store.html), served by Caddy from
+[`web/noderamc.caddy`](../../web/noderamc.caddy) and published by
 [`scripts/deploy-site.sh`](../../scripts/deploy-site.sh). It holds the same line this task's design
 holds — it refuses a non-https index before offering it, shows the address exactly as received, and
 invokes the scheme only from a real click, never on load, because a page that redirects on load is a
