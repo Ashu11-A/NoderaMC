@@ -15,7 +15,7 @@ import {
   type Lan,
   type LanAction,
   type LanSession,
-} from "./network";
+} from "./play";
 
 /** Worlds waiting on an answer — what the modal is raised for. */
 function unanswered(lan: Lan): LanSession[] {

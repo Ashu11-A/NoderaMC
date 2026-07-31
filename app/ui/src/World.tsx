@@ -46,7 +46,7 @@ import {
   type World,
 } from "./api";
 import { deleteWorld, fetchPieceMap, EMPTY_PIECE_MAP, type PieceMapView } from "./ipc";
-import { saveShareFile, worldShareLink } from "./network";
+import { saveShareFile, worldShareLink } from "./play";
 
 type Tab = "info" | "content" | "sharing";
 

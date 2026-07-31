@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { FiCode, FiFolder, FiLink, FiPackage, FiTag } from "react-icons/fi";
 import { Card, ListItem } from "../m3/components";
-import { aboutBuild, type AboutBuild } from "../network";
+import { aboutBuild, type AboutBuild } from "../play";
 
 export function AboutScreen() {
   const [about, setAbout] = useState<AboutBuild | null>(null);
