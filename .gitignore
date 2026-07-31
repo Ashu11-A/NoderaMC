@@ -85,3 +85,13 @@ __pycache__/
 # next to the working directory it was launched from, so these appear wherever a service was run.
 # They are private keys: committing one hands over the identity of that node permanently.
 *-identity.bin
+
+# Signing key material. A safety net, not a workflow: the Android release keystore lives outside
+# this repository and reaches CI as a secret. This exists because the cost of one accidental
+# `git add -A` is unbounded — an Android signing key that leaks cannot be rotated, since Android
+# identifies an app by its certificate and every existing install would refuse an update signed by
+# a new one.
+*.jks
+*.keystore
+*.p12
+*.pfx

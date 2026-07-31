@@ -212,7 +212,8 @@ the tag, and **both architectures are always built**:
 | `nodera-neoforge-<version>.jar` | The NeoForge 1.21.1 mod — drop it in `mods/` |
 | `nodera-paper-<version>.jar` | The Paper/Folia endpoint plugin — drop it in `plugins/` |
 | `nodera-peer-<version>.jar` | The headless always-on node: `java -jar nodera-peer-<version>.jar` |
-| `nodera-app-<system>-<arch>.<ext>` | The companion app installer — `linux`/`macos`/`windows` × `x64`/`arm64` (`.deb`/`.dmg`/`.msi`) |
+| `nodera-app-<system>-<arch>.<ext>` | The companion app installer — `linux`/`windows` × `x64`/`arm64` (`.deb`/`.msi`). No macOS build: see `NODERA_RELEASE_SYSTEMS` in `scripts/lib/release.sh` |
+| `nodera-app-android-universal.apk` | The Android app, signed with the project release key. One APK carrying every ABI |
 | `nodera-tracker-<arch>-<version>` | The tracker service binary — `x64` and `arm64` |
 | `nodera-rendezvous-<arch>-<version>` | The rendezvous + relay service binary — `x64` and `arm64` |
 | `SHA256SUMS` / `SHA256SUMS.sig` | Digests over every asset, and a detached Ed25519 signature over them |
@@ -227,6 +228,7 @@ scripts/release.sh --names                # every asset a complete release conta
 scripts/release.sh --component jars       # the three jars (any machine with a JDK)
 scripts/release.sh --component services   # this architecture's tracker + rendezvous
 scripts/release.sh --component app        # this platform's installer (needs bun + Tauri deps)
+scripts/release.sh --component android    # the signed APK (needs the release key; see below)
 scripts/release.sh --verify               # hold build/release to the manifest
 ```
 
@@ -254,7 +256,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
-| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
+| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 193 | 🚧 |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap

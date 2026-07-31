@@ -955,9 +955,25 @@ pub fn run() {
                 let logs_daemon = Arc::clone(&worker_logs);
                 let settings_daemon = Arc::clone(&user_settings);
                 let restart_daemon = Arc::clone(&restart_signal);
+                // Where THIS bundle keeps its resources. Resolved here because `setup` is the only
+                // place holding an `AppHandle`, and passed in rather than looked up inside the
+                // supervisor so the path logic stays testable without a running Tauri app.
+                //
+                // `Err` is not a failure: a `cargo run` build has no bundle, and the supervisor's
+                // other candidates are the right answer there.
+                let resource_dir = {
+                    use tauri::Manager as _;
+                    app.path().resource_dir().ok()
+                };
                 tauri::async_runtime::spawn(async move {
-                    daemon::supervise(store_daemon, logs_daemon, settings_daemon, restart_daemon)
-                        .await;
+                    daemon::supervise(
+                        store_daemon,
+                        logs_daemon,
+                        settings_daemon,
+                        restart_daemon,
+                        resource_dir,
+                    )
+                    .await;
                 });
             }
 

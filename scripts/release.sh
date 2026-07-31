@@ -35,8 +35,13 @@
 #   services  Native binaries, one build per architecture.
 #             nodera-tracker / nodera-rendezvous
 #   app       Native installer, one build per system AND architecture, each needing that
-#             platform's own toolchain (deb/dmg/msi cannot be produced from one machine).
+#             platform's own toolchain (a deb and an msi cannot be produced from one machine).
+#             No macOS installer is published — see NODERA_RELEASE_SYSTEMS in lib/release.sh.
 #             nodera-app
+#   android   The signed APK. Its own component rather than a sixth `app` leg: it cross-compiles
+#             from Linux, needs the NDK and a dexed worker instead of a webview, and — unlike every
+#             other deliverable — it CANNOT be built without a secret.
+#             nodera-app-android-universal.apk
 #
 # `--component` selects one; the default builds every leg this machine can. CI runs one leg per
 # matrix job and the publish job merges the staged directories.
@@ -98,13 +103,26 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${COMPONENT:-all}" in
-    all|jars|services|app) ;;
-    *) die "unknown component '$COMPONENT' (jars|services|app)" ;;
+    all|jars|services|app|android) ;;
+    *) die "unknown component '$COMPONENT' (jars|services|app|android)" ;;
 esac
 
 VERSION_TOKEN="$(release_version_token)"
 HOST_ARCH="$(release_arch_token)"
 HOST_SYSTEM="$(release_system_token)"
+
+# When the leg DECLARED what it is building and the shell disagrees, say so once, loudly.
+#
+# The declaration wins — that is the point of it — but the disagreement is worth printing, because
+# it is the only visible trace of an emulated shell. `windows-11-arm` runs an x86-64 Git bash and
+# answers `uname -m` with `x86_64`; the sole symptom was one line of log reading "host windows/x64"
+# on the arm64 leg, and nothing else in the run looked wrong until an asset went missing three jobs
+# later. A build that silently disagrees with itself about its own target is worth a line.
+if [[ -n "${NODERA_RELEASE_ARCH:-}" ]]; then
+    detected="$(release_arch_token "$(uname -m)" 2>/dev/null || echo "unknown")"
+    [[ "$detected" != "$HOST_ARCH" ]] && \
+        warn "this shell reports $(uname -m) ($detected) but the build declares $HOST_ARCH — trusting the declaration"
+fi
 
 # `install` on a target that already exists replaces it; every stage step goes through here so a
 # rerun is idempotent and a staged file can never be a half-copy of a previous run.
@@ -223,6 +241,26 @@ stage_app() {
     [[ ${#found[@]} -eq 1 ]] || die "${#found[@]} .$format bundles under $bundle_root — expected one: ${found[*]}"
 
     stage "${found[0]}" "$(release_asset app "$HOST_SYSTEM" "$target_arch")"
+}
+
+# ---------------------------------------------------------------------------
+# android — the signed APK
+# ---------------------------------------------------------------------------
+#
+# `--require-release-key` is not optional here and is the reason this is a component of its own.
+# `scripts/android-apk.sh` generates a development key when none is supplied, so that a developer
+# can install on a phone without thinking about signing. That fallback must never reach a release:
+# the key is minted by the script from a hardcoded password, so anybody can reproduce it, and
+# Android identifies an app by its signing certificate — an install carrying that signature can
+# never be updated by a genuinely signed build. So the flag makes an absent secret a refusal.
+build_android() {
+    log "Android: scripts/android-apk.sh --require-release-key"
+    "$NODERA_ROOT/scripts/android-apk.sh" --require-release-key
+}
+
+stage_android() {
+    # One APK carrying every ABI — see `release_app_arches`.
+    stage "$NODERA_ARTIFACTS/nodera-release.apk" "$(release_asset app android universal)"
 }
 
 # ---------------------------------------------------------------------------
@@ -357,6 +395,10 @@ fi
 if [[ "$COMPONENT" == "app" ]]; then
     [[ "$DO_BUILD" -eq 1 ]] && build_app
     stage_app
+fi
+if [[ "$COMPONENT" == "android" ]]; then
+    [[ "$DO_BUILD" -eq 1 ]] && build_android
+    stage_android
 fi
 
 log "staged into $RELEASE_DIR:"

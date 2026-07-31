@@ -7,7 +7,7 @@
 #   nodera-neoforge-<version>.jar        NeoForge 1.21.1 mod
 #   nodera-paper-<version>.jar           Paper/Folia endpoint plugin
 #   nodera-peer-<version>.jar            headless always-on node (`java -jar`)
-#   nodera-app-<system>-<arch>.<ext>     companion app installer, 6 of them
+#   nodera-app-<system>-<arch>.<ext>     companion app installer: 4 desktop + 1 signed Android APK
 #   nodera-tracker-<arch>-<version>      tracker service binary, x64 + arm64
 #   nodera-rendezvous-<arch>-<version>   rendezvous service binary, x64 + arm64
 #   SHA256SUMS[.sig]                     what the services' self-update lane reads
@@ -121,6 +121,10 @@ jobs:
             runner: ubuntu-24.04-arm
     env:
       NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      # Declared, not detected — see `release_arch_token`. The x64/arm64 legs both happen to detect
+      # correctly on Linux, but a build that asks the shell what it is targeting is one emulator
+      # away from being wrong, and the app legs prove it.
+      NODERA_RELEASE_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       # rust-toolchain.toml pins the channel; rustup honours it.
@@ -140,10 +144,16 @@ jobs:
 
   # --- the companion app: one native installer per system AND architecture ----------------------
   #
-  # Six legs, because deb, dmg and msi cannot be produced from one machine and each needs its own
+  # Four legs, because a deb and an msi cannot be produced from one machine and each needs its own
   # architecture's toolchain. `fail-fast: false` so a runner outage on one platform costs that
-  # platform's installer and not the other five — the publish job is what decides whether an
+  # platform's installer and not the other three — the publish job is what decides whether an
   # incomplete set may be released.
+  #
+  # There is no macOS leg. `macos-14` built a valid `.dmg` on the first run; `macos-13` — the last
+  # x86-64 macOS image, deprecated — never got a runner at all, and sat at "Waiting for a runner to
+  # pick up this job" for fifteen hours while holding `publish` and therefore the whole release.
+  # See NODERA_RELEASE_SYSTEMS in `scripts/lib/release.sh` for why shipping arm64 alone was not the
+  # answer, and for what reviving it needs.
   #
   # Every leg needs a JDK as well as Rust and bun: the app bundles the headless node
   # (`:peer:installDist`) as a Tauri resource.
@@ -161,13 +171,6 @@ jobs:
           - system: linux
             arch: arm64
             runner: ubuntu-24.04-arm
-          # macos-13 is the last x64 image; macos-14 and later are Apple silicon.
-          - system: macos
-            arch: x64
-            runner: macos-13
-          - system: macos
-            arch: arm64
-            runner: macos-14
           - system: windows
             arch: x64
             runner: windows-2022
@@ -176,6 +179,12 @@ jobs:
             runner: windows-11-arm
     env:
       NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      # REQUIRED here, not merely tidy. Git for Windows is an x86-64 build of bash; on the
+      # `windows-11-arm` runner it executes under emulation and answers `uname -m` with `x86_64`,
+      # so that leg staged a genuinely-arm64 installer under the x64 name. The matrix knows what it
+      # is building; the shell does not.
+      NODERA_RELEASE_ARCH: ${{ matrix.arch }}
+      NODERA_RELEASE_SYSTEM: ${{ matrix.system }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -212,9 +221,85 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # --- the Android APK: the one deliverable that cannot be built without a secret ---------------
+  #
+  # Its own job rather than a fifth `app` matrix leg, because almost nothing is shared: it
+  # cross-compiles from Linux against the NDK, it dexes the Java worker into the APK instead of
+  # bundling a launcher directory, and it needs the Android SDK.
+  #
+  # `scripts/android-apk.sh --require-release-key` REFUSES to build when the signing secret is
+  # absent. The script generates a development key when run locally so a developer can install on a
+  # phone without thinking about it; that key is minted from a hardcoded password, so anybody can
+  # reproduce it, and Android identifies an app by its signing certificate — an install carrying
+  # that signature could never be updated by a genuinely signed build. Publishing one would be
+  # unfixable after the fact, so an absent secret is a failed leg and `latest` reports the gap.
+  #
+  # Secrets: NODERA_ANDROID_KEYSTORE_BASE64 (the keystore, base64) and NODERA_ANDROID_KEY_PASSWORD.
+  # The alias is not secret and defaults to `nodera`.
+  android:
+    name: app · android
+    needs: plan
+    runs-on: ubuntu-24.04
+    env:
+      NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      NODERA_RELEASE_SYSTEM: android
+      NODERA_ANDROID_KEYSTORE_BASE64: ${{ secrets.NODERA_ANDROID_KEYSTORE_BASE64 }}
+      NODERA_ANDROID_KEY_PASS: ${{ secrets.NODERA_ANDROID_KEY_PASSWORD }}
+      NODERA_ANDROID_KEY_ALIAS: ${{ vars.NODERA_ANDROID_KEY_ALIAS || 'nodera' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        id: jdk
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: release-android
+      - uses: oven-sh/setup-bun@v2
+
+      # `pick_jdk` in the script searches sdkman and the distro JVM paths, neither of which is where
+      # setup-java puts a runner's JDK. Pointed at it explicitly rather than widened to guess: the
+      # Android Gradle Plugin cannot read class files newer than 21, and picking up the wrong JDK
+      # fails deep inside Gradle with a message about nothing recognisable.
+      - name: The Android build's JDK
+        run: echo "NODERA_ANDROID_JAVA_HOME=${{ steps.jdk.outputs.path }}" >> "$GITHUB_ENV"
+
+      # The same script a developer runs, so the pinned SDK/NDK/build-tools versions cannot drift
+      # between a laptop and CI.
+      - name: Android SDK, NDK and Rust targets
+        run: scripts/android-toolchain.sh
+
+      # The Tauri CLI comes from here (a prebuilt npm binary bun has cached), not from
+      # `cargo install tauri-cli`, which compiles it from source.
+      - name: The companion UI
+        run: cd app/ui && bun install --frozen-lockfile && bun run build
+
+      - name: Build, sign and stage the APK
+        run: scripts/release.sh --component android
+
+      # Proof in the log that the artifact carries the RELEASE certificate. The fingerprint is
+      # public — it is in every APK this key signs — so printing it discloses nothing and is the
+      # only way to tell from the outside which key was used.
+      - name: Which certificate signed it
+        run: |
+          set -euo pipefail
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/34.* | head -1)"
+          "$tools/apksigner" verify --print-certs build/release/nodera-app-android-universal.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 1
+
   # --- merge, verify, checksum, sign, publish ---------------------------------------------------
   publish:
-    needs: [plan, jars, services, app]
+    needs: [plan, jars, services, app, android]
     # `always()` so a platform that failed does not silently cancel the release; whether an
     # incomplete set may be published is decided by `--verify`, deliberately, in one place. `jars`
     # is required outright: a release with no mod in it is not a release.

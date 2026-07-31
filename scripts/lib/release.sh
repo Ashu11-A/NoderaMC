@@ -36,9 +36,10 @@
 #              while `/VERSION` stays put, so an asset named for `/VERSION` would be overwritten by
 #              a different build under the same name. Falls back to `/VERSION` when no tag is set,
 #              which is what a local `scripts/release.sh` produces.
-#   <arch>     `x64` or `arm64`. Both are always built.
-#   <system>   `linux`, `macos` or `windows`.
-#   <ext>      The installer format for that system: deb / dmg / msi.
+#   <arch>     `x64` or `arm64` — or `universal` for Android, which ships one APK carrying every
+#              ABI. See `release_app_arches`.
+#   <system>   `linux`, `windows` or `android`. See below for why macOS is not among them.
+#   <ext>      The installer format for that system: deb / msi / apk.
 #
 # Usage:
 #   source "$(dirname "${BASH_SOURCE[0]}")/release.sh"
@@ -49,17 +50,49 @@
 
 # The architectures and systems a release covers. Listed once; `release_manifest` and every caller
 # that loops over platforms reads these rather than repeating them.
+#
+# # Why macOS is not here
+#
+# It was, and the arm64 leg worked — `macos-14` produced a valid `.dmg` on the first run. The x64
+# leg did not: `macos-13` is the last x86-64 macOS image GitHub offers, it is deprecated, and a job
+# requesting it sat at "Waiting for a runner to pick up this job" for **fifteen hours** without ever
+# starting. That blocks `publish`, which needs every leg to finish, so one unobtainable runner held
+# the entire release — including the Linux and Windows installers that had built in minutes.
+#
+# Shipping only macOS-arm64 was the other option and is worse than shipping neither: an Intel Mac
+# user downloading the one macOS asset on the page gets a binary that will not run, and nothing on
+# the release says which Mac it is for. A platform is supported or it is not.
+#
+# Reviving it is one matrix entry in `.github/workflows/release.yml` plus `macos` here — the
+# `.dmg` path is known to work. What it needs is an x86-64 macOS runner that can actually be
+# scheduled, or a decision to cross-build x64 from `macos-14` with `--target x86_64-apple-darwin`
+# (`scripts/release.sh --target` already handles the bundle path for a cross build).
 NODERA_RELEASE_ARCHES=(x64 arm64)
-NODERA_RELEASE_SYSTEMS=(linux macos windows)
+NODERA_RELEASE_SYSTEMS=(linux windows android)
 
 # The installer format each system ships. Kept beside the system list because adding a system
 # without deciding its format is how an empty asset name reaches `gh release create`.
 release_app_extension() {
     case "$1" in
         linux)   printf 'deb\n' ;;
-        macos)   printf 'dmg\n' ;;
         windows) printf 'msi\n' ;;
+        android) printf 'apk\n' ;;
         *)       echo "release.sh: unknown system '$1'" >&2; return 1 ;;
+    esac
+}
+
+# Which architectures each system's installer is published for.
+#
+# Not every system publishes the same set, which is why this is a function and not one global list.
+# Android ships a SINGLE apk carrying every ABI: that is the platform's own convention for a
+# sideloaded build, per-ABI splits exist to shrink Play Store downloads, and offering a person two
+# APKs would ask them a question about their own phone that they cannot answer. Its arch token is
+# therefore `universal`, and it is a real answer rather than a placeholder.
+release_app_arches() {
+    case "$1" in
+        linux|windows) printf '%s\n' "${NODERA_RELEASE_ARCHES[@]}" ;;
+        android)       printf 'universal\n' ;;
+        *)             echo "release.sh: unknown system '$1'" >&2; return 1 ;;
     esac
 }
 
@@ -68,8 +101,17 @@ release_app_extension() {
 # The mapping is narrow on purpose: an unrecognised machine is an error, not a name containing
 # whatever the kernel happened to say. A release asset called `nodera-tracker-i686-latest` would
 # upload perfectly and be undownloadable by every updater in the field.
+#
+# `NODERA_RELEASE_ARCH` overrides the detection, and on one platform it is REQUIRED rather than a
+# convenience: Git for Windows ships an x86-64 build of bash, which runs under emulation on an
+# arm64 Windows machine and answers `uname -m` with `x86_64`. The `windows-11-arm` release leg
+# therefore reported "host windows/x64" while its Rust toolchain (`win.rustup.rs/aarch64`) built a
+# genuine arm64 binary, and would have staged it as `nodera-app-windows-x64.msi` — a second file
+# under the name the x64 leg also produces, which `merge-multiple` resolves by silently keeping one.
+# A build must not learn its own target by asking the shell it happens to be running in, so CI
+# declares it and detection is the local-developer fallback.
 release_arch_token() {
-    local machine="${1:-$(uname -m)}"
+    local machine="${1:-${NODERA_RELEASE_ARCH:-$(uname -m)}}"
     case "$machine" in
         x86_64|amd64|x64)      printf 'x64\n' ;;
         aarch64|arm64)         printf 'arm64\n' ;;
@@ -78,12 +120,23 @@ release_arch_token() {
 }
 
 # `uname -s` (or an explicit argument) as a release system token.
+#
+# `NODERA_RELEASE_SYSTEM` overrides it, for the same reason as the architecture above: the leg that
+# knows which installer it is producing should say so rather than let a shell infer it.
 release_system_token() {
-    local system="${1:-$(uname -s)}"
+    local system="${1:-${NODERA_RELEASE_SYSTEM:-$(uname -s)}}"
     case "$system" in
         Linux|linux)                       printf 'linux\n' ;;
-        Darwin|darwin|macos|macOS)         printf 'macos\n' ;;
         MINGW*|MSYS*|CYGWIN*|Windows_NT|windows) printf 'windows\n' ;;
+        # Never a `uname -s`: Android is always a cross-build target, so this token only ever
+        # arrives declared — from the release matrix, or from `--component android`.
+        android|Android)                   printf 'android\n' ;;
+        # Named rather than falling through to the generic error, because "unknown system Darwin"
+        # would read as a gap in this mapping. It is a decision, not an omission — see the note on
+        # NODERA_RELEASE_SYSTEMS.
+        Darwin|darwin|macos|macOS)
+            echo "release.sh: Nodera publishes no macOS installer — see NODERA_RELEASE_SYSTEMS" >&2
+            return 1 ;;
         *) echo "release.sh: no release system token for '$system'" >&2; return 1 ;;
     esac
 }
@@ -135,7 +188,14 @@ release_asset() {
         app)
             local system arch ext
             system="$(release_system_token "${1:-}")" || return 1
-            arch="$(release_arch_token "${2:-}")" || return 1
+            # `universal` is a published architecture token but never a machine, so it does not go
+            # through the uname mapping — that one stays narrow, and refusing to recognise a
+            # machine it cannot name is the property that makes it worth having.
+            if [[ "${2:-}" == "universal" ]]; then
+                arch="universal"
+            else
+                arch="$(release_arch_token "${2:-}")" || return 1
+            fi
             ext="$(release_app_extension "$system")" || return 1
             printf 'nodera-app-%s-%s.%s\n' "$system" "$arch" "$ext" ;;
         *)  echo "release.sh: unknown asset kind '$kind'" >&2; return 1 ;;
@@ -153,9 +213,9 @@ release_manifest() {
         release_asset "$kind" || return 1
     done
     for system in "${NODERA_RELEASE_SYSTEMS[@]}"; do
-        for arch in "${NODERA_RELEASE_ARCHES[@]}"; do
+        while IFS= read -r arch; do
             release_asset app "$system" "$arch" || return 1
-        done
+        done < <(release_app_arches "$system")
     done
     for kind in tracker rendezvous; do
         for arch in "${NODERA_RELEASE_ARCHES[@]}"; do
