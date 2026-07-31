@@ -220,8 +220,10 @@ const BUNDLED_LAUNCHER: &str = "resources/nodera-headless/bin/nodera-headless";
 /// installed `.deb` puts the launcher at `/usr/lib/Nodera/resources/nodera-headless/bin/`, and the
 /// app reported
 ///
-///     failed to start peer worker ("resources/nodera-headless/bin/nodera-headless"):
-///     No such file or directory (os error 2)
+/// ```text
+/// failed to start peer worker ("resources/nodera-headless/bin/nodera-headless"):
+/// No such file or directory (os error 2)
+/// ```
 ///
 /// every backoff, forever. The bug was invisible until the release lane started producing real
 /// installers, because until then nothing ever ran the app from anywhere but a checkout.
