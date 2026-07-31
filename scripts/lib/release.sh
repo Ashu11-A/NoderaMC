@@ -68,8 +68,17 @@ release_app_extension() {
 # The mapping is narrow on purpose: an unrecognised machine is an error, not a name containing
 # whatever the kernel happened to say. A release asset called `nodera-tracker-i686-latest` would
 # upload perfectly and be undownloadable by every updater in the field.
+#
+# `NODERA_RELEASE_ARCH` overrides the detection, and on one platform it is REQUIRED rather than a
+# convenience: Git for Windows ships an x86-64 build of bash, which runs under emulation on an
+# arm64 Windows machine and answers `uname -m` with `x86_64`. The `windows-11-arm` release leg
+# therefore reported "host windows/x64" while its Rust toolchain (`win.rustup.rs/aarch64`) built a
+# genuine arm64 binary, and would have staged it as `nodera-app-windows-x64.msi` — a second file
+# under the name the x64 leg also produces, which `merge-multiple` resolves by silently keeping one.
+# A build must not learn its own target by asking the shell it happens to be running in, so CI
+# declares it and detection is the local-developer fallback.
 release_arch_token() {
-    local machine="${1:-$(uname -m)}"
+    local machine="${1:-${NODERA_RELEASE_ARCH:-$(uname -m)}}"
     case "$machine" in
         x86_64|amd64|x64)      printf 'x64\n' ;;
         aarch64|arm64)         printf 'arm64\n' ;;
@@ -78,8 +87,11 @@ release_arch_token() {
 }
 
 # `uname -s` (or an explicit argument) as a release system token.
+#
+# `NODERA_RELEASE_SYSTEM` overrides it, for the same reason as the architecture above: the leg that
+# knows which installer it is producing should say so rather than let a shell infer it.
 release_system_token() {
-    local system="${1:-$(uname -s)}"
+    local system="${1:-${NODERA_RELEASE_SYSTEM:-$(uname -s)}}"
     case "$system" in
         Linux|linux)                       printf 'linux\n' ;;
         Darwin|darwin|macos|macOS)         printf 'macos\n' ;;

@@ -106,6 +106,19 @@ VERSION_TOKEN="$(release_version_token)"
 HOST_ARCH="$(release_arch_token)"
 HOST_SYSTEM="$(release_system_token)"
 
+# When the leg DECLARED what it is building and the shell disagrees, say so once, loudly.
+#
+# The declaration wins — that is the point of it — but the disagreement is worth printing, because
+# it is the only visible trace of an emulated shell. `windows-11-arm` runs an x86-64 Git bash and
+# answers `uname -m` with `x86_64`; the sole symptom was one line of log reading "host windows/x64"
+# on the arm64 leg, and nothing else in the run looked wrong until an asset went missing three jobs
+# later. A build that silently disagrees with itself about its own target is worth a line.
+if [[ -n "${NODERA_RELEASE_ARCH:-}" ]]; then
+    detected="$(release_arch_token "$(uname -m)" 2>/dev/null || echo "unknown")"
+    [[ "$detected" != "$HOST_ARCH" ]] && \
+        warn "this shell reports $(uname -m) ($detected) but the build declares $HOST_ARCH — trusting the declaration"
+fi
+
 # `install` on a target that already exists replaces it; every stage step goes through here so a
 # rerun is idempotent and a staged file can never be a half-copy of a previous run.
 stage() {

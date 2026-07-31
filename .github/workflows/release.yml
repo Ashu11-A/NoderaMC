@@ -121,6 +121,10 @@ jobs:
             runner: ubuntu-24.04-arm
     env:
       NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      # Declared, not detected — see `release_arch_token`. The x64/arm64 legs both happen to detect
+      # correctly on Linux, but a build that asks the shell what it is targeting is one emulator
+      # away from being wrong, and the app legs prove it.
+      NODERA_RELEASE_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       # rust-toolchain.toml pins the channel; rustup honours it.
@@ -176,6 +180,12 @@ jobs:
             runner: windows-11-arm
     env:
       NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      # REQUIRED here, not merely tidy. Git for Windows is an x86-64 build of bash; on the
+      # `windows-11-arm` runner it executes under emulation and answers `uname -m` with `x86_64`,
+      # so that leg staged a genuinely-arm64 installer under the x64 name. The matrix knows what it
+      # is building; the shell does not.
+      NODERA_RELEASE_ARCH: ${{ matrix.arch }}
+      NODERA_RELEASE_SYSTEM: ${{ matrix.system }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
