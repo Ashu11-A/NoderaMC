@@ -502,7 +502,7 @@ build_stack() {
         || fail "build: cargo"
     # :paper-plugin:jar is here because without it the three server-category
     # suites (endpoint, folia, profile) can only ever SKIP: their preflight looks
-    # for build/libs/nodera-endpoint.jar and nothing else in the harness builds
+    # for build/libs/nodera-paper.jar and nothing else in the harness builds
     # it. A skip that is structural rather than circumstantial is not a skip, it
     # is a suite that never runs.
     ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist :neoforge-mod:build :paper-plugin:jar -x test -x check ) \

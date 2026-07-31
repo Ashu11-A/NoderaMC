@@ -153,7 +153,7 @@ public final class ProfileScenario implements Scenario {
         try (ServerEndpointSupport paper = new ServerEndpointSupport(ctx).withSpark(spark)) {
             ctx.stage("R2", "Paper is profiled with spark seeing NoderaEndpoint installed", () -> {
                 if (!paper.softPreflight("paper")) {
-                    ctx.note("R2: SKIPPED — no nodera-endpoint jar or no Paper jar. Nothing was "
+                    ctx.note("R2: SKIPPED — no nodera-paper jar or no Paper jar. Nothing was "
                             + "asserted for Paper.");
                     return;
                 }
@@ -194,7 +194,7 @@ public final class ProfileScenario implements Scenario {
             ctx.stage("R3", "the Folia capture spans the region pool and profiling breaks no "
                     + "thread contract", () -> {
                 if (!folia.softPreflight("folia")) {
-                    ctx.note("R3: SKIPPED — no nodera-endpoint jar or no Folia jar. Nothing was "
+                    ctx.note("R3: SKIPPED — no nodera-paper jar or no Folia jar. Nothing was "
                             + "asserted for Folia.");
                     return;
                 }

@@ -51,9 +51,13 @@ pub struct ModInstallStatus {
     pub installs: Vec<MinecraftInstall>,
 }
 
-/// The file name the app writes. Versioned so two builds never collide silently.
+/// The file this app writes into a `mods/` folder. Versioned so two builds never collide silently.
+///
+/// Deliberately the same name the release publishes (`scripts/lib/release.sh`): somebody who
+/// downloaded `nodera-neoforge-latest.jar` by hand and somebody who pressed the button in this app
+/// end up with the same file name, so "do I already have it?" is answerable by looking.
 fn jar_name(version: &str) -> String {
-    format!("noderamc-{version}.jar")
+    format!("nodera-neoforge-{version}.jar")
 }
 
 /// Anything that looks like a Nodera mod jar, whoever put it there.
@@ -65,11 +69,17 @@ fn is_nodera_jar(name: &str) -> bool {
 /// Where the bundled mod jar lives.
 ///
 /// `NODERA_MOD_JAR` overrides it, which is how a development build points at
-/// `java/neoforge-mod/build/libs/neoforge-mod.jar` without a packaging step.
+/// `endpoints/neoforge-mod/build/libs/nodera-neoforge.jar` without a packaging step.
+///
+/// The default is a bundled Tauri resource. No release bundle declares it yet — the mod jar is
+/// published as its own release asset instead — so in a shipped app `status()` reports
+/// `bundled_available: false` and `install()` says which path it looked in. That is the honest
+/// answer for a build that does not carry it, and it is why the check exists rather than the
+/// install failing at the copy.
 fn bundled_jar() -> PathBuf {
     std::env::var("NODERA_MOD_JAR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("resources/mod/noderamc.jar"))
+        .unwrap_or_else(|_| PathBuf::from("resources/mod/nodera-neoforge.jar"))
 }
 
 /// The product version, stamped at build time from the repository `VERSION`.
@@ -203,7 +213,8 @@ mod tests {
     fn only_nodera_jars_are_recognised() {
         assert!(is_nodera_jar("noderamc-0.1.0.jar"));
         assert!(is_nodera_jar("NoderaMC-0.1.0.jar"));
-        assert!(is_nodera_jar("nodera-endpoint.jar"));
+        assert!(is_nodera_jar("nodera-neoforge-latest.jar"));
+        assert!(is_nodera_jar("nodera-paper-0.1.0.jar"));
         // The uninstall button must never be able to reach somebody else's mod.
         assert!(!is_nodera_jar("sodium-fabric-0.5.jar"));
         assert!(!is_nodera_jar("create-1.20.jar"));
@@ -213,7 +224,8 @@ mod tests {
 
     #[test]
     fn the_installed_name_is_versioned_so_two_builds_never_collide() {
-        assert_eq!(jar_name("0.1.0"), "noderamc-0.1.0.jar");
+        // The release's own name for the same artefact — see `jar_name`.
+        assert_eq!(jar_name("0.1.0"), "nodera-neoforge-0.1.0.jar");
         assert_ne!(jar_name("0.1.0"), jar_name("0.2.0"));
     }
 
@@ -222,15 +234,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nodera-mods-{}", std::process::id()));
         let mods = dir.join("mods");
         std::fs::create_dir_all(&mods).unwrap();
-        std::fs::write(mods.join("noderamc-9.9.9.jar"), b"jar").unwrap();
+        std::fs::write(mods.join(jar_name("9.9.9")), b"jar").unwrap();
 
         let older = inspect(&dir, "1.0.0");
-        assert_eq!(older.installed_jar, "noderamc-9.9.9.jar");
+        assert_eq!(older.installed_jar, jar_name("9.9.9"));
         assert!(!older.up_to_date, "a different build is not up to date");
         assert!(older.has_mods_folder);
 
         let same = inspect(&dir, "9.9.9");
         assert!(same.up_to_date);
+
+        // A jar installed by an older app, under the name that app used. It is still recognised as
+        // ours — so uninstall can reach it — and it is still not this build.
+        std::fs::remove_file(mods.join(jar_name("9.9.9"))).unwrap();
+        std::fs::write(mods.join("noderamc-9.9.9.jar"), b"jar").unwrap();
+        let legacy = inspect(&dir, "9.9.9");
+        assert_eq!(legacy.installed_jar, "noderamc-9.9.9.jar");
+        assert!(
+            !legacy.up_to_date,
+            "the name changed, so a legacy jar must read as replaceable rather than current"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

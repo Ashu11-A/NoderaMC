@@ -1,0 +1,284 @@
+# Build every Nodera deliverable, on every architecture, and publish them as one release.
+#
+# ---------------------------------------------------------------------------
+# WHAT IT PUBLISHES
+# ---------------------------------------------------------------------------
+#
+#   nodera-neoforge-<version>.jar        NeoForge 1.21.1 mod
+#   nodera-paper-<version>.jar           Paper/Folia endpoint plugin
+#   nodera-peer-<version>.jar            headless always-on node (`java -jar`)
+#   nodera-app-<system>-<arch>.<ext>     companion app installer, 6 of them
+#   nodera-tracker-<arch>-<version>      tracker service binary, x64 + arm64
+#   nodera-rendezvous-<arch>-<version>   rendezvous service binary, x64 + arm64
+#   SHA256SUMS[.sig]                     what the services' self-update lane reads
+#
+# The names are NOT written here. `scripts/lib/release.sh` is the one naming table; this workflow
+# calls `scripts/release.sh`, which is the same script a developer runs locally, and the publish job
+# asks it whether the release is complete rather than listing files by hand. That is the whole point
+# of the rewrite: the previous workflow named three files in a `gh release create` argument list, and
+# because nothing compared that list to anything, three of the six deliverables were built in CI and
+# thrown away for months without a single failure.
+#
+# ---------------------------------------------------------------------------
+# WHEN IT RUNS
+# ---------------------------------------------------------------------------
+#
+#   push to main    rolls the `latest` prerelease to that commit
+#   push of v*      publishes a real, versioned release
+#   manual          same as a main push, for re-cutting `latest` after an infrastructure failure
+#
+# It does NOT run on feature branches. It used to run on every push to every branch, which meant any
+# branch could roll the public `latest` release to its own build — `containers.yml` already refuses
+# to do that for exactly the reason stated in its header ("no tag anybody else follows moves"), and
+# this workflow now follows the same rule.
+#
+# ---------------------------------------------------------------------------
+# STRICTNESS
+# ---------------------------------------------------------------------------
+#
+# `latest` publishes what built and WARNS about what did not: it re-cuts on every merge, and losing
+# a whole rolling build because one platform's runner was unavailable helps nobody.
+#
+# A `v*` tag is strict. A versioned release is permanent and is what people link to, so an
+# incomplete one fails the run and publishes nothing.
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release at a time. Two runs racing on `gh release delete latest` + `create` is how a rolling
+# release ends up with assets from two different commits under one tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # The release tag, resolved once. Every job reads it through NODERA_RELEASE_TAG so the version
+  # token in an asset name is derived from one place — see `release_version_token`.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      prerelease: ${{ steps.pick.outputs.prerelease }}
+      strict: ${{ steps.pick.outputs.strict }}
+    steps:
+      - id: pick
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "strict=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "strict=0" >> "$GITHUB_OUTPUT"
+          fi
+
+  # --- the three jars: architecture-independent, so one runner produces all of them -------------
+  jars:
+    name: jars
+    needs: plan
+    runs-on: ubuntu-24.04
+    env:
+      NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: scripts/release.sh --component jars
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-jars
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # --- the two service binaries, once per architecture ------------------------------------------
+  #
+  # Native runners, not QEMU: `containers.yml` documents why (a Rust release build under emulation
+  # takes the better part of an hour), and the same arithmetic applies here.
+  services:
+    name: services · ${{ matrix.arch }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the channel; rustup honours it.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+          key: release-${{ matrix.arch }}
+      - run: scripts/release.sh --component services
+      # The staged name already carries the architecture, so both legs can upload into one artifact
+      # namespace without colliding.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-services-${{ matrix.arch }}
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # --- the companion app: one native installer per system AND architecture ----------------------
+  #
+  # Six legs, because deb, dmg and msi cannot be produced from one machine and each needs its own
+  # architecture's toolchain. `fail-fast: false` so a runner outage on one platform costs that
+  # platform's installer and not the other five — the publish job is what decides whether an
+  # incomplete set may be released.
+  #
+  # Every leg needs a JDK as well as Rust and bun: the app bundles the headless node
+  # (`:peer:installDist`) as a Tauri resource.
+  app:
+    name: app · ${{ matrix.system }}-${{ matrix.arch }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - system: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          # macos-13 is the last x64 image; macos-14 and later are Apple silicon.
+          - system: macos
+            arch: x64
+            runner: macos-13
+          - system: macos
+            arch: arm64
+            runner: macos-14
+          - system: windows
+            arch: x64
+            runner: windows-2022
+          - system: windows
+            arch: arm64
+            runner: windows-11-arm
+    env:
+      NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+          key: release-app-${{ matrix.system }}-${{ matrix.arch }}
+      - uses: oven-sh/setup-bun@v2
+
+      # Tauri's Linux bundler links against the system webview and packages with dpkg-deb.
+      - name: Linux bundler dependencies
+        if: matrix.system == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+                                  libayatana-appindicator3-dev patchelf
+
+      # bash, because `scripts/release.sh` is the same script on every platform. The Windows runners
+      # ship Git bash, and using it is what keeps the release lane from growing a second, PowerShell
+      # implementation of the naming table.
+      - name: Build and stage the installer
+        shell: bash
+        run: scripts/release.sh --component app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-app-${{ matrix.system }}-${{ matrix.arch }}
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # --- merge, verify, checksum, sign, publish ---------------------------------------------------
+  publish:
+    needs: [plan, jars, services, app]
+    # `always()` so a platform that failed does not silently cancel the release; whether an
+    # incomplete set may be published is decided by `--verify`, deliberately, in one place. `jars`
+    # is required outright: a release with no mod in it is not a release.
+    if: always() && needs.jars.result == 'success'
+    runs-on: ubuntu-24.04
+    env:
+      NODERA_RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+      NODERA_RELEASE_STRICT: ${{ needs.plan.outputs.strict }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every leg staged into `build/release`, so merging is one download into the same directory.
+      - uses: actions/download-artifact@v4
+        with:
+          path: build/release
+          pattern: release-*
+          merge-multiple: true
+
+      - name: What was collected
+        run: ls -la build/release
+
+      # The gate. On a `v*` tag a missing deliverable fails here and nothing is published; on
+      # `latest` it warns. An UNEXPECTED file fails either way — a stale asset published beside the
+      # current set is a file claiming to be a version this release is not.
+      - name: The release is complete
+        run: scripts/release.sh --verify
+
+      # Digests over every asset, not just the binaries: the update lane reads this file, and a
+      # person checking a jar they downloaded deserves the same line. Generated in the job that
+      # publishes, because a manifest describing files a later step might not upload is worse than
+      # none.
+      - name: Digest manifest
+        run: scripts/release.sh --checksums
+
+      # Provenance (L-81). Skipped loudly when no key is configured — see `sign` in the script.
+      - name: Sign the digest manifest
+        env:
+          NODERA_SIGNING_KEY: ${{ secrets.NODERA_RELEASE_SIGNING_KEY }}
+        run: scripts/release.sh --sign
+
+      # Delete-then-create for the rolling tag only. A `v*` release is created once and never
+      # rolled; `--clobber` would let a re-run quietly replace a published, linked-to artifact.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA:0:7}"
+          if [[ "$TAG" == "latest" ]]; then
+            gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+            title="latest ($short)"
+            notes="Rolling build from ${GITHUB_REF_NAME}@${short}. Marked latest (prerelease) — not an officially published release."
+          else
+            title="$TAG"
+            notes="Nodera $TAG."
+          fi
+          # `find | xargs` rather than a written-out list: the manifest decides what a release
+          # contains, and a second list here is a second thing to forget to update.
+          find build/release -maxdepth 1 -type f -print0 \
+            | sort -z \
+            | xargs -0 gh release create "$TAG" \
+                --target "$GITHUB_SHA" \
+                --title "$title" \
+                --notes "$notes" \
+                $( [[ "$PRERELEASE" == "true" ]] && echo --prerelease )

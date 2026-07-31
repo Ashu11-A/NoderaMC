@@ -21,7 +21,16 @@
 <!-- AI-AGENT-INSTRUCTION: Badges are <img> tags, NOT markdown `![]()`. Some renderers treat a URL
      containing dots (build.yml, 1.21.1) as a file path and dump the raw SVG into the page; an
      <img> tag never does. Keep the version pins in sync with library/java/build-logic (NeoForge) and
-     gradle/libs.versions.toml. -->
+     gradle/libs.versions.toml.
+
+     The two test badges are shields.io ENDPOINT badges reading
+     https://github.com/Ashu11-A/NoderaMC/tree/badges — an orphan branch the `badges` job in
+     .github/workflows/build.yml force-pushes on every run to `main`, holding the totals the `java`,
+     `rust` and `companion` jobs measured (scripts/test-totals.sh). Do NOT replace them with a
+     workflow-status badge: "Build · passing" is a claim about an exit code, and a job that skips
+     into green renders it just as happily — the whole point of these two is that the number can
+     only come from a suite that ran. Do not hand-write the numbers here either; nothing in this
+     file is the source, and a hand-typed count is read as evidence. -->
 
 <p>
 <img alt="Stars" src="https://img.shields.io/github/stars/Ashu11-A/NoderaMC?style=for-the-badge&color=302D41&labelColor=f9e2af">
@@ -30,7 +39,8 @@
 </p>
 
 <p>
-<img alt="Build" src="https://img.shields.io/github/actions/workflow/status/Ashu11-A/NoderaMC/build.yml?style=for-the-badge&color=302D41&labelColor=a6e3a1&label=Build">
+<img alt="Tests passed" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fbadges%2Ftests-passed.json&style=for-the-badge">
+<img alt="Tests failed" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fbadges%2Ftests-failed.json&style=for-the-badge">
 <img alt="Benchmarks" src="https://img.shields.io/github/actions/workflow/status/Ashu11-A/NoderaMC/benchmarks.yml?style=for-the-badge&color=302D41&labelColor=94e2d5&label=Benchmarks">
 <img alt="Version" src="https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fmain%2FVERSION&search=(.*)&replace=%241&style=for-the-badge&color=302D41&labelColor=f9e2af&label=Version">
 </p>
@@ -123,8 +133,10 @@ how to get a service listed, are in [`services/README.md`](services/README.md).
 
 ## Quick start
 
-Drop `build/neoforge-mod.jar` into a **NeoForge 1.21.1** client's `mods/` folder, keep the worker
-running, open a world, then press **"Open to Nodera"** in the pause menu.
+Drop `build/nodera-neoforge.jar` into a **NeoForge 1.21.1** client's `mods/` folder, keep the worker
+running, open a world, then press **"Open to Nodera"** in the pause menu. Or download a built one
+from the [`latest` release](https://github.com/Ashu11-A/NoderaMC/releases/tag/latest) — see
+[Releases](#releases) for what is published there.
 
 ```bash
 scripts/dev.sh                   # build Rust + mod + worker, run tracker + rendezvous + worker
@@ -159,6 +171,7 @@ cd app && cargo test && cargo fmt --check && cargo clippy --all-targets -- -D wa
 
 scripts/version.sh --check       # every version mirror agrees with the root VERSION file
 scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
+scripts/test-totals.sh --java    # how many tests PASSED/FAILED — what the badges above show
 scripts/check-layout-drift.sh    # workflow/Docker/Tauri paths still resolve
 scripts/check-docs.sh            # every docs/ link resolves; every table is square
 ```
@@ -180,6 +193,42 @@ scripts/nodera-test.sh all       # scenarios, then benchmarks, then structure
 
 Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era language features.
 
+## Releases
+
+<!-- AI-AGENT-INSTRUCTION: The asset names here MIRROR scripts/lib/release.sh, which is the one
+     naming table — do not add, rename or reorder a deliverable in this list without changing that
+     file, and `scripts/release.sh --names` is what prints the authoritative set. The
+     `release-manifest` job in build.yml diffs the manifest against the expected list on every push.
+     Never write an asset name into .github/workflows/release.yml. -->
+
+Every push to `main` re-cuts the rolling
+[**`latest`**](https://github.com/Ashu11-A/NoderaMC/releases/tag/latest) prerelease; a `v*` tag
+publishes a permanent versioned release. Both carry the same set, with `<version>` being `latest` or
+the tag, and **both architectures are always built**:
+
+| Asset | What it is |
+|---|---|
+| `nodera-neoforge-<version>.jar` | The NeoForge 1.21.1 mod — drop it in `mods/` |
+| `nodera-paper-<version>.jar` | The Paper/Folia endpoint plugin — drop it in `plugins/` |
+| `nodera-peer-<version>.jar` | The headless always-on node: `java -jar nodera-peer-<version>.jar` |
+| `nodera-app-<system>-<arch>.<ext>` | The companion app installer — `linux`/`macos`/`windows` × `x64`/`arm64` (`.deb`/`.dmg`/`.msi`) |
+| `nodera-tracker-<arch>-<version>` | The tracker service binary — `x64` and `arm64` |
+| `nodera-rendezvous-<arch>-<version>` | The rendezvous + relay service binary — `x64` and `arm64` |
+| `SHA256SUMS` / `SHA256SUMS.sig` | Digests over every asset, and a detached Ed25519 signature over them |
+
+The services' self-update lane reads `SHA256SUMS`, checking the signature **before** the digest, and
+asks for its own architecture's asset by name. A release that is missing a deliverable fails the run
+rather than publishing short — `scripts/release.sh --verify` is the gate, and the same script builds
+the whole set locally:
+
+```bash
+scripts/release.sh --names                # every asset a complete release contains
+scripts/release.sh --component jars       # the three jars (any machine with a JDK)
+scripts/release.sh --component services   # this architecture's tracker + rendezvous
+scripts/release.sh --component app        # this platform's installer (needs bun + Tauri deps)
+scripts/release.sh --verify               # hold build/release to the manifest
+```
+
 ## Module status
 
 <!-- AI-AGENT-INSTRUCTION: Mirrors docs/<category>/TESTING.md — update both together. Status:
@@ -195,12 +244,12 @@ Host runs JDK **25**; the project pins Java **21** and uses only Java 21-era lan
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 187 | ✅ |
 | `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 157 | ✅ |
 | `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 32 | ✅ |
-| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 857 | 🚧 |
+| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 880 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 100 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
-| `paper-plugin` | `nodera-endpoint.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
+| `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
-| `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines | 64 | ✅ |
+| `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines, release asset naming | 66 | ✅ |
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
