@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FiExternalLink, FiSearch } from "react-icons/fi";
 import { Card, Empty, KeyValue, MONO, Pill, Td, Th, Tr, cx } from "./components";
 import { UNKNOWN, formatDate } from "./api";
-import { aboutBuild, type AboutBuild, type Package } from "./network";
+import { aboutBuild, type AboutBuild, type Package } from "./play";
 
 const ECOSYSTEMS = [
   { id: "rust", label: "Rust" },
