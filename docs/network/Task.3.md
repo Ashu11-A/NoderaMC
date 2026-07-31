@@ -87,7 +87,8 @@ and the durability tests run against the real tier.
 
 - `library/java/storage/src/main/java/dev/nodera/storage/WorldStore.java`
 - `library/java/storage/src/main/java/dev/nodera/storage/event/{EventReplayer,PeerSyncFlow}.java`
-- `library/java/storage/src/main/java/dev/nodera/storage/rocksdb/{RocksWorldStore,FsContentStore}.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/rocksdb/RocksWorldStore.java`
+- `library/java/storage/src/main/java/dev/nodera/storage/fs/FsContentStore.java`
 - `library/java/storage/src/main/java/dev/nodera/storage/client/{BoundedClientWorldStore,StorageQuotaManager,ArchiveEvictionPolicy}.java`
 - `library/java/storage/src/main/java/dev/nodera/storage/io/AtomicFileWriter.java`
 

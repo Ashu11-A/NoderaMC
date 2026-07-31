@@ -1364,7 +1364,7 @@ public final class WorkerControlHandler implements ControlHandler {
         private final WorldReplicationService replication;
         private final dev.nodera.transport.socket.SocketPeerTransport transport;
         private final dev.nodera.peer.discovery.TrackerClient tracker;
-        private final dev.nodera.storage.rocksdb.FsContentStore contentStore;
+        private final dev.nodera.storage.fs.FsContentStore contentStore;
 
         /**
          * @param content     the piece plane (upload/download bounds, the pause flag); nullable.
@@ -1390,7 +1390,7 @@ public final class WorkerControlHandler implements ControlHandler {
                            WorldReplicationService replication,
                            dev.nodera.transport.socket.SocketPeerTransport transport,
                            dev.nodera.peer.discovery.TrackerClient tracker,
-                           dev.nodera.storage.rocksdb.FsContentStore contentStore) {
+                           dev.nodera.storage.fs.FsContentStore contentStore) {
             this.content = content;
             this.replication = replication;
             this.transport = transport;

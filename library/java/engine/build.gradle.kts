@@ -18,9 +18,13 @@ plugins {
 //                               metrics (wired live by Task 5's live lane).
 dependencies {
     api(project(":core"))
-    // DeterministicRandom uses java.util.random RandomGeneratorFactory (JDK only);
-    // fastutil backs the primitive section arrays in the engine hot path.
-    implementation(libs.fastutil)
+    // DeterministicRandom uses java.util.random RandomGeneratorFactory (JDK only).
+    //
+    // fastutil was declared here for years to "back the primitive section arrays in the hot path"
+    // and was never imported by a single source file — `strings` over engine.jar found zero
+    // `it/unimi` references. It cost 19.5 MB compressed in every artefact that transitively
+    // depended on this module, which is every desktop installer and the release peer jar. If a
+    // primitive-collection need ever arrives, add it back WITH the call site in the same commit.
     implementation(libs.caffeine)
 
     // Task-24 CrashRecoveryIT crosses the real piece/repair/event-replay seams headlessly.

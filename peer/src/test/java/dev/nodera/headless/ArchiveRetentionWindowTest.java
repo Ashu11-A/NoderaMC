@@ -137,8 +137,8 @@ final class ArchiveRetentionWindowTest {
         NodeIdentity identity = NodeIdentity.generate();
         transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
         transport.start();
-        dev.nodera.storage.rocksdb.FsContentStore disk =
-                new dev.nodera.storage.rocksdb.FsContentStore(dir, hashes);
+        dev.nodera.storage.fs.FsContentStore disk =
+                new dev.nodera.storage.fs.FsContentStore(dir, hashes);
         disk.setBudgetBytes(120_000);
         service = new WorldArchiveService(identity, transport, disk, List.of());
         String worldIdHex = hashes.sha256("l62-hosted".getBytes()).toHex();
@@ -165,8 +165,8 @@ final class ArchiveRetentionWindowTest {
         NodeIdentity identity = NodeIdentity.generate();
         transport = LoopbackTransport.LoopbackNetwork.newNetwork().register(identity.nodeId());
         transport.start();
-        dev.nodera.storage.rocksdb.FsContentStore disk =
-                new dev.nodera.storage.rocksdb.FsContentStore(dir, hashes);
+        dev.nodera.storage.fs.FsContentStore disk =
+                new dev.nodera.storage.fs.FsContentStore(dir, hashes);
         service = new WorldArchiveService(identity, transport, disk, List.of());
         service.setRetainedVersions(1);
         String worldIdHex = hashes.sha256("l62-window".getBytes()).toHex();

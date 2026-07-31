@@ -1,4 +1,4 @@
-package dev.nodera.storage.rocksdb;
+package dev.nodera.storage.fs;
 
 import dev.nodera.storage.StoreFixtures;
 import dev.nodera.storage.ContentId;

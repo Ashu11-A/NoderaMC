@@ -115,7 +115,7 @@ final class ConfigVerbIT {
     }
 
     /** Boot the worker's real lanes behind a real control endpoint. */
-    private dev.nodera.storage.rocksdb.FsContentStore diskStore;
+    private dev.nodera.storage.fs.FsContentStore diskStore;
 
     private NodeIdentity worker() {
         return worker(null);
@@ -134,7 +134,7 @@ final class ConfigVerbIT {
         contentTransport = new RecordingTransport();
         tracker = new TrackerClient(List.of(), identity);
         diskStore = archiveDir == null ? null
-                : new dev.nodera.storage.rocksdb.FsContentStore(archiveDir, hashes);
+                : new dev.nodera.storage.fs.FsContentStore(archiveDir, hashes);
         archive = new WorldArchiveService(identity, contentTransport,
                 diskStore != null ? diskStore : new InMemoryContentStore(hashes), tracker);
         hosting = new WorldHostingService(identity, caps, runtime::selfRoute, tracker,

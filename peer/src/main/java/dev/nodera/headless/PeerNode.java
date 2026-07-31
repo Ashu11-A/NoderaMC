@@ -193,8 +193,8 @@ public final class PeerNode implements AutoCloseable {
                 System.getProperty("user.home") + "/.nodera/archive"));
         // Held by reference so the archive directory is a live setting rather than a
         // restart-required one that strands what this node is already seeding (L-58).
-        dev.nodera.storage.rocksdb.FsContentStore contentStore =
-                new dev.nodera.storage.rocksdb.FsContentStore(
+        dev.nodera.storage.fs.FsContentStore contentStore =
+                new dev.nodera.storage.fs.FsContentStore(
                         archiveDir, new dev.nodera.core.crypto.HashService());
         WorldArchiveService archive = new WorldArchiveService(identity, metered, contentStore,
                 tracker);

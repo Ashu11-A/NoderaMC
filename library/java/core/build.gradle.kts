@@ -4,8 +4,9 @@ plugins {
 
 // core is Minecraft-free (Task 0 §4.1: depends on nothing but the JDK).
 dependencies {
-    // fastutil: primitive maps in the hot simulation/encoding paths (shaded later; core only needs APIs here).
-    // Keep core dependency-free for now to honour Task 2 acceptance #5 (ArchUnit enforces in testkit).
+    // Deliberately empty: Task 2 acceptance #5 (ArchUnit enforces in testkit). core is the JDK and
+    // nothing else. A comment here used to describe a fastutil dependency over this empty block;
+    // fastutil was never used by core OR by engine, and is now gone from both.
 }
 
 // The product version reaches running Java code as a generated resource rather than as a source
