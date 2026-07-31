@@ -645,15 +645,20 @@ function PrivacyPage() {
       <ListItem
         headline="Anonymous diagnostics"
         supporting={
-          status.supported
-            ? status.consent === "granted"
-              ? "On"
-              : "Off"
-            : "The peer has not reported yet"
+          // An answer that has not reached the node yet is its own state, and saying "On" for it
+          // would claim a collection setting nothing is applying. The switch follows what the
+          // person chose, the text says whether the node has it.
+          status.pending
+            ? `${status.answer ? "On" : "Off"} — saved on this device, waiting for your node`
+            : status.supported
+              ? status.consent === "granted"
+                ? "On"
+                : "Off"
+              : "The peer has not reported yet"
         }
         trailing={
           <Switch
-            checked={status.consent === "granted"}
+            checked={status.pending ? status.answer === true : status.consent === "granted"}
             label="Anonymous diagnostics"
             onChange={(next) => {
               setTelemetryConsent(next).then(setStatus).catch(() => {});

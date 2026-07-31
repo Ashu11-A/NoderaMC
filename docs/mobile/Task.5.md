@@ -102,6 +102,12 @@ every link connect — quietly did the job, so the feature appeared to work and 
 (desktop-only) passed. This is the shape to watch for: a config key with a writer and no reader, in a
 system where a second path happens to cover for it.
 
+**The floor moved since.** `SyncedServices.load` finding no file now falls back to
+`dev.nodera.core.services.DefaultServices`, i.e. the official list from
+[`index.json` on the `services` branch](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json), with loopback returned only in development
+mode. A worker that starts before the app has written the file therefore announces somewhere real
+instead of to the handset.
+
 ### Why the restart button does nothing here
 
 `restart_worker` notifies a `RestartSignal` whose only consumer, `daemon::supervise`, is inside

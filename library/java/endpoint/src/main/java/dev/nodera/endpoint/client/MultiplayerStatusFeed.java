@@ -109,7 +109,7 @@ public final class MultiplayerStatusFeed {
      *
      * <p>Parsed with {@link RendezvousEndpoint#parse}, not by splitting on the last colon. This
      * method used to do its own splitting, which made {@code tcp://150.230.84.206:6969} — the
-     * documented form, and the one {@code services/official.json} uses — probe the host
+     * documented form, and the one the published index uses — probe the host
      * "tcp://150.230.84.206". Every official endpoint rendered red on this screen while the
      * service answered protocol healthchecks from the same machine, so the one screen a player
      * consults to find out whether the network is up told them it was down.

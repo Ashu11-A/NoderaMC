@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  *
  * <p>These exist because this class disagreed with {@link dev.nodera.peer.discovery.TrackerClient}
  * about what a route looks like, and nothing anywhere compared them. `tcp://host:port` is the
- * documented form in every example config, in `docker/compose.yml`, in `services/official.json` and
+ * documented form in every example config, in `docker/compose.yml`, in the published index and
  * in the tracker's own parser — and this one split on the last colon and kept `tcp://host` as the
  * hostname.
  *

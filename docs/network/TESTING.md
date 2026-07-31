@@ -173,7 +173,7 @@ The decisive ones:
 ## Running a suite against the real deployed services
 
 Every suite in `scripts/` normally spawns its own tracker and rendezvous on loopback. `--official`
-points the whole run at [`services/official.json`](../../services/official.json) instead, so the
+points the whole run at [the published index](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json) instead, so the
 Minecraft clients, the headless peers and the dedicated server all discover and route through the
 production architecture rather than through two processes that only ever talk to themselves:
 

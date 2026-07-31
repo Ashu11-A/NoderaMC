@@ -107,7 +107,7 @@ new with no measured availability.
 
 ## 5. Getting listed
 
-Same as the tracker: [`services/README.md`](../../services/README.md). Two entries if you run both —
+Same as the tracker: [the `services` branch's README](https://github.com/Ashu11-A/NoderaMC/blob/services/README.md). Two entries if you run both —
 they are separate services, on separate ports, with separate identities.
 
 Run it for a while before you open the PR. A relay that appears and disappears is worse for peers

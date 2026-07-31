@@ -169,8 +169,9 @@ that variable is for deliberately trusting somebody else's releases, not for con
 ## 7. Getting listed
 
 Once it has been up for a while, open a pull request adding it to
-[`services/official.json`](../../services/official.json). The rules and the entry format are in
-[`services/README.md`](../../services/README.md). Include the `node_id` from your startup line:
+[`index.json` on the `services` branch](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json). The rules and the entry
+format are in [that branch's README](https://github.com/Ashu11-A/NoderaMC/blob/services/README.md), and the pull request goes
+against `services`, not `main`. Include the `node_id` from your startup line:
 
 ```
 nodera-tracker: service identity 17324454ccfaa3398210b81910392675

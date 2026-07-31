@@ -273,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn an_announce_reaches_a_tracker_written_in_the_documented_tcp_form() {
         // The regression this whole `endpoint` module exists for. Every example config, the compose
-        // file, `services/official.json` and the Java `Endpoint.parse` all use `tcp://host:port`,
+        // file, the published service index and the Java `Endpoint.parse` all use `tcp://host:port`,
         // and this path used to hand that string straight to the resolver. The service then ran
         // perfectly and announced to nobody, having said so once at boot.
         //

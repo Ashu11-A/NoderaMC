@@ -45,9 +45,15 @@ public interface NoderaSettings {
     /**
      * The built-in defaults, used until a host installs something else.
      *
-     * <p>The endpoint lists point at the services {@code scripts/dev.sh} runs on localhost, so a
-     * fresh checkout is functional rather than announcing into nothing. A release build replaces
-     * them with the known public network.
+     * <p>The project's own services — the index published on the {@code services} branch,
+     * compiled into the jar and read
+     * through {@link dev.nodera.core.services.DefaultServices} — so a fresh install announces to a
+     * network that exists. In {@linkplain dev.nodera.core.services.DefaultServices#developmentMode()
+     * development mode} they are the localhost services {@code scripts/dev.sh} runs instead.
+     *
+     * <p>They used to be localhost <em>always</em>, which was invisible in a checkout (where the dev
+     * stack is on those ports) and fatal everywhere else: a player's own machine has no tracker on
+     * 25600, so the node announced nowhere and reported that no tracker was answering.
      *
      * <p>These are the ONLY copy. {@code NoderaConfig} used to declare them and
      * {@code HeadlessPeerMain} hardcoded the same two strings with a comment promising they matched
@@ -92,12 +98,12 @@ public interface NoderaSettings {
 
         @Override
         public List<String> trackerEndpoints() {
-            return List.of("127.0.0.1:25600");
+            return dev.nodera.core.services.DefaultServices.trackerEndpoints();
         }
 
         @Override
         public List<String> rendezvousEndpoints() {
-            return List.of("127.0.0.1:25601");
+            return dev.nodera.core.services.DefaultServices.rendezvousEndpoints();
         }
 
         @Override

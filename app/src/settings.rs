@@ -137,22 +137,41 @@ pub struct Network {
     pub max_download_bytes_per_sec: u64,
 }
 
+/// Whether this process is a development build.
+///
+/// The one predicate that decides whether **any** part of this app is allowed to point itself at a
+/// service running on the same machine. A shipped build talks to the services in
+/// the project's published index and to nothing else it was not told about; loopback is a developer's
+/// stack, and a release that reaches for it announces into a tracker only that developer has.
+///
+/// `NODERA_DEV=1|true` forces it on and `NODERA_DEV=0|false` forces it off — the second matters,
+/// because `scripts/dev.sh --official` runs a debug build deliberately pointed at production.
+/// Without an override, a debug build is development and a release build is not.
+pub fn dev_mode() -> bool {
+    match std::env::var("NODERA_DEV") {
+        Ok(value) => {
+            let value = value.trim().to_ascii_lowercase();
+            value == "1" || value == "true" || value == "yes"
+        }
+        Err(_) => cfg!(debug_assertions),
+    }
+}
+
 /// The trackers a fresh install starts with.
 ///
-/// Platform-dependent, because "the tracker on this machine" is not a thing a phone has. A desktop
-/// may well be running one beside its worker, so loopback belongs there; on a handset `127.0.0.1`
-/// is the handset, so listing it would guarantee one permanently failing endpoint on the status
-/// screen and teach the user to ignore a red row.
+/// **Nothing, in a shipped build, on any platform.** The addresses a release should use are the
+/// project's own list — `index.json` on the `services` branch, compiled in as the built-in store (see
+/// [`crate::stores::built_in_store`]) — and those arrive through the store rather than through this
+/// field, so that a user can inspect them, and delete them, as a list they chose to trust.
 ///
-/// **A phone therefore ships with no trackers at all, on purpose.** The previous version baked one
-/// developer's LAN address (`10.0.0.101`) into every build, which is unreachable on every network
-/// but that one — so a fresh install anywhere else showed a permanently failing endpoint and
-/// reported "no trackers are answering" while looking, to the user, like a broken app. An empty list
-/// is the honest state: the first-run flow asks for one, and the Node screen says so plainly.
+/// Loopback is a development answer and is now returned only in development. On a handset
+/// `127.0.0.1` is the handset; on a shipped desktop it is a tracker the user never installed. Both
+/// produce a permanently failing row that teaches people to ignore red. An earlier version baked one
+/// developer's LAN address into every build, which was the same failure with a longer reach.
 ///
-/// `NODERA_DEFAULT_TRACKERS` (read **at compile time**, comma-separated) overrides this. That is
-/// what `scripts/android-apk.sh` sets from the build host's own LAN address, so a development APK
-/// still comes up pointed at the laptop that built it without that address being a shipped constant.
+/// `NODERA_DEFAULT_TRACKERS` (read **at compile time**, comma-separated) still overrides this. That
+/// is what `scripts/android-apk.sh` sets from the build host's own LAN address, so a development APK
+/// comes up pointed at the laptop that built it without that address being a shipped constant.
 fn default_trackers() -> Vec<String> {
     if let Some(baked) = option_env!("NODERA_DEFAULT_TRACKERS") {
         let list: Vec<String> = baked
@@ -165,10 +184,16 @@ fn default_trackers() -> Vec<String> {
             return list;
         }
     }
-    if cfg!(any(target_os = "android", target_os = "ios")) {
-        Vec::new()
-    } else {
+    default_trackers_for(dev_mode())
+}
+
+/// The pure half of [`default_trackers`], so the rule can be tested without touching the process
+/// environment.
+fn default_trackers_for(development: bool) -> Vec<String> {
+    if development {
         vec!["tcp://127.0.0.1:25600".to_owned()]
+    } else {
+        Vec::new()
     }
 }
 
@@ -191,11 +216,13 @@ impl Default for Network {
         Self {
             default_trackers: default_trackers(),
             rendezvous_endpoints: Vec::new(),
-            // A fresh install starts with the store the app shipped with. This is the first honest
-            // default a handset has had: `default_trackers()` is empty there on purpose, because
-            // loopback is the handset and a baked LAN address is unreachable everywhere but one
-            // network — both produce a permanently failing row that teaches the user to ignore red.
-            // A publicly operated tracker, in a list they can inspect and delete, is neither.
+            // A fresh install starts with the store the app shipped with, and in a release build
+            // that store is the ONLY thing it has: `default_trackers()` is empty outside
+            // development, because loopback is the handset on a phone and a tracker the user never
+            // installed on a desktop, and a baked LAN address is unreachable everywhere but one
+            // network — all of them produce a permanently failing row that teaches the user to
+            // ignore red. A publicly operated tracker, in a list they can inspect and delete, is
+            // none of those things.
             tracker_stores: crate::stores::built_in_store().into_iter().collect(),
             transfer_network: default_transfer_network(),
             unlimited_connections_only: false,
@@ -240,6 +267,19 @@ pub struct Storage {
 pub struct SetupState {
     /// Whether the user has finished the first-run questions.
     pub completed: bool,
+    /// The telemetry answer this person gave, or `None` if they have never been asked.
+    ///
+    /// Recorded here **as well as** on the node, because the node is a process that may not be
+    /// running when the question is answered — on a fresh Android install it usually is not, since
+    /// first run is exactly when the worker is still coming up. The worker remains the authority on
+    /// what is *collected*; this field is only the answer, kept so it can be delivered later instead
+    /// of being lost with the tap that gave it.
+    pub telemetry_granted: Option<bool>,
+    /// Whether [`Self::telemetry_granted`] has been accepted by a worker.
+    ///
+    /// `false` with an answer present means "say so on the Privacy screen, and keep trying" — never
+    /// "assume it took". Consent the node did not receive is not consent.
+    pub telemetry_delivered: bool,
 }
 
 /// The whole settings document.
@@ -1003,6 +1043,49 @@ mod tests {
             assert!(
                 host == "127.0.0.1" || host == "localhost",
                 "{tracker} is not something a fresh install anywhere can reach"
+            );
+        }
+    }
+
+    /// A shipped build must not point itself at a service on the user's own machine.
+    ///
+    /// The addresses a release uses come from the built-in store (the published index), which
+    /// the user can read and delete. Loopback is a developer's stack: on a handset it is the
+    /// handset, and on somebody else's desktop it is a tracker they never installed.
+    #[test]
+    fn a_release_build_starts_with_no_local_tracker_and_a_development_build_does() {
+        assert!(
+            default_trackers_for(false).is_empty(),
+            "a shipped build's default tracker list is the official store, not loopback"
+        );
+        assert_eq!(
+            default_trackers_for(true),
+            vec!["tcp://127.0.0.1:25600".to_owned()]
+        );
+    }
+
+    /// The default that a release ships with has to be reachable from anywhere, and the only such
+    /// list is the built-in store — so the field itself must be empty unless this is a dev build.
+    #[test]
+    fn the_official_store_is_what_a_fresh_install_actually_has_to_dial() {
+        let settings = Settings::default();
+        let merged = crate::stores::merged(
+            &[],
+            &settings.network.tracker_stores,
+            crate::stores::ServiceKind::Tracker,
+        );
+        assert!(
+            !merged.is_empty(),
+            "a fresh install must inherit the official trackers from the bundled store"
+        );
+        for route in merged {
+            let host = route
+                .rsplit_once(':')
+                .map(|(host, _)| host.trim_start_matches("tcp://").to_owned())
+                .unwrap_or(route.clone());
+            assert!(
+                host != "127.0.0.1" && host != "localhost",
+                "{route} came from the official list and must not be loopback"
             );
         }
     }
