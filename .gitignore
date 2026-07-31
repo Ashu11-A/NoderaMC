@@ -54,8 +54,13 @@ claude_code_zai_env.sh
 *.env
 .env
 
-# Rust build output (cargo workspace under rust/, Task 27).
-/target/
+# Cargo build output. Matched at ANY depth on purpose: this pattern used to be `/target/`, which
+# was anchored at the repository root while the workspace actually lived under `rust/`. It matched
+# nothing, and a `git add -A` then committed 1.4 GB of `rust/target` debug binaries and incremental
+# dep-graphs — 99% of the repository — which had to be removed by rewriting history. The workspace
+# has since moved to the root and `app/` keeps a second one, so no pattern that names a directory
+# can be trusted to survive the next move. Nothing tracked has a `target` path component.
+target/
 
 # Local agent/plugin settings (per-machine, not project config).
 /.claude/
