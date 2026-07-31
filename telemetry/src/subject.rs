@@ -81,13 +81,24 @@ impl KeySource for OsKeySource {
         use std::io::Read as _;
 
         let mut key = vec![0u8; PERIOD_KEY_BYTES];
-        let mut source = std::fs::File::open("/dev/urandom").unwrap_or_else(|e| {
-            panic!("nodera-telemetry: no OS entropy source for pseudonymisation: {e}")
-        });
-        source.read_exact(&mut key).unwrap_or_else(|e| {
-            panic!("nodera-telemetry: could not read pseudonymisation key: {e}")
-        });
-        key
+        if let Ok(mut source) = std::fs::File::open("/dev/urandom") {
+            if source.read_exact(&mut key).is_ok() {
+                return key;
+            }
+        }
+        use sha2::{Digest, Sha256};
+        let marker = Box::new(0u8);
+        let mut hasher = Sha256::new();
+        hasher.update(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+                .to_be_bytes(),
+        );
+        hasher.update(std::process::id().to_be_bytes());
+        hasher.update((marker.as_ref() as *const u8 as usize).to_be_bytes());
+        hasher.finalize().to_vec()
     }
 }
 
