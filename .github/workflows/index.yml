@@ -1,0 +1,59 @@
+# Validate the published service index.
+#
+# This workflow lives on the `services` branch and nowhere else, because a `pull_request` event uses
+# the workflows of the branch being merged: a checker sitting on `main` would never run for a pull
+# request that targets this branch, which is every pull request this branch gets. The listing is
+# data contributed from outside the project, so the gate has to fail on the offending line rather
+# than somewhere downstream in an app that will not start.
+#
+# The validator itself is not duplicated here. It is `scripts/services.py` on `main`, checked out
+# beside the list — one implementation of "is this a valid index", used by CI, by contributors
+# before they open a pull request, and by the three builds that compile the list in.
+name: index
+
+on:
+  push:
+    branches: [services]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The list under review
+        uses: actions/checkout@v4
+        with:
+          path: list
+
+      - name: The validator, from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+
+      # Against the schema *beside the list*, not the one on main: a pull request that raises
+      # `schema_version` brings its own schema, and checking it against the previous one would
+      # reject the very change that introduces the new format.
+      - name: The index is valid against the schema beside it
+        run: main/scripts/services.py --validate --index list/index.json
+
+      # Well-formed is not the same as usable. A list that parses and yields no endpoints passes a
+      # schema check and leaves every peer with nothing to contact.
+      - name: It yields endpoints of both kinds
+        run: |
+          set -euo pipefail
+          main/scripts/services.py --endpoints tracker --index list/index.json
+          main/scripts/services.py --endpoints rendezvous --index list/index.json
+
+      # `index.min.json` is what clients fetch and `index.json` is what humans edit. Two files a
+      # human may edit are two files that will disagree, and the disagreement would ship: the app
+      # would read one list while the pull request showed another.
+      - name: index.min.json is index.json, minified
+        run: |
+          set -euo pipefail
+          main/scripts/services.py --minify --index list/index.json > "$RUNNER_TEMP/expected.json"
+          diff -u "$RUNNER_TEMP/expected.json" list/index.min.json
