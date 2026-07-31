@@ -35,7 +35,8 @@
 #   services  Native binaries, one build per architecture.
 #             nodera-tracker / nodera-rendezvous
 #   app       Native installer, one build per system AND architecture, each needing that
-#             platform's own toolchain (deb/dmg/msi cannot be produced from one machine).
+#             platform's own toolchain (a deb and an msi cannot be produced from one machine).
+#             No macOS installer is published — see NODERA_RELEASE_SYSTEMS in lib/release.sh.
 #             nodera-app
 #
 # `--component` selects one; the default builds every leg this machine can. CI runs one leg per

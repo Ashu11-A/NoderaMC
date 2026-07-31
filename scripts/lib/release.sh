@@ -37,8 +37,8 @@
 #              a different build under the same name. Falls back to `/VERSION` when no tag is set,
 #              which is what a local `scripts/release.sh` produces.
 #   <arch>     `x64` or `arm64`. Both are always built.
-#   <system>   `linux`, `macos` or `windows`.
-#   <ext>      The installer format for that system: deb / dmg / msi.
+#   <system>   `linux` or `windows`. See below for why macOS is not among them.
+#   <ext>      The installer format for that system: deb / msi.
 #
 # Usage:
 #   source "$(dirname "${BASH_SOURCE[0]}")/release.sh"
@@ -49,15 +49,31 @@
 
 # The architectures and systems a release covers. Listed once; `release_manifest` and every caller
 # that loops over platforms reads these rather than repeating them.
+#
+# # Why macOS is not here
+#
+# It was, and the arm64 leg worked — `macos-14` produced a valid `.dmg` on the first run. The x64
+# leg did not: `macos-13` is the last x86-64 macOS image GitHub offers, it is deprecated, and a job
+# requesting it sat at "Waiting for a runner to pick up this job" for **fifteen hours** without ever
+# starting. That blocks `publish`, which needs every leg to finish, so one unobtainable runner held
+# the entire release — including the Linux and Windows installers that had built in minutes.
+#
+# Shipping only macOS-arm64 was the other option and is worse than shipping neither: an Intel Mac
+# user downloading the one macOS asset on the page gets a binary that will not run, and nothing on
+# the release says which Mac it is for. A platform is supported or it is not.
+#
+# Reviving it is one matrix entry in `.github/workflows/release.yml` plus `macos` here — the
+# `.dmg` path is known to work. What it needs is an x86-64 macOS runner that can actually be
+# scheduled, or a decision to cross-build x64 from `macos-14` with `--target x86_64-apple-darwin`
+# (`scripts/release.sh --target` already handles the bundle path for a cross build).
 NODERA_RELEASE_ARCHES=(x64 arm64)
-NODERA_RELEASE_SYSTEMS=(linux macos windows)
+NODERA_RELEASE_SYSTEMS=(linux windows)
 
 # The installer format each system ships. Kept beside the system list because adding a system
 # without deciding its format is how an empty asset name reaches `gh release create`.
 release_app_extension() {
     case "$1" in
         linux)   printf 'deb\n' ;;
-        macos)   printf 'dmg\n' ;;
         windows) printf 'msi\n' ;;
         *)       echo "release.sh: unknown system '$1'" >&2; return 1 ;;
     esac
@@ -94,8 +110,13 @@ release_system_token() {
     local system="${1:-${NODERA_RELEASE_SYSTEM:-$(uname -s)}}"
     case "$system" in
         Linux|linux)                       printf 'linux\n' ;;
-        Darwin|darwin|macos|macOS)         printf 'macos\n' ;;
         MINGW*|MSYS*|CYGWIN*|Windows_NT|windows) printf 'windows\n' ;;
+        # Named rather than falling through to the generic error, because "unknown system Darwin"
+        # would read as a gap in this mapping. It is a decision, not an omission — see the note on
+        # NODERA_RELEASE_SYSTEMS.
+        Darwin|darwin|macos|macOS)
+            echo "release.sh: Nodera publishes no macOS installer — see NODERA_RELEASE_SYSTEMS" >&2
+            return 1 ;;
         *) echo "release.sh: no release system token for '$system'" >&2; return 1 ;;
     esac
 }

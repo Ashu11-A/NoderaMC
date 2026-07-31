@@ -212,7 +212,7 @@ the tag, and **both architectures are always built**:
 | `nodera-neoforge-<version>.jar` | The NeoForge 1.21.1 mod — drop it in `mods/` |
 | `nodera-paper-<version>.jar` | The Paper/Folia endpoint plugin — drop it in `plugins/` |
 | `nodera-peer-<version>.jar` | The headless always-on node: `java -jar nodera-peer-<version>.jar` |
-| `nodera-app-<system>-<arch>.<ext>` | The companion app installer — `linux`/`macos`/`windows` × `x64`/`arm64` (`.deb`/`.dmg`/`.msi`) |
+| `nodera-app-<system>-<arch>.<ext>` | The companion app installer — `linux`/`windows` × `x64`/`arm64` (`.deb`/`.msi`). No macOS build: see `NODERA_RELEASE_SYSTEMS` in `scripts/lib/release.sh` |
 | `nodera-tracker-<arch>-<version>` | The tracker service binary — `x64` and `arm64` |
 | `nodera-rendezvous-<arch>-<version>` | The rendezvous + relay service binary — `x64` and `arm64` |
 | `SHA256SUMS` / `SHA256SUMS.sig` | Digests over every asset, and a detached Ed25519 signature over them |

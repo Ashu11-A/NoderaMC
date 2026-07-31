@@ -272,8 +272,6 @@ jobs:
           nodera-peer-latest.jar
           nodera-app-linux-x64.deb
           nodera-app-linux-arm64.deb
-          nodera-app-macos-x64.dmg
-          nodera-app-macos-arm64.dmg
           nodera-app-windows-x64.msi
           nodera-app-windows-arm64.msi
           nodera-tracker-x64-latest

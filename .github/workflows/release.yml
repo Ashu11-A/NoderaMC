@@ -7,7 +7,7 @@
 #   nodera-neoforge-<version>.jar        NeoForge 1.21.1 mod
 #   nodera-paper-<version>.jar           Paper/Folia endpoint plugin
 #   nodera-peer-<version>.jar            headless always-on node (`java -jar`)
-#   nodera-app-<system>-<arch>.<ext>     companion app installer, 6 of them
+#   nodera-app-<system>-<arch>.<ext>     companion app installer, 4 of them
 #   nodera-tracker-<arch>-<version>      tracker service binary, x64 + arm64
 #   nodera-rendezvous-<arch>-<version>   rendezvous service binary, x64 + arm64
 #   SHA256SUMS[.sig]                     what the services' self-update lane reads
@@ -144,10 +144,16 @@ jobs:
 
   # --- the companion app: one native installer per system AND architecture ----------------------
   #
-  # Six legs, because deb, dmg and msi cannot be produced from one machine and each needs its own
+  # Four legs, because a deb and an msi cannot be produced from one machine and each needs its own
   # architecture's toolchain. `fail-fast: false` so a runner outage on one platform costs that
-  # platform's installer and not the other five — the publish job is what decides whether an
+  # platform's installer and not the other three — the publish job is what decides whether an
   # incomplete set may be released.
+  #
+  # There is no macOS leg. `macos-14` built a valid `.dmg` on the first run; `macos-13` — the last
+  # x86-64 macOS image, deprecated — never got a runner at all, and sat at "Waiting for a runner to
+  # pick up this job" for fifteen hours while holding `publish` and therefore the whole release.
+  # See NODERA_RELEASE_SYSTEMS in `scripts/lib/release.sh` for why shipping arm64 alone was not the
+  # answer, and for what reviving it needs.
   #
   # Every leg needs a JDK as well as Rust and bun: the app bundles the headless node
   # (`:peer:installDist`) as a Tauri resource.
@@ -165,13 +171,6 @@ jobs:
           - system: linux
             arch: arm64
             runner: ubuntu-24.04-arm
-          # macos-13 is the last x64 image; macos-14 and later are Apple silicon.
-          - system: macos
-            arch: x64
-            runner: macos-13
-          - system: macos
-            arch: arm64
-            runner: macos-14
           - system: windows
             arch: x64
             runner: windows-2022
