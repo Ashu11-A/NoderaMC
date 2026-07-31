@@ -256,7 +256,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
-| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 189 | 🚧 |
+| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 194 | 🚧 |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap

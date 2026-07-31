@@ -10,7 +10,7 @@
 //! started by `scripts/dev.sh`). The app only monitors + shows the UI. This prevents two workers
 //! fighting over the control port in development.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -203,11 +203,75 @@ fn worker_properties_body(settings: &Settings) -> String {
         .collect()
 }
 
-/// Locate the worker launcher: `NODERA_WORKER_BIN`, else the bundled installDist under resources.
-fn worker_launcher() -> PathBuf {
-    std::env::var("NODERA_WORKER_BIN")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("resources/nodera-headless/bin/nodera-headless"))
+/// The launcher's path inside the bundle, relative to the resource directory.
+///
+/// Contract with `app/tauri.<system>.conf.json`, which stages `build/nodera-headless/bin/*` and
+/// `lib/*` under `resources/nodera-headless/`.
+const BUNDLED_LAUNCHER: &str = "resources/nodera-headless/bin/nodera-headless";
+
+/// Every place the worker launcher can legitimately be, in the order they are tried.
+///
+/// # Why this is a list and not a path
+///
+/// It used to be one bare relative path, `resources/nodera-headless/bin/nodera-headless`, which a
+/// process resolves against its CURRENT WORKING DIRECTORY. That is the build tree when a developer
+/// runs the app from the repository, so it worked everywhere anybody looked — and it is the user's
+/// home directory when the app is launched from a desktop menu, where it can never work. An
+/// installed `.deb` puts the launcher at `/usr/lib/Nodera/resources/nodera-headless/bin/`, and the
+/// app reported
+///
+///     failed to start peer worker ("resources/nodera-headless/bin/nodera-headless"):
+///     No such file or directory (os error 2)
+///
+/// every backoff, forever. The bug was invisible until the release lane started producing real
+/// installers, because until then nothing ever ran the app from anywhere but a checkout.
+///
+/// `resource_dir` is what Tauri resolves for the running bundle; it is `None` on a build that has
+/// no bundle (`cargo run`), which is exactly when the working-directory candidates are the right
+/// answer. Both are kept, because the app has to work installed AND from a checkout.
+fn launcher_candidates(resource_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(dir) = resource_dir {
+        candidates.push(dir.join(BUNDLED_LAUNCHER));
+        // Tauri has moved what `resource_dir()` points at between versions — at `<prefix>/lib/<app>`
+        // the `resources/` segment is ours, elsewhere it is already included. Trying both costs one
+        // `is_file` and removes a whole class of "works on my packaging format".
+        candidates.push(dir.join("nodera-headless/bin/nodera-headless"));
+    }
+    // Beside the executable: how a portable/extracted build is laid out, and what an AppImage or a
+    // zip drop gives you.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join(BUNDLED_LAUNCHER));
+        }
+    }
+    // The working directory, last: this is the development case, and it must not shadow an
+    // installed bundle — a stale `resources/` in whatever directory the app happened to be
+    // launched from would otherwise win over the one that shipped with it.
+    candidates.push(PathBuf::from(BUNDLED_LAUNCHER));
+    // The repository's own staging directory, so `cargo run` from a checkout finds the worker that
+    // `scripts/dev.sh --build-only` just built.
+    candidates.push(PathBuf::from("build/nodera-headless/bin/nodera-headless"));
+    candidates
+}
+
+/// Locate the worker launcher: `NODERA_WORKER_BIN`, else the first bundled candidate that exists.
+///
+/// Returns the error case as `Err(every path tried)` rather than as a plausible-looking path that
+/// does not exist. The old behaviour returned the latter, so the failure named one location and
+/// gave no hint that others were possible — which is a bad message to receive three times a second
+/// from a backoff loop.
+fn worker_launcher(resource_dir: Option<&Path>) -> Result<PathBuf, Vec<PathBuf>> {
+    if let Ok(explicit) = std::env::var("NODERA_WORKER_BIN") {
+        // An explicit override is honoured even if it does not exist: the operator asked for that
+        // exact path, and silently searching elsewhere would hide their typo.
+        return Ok(PathBuf::from(explicit));
+    }
+    let candidates = launcher_candidates(resource_dir);
+    match candidates.iter().find(|path| path.is_file()) {
+        Some(found) => Ok(found.clone()),
+        None => Err(candidates),
+    }
 }
 
 /// Run the supervisor loop until the process exits. Restarts the worker with a capped backoff.
@@ -222,6 +286,9 @@ pub async fn supervise(
     logs: Arc<LogBuffer>,
     settings: Arc<SettingsHandle>,
     restart: Arc<RestartSignal>,
+    // Resolved by the caller, which is the only place with an `AppHandle`. `None` means "this build
+    // has no bundle", not "look in the current directory" — see `launcher_candidates`.
+    resource_dir: Option<PathBuf>,
 ) {
     if attach_mode() {
         eprintln!("nodera-app: attach mode — not supervising a worker (one runs externally)");
@@ -230,7 +297,29 @@ pub async fn supervise(
         return;
     }
 
-    let launcher = worker_launcher();
+    let launcher = match worker_launcher(resource_dir.as_deref()) {
+        Ok(path) => path,
+        Err(tried) => {
+            // Reported ONCE and then given up on, rather than retried forever. A missing launcher
+            // is a broken installation, not a transient fault: no amount of backoff makes a file
+            // appear, and the old loop printed the same misleading line every second for as long
+            // as the app was open.
+            let list = tried
+                .iter()
+                .map(|p| format!("  {}", p.display()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            eprintln!(
+                "nodera-app: the bundled peer worker is missing. Looked in:\n{list}\n\
+                 This build does not carry `nodera-headless`. Set NODERA_WORKER_BIN to a launcher, \
+                 or run a release build — a packaged app stages it under resources/."
+            );
+            // The UI must say this too, not only stderr — a desktop user never sees stderr, and
+            // "Offline" with no reason is the screen-of-zeros this dashboard was rebuilt to stop.
+            store.mark_offline("the bundled peer worker is missing from this installation");
+            return;
+        }
+    };
     let mut backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(30);
 
@@ -319,6 +408,70 @@ mod tests {
 
     fn env_of(settings: &Settings) -> std::collections::HashMap<String, String> {
         worker_env(settings).into_iter().collect()
+    }
+
+    /// The bundle layout is checked BEFORE the working directory.
+    ///
+    /// This ordering is the fix. The old code had only the working-directory path, so an installed
+    /// app resolved it against whatever directory the desktop menu happened to launch it from — the
+    /// user's home — and could never find the worker it shipped with.
+    #[test]
+    fn an_installed_bundle_is_preferred_over_the_working_directory() {
+        let dir = std::env::temp_dir().join(format!("nodera-launcher-{}", std::process::id()));
+        let bundled = dir.join(BUNDLED_LAUNCHER);
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"#!/bin/sh\n").unwrap();
+
+        let candidates = launcher_candidates(Some(&dir));
+        assert_eq!(
+            candidates.first(),
+            Some(&bundled),
+            "the resource directory must be tried first, or a stray ./resources in the launch \
+             directory shadows the launcher the app was installed with"
+        );
+        assert!(
+            candidates.iter().any(|p| p == Path::new(BUNDLED_LAUNCHER)),
+            "the working-directory candidate must remain, for `cargo run` from a checkout"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A build with no bundle still has somewhere to look.
+    #[test]
+    fn a_build_with_no_bundle_falls_back_to_the_checkout() {
+        let candidates = launcher_candidates(None);
+        assert!(candidates.iter().any(|p| p == Path::new(BUNDLED_LAUNCHER)));
+        assert!(candidates
+            .iter()
+            .any(|p| p == Path::new("build/nodera-headless/bin/nodera-headless")));
+    }
+
+    /// A missing launcher reports every path it tried, not one plausible-looking guess.
+    #[test]
+    fn a_missing_launcher_names_everywhere_it_looked() {
+        // SAFETY: single-threaded within this test; the variable is removed immediately after.
+        unsafe { std::env::remove_var("NODERA_WORKER_BIN") };
+        let empty = std::env::temp_dir().join(format!("nodera-nothing-{}", std::process::id()));
+        let tried = worker_launcher(Some(&empty))
+            .expect_err("nothing is installed under an empty directory");
+        assert!(
+            tried.len() >= 3,
+            "every candidate should be reported: {tried:?}"
+        );
+        assert!(tried.iter().any(|p| p.starts_with(&empty)));
+    }
+
+    /// An explicit override wins, and is NOT second-guessed when it does not exist.
+    ///
+    /// Silently searching elsewhere would turn an operator's typo into a worker started from
+    /// somewhere they did not ask for, which is worse than the error.
+    #[test]
+    fn an_explicit_override_is_honoured_verbatim() {
+        // SAFETY: set and removed within this test.
+        unsafe { std::env::set_var("NODERA_WORKER_BIN", "/nonexistent/on/purpose") };
+        let found = worker_launcher(None).expect("an override is always accepted");
+        assert_eq!(found, Path::new("/nonexistent/on/purpose"));
+        unsafe { std::env::remove_var("NODERA_WORKER_BIN") };
     }
 
     /// Settings with no stores at all, for the tests that are about the user's own two lists.
