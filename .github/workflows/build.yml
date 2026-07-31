@@ -63,6 +63,14 @@ jobs:
       # moved. This is the grep that notices.
       - name: Layout references resolve (workflows, Dockerfiles, tauri config)
         run: scripts/check-layout-drift.sh
+      # The same shape of defect as the line above — something that is fine here and broken
+      # somewhere nobody looks. Linux is case-sensitive; macOS and Windows are not, so
+      # `app/ui/src/network.ts` beside `app/ui/src/Network.tsx` was two modules on every runner this
+      # workflow had ever used and ONE module on the release runners, where `tsc` resolved
+      # `./Network` to the lowercase file and failed. It had been latent for the life of the UI and
+      # is invisible from a case-sensitive machine: every local build and every review passes.
+      - name: No paths that collide by case on macOS or Windows
+        run: scripts/check-case-collisions.sh
       # `docs/` is ~1,000 files that cross-reference each other by relative path, and nothing
       # checked those links. The 2026-07-30 worker -> peer rename moved ninety-six of them at once;
       # the only symptom of getting that wrong is a 404 for whoever clicks. Table shape is checked

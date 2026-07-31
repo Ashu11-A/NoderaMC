@@ -7,6 +7,15 @@
 // One phrase to keep straight in every string shown to a user: joining a world here does **not**
 // download it. The worker opens a tunnel to whoever is hosting and binds a port on this machine;
 // the player's own Minecraft then connects to that port. No save is copied, ever.
+//
+// # Why this is `play.ts` and not `network.ts`
+//
+// It was `network.ts`, beside the `Network.tsx` screen that consumes it. Two files whose names
+// differ only in case are two modules on Linux and ONE on macOS and Windows, where the filesystem
+// is case-insensitive: `tsc` there resolved `./Network` to this file, reported that it exports no
+// `NetworkScreen`, and failed. Nothing caught it for as long as the UI was only ever built on
+// Linux. `scripts/check-case-collisions.sh` is the guard; this name is the fix, and it is a better
+// name anyway — the file is the play-with-other-people commands, not "the network".
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 

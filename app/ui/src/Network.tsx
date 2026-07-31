@@ -22,7 +22,7 @@ import {
   leaveWorld,
   parseShareLink,
   type DirectoryEntry,
-} from "./network";
+} from "./play";
 import { shortId } from "./api";
 
 /** A world this app has a local door open to, and where that door is. */

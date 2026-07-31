@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FiAlertTriangle, FiCheck, FiFolder, FiPackage, FiTrash2 } from "react-icons/fi";
 import { Card, Empty, MONO, Pill, cx } from "./components";
-import { installMod, modInstallStatus, uninstallMod, type ModInstallStatus } from "./network";
+import { installMod, modInstallStatus, uninstallMod, type ModInstallStatus } from "./play";
 
 export function ModInstallScreen() {
   const [status, setStatus] = useState<ModInstallStatus | null>(null);

@@ -173,6 +173,7 @@ scripts/version.sh --check       # every version mirror agrees with the root VER
 scripts/test-counts.sh --check   # the Rust test counts below are the measured ones
 scripts/test-totals.sh --java    # how many tests PASSED/FAILED — what the badges above show
 scripts/check-layout-drift.sh    # workflow/Docker/Tauri paths still resolve
+scripts/check-case-collisions.sh # no path or module that collides by case on macOS/Windows
 scripts/check-docs.sh            # every docs/ link resolves; every table is square
 ```
 
