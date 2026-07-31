@@ -279,8 +279,14 @@ jobs:
       - name: A tagged release names its assets after the tag
         run: |
           set -euo pipefail
-          NODERA_RELEASE_TAG=v9.9.9 scripts/release.sh --names | grep -qx 'nodera-peer-9.9.9.jar'
-          NODERA_RELEASE_TAG=v9.9.9 scripts/release.sh --names | grep -qx 'nodera-tracker-arm64-9.9.9'
+          # Captured into a variable rather than piped into `grep -q`: `-q` exits on the first
+          # match, the producing script takes SIGPIPE, and `pipefail` reports the whole step as
+          # failed for a reason that has nothing to do with the assertion.
+          names="$(NODERA_RELEASE_TAG=v9.9.9 scripts/release.sh --names)"
+          grep -qx 'nodera-peer-9.9.9.jar'      <<<"$names"
+          grep -qx 'nodera-tracker-arm64-9.9.9' <<<"$names"
+          # And the tag must not leak the `latest` token into a versioned release.
+          ! grep -q 'latest' <<<"$names"
 
   # --- the README badge ------------------------------------------------------------------------
   #

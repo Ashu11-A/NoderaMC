@@ -251,12 +251,25 @@ verify() {
         fi
     done
 
+    # Membership without a pipeline. `printf … | grep -qxF` would be the obvious spelling and is a
+    # latent bug: `-q` exits on the first match, the writer takes SIGPIPE, and this script runs
+    # under `pipefail` — so a file that IS in the manifest would be reported as unexpected, as soon
+    # as the manifest outgrew the pipe buffer.
+    contains() {
+        local needle="$1" candidate
+        shift
+        for candidate in "$@"; do
+            [[ "$candidate" == "$needle" ]] && return 0
+        done
+        return 1
+    }
+
     local file base
     for file in "$RELEASE_DIR"/*; do
         [[ -f "$file" ]] || continue
         base="$(basename "$file")"
         [[ "$base" == "$NODERA_RELEASE_CHECKSUMS" || "$base" == "$NODERA_RELEASE_SIGNATURE" ]] && continue
-        if ! printf '%s\n' "${expected[@]}" | grep -qxF "$base"; then
+        if ! contains "$base" "${expected[@]}"; then
             printf '  \033[1;33mUNEXPECTED\033[0m %s\n' "$base"
             unexpected=$((unexpected + 1))
         fi

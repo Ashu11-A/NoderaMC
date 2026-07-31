@@ -101,8 +101,21 @@ release_version_token() {
     local root="${NODERA_ROOT:-$(layout_root "$(dirname "${BASH_SOURCE[0]}")")}"
     # The same rule `settings.gradle.kts`, `build.rs` and `scripts/version.sh` apply: first
     # non-empty, non-comment line.
-    sed -e 's/#.*//' -e 's/[[:space:]]//g' "$root/VERSION" | grep -m1 . \
-        || { echo "release.sh: $root/VERSION is empty" >&2; return 1; }
+    #
+    # Read in a `while` rather than piped into `grep -m1`: an early-exiting reader closes the pipe
+    # under the writer, and callers run this with `pipefail` set, which turns that SIGPIPE into a
+    # failed command. It survives today only because VERSION fits in the pipe buffer.
+    local line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | tr -d '[:space:]')"
+        if [ -n "$line" ]; then
+            printf '%s\n' "$line"
+            return 0
+        fi
+    done <"$root/VERSION"
+    echo "release.sh: $root/VERSION is empty" >&2
+    return 1
 }
 
 # One asset name.
