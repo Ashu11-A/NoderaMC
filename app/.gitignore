@@ -9,5 +9,17 @@ Cargo.lock
 /ui/package-lock.json
 /ui/bun.lock
 
-# Generated app icons (produced by `cargo tauri icon`)
-/icons/
+# App icons. `cargo tauri icon` generates a whole set here (icon.icns, Square*Logo.png, …) and
+# those are build output — but the handful below are COMMITTED, because they are the source the
+# bundlers read and there is no high-resolution original in the tree to regenerate them from.
+#
+# They used to be tracked *despite* this rule, which is a state git allows and nobody can see: the
+# files were force-added once, so they kept working, and `icon.ico` — never added — looked like it
+# was simply absent. It was, and Windows release builds failed on it (`icons/icon.ico` not found;
+# required for generating a Windows Resource file during tauri-build) while every other platform
+# built fine. Listing the committed set explicitly is what makes a missing one visible.
+/icons/*
+!/icons/32x32.png
+!/icons/128x128.png
+!/icons/icon.png
+!/icons/icon.ico
