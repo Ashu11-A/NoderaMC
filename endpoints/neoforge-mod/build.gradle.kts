@@ -51,14 +51,22 @@ dependencies {
 }
 
 // Produce a *runnable* mod jar. The Minecraft-free Nodera modules are pure-Java project deps and
-// are NOT nested jars, so a bare `neoforge-mod.jar` would be missing every `dev.nodera.*` class at
-// runtime and fail to load on a real server. Fold their compiled classes into the mod jar (a fat
-// jar of our own code only — never Minecraft/NeoForge, which the loader provides).
+// are NOT nested jars, so a bare mod jar would be missing every `dev.nodera.*` class at runtime and
+// fail to load on a real server. Fold their compiled classes into the mod jar (a fat jar of our own
+// code only — never Minecraft/NeoForge, which the loader provides).
 val noderaBundled = listOf(
     ":core", ":transport", ":engine",
     ":storage", ":peer", ":endpoint")
 
 tasks.named<Jar>("jar") {
+    // `nodera-neoforge.jar` — the deliverable's name minus its version token. The token belongs to
+    // the RELEASE, not to the build: the rolling prerelease publishes this file as
+    // `nodera-neoforge-latest.jar` while `/VERSION` says 0.1.0, so stamping `archiveVersion` here
+    // would produce a name that is right in exactly one of the two cases. `scripts/lib/release.sh`
+    // owns the token and `scripts/release.sh` applies it when staging. Everything in-repo (dev.sh,
+    // the live harness, `--install-mod`) therefore gets one constant file name.
+    archiveBaseName.set("nodera-neoforge")
+    archiveVersion.set("")
     dependsOn(noderaBundled.map { "$it:jar" })
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from({ noderaBundled.map { zipTree(project(it).tasks.named<Jar>("jar").get().archiveFile) } })

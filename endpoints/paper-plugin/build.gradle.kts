@@ -2,7 +2,7 @@ plugins {
     id("nodera.java-library")
 }
 
-// paper-plugin: `nodera-endpoint.jar` — the Paper/Folia endpoint (server task 1, L-61).
+// paper-plugin: `nodera-paper.jar` — the Paper/Folia endpoint (server task 1, L-61).
 //
 // The Paper API is `compileOnly` and lives on PaperMC's maven: the server provides it at runtime,
 // and bundling it would shade a second copy of the platform into the plugin. The repository is
@@ -27,10 +27,12 @@ dependencies {
     testImplementation(project(":core"))
 }
 
-// The harness stages `java/paper-plugin/build/libs/nodera-endpoint.jar` (scripts/lib/e2e-server.sh),
-// so the artifact name is part of the contract rather than a convenience.
+// The harness stages `endpoints/paper-plugin/build/libs/nodera-paper.jar` (TestPaths), so the
+// artifact name is part of the contract rather than a convenience. It is also the deliverable's
+// name minus its version token — see the note in `endpoints/neoforge-mod/build.gradle.kts` for why
+// the token belongs to the release lane and not to `archiveVersion`.
 tasks.jar {
-    archiveBaseName.set("nodera-endpoint")
+    archiveBaseName.set("nodera-paper")
     archiveVersion.set("")
     // The plugin's classes need the Nodera stack at runtime and the server provides none of it, so
     // our own modules ride inside the jar. Ours only — never Paper, never a third-party library the

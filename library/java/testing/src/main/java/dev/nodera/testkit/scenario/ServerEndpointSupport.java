@@ -232,7 +232,7 @@ public final class ServerEndpointSupport implements AutoCloseable {
     /** Why {@link #softPreflight} said no, in the shell suites' own words. */
     public String skipReason(String wanted) {
         if (!Files.isRegularFile(pluginJar)) {
-            return "no nodera-endpoint jar at " + pluginJar + " (server task 1 — L-61).";
+            return "no nodera-paper jar at " + pluginJar + " (server task 1 — L-61).";
         }
         Path jar = resolveServerJar(wanted);
         return "no " + wanted + " jar at " + jar + " (L-66). Stage one at $NODERA_"
@@ -317,7 +317,7 @@ public final class ServerEndpointSupport implements AutoCloseable {
                 spark.stagePlugin(platform, serverStage);
             }
 
-            Files.copy(pluginJar, serverStage.resolve("plugins/nodera-endpoint.jar"),
+            Files.copy(pluginJar, serverStage.resolve("plugins/nodera-paper.jar"),
                     StandardCopyOption.REPLACE_EXISTING);
             Files.writeString(serverStage.resolve("plugins/NoderaEndpoint/nodera-endpoint.yml"), """
                     peer:

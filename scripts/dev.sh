@@ -90,7 +90,7 @@
 #                   No services run. This is what CI runs.
 #   --test          Run the full gate (gradlew build + cargo test) instead of a fast build.
 #   --no-build      Skip the build phase; use whatever is already collected in build/.
-#   --install-mod   After building, copy build/neoforge-mod.jar into the client mods/ dir
+#   --install-mod   After building, copy build/nodera-neoforge.jar into the client mods/ dir
 #                   (NODERA_MC_DIR, default ~/.minecraft), then continue.
 #   --with-app      Build + launch the Tauri companion app (app) in attach mode.
 #                   INFRA mode: one app beside the single worker.
@@ -129,7 +129,7 @@ set -euo pipefail
 
 # --- paths ---------------------------------------------------------------
 # Directories come from `layout.properties` (see scripts/lib/layout.sh); the file names under them
-# are composed here, because `build/libs/neoforge-mod.jar` is a property of Gradle and the manifest
+# are composed here, because `build/libs/nodera-neoforge.jar` is a property of Gradle and the manifest
 # only describes the tree.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
 layout_export
@@ -139,14 +139,14 @@ LOG_DIR="${NODERA_LOG_DIR:-$NODERA_RUN_DIR/logs}"
 
 # The shared artifact directory: both toolchains' outputs land here together.
 BUILD_DIR="${NODERA_BUILD_DIR:-$NODERA_ARTIFACTS}"
-SRC_MOD_JAR="$NODERA_MOD_DIR/build/libs/neoforge-mod.jar"
+SRC_MOD_JAR="$NODERA_MOD_DIR/build/libs/nodera-neoforge.jar"
 
 # The headless peer worker (Task 32): built via the `application` plugin's installDist.
 WORKER_SRC_DIST="$NODERA_PEER_MODULE/build/install/nodera-headless"
 APP_DIR="$NODERA_APP_DIR"
 
 # Runtime consumes the collected copies in build/ — never the per-toolchain output dirs.
-MOD_JAR="$BUILD_DIR/neoforge-mod.jar"
+MOD_JAR="$BUILD_DIR/nodera-neoforge.jar"
 TRACKER_BIN="$BUILD_DIR/nodera-tracker"
 RENDEZVOUS_BIN="$BUILD_DIR/nodera-rendezvous"
 WORKER_DIST="$BUILD_DIR/nodera-headless"
@@ -301,9 +301,10 @@ install_mod() {
     [[ -f "$MOD_JAR" ]] || die "mod jar missing ($MOD_JAR). Build first (drop --no-build)."
     [[ -d "$MC_DIR" ]]  || die "client dir not found: $MC_DIR (set NODERA_MC_DIR)."
     mkdir -p "$MC_DIR/mods"
-    find "$MC_DIR/mods" -maxdepth 1 -name 'neoforge-mod*.jar' -delete 2>/dev/null || true
-    cp "$MOD_JAR" "$MC_DIR/mods/neoforge-mod.jar"
-    log "Installed mod → $MC_DIR/mods/neoforge-mod.jar"
+    find "$MC_DIR/mods" -maxdepth 1 \( -name 'neoforge-mod*.jar' -o -name 'nodera-neoforge*.jar' \) \
+        -delete 2>/dev/null || true
+    cp "$MOD_JAR" "$MC_DIR/mods/nodera-neoforge.jar"
+    log "Installed mod → $MC_DIR/mods/nodera-neoforge.jar"
 
     # Remove stale Nodera config (global + per-world serverconfig) so it regenerates from the mod's
     # baked default endpoints on next launch. A pre-existing file with `endpoints = []` would
@@ -548,7 +549,7 @@ start_stack() {
     announce_services
     [[ "$RUN_WORKER" -eq 1 ]] && log "  peer worker: control 127.0.0.1:$CONTROL_PORT · p2p 0.0.0.0:$WORKER_P2P_PORT (the mod REQUIRES this)"
     [[ "$WITH_APP" -eq 1 ]]   && log "  companion:   Tauri app (attach mode)"
-    log "  Host a world: launch a NeoForge 1.21.1 client with build/neoforge-mod.jar in mods/,"
+    log "  Host a world: launch a NeoForge 1.21.1 client with build/nodera-neoforge.jar in mods/,"
     log "                keep this running (the mod needs the worker), open a world, press \"Share\"."
     wait
 }

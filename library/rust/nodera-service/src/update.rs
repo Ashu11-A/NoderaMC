@@ -28,11 +28,20 @@
 //! tracker; they did not agree to let it replace its own executable. The project's own deployments set
 //! it. This is the same consent rule the telemetry lane follows, for the same reason.
 //!
-//! ## What is deliberately not here
+//! ## Integrity and provenance
 //!
-//! The digest comes from the release, so this verifies **integrity, not provenance**: anyone who can
-//! publish to the release can publish a digest for what they published. Release signing is tracked as
-//! an open limitation rather than pretended away — see `docs/tracker/LIMITATIONS.md` (L-61).
+//! The digest comes from the release, so on its own it verifies **integrity, not provenance**: anyone
+//! who can publish to the release can publish a digest for what they published. That is why the
+//! manifest is signed and why [`verify_manifest_signature`] runs BEFORE any digest is read. A build
+//! with no key pinned (`DEFAULT_RELEASE_PUBLIC_KEY` empty) still has only integrity, and says so on
+//! every check rather than implying a guarantee it cannot make — that residue is L-81.
+//!
+//! ## Which asset
+//!
+//! A release publishes one binary per architecture under `<binary>-<arch>-<version>`
+//! ([`UpdateConfig::asset_name`]). All three tokens are derived — from the config, from the build's
+//! own `target_arch`, and from the tag at the end of `feed_base_url` — so there is no name to keep
+//! in step with `scripts/lib/release.sh` by hand.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -48,6 +57,50 @@ pub const CHECKSUM_ASSET: &str = "SHA256SUMS";
 
 /// The detached Ed25519 signature over [`CHECKSUM_ASSET`].
 pub const CHECKSUM_SIGNATURE_ASSET: &str = "SHA256SUMS.sig";
+
+/// This build's release architecture token: `x64` or `arm64`.
+///
+/// The release publishes one binary per architecture, so a service that asked for
+/// `nodera-tracker` — as this lane did until the release carried more than one — would download
+/// whichever architecture happened to be published under that name and fail to exec it.
+///
+/// `None` on an architecture the project publishes no binary for, which is not a panic: a service
+/// compiled for one is perfectly able to run, it just cannot replace itself, and saying so is more
+/// useful than refusing to build or than downloading an asset that will not exec.
+///
+/// Mirrors `release_arch_token` in `scripts/lib/release.sh`; `release_names_match_the_shell_table`
+/// runs that script and asserts the two agree.
+pub fn arch_token() -> Option<&'static str> {
+    // `std::env::consts::ARCH` is the architecture this binary was COMPILED for, which is the one
+    // whose replacement it needs — not the machine's, which under emulation is a different answer.
+    match std::env::consts::ARCH {
+        "x86_64" => Some("x64"),
+        "aarch64" => Some("arm64"),
+        _ => None,
+    }
+}
+
+/// The version token in a release asset name, read from the feed URL's trailing tag.
+///
+/// The release names its assets after the TAG, not after `/VERSION`, and the two differ on purpose:
+/// the rolling prerelease is tagged `latest` and republished on every push while `/VERSION` stays
+/// put. Deriving the token from `feed_base_url` — which already ends in that tag — is what keeps a
+/// fork or a private mirror working without a second setting to keep in step.
+pub fn version_token(feed_base_url: &str) -> &str {
+    let tag = feed_base_url
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default();
+    tag.strip_prefix('v').unwrap_or(tag)
+}
+
+/// The release asset name for a service binary: `<binary>-<arch>-<version>`.
+///
+/// Mirrors `release_asset tracker|rendezvous` in `scripts/lib/release.sh`.
+pub fn service_asset_name(binary: &str, arch: &str, version: &str) -> String {
+    format!("{binary}-{arch}-{version}")
+}
 
 /// The release signing key this build trusts, as 64 hex characters, or empty.
 ///
@@ -66,10 +119,16 @@ pub const DEFAULT_RELEASE_PUBLIC_KEY: &str = "";
 pub struct UpdateConfig {
     /// Release channel; empty disables updating entirely.
     pub channel: String,
-    /// Base URL that `<base>/<asset>` resolves against.
+    /// Base URL that `<base>/<asset>` resolves against. Its last path segment is the release tag,
+    /// which is also where [`UpdateConfig::asset_name`] gets its version token.
     pub feed_base_url: String,
-    /// The asset name for this binary (`nodera-tracker`, `nodera-rendezvous`).
-    pub asset_name: String,
+    /// This service's BINARY name (`nodera-tracker`, `nodera-rendezvous`) — not its asset name.
+    ///
+    /// The two stopped being the same when the release started publishing more than one
+    /// architecture: the asset is `nodera-tracker-arm64-latest`, and composing that from the
+    /// binary name plus the running architecture plus the tag is the only version of this that
+    /// cannot install an x64 build onto an arm64 host. See [`UpdateConfig::asset_name`].
+    pub binary_name: String,
     /// How often to check.
     pub check_interval_seconds: u64,
     /// How long in-flight work may hold up the restart.
@@ -89,6 +148,29 @@ impl UpdateConfig {
     /// The URL of an asset in the configured release.
     pub fn asset_url(&self, asset: &str) -> String {
         format!("{}/{}", self.feed_base_url.trim_end_matches('/'), asset)
+    }
+
+    /// This build's own asset in the configured release: `<binary>-<arch>-<version>`.
+    ///
+    /// Errors rather than guessing on an architecture the project publishes nothing for. That is a
+    /// state an operator can act on ("build from source, or turn the lane off"); the alternative is
+    /// a 404 every check interval with no explanation of which of the three tokens was wrong.
+    pub fn asset_name(&self) -> io::Result<String> {
+        let arch = arch_token().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "no Nodera release is published for {} — the update lane cannot name its own \
+                     asset on this architecture",
+                    std::env::consts::ARCH
+                ),
+            )
+        })?;
+        Ok(service_asset_name(
+            &self.binary_name,
+            arch,
+            version_token(&self.feed_base_url),
+        ))
     }
 }
 
@@ -343,11 +425,12 @@ pub fn check(
     // anyone asks whether the manifest is genuine.
     verify_manifest_signature(config, fetcher, &manifest)?;
 
+    let asset = config.asset_name()?;
     let manifest = String::from_utf8_lossy(&manifest);
-    let published = digest_for_asset(&manifest, &config.asset_name).ok_or_else(|| {
+    let published = digest_for_asset(&manifest, &asset).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("{CHECKSUM_ASSET} lists no digest for {}", config.asset_name),
+            format!("{CHECKSUM_ASSET} lists no digest for {asset}"),
         )
     })?;
     let running = digest_of(running_binary)?;
@@ -369,15 +452,15 @@ pub fn stage(
     target_path: &Path,
     expected_digest: &str,
 ) -> io::Result<StagedUpdate> {
-    let bytes = fetcher.get(&config.asset_url(&config.asset_name))?;
+    let asset = config.asset_name()?;
+    let bytes = fetcher.get(&config.asset_url(&asset))?;
     let actual = hex(&Sha256::digest(&bytes));
     if actual != expected_digest.to_ascii_lowercase() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
-                "downloaded {} does not match its published digest \
-                 (published {expected_digest}, downloaded {actual}) — refusing to install",
-                config.asset_name
+                "downloaded {asset} does not match its published digest \
+                 (published {expected_digest}, downloaded {actual}) — refusing to install"
             ),
         ));
     }
@@ -513,11 +596,20 @@ mod tests {
         UpdateConfig {
             channel: "latest".to_owned(),
             feed_base_url: "https://example.invalid/releases/download/latest".to_owned(),
-            asset_name: "nodera-rendezvous".to_owned(),
+            binary_name: "nodera-rendezvous".to_owned(),
             check_interval_seconds: 3_600,
             drain_grace_seconds: 30,
             release_public_key: String::new(),
         }
+    }
+
+    /// The asset name `config()` resolves to on THIS machine.
+    ///
+    /// Spelled as a call rather than a literal because the arch token differs between the x64 and
+    /// arm64 CI legs, and a hardcoded `nodera-rendezvous-x64-latest` would pass on one and fail on
+    /// the other — for a reason that has nothing to do with what these tests assert.
+    fn asset() -> String {
+        config().asset_name().expect("a release architecture")
     }
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -555,7 +647,7 @@ mod tests {
         let feed = FakeFeed::new();
         feed.serve(
             CHECKSUM_ASSET,
-            manifest_for("nodera-rendezvous", b"build-A").as_bytes(),
+            manifest_for(&asset(), b"build-A").as_bytes(),
         );
         assert_eq!(check(&config(), &feed, &binary).unwrap(), None);
         let _ = std::fs::remove_dir_all(&dir);
@@ -571,7 +663,7 @@ mod tests {
         let feed = FakeFeed::new();
         feed.serve(
             CHECKSUM_ASSET,
-            manifest_for("nodera-rendezvous", b"build-B").as_bytes(),
+            manifest_for(&asset(), b"build-B").as_bytes(),
         );
         let found = check(&config(), &feed, &binary).unwrap().unwrap();
         assert_eq!(found, hex(&Sha256::digest(b"build-B")));
@@ -600,7 +692,7 @@ mod tests {
         let binary = dir.join("nodera-rendezvous");
         std::fs::write(&binary, b"build-A").unwrap();
         let feed = FakeFeed::new();
-        feed.serve("nodera-rendezvous", b"something-else-entirely");
+        feed.serve(&asset(), b"something-else-entirely");
         let expected = hex(&Sha256::digest(b"build-B"));
         let err = stage(&config(), &feed, &binary, &expected).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
@@ -615,7 +707,7 @@ mod tests {
         let binary = dir.join("nodera-rendezvous");
         std::fs::write(&binary, b"build-A").unwrap();
         let feed = FakeFeed::new();
-        feed.serve("nodera-rendezvous", b"");
+        feed.serve(&asset(), b"");
         let expected = hex(&Sha256::digest(b""));
         assert!(stage(&config(), &feed, &binary, &expected).is_err());
         let _ = std::fs::remove_dir_all(&dir);
@@ -627,7 +719,7 @@ mod tests {
         let binary = dir.join("nodera-rendezvous");
         std::fs::write(&binary, b"build-A").unwrap();
         let feed = FakeFeed::new();
-        feed.serve("nodera-rendezvous", b"build-B");
+        feed.serve(&asset(), b"build-B");
         let expected = hex(&Sha256::digest(b"build-B"));
 
         let staged = stage(&config(), &feed, &binary, &expected).unwrap();
@@ -646,12 +738,12 @@ mod tests {
         let dir = temp_dir("mode");
         let binary = dir.join("nodera-tracker");
         std::fs::write(&binary, b"a").unwrap();
-        let feed = FakeFeed::new();
-        feed.serve("nodera-tracker", b"b");
         let cfg = UpdateConfig {
-            asset_name: "nodera-tracker".to_owned(),
+            binary_name: "nodera-tracker".to_owned(),
             ..config()
         };
+        let feed = FakeFeed::new();
+        feed.serve(&cfg.asset_name().unwrap(), b"b");
         let staged = stage(&cfg, &feed, &binary, &hex(&Sha256::digest(b"b"))).unwrap();
         #[cfg(unix)]
         {
@@ -725,6 +817,85 @@ mod tests {
             trailing.asset_url("SHA256SUMS"),
             "https://example.invalid/latest/SHA256SUMS"
         );
+    }
+
+    #[test]
+    fn the_version_token_is_the_tag_not_the_product_version() {
+        assert_eq!(
+            version_token("https://github.com/Ashu11-A/NoderaMC/releases/download/latest"),
+            "latest"
+        );
+        // A `v` prefix is a tag convention, not part of a file name.
+        assert_eq!(
+            version_token("https://github.com/Ashu11-A/NoderaMC/releases/download/v0.2.0"),
+            "0.2.0"
+        );
+        assert_eq!(
+            version_token("https://example.invalid/mirror/0.2.0/"),
+            "0.2.0"
+        );
+    }
+
+    /// The naming table has two implementations — this module and `scripts/lib/release.sh` — because
+    /// one is compiled into a service in the field and the other names the files CI uploads. Two
+    /// implementations of one rule is exactly the drift this project keeps finding, and the symptom
+    /// here would be silent: every updater in the field asking for an asset nobody publishes, on a
+    /// check that already tolerates a 404 without crashing.
+    ///
+    /// So the shell table is executed and compared, rather than trusted.
+    #[cfg(unix)]
+    #[test]
+    fn release_names_match_the_shell_table() {
+        use std::process::Command;
+
+        // The repository root: the directory holding both VERSION and settings.gradle.kts — the
+        // same rule `scripts/lib/layout.sh` applies, rather than counting `..` from this file.
+        let mut root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        while !(root.join("VERSION").is_file() && root.join("settings.gradle.kts").is_file()) {
+            assert!(
+                root.pop(),
+                "no repository root above {CARGO_MANIFEST_DIR}",
+                CARGO_MANIFEST_DIR = env!("CARGO_MANIFEST_DIR")
+            );
+        }
+        let script = root.join("scripts/lib/release.sh");
+        assert!(
+            script.is_file(),
+            "the shell naming table is missing: {}",
+            script.display()
+        );
+
+        for (tag, arch) in [("latest", "x64"), ("latest", "arm64"), ("v0.9.1", "arm64")] {
+            for binary in ["nodera-tracker", "nodera-rendezvous"] {
+                let kind = binary.trim_start_matches("nodera-");
+                let output = Command::new("bash")
+                    .arg("-c")
+                    .arg(format!(
+                        ". '{}/scripts/lib/layout.sh'; layout_export; \
+                         . '{}'; release_asset {kind} {arch}",
+                        root.display(),
+                        script.display()
+                    ))
+                    .env("NODERA_RELEASE_TAG", tag)
+                    .output()
+                    .expect("run the shell naming table");
+                assert!(
+                    output.status.success(),
+                    "release.sh failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let from_shell = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+                let from_rust = service_asset_name(
+                    binary,
+                    arch,
+                    version_token(&format!("https://example.invalid/releases/download/{tag}")),
+                );
+                assert_eq!(
+                    from_rust, from_shell,
+                    "the Rust and shell naming tables disagree for {binary} {arch} @ {tag}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -840,10 +1011,7 @@ mod tests {
         std::fs::write(&running, b"the build that is running").unwrap();
         // A digest that is genuinely correct for a *different* build, so nothing but the signature
         // can be what refuses this.
-        let manifest = format!(
-            "{}  nodera-rendezvous\n",
-            hex(&Sha256::digest(b"a newer build"))
-        );
+        let manifest = format!("{}  {}\n", hex(&Sha256::digest(b"a newer build")), asset());
 
         let feed = FakeFeed::new();
         feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
@@ -874,7 +1042,7 @@ mod tests {
         let running = dir.join("nodera-rendezvous");
         std::fs::write(&running, b"the build that is running").unwrap();
         let published = hex(&Sha256::digest(b"a newer build"));
-        let manifest = format!("{published}  nodera-rendezvous\n");
+        let manifest = format!("{published}  {}\n", asset());
 
         let feed = FakeFeed::new();
         feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
@@ -901,7 +1069,7 @@ mod tests {
         let dir = temp_dir("no-sig");
         let running = dir.join("nodera-rendezvous");
         std::fs::write(&running, b"the build that is running").unwrap();
-        let manifest = format!("{}  nodera-rendezvous\n", hex(&Sha256::digest(b"newer")));
+        let manifest = format!("{}  {}\n", hex(&Sha256::digest(b"newer")), asset());
 
         let feed = FakeFeed::new();
         feed.serve(CHECKSUM_ASSET, manifest.as_bytes());
@@ -929,7 +1097,7 @@ mod tests {
         let feed = FakeFeed::new();
         feed.serve(
             CHECKSUM_ASSET,
-            format!("{published}  nodera-rendezvous\n").as_bytes(),
+            format!("{published}  {}\n", asset()).as_bytes(),
         );
 
         assert_eq!(check(&config(), &feed, &running).unwrap(), Some(published));

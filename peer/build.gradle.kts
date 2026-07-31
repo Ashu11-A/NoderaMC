@@ -155,6 +155,76 @@ tasks.named("distTar") { enabled = false }
 tasks.named("distZip") { enabled = false }
 
 // ---------------------------------------------------------------------------------------------
+// `nodera-peer.jar` — the headless node as ONE file
+// ---------------------------------------------------------------------------------------------
+//
+// `installDist` produces a directory: a launcher script plus ~30 jars in `lib/`. That is what the
+// companion app bundles (tauri.*.conf.json stage `build/nodera-headless/**`) and it is the right
+// shape there, because the app already owns a directory of resources.
+//
+// It is the wrong shape for a RELEASE asset. Somebody running a peer on a VPS, in a container, or
+// beside a Paper server downloads one file and runs `java -jar`; handing them a tarball of a
+// directory whose launcher script resolves a 30-entry relative classpath is a support burden with
+// no upside. So the release deliverable is a fat jar, and both shapes are built from the same
+// source sets rather than one being reconstructed from the other.
+//
+// Three things make an assembled jar runnable that a naive `zipTree` of the classpath does not:
+//
+//   * `Main-Class`, or `java -jar` refuses to start;
+//   * dropping `META-INF/*.SF|*.DSA|*.RSA|*.EC` — BouncyCastle ships SIGNED, and a signed jar's
+//     digests do not describe a jar it was merged into, so the JVM throws `SecurityException:
+//     Invalid signature file digest` on the first class load. This is silent at build time;
+//   * merging `META-INF/services/*` rather than letting one provider file win. `INCLUDE` appends
+//     the entries, which is what a ServiceLoader registry needs (slf4j-simple's provider is the one
+//     that matters here; `PeerJarIsRunnableTest` asserts it survives).
+//
+// The version token is deliberately absent from the file name — see the note in
+// `endpoints/neoforge-mod/build.gradle.kts`.
+val peerJar = tasks.register<Jar>("peerJar") {
+    group = "distribution"
+    description = "The headless node as a single runnable jar — the `nodera-peer` release asset."
+    archiveBaseName.set("nodera-peer")
+    archiveVersion.set("")
+    archiveClassifier.set("")
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+
+    manifest {
+        attributes(
+            "Main-Class" to "dev.nodera.headless.HeadlessPeerMain",
+            "Implementation-Title" to "Nodera headless peer",
+            "Implementation-Version" to project.extra["noderaVersion"].toString(),
+            // RocksDB and zstd-jni load native code out of the jar; both use the context
+            // classloader, so nothing else is needed here. Stated because the next person to see a
+            // fat jar with native deps will wonder.
+            "Enable-Native-Access" to "ALL-UNNAMED",
+        )
+    }
+
+    from(sourceSets["main"].output)
+    from(headless.output)
+    from({
+        (configurations["runtimeClasspath"] + configurations["headlessRuntimeClasspath"])
+            .filter { it.name.endsWith(".jar") }
+            .map { zipTree(it) }
+    })
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.EC")
+    exclude("module-info.class", "META-INF/versions/*/module-info.class")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    filesMatching("META-INF/services/*") { duplicatesStrategy = DuplicatesStrategy.INCLUDE }
+}
+
+// `assemble` builds it, so `./gradlew build` and the release lane cannot disagree about whether the
+// deliverable compiles. The check that it RUNS is `PeerJarIsRunnableTest`, which launches it.
+tasks.named("assemble") { dependsOn(peerJar) }
+
+tasks.named<Test>("test") {
+    dependsOn(peerJar)
+    // Same contract as `:neoforge-mod`'s `nodera.modJar`: the test inspects and executes the
+    // artefact, because what ships is the file and not the task that made it.
+    systemProperty("nodera.peerJar", peerJar.flatMap { it.archiveFile }.get().asFile.absolutePath)
+}
+
+// ---------------------------------------------------------------------------------------------
 // JMH — the structural benchmark lane (`src/jmh/java`, package `dev.nodera.bench`)
 // ---------------------------------------------------------------------------------------------
 //
