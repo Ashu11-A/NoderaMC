@@ -261,6 +261,24 @@ jobs:
           key: release-android
       - uses: oven-sh/setup-bun@v2
 
+      # The RUST Tauri CLI, and it must be that one — `tauri android init` bakes whichever CLI form
+      # generated the project into the Gradle callback it writes. Generated through the npm binary
+      # the callback is `node tauri` resolved from `app/`, which is nothing, and every assemble dies
+      # with `Cannot find module '.../app/tauri'` long after init reported success. See the note in
+      # scripts/android-apk.sh.
+      #
+      # Cached because `cargo install` compiles it from source for several minutes, and the version
+      # is pinned so the cache key means something.
+      - name: Cache the Tauri CLI
+        id: tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: cargo-tauri-v2-${{ runner.os }}-${{ runner.arch }}
+      - name: Install the Tauri CLI
+        if: steps.tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version '^2' --locked
+
       # `pick_jdk` in the script searches sdkman and the distro JVM paths, neither of which is where
       # setup-java puts a runner's JDK. Pointed at it explicitly rather than widened to guess: the
       # Android Gradle Plugin cannot read class files newer than 21, and picking up the wrong JDK

@@ -180,7 +180,55 @@ TOOLS="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
 say "JDK        $JAVA_HOME"
 say "profile    $PROFILE (target $TARGET)"
 
-# --- 1. the Java worker, as dex ------------------------------------------
+# The Tauri CLI — `cargo tauri`, and for Android it must be that one.
+#
+# The desktop legs in `scripts/release.sh` use the npm CLI out of `app/ui/node_modules`, because it
+# is a prebuilt binary bun has already fetched and `cargo install tauri-cli` compiles for minutes.
+# Doing the same here looks like a free win and is not, because `tauri android init` GENERATES a
+# Gradle project that calls the CLI back, and it bakes in whichever form was used to generate it.
+# Invoked through the npm binary it writes `buildSrc/.../BuildTask.kt` with
+#
+#     val executable = """node"""; args = ["tauri", "android", "android-studio-script"]
+#
+# and `node tauri` resolves `tauri` as a FILE relative to `app/`, which does not exist — the CLI
+# lives in `app/ui/node_modules`. Every Gradle assemble then dies with
+# `Cannot find module '.../app/tauri'`, long after init reported success.
+#
+# So Android requires the Rust CLI. It is a hard requirement rather than a preference, because the
+# failure it prevents is delayed and its message names neither the cause nor this script.
+if ! command -v cargo-tauri >/dev/null 2>&1; then
+  die "the Android build needs the Rust Tauri CLI: cargo install tauri-cli --version '^2' --locked
+    (the npm CLI in app/ui/node_modules cannot be used here — it generates a Gradle project that
+     calls back with 'node tauri', which resolves to nothing from the app directory)"
+fi
+TAURI_CMD=(cargo tauri)
+
+# --- 1. the generated Android project ------------------------------------
+#
+# `app/gen/` is gitignored: Tauri generates it and an edit made there is lost. That is fine on a
+# machine where somebody has run `tauri android init` once, and it is why a fresh checkout — every
+# CI run — had no Gradle project at all:
+#
+#   failed to read Android Gradle build file .../app/gen/android/app/build.gradle.kts:
+#   No such file or directory (os error 2)
+#
+# Worse than the error: every patch below (minSdk, proguard keeps, the manifest permissions and the
+# nodera:// filter) is guarded by `[[ -f ... ]]`, so they would ALL have silently skipped on a tree
+# where the project existed but was incomplete. Generating it here is what makes those guards
+# describe a file that is really there.
+# BEFORE the worker step, and that ordering is load-bearing: the worker stages its dex into
+# `gen/android/app/src/main/assets`, and `mkdir -p` on that path leaves a directory tree that is not
+# a project. `tauri android init` then refuses it — "Project directory …/java/dev/nodera/app does
+# not exist" — which reads like a broken identifier and is really just "something got here first".
+if [[ ! -f "$APP_DIR/gen/android/app/build.gradle.kts" ]]; then
+  say "gen        no Android project yet — running tauri android init"
+  ( cd "$APP_DIR" && "${TAURI_CMD[@]}" android init ) \
+    || die "tauri android init failed — the Gradle project could not be generated"
+  [[ -f "$APP_DIR/gen/android/app/build.gradle.kts" ]] \
+    || die "tauri android init reported success but produced no app/build.gradle.kts"
+fi
+
+# --- 2. the Java worker, as dex ------------------------------------------
 #
 # The phone runs the SAME worker the desktop supervises. Two things make that
 # possible and both are load-bearing:
@@ -258,23 +306,25 @@ cp "$APP_DIR/android/kotlin/"*.kt "$KOTLIN_DST/"
 # dies at runtime with an instruction the device cannot represent — an app that is broken only on the
 # oldest phones, which are the least likely to report it (M-NET-4).
 GRADLE_APP="$APP_DIR/gen/android/app/build.gradle.kts"
-if [[ -f "$GRADLE_APP" ]]; then
-  MIN_SDK_NOW="$(sed -n 's/.*minSdk *= *\([0-9]\+\).*/\1/p' "$GRADLE_APP" | head -1)"
-  if [[ -z "$MIN_SDK_NOW" ]]; then
-    die "no minSdk found in $GRADLE_APP — cannot prove the APK's floor matches the dex floor"
-  fi
-  if [[ "$MIN_SDK_NOW" != "$DEX_MIN_API" ]]; then
-    say "gradle     raising minSdk $MIN_SDK_NOW -> $DEX_MIN_API (the worker's dex floor)"
-    sed -i "s/minSdk *= *$MIN_SDK_NOW/minSdk = $DEX_MIN_API/" "$GRADLE_APP"
-  fi
-  MIN_SDK_NOW="$(sed -n 's/.*minSdk *= *\([0-9]\+\).*/\1/p' "$GRADLE_APP" | head -1)"
-  [[ "$MIN_SDK_NOW" == "$DEX_MIN_API" ]] \
-    || die "minSdk is $MIN_SDK_NOW but the worker is dexed at $DEX_MIN_API — refusing to build an APK that installs where it cannot run"
+# Not `if [[ -f ]]` any more. The project is generated above, so an absent file here means the
+# generation produced something unexpected — and skipping the minSdk patch is M-NET-4: an APK that
+# installs on API 24-25 and dies inside the worker, on exactly the phones least likely to report it.
+[[ -f "$GRADLE_APP" ]] || die "no $GRADLE_APP after generation — cannot patch minSdk"
+
+MIN_SDK_NOW="$(sed -n 's/.*minSdk *= *\([0-9]\+\).*/\1/p' "$GRADLE_APP" | head -1)"
+[[ -n "$MIN_SDK_NOW" ]] \
+  || die "no minSdk found in $GRADLE_APP — cannot prove the APK's floor matches the dex floor"
+if [[ "$MIN_SDK_NOW" != "$DEX_MIN_API" ]]; then
+  say "gradle     raising minSdk $MIN_SDK_NOW -> $DEX_MIN_API (the worker's dex floor)"
+  sed -i "s/minSdk *= *$MIN_SDK_NOW/minSdk = $DEX_MIN_API/" "$GRADLE_APP"
 fi
+MIN_SDK_NOW="$(sed -n 's/.*minSdk *= *\([0-9]\+\).*/\1/p' "$GRADLE_APP" | head -1)"
+[[ "$MIN_SDK_NOW" == "$DEX_MIN_API" ]] \
+  || die "minSdk is $MIN_SDK_NOW but the worker is dexed at $DEX_MIN_API — refusing to build an APK that installs where it cannot run"
 
 # androidx.documentfile: needed to read the NAME of a folder chosen through the Storage Access
 # Framework. Added here because Tauri regenerates this Gradle file.
-if [[ -f "$GRADLE_APP" ]] && ! grep -q "androidx.documentfile" "$GRADLE_APP"; then
+if ! grep -q "androidx.documentfile" "$GRADLE_APP"; then
   say "gradle     adding androidx.documentfile"
   python3 - "$GRADLE_APP" <<'PYEOF'
 import sys
@@ -376,12 +426,25 @@ fi
 # Set NODERA_DEFAULT_TRACKERS yourself to override, or NODERA_DEFAULT_TRACKERS= (empty) to ship
 # an APK with no tracker at all.
 if [[ -z "${NODERA_DEFAULT_TRACKERS+x}" ]]; then
-  HOST_LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
-  if [[ -n "$HOST_LAN_IP" ]]; then
-    export NODERA_DEFAULT_TRACKERS="tcp://${HOST_LAN_IP}:25600"
-    say "trackers   baking in this host: $NODERA_DEFAULT_TRACKERS"
+  if [[ "$REQUIRE_RELEASE_KEY" == "1" ]]; then
+    # A RELEASE apk must never carry the address of the machine that built it. On a CI runner
+    # `ip route get` answers with an ephemeral RFC1918 address — the first release build was about
+    # to bake `tcp://10.1.0.148:25600` into every download, which on a stranger's phone is either
+    # nothing at all or somebody else's device, and presents as "no trackers are answering" from an
+    # app that looks broken.
+    #
+    # Tied to `--require-release-key` rather than to an environment variable somebody has to
+    # remember, because "this is a release" is exactly what that flag already means.
+    export NODERA_DEFAULT_TRACKERS=""
+    say "trackers   release build: none baked in (the app uses its bundled service list)"
   else
-    say "trackers   no LAN address found; the apk will ship with no default tracker"
+    HOST_LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
+    if [[ -n "$HOST_LAN_IP" ]]; then
+      export NODERA_DEFAULT_TRACKERS="tcp://${HOST_LAN_IP}:25600"
+      say "trackers   baking in this host: $NODERA_DEFAULT_TRACKERS"
+    else
+      say "trackers   no LAN address found; the apk will ship with no default tracker"
+    fi
   fi
 else
   say "trackers   using NODERA_DEFAULT_TRACKERS=${NODERA_DEFAULT_TRACKERS:-<none>}"
@@ -396,19 +459,6 @@ fi
 rm -rf "$APP_DIR/gen/android/app/src/main/assets/resources"
 
 cd "$APP_DIR"
-
-# The Tauri CLI, resolved the same way `scripts/release.sh` resolves it: the npm package in the
-# UI's node_modules is a prebuilt binary that bun has already fetched, while `cargo install
-# tauri-cli` compiles it from source and costs minutes on a cold runner. `cargo tauri` is the
-# fallback, because that is what a developer who followed `scripts/android-toolchain.sh` has.
-TAURI="$APP_DIR/ui/node_modules/.bin/tauri"
-if [[ -x "$TAURI" ]]; then
-  TAURI_CMD=("$TAURI")
-elif command -v cargo-tauri >/dev/null 2>&1; then
-  TAURI_CMD=(cargo tauri)
-else
-  die "no Tauri CLI: run 'bun install' in app/ui, or 'cargo install tauri-cli --version ^2'"
-fi
 
 BUILD_ARGS=(android build --apk --target "$TARGET")
 [[ "$PROFILE" == "debug" ]] && BUILD_ARGS+=(--debug)
