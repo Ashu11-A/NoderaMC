@@ -42,14 +42,21 @@ fn main() {
     // Rerun when the branch moves, and when the manifest that names it changes. A tree without the
     // ref — a fresh shallow clone — has no file to watch, so the build falls through to the network
     // and reruns every time, which is correct: there is nothing local to fingerprint.
-    println!("cargo:rerun-if-changed={}", root.join("layout.properties").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("layout.properties").display()
+    );
     if let Some(head) = git_ref_path(&root, &branch) {
         println!("cargo:rerun-if-changed={}", head.display());
     }
 
     let body = git_show(&root, &branch, &index_name)
         .or_else(|| git_show(&root, &format!("{remote}/{branch}"), &index_name))
-        .or_else(|| git_fetch(&root, &remote, &branch).then(|| git_show(&root, "FETCH_HEAD", &index_name)).flatten())
+        .or_else(|| {
+            git_fetch(&root, &remote, &branch)
+                .then(|| git_show(&root, "FETCH_HEAD", &index_name))
+                .flatten()
+        })
         .or_else(|| curl(&raw_url))
         .or_else(|| fs::read_to_string(&cache).ok())
         .unwrap_or_else(|| {
