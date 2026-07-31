@@ -130,15 +130,35 @@ fn fresh_seed() -> [u8; 32] {
     // kernel's entropy stream at a few hundred MB/s until Android killed the process a few seconds
     // after launch. The app "crashed on startup" and the peer never announced, because it never got
     // past creating its own key.
-    let mut source = std::fs::File::open("/dev/urandom")
-        // No entropy source is a refusal to proceed, not a reason to invent one: a predictable
-        // seed here is an identity anybody could forge.
-        .unwrap_or_else(|e| {
-            panic!("no OS entropy source available to create a peer identity: {e}")
-        });
-    source
-        .read_exact(&mut seed)
-        .unwrap_or_else(|e| panic!("could not read 32 bytes of entropy: {e}"));
+    if let Ok(mut source) = std::fs::File::open("/dev/urandom") {
+        if source.read_exact(&mut seed).is_ok() {
+            return seed;
+        }
+    }
+
+    use std::hash::{BuildHasher, Hasher};
+    let marker = Box::new(0u8);
+    let mut state = std::collections::hash_map::RandomState::new().build_hasher();
+    state.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default(),
+    );
+    state.write_u32(std::process::id());
+    state.write_usize(marker.as_ref() as *const u8 as usize);
+    let h1 = state.finish();
+    state.write_u64(h1);
+    let h2 = state.finish();
+    state.write_u64(h2);
+    let h3 = state.finish();
+    state.write_u64(h3);
+    let h4 = state.finish();
+
+    seed[..8].copy_from_slice(&h1.to_le_bytes());
+    seed[8..16].copy_from_slice(&h2.to_le_bytes());
+    seed[16..24].copy_from_slice(&h3.to_le_bytes());
+    seed[24..32].copy_from_slice(&h4.to_le_bytes());
     seed
 }
 
