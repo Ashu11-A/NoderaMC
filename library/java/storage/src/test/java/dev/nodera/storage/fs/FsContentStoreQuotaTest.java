@@ -1,4 +1,4 @@
-package dev.nodera.storage.rocksdb;
+package dev.nodera.storage.fs;
 
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.storage.ContentId;

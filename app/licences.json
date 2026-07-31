@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-26T23:23:16+00:00",
+  "generated_at": "2026-07-31T20:24:13+00:00",
   "project_version": "0.1.0",
   "scope": "direct dependencies",
   "packages": [
@@ -22,6 +22,12 @@
       "ecosystem": "rust"
     },
     {
+      "name": "log",
+      "version": "0.4.33",
+      "licence": "MIT OR Apache-2.0",
+      "ecosystem": "rust"
+    },
+    {
       "name": "serde",
       "version": "untagged-0.1.9",
       "licence": "MIT OR Apache-2.0",
@@ -37,12 +43,6 @@
       "name": "sha2",
       "version": "0.10.9",
       "licence": "MIT OR Apache-2.0",
-      "ecosystem": "rust"
-    },
-    {
-      "name": "starship-battery",
-      "version": "0.10.3",
-      "licence": "ISC",
       "ecosystem": "rust"
     },
     {
@@ -64,14 +64,14 @@
       "ecosystem": "rust"
     },
     {
-      "name": "tauri-plugin-autostart",
-      "version": "2.5.1",
+      "name": "tauri-plugin-deep-link",
+      "version": "2.4.9",
       "licence": "Apache-2.0 OR MIT",
       "ecosystem": "rust"
     },
     {
-      "name": "tauri-plugin-single-instance",
-      "version": "2.4.3",
+      "name": "tauri-plugin-dialog",
+      "version": "2.7.2",
       "licence": "Apache-2.0 OR MIT",
       "ecosystem": "rust"
     },
@@ -83,20 +83,38 @@
     },
     {
       "name": "tokio",
-      "version": "util-0.7.18",
+      "version": "util-0.7.19",
       "licence": "MIT",
       "ecosystem": "rust"
     },
     {
       "name": "toml",
-      "version": "1.1.3+spec-1.1.0",
+      "version": "1.1.4+spec-1.1.0",
       "licence": "MIT OR Apache-2.0",
       "ecosystem": "rust"
+    },
+    {
+      "name": "ureq",
+      "version": "3.3.0",
+      "licence": "MIT OR Apache-2.0",
+      "ecosystem": "rust"
+    },
+    {
+      "name": "@material/material-color-utilities",
+      "version": "0.4.0",
+      "licence": "Apache-2.0",
+      "ecosystem": "npm"
     },
     {
       "name": "@tauri-apps/api",
       "version": "2.11.1",
       "licence": "Apache-2.0 OR MIT",
+      "ecosystem": "npm"
+    },
+    {
+      "name": "motion",
+      "version": "12.42.2",
+      "licence": "MIT",
       "ecosystem": "npm"
     },
     {
@@ -121,6 +139,12 @@
       "name": "@tailwindcss/vite",
       "version": "4.3.3",
       "licence": "MIT",
+      "ecosystem": "npm"
+    },
+    {
+      "name": "@tauri-apps/cli",
+      "version": "2.11.4",
+      "licence": "Apache-2.0 OR MIT",
       "ecosystem": "npm"
     },
     {
@@ -190,12 +214,6 @@
       "ecosystem": "java"
     },
     {
-      "name": "it.unimi.dsi:fastutil",
-      "version": "8.5.12",
-      "licence": "Apache License, Version 2.0",
-      "ecosystem": "java"
-    },
-    {
       "name": "me.champeau.jmh:jmh-gradle-plugin",
       "version": "0.7.2",
       "licence": "",
@@ -215,13 +233,13 @@
     },
     {
       "name": "org.assertj:assertj-core",
-      "version": "3.26.3",
-      "licence": "Apache License, Version 2.0",
+      "version": "3.27.7",
+      "licence": "Apache-2.0",
       "ecosystem": "java"
     },
     {
       "name": "org.bouncycastle:bcprov-jdk18on",
-      "version": "1.78.1",
+      "version": "1.84",
       "licence": "Bouncy Castle Licence",
       "ecosystem": "java"
     },
@@ -253,6 +271,30 @@
       "name": "org.mockito:mockito-junit-jupiter",
       "version": "5.14.2",
       "licence": "",
+      "ecosystem": "java"
+    },
+    {
+      "name": "org.openjdk.jmh:jmh-core",
+      "version": "1.37",
+      "licence": "",
+      "ecosystem": "java"
+    },
+    {
+      "name": "org.openjdk.jmh:jmh-generator-annprocess",
+      "version": "1.37",
+      "licence": "",
+      "ecosystem": "java"
+    },
+    {
+      "name": "org.ow2.asm:asm",
+      "version": "9.7.1",
+      "licence": "BSD-3-Clause",
+      "ecosystem": "java"
+    },
+    {
+      "name": "org.ow2.asm:asm-tree",
+      "version": "9.7.1",
+      "licence": "BSD-3-Clause",
       "ecosystem": "java"
     },
     {

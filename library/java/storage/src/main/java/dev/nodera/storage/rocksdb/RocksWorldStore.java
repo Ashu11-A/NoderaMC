@@ -19,6 +19,7 @@ import dev.nodera.storage.CheckpointStore;
 import dev.nodera.storage.ContentId;
 import dev.nodera.storage.ContentStore;
 import dev.nodera.storage.EventChainGuard;
+import dev.nodera.storage.fs.FsContentStore;
 import dev.nodera.storage.GenesisManifest;
 import dev.nodera.storage.RegionEventStore;
 import dev.nodera.storage.RegionOrder;

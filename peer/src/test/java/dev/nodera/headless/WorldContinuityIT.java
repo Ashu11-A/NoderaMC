@@ -13,7 +13,7 @@ import dev.nodera.peer.control.ControlProtocol;
 import dev.nodera.peer.control.ControlServer;
 import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.protocol.discovery.TrackerResponse;
-import dev.nodera.storage.rocksdb.FsContentStore;
+import dev.nodera.storage.fs.FsContentStore;
 import dev.nodera.transport.rendezvous.RendezvousClient;
 import dev.nodera.transport.rendezvous.RendezvousEndpoint;
 import dev.nodera.transport.socket.SocketPeerTransport;

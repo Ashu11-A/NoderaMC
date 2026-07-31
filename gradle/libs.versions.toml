@@ -7,7 +7,6 @@ mockitoJupiter    = "5.14.2"
 caffeine          = "3.1.8"
 zstd              = "1.5.6-3"
 roaringbitmap     = "1.3.0"
-fastutil          = "8.5.12" # strictly-pinned by minecraft-dependencies 1.21.1 (mod runtime must match)
 archunit          = "1.3.0"
 jmh               = "0.7.2"       # me.champeau.jmh Gradle plugin (the :peer benchmark source set)
 jmhCore           = "1.37"        # the JMH runtime/annotations the plugin resolves
@@ -29,7 +28,6 @@ mockito-jupiter     = { module = "org.mockito:mockito-junit-jupiter",     versio
 caffeine            = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
 zstd-jni            = { module = "com.github.luben:zstd-jni",             version.ref = "zstd" }
 roaringbitmap       = { module = "org.roaringbitmap:RoaringBitmap",       version.ref = "roaringbitmap" }
-fastutil            = { module = "it.unimi.dsi:fastutil",                 version.ref = "fastutil" }
 archunit            = { module = "com.tngtech.archunit:archunit",         version.ref = "archunit" }
 archunit-junit5     = { module = "com.tngtech.archunit:archunit-junit5",  version.ref = "archunit" }
 jetbrains-annotations = { module = "org.jetbrains:annotations",           version.ref = "jetbrainsAnnotations" }

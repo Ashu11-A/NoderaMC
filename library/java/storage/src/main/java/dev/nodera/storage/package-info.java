@@ -11,9 +11,12 @@
  * peer synchronises <b>forward</b> from the network (Invariant 8).
  *
  * <p>Since the Java API unification (issue #30) every tier lives in this one module: the
- * in-memory event-sourced store ({@link dev.nodera.storage.event}), the durable RocksDB +
- * content-addressed-blob archive ({@link dev.nodera.storage.rocksdb}), and the bounded client
- * store ({@link dev.nodera.storage.client}). Shared support lives beside the seam:
+ * in-memory event-sourced store ({@link dev.nodera.storage.event}), the durable RocksDB archive
+ * ({@link dev.nodera.storage.rocksdb}), the content-addressed filesystem blob tier
+ * ({@link dev.nodera.storage.fs}), and the bounded client store
+ * ({@link dev.nodera.storage.client}). {@code fs} is separate from {@code rocksdb} on purpose —
+ * it is the only tier the headless peer uses, and it needs no native library.
+ * Shared support lives beside the seam:
  * {@link dev.nodera.storage.EventChainGuard}, {@link dev.nodera.storage.RegionOrder}, and
  * {@link dev.nodera.storage.io.AtomicFileWriter}.
  */

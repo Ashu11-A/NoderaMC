@@ -56,6 +56,12 @@ dependencies {
 
     testImplementation(project(":engine"))
     testImplementation(project(":testing"))
+    // Test-only, and test-only ON PURPOSE: EntityTransferCrashRecoveryIT opens a real
+    // RocksWorldStore and kills the writer. :storage stopped exporting rocksdbjni transitively
+    // (see the note there — it was 67 MB of natives in a jar that never classloads the tier), so
+    // the IT declares what it actually needs. Production code in this module must NOT import
+    // org.rocksdb; `PeerJarPayloadTest` fails the build if the natives reappear in the artefact.
+    testImplementation(libs.rocksdbjni)
     // Test-only: DistributionIT rebuilds the post-batch snapshot with the REAL Phase 1
     // SnapshotDeltaApplier, so the state it splits is the state a replica would actually hold.
     // The structural report reads the whole tree's bytecode; ASM is how.
