@@ -199,10 +199,14 @@ pub fn write_share_file(path: &std::path::Path, uri: &str) -> Result<(), String>
 pub fn world_id_of(uri: &str) -> Option<String> {
     let query = uri.split_once('?')?.1;
     for pair in query.split('&') {
-        let (key, value) = pair.split_once('=')?;
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
         if key.eq_ignore_ascii_case("xt") {
             let decoded = percent_decode(value);
-            let id = decoded.strip_prefix("urn:nodera:")?;
+            let Some(id) = decoded.strip_prefix("urn:nodera:") else {
+                continue;
+            };
             let hex = id.trim();
             if !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Some(hex.to_ascii_lowercase());
