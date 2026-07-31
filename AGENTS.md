@@ -51,7 +51,9 @@
 - `scripts/nodera-test.sh list|run|bench|structure|all` — **THE test entry point** (docs/testing/Task.0.md). One tool over the acceptance scenarios (`dev.nodera.testkit.scenario`, formerly the twenty `scripts/e2e-*.sh`), the benchmark lanes and the structural report; writes `build/reports/nodera/TEST-REPORT.md`. Live scenarios take `run/.e2e-suite.lock` and run one at a time
 - `./gradlew :peer:jmh -Pbench.quick` / `./gradlew :peer:benchmarkReport` — the peer benchmark lanes (discovery · chunk sync · wire · runtime latency) and the ranked report with load-scaling and a baseline diff (network task 15). NOT part of `check`: minutes, and not a correctness gate
 - `./gradlew :peer:structureReport` — the structural code report: dead code, in-loop cost findings, and a **debugger-profiled** run of the real `nodera-headless` worker. `-Pstructure.debug=false` skips the probe. Budgets in `fixtures/structure/budget.json` ratchet DOWN only
-- `scripts/dev.sh --build-only` — compile both toolchains + collect artifacts (2 binaries + the jar) into `build/`; the CI `release-latest` workflow runs this on every push and attaches them to a rolling `latest` prerelease
+- `scripts/test-totals.sh --java | --cargo <log> | --merge … --badges DIR` — how many tests PASSED and FAILED, read from JUnit XML and libtest's own `test result:` lines. The three CI test jobs each emit their half; the `badges` job sums them and force-pushes two shields endpoint documents to the orphan `badges` branch, which is what README's two test badges render. Never hand-write those numbers into README — and do not put a workflow-status badge back, because "passing" is what a job that skipped into green also says
+- `scripts/dev.sh --build-only` — compile both toolchains + collect the DEV artifacts (2 binaries + the mod jar + the worker dist) into `build/`. This is a development convenience, not the release lane
+- `scripts/release.sh` — **the release lane**: builds each deliverable, stages it into `build/release` under its release name, and `--verify`s the result against `scripts/lib/release.sh`, which is the one naming table. `--names` prints the complete set; `--component jars|services|app` is what one CI matrix leg runs. `.github/workflows/release.yml` calls exactly this script — never add an asset name to the workflow YAML
 - `scripts/dev.sh --test` — build both toolchains + run the full gate (no server to start; Task 30 retired it)
 - `scripts/dev.sh` — build everything, then run the two infrastructure services (tracker + rendezvous) from `build/`, health-checked; worlds are hosted by a player's client (pause-menu "Share"), not a dedicated server. `--install-mod` drops the jar into `~/.minecraft/mods` for a real-client test
 - `scripts/dev.sh --play` — the hands-on two-player stack (2 Minecraft clients · 1 tracker · 1 rendezvous · 3 peer workers), through the same `scripts/lib/e2e-main.sh` launcher the scripted suites use, so manual play matches what CI measures. `--with-app` adds one Tauri companion window **per player**, each attached in `NODERA_APP_ATTACH` mode to that player's own worker. Absorbed the former `scripts/play-two.sh`, which no longer exists
@@ -183,8 +185,13 @@ scripts/version.sh --set 0.2.0    # release: bump VERSION + rewrite every mirror
 ```
 
 **Releasing:** `--set X.Y.Z` → run the gate (`scripts/dev.sh --test`) → commit `VERSION` *and* the
-rewritten mirrors in **one** commit → tag → let CI publish. `NoderaVersionTest` and
+rewritten mirrors in **one** commit → tag `vX.Y.Z` → let CI publish. `NoderaVersionTest` and
 `scripts/version.sh --check` exist to catch the hand-edit.
+
+The **tag**, not `VERSION`, is what names the release assets (`release_version_token`) — a rolling
+`latest` republishes on every merge to `main` while `VERSION` stays put, so an asset named after
+`VERSION` would be overwritten by a different build under the same name. A `v*` release is strict:
+one missing deliverable fails the run and publishes nothing. `latest` warns and publishes what built.
 
 ⚠️ **Do not edit `library/java/build-logic/src/main/kotlin/*.gradle.kts` to plumb a version through.** On
 this toolchain any edit there re-triggers the kotlin-dsl accessor breakage documented in
@@ -307,7 +314,7 @@ Reference the issue: `refs #N` while working, `fixes #N` / `closes #N` to close.
    stop-the-line event: `gh run view <id> --log-failed` to isolate the failing step, reproduce
    locally (`./gradlew check` / `cargo test && cargo fmt --check && cargo clippy
    --all-targets -- -D warnings`), fix, push, then re-check `gh run list` until green. A push
-   is not "done" until its `build` and `release-latest` runs pass; watch them with
+   is not "done" until its `build` and `release` runs pass; watch them with
    `gh run watch <id>` after every push to `main`.
 4. **Check back on the build a few minutes after every push.** Do not assume a green local
    `./gradlew check` means a green Action: CI runners are slower and have exposed

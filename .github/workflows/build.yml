@@ -28,6 +28,22 @@ jobs:
       - name: Java tests reported results
         if: always()
         run: scripts/java-test-report.sh --summary
+      # The number README's badge shows. Measured from the JUnit XML this job just produced, not
+      # from a second, cheaper run — see scripts/test-totals.sh for why that distinction is the
+      # whole point of the badge.
+      - name: Java test totals
+        if: always()
+        run: |
+          mkdir -p run/totals
+          scripts/test-totals.sh --java > run/totals/java.json
+          cat run/totals/java.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: totals-java
+          path: run/totals/java.json
+          if-no-files-found: error
+          retention-days: 1
       # The golden wire fixtures are committed; `:transport:test` fails if the encoder drifts from
       # them. Fail loudly if the run mutated a fixture (that can only happen with the deliberate
       # -Dnodera.fixtures.regenerate flag, which must never be set in CI).
@@ -92,7 +108,25 @@ jobs:
       # that only ever ran on somebody's laptop. `nodera-app` is outside the cargo workspace, so
       # the `rust` job's `cargo test` does not reach it.
       - name: Test the companion app
-        run: cd app && cargo test
+        run: |
+          set -o pipefail
+          mkdir -p run
+          (cd app && cargo test 2>&1) | tee run/cargo-app.log
+      # `nodera-app` is a separate cargo workspace, so the `rust` job's total does not include it.
+      # Leaving it out would understate the tree by the largest Rust suite in it.
+      - name: Companion app test totals
+        if: always()
+        run: |
+          mkdir -p run/totals
+          scripts/test-totals.sh --cargo run/cargo-app.log --source app > run/totals/app.json
+          cat run/totals/app.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: totals-app
+          path: run/totals/app.json
+          if-no-files-found: error
+          retention-days: 1
       # The lint half of the same omission (the fmt half runs in the `rust` job, which needs no
       # compilation). `app` is its own cargo workspace, so `cargo clippy` in the `rust`
       # job never reached a line of it — the whole companion app was exempt from the `-D warnings`
@@ -161,7 +195,27 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       # Includes the cross-language conformance tests: the tag-registry mirror is asserted against
       # the Java sources, and every `fixtures/wire/*.bin` is decoded + re-encoded byte-exactly.
-      - run: cargo test
+      # `tee` because the totals are parsed from libtest's own `test result:` summaries. Piping
+      # through tee keeps the log on the job page AND gives the badge something real to count;
+      # `pipefail` keeps a red suite red through the pipe.
+      - name: cargo test
+        run: |
+          set -o pipefail
+          mkdir -p run
+          cargo test 2>&1 | tee run/cargo-workspace.log
+      - name: Rust test totals
+        if: always()
+        run: |
+          mkdir -p run/totals
+          scripts/test-totals.sh --cargo run/cargo-workspace.log --source rust > run/totals/rust.json
+          cat run/totals/rust.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: totals-rust
+          path: run/totals/rust.json
+          if-no-files-found: error
+          retention-days: 1
       # README's per-crate test-count column was hand-typed and had drifted by up to 47 tests
       # (tracker claimed 62 against 109). A count in a README is read as evidence, so it is measured
       # from `cargo test -- --list` rather than remembered. `nodera-app` needs the worker dist and
@@ -190,22 +244,124 @@ jobs:
           scripts/services.py --endpoints tracker
           scripts/services.py --endpoints rendezvous
 
-  release-artifacts:
-    # Service binaries are published per tag: operators run `nodera-tracker` / `nodera-rendezvous`
-    # as standalone infrastructure, so they need built artifacts, not a source checkout.
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [java, rust]
+  # The release naming table has two implementations — `scripts/lib/release.sh` and
+  # `update.rs::service_asset_name` — and `release_names_match_the_shell_table` (in the `rust` job)
+  # compares them. What neither can see is whether the deliverable list still MATCHES the build:
+  # renaming a Gradle archive or dropping a bundle target is a green build and a release that is
+  # quietly one asset short, discovered by whoever downloads it.
+  #
+  # So the manifest is asserted here, on every push, against the shape the release lane produces.
+  # It is pure bash and costs seconds; the alternative is finding out at tag time.
+  release-manifest:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --release --bin nodera-tracker --bin nodera-rendezvous
-      - uses: actions/upload-artifact@v4
+      - name: The release manifest is the documented set of deliverables
+        run: |
+          set -euo pipefail
+          expected='nodera-neoforge-latest.jar
+          nodera-paper-latest.jar
+          nodera-peer-latest.jar
+          nodera-app-linux-x64.deb
+          nodera-app-linux-arm64.deb
+          nodera-app-macos-x64.dmg
+          nodera-app-macos-arm64.dmg
+          nodera-app-windows-x64.msi
+          nodera-app-windows-arm64.msi
+          nodera-tracker-x64-latest
+          nodera-tracker-arm64-latest
+          nodera-rendezvous-x64-latest
+          nodera-rendezvous-arm64-latest'
+          diff <(printf '%s\n' "$expected" | sed 's/^ *//') \
+               <(NODERA_RELEASE_TAG=latest scripts/release.sh --names)
+      # A `v*` tag must not silently produce `latest`-named assets, which is what a version token
+      # read from the wrong place would do.
+      - name: A tagged release names its assets after the tag
+        run: |
+          set -euo pipefail
+          NODERA_RELEASE_TAG=v9.9.9 scripts/release.sh --names | grep -qx 'nodera-peer-9.9.9.jar'
+          NODERA_RELEASE_TAG=v9.9.9 scripts/release.sh --names | grep -qx 'nodera-tracker-arm64-9.9.9'
+
+  # --- the README badge ------------------------------------------------------------------------
+  #
+  # README used to carry a "Build · passing" badge, which is a statement about a workflow's exit
+  # code. This repository has repeatedly hit the one thing such a badge cannot see — a job that
+  # skips into green — so the badge now shows a NUMBER that only a suite which actually ran can
+  # produce: how many tests passed, and how many failed.
+  #
+  # The three test jobs each measured their own half and uploaded it; this job only sums and
+  # renders. Nothing is re-run to produce a badge, because a number from a second, cheaper run
+  # would be a badge about a run nobody looked at.
+  #
+  # `always()` on purpose: a red run is exactly when the failed count must update. The publish is
+  # skipped when a totals file is missing, since a partial sum would silently understate the tree.
+  #
+  # ## Why an orphan branch
+  #
+  # shields.io needs to fetch a JSON over HTTP. `main` is branch-protected, so CI cannot write
+  # there; a gist would need a personal token as a secret. A single-commit orphan branch needs
+  # neither, is force-pushed so it never accumulates history, and contains nothing but the two badge
+  # documents — there is no code on it to review, run, or confuse a checkout.
+  badges:
+    needs: [java, rust, companion]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: nodera-services-${{ github.ref_name }}
-          path: |
-            target/release/nodera-tracker
-            target/release/nodera-rendezvous
-          if-no-files-found: error
+          path: run/totals
+          pattern: totals-*
+          merge-multiple: true
+      - name: Every half reported
+        id: parts
+        run: |
+          set -euo pipefail
+          missing=0
+          for part in java rust app; do
+            if [[ ! -s "run/totals/$part.json" ]]; then
+              echo "::warning::no totals for $part — the badge would understate the tree, so it is not updated"
+              missing=1
+            fi
+          done
+          echo "complete=$((1 - missing))" >> "$GITHUB_OUTPUT"
+      - name: Sum and render
+        if: steps.parts.outputs.complete == '1'
+        run: |
+          scripts/test-totals.sh --merge run/totals/java.json run/totals/rust.json run/totals/app.json \
+            --badges run/badges
+          cat run/badges/tests-passed.json run/badges/tests-failed.json
+      - name: Publish to the badges branch
+        if: steps.parts.outputs.complete == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp run/badges/tests-passed.json run/badges/tests-failed.json "$RUNNER_TEMP/"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # A fresh orphan every time, force-pushed: the branch is a two-file publishing surface,
+          # not a history worth keeping, and an append-only machine-written branch grows without
+          # bound for no reader.
+          git switch --orphan badges
+          # `switch --orphan` clears the index and every TRACKED file, and leaves untracked ones —
+          # including `run/`, whose .gitignore entry has just been removed along with the file that
+          # contained it. Without this clean, `git add -A` publishes the downloaded artifacts and
+          # the cargo logs onto the badges branch.
+          git clean -ffdxq
+          cp "$RUNNER_TEMP/tests-passed.json" "$RUNNER_TEMP/tests-failed.json" .
+          cat > README.md <<'EOF'
+          # badges
+
+          Generated. Do not edit, do not branch from this.
+
+          Two [shields.io endpoint](https://shields.io/badges/endpoint-badge) documents holding the
+          test totals README displays, written by the `badges` job in `.github/workflows/build.yml`
+          from the results the `java`, `rust` and `companion` jobs measured. This branch is an orphan
+          and is force-pushed on every run to `main`; it carries no source.
+          EOF
+          git add -A
+          git commit -q -m "test totals from ${GITHUB_SHA:0:7}"
+          git push -f origin badges

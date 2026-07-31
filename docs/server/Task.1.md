@@ -15,7 +15,7 @@
 
 ## Goal
 
-`./gradlew :paper-plugin:build` produces **one** `nodera-endpoint.jar` that drops into `plugins/` on a
+`./gradlew :paper-plugin:build` produces **one** `nodera-paper.jar` that drops into `plugins/` on a
 Paper server and on a Folia server and enables cleanly on both, logging which platform it detected,
 how many scheduler threads it will use, and whether the **ALIGN-1** region-nesting invariant holds. It
 does nothing to the world yet — this task is the build lane, the platform seam, and the preflight that
@@ -23,7 +23,7 @@ every later task depends on.
 
 ## Status detail
 
-**Done.** `endpoints/paper-plugin` builds `nodera-endpoint.jar` and all three live suites are green for the
+**Done.** `endpoints/paper-plugin` builds `nodera-paper.jar` (published as `nodera-paper-<version>.jar`) and all three live suites are green for the
 task-1 surface:
 
 - **Paper 1.21.1** (`e2e-endpoint.sh`): the plugin enables, names its platform (*"Nodera endpoint on

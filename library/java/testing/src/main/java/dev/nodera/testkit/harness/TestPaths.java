@@ -33,7 +33,7 @@ public record TestPaths(
      * Resolve the layout from the repository root.
      *
      * <p>Directories come from {@link LayoutManifest}; the file names under them are composed here,
-     * because {@code build/libs/nodera-endpoint.jar} is a property of the build system and the
+     * because {@code build/libs/nodera-paper.jar} is a property of the build system and the
      * manifest only describes the tree.
      *
      * <p>The layout SHAPE always comes from the repository's own manifest; only the root is the
@@ -61,7 +61,7 @@ public record TestPaths(
                 layout.module("neoforge-mod"),
                 layout.module("peer")
                         .resolve("build/install/nodera-headless/bin/nodera-headless"),
-                layout.module("paper-plugin").resolve("build/libs/nodera-endpoint.jar"),
+                layout.module("paper-plugin").resolve("build/libs/nodera-paper.jar"),
                 run,
                 run.resolve(".e2e-suite.lock"),
                 run.resolve("results"));

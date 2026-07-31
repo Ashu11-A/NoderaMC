@@ -344,7 +344,7 @@ impl Config {
         nodera_service::update::UpdateConfig {
             channel: self.update_channel.clone(),
             feed_base_url: self.update_feed_base_url.clone(),
-            asset_name: "nodera-rendezvous".to_owned(),
+            binary_name: "nodera-rendezvous".to_owned(),
             check_interval_seconds: self.update_check_interval_seconds,
             drain_grace_seconds: self.drain_grace_seconds,
             release_public_key: self.update_release_public_key.clone(),

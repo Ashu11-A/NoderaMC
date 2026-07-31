@@ -127,7 +127,7 @@ itself into first place.
 - `library/rust/nodera-service/src/{drain,lifecycle,directory,identity,update}.rs` — the shared plumbing
 - `library/java/transport/.../rendezvous/RelayCircuitClient.java` — reads a notice on the control channel
 - `library/java/transport/.../rendezvous/RendezvousPeerTransport.java` — multi-endpoint reserve + failover
-- `.github/workflows/release-latest.yml` — publishes `SHA256SUMS`, the manifest the updater reads
+- `.github/workflows/release.yml` + `scripts/release.sh` — publish `SHA256SUMS`, the manifest the updater reads
 
 ## Testing
 

@@ -181,17 +181,24 @@ something a peer notices.
 
 ## 8. Without Docker
 
-The release page publishes `nodera-tracker` for x86-64 glibc Linux, with a `SHA256SUMS` beside it:
+The release page publishes a glibc Linux binary **per architecture**, named
+`nodera-tracker-<arch>-<version>` (`x64` or `arm64`; `<version>` is `latest` for the rolling
+prerelease, or the tag), with a `SHA256SUMS` covering every asset beside it:
 
 ```bash
-curl -LO https://github.com/Ashu11-A/NoderaMC/releases/download/latest/nodera-tracker
-curl -LO https://github.com/Ashu11-A/NoderaMC/releases/download/latest/SHA256SUMS
+arch=x64        # or arm64
+base=https://github.com/Ashu11-A/NoderaMC/releases/download/latest
+curl -LO "$base/nodera-tracker-$arch-latest"
+curl -LO "$base/SHA256SUMS"
 sha256sum --check --ignore-missing SHA256SUMS
+mv "nodera-tracker-$arch-latest" nodera-tracker
 chmod +x nodera-tracker && ./nodera-tracker --config nodera-tracker.toml
 ```
 
-Every environment variable above works the same way. For arm64 or musl, build from source or use the
-image — the release binaries are glibc x86-64 only.
+Every environment variable above works the same way. The self-update lane asks for the asset matching
+the architecture it was **compiled** for, so a binary moved to a plain `nodera-tracker` on disk still
+updates correctly — the name on disk is yours, the name in the release is not. For musl, build from
+source or use the image.
 
 ## See also
 

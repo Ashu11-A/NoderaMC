@@ -448,7 +448,7 @@ mod tests {
             update: UpdateConfig {
                 channel: String::new(),
                 feed_base_url: update::DEFAULT_FEED_BASE_URL.to_owned(),
-                asset_name: "nodera-rendezvous".to_owned(),
+                binary_name: "nodera-rendezvous".to_owned(),
                 check_interval_seconds: 3_600,
                 drain_grace_seconds: 1,
                 release_public_key: String::new(),
