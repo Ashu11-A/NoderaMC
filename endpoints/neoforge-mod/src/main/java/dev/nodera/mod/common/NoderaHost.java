@@ -1,8 +1,8 @@
 package dev.nodera.mod.common;
 
 import dev.nodera.endpoint.lane.LanePlan;
-import dev.nodera.endpoint.control.CompanionClient;
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionClient;
+import dev.nodera.peer.control.CompanionLink;
 import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
 import dev.nodera.endpoint.lane.ObserverOwnership;
 import dev.nodera.endpoint.lane.ValidationLane;
@@ -708,12 +708,12 @@ public final class NoderaHost {
             String newPwdB64 = java.util.Base64.getEncoder().encodeToString(
                     options.password().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             java.util.Optional<CompanionClient.Rekeyed> reKeyed = java.util.Optional.empty();
-            if (dev.nodera.endpoint.control.CompanionLink.isPresent()) {
+            if (dev.nodera.peer.control.CompanionLink.isPresent()) {
                 try {
                     // Flush so the packed blob reflects the live world, then hand it to the worker.
                     server.saveEverything(true, true, true);
                     Path spool = WorldArchiver.packToSpool(saveRoot, worldIdHex);
-                    reKeyed = dev.nodera.endpoint.control.CompanionLink.client()
+                    reKeyed = dev.nodera.peer.control.CompanionLink.client()
                             .rekey(worldIdHex, spool, newPwdB64, encodeIdentity(currentId));
                 } catch (RuntimeException | java.io.IOException e) {
                     LOG.warn("Nodera: password re-key call failed for '{}': {}",

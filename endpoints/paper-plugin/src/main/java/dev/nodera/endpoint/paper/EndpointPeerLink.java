@@ -1,5 +1,6 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.peer.control.CompanionClient;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
@@ -22,14 +23,14 @@ import java.util.function.Consumer;
  */
 public final class EndpointPeerLink implements AutoCloseable {
 
-    private final ControlClient control;
+    private final CompanionClient control;
     private final Consumer<String> log;
     private final long retryMillis;
     private final AtomicBoolean linked = new AtomicBoolean();
     private final AtomicBoolean running = new AtomicBoolean(true);
     private Thread thread;
 
-    public EndpointPeerLink(ControlClient control, Consumer<String> log, long retryMillis) {
+    public EndpointPeerLink(CompanionClient control, Consumer<String> log, long retryMillis) {
         if (control == null || log == null) {
             throw new IllegalArgumentException("control and log must not be null");
         }
@@ -51,7 +52,7 @@ public final class EndpointPeerLink implements AutoCloseable {
      *         operator's log.
      */
     public boolean probeOnce() {
-        boolean answered = control.probe();
+        boolean answered = control.probe().isPresent();
         boolean was = linked.getAndSet(answered);
         if (answered && !was) {
             log.accept("linked to the Nodera worker at " + control.address());
@@ -84,7 +85,11 @@ public final class EndpointPeerLink implements AutoCloseable {
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         String options = "{\"listed\":" + listed + ",\"encrypted\":false,\"replication\":1}";
         try {
-            String reply = control.send("NODERA-HOST 2 " + worldId + " " + nameB64 + " " + options);
+            String reply = control.exchange(
+                    "NODERA-HOST 2 " + worldId + " " + nameB64 + " " + options);
+            if (reply == null) {
+                throw new java.io.IOException("no reply from " + control.address());
+            }
             if (reply.startsWith("NODERA-OK")) {
                 log.accept("the worker is hosting world " + worldId
                         + (listed ? " (announced to the configured trackers)" : " (unlisted)"));

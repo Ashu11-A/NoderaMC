@@ -7,7 +7,7 @@ import dev.nodera.diagnostics.view.RendezvousStatusView.RendezvousEndpointStatus
 import dev.nodera.diagnostics.view.TorrentWorldListView.TorrentWorldEntry;
 import dev.nodera.diagnostics.view.TrackerStatusView;
 import dev.nodera.diagnostics.view.TrackerStatusView.TrackerEndpointStatus;
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionLink;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;

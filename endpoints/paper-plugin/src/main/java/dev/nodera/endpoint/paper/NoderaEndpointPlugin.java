@@ -1,5 +1,6 @@
 package dev.nodera.endpoint.paper;
 
+import dev.nodera.peer.control.CompanionClient;
 import dev.nodera.core.region.RegionAlignment;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -92,7 +93,7 @@ public final class NoderaEndpointPlugin extends JavaPlugin {
             return;
         }
         peerLink = new EndpointPeerLink(
-                ControlClient.loopback(config.controlPort()), getLogger()::info, 30_000L);
+                CompanionClient.loopback(config.controlPort()), getLogger()::info, 30_000L);
         peerLink.start();
 
         // Hosting runs through the WORKER, not in this process: that is what makes the world

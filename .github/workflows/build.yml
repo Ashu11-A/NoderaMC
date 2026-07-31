@@ -107,10 +107,10 @@ jobs:
       - name: README's test counts match the suites (all six crates)
         run: scripts/test-counts.sh --check
       - name: Gate both ways (worker present => start, absent => actionable abort)
-        # `:endpoint`, not `:neoforge-mod`: CompanionGate is Minecraft-free and moved to the
-        # endpoint library on 2026-07-30. A --tests filter that matches nothing FAILS the build,
+        # `:peer`, not `:neoforge-mod`: CompanionGate is Minecraft-free and lives with the control wire
+        # it gates. A --tests filter that matches nothing FAILS the build,
         # which is what caught this — a filter is only a gate while it points at a real class.
-        run: ./gradlew :endpoint:test --tests 'dev.nodera.endpoint.control.CompanionGateTest'
+        run: ./gradlew :peer:test --tests 'dev.nodera.peer.control.CompanionGateTest'
       - name: Hosted world survives the host closing Minecraft
         run: ./gradlew :peer:test --tests 'dev.nodera.headless.WorldContinuityIT' --tests 'dev.nodera.headless.CompanionCrashSurvivalIT'
 

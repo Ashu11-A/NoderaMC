@@ -1,12 +1,12 @@
-package dev.nodera.endpoint.control;
+package dev.nodera.peer.control;
 
-import dev.nodera.endpoint.control.CompanionClient;
-import dev.nodera.endpoint.control.CompanionGate;
-import dev.nodera.endpoint.control.CompanionInfo;
-import dev.nodera.endpoint.control.CompanionProbe;
-import dev.nodera.endpoint.control.CompanionProtocol;
-import dev.nodera.endpoint.control.CompanionUnavailableException;
-import dev.nodera.endpoint.control.CompanionGate.Status;
+import dev.nodera.peer.control.CompanionClient;
+import dev.nodera.peer.control.CompanionGate;
+import dev.nodera.peer.control.CompanionInfo;
+import dev.nodera.peer.control.CompanionProbe;
+import dev.nodera.peer.control.ControlProtocol;
+import dev.nodera.peer.control.CompanionUnavailableException;
+import dev.nodera.peer.control.CompanionGate.Status;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
@@ -49,7 +49,7 @@ final class CompanionGateTest {
     @Test
     void matchingProtocolIsRunning() {
         CompanionProbe present = () -> Optional.of(
-                new CompanionInfo(CompanionProtocol.PROTOCOL_VERSION, "0.1.0"));
+                new CompanionInfo(ControlProtocol.PROTOCOL_VERSION, "0.1.0"));
         CompanionGate.GateResult result = CompanionGate.requireRunning(present); // must not throw
         assertEquals(Status.RUNNING, result.status());
         assertTrue(result.ok());
@@ -58,7 +58,7 @@ final class CompanionGateTest {
     @Test
     void olderDaemonSaysUpdateTheApp() {
         CompanionProbe old = () -> Optional.of(
-                new CompanionInfo(CompanionProtocol.PROTOCOL_VERSION - 1, "0.0.1"));
+                new CompanionInfo(ControlProtocol.PROTOCOL_VERSION - 1, "0.0.1"));
         CompanionGate.GateResult result = CompanionGate.evaluate(old);
         assertEquals(Status.DAEMON_OUTDATED, result.status());
         assertTrue(result.message().toLowerCase().contains("companion app"));
@@ -67,7 +67,7 @@ final class CompanionGateTest {
     @Test
     void newerDaemonSaysUpdateTheMod() {
         CompanionProbe newer = () -> Optional.of(
-                new CompanionInfo(CompanionProtocol.PROTOCOL_VERSION + 1, "9.9.9"));
+                new CompanionInfo(ControlProtocol.PROTOCOL_VERSION + 1, "9.9.9"));
         assertEquals(Status.MOD_OUTDATED, CompanionGate.evaluate(newer).status());
     }
 
@@ -103,9 +103,9 @@ final class CompanionGateTest {
                     BufferedReader in = new BufferedReader(
                             new InputStreamReader(s.getInputStream(), StandardCharsets.UTF_8));
                     String probe = in.readLine();
-                    assertTrue(probe.startsWith(CompanionProtocol.PROBE));
+                    assertTrue(probe.startsWith(ControlProtocol.PROBE));
                     OutputStream out = s.getOutputStream();
-                    out.write((CompanionProtocol.okLine(CompanionProtocol.PROTOCOL_VERSION, "0.1.0")
+                    out.write((ControlProtocol.okLine(ControlProtocol.PROTOCOL_VERSION, "0.1.0")
                             + "\n").getBytes(StandardCharsets.UTF_8));
                     out.flush();
                 } catch (Exception ignored) {

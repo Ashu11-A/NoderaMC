@@ -1,9 +1,9 @@
 package dev.nodera.mod.server;
 
-import dev.nodera.endpoint.control.CompanionClient;
-import dev.nodera.endpoint.control.CompanionGate;
-import dev.nodera.endpoint.control.CompanionLink;
-import dev.nodera.endpoint.control.CompanionUnavailableException;
+import dev.nodera.peer.control.CompanionClient;
+import dev.nodera.peer.control.CompanionGate;
+import dev.nodera.peer.control.CompanionLink;
+import dev.nodera.peer.control.CompanionUnavailableException;
 import dev.nodera.endpoint.share.PendingCreateShare;
 import dev.nodera.endpoint.world.NoderaWorldStore;
 import dev.nodera.endpoint.world.PlayerNodeRegistry;
@@ -128,28 +128,31 @@ public final class ServerBootstrap {
     }
 
     private static void linkServerWorker(MinecraftServer server) {
-        if (!server.isDedicatedServer() || dev.nodera.endpoint.control.CompanionLink.isPresent()) {
+        if (!server.isDedicatedServer() || dev.nodera.peer.control.CompanionLink.isPresent()) {
             return;
         }
         String endpoint = NoderaConfig.SERVER_COMPANION_CONTROL_ENDPOINT.get();
         boolean required = NoderaConfig.SERVER_COMPANION_REQUIRED.get();
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger("NoderaCompanion");
         try {
-            dev.nodera.endpoint.control.CompanionClient client =
-                    dev.nodera.endpoint.control.CompanionClient.parse(endpoint);
-            dev.nodera.endpoint.control.CompanionGate.GateResult result = required
-                    ? dev.nodera.endpoint.control.CompanionGate.requireRunning(client) // throws if absent
-                    : dev.nodera.endpoint.control.CompanionGate.evaluate(client);
+            // Bind the telemetry façade to whatever worker the link ends up holding. Registered
+            // before the gate runs, so a link recorded below is not missed.
+            dev.nodera.endpoint.telemetry.ModTelemetry.followCompanionLink();
+            dev.nodera.peer.control.CompanionClient client =
+                    dev.nodera.peer.control.CompanionClient.parse(endpoint);
+            dev.nodera.peer.control.CompanionGate.GateResult result = required
+                    ? dev.nodera.peer.control.CompanionGate.requireRunning(client) // throws if absent
+                    : dev.nodera.peer.control.CompanionGate.evaluate(client);
             if (result.ok()) {
                 client.probe().ifPresent(info ->
-                        dev.nodera.endpoint.control.CompanionLink.set(client, info));
+                        dev.nodera.peer.control.CompanionLink.set(client, info));
                 log.info("Nodera companion gate (server): {}", result.message());
             } else {
                 log.warn("Nodera companion gate (server, not enforced): {}", result.message());
             }
         } catch (IllegalArgumentException e) {
             if (required) {
-                throw new dev.nodera.endpoint.control.CompanionUnavailableException(
+                throw new dev.nodera.peer.control.CompanionUnavailableException(
                         "Nodera companion endpoint '" + endpoint + "' is malformed: " + e.getMessage());
             }
             log.warn("Nodera companion endpoint '{}' is malformed: {}", endpoint, e.getMessage());

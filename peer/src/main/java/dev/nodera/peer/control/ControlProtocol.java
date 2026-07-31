@@ -4,7 +4,7 @@ package dev.nodera.peer.control;
  * Task 32: the tiny, loopback-only control protocol between the Nodera companion worker (the
  * always-on headless peer) and its local clients — the Minecraft mod's presence gate, and the Tauri
  * companion UI. This is the <b>single source of truth</b> for the wire; the mod's
- * {@code CompanionProtocol} and the Rust {@code control.rs} mirror these constants and must stay in
+ * {@code ControlProtocol} and the Rust {@code control.rs} mirror these constants and must stay in
  * lockstep (a mismatch is surfaced as a clear "update the app / update the mod" error, never a hang).
  *
  * <p>Line-oriented ASCII handshake:
@@ -216,7 +216,7 @@ public final class ControlProtocol {
      * <h2>Why the version token is not bumped</h2>
      * The verb is purely additive: {@code dispatch} ignores index 1, and an older worker answers
      * {@code NODERA-ERR unknown verb} — which the app renders as "this worker is older than the
-     * app". Bumping {@link #PROTOCOL_VERSION} would force the mod's {@code CompanionProtocol} to
+     * app". Bumping {@link #PROTOCOL_VERSION} would force the mod's {@code ControlProtocol} to
      * move in lockstep for a change it does not participate in, and would break the probe of every
      * already-installed worker for no benefit.
      *

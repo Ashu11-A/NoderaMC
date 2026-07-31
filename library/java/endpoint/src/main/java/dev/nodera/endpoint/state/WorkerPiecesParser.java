@@ -1,6 +1,6 @@
 package dev.nodera.endpoint.state;
 
-import dev.nodera.endpoint.control.CompanionProtocol;
+import dev.nodera.peer.control.ControlProtocol;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Base64;
@@ -54,7 +54,7 @@ public final class WorkerPiecesParser {
      * @return the report; {@link PieceInfo#empty()} if absent, an error line, or malformed.
      */
     public static PieceInfo parse(String json) {
-        if (json == null || json.isBlank() || json.startsWith(CompanionProtocol.ERR)) {
+        if (json == null || json.isBlank() || json.startsWith(ControlProtocol.ERR)) {
             return PieceInfo.empty();
         }
         int pieceCount = (int) Math.max(0, longField(json, "piece_count"));

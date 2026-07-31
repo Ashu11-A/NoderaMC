@@ -1,4 +1,4 @@
-package dev.nodera.endpoint.control;
+package dev.nodera.peer.control;
 
 /**
  * Task 32: thrown by {@link CompanionGate#requireRunning} when the Nodera companion daemon is absent
