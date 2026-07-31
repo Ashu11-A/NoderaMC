@@ -459,7 +459,6 @@ impl Tracker {
             Err(e) => return Handled::Unsupported(e.to_string()),
         };
         let Some(tombstone) = gossip.verified() else {
-            self.announces_rejected += 1;
             return self.reject(Rejection::BadSignature);
         };
         self.registry.remove_world(&tombstone.world_id);
