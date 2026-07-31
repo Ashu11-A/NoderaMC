@@ -1,8 +1,8 @@
 package dev.nodera.mod.common;
 
 import dev.nodera.endpoint.config.NoderaSettings;
-import dev.nodera.endpoint.control.CompanionClient;
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionClient;
+import dev.nodera.peer.control.CompanionLink;
 import dev.nodera.endpoint.lane.LiveRegionOwnershipProvider;
 import dev.nodera.endpoint.share.ShareOptions;
 import dev.nodera.endpoint.state.WorkerStateParser;

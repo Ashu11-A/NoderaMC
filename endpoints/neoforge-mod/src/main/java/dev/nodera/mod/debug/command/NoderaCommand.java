@@ -1,6 +1,6 @@
 package dev.nodera.mod.debug.command;
 
-import dev.nodera.endpoint.control.CompanionLink;
+import dev.nodera.peer.control.CompanionLink;
 import dev.nodera.endpoint.lang.CommandLang;
 import dev.nodera.endpoint.share.ShareOptions;
 import dev.nodera.endpoint.telemetry.ModTelemetry;
@@ -217,7 +217,7 @@ public final class NoderaCommand {
             return 1;
         }
         String game = svc.gameRoute();
-        boolean worker = dev.nodera.endpoint.control.CompanionLink.isPresent();
+        boolean worker = dev.nodera.peer.control.CompanionLink.isPresent();
         // The Share screen already had lang entries for the endpoint and worker lines; the command
         // reuses them rather than paraphrasing the same two facts in a second wording.
         CommandTree.sendPanel(ctx.getSource(), Panel.titled(CommandLang.SHARE_STATUS_TITLE,
@@ -377,7 +377,7 @@ public final class NoderaCommand {
             return CommandTree.fail(ctx, CommandLang.GRANT_NO_IDENTITY,
                     target.getName().getString());
         }
-        if (!dev.nodera.endpoint.control.CompanionLink.isPresent()) {
+        if (!dev.nodera.peer.control.CompanionLink.isPresent()) {
             return CommandTree.fail(ctx, CommandLang.GRANT_NO_WORKER);
         }
         dev.nodera.core.identity.WorldRole role = grantOp
@@ -387,7 +387,7 @@ public final class NoderaCommand {
                 .map(g -> g.grantVersion() + 1).orElse(1L);
         String worldIdHex = perms.worldId().toHex();
         java.util.Optional<dev.nodera.core.Bytes> signed =
-                dev.nodera.endpoint.control.CompanionLink.client().grantRole(worldIdHex,
+                dev.nodera.peer.control.CompanionLink.client().grantRole(worldIdHex,
                         node.nodeId().value().toString(), node.publicKey(), role.ordinal(),
                         grantVersion);
         if (signed.isEmpty()) {

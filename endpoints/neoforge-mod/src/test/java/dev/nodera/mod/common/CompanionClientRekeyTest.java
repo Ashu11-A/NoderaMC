@@ -1,7 +1,7 @@
 package dev.nodera.mod.common;
 
-import dev.nodera.endpoint.control.CompanionClient;
-import dev.nodera.endpoint.control.CompanionProtocol;
+import dev.nodera.peer.control.CompanionClient;
+import dev.nodera.peer.control.ControlProtocol;
 import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
@@ -69,7 +69,7 @@ final class CompanionClientRekeyTest {
                 new HashService().sha256("manifest".getBytes()));
         Bytes reSignedBytes = encodeIdentity(reSigned);
 
-        int port = serve(CompanionProtocol.OK + " " + b64(reSignedBytes) + " 7");
+        int port = serve(ControlProtocol.OK + " " + b64(reSignedBytes) + " 7");
         CompanionClient client = new CompanionClient("127.0.0.1", port);
 
         Bytes currentId = encodeIdentity(WorldIdentity.create(author, genesis, 1L,
@@ -93,7 +93,7 @@ final class CompanionClientRekeyTest {
         WorldIdentity reSigned = WorldIdentity.create(author, genesis, 1L, true, true, true,
                 new HashService().sha256("manifest2".getBytes()));
 
-        int port = serve(CompanionProtocol.OK + " " + b64(encodeIdentity(reSigned)));
+        int port = serve(ControlProtocol.OK + " " + b64(encodeIdentity(reSigned)));
         CompanionClient client = new CompanionClient("127.0.0.1", port);
 
         CompanionClient.Rekeyed got = client.rekey(reSigned.worldId().toHex(),
@@ -106,7 +106,7 @@ final class CompanionClientRekeyTest {
 
     @Test
     void rekeyReturnsEmptyOnErrReply() throws Exception {
-        int port = serve(CompanionProtocol.ERR + " not the author of this world");
+        int port = serve(ControlProtocol.ERR + " not the author of this world");
         CompanionClient client = new CompanionClient("127.0.0.1", port);
         assertTrue(client.rekey("deadbeef", Path.of("/tmp/x.nar"), "pw==",
                 Bytes.empty()).isEmpty());

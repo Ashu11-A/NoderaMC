@@ -1,6 +1,7 @@
 package dev.nodera.endpoint.telemetry;
 
-import dev.nodera.endpoint.control.CompanionClient;
+import dev.nodera.peer.control.CompanionLink;
+import dev.nodera.peer.control.CompanionClient;
 import dev.nodera.telemetry.TelemetryConsent;
 import dev.nodera.telemetry.TelemetryEvent;
 import dev.nodera.telemetry.TelemetryRegistry;
@@ -47,6 +48,27 @@ public final class ModTelemetry {
      * <p>Called once when the mod connects to the companion. Reading rather than assuming is the
      * point: the decision lives on the node, and the game is one of several things that may ask.
      */
+    /**
+     * Bind this façade to {@link CompanionLink} so it follows the linked worker automatically.
+     *
+     * <p>Called once by an endpoint's bootstrap. The link used to call {@code attach}/{@code detach}
+     * itself, which made the control wire depend on this class — the wrong direction, and the reason
+     * the wire could not live beside the client it speaks. Registering here points it the right way.
+     */
+    public static void followCompanionLink() {
+        CompanionLink.addListener((worker, info) -> {
+            if (worker == null) {
+                // A lost worker is not consent. The façade falls back to "unanswered", which
+                // collects nothing, rather than keeping a cached grant alive against a dead node.
+                detach();
+            } else {
+                // The consent decision lives on the NODE, not in the game: bind to the same
+                // connection and read it from there. The game is one of several things that ask.
+                attach(worker);
+            }
+        });
+    }
+
     public static void attach(CompanionClient worker) {
         WORKER.set(worker);
         SENDER.compareAndSet(null, Executors.newSingleThreadExecutor(runnable -> {

@@ -7,7 +7,13 @@ build/
 .idea/
 *.iml
 # IDE (Eclipse/VSCode-Java) compile output inside each module — never committed.
-library/java/*/bin/
+# Eclipse/redhat.java compile the tree into `<module>/bin/{main,test}` beside Gradle's `build/`.
+# Matched at ANY depth on purpose: the previous pattern was `java/*/bin/`, which stopped covering
+# anything the moment modules moved out of `java/`, and a `git add -A` then committed 1,127 .class
+# files. Anchored on `bin/main` and `bin/test` rather than a bare `bin/` so that Cargo's own
+# `tracker/src/bin/` convention — which holds real source — keeps working.
+**/bin/main/
+**/bin/test/
 .vscode/
 .eclipse/
 .classpath

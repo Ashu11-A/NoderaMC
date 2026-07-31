@@ -1,6 +1,6 @@
 package dev.nodera.mod.common;
 
-import dev.nodera.endpoint.control.CompanionProtocol;
+import dev.nodera.peer.control.ControlProtocol;
 import dev.nodera.peer.control.ControlProtocol;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The mod and the worker speak the same protocol, and this is the only thing that says so.
  *
- * <p>{@link CompanionProtocol} holds literals rather than delegating to {@link ControlProtocol},
+ * <p>{@link ControlProtocol} holds literals rather than delegating to {@link ControlProtocol},
  * because the mod and the worker are separately installed artifacts that talk over a socket — a
  * shared compile-time constant cannot make two independently updated builds agree, it only hides
  * that they might not. What a shared constant genuinely bought was a drift alarm, and this test is
@@ -48,7 +48,7 @@ final class CompanionProtocolContractTest {
     @Test
     @DisplayName("every verb the mod knows has the same spelling in the worker")
     void everyMirroredConstantMatches() {
-        Map<String, Object> mod = constants(CompanionProtocol.class);
+        Map<String, Object> mod = constants(ControlProtocol.class);
         Map<String, Object> worker = constants(ControlProtocol.class);
 
         assertThat(mod).isNotEmpty();
@@ -65,7 +65,7 @@ final class CompanionProtocolContractTest {
     @Test
     @DisplayName("a verb added to the worker is added to the mod in the same commit")
     void theModKnowsEveryVerbTheWorkerServes() {
-        Map<String, Object> mod = constants(CompanionProtocol.class);
+        Map<String, Object> mod = constants(ControlProtocol.class);
         Map<String, Object> worker = constants(ControlProtocol.class);
 
         // Deliberately strict in both directions. A verb the mod has never heard of is how the two
@@ -78,10 +78,10 @@ final class CompanionProtocolContractTest {
     @Test
     @DisplayName("the handshake lines are byte-identical")
     void theHandshakeAgrees() {
-        assertThat(CompanionProtocol.probeLine()).isEqualTo(ControlProtocol.probeLine());
-        assertThat(CompanionProtocol.okLine(2, "1.2.3"))
+        assertThat(ControlProtocol.probeLine()).isEqualTo(ControlProtocol.probeLine());
+        assertThat(ControlProtocol.okLine(2, "1.2.3"))
                 .isEqualTo(ControlProtocol.okLine(2, "1.2.3"));
-        assertThat(CompanionProtocol.PROTOCOL_VERSION)
+        assertThat(ControlProtocol.PROTOCOL_VERSION)
                 .isEqualTo(ControlProtocol.PROTOCOL_VERSION);
     }
 }

@@ -97,6 +97,57 @@ for name in files:
             elif not ok:
                 stale.append(f"{name}:{lineno} → {candidate}")
 
+# --- every fully-qualified `--tests` filter in CI must name a class that exists --------------
+#
+# Gradle fails a filter that matches nothing, so these DO break loudly — but they break in the job
+# that runs them, minutes into CI, one at a time. Moving a test class broke one of these three
+# times during the 2026-07 reorganisation. Checking them here costs nothing and reports all of them
+# at once, locally, before the push.
+import re as _re
+
+missing = []
+for wf in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+    for fqcn in _re.findall(r"--tests '([a-z][A-Za-z0-9.]*)'", wf.read_text()):
+        rel = fqcn.replace(".", "/") + ".java"
+        if not any(p.match(f"*/src/*/java/{rel}") for p in pathlib.Path(".").rglob(rel)
+                   if "/build/" not in str(p)):
+            missing.append(f"{wf}: --tests '{fqcn}'")
+if missing:
+    print("\n".join(f"MISSING {row}" for row in missing), file=sys.stderr)
+    print(
+        f"\ntest-filters: {len(missing)} CI --tests filter(s) name a class that does not exist.\n"
+        "Gradle fails on a filter matching nothing, so this would break the job that runs it.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# --- build output must never be tracked ---------------------------------------------------
+#
+# Not a path-reference check, but the same failure and the same cause. `.gitignore` used to say
+# `java/*/bin/`, which stopped covering anything the moment modules moved out of `java/`; the next
+# `git add -A` committed 1,127 compiled .class files and nothing said a word. An ignore rule scoped
+# to a directory that no longer exists fails exactly as silently as a stale `paths:` filter.
+import subprocess
+
+tracked = subprocess.run(
+    ["git", "ls-files",
+     "*.class", "*.jar", "*.o", "*.so", "*.dylib", "*.dll", "*.exe", "*.rlib", "*.rmeta"],
+    capture_output=True, text=True, check=False,
+).stdout.split()
+# The Gradle wrapper jar is committed on purpose — that is how a wrapper bootstraps.
+artefacts = [f for f in tracked if f != "gradle/wrapper/gradle-wrapper.jar"]
+if artefacts:
+    shown = "\n".join(f"TRACKED {f}" for f in artefacts[:20])
+    more = f"\n  … and {len(artefacts) - 20} more" if len(artefacts) > 20 else ""
+    print(f"{shown}{more}", file=sys.stderr)
+    print(
+        f"\nbuild-output: {len(artefacts)} compiled artefact(s) are tracked in git.\n"
+        "Untrack them (`git rm -r --cached <dir>`) and make sure .gitignore covers where they are\n"
+        "now, not where they used to be.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
 if listing:
     print(f"\nlayout-drift: {seen} path references inspected across {len(files)} files")
     sys.exit(0)
