@@ -38,6 +38,10 @@
 #             platform's own toolchain (a deb and an msi cannot be produced from one machine).
 #             No macOS installer is published — see NODERA_RELEASE_SYSTEMS in lib/release.sh.
 #             nodera-app
+#   android   The signed APK. Its own component rather than a sixth `app` leg: it cross-compiles
+#             from Linux, needs the NDK and a dexed worker instead of a webview, and — unlike every
+#             other deliverable — it CANNOT be built without a secret.
+#             nodera-app-android-universal.apk
 #
 # `--component` selects one; the default builds every leg this machine can. CI runs one leg per
 # matrix job and the publish job merges the staged directories.
@@ -99,8 +103,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "${COMPONENT:-all}" in
-    all|jars|services|app) ;;
-    *) die "unknown component '$COMPONENT' (jars|services|app)" ;;
+    all|jars|services|app|android) ;;
+    *) die "unknown component '$COMPONENT' (jars|services|app|android)" ;;
 esac
 
 VERSION_TOKEN="$(release_version_token)"
@@ -240,6 +244,26 @@ stage_app() {
 }
 
 # ---------------------------------------------------------------------------
+# android — the signed APK
+# ---------------------------------------------------------------------------
+#
+# `--require-release-key` is not optional here and is the reason this is a component of its own.
+# `scripts/android-apk.sh` generates a development key when none is supplied, so that a developer
+# can install on a phone without thinking about signing. That fallback must never reach a release:
+# the key is minted by the script from a hardcoded password, so anybody can reproduce it, and
+# Android identifies an app by its signing certificate — an install carrying that signature can
+# never be updated by a genuinely signed build. So the flag makes an absent secret a refusal.
+build_android() {
+    log "Android: scripts/android-apk.sh --require-release-key"
+    "$NODERA_ROOT/scripts/android-apk.sh" --require-release-key
+}
+
+stage_android() {
+    # One APK carrying every ABI — see `release_app_arches`.
+    stage "$NODERA_ARTIFACTS/nodera-release.apk" "$(release_asset app android universal)"
+}
+
+# ---------------------------------------------------------------------------
 # verify / checksums / sign
 # ---------------------------------------------------------------------------
 
@@ -371,6 +395,10 @@ fi
 if [[ "$COMPONENT" == "app" ]]; then
     [[ "$DO_BUILD" -eq 1 ]] && build_app
     stage_app
+fi
+if [[ "$COMPONENT" == "android" ]]; then
+    [[ "$DO_BUILD" -eq 1 ]] && build_android
+    stage_android
 fi
 
 log "staged into $RELEASE_DIR:"

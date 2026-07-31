@@ -274,6 +274,7 @@ jobs:
           nodera-app-linux-arm64.deb
           nodera-app-windows-x64.msi
           nodera-app-windows-arm64.msi
+          nodera-app-android-universal.apk
           nodera-tracker-x64-latest
           nodera-tracker-arm64-latest
           nodera-rendezvous-x64-latest

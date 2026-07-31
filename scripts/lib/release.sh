@@ -36,9 +36,10 @@
 #              while `/VERSION` stays put, so an asset named for `/VERSION` would be overwritten by
 #              a different build under the same name. Falls back to `/VERSION` when no tag is set,
 #              which is what a local `scripts/release.sh` produces.
-#   <arch>     `x64` or `arm64`. Both are always built.
-#   <system>   `linux` or `windows`. See below for why macOS is not among them.
-#   <ext>      The installer format for that system: deb / msi.
+#   <arch>     `x64` or `arm64` — or `universal` for Android, which ships one APK carrying every
+#              ABI. See `release_app_arches`.
+#   <system>   `linux`, `windows` or `android`. See below for why macOS is not among them.
+#   <ext>      The installer format for that system: deb / msi / apk.
 #
 # Usage:
 #   source "$(dirname "${BASH_SOURCE[0]}")/release.sh"
@@ -67,7 +68,7 @@
 # scheduled, or a decision to cross-build x64 from `macos-14` with `--target x86_64-apple-darwin`
 # (`scripts/release.sh --target` already handles the bundle path for a cross build).
 NODERA_RELEASE_ARCHES=(x64 arm64)
-NODERA_RELEASE_SYSTEMS=(linux windows)
+NODERA_RELEASE_SYSTEMS=(linux windows android)
 
 # The installer format each system ships. Kept beside the system list because adding a system
 # without deciding its format is how an empty asset name reaches `gh release create`.
@@ -75,7 +76,23 @@ release_app_extension() {
     case "$1" in
         linux)   printf 'deb\n' ;;
         windows) printf 'msi\n' ;;
+        android) printf 'apk\n' ;;
         *)       echo "release.sh: unknown system '$1'" >&2; return 1 ;;
+    esac
+}
+
+# Which architectures each system's installer is published for.
+#
+# Not every system publishes the same set, which is why this is a function and not one global list.
+# Android ships a SINGLE apk carrying every ABI: that is the platform's own convention for a
+# sideloaded build, per-ABI splits exist to shrink Play Store downloads, and offering a person two
+# APKs would ask them a question about their own phone that they cannot answer. Its arch token is
+# therefore `universal`, and it is a real answer rather than a placeholder.
+release_app_arches() {
+    case "$1" in
+        linux|windows) printf '%s\n' "${NODERA_RELEASE_ARCHES[@]}" ;;
+        android)       printf 'universal\n' ;;
+        *)             echo "release.sh: unknown system '$1'" >&2; return 1 ;;
     esac
 }
 
@@ -111,6 +128,9 @@ release_system_token() {
     case "$system" in
         Linux|linux)                       printf 'linux\n' ;;
         MINGW*|MSYS*|CYGWIN*|Windows_NT|windows) printf 'windows\n' ;;
+        # Never a `uname -s`: Android is always a cross-build target, so this token only ever
+        # arrives declared — from the release matrix, or from `--component android`.
+        android|Android)                   printf 'android\n' ;;
         # Named rather than falling through to the generic error, because "unknown system Darwin"
         # would read as a gap in this mapping. It is a decision, not an omission — see the note on
         # NODERA_RELEASE_SYSTEMS.
@@ -168,7 +188,14 @@ release_asset() {
         app)
             local system arch ext
             system="$(release_system_token "${1:-}")" || return 1
-            arch="$(release_arch_token "${2:-}")" || return 1
+            # `universal` is a published architecture token but never a machine, so it does not go
+            # through the uname mapping — that one stays narrow, and refusing to recognise a
+            # machine it cannot name is the property that makes it worth having.
+            if [[ "${2:-}" == "universal" ]]; then
+                arch="universal"
+            else
+                arch="$(release_arch_token "${2:-}")" || return 1
+            fi
             ext="$(release_app_extension "$system")" || return 1
             printf 'nodera-app-%s-%s.%s\n' "$system" "$arch" "$ext" ;;
         *)  echo "release.sh: unknown asset kind '$kind'" >&2; return 1 ;;
@@ -186,9 +213,9 @@ release_manifest() {
         release_asset "$kind" || return 1
     done
     for system in "${NODERA_RELEASE_SYSTEMS[@]}"; do
-        for arch in "${NODERA_RELEASE_ARCHES[@]}"; do
+        while IFS= read -r arch; do
             release_asset app "$system" "$arch" || return 1
-        done
+        done < <(release_app_arches "$system")
     done
     for kind in tracker rendezvous; do
         for arch in "${NODERA_RELEASE_ARCHES[@]}"; do

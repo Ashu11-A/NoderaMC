@@ -213,6 +213,7 @@ the tag, and **both architectures are always built**:
 | `nodera-paper-<version>.jar` | The Paper/Folia endpoint plugin — drop it in `plugins/` |
 | `nodera-peer-<version>.jar` | The headless always-on node: `java -jar nodera-peer-<version>.jar` |
 | `nodera-app-<system>-<arch>.<ext>` | The companion app installer — `linux`/`windows` × `x64`/`arm64` (`.deb`/`.msi`). No macOS build: see `NODERA_RELEASE_SYSTEMS` in `scripts/lib/release.sh` |
+| `nodera-app-android-universal.apk` | The Android app, signed with the project release key. One APK carrying every ABI |
 | `nodera-tracker-<arch>-<version>` | The tracker service binary — `x64` and `arm64` |
 | `nodera-rendezvous-<arch>-<version>` | The rendezvous + relay service binary — `x64` and `arm64` |
 | `SHA256SUMS` / `SHA256SUMS.sig` | Digests over every asset, and a detached Ed25519 signature over them |
@@ -227,6 +228,7 @@ scripts/release.sh --names                # every asset a complete release conta
 scripts/release.sh --component jars       # the three jars (any machine with a JDK)
 scripts/release.sh --component services   # this architecture's tracker + rendezvous
 scripts/release.sh --component app        # this platform's installer (needs bun + Tauri deps)
+scripts/release.sh --component android    # the signed APK (needs the release key; see below)
 scripts/release.sh --verify               # hold build/release to the manifest
 ```
 

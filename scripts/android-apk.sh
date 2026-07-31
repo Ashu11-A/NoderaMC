@@ -16,12 +16,25 @@
 #   scripts/android-apk.sh                  # release apk into ./build
 #   scripts/android-apk.sh --debug          # debug apk (bigger, no R8)
 #   scripts/android-apk.sh --install        # …and adb install it
+#   scripts/android-apk.sh --require-release-key   # refuse the dev key (what CI runs)
 #
-# THE SIGNING KEY IS A DEVELOPMENT KEY. It lives outside the repository
-# (~/.nodera/android-release.jks), it is generated on first run, and it is
-# not a Play Store upload key. It exists so the apk installs, not so it can
-# be published; shipping to a store needs a key you have deliberately backed
-# up, which is a decision for a person and not for a build script.
+# ---------------------------------------------------------------------------
+# TWO KEYS, AND WHY THE DIFFERENCE IS ENFORCED
+# ---------------------------------------------------------------------------
+#
+# DEVELOPMENT (the default). Generated on first run at ~/.nodera/android-release.jks with a
+# hardcoded password, because Android will not install an unsigned apk and a developer should not
+# have to think about it. Every checkout of this repository can mint one.
+#
+# RELEASE. Supplied through the environment — `NODERA_ANDROID_KEYSTORE_BASE64` holds the keystore
+# and `NODERA_ANDROID_KEY_PASS` its password, both from repository secrets. Decoded to a mode-600
+# file under a temporary directory and deleted on exit, including on failure.
+#
+# `--require-release-key` refuses to run when the release key is absent, and the release lane always
+# passes it. That flag is the whole point: without it the fallback above is silent, and the failure
+# it produces is not a build error but a published apk signed with a throwaway key — one that anyone
+# can reproduce, and that no future genuine release can ever update, because Android identifies an
+# app by its signing certificate and refuses an update signed by a different one.
 # ===========================================================================
 set -euo pipefail
 
@@ -50,6 +63,7 @@ KEY_PASS="${NODERA_ANDROID_KEY_PASS:-noderadev}"
 
 PROFILE="release"
 DO_INSTALL=0
+REQUIRE_RELEASE_KEY=0
 # Re-dexing the worker costs a minute and a lot of memory. It only has to happen when the worker
 # changed, so a UI-only rebuild can skip it and reuse the staged asset.
 SKIP_WORKER=0
@@ -58,10 +72,11 @@ TARGET="${NODERA_ANDROID_TARGET:-aarch64}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --debug)   PROFILE="debug" ;;
+    --require-release-key) REQUIRE_RELEASE_KEY=1 ;;
     --skip-worker) SKIP_WORKER=1 ;;
     --install) DO_INSTALL=1 ;;
     --target)  TARGET="$2"; shift ;;
-    -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,44p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
@@ -69,6 +84,66 @@ done
 
 say() { printf '\033[1;36m[apk]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[apk]\033[0m %s\n' "$*" >&2; exit 1; }
+
+# ONE cleanup and ONE trap, installed here before anything creates a temporary.
+#
+# There used to be a `trap ... EXIT` further down with a comment warning that a second one would
+# silently replace it. That warning was right and the arrangement invited exactly what it warned
+# about, so there is now a single handler and nothing else may call `trap`. It matters more than it
+# did: one of the temporaries is now a decoded signing key, and a leaked EXIT trap means private key
+# material surviving on a runner.
+STAGE=""
+ALIGNED=""
+KEYSTORE_TMP=""
+cleanup() {
+  [[ -n "$STAGE" ]] && rm -rf "$STAGE"
+  [[ -n "$ALIGNED" ]] && rm -f "$ALIGNED"
+  # `shred` first where it exists: the decoded keystore is the one temporary whose contents matter
+  # after deletion. Best-effort — on a copy-on-write filesystem it proves nothing, and the real
+  # protection is that the file was mode 600 in a private directory for the length of one build.
+  if [[ -n "$KEYSTORE_TMP" && -f "$KEYSTORE_TMP" ]]; then
+    command -v shred >/dev/null 2>&1 && shred -u "$KEYSTORE_TMP" 2>/dev/null || rm -f "$KEYSTORE_TMP"
+  fi
+  return 0
+}
+trap cleanup EXIT
+
+# --- the signing key, resolved BEFORE the build --------------------------
+#
+# Before, not after: the build is a cross-compile plus a Gradle assemble plus a dex of the whole
+# worker. Discovering a missing secret at the signing step means twenty minutes spent to produce an
+# artifact that is then thrown away, and a failure whose cause is at the very bottom of a long log.
+resolve_signing_key() {
+  if [[ -n "${NODERA_ANDROID_KEYSTORE_BASE64:-}" ]]; then
+    KEYSTORE_TMP="$(mktemp -t nodera-release-key-XXXXXX.jks)"
+    chmod 600 "$KEYSTORE_TMP"
+    # `tr -d` because a secret pasted through a web form arrives with newlines in it, and base64(1)
+    # rejects those on some platforms rather than ignoring them.
+    printf '%s' "$NODERA_ANDROID_KEYSTORE_BASE64" | tr -d '\n\r ' | base64 -d > "$KEYSTORE_TMP" \
+      || die "NODERA_ANDROID_KEYSTORE_BASE64 is not valid base64"
+    [[ -s "$KEYSTORE_TMP" ]] || die "NODERA_ANDROID_KEYSTORE_BASE64 decoded to an empty file"
+    KEYSTORE="$KEYSTORE_TMP"
+    # Proves the password matches the keystore NOW, so a wrong secret is one clear line here rather
+    # than an apksigner failure after the whole build.
+    keytool -list -keystore "$KEYSTORE" -alias "$KEY_ALIAS" -storepass "$KEY_PASS" >/dev/null 2>&1 \
+      || die "the release keystore does not open with alias '$KEY_ALIAS' and the supplied password"
+    say "signing    RELEASE key from NODERA_ANDROID_KEYSTORE_BASE64 (alias $KEY_ALIAS)"
+    return 0
+  fi
+
+  if [[ "$REQUIRE_RELEASE_KEY" == "1" ]]; then
+    die "no release signing key.
+    NODERA_ANDROID_KEYSTORE_BASE64 and NODERA_ANDROID_KEY_PASS must both be set.
+    In CI they come from the repository secrets of the same name (plus the optional
+    NODERA_ANDROID_KEY_ALIAS, default 'nodera').
+    Refusing to fall back to the development key: it is generated by this script with a
+    hardcoded password, so anyone can reproduce it, and Android will never let a genuinely
+    signed release update an install that was signed with it."
+  fi
+
+  say "signing    development key at $KEYSTORE (not a release key)"
+}
+resolve_signing_key
 
 # --- the JDK -------------------------------------------------------------
 #
@@ -133,10 +208,6 @@ WORKER_DIST="$NODERA_PEER_MODULE/build/install/nodera-headless"
 [[ -d "$WORKER_DIST/lib" ]] || die "the worker distribution is missing at $WORKER_DIST"
 
 STAGE="$(mktemp -d -t nodera-worker-dex-XXXXXX)"
-ALIGNED=""
-# One trap for both temporaries: a second `trap ... EXIT` later would silently replace this one and
-# leak a few hundred megabytes of staged dex per run.
-trap 'rm -rf "$STAGE"; [[ -n "$ALIGNED" ]] && rm -f "$ALIGNED"' EXIT
 mkdir -p "$STAGE/dex" "$STAGE/payload"
 
 # --min-api $DEX_MIN_API is FORCED to match the app's own minSdk (patched below, and asserted
@@ -325,10 +396,24 @@ fi
 rm -rf "$APP_DIR/gen/android/app/src/main/assets/resources"
 
 cd "$APP_DIR"
+
+# The Tauri CLI, resolved the same way `scripts/release.sh` resolves it: the npm package in the
+# UI's node_modules is a prebuilt binary that bun has already fetched, while `cargo install
+# tauri-cli` compiles it from source and costs minutes on a cold runner. `cargo tauri` is the
+# fallback, because that is what a developer who followed `scripts/android-toolchain.sh` has.
+TAURI="$APP_DIR/ui/node_modules/.bin/tauri"
+if [[ -x "$TAURI" ]]; then
+  TAURI_CMD=("$TAURI")
+elif command -v cargo-tauri >/dev/null 2>&1; then
+  TAURI_CMD=(cargo tauri)
+else
+  die "no Tauri CLI: run 'bun install' in app/ui, or 'cargo install tauri-cli --version ^2'"
+fi
+
 BUILD_ARGS=(android build --apk --target "$TARGET")
 [[ "$PROFILE" == "debug" ]] && BUILD_ARGS+=(--debug)
 say "building…"
-cargo tauri "${BUILD_ARGS[@]}"
+"${TAURI_CMD[@]}" "${BUILD_ARGS[@]}"
 
 # Selected by its profile directory, not by a glob over every output. A glob would happily pick a
 # stale debug apk left behind by an earlier run — which installs, launches, and is not the thing
@@ -338,8 +423,11 @@ APK_IN="$(ls -1 "$APP_DIR/gen/android/app/build/outputs/apk/universal/$PROFILE/"
 [[ "$(stat -c %s "$APK_IN")" -gt 1000000 ]] || die "the built apk is implausibly small — the build did not finish"
 say "built      $(basename "$APK_IN") ($(numfmt --to=iec "$(stat -c %s "$APK_IN")"))"
 
-# --- 3. the signing key --------------------------------------------------
-if [[ ! -f "$KEYSTORE" ]]; then
+# --- 3. the development key, if that is what we are using ----------------
+#
+# Only reachable when no release key was supplied AND --require-release-key was not passed;
+# `resolve_signing_key` decided that at the top.
+if [[ -z "$KEYSTORE_TMP" && ! -f "$KEYSTORE" ]]; then
   say "creating a development signing key at $KEYSTORE"
   mkdir -p "$(dirname "$KEYSTORE")"
   keytool -genkeypair -v \
