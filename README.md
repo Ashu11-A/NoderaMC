@@ -259,11 +259,12 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
 | `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
+| `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 254 | 🚧 |
 | `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines, release asset naming | 66 | ✅ |
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
-| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 206 | 🚧 |
+| `app` | The desktop shell: window, tray, autostart, command registration. Everything it *is* lives in `nodera-core`; the Android front end is native Compose (separate workspace) | 2 | 🚧 |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap
