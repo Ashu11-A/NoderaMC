@@ -34,6 +34,7 @@ pub mod api;
 pub mod browser;
 pub mod config;
 pub mod control;
+pub mod core;
 pub mod daemon;
 pub mod logs;
 pub mod metrics;

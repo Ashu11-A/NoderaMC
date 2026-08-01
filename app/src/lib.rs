@@ -39,12 +39,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use api::store::DashboardStore;
-use config::{ConfigPusher, ConfigStatusHandle, PushSignal};
-use daemon::RestartSignal;
-use logs::LogBuffer;
+use config::{ConfigPusher, PushSignal};
+use nodera_core::core::NoderaCore;
 use power::PauseHandle;
-use system::SystemHandle;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
 #[cfg(desktop)]
@@ -85,16 +82,28 @@ fn window_title() -> Option<String> {
         .filter(|title| !title.trim().is_empty())
 }
 
+/// The one handle, from an owned `AppHandle`.
+///
+/// An async command that takes `State<'_, _>` must return a `Result` — Tauri will not let a borrowed
+/// input escape into a future otherwise. Several of these commands answer with a plain value on
+/// purpose (a `DirectoryEntry` list, an `Outcome` that already carries its own error string), and
+/// wrapping them in `Result` to satisfy the macro would change the shape the interface reads. So
+/// they take the handle, which is owned, and look the state up.
+fn core_of(app: &tauri::AppHandle) -> Arc<NoderaCore> {
+    use tauri::Manager as _;
+    Arc::clone(&app.state::<Arc<NoderaCore>>())
+}
+
 /// Tauri command: machine + worker RAM/CPU for the resource tiles.
 #[tauri::command]
-fn get_system_stats(state: tauri::State<Arc<SystemHandle>>) -> system::SystemStats {
-    state.snapshot()
+fn get_system_stats(core: tauri::State<Arc<NoderaCore>>) -> system::SystemStats {
+    core.system_stats()
 }
 
 /// Tauri command: the worker's recent log lines (oldest first, bounded ring).
 #[tauri::command]
-fn get_worker_logs(state: tauri::State<Arc<LogBuffer>>) -> Vec<String> {
-    state.snapshot()
+fn get_worker_logs(core: tauri::State<Arc<NoderaCore>>) -> Vec<String> {
+    core.worker_logs()
 }
 
 /// Tauri command: the whole current picture, for the first paint.
@@ -103,22 +112,20 @@ fn get_worker_logs(state: tauri::State<Arc<LogBuffer>>) -> Vec<String> {
 /// `&Arc<DashboardStore>`, because the Android front end calls it too and `tauri::State` means
 /// nothing there — extracting the state is the one part of this that is genuinely about the shell.
 #[tauri::command]
-fn dashboard(store: tauri::State<Arc<DashboardStore>>) -> api::model::Dashboard {
-    api::commands::dashboard(&store)
+fn dashboard(core: tauri::State<Arc<NoderaCore>>) -> api::model::Dashboard {
+    core.snapshot()
 }
 
 /// Tauri command: the persisted settings document.
 #[tauri::command]
-fn get_settings(state: tauri::State<Arc<settings::SettingsHandle>>) -> settings::Settings {
-    state.snapshot()
+fn get_settings(core: tauri::State<Arc<NoderaCore>>) -> settings::Settings {
+    core.settings()
 }
 
 /// Tauri command: the tracker stores this install trusts.
 #[tauri::command]
-fn get_tracker_stores(
-    state: tauri::State<Arc<settings::SettingsHandle>>,
-) -> Vec<stores::TrackerStore> {
-    state.snapshot().network.tracker_stores
+fn get_tracker_stores(core: tauri::State<Arc<NoderaCore>>) -> Vec<stores::TrackerStore> {
+    core.tracker_stores()
 }
 
 /// Tauri command: a store URL that arrived by deep link and is waiting for the user to confirm it.
@@ -128,8 +135,8 @@ fn get_tracker_stores(
 /// decision being made is "I trust this publisher", and it has to be made by the person, with the
 /// URL in front of them.
 #[tauri::command]
-fn take_pending_tracker_store(state: tauri::State<Arc<PendingStore>>) -> Option<String> {
-    state.take()
+fn take_pending_tracker_store(core: tauri::State<Arc<NoderaCore>>) -> Option<String> {
+    core.take_pending_tracker_store()
 }
 
 /// Tauri command: the endpoints this node will actually dial, and where each one came from.
@@ -144,28 +151,8 @@ fn take_pending_tracker_store(state: tauri::State<Arc<PendingStore>>) -> Option<
 /// So the screens ask for this instead. Provenance comes with it, because "where did this address
 /// come from" is the next question anyone has in front of a list they did not fully write.
 #[tauri::command]
-fn resolved_services(
-    state: tauri::State<Arc<settings::SettingsHandle>>,
-) -> HashMap<String, Vec<stores::ResolvedEndpoint>> {
-    let settings = state.snapshot();
-    HashMap::from([
-        (
-            "trackers".to_owned(),
-            stores::resolved(
-                &settings.network.default_trackers,
-                &settings.network.tracker_stores,
-                stores::ServiceKind::Tracker,
-            ),
-        ),
-        (
-            "rendezvous".to_owned(),
-            stores::resolved(
-                &settings.network.rendezvous_endpoints,
-                &settings.network.tracker_stores,
-                stores::ServiceKind::Rendezvous,
-            ),
-        ),
-    ])
+fn resolved_services(core: tauri::State<Arc<NoderaCore>>) -> HashMap<String, Vec<stores::ResolvedEndpoint>> {
+    core.resolved_services()
 }
 
 /// Tauri command: open a web link outside this window.
@@ -184,14 +171,20 @@ fn resolved_services(
 ///
 /// Returns which rung answered, for the log: `browser`, `custom-tab` or `webview`.
 #[tauri::command]
-async fn open_external(app: tauri::AppHandle, url: String) -> Result<String, String> {
+async fn open_external(
+    app: tauri::AppHandle,
+    core: tauri::State<'_, Arc<NoderaCore>>,
+    url: String,
+) -> Result<String, String> {
+    let core = Arc::clone(&core);
     // On a blocking pool: `startActivity` and the desktop openers all block, and the window that
     // has to keep drawing while the browser comes up is this one.
     tokio::task::spawn_blocking(move || {
-        browser::open(&shell::DesktopOpener(app), &url).map(|how| how.to_owned())
+        core.open_external(&shell::DesktopOpener(app), &url)
+            .map(|how| how.to_owned())
     })
-        .await
-        .map_err(|e| format!("the open task failed: {e}"))?
+    .await
+    .map_err(|e| format!("the open task failed: {e}"))?
 }
 
 /// Tauri command: where the project's own list is published.
@@ -219,14 +212,9 @@ fn official_store_url() -> &'static str {
 /// the app then *stored* would be a list the user confirmed and a list the app kept, and those are
 /// only the same thing until a publisher edits the file between the two calls.
 #[tauri::command]
-async fn preview_tracker_store(url: String) -> Result<stores::ServiceIndex, String> {
-    let target = url.trim().to_owned();
-    stores::check_url(&target).map_err(|e| e.to_string())?;
-    let body = tokio::task::spawn_blocking(move || stores::fetch_index(&target))
-        .await
-        .map_err(|e| format!("the fetch task failed: {e}"))?
-        .map_err(|e| e.to_string())?;
-    stores::parse_index(&body).map_err(|e| e.to_string())
+async fn preview_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: String) -> Result<stores::ServiceIndex, String> {
+    let core = Arc::clone(&core);
+    core.preview_tracker_store(url).await
 }
 
 /// Tauri command: fetch a store index, validate it, and remember it.
@@ -235,56 +223,15 @@ async fn preview_tracker_store(url: String) -> Result<stores::ServiceIndex, Stri
 /// synchronous HTTPS client; holding a Tauri command thread on a network round trip would freeze
 /// the window that is showing the dialog.
 #[tauri::command]
-async fn add_tracker_store(
-    state: tauri::State<'_, Arc<settings::SettingsHandle>>,
-    push: tauri::State<'_, Arc<PushSignal>>,
-    url: String,
-) -> Result<stores::TrackerStore, String> {
-    let target = url.trim().to_owned();
-    stores::check_url(&target).map_err(|e| e.to_string())?;
-
-    let fetch_url = target.clone();
-    let body = tokio::task::spawn_blocking(move || stores::fetch_index(&fetch_url))
-        .await
-        .map_err(|e| format!("the fetch task failed: {e}"))?
-        .map_err(|e| e.to_string())?;
-    let index = stores::parse_index(&body).map_err(|e| e.to_string())?;
-    let store = stores::store_from(&target, index, now_millis(), false);
-
-    let mut settings = state.snapshot();
-    // One entry per URL. Re-adding a store is how a user refreshes one by hand, so it replaces
-    // rather than duplicating — two rows for one URL would double every endpoint it contributes.
-    settings
-        .network
-        .tracker_stores
-        .retain(|held| held.url != store.url);
-    settings.network.tracker_stores.push(store.clone());
-    state.save(settings)?;
-    settings::write_sync_file(&state.snapshot());
-    push.request();
-    Ok(store)
+async fn add_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: String) -> Result<stores::TrackerStore, String> {
+    let core = Arc::clone(&core);
+    core.add_tracker_store(url).await
 }
 
 /// Tauri command: forget a store, and everything it contributed.
 #[tauri::command]
-fn remove_tracker_store(
-    state: tauri::State<Arc<settings::SettingsHandle>>,
-    push: tauri::State<Arc<PushSignal>>,
-    url: String,
-) -> Result<(), String> {
-    let mut settings = state.snapshot();
-    let before = settings.network.tracker_stores.len();
-    settings
-        .network
-        .tracker_stores
-        .retain(|held| held.url != url);
-    if settings.network.tracker_stores.len() == before {
-        return Err(format!("no store here is served from {url}"));
-    }
-    state.save(settings)?;
-    settings::write_sync_file(&state.snapshot());
-    push.request();
-    Ok(())
+fn remove_tracker_store(core: tauri::State<Arc<NoderaCore>>, url: String) -> Result<(), String> {
+    core.remove_tracker_store(url)
 }
 
 /// Tauri command: re-read every store.
@@ -293,29 +240,9 @@ fn remove_tracker_store(
 /// would mean a web server having a bad minute costs the user every tracker they had, which is a
 /// far worse outcome than a slightly stale list.
 #[tauri::command]
-async fn refresh_tracker_stores(
-    state: tauri::State<'_, Arc<settings::SettingsHandle>>,
-    push: tauri::State<'_, Arc<PushSignal>>,
-) -> Result<Vec<stores::TrackerStore>, String> {
-    let mut settings = state.snapshot();
-    for store in &mut settings.network.tracker_stores {
-        let url = store.url.clone();
-        let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&url))
-            .await
-            .map_err(|e| format!("the fetch task failed: {e}"))?;
-        match fetched.and_then(|body| stores::parse_index(&body)) {
-            Ok(index) => {
-                let built_in = store.built_in;
-                *store = stores::store_from(&store.url, index, now_millis(), built_in);
-            }
-            Err(e) => store.last_error = e.to_string(),
-        }
-    }
-    let refreshed = settings.network.tracker_stores.clone();
-    state.save(settings)?;
-    settings::write_sync_file(&state.snapshot());
-    push.request();
-    Ok(refreshed)
+async fn refresh_tracker_stores(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<Vec<stores::TrackerStore>, String> {
+    let core = Arc::clone(&core);
+    core.refresh_tracker_stores().await
 }
 
 /// Tauri command: re-read one store.
@@ -325,135 +252,22 @@ async fn refresh_tracker_stores(
 /// other end. Refreshing all of them to retry one makes every other row's timestamp lie about when
 /// it was last confirmed.
 #[tauri::command]
-async fn refresh_tracker_store(
-    state: tauri::State<'_, Arc<settings::SettingsHandle>>,
-    push: tauri::State<'_, Arc<PushSignal>>,
-    url: String,
-) -> Result<stores::TrackerStore, String> {
-    let target = url.trim().to_owned();
-    let fetch_url = target.clone();
-    let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&fetch_url))
-        .await
-        .map_err(|e| format!("the fetch task failed: {e}"))?;
-
-    let mut settings = state.snapshot();
-    let store = settings
-        .network
-        .tracker_stores
-        .iter_mut()
-        .find(|held| held.url == target)
-        .ok_or_else(|| format!("no store here is served from {target}"))?;
-    match fetched.and_then(|body| stores::parse_index(&body)) {
-        Ok(index) => {
-            let built_in = store.built_in;
-            *store = stores::store_from(&target, index, now_millis(), built_in);
-        }
-        // Beside the services, never instead of them: a store that failed to refresh keeps working
-        // with what it said before. See `refresh_tracker_stores`.
-        Err(e) => store.last_error = e.to_string(),
-    }
-    let updated = store.clone();
-    state.save(settings)?;
-    settings::write_sync_file(&state.snapshot());
-    push.request();
-    Ok(updated)
-}
-
-/// How often the stores are re-read in the background.
-///
-/// Six hours. A service list changes when somebody opens a pull request against it, which is not an
-/// hourly event; polling harder loads somebody's web server for no benefit, and the manual Refresh
-/// button covers the case where a user knows something changed.
-const STORE_SYNC_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
-
-/// Keep the tracker stores, and the file the worker reads, up to date.
-///
-/// Runs for the life of the app: once at startup, then on the interval. This is the
-/// "synchronisation" half of the store model — the subscriptions are settings the user owns, and
-/// the content behind them is refreshed without anybody having to remember to.
-///
-/// A failed sync is not an error. `refresh` keeps the services a store last reported and puts the
-/// reason beside them, so an outage costs freshness and never the endpoints this node is using.
-async fn sync_stores_forever(settings: Arc<settings::SettingsHandle>, push: Arc<PushSignal>) {
-    loop {
-        let mut document = settings.snapshot();
-        if document.network.tracker_stores.is_empty() {
-            // Nothing subscribed. Still write the file: the user's own typed endpoints belong in it
-            // too, and an absent file reads as "never synced".
-            settings::write_sync_file(&document);
-        } else {
-            let mut changed = false;
-            for store in &mut document.network.tracker_stores {
-                let url = store.url.clone();
-                let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&url)).await;
-                match fetched {
-                    Ok(Ok(body)) => match stores::parse_index(&body) {
-                        Ok(index) => {
-                            let built_in = store.built_in;
-                            *store = stores::store_from(&store.url, index, now_millis(), built_in);
-                            changed = true;
-                        }
-                        Err(e) => store.last_error = e.to_string(),
-                    },
-                    Ok(Err(e)) => store.last_error = e.to_string(),
-                    Err(e) => store.last_error = format!("the fetch task failed: {e}"),
-                }
-            }
-            if settings.save(document.clone()).is_ok() {
-                settings::write_sync_file(&document);
-                if changed {
-                    // A store that gained a tracker should reach a running worker rather than wait
-                    // for a restart — `network.default_trackers` is a live key.
-                    push.request();
-                }
-            }
-        }
-        tokio::time::sleep(STORE_SYNC_INTERVAL).await;
-    }
-}
-
-/// Wall-clock millis, for "when did this store last answer".
-fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-/// A store URL delivered by deep link, held until the user answers the dialog.
-///
-/// One slot, not a queue: the second link supersedes the first, because a stack of dialogs is a
-/// stack of things to dismiss and the user asked for the most recent one.
-#[derive(Default)]
-pub struct PendingStore(std::sync::Mutex<Option<String>>);
-
-impl PendingStore {
-    /// Record a URL from a link.
-    pub fn offer(&self, url: String) {
-        if let Ok(mut held) = self.0.lock() {
-            *held = Some(url);
-        }
-    }
-
-    /// Read and clear it.
-    pub fn take(&self) -> Option<String> {
-        self.0.lock().ok().and_then(|mut held| held.take())
-    }
+async fn refresh_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: String) -> Result<stores::TrackerStore, String> {
+    let core = Arc::clone(&core);
+    core.refresh_tracker_store(url).await
 }
 
 /// Tauri command: every setting's honest status — live, restart-required, unsupported by this
 /// worker, or unenforced with a reason. Computed from the worker's own last reply, never asserted.
 #[tauri::command]
-fn get_setting_status(
-    status: tauri::State<Arc<ConfigStatusHandle>>,
-) -> Vec<settings::SettingStatus> {
-    settings::setting_status(&status.snapshot().report())
+fn get_setting_status(core: tauri::State<Arc<NoderaCore>>) -> Vec<settings::SettingStatus> {
+    core.setting_status()
 }
 
 /// Tauri command: the last configuration push's outcome, as soft status for the Settings screen.
 #[tauri::command]
-fn get_config_status(status: tauri::State<Arc<ConfigStatusHandle>>) -> config::ConfigStatus {
-    status.snapshot()
+fn get_config_status(core: tauri::State<Arc<NoderaCore>>) -> config::ConfigStatus {
+    core.config_status()
 }
 
 /// Tauri command: the node's telemetry consent and emitter status.
@@ -461,10 +275,9 @@ fn get_config_status(status: tauri::State<Arc<ConfigStatusHandle>>) -> config::C
 /// Always read from the worker rather than cached here: the record lives on the node, and the app
 /// is one of several things that may have changed it (the mod's `/nodera telemetry` is another).
 #[tauri::command]
-async fn get_telemetry_status(
-    settings: tauri::State<'_, Arc<settings::SettingsHandle>>,
-) -> Result<telemetry::TelemetryStatus, String> {
-    Ok(telemetry::status(&control_addr(), &settings).await)
+async fn get_telemetry_status(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<telemetry::TelemetryStatus, String> {
+    let core = Arc::clone(&core);
+    Ok(core.telemetry_status().await)
 }
 
 /// Tauri command: record the person's answer.
@@ -475,10 +288,11 @@ async fn get_telemetry_status(
 /// waiting to reach it. The UI badges the first and explains the second; neither is invented.
 #[tauri::command]
 async fn set_telemetry_consent(
-    settings: tauri::State<'_, Arc<settings::SettingsHandle>>,
+    core: tauri::State<'_, Arc<NoderaCore>>,
     granted: bool,
 ) -> Result<telemetry::TelemetryStatus, String> {
-    Ok(telemetry::set(&control_addr(), &settings, granted).await)
+    let core = Arc::clone(&core);
+    Ok(core.set_telemetry_consent(granted).await)
 }
 
 /// Tauri command: what the configured collector says it accepts.
@@ -486,14 +300,15 @@ async fn set_telemetry_consent(
 /// The disclosure is read from the service the user actually reports to. A failure here is not an
 /// error state for the screen — it falls back to the bundled registry, labelled as a fallback.
 #[tauri::command]
-async fn get_collected_schema(endpoint: String) -> Result<String, String> {
-    telemetry::collected_schema(&endpoint).await
+async fn get_collected_schema(core: tauri::State<'_, Arc<NoderaCore>>, endpoint: String) -> Result<String, String> {
+    let core = Arc::clone(&core);
+    core.collected_schema(endpoint).await
 }
 
 /// Tauri command: who owns the worker process, so the UI knows whether to offer Restart.
 #[tauri::command]
-fn get_worker_ownership() -> daemon::WorkerOwnership {
-    daemon::ownership()
+fn get_worker_ownership(core: tauri::State<Arc<NoderaCore>>) -> daemon::WorkerOwnership {
+    core.worker_ownership()
 }
 
 /// Tauri command: cycle the worker so env-shaped settings (trackers, port range, archive dir) apply.
@@ -506,24 +321,15 @@ fn get_worker_ownership() -> daemon::WorkerOwnership {
 /// notification would wake nobody; the answer is a sentence telling the user what does work
 /// (relaunching the app), not a no-op that looks like success.
 #[tauri::command]
-fn restart_worker(restart: tauri::State<Arc<RestartSignal>>) -> Result<(), String> {
-    if let Some(why) = daemon::restart_unavailable() {
-        return Err(why.to_owned());
-    }
-    restart.0.notify_one();
-    Ok(())
+fn restart_worker(core: tauri::State<Arc<NoderaCore>>) -> Result<(), String> {
+    core.restart_worker()
 }
 
 /// Tauri command: toggle the manual "pause seeding" flag, mirroring the tray item. Returns the new
 /// effective pause state (which the battery rules can also be holding on).
 #[tauri::command]
-fn toggle_pause(
-    pause: tauri::State<Arc<PauseHandle>>,
-    push: tauri::State<Arc<PushSignal>>,
-) -> bool {
-    let paused = pause.toggle_manual();
-    push.request();
-    paused
+fn toggle_pause(core: tauri::State<Arc<NoderaCore>>) -> bool {
+    core.toggle_pause()
 }
 
 /// Tauri command: validate + persist settings, and apply the ones that reach something real.
@@ -535,23 +341,15 @@ fn toggle_pause(
 #[tauri::command]
 fn save_settings(
     app: tauri::AppHandle,
-    state: tauri::State<Arc<settings::SettingsHandle>>,
-    push: tauri::State<Arc<PushSignal>>,
+    core: tauri::State<Arc<NoderaCore>>,
     next: settings::Settings,
 ) -> Result<(), String> {
     let auto_start = next.behavior.auto_start;
-    state.save(next)?;
-    #[cfg(target_os = "android")]
-    if let Err(reason) = daemon::write_worker_properties(&state.snapshot()) {
-        log::warn!("could not refresh Android worker properties: {reason}");
-    }
-    // Kept in step with the document, because on Android this file is the only way the worker ever
-    // learns about a tracker (see `stores::sync_file_body`).
-    settings::write_sync_file(&state.snapshot());
-    push.request();
-    // Auto-start is applied here rather than merely stored, because the OS — not the worker — is
-    // what enforces it. A plugin error is reported, never swallowed: silently failing to register a
-    // login item while the toggle shows "on" is the worst of both outcomes.
+    core.save_settings(next)?;
+    // Applied here rather than merely stored, because the OS — not the worker — is what enforces
+    // it, and only this shell has the plugin that can. A plugin error is reported, never swallowed:
+    // silently failing to register a login item while the toggle shows "on" is the worst of both
+    // outcomes.
     #[cfg(desktop)]
     {
         use tauri_plugin_autostart::ManagerExt;
@@ -579,8 +377,12 @@ fn save_settings(
 /// selected is interesting, and a node seeding a dozen worlds should not be re-encoding every
 /// bitmap several times a second for a tab nobody is looking at.
 #[tauri::command]
-async fn get_piece_map(world_id: String) -> metrics::PieceMapView {
-    api::commands::dashboard_pieces(control_addr(), world_id).await
+async fn get_piece_map(
+    app: tauri::AppHandle,
+    world_id: String,
+) -> metrics::PieceMapView {
+    let core = core_of(&app);
+    core.piece_map(world_id).await
 }
 
 /// Tauri command: answer the "shall I share this LAN world?" question.
@@ -588,14 +390,22 @@ async fn get_piece_map(world_id: String) -> metrics::PieceMapView {
 /// `action` is `SHARE`, `DECLINE` or `STOP`. Nothing about a LAN world reaches the network until
 /// this says so — detection is not consent.
 #[tauri::command]
-async fn lan_action(action: String, port: u16) -> api::network::Outcome {
-    api::network::lan_action(&control_addr(), &action, port).await
+async fn lan_action(
+    app: tauri::AppHandle,
+    action: String, port: u16,
+) -> api::network::Outcome {
+    let core = core_of(&app);
+    core.lan_action(action, port).await
 }
 
 /// Tauri command: what is joinable on the network right now.
 #[tauri::command]
-async fn browse_network(limit: Option<u32>) -> Vec<api::network::DirectoryEntry> {
-    api::network::directory(&control_addr(), limit.unwrap_or(50)).await
+async fn browse_network(
+    app: tauri::AppHandle,
+    limit: Option<u32>,
+) -> Vec<api::network::DirectoryEntry> {
+    let core = core_of(&app);
+    core.browse_network(limit).await
 }
 
 /// Tauri command: join a session. Returns the `127.0.0.1:<port>` to Direct Connect to.
@@ -603,20 +413,32 @@ async fn browse_network(limit: Option<u32>) -> Vec<api::network::DirectoryEntry>
 /// Nothing is downloaded. The worker opens a tunnel to the host and binds a loopback port; the
 /// player's own Minecraft then connects to it as though the host were on the same LAN.
 #[tauri::command]
-async fn join_world(session_id: String) -> api::network::Outcome {
-    api::network::join_session(&control_addr(), &session_id).await
+async fn join_world(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> api::network::Outcome {
+    let core = core_of(&app);
+    core.join_world(session_id).await
 }
 
 /// Tauri command: close a door opened by [`join_world`].
 #[tauri::command]
-async fn leave_world(session_id: String) -> api::network::Outcome {
-    api::network::leave_session(&control_addr(), &session_id).await
+async fn leave_world(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> api::network::Outcome {
+    let core = core_of(&app);
+    core.leave_world(session_id).await
 }
 
 /// Tauri command: mint the pasteable invitation for a world.
 #[tauri::command]
-async fn world_share_link(world_id: String) -> api::network::Outcome {
-    api::network::share_link(&control_addr(), &world_id).await
+async fn world_share_link(
+    app: tauri::AppHandle,
+    world_id: String,
+) -> api::network::Outcome {
+    let core = core_of(&app);
+    core.world_share_link(world_id).await
 }
 
 /// Tauri command: save an invitation as a `.nodera` file and report where it went.
@@ -626,33 +448,14 @@ async fn world_share_link(world_id: String) -> api::network::Outcome {
 /// file is three clicks of ceremony. The path is returned so the UI can show it, which is the part
 /// people actually need.
 #[tauri::command]
-fn save_share_file(name: String, uri: String) -> Result<String, String> {
-    let safe: String = name
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let file = nodera_core::share_dir().join(format!(
-        "{}.nodera",
-        if safe.trim_matches('-').is_empty() {
-            "world".to_owned()
-        } else {
-            safe
-        }
-    ));
-    api::network::write_share_file(&file, &uri)?;
-    Ok(file.display().to_string())
+fn save_share_file(core: tauri::State<Arc<NoderaCore>>, name: String, uri: String) -> Result<String, String> {
+    core.save_share_file(name, uri)
 }
 
 /// Tauri command: the world id inside a pasted link, or an error the UI can show immediately.
 #[tauri::command]
-fn parse_share_link(uri: String) -> Result<String, String> {
-    api::network::world_id_of(&uri).ok_or_else(|| "that is not a Nodera invitation".to_owned())
+fn parse_share_link(core: tauri::State<Arc<NoderaCore>>, uri: String) -> Result<String, String> {
+    core.parse_share_link(uri)
 }
 
 /// Tauri command: this device's own peer identity and its last tracker exchange.
@@ -661,19 +464,9 @@ fn parse_share_link(uri: String) -> Result<String, String> {
 /// node on one machine — but the command exists on both so the same screen can be developed and
 /// tested on a laptop.
 #[tauri::command]
-async fn peer_status(
-    settings: tauri::State<'_, Arc<settings::SettingsHandle>>,
-) -> Result<peer::PeerStatus, String> {
-    let trackers = settings.snapshot().network.default_trackers;
-    tauri::async_runtime::spawn_blocking(move || {
-        let identity = peer::identity::PeerIdentity::load_or_create()?;
-        // The SAME round the peer loop runs — announce, then ask the trackers back. Announcing
-        // only would leave "peers seen" at zero on a screen the loop later fills in, so the number
-        // would depend on which code path last wrote it. One round, one meaning.
-        Ok(peer::announce_round(&identity, &trackers))
-    })
-    .await
-    .map_err(|e| format!("the peer task failed: {e}"))?
+async fn peer_status(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<peer::PeerStatus, String> {
+    let core = Arc::clone(&core);
+    core.peer_status().await
 }
 
 /// Tauri command: the round trip that proves this device is on the network.
@@ -681,16 +474,9 @@ async fn peer_status(
 /// Announces, then queries the tracker back and looks for **this device's own entry**. An accepted
 /// announce alone would only say the tracker took the bytes.
 #[tauri::command]
-async fn peer_self_test(
-    settings: tauri::State<'_, Arc<settings::SettingsHandle>>,
-) -> Result<peer::tracker::SelfTest, String> {
-    let trackers = settings.snapshot().network.default_trackers;
-    tauri::async_runtime::spawn_blocking(move || {
-        let identity = peer::identity::PeerIdentity::load_or_create()?;
-        Ok(peer::tracker::self_test(&identity, &trackers, Vec::new()))
-    })
-    .await
-    .map_err(|e| format!("the peer task failed: {e}"))?
+async fn peer_self_test(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<peer::tracker::SelfTest, String> {
+    let core = Arc::clone(&core);
+    core.peer_self_test().await
 }
 
 /// Tauri command: whether this build runs its own peer instead of supervising a worker.
@@ -731,8 +517,12 @@ fn uninstall_mod(game_dir: String) -> Result<String, String> {
 /// See `api::commands::prove_world_admin` for what a success does and does not establish — it shows
 /// this worker holds the key, and is not a cryptographic verification, which is the network's job.
 #[tauri::command]
-async fn prove_world_admin(world_id: String) -> api::commands::AdminProof {
-    api::commands::prove_world_admin(control_addr(), world_id).await
+async fn prove_world_admin(
+    app: tauri::AppHandle,
+    world_id: String,
+) -> api::commands::AdminProof {
+    let core = core_of(&app);
+    core.prove_world_admin(world_id).await
 }
 
 /// Tauri command: ask the worker to delete a world this peer owns, everywhere.
@@ -741,8 +531,13 @@ async fn prove_world_admin(world_id: String) -> api::commands::AdminProof {
 /// re-verifies the signed record before destroying its own copy — so this cannot be used against a
 /// world this machine does not administer, whatever the page sends.
 #[tauri::command]
-async fn delete_world(world_id: String, reason: String) -> api::commands::DeleteOutcome {
-    api::commands::delete_world(control_addr(), world_id, reason).await
+async fn delete_world(
+    app: tauri::AppHandle,
+    world_id: String,
+    reason: String,
+) -> api::commands::DeleteOutcome {
+    let core = core_of(&app);
+    core.delete_world(world_id, reason).await
 }
 
 /// Tauri command: write the whole worker scrollback to a file the user picks.
@@ -756,14 +551,13 @@ async fn delete_world(world_id: String, reason: String) -> api::commands::Delete
 #[tauri::command]
 async fn save_worker_logs(
     app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<LogBuffer>>,
+    core: tauri::State<'_, Arc<NoderaCore>>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     // Snapshotted before the dialog opens: the buffer keeps moving while the user browses, and a
     // file whose contents depend on how long somebody took to choose a folder is not reproducible.
-    let mut content = state.snapshot().join("\n");
-    content.push('\n');
+    let content = core.worker_log_text();
     let suggested = format!(
         "nodera-worker-{}.log",
         std::time::SystemTime::now()
@@ -797,12 +591,9 @@ async fn save_worker_logs(
 #[tauri::command]
 fn storage_info(
     app: tauri::AppHandle,
-    settings: tauri::State<Arc<settings::SettingsHandle>>,
+    core: tauri::State<Arc<NoderaCore>>,
 ) -> api::storage::StorageInfo {
-    api::storage::storage_info(
-        &settings.snapshot().storage.peer_worlds_dir,
-        &app_data_dir(&app),
-    )
+    core.storage_info(&app_data_dir(&app))
 }
 
 /// This app's private directory, whatever the platform calls it.
@@ -819,23 +610,14 @@ fn app_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// consequences — where data is written, and whether anything is reported — and browser storage is
 /// cleared by the very "clear app data" that also removes the answers.
 #[tauri::command]
-fn setup_state(settings: tauri::State<Arc<settings::SettingsHandle>>) -> settings::SetupState {
-    settings.snapshot().setup.clone()
+fn setup_state(core: tauri::State<Arc<NoderaCore>>) -> settings::SetupState {
+    core.setup_state()
 }
 
 /// Tauri command: record that the user finished the first-run setup.
 #[tauri::command]
-fn complete_setup(
-    settings: tauri::State<Arc<settings::SettingsHandle>>,
-    push: tauri::State<Arc<PushSignal>>,
-    worlds_dir: String,
-) -> Result<(), String> {
-    let mut next = settings.snapshot();
-    next.storage.peer_worlds_dir = worlds_dir;
-    next.setup.completed = true;
-    settings.save(next)?;
-    push.request();
-    Ok(())
+fn complete_setup(core: tauri::State<Arc<NoderaCore>>, worlds_dir: String) -> Result<(), String> {
+    core.complete_setup(worlds_dir)
 }
 
 /// Tauri command: open the system folder picker.
@@ -849,8 +631,11 @@ fn pick_storage_folder() -> Result<(), String> {
 
 /// Tauri command: what the folder picker came back with.
 #[tauri::command]
-fn picked_folder(app: tauri::AppHandle) -> api::storage::PickedFolder {
-    api::storage::picked_folder(&app_data_dir(&app))
+fn picked_folder(
+    app: tauri::AppHandle,
+    core: tauri::State<Arc<NoderaCore>>,
+) -> api::storage::PickedFolder {
+    core.picked_folder(&app_data_dir(&app))
 }
 
 /// Tauri command: whether the OS may stop this node in the background.
@@ -864,16 +649,14 @@ fn battery_policy() -> android::battery::BatteryPolicy {
 /// Read from the sampler's cache rather than re-probing, so the screen and the pause decision can
 /// never disagree about what network this is.
 #[tauri::command]
-fn network_state(
-    state: tauri::State<Arc<std::sync::Mutex<android::network::NetworkState>>>,
-) -> android::network::NetworkState {
-    state.lock().unwrap().clone()
+fn network_state(core: tauri::State<Arc<NoderaCore>>) -> android::network::NetworkState {
+    core.network_state()
 }
 
 /// Tauri command: why transfers are paused, in words, or empty when they are not.
 #[tauri::command]
-fn pause_reason(pause: tauri::State<Arc<PauseHandle>>) -> String {
-    pause.reason().unwrap_or_default().to_owned()
+fn pause_reason(core: tauri::State<Arc<NoderaCore>>) -> String {
+    core.pause_reason()
 }
 
 /// Tauri command: why the stored settings could not be read, when they could not.
@@ -882,8 +665,8 @@ fn pause_reason(pause: tauri::State<Arc<PauseHandle>>) -> String {
 /// document is still on disk, untouched — which they have to be told, or they will conclude the app
 /// forgot and re-enter everything on top of a file that was never the problem.
 #[tauri::command]
-fn settings_fault(settings: tauri::State<Arc<settings::SettingsHandle>>) -> String {
-    settings.fault()
+fn settings_fault(core: tauri::State<Arc<NoderaCore>>) -> String {
+    core.settings_fault()
 }
 
 /// Tauri command: open the system's battery-optimisation screen.
@@ -920,25 +703,20 @@ pub fn run() {
         }));
     }
 
-    // `restored`, not `new`: the traffic totals are the node's, not this process's, and they read
-    // back from disk so neither a worker restart nor closing the app sends them to zero.
-    // Not named `dashboard`: `generate_handler!` expands the command of that name inside this
-    // function, and a local binding would shadow it.
-    let dashboard_store = Arc::new(DashboardStore::restored());
-    let system_stats = Arc::new(SystemHandle::new());
-    let worker_logs = Arc::new(LogBuffer::new());
-    let user_settings = Arc::new(settings::SettingsHandle::load());
-    let config_status = Arc::new(ConfigStatusHandle::new());
-    let pause = Arc::new(PauseHandle::new());
-    let push_signal = Arc::new(PushSignal::default());
-    let restart_signal = Arc::new(RestartSignal::default());
-    // Deliberately not probed here: on Android the Activity has not yet bound this process's
-    // `Context`, so a read would panic (caught, but noisy) and be discarded ten seconds later
-    // anyway. The sampler fills it in.
-    let network_cache = Arc::new(std::sync::Mutex::new(android::network::pending()));
-    // One slot for a store URL that arrived by deep link. Created here so the setup hook and the
-    // command that reads it are looking at the same one.
-    let pending_store = Arc::new(PendingStore::default());
+    // One handle, built once. Every command below is a delegate onto it, and the Android activity
+    // holds the same struct — so there is exactly one construction of the application's state and
+    // the two front ends cannot end up with different ideas of what it contains.
+    let core = Arc::new(NoderaCore::new());
+    let dashboard_store = Arc::clone(&core.dashboard);
+    let system_stats = Arc::clone(&core.system);
+    let worker_logs = Arc::clone(&core.logs);
+    let user_settings = Arc::clone(&core.settings);
+    let config_status = Arc::clone(&core.config_status);
+    let pause = Arc::clone(&core.pause);
+    let push_signal = Arc::clone(&core.push);
+    let restart_signal = Arc::clone(&core.restart);
+    let network_cache = Arc::clone(&core.network);
+    let pending_store = Arc::clone(&core.pending_store);
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
@@ -969,16 +747,7 @@ pub fn run() {
         // first (see `browser::check_url`). No JS capability is granted for the same reason.
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .manage(Arc::clone(&dashboard_store))
-        .manage(Arc::clone(&system_stats))
-        .manage(Arc::clone(&worker_logs))
-        .manage(Arc::clone(&user_settings))
-        .manage(Arc::clone(&config_status))
-        .manage(Arc::clone(&pause))
-        .manage(Arc::clone(&push_signal))
-        .manage(Arc::clone(&restart_signal))
-        .manage(Arc::clone(&network_cache))
-        .manage(Arc::clone(&pending_store))
+        .manage(Arc::clone(&core))
         .invoke_handler(tauri::generate_handler![
             get_tracker_stores,
             take_pending_tracker_store,
@@ -1183,10 +952,9 @@ pub fn run() {
             // Keep the tracker stores fresh, and the worker's synchronisation file with them.
             // Started before the pusher so a first-run install has written the file — the only
             // channel to an Android worker — by the time the worker looks for it.
-            let sync_settings = Arc::clone(&user_settings);
-            let sync_push = Arc::clone(&push_signal);
+            let sync_core = Arc::clone(&core);
             tauri::async_runtime::spawn(async move {
-                sync_stores_forever(sync_settings, sync_push).await;
+                Arc::clone(&sync_core).sync_stores_forever().await;
             });
 
             // Coalesce configuration pushes: one per settle window, however many saves arrive.
