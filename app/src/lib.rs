@@ -151,7 +151,9 @@ fn take_pending_tracker_store(core: tauri::State<Arc<NoderaCore>>) -> Option<Str
 /// So the screens ask for this instead. Provenance comes with it, because "where did this address
 /// come from" is the next question anyone has in front of a list they did not fully write.
 #[tauri::command]
-fn resolved_services(core: tauri::State<Arc<NoderaCore>>) -> HashMap<String, Vec<stores::ResolvedEndpoint>> {
+fn resolved_services(
+    core: tauri::State<Arc<NoderaCore>>,
+) -> HashMap<String, Vec<stores::ResolvedEndpoint>> {
     core.resolved_services()
 }
 
@@ -212,7 +214,10 @@ fn official_store_url() -> &'static str {
 /// the app then *stored* would be a list the user confirmed and a list the app kept, and those are
 /// only the same thing until a publisher edits the file between the two calls.
 #[tauri::command]
-async fn preview_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: String) -> Result<stores::ServiceIndex, String> {
+async fn preview_tracker_store(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+    url: String,
+) -> Result<stores::ServiceIndex, String> {
     let core = Arc::clone(&core);
     core.preview_tracker_store(url).await
 }
@@ -223,7 +228,10 @@ async fn preview_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: Str
 /// synchronous HTTPS client; holding a Tauri command thread on a network round trip would freeze
 /// the window that is showing the dialog.
 #[tauri::command]
-async fn add_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: String) -> Result<stores::TrackerStore, String> {
+async fn add_tracker_store(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+    url: String,
+) -> Result<stores::TrackerStore, String> {
     let core = Arc::clone(&core);
     core.add_tracker_store(url).await
 }
@@ -240,7 +248,9 @@ fn remove_tracker_store(core: tauri::State<Arc<NoderaCore>>, url: String) -> Res
 /// would mean a web server having a bad minute costs the user every tracker they had, which is a
 /// far worse outcome than a slightly stale list.
 #[tauri::command]
-async fn refresh_tracker_stores(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<Vec<stores::TrackerStore>, String> {
+async fn refresh_tracker_stores(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+) -> Result<Vec<stores::TrackerStore>, String> {
     let core = Arc::clone(&core);
     core.refresh_tracker_stores().await
 }
@@ -252,7 +262,10 @@ async fn refresh_tracker_stores(core: tauri::State<'_, Arc<NoderaCore>>) -> Resu
 /// other end. Refreshing all of them to retry one makes every other row's timestamp lie about when
 /// it was last confirmed.
 #[tauri::command]
-async fn refresh_tracker_store(core: tauri::State<'_, Arc<NoderaCore>>, url: String) -> Result<stores::TrackerStore, String> {
+async fn refresh_tracker_store(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+    url: String,
+) -> Result<stores::TrackerStore, String> {
     let core = Arc::clone(&core);
     core.refresh_tracker_store(url).await
 }
@@ -275,7 +288,9 @@ fn get_config_status(core: tauri::State<Arc<NoderaCore>>) -> config::ConfigStatu
 /// Always read from the worker rather than cached here: the record lives on the node, and the app
 /// is one of several things that may have changed it (the mod's `/nodera telemetry` is another).
 #[tauri::command]
-async fn get_telemetry_status(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<telemetry::TelemetryStatus, String> {
+async fn get_telemetry_status(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+) -> Result<telemetry::TelemetryStatus, String> {
     let core = Arc::clone(&core);
     Ok(core.telemetry_status().await)
 }
@@ -300,7 +315,10 @@ async fn set_telemetry_consent(
 /// The disclosure is read from the service the user actually reports to. A failure here is not an
 /// error state for the screen — it falls back to the bundled registry, labelled as a fallback.
 #[tauri::command]
-async fn get_collected_schema(core: tauri::State<'_, Arc<NoderaCore>>, endpoint: String) -> Result<String, String> {
+async fn get_collected_schema(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+    endpoint: String,
+) -> Result<String, String> {
     let core = Arc::clone(&core);
     core.collected_schema(endpoint).await
 }
@@ -377,10 +395,7 @@ fn save_settings(
 /// selected is interesting, and a node seeding a dozen worlds should not be re-encoding every
 /// bitmap several times a second for a tab nobody is looking at.
 #[tauri::command]
-async fn get_piece_map(
-    app: tauri::AppHandle,
-    world_id: String,
-) -> metrics::PieceMapView {
+async fn get_piece_map(app: tauri::AppHandle, world_id: String) -> metrics::PieceMapView {
     let core = core_of(&app);
     core.piece_map(world_id).await
 }
@@ -390,10 +405,7 @@ async fn get_piece_map(
 /// `action` is `SHARE`, `DECLINE` or `STOP`. Nothing about a LAN world reaches the network until
 /// this says so — detection is not consent.
 #[tauri::command]
-async fn lan_action(
-    app: tauri::AppHandle,
-    action: String, port: u16,
-) -> api::network::Outcome {
+async fn lan_action(app: tauri::AppHandle, action: String, port: u16) -> api::network::Outcome {
     let core = core_of(&app);
     core.lan_action(action, port).await
 }
@@ -413,30 +425,21 @@ async fn browse_network(
 /// Nothing is downloaded. The worker opens a tunnel to the host and binds a loopback port; the
 /// player's own Minecraft then connects to it as though the host were on the same LAN.
 #[tauri::command]
-async fn join_world(
-    app: tauri::AppHandle,
-    session_id: String,
-) -> api::network::Outcome {
+async fn join_world(app: tauri::AppHandle, session_id: String) -> api::network::Outcome {
     let core = core_of(&app);
     core.join_world(session_id).await
 }
 
 /// Tauri command: close a door opened by [`join_world`].
 #[tauri::command]
-async fn leave_world(
-    app: tauri::AppHandle,
-    session_id: String,
-) -> api::network::Outcome {
+async fn leave_world(app: tauri::AppHandle, session_id: String) -> api::network::Outcome {
     let core = core_of(&app);
     core.leave_world(session_id).await
 }
 
 /// Tauri command: mint the pasteable invitation for a world.
 #[tauri::command]
-async fn world_share_link(
-    app: tauri::AppHandle,
-    world_id: String,
-) -> api::network::Outcome {
+async fn world_share_link(app: tauri::AppHandle, world_id: String) -> api::network::Outcome {
     let core = core_of(&app);
     core.world_share_link(world_id).await
 }
@@ -448,7 +451,11 @@ async fn world_share_link(
 /// file is three clicks of ceremony. The path is returned so the UI can show it, which is the part
 /// people actually need.
 #[tauri::command]
-fn save_share_file(core: tauri::State<Arc<NoderaCore>>, name: String, uri: String) -> Result<String, String> {
+fn save_share_file(
+    core: tauri::State<Arc<NoderaCore>>,
+    name: String,
+    uri: String,
+) -> Result<String, String> {
     core.save_share_file(name, uri)
 }
 
@@ -474,7 +481,9 @@ async fn peer_status(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<peer::Pe
 /// Announces, then queries the tracker back and looks for **this device's own entry**. An accepted
 /// announce alone would only say the tracker took the bytes.
 #[tauri::command]
-async fn peer_self_test(core: tauri::State<'_, Arc<NoderaCore>>) -> Result<peer::tracker::SelfTest, String> {
+async fn peer_self_test(
+    core: tauri::State<'_, Arc<NoderaCore>>,
+) -> Result<peer::tracker::SelfTest, String> {
     let core = Arc::clone(&core);
     core.peer_self_test().await
 }
@@ -491,9 +500,7 @@ fn is_mobile_build() -> bool {
 /// player will land in the world or in the Multiplayer menu.
 #[cfg(desktop)]
 #[tauri::command]
-async fn launch_targets(
-    app: tauri::AppHandle,
-) -> Vec<nodera_core::launch::discover::LaunchTarget> {
+async fn launch_targets(app: tauri::AppHandle) -> Vec<nodera_core::launch::discover::LaunchTarget> {
     core_of(&app).launch_targets().await
 }
 
@@ -549,10 +556,7 @@ fn uninstall_mod(game_dir: String) -> Result<String, String> {
 /// See `api::commands::prove_world_admin` for what a success does and does not establish — it shows
 /// this worker holds the key, and is not a cryptographic verification, which is the network's job.
 #[tauri::command]
-async fn prove_world_admin(
-    app: tauri::AppHandle,
-    world_id: String,
-) -> api::commands::AdminProof {
+async fn prove_world_admin(app: tauri::AppHandle, world_id: String) -> api::commands::AdminProof {
     let core = core_of(&app);
     core.prove_world_admin(world_id).await
 }

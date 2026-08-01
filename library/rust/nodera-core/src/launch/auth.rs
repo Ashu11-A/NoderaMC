@@ -52,7 +52,11 @@ impl Account {
     /// a player whose identity changes every launch appears as a different person to every world
     /// they have ever joined.
     pub fn offline(name: &str) -> Self {
-        let name = if name.trim().is_empty() { "Player" } else { name.trim() };
+        let name = if name.trim().is_empty() {
+            "Player"
+        } else {
+            name.trim()
+        };
         Self {
             name: name.to_owned(),
             uuid: offline_uuid(name),
@@ -92,7 +96,8 @@ fn offline_uuid(name: &str) -> String {
 /// A constant rather than a computed sentence, because it is not an error the player can act on —
 /// it is an explanation of which route Play is taking, and it has to name the cause *and* what
 /// happens instead.
-pub const DIRECT_UNAVAILABLE: &str = "this build carries no Microsoft client id, so it cannot sign \
+pub const DIRECT_UNAVAILABLE: &str =
+    "this build carries no Microsoft client id, so it cannot sign \
      in to start the game itself — Nodera will use your own launcher instead";
 
 /// Why the direct route is unavailable, or [`None`] when it is available.
@@ -158,7 +163,10 @@ mod tests {
         assert_eq!(first.uuid, again.uuid);
         assert_ne!(first.uuid, Account::offline("Someone").uuid);
 
-        assert!(!first.online, "an offline identity must never claim otherwise");
+        assert!(
+            !first.online,
+            "an offline identity must never claim otherwise"
+        );
         assert_eq!(first.user_type, "legacy");
         assert_eq!(first.uuid.len(), 36, "{}", first.uuid);
         assert_eq!(first.uuid.matches('-').count(), 4);

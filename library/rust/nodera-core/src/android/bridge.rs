@@ -156,7 +156,10 @@ pub extern "system" fn Java_dev_nodera_app_NoderaCore_nativeStart(
         log::error!("no JavaVM: the interface will receive no updates");
         return;
     };
-    let events = match env.find_class(EVENTS_CLASS).and_then(|c| env.new_global_ref(c)) {
+    let events = match env
+        .find_class(EVENTS_CLASS)
+        .and_then(|c| env.new_global_ref(c))
+    {
         Ok(events) => events,
         Err(e) => {
             log::error!("{EVENTS_CLASS} is missing: {e}");
@@ -167,7 +170,10 @@ pub extern "system" fn Java_dev_nodera_app_NoderaCore_nativeStart(
         }
     };
 
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(e) => {
             log::error!("no async runtime: {e}");
@@ -282,10 +288,12 @@ fn dispatch(name: &str, args: &str) -> String {
             Ok(()) => ok(serde_json::json!({})),
             Err(reason) => error(reason),
         },
-        "open_external" => match crate::browser::open(&crate::browser::SystemOpener, &string("url")) {
-            Ok(how) => ok(how),
-            Err(reason) => error(reason),
-        },
+        "open_external" => {
+            match crate::browser::open(&crate::browser::SystemOpener, &string("url")) {
+                Ok(how) => ok(how),
+                Err(reason) => error(reason),
+            }
+        }
         "pick_storage_folder" => match super::battery::pick_folder() {
             Ok(()) => ok(serde_json::json!({})),
             Err(reason) => error(reason),
@@ -331,7 +339,9 @@ fn dispatch(name: &str, args: &str) -> String {
             .map(ok)
             .unwrap_or_else(error),
         "telemetry_status" => ok(held.runtime.block_on(core.telemetry_status())),
-        "set_telemetry_consent" => ok(held.runtime.block_on(core.set_telemetry_consent(flag("granted")))),
+        "set_telemetry_consent" => ok(held
+            .runtime
+            .block_on(core.set_telemetry_consent(flag("granted")))),
         "collected_schema" => held
             .runtime
             .block_on(core.collected_schema(string("endpoint")))
@@ -347,7 +357,9 @@ fn dispatch(name: &str, args: &str) -> String {
             .block_on(core.peer_self_test())
             .map(ok)
             .unwrap_or_else(error),
-        "world_share_link" => ok(held.runtime.block_on(core.world_share_link(string("world_id")))),
+        "world_share_link" => ok(held
+            .runtime
+            .block_on(core.world_share_link(string("world_id")))),
         "browse_network" => ok(held.runtime.block_on(core.browse_network(None))),
 
         other => error(format!("{other} is not a verb this build answers")),

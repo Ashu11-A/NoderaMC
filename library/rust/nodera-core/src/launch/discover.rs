@@ -140,7 +140,11 @@ pub fn official_profiles(root: &Path) -> Vec<LaunchTarget> {
             }
         })
         .collect();
-    out.sort_by(|a, b| b.last_used.cmp(&a.last_used).then_with(|| a.name.cmp(&b.name)));
+    out.sort_by(|a, b| {
+        b.last_used
+            .cmp(&a.last_used)
+            .then_with(|| a.name.cmp(&b.name))
+    });
     out
 }
 
@@ -199,7 +203,11 @@ pub fn instances(launcher_root: &Path, binary: &str) -> Vec<LaunchTarget> {
             last_used,
         });
     }
-    out.sort_by(|a, b| b.last_used.cmp(&a.last_used).then_with(|| a.name.cmp(&b.name)));
+    out.sort_by(|a, b| {
+        b.last_used
+            .cmp(&a.last_used)
+            .then_with(|| a.name.cmp(&b.name))
+    });
     out
 }
 
@@ -233,7 +241,10 @@ fn third_party_roots(home: &Path) -> Vec<(PathBuf, &'static str)> {
     #[cfg(target_os = "windows")]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            out.push((PathBuf::from(appdata).join("PrismLauncher"), "prismlauncher"));
+            out.push((
+                PathBuf::from(appdata).join("PrismLauncher"),
+                "prismlauncher",
+            ));
         }
     }
     out
@@ -304,7 +315,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("nodera-discover-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("nodera-discover-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -342,7 +354,10 @@ mod tests {
         )
         .unwrap();
 
-        let names: Vec<String> = official_profiles(&root).into_iter().map(|t| t.name).collect();
+        let names: Vec<String> = official_profiles(&root)
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
         // A rolling entry has no fixed version id to resolve, so a command line cannot be built for
         // it — offering it would be offering a button that fails at `Preparing`.
         assert_eq!(names, vec!["Modded".to_owned()]);
@@ -353,16 +368,26 @@ mod tests {
         let root = temp("instances");
         let instance = root.join("instances").join("modded-1211");
         std::fs::create_dir_all(instance.join(".minecraft").join("mods")).unwrap();
-        std::fs::write(instance.join("instance.cfg"), "name=My Modded World\nlastLaunchTime=1700\n").unwrap();
         std::fs::write(
-            instance.join(".minecraft").join("mods").join("nodera-neoforge-0.1.0.jar"),
+            instance.join("instance.cfg"),
+            "name=My Modded World\nlastLaunchTime=1700\n",
+        )
+        .unwrap();
+        std::fs::write(
+            instance
+                .join(".minecraft")
+                .join("mods")
+                .join("nodera-neoforge-0.1.0.jar"),
             b"jar",
         )
         .unwrap();
 
         let found = instances(&root, "prismlauncher");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].name, "My Modded World", "the display name is the player's");
+        assert_eq!(
+            found[0].name, "My Modded World",
+            "the display name is the player's"
+        );
         // Addressed by folder: `name` is a display string the player can change at any time, and a
         // launch that referred to it would break the moment they did.
         assert_eq!(found[0].instance.as_deref(), Some("modded-1211"));

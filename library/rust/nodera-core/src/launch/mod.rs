@@ -211,7 +211,10 @@ mod tests {
         // The address survives the failure: the floor tier is still available to the player, and a
         // screen that forgot the address would have nothing left to offer them.
         assert_eq!(state.address.as_deref(), Some("127.0.0.1:25601"));
-        assert!(state.holds_a_tunnel(), "a failed prepare still leaves a door open");
+        assert!(
+            state.holds_a_tunnel(),
+            "a failed prepare still leaves a door open"
+        );
     }
 
     #[test]

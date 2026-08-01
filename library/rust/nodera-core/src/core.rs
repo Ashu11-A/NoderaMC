@@ -135,7 +135,11 @@ impl NoderaCore {
         api::commands::prove_world_admin(self.control_addr.clone(), world_id).await
     }
 
-    pub async fn delete_world(&self, world_id: String, reason: String) -> api::commands::DeleteOutcome {
+    pub async fn delete_world(
+        &self,
+        world_id: String,
+        reason: String,
+    ) -> api::commands::DeleteOutcome {
         api::commands::delete_world(self.control_addr.clone(), world_id, reason).await
     }
 
@@ -330,7 +334,10 @@ impl NoderaCore {
     pub fn remove_tracker_store(&self, url: String) -> Result<(), String> {
         let mut settings = self.settings.snapshot();
         let before = settings.network.tracker_stores.len();
-        settings.network.tracker_stores.retain(|held| held.url != url);
+        settings
+            .network
+            .tracker_stores
+            .retain(|held| held.url != url);
         if settings.network.tracker_stores.len() == before {
             return Err(format!("no store here is served from {url}"));
         }
@@ -567,7 +574,10 @@ impl NoderaCore {
     /// and the Android activity asks its `Context`. The two answers differ, and this crate guessing
     /// would be the `filesDir` trap that cost a whole feature once already.
     pub fn storage_info(&self, app_data_dir: &std::path::Path) -> api::storage::StorageInfo {
-        api::storage::storage_info(&self.settings.snapshot().storage.peer_worlds_dir, app_data_dir)
+        api::storage::storage_info(
+            &self.settings.snapshot().storage.peer_worlds_dir,
+            app_data_dir,
+        )
     }
 
     pub fn picked_folder(&self, app_data_dir: &std::path::Path) -> api::storage::PickedFolder {
@@ -647,7 +657,9 @@ impl NoderaCore {
             Arc::clone(&self.push),
             Arc::clone(&self.network),
         );
-        tokio::spawn(async move { crate::power::sample_network(settings, pause, push, cache).await });
+        tokio::spawn(
+            async move { crate::power::sample_network(settings, pause, push, cache).await },
+        );
 
         // A telemetry answer given while the worker was still starting is delivered here, not lost.
         // First run is precisely when the node is least likely to be listening.
@@ -823,8 +835,15 @@ mod tests {
         // The second link supersedes the first: a stack of dialogs is a stack of things to dismiss,
         // and the user asked for the most recent one.
         pending.offer("https://example.org/b.json".to_owned());
-        assert_eq!(pending.take().as_deref(), Some("https://example.org/b.json"));
-        assert_eq!(pending.take(), None, "taking clears it, so a reload cannot re-prompt");
+        assert_eq!(
+            pending.take().as_deref(),
+            Some("https://example.org/b.json")
+        );
+        assert_eq!(
+            pending.take(),
+            None,
+            "taking clears it, so a reload cannot re-prompt"
+        );
     }
 
     #[test]
@@ -845,7 +864,10 @@ mod tests {
         let core = NoderaCore::new();
 
         let written = core
-            .save_share_file("../../etc/passwd".to_owned(), "nodera:?xt=urn:btih:aa".to_owned())
+            .save_share_file(
+                "../../etc/passwd".to_owned(),
+                "nodera:?xt=urn:btih:aa".to_owned(),
+            )
             .expect("a hostile name is sanitised, not refused");
         let path = std::path::PathBuf::from(&written);
         assert_eq!(

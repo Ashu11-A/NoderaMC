@@ -184,7 +184,11 @@ pub fn rules_allow(rules: &[Rule], features: &BTreeMap<String, bool>) -> bool {
                 matches &= name == os_name();
             }
             if let Some(arch) = &os.arch {
-                let here = if cfg!(target_arch = "x86") { "x86" } else { "x64" };
+                let here = if cfg!(target_arch = "x86") {
+                    "x86"
+                } else {
+                    "x64"
+                };
                 matches &= arch == here;
             }
         }
@@ -205,7 +209,8 @@ pub fn read(root: &Path, id: &str) -> Result<VersionManifest, String> {
     let path = root.join("versions").join(id).join(format!("{id}.json"));
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("{} is not a version manifest: {e}", path.display()))
+    serde_json::from_str(&text)
+        .map_err(|e| format!("{} is not a version manifest: {e}", path.display()))
 }
 
 /// Read a manifest and everything it inherits, merged child-first.
@@ -230,7 +235,9 @@ pub fn resolve(root: &Path, id: &str) -> Result<VersionManifest, String> {
             return Err(format!("version {current} inherits from itself"));
         }
         if seen.len() >= 8 {
-            return Err(format!("version {id} inherits through more than eight manifests"));
+            return Err(format!(
+                "version {id} inherits through more than eight manifests"
+            ));
         }
         seen.push(current.clone());
         let manifest = read(root, &current)?;
@@ -239,7 +246,9 @@ pub fn resolve(root: &Path, id: &str) -> Result<VersionManifest, String> {
     }
 
     // Fold parent-last so the child keeps winning.
-    let mut merged = chain.pop().expect("the chain holds at least the manifest itself");
+    let mut merged = chain
+        .pop()
+        .expect("the chain holds at least the manifest itself");
     while let Some(child) = chain.pop() {
         merged = merge(merged, child);
     }
@@ -323,12 +332,21 @@ pub fn natives(
         if !rules_allow(&library.rules, features) {
             continue;
         }
-        let Some(map) = &library.natives else { continue };
+        let Some(map) = &library.natives else {
+            continue;
+        };
         let Some(classifier) = map.get(os_name()) else {
             continue;
         };
         // `${arch}` appears in classifiers like `natives-windows-${arch}`.
-        let classifier = classifier.replace("${arch}", if cfg!(target_pointer_width = "32") { "32" } else { "64" });
+        let classifier = classifier.replace(
+            "${arch}",
+            if cfg!(target_pointer_width = "32") {
+                "32"
+            } else {
+                "64"
+            },
+        );
         if let Some(artifact) = library
             .downloads
             .as_ref()
@@ -364,7 +382,10 @@ pub fn select(arguments: &[Argument], features: &BTreeMap<String, bool>) -> Vec<
 /// The refusal is the point. A missing substitution reaches the JVM as a literal `${classpath}`,
 /// which fails deep inside a bootstrap class loader with a message that names neither the launcher
 /// nor the placeholder. Failing here costs one line and names both.
-pub fn substitute(arguments: &[String], table: &BTreeMap<String, String>) -> Result<Vec<String>, String> {
+pub fn substitute(
+    arguments: &[String],
+    table: &BTreeMap<String, String>,
+) -> Result<Vec<String>, String> {
     let mut out = Vec::with_capacity(arguments.len());
     for argument in arguments {
         let mut value = argument.clone();
@@ -372,7 +393,10 @@ pub fn substitute(arguments: &[String], table: &BTreeMap<String, String>) -> Res
             value = value.replace(&format!("${{{key}}}"), replacement);
         }
         if let Some(start) = value.find("${") {
-            let end = value[start..].find('}').map(|e| start + e + 1).unwrap_or(value.len());
+            let end = value[start..]
+                .find('}')
+                .map(|e| start + e + 1)
+                .unwrap_or(value.len());
             return Err(format!(
                 "this launcher does not know what {} means, in `{argument}`",
                 &value[start..end]
@@ -394,7 +418,8 @@ mod tests {
     }
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("nodera-version-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("nodera-version-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -443,7 +468,10 @@ mod tests {
         );
         assert_eq!(merged.asset_index.map(|a| a.id).as_deref(), Some("17"));
         assert_eq!(merged.java_version.unwrap().major_version, 21);
-        assert_eq!(merged.id, "neoforge-21.1.77", "the launched id is the child's");
+        assert_eq!(
+            merged.id, "neoforge-21.1.77",
+            "the launched id is the child's"
+        );
     }
 
     #[test]
@@ -477,8 +505,11 @@ mod tests {
 
         // The failure mode this prevents: `${library_directory}` reaching the JVM literally, and
         // BootstrapLauncher dying with a message that names neither the launcher nor the flag.
-        let error = substitute(&["-p".to_owned(), "${library_directory}/a.jar".to_owned()], &table)
-            .unwrap_err();
+        let error = substitute(
+            &["-p".to_owned(), "${library_directory}/a.jar".to_owned()],
+            &table,
+        )
+        .unwrap_err();
         assert!(error.contains("${library_directory}"), "{error}");
     }
 

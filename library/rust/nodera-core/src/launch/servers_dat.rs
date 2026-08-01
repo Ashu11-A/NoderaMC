@@ -98,10 +98,18 @@ impl<'a> Reader<'a> {
     fn payload(&mut self, tag: u8) -> Result<Vec<u8>, String> {
         let start = self.at;
         match tag {
-            TAG_BYTE => { self.take(1)?; }
-            TAG_SHORT => { self.take(2)?; }
-            TAG_INT | TAG_FLOAT => { self.take(4)?; }
-            TAG_LONG | TAG_DOUBLE => { self.take(8)?; }
+            TAG_BYTE => {
+                self.take(1)?;
+            }
+            TAG_SHORT => {
+                self.take(2)?;
+            }
+            TAG_INT | TAG_FLOAT => {
+                self.take(4)?;
+            }
+            TAG_LONG | TAG_DOUBLE => {
+                self.take(8)?;
+            }
             TAG_BYTE_ARRAY => {
                 let count = self.i32()?.max(0) as usize;
                 self.take(count)?;
@@ -168,7 +176,10 @@ pub fn read(path: &Path) -> Result<Vec<Server>, String> {
         return Err("that servers.dat is compressed, which this app cannot rewrite".to_owned());
     }
 
-    let mut reader = Reader { bytes: &bytes, at: 0 };
+    let mut reader = Reader {
+        bytes: &bytes,
+        at: 0,
+    };
     if reader.u8()? != TAG_COMPOUND {
         return Err("that servers.dat does not start with a compound".to_owned());
     }
@@ -277,7 +288,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("nodera-servers-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("nodera-servers-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("servers.dat")
@@ -349,7 +361,11 @@ mod tests {
         // one click; overwriting costs them the list.
         assert!(read(&path).is_err());
         assert!(upsert(&path, Server::new("Nodera", "127.0.0.1:1")).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be untouched");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "the file must be untouched"
+        );
     }
 
     #[test]

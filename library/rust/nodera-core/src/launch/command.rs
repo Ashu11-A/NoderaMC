@@ -199,7 +199,10 @@ pub fn direct(
             root.join("libraries").display().to_string(),
         ),
         ("version_name".to_owned(), version_id.to_owned()),
-        ("natives_directory".to_owned(), natives.display().to_string()),
+        (
+            "natives_directory".to_owned(),
+            natives.display().to_string(),
+        ),
         ("launcher_name".to_owned(), "nodera".to_owned()),
         (
             "launcher_version".to_owned(),
@@ -212,7 +215,11 @@ pub fn direct(
         ),
         (
             "game_assets".to_owned(),
-            root.join("assets").join("virtual").join("legacy").display().to_string(),
+            root.join("assets")
+                .join("virtual")
+                .join("legacy")
+                .display()
+                .to_string(),
         ),
         ("assets_index_name".to_owned(), asset_index),
         ("auth_player_name".to_owned(), account.name.clone()),
@@ -224,7 +231,10 @@ pub fn direct(
         ("user_type".to_owned(), account.user_type.clone()),
         (
             "version_type".to_owned(),
-            manifest.release_type.clone().unwrap_or_else(|| "release".to_owned()),
+            manifest
+                .release_type
+                .clone()
+                .unwrap_or_else(|| "release".to_owned()),
         ),
         ("resolution_width".to_owned(), "854".to_owned()),
         ("resolution_height".to_owned(), "480".to_owned()),
@@ -304,8 +314,8 @@ fn supports_quick_play(manifest: &version::VersionManifest) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::Tier;
+    use super::*;
 
     fn write(root: &Path, id: &str, body: &str) {
         let dir = root.join("versions").join(id);
@@ -374,7 +384,10 @@ mod tests {
             .expect("a command line");
 
         let line = command.arguments.join(" ");
-        assert!(line.contains("--quickPlayMultiplayer 127.0.0.1:25601"), "{line}");
+        assert!(
+            line.contains("--quickPlayMultiplayer 127.0.0.1:25601"),
+            "{line}"
+        );
         // The old pair must NOT also be present: passing both makes the game join twice, and the
         // second attempt lands on a port the first one is already using.
         assert!(!line.contains("--server "), "{line}");
@@ -394,8 +407,8 @@ mod tests {
         );
         let account = Account::offline("Ashu");
 
-        let (command, _) =
-            direct(&root, &target(&root, "1.12.2"), &account, "127.0.0.1:25601").expect("a command");
+        let (command, _) = direct(&root, &target(&root, "1.12.2"), &account, "127.0.0.1:25601")
+            .expect("a command");
         let line = command.arguments.join(" ");
 
         // Quick play arrived in 23w14a. Without this branch the game would start correctly and
@@ -433,7 +446,10 @@ mod tests {
         // BootstrapLauncher dying with a message that names neither the launcher nor the flag.
         assert!(!line.contains("${"), "{line}");
         assert!(line.contains("--add-modules ALL-MODULE-PATH"), "{line}");
-        assert!(line.contains("cpw.mods.bootstraplauncher.BootstrapLauncher"), "{line}");
+        assert!(
+            line.contains("cpw.mods.bootstraplauncher.BootstrapLauncher"),
+            "{line}"
+        );
         assert!(
             line.contains(&root.join("libraries").join("x.jar").display().to_string()),
             "{line}"

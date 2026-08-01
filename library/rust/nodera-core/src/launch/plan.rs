@@ -73,7 +73,11 @@ pub fn choose_with(target: &LaunchTarget, credential: Option<&str>, official: bo
         // why, rather than a button that silently does something else.
         return Plan {
             target: target.clone(),
-            tier: if official { Tier::ServersDat } else { Tier::Address },
+            tier: if official {
+                Tier::ServersDat
+            } else {
+                Tier::Address
+            },
             note: auth::DIRECT_UNAVAILABLE.to_owned(),
         };
     }
@@ -324,7 +328,11 @@ mod tests {
         assert!(!with_launcher.auto_connects());
         // A worse-but-working route with a sentence, rather than a button that silently does
         // something else.
-        assert!(with_launcher.note.contains("Microsoft client id"), "{}", with_launcher.note);
+        assert!(
+            with_launcher.note.contains("Microsoft client id"),
+            "{}",
+            with_launcher.note
+        );
 
         // With no launcher either, the floor is the address — still a plan, never a dead end.
         let bare = plan_with(&[profile("Vanilla", true)], None, NO_CREDENTIAL, false).unwrap();
@@ -342,11 +350,17 @@ mod tests {
     fn the_players_choice_wins_over_the_ordering() {
         let targets = [instance("Modded", true), profile("Vanilla", true)];
         assert_eq!(
-            plan_with(&targets, None, NO_CREDENTIAL, false).unwrap().target.name,
+            plan_with(&targets, None, NO_CREDENTIAL, false)
+                .unwrap()
+                .target
+                .name,
             "Modded"
         );
         assert_eq!(
-            plan_with(&targets, Some("Vanilla"), NO_CREDENTIAL, false).unwrap().target.name,
+            plan_with(&targets, Some("Vanilla"), NO_CREDENTIAL, false)
+                .unwrap()
+                .target
+                .name,
             "Vanilla"
         );
 
@@ -361,11 +375,21 @@ mod tests {
             tier: Tier::Address,
             note: String::new(),
         };
-        let outcome =
-            prepare(&chosen, "127.0.0.1:25601", "SkyRealm", "Ashu", NO_CREDENTIAL).unwrap_err();
+        let outcome = prepare(
+            &chosen,
+            "127.0.0.1:25601",
+            "SkyRealm",
+            "Ashu",
+            NO_CREDENTIAL,
+        )
+        .unwrap_err();
         assert_eq!(outcome.remedy, Remedy::CopyAddress);
         // The floor still has to be usable: an error with no address in it is worse than no error.
-        assert!(outcome.reason.contains("127.0.0.1:25601"), "{}", outcome.reason);
+        assert!(
+            outcome.reason.contains("127.0.0.1:25601"),
+            "{}",
+            outcome.reason
+        );
     }
 
     #[test]
@@ -375,8 +399,14 @@ mod tests {
             tier: Tier::Direct,
             note: String::new(),
         };
-        let outcome =
-            prepare(&chosen, "127.0.0.1:25601", "SkyRealm", "Ashu", NO_CREDENTIAL).unwrap_err();
+        let outcome = prepare(
+            &chosen,
+            "127.0.0.1:25601",
+            "SkyRealm",
+            "Ashu",
+            NO_CREDENTIAL,
+        )
+        .unwrap_err();
         // Before anything is started. A flow that begins and then discovers it has no credential has
         // already cost the player a device-code screen they cannot complete.
         assert_eq!(outcome.remedy, Remedy::SignIn);

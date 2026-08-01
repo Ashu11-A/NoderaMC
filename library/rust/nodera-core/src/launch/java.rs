@@ -51,8 +51,15 @@ fn probe_executable() -> &'static str {
 /// runtime on the other kind of machine as unusable.
 pub fn probe(java: &Path) -> Option<u32> {
     let probe_path = java.with_file_name(probe_executable());
-    let candidate = if probe_path.is_file() { probe_path } else { java.to_path_buf() };
-    let output = std::process::Command::new(&candidate).arg("-version").output().ok()?;
+    let candidate = if probe_path.is_file() {
+        probe_path
+    } else {
+        java.to_path_buf()
+    };
+    let output = std::process::Command::new(&candidate)
+        .arg("-version")
+        .output()
+        .ok()?;
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stderr),
@@ -90,7 +97,11 @@ pub fn parse_major(banner: &str) -> Option<u32> {
 ///
 /// Nothing here is filtered by version — that is [`select`]'s job, so the error can say what was
 /// found as well as what was needed.
-pub fn candidates(root: &Path, profile_java: Option<&Path>, component: &str) -> Vec<(PathBuf, &'static str)> {
+pub fn candidates(
+    root: &Path,
+    profile_java: Option<&Path>,
+    component: &str,
+) -> Vec<(PathBuf, &'static str)> {
     let mut out: Vec<(PathBuf, &'static str)> = Vec::new();
 
     if let Some(chosen) = profile_java {
@@ -115,7 +126,10 @@ pub fn candidates(root: &Path, profile_java: Option<&Path>, component: &str) -> 
 
     if let Ok(home) = std::env::var("JAVA_HOME") {
         if !home.trim().is_empty() {
-            out.push((PathBuf::from(home).join("bin").join(executable()), "JAVA_HOME"));
+            out.push((
+                PathBuf::from(home).join("bin").join(executable()),
+                "JAVA_HOME",
+            ));
         }
     }
 
@@ -157,12 +171,20 @@ pub fn select(
     let mut best: Option<Runtime> = None;
     for (path, source) in candidates {
         let Some(major) = probe(&path) else { continue };
-        let runtime = Runtime { path, major, source };
+        let runtime = Runtime {
+            path,
+            major,
+            source,
+        };
         if runtime.major >= required {
             return Ok(runtime);
         }
         // Remember the closest miss, so the refusal can name a real runtime rather than a shrug.
-        if best.as_ref().map(|held| runtime.major > held.major).unwrap_or(true) {
+        if best
+            .as_ref()
+            .map(|held| runtime.major > held.major)
+            .unwrap_or(true)
+        {
             best = Some(runtime);
         }
     }
@@ -235,7 +257,11 @@ mod tests {
         // opens an empty terminal the player must leave open for the game to keep running.
         if cfg!(target_os = "windows") {
             assert_eq!(executable(), "javaw.exe");
-            assert_eq!(probe_executable(), "java.exe", "but `javaw` writes nowhere, so probe with `java`");
+            assert_eq!(
+                probe_executable(),
+                "java.exe",
+                "but `javaw` writes nowhere, so probe with `java`"
+            );
         } else {
             assert_eq!(executable(), "java");
         }
