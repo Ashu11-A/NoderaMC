@@ -7,12 +7,10 @@
 //! step that is genuinely per-shell.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 use nodera_core::api::events::{EventSink, WorkerEvent, WORKER_EVENT};
 use nodera_core::api::link::{DiscoveryEdge, Sink, DASHBOARD_EVENT, DISCOVERY_EVENT};
 use nodera_core::api::model::Dashboard;
-use nodera_core::api::store::DashboardStore;
 use nodera_core::browser::LinkOpener;
 use tauri::{AppHandle, Emitter};
 
@@ -74,26 +72,6 @@ impl EventSink for TauriEventSink {
     fn publish(&self, event: WorkerEvent) {
         let _ = self.0.emit(WORKER_EVENT, event);
     }
-}
-
-/// Run the link until the app exits.
-///
-/// `on_reconnect` is notified on every offline→online edge, which is what re-pushes configuration
-/// to a worker that came back without it (the worker holds configuration in memory by design).
-pub async fn run_link(
-    control_addr: String,
-    store: Arc<DashboardStore>,
-    app: AppHandle,
-    on_reconnect: Arc<tokio::sync::Notify>,
-) {
-    let sink: Arc<dyn Sink> = Arc::new(TauriSink::new(app));
-    nodera_core::api::link::pump(control_addr, store, sink, on_reconnect).await;
-}
-
-/// Run the event stream until the app exits.
-pub async fn run_events(control_addr: String, app: AppHandle) {
-    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink(app));
-    nodera_core::api::events::pump(control_addr, sink).await;
 }
 
 /// The launch lane's sink: the fifth and last event this app emits.

@@ -4,6 +4,8 @@
 //! rest of the app never branches on the platform.
 
 pub mod battery;
+/// The door the native Android front end comes through.
+pub mod bridge;
 pub mod network;
 pub mod worker;
 

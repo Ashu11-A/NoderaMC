@@ -298,8 +298,15 @@ fi
 # The Kotlin that loads it. Copied from the tracked source of truth because
 # gen/ is disposable — Tauri regenerates it and an edit made there is lost.
 KOTLIN_DST="$APP_DIR/gen/android/app/src/main/java/dev/nodera/app"
-mkdir -p "$KOTLIN_DST"
+mkdir -p "$KOTLIN_DST/ui"
 cp "$APP_DIR/android/kotlin/"*.kt "$KOTLIN_DST/"
+# The Compose interface lives in the `ui` sub-package, and a flat `*.kt` copy silently leaves it
+# out: the build then fails with two dozen "Unresolved reference" lines naming symbols that are
+# right there in the tree. Copied explicitly, and asserted, because "the file exists in the repo" is
+# not the same statement as "the file reached the generated project".
+cp "$APP_DIR/android/kotlin/ui/"*.kt "$KOTLIN_DST/ui/"
+[[ -f "$KOTLIN_DST/ui/Theme.kt" ]] \
+  || die "the Compose sources did not reach $KOTLIN_DST/ui — the interface would not compile"
 
 # minSdk. Patched, not assumed: Tauri generates this file with its own floor (24), and the worker's
 # dex floor is $DEX_MIN_API. When they disagree the APK installs happily on API 24-25 and the worker
@@ -336,6 +343,8 @@ if anchor in text:
     open(path, 'w').write(text)
 PYEOF
 fi
+grep -q "androidx.documentfile" "$GRADLE_APP" \
+  || die "androidx.documentfile is not in $GRADLE_APP — the folder picker would be missing from the APK"
 
 # androidx.browser: Chrome Custom Tabs, the first rung of `NoderaBrowser`'s ladder — the user's own
 # browser engine drawn inside this task, so the back gesture returns to Nodera rather than leaving
@@ -357,6 +366,127 @@ fi
 grep -q "androidx.browser" "$GRADLE_APP" \
   || die "androidx.browser is not in $GRADLE_APP — custom tabs would be missing from the APK"
 
+# Jetpack Compose. The Android front end is native now — a Compose activity, not the desktop's React
+# bundle in a WebView — because `dynamicDarkColorScheme(context)` is the only way to actually read
+# the system wallpaper, and imitating Material You in CSS while asking the user to pick an accent
+# was the honest version of not having it.
+#
+# Added here for the same reason as every block above: Tauri regenerates this Gradle file, so a hand
+# edit to `gen/` is lost on the next `tauri android init`.
+if ! grep -q "androidx.compose" "$GRADLE_APP"; then
+  say "gradle     adding Jetpack Compose"
+  python3 - "$GRADLE_APP" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+anchor = '    implementation("androidx.appcompat:appcompat:1.7.1")\n'
+deps = (
+    '    implementation(platform("androidx.compose:compose-bom:2024.06.00"))\n'
+    '    implementation("androidx.compose.ui:ui")\n'
+    '    implementation("androidx.compose.material3:material3")\n'
+    '    implementation("androidx.compose.material:material-icons-extended")\n'
+    ''
+    '    implementation("androidx.activity:activity-compose:1.9.2")\n'
+    '    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")\n'
+)
+if anchor in text:
+    text = text.replace(anchor, anchor + deps, 1)
+
+# `buildFeatures { compose = true }` inside the existing android block.
+if 'compose = true' not in text:
+    marker = '    buildFeatures {\n'
+    if marker in text:
+        text = text.replace(marker, marker + '        compose = true\n', 1)
+    else:
+        text = text.replace(
+            '\nandroid {\n',
+            '\nandroid {\n    buildFeatures {\n        compose = true\n    }\n',
+            1,
+        )
+open(path, 'w').write(text)
+PYEOF
+fi
+grep -q "androidx.compose.material3:material3" "$GRADLE_APP" \
+  || die "Compose is not in $GRADLE_APP — the native interface would not compile"
+grep -q "compose = true" "$GRADLE_APP" \
+  || die "buildFeatures { compose = true } is missing from $GRADLE_APP"
+
+# Kotlin 2.x in the generated project.
+#
+# Tauri generates it on 1.9.25, and that no longer compiles here: `compileSdk 36` pulls AndroidX
+# artifacts (lifecycle 2.10, activity 1.10) whose metadata a 1.9 compiler cannot read, and the
+# failure is not a version message — it is `Couldn't inline method call: CompositionLocal.<get-current>`,
+# an internal backend crash naming no file. Bumped rather than worked around, because pinning the
+# AndroidX side down instead would mean pinning `compileSdk` too.
+KOTLIN_WANTED="2.0.21"
+if grep -q 'kotlin-gradle-plugin:1\.' "$APP_DIR/gen/android/build.gradle.kts" 2>/dev/null; then
+  say "gradle     raising Kotlin to $KOTLIN_WANTED (1.9 cannot read the AndroidX metadata here)"
+  sed -i -E "s|(kotlin-gradle-plugin:)[0-9]+\.[0-9]+\.[0-9]+|\1$KOTLIN_WANTED|" \
+    "$APP_DIR/gen/android/build.gradle.kts"
+fi
+
+# The Compose compiler.
+#
+# THE ONE MOST LIKELY TO BREAK ON AN UPGRADE. Kotlin 1.x wants
+# `composeOptions { kotlinCompilerExtensionVersion = ... }`, pinned to a version that must match the
+# Kotlin version exactly; Kotlin 2.x replaced it with a Gradle *plugin* and ignores the old block.
+# Applying the wrong one fails with "Compose Compiler plugin not applied", a message naming neither
+# this script nor the version that decided it — so the Kotlin version is READ out of the generated
+# project rather than assumed, and both paths are here.
+#
+# `|| true` is load-bearing: under `set -e` an assignment whose pipeline finds nothing takes the
+# whole script down, which is exactly what happened the first time this block ran.
+KOTLIN_VERSION="$(grep -Eo 'kotlin-gradle-plugin:[0-9]+\.[0-9]+\.[0-9]+' "$APP_DIR/gen/android/build.gradle.kts" 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+if [[ -z "$KOTLIN_VERSION" ]]; then
+  KOTLIN_VERSION="$(grep -Eo 'org\.jetbrains\.kotlin[^"]*" *version *"[0-9.]+' "$APP_DIR/gen/android/build.gradle.kts" 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+fi
+KOTLIN_MAJOR="${KOTLIN_VERSION%%.*}"
+say "gradle     kotlin ${KOTLIN_VERSION:-unknown} in the generated project"
+
+# Kotlin 1.9.x → compiler extension 1.5.15. The pairing is exact: a mismatch is a build failure that
+# names two version numbers and no file.
+COMPOSE_COMPILER="1.5.15"
+
+if [[ "${KOTLIN_MAJOR:-1}" -ge 2 ]]; then
+  if ! grep -q 'kotlin.plugin.compose' "$GRADLE_APP"; then
+    say "gradle     applying the Kotlin 2.x Compose compiler plugin"
+    python3 - "$GRADLE_APP" "$APP_DIR/gen/android/build.gradle.kts" "${KOTLIN_VERSION:-2.0.20}" <<'PYEOF'
+import sys
+app, root, version = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(app).read()
+if 'plugins {' in text and 'kotlin.plugin.compose' not in text:
+    text = text.replace('plugins {', 'plugins {\n    id("org.jetbrains.kotlin.plugin.compose")', 1)
+    open(app, 'w').write(text)
+top = open(root).read()
+if 'kotlin.plugin.compose' not in top:
+    line = '        classpath("org.jetbrains.kotlin:compose-compiler-gradle-plugin:%s")\n' % version
+    if 'classpath("org.jetbrains.kotlin:kotlin-gradle-plugin' in top:
+        at = top.index('classpath("org.jetbrains.kotlin:kotlin-gradle-plugin')
+        eol = top.index('\n', at) + 1
+        top = top[:eol] + line + top[eol:]
+        open(root, 'w').write(top)
+PYEOF
+  fi
+  grep -q 'kotlin.plugin.compose' "$GRADLE_APP" \
+    || die "the Kotlin 2.x Compose plugin is not applied in $GRADLE_APP"
+else
+  if ! grep -q 'kotlinCompilerExtensionVersion' "$GRADLE_APP"; then
+    say "gradle     pinning the Kotlin 1.x Compose compiler extension ($COMPOSE_COMPILER)"
+    python3 - "$GRADLE_APP" "$COMPOSE_COMPILER" <<'PYEOF'
+import sys
+path, version = sys.argv[1], sys.argv[2]
+text = open(path).read()
+block = '    composeOptions {\n        kotlinCompilerExtensionVersion = "%s"\n    }\n' % version
+marker = '    buildFeatures {\n'
+if marker in text:
+    text = text.replace(marker, block + marker, 1)
+    open(path, 'w').write(text)
+PYEOF
+  fi
+  grep -q 'kotlinCompilerExtensionVersion' "$GRADLE_APP" \
+    || die "the Kotlin 1.x Compose compiler extension is not pinned in $GRADLE_APP"
+fi
+
 # Keep the classes the RUST side calls by name. R8 cannot see a reflective JNI call, so it renamed
 # `NoderaStorage.pick` to `a` and the folder picker failed with:
 #
@@ -373,7 +503,7 @@ grep -q "androidx.browser" "$GRADLE_APP" \
 # than no guard, because it looks like one.
 PROGUARD="$APP_DIR/gen/android/app/proguard-rules.pro"
 if [[ -f "$PROGUARD" ]]; then
-  JNI_CLASSES=(NoderaStorage NoderaWorker NoderaBridge NoderaBrowser)
+  JNI_CLASSES=(NoderaStorage NoderaWorker NoderaBridge NoderaBrowser NoderaCore NoderaEvents)
   for CLASS in "${JNI_CLASSES[@]}"; do
     if ! grep -q "dev.nodera.app.$CLASS" "$PROGUARD"; then
       say "proguard   keeping dev.nodera.app.$CLASS (called from Rust over JNI)"
@@ -446,9 +576,32 @@ if "nodera" not in text:
         )
         text = text[:end] + deep_link + text[end:]
 
+# `singleTask`, which the deep link now depends on.
+#
+# Tauri's plugin used to own the intent and could cope with a fresh task per link. The Compose
+# activity reads `onNewIntent` instead, and without `singleTask` Android starts a SECOND activity
+# for a link that arrives while the app is open — `onNewIntent` never fires on the instance the user
+# is looking at, and the store offer is silently dropped.
+if 'android:launchMode' not in text:
+    text = re.sub(
+        r'(<activity\b(?![^>]*android:launchMode)[^>]*android:name="[^"]*MainActivity")',
+        r'\1\n        android:launchMode="singleTask"',
+        text,
+        count=1,
+    )
+
+# A Material 3 theme, because the activity is Compose now. Left on Tauri's generated theme, the
+# window keeps an action bar the Compose scaffold then draws its own top bar underneath.
+text = text.replace(
+    'android:theme="@style/Theme.nodera_app"',
+    'android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"',
+)
+
 if text != original:
     open(path, "w").write(text)
 PYEOF
+  grep -q 'android:launchMode="singleTask"' "$MANIFEST" \
+    || die "MainActivity is not singleTask — a warm-start nodera:// link would be dropped"
 fi
 
 # The tracker a development build comes up pointed at.

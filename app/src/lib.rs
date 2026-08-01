@@ -39,7 +39,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use config::{ConfigPusher, PushSignal};
+use config::PushSignal;
 use nodera_core::core::NoderaCore;
 use power::PauseHandle;
 #[cfg(desktop)]
@@ -743,11 +743,8 @@ pub fn run() {
     let system_stats = Arc::clone(&core.system);
     let worker_logs = Arc::clone(&core.logs);
     let user_settings = Arc::clone(&core.settings);
-    let config_status = Arc::clone(&core.config_status);
     let pause = Arc::clone(&core.pause);
     let push_signal = Arc::clone(&core.push);
-    let restart_signal = Arc::clone(&core.restart);
-    let network_cache = Arc::clone(&core.network);
     let pending_store = Arc::clone(&core.pending_store);
 
     #[allow(unused_mut)]
@@ -915,7 +912,7 @@ pub fn run() {
                 let store_daemon = Arc::clone(&dashboard_store);
                 let logs_daemon = Arc::clone(&worker_logs);
                 let settings_daemon = Arc::clone(&user_settings);
-                let restart_daemon = Arc::clone(&restart_signal);
+                let restart_daemon = Arc::clone(&core.restart);
                 // Where THIS bundle keeps its resources. Resolved here because `setup` is the only
                 // place holding an `AppHandle`, and passed in rather than looked up inside the
                 // supervisor so the path logic stays testable without a running Tauri app.
@@ -964,67 +961,19 @@ pub fn run() {
                 });
             }
 
-            // ...and open the live link to the worker. This is the authoritative liveness signal
-            // and the only thing that writes the dashboard: the worker PUSHES state as it changes
-            // (NODERA-WATCH), so the screen is current because the node said so, not because the
-            // app guessed when to ask. Its offline→online edge is also what re-pushes configuration
-            // to a worker that came back without it — the worker holds config in memory by design.
-            let store_link = Arc::clone(&dashboard_store);
-            let reconnect = Arc::clone(&push_signal.0);
-            let link_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                shell::run_link(control_addr(), store_link, link_app, reconnect).await;
-            });
-
-            // ...and the event stream beside it. Two connections on purpose: the link carries what
-            // is TRUE of the node and this carries what HAPPENED to it. A prompt built on the first
-            // would only fire when the app happened to be connected at the moment the player acted;
-            // this one replays from a sequence number, so the order stops mattering.
-            let events_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                shell::run_events(control_addr(), events_app).await;
-            });
-
-            // Keep the tracker stores fresh, and the worker's synchronisation file with them.
-            // Started before the pusher so a first-run install has written the file — the only
-            // channel to an Android worker — by the time the worker looks for it.
-            let sync_core = Arc::clone(&core);
-            tauri::async_runtime::spawn(async move {
-                Arc::clone(&sync_core).sync_stores_forever().await;
-            });
-
-            // Coalesce configuration pushes: one per settle window, however many saves arrive.
-            let pusher = Arc::new(ConfigPusher {
-                control_addr: control_addr(),
-                settings: Arc::clone(&user_settings),
-                pause: Arc::clone(&pause),
-                status: Arc::clone(&config_status),
-            });
-            let push_loop = Arc::clone(&push_signal);
-            tauri::async_runtime::spawn(async move {
-                config::debounce_loop(pusher, push_loop).await;
-            });
-
-            // Connection rules, on every platform. Desktop reports the subject as unsupported and
-            // the loop is inert there; on a phone this is what stops the node spending somebody's
-            // data allowance on strangers' worlds. It shares `PauseHandle` with the battery rules
-            // and clears independently of them, so walking onto Wi-Fi cannot resume a node that was
-            // paused for battery.
-            {
-                let settings_network = Arc::clone(&user_settings);
-                let pause_network = Arc::clone(&pause);
-                let push_network = Arc::clone(&push_signal);
-                let cache_network = Arc::clone(&network_cache);
-                tauri::async_runtime::spawn(async move {
-                    power::sample_network(
-                        settings_network,
-                        pause_network,
-                        push_network,
-                        cache_network,
-                    )
-                    .await;
-                });
-            }
+            // Everything that is the same on both shells, started in one place: the live link,
+            // the event stream, the store refresh, the configuration pusher, the connection rules
+            // and the telemetry reconciler. Written out here AND in the Android bridge they would
+            // drift, and the drift would be invisible — a build that forgot the store refresh would
+            // simply stop learning about new trackers, with nothing on screen to say so.
+            //
+            // The two sinks are this shell's: a Tauri event per push. Android calls back into
+            // Kotlin instead, which is the only difference between the two.
+            let link_sink: Arc<dyn api::link::Sink> =
+                Arc::new(shell::TauriSink::new(app.handle().clone()));
+            let event_sink: Arc<dyn api::events::EventSink> =
+                Arc::new(shell::TauriEventSink(app.handle().clone()));
+            core.start_shared_loops(link_sink, event_sink);
 
             // Host power rules: desktop-only. The crate does not build for Android, and deciding
             // when a phone should stop working in the background is the phone's job — which is what

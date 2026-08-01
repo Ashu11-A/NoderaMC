@@ -180,7 +180,7 @@ fn worker_port_settings(settings: &Settings) -> Vec<(String, String)> {
 
 /// Write Android's allowlisted Java-property handoff from the same settings desktop spawns with.
 #[cfg(target_os = "android")]
-pub(crate) fn write_worker_properties(settings: &Settings) -> Result<(), String> {
+pub fn write_worker_properties(settings: &Settings) -> Result<(), String> {
     let path = crate::settings::config_dir().join(WORKER_PROPERTIES_FILE);
     write_worker_properties_to(&path, settings)
 }

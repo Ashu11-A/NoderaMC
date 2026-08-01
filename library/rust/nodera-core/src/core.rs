@@ -586,6 +586,76 @@ impl NoderaCore {
         crate::browser::open(opener, url)
     }
 
+    /* ------------------------------------------------------------------------ background work */
+
+    /// Start everything that runs for the life of the app and is the same on both shells.
+    ///
+    /// # Why this is here and not in each front end
+    ///
+    /// Six loops, and every one of them is about the node rather than about the window: the live
+    /// link, the event stream, the store refresh, the configuration pusher, the connection rules,
+    /// and the telemetry reconciler. Written out twice — once in a Tauri `setup` hook and once in a
+    /// JNI entry point — they would drift, and the drift would be invisible: an Android build that
+    /// forgot the store refresh would simply stop learning about new trackers, with nothing on
+    /// screen to say so.
+    ///
+    /// What each shell keeps is what only it has. The desktop adds the tray, the window, the worker
+    /// supervisor and the process sampler; Android adds the log tailer for the worker running
+    /// inside its own process.
+    pub fn start_shared_loops(
+        self: &Arc<Self>,
+        sink: Arc<dyn crate::api::link::Sink>,
+        events: Arc<dyn crate::api::events::EventSink>,
+    ) {
+        // The link. The authoritative liveness signal and the only thing that writes the dashboard:
+        // the worker PUSHES state as it changes, so the screen is current because the node said so
+        // rather than because the app guessed when to ask. Its offline→online edge is what
+        // re-pushes configuration to a worker that came back without it.
+        let store = Arc::clone(&self.dashboard);
+        let reconnect = Arc::clone(&self.push.0);
+        let addr = self.control_addr.clone();
+        tokio::spawn(async move { crate::api::link::pump(addr, store, sink, reconnect).await });
+
+        // The event stream beside it. Two connections on purpose: the link carries what is TRUE of
+        // the node and this carries what HAPPENED to it. A prompt built on the first would only
+        // fire when the app happened to be connected at the moment the player acted.
+        let addr = self.control_addr.clone();
+        tokio::spawn(async move { crate::api::events::pump(addr, events).await });
+
+        // Keep the tracker stores fresh, and the worker's synchronisation file with them. Started
+        // before the pusher so a first-run install has written the file — the only channel to an
+        // Android worker — by the time the worker looks for it.
+        let stores = Arc::clone(self);
+        tokio::spawn(async move { stores.sync_stores_forever().await });
+
+        // Coalesce configuration pushes: one per settle window, however many saves arrive.
+        let pusher = Arc::new(config::ConfigPusher {
+            control_addr: self.control_addr.clone(),
+            settings: Arc::clone(&self.settings),
+            pause: Arc::clone(&self.pause),
+            status: Arc::clone(&self.config_status),
+        });
+        let push = Arc::clone(&self.push);
+        tokio::spawn(async move { config::debounce_loop(pusher, push).await });
+
+        // Connection rules, on every platform. Desktop reports the subject as unsupported and the
+        // loop is inert there; on a phone this is what stops the node spending somebody's data
+        // allowance on strangers' worlds.
+        let (settings, pause, push, cache) = (
+            Arc::clone(&self.settings),
+            Arc::clone(&self.pause),
+            Arc::clone(&self.push),
+            Arc::clone(&self.network),
+        );
+        tokio::spawn(async move { crate::power::sample_network(settings, pause, push, cache).await });
+
+        // A telemetry answer given while the worker was still starting is delivered here, not lost.
+        // First run is precisely when the node is least likely to be listening.
+        let settings = Arc::clone(&self.settings);
+        let addr = self.control_addr.clone();
+        tokio::spawn(async move { telemetry::reconcile_loop(addr, settings).await });
+    }
+
     /* ----------------------------------------------------------------------------------- play */
 
     /// What this machine could start, and which route each would take.

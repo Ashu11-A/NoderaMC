@@ -35,7 +35,7 @@ const frontend = frontendSources();
  * list rather than against two hand-maintained ones.
  */
 const DASHBOARD_SCREENS = [
-  ["play", "Play.tsx"],
+  ["play", "PlayScreen.tsx"],
   ["worlds", "Worlds.tsx"],
   ["world", "World.tsx"],
   ["discover", "Network.tsx"],
@@ -191,7 +191,7 @@ test("the six A-UX-5 commands are each resolved, and stay resolved", () => {
   // moved with the Overview screen that was dissolved into the launcher's hero: a node that has
   // quietly stopped sharing looks exactly like one that crashed, and this sentence is the whole
   // difference. It has to keep a caller wherever it lives.
-  assert.match(read("../src/Play.tsx"), /fetchPauseReason\(\)/, "pause_reason has no caller");
+  assert.match(read("../src/PlayScreen.tsx"), /fetchPauseReason\(\)/, "pause_reason has no caller");
   assert.match(
     read("../src/Settings.tsx"),
     /fetchSettingsFault\(\)/,

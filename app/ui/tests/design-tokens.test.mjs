@@ -187,7 +187,7 @@ test("every launch phase and remedy has a word on the Play screen", () => {
   // renders a button with no text — both are the "a number with no provenance" failure in another
   // shape. The Rust enums are the source of truth, so they are read rather than restated.
   const rust = readCrate("nodera-core", "src/launch/mod.rs");
-  const play = readFileSync(new URL("../src/Play.tsx", import.meta.url), "utf8");
+  const play = readFileSync(new URL("../src/PlayScreen.tsx", import.meta.url), "utf8");
 
   const variants = (enumName) => {
     const start = rust.indexOf(`pub enum ${enumName} {`);
@@ -218,7 +218,7 @@ test("every launch phase and remedy has a word on the Play screen", () => {
 });
 
 test("the launcher never promises an auto-connect it cannot deliver", () => {
-  const play = readFileSync(new URL("../src/Play.tsx", import.meta.url), "utf8");
+  const play = readFileSync(new URL("../src/PlayScreen.tsx", import.meta.url), "utf8");
   const lane = readFileSync(new URL("../src/play.ts", import.meta.url), "utf8");
 
   // Two tiers land the player in the world and two do not, and the screen says which before the

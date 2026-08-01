@@ -21,7 +21,7 @@ import { FiCompass, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
 import { cx, MONO, SCROLLPORT_ID, StaleDataNotice } from "./components";
 import { SettingsScreen, type Section as SettingsSection } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
-import { PlayScreen } from "./Play";
+import { PlayScreen } from "./PlayScreen";
 import { WorldsScreen } from "./Worlds";
 import { NetworkScreen } from "./Network";
 import { LanOfferModal } from "./Lan";
