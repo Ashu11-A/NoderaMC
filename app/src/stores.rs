@@ -309,28 +309,11 @@ pub fn built_in_store() -> Option<TrackerStore> {
         .map(|index| store_from(OFFICIAL_STORE_URL, index, 0, true))
 }
 
-/// Every endpoint of one kind that the stores contribute, deduplicated, in store order.
-///
-/// The caller puts the user's own configured endpoints first. That ordering is the whole point: a
-/// store must be able to *add* somewhere to look and must never be able to displace an address the
-/// user typed. Peers reorder all of it by measurement anyway, so position here is about provenance,
-/// not preference.
-pub fn endpoints_of(stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for store in stores {
-        for service in &store.services {
-            if service.kind != kind {
-                continue;
-            }
-            for endpoint in &service.endpoints {
-                if !out.iter().any(|held| held == endpoint) {
-                    out.push(endpoint.clone());
-                }
-            }
-        }
-    }
-    out
-}
+// `endpoints_of(stores, kind)` lived here: the store-only half of the walk. `merged` was the only
+// caller, and once `resolved` below took over the walk it had none — `merged(&[], stores, kind)` is
+// the same list, from the same code, and a second entry point into one algorithm is how the two
+// halves of it drift. Deleted rather than kept for the tests that used it; they say
+// `merged(&[], …)` now.
 
 /// One endpoint in the effective list, and where it came from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -527,8 +510,8 @@ mod tests {
         let store = built_in_store().expect("the bundled official list must parse");
         assert!(!store.services.is_empty());
         assert!(store.built_in);
-        assert!(!endpoints_of(std::slice::from_ref(&store), ServiceKind::Tracker).is_empty());
-        assert!(!endpoints_of(&[store], ServiceKind::Rendezvous).is_empty());
+        assert!(!merged(&[], std::slice::from_ref(&store), ServiceKind::Tracker).is_empty());
+        assert!(!merged(&[], &[store], ServiceKind::Rendezvous).is_empty());
     }
 
     #[test]
@@ -613,7 +596,7 @@ mod tests {
         let index = parse_index(&index_json("")).unwrap();
         let a = store_from("https://a.example.org/i.json", index.clone(), 1, false);
         let b = store_from("https://b.example.org/i.json", index, 1, false);
-        assert_eq!(endpoints_of(&[a, b], ServiceKind::Tracker).len(), 1);
+        assert_eq!(merged(&[], &[a, b], ServiceKind::Tracker).len(), 1);
     }
 
     #[test]
@@ -623,11 +606,11 @@ mod tests {
         let index = parse_index(&index_json("")).unwrap();
         let store = store_from("https://example.org/i.json", index, 1, false);
         assert_eq!(
-            endpoints_of(std::slice::from_ref(&store), ServiceKind::Tracker),
+            merged(&[], std::slice::from_ref(&store), ServiceKind::Tracker),
             vec!["tcp://a.example.org:6969"]
         );
         assert_eq!(
-            endpoints_of(&[store], ServiceKind::Rendezvous),
+            merged(&[], &[store], ServiceKind::Rendezvous),
             vec!["tcp://b.example.org:7500"]
         );
     }
@@ -761,6 +744,6 @@ mod tests {
         let index = parse_index(&index_json("")).unwrap();
         let mut store = store_from("https://example.org/i.json", index, 10, false);
         store.last_error = "connection reset".to_owned();
-        assert_eq!(endpoints_of(&[store], ServiceKind::Tracker).len(), 1);
+        assert_eq!(merged(&[], &[store], ServiceKind::Tracker).len(), 1);
     }
 }
