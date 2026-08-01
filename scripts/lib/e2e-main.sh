@@ -567,7 +567,7 @@ nodera_check_ram() {
 # Service launchers — the reason no suite starts anything itself
 # ---------------------------------------------------------------------------
 
-# nodera_official_services — point this run at services/official.json instead
+# nodera_official_services — point this run at the published index instead
 # of spawning local ones (--official, or NODERA_OFFICIAL_SERVICES=1).
 #
 # The whole point of the flag: exercise the deployed production architecture,

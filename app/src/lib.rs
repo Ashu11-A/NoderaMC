@@ -118,6 +118,41 @@ fn take_pending_tracker_store(state: tauri::State<Arc<PendingStore>>) -> Option<
     state.take()
 }
 
+/// Tauri command: where the project's own list is published.
+///
+/// The screen needs this to offer "add the official list" as a button rather than as an address the
+/// user is expected to type. Read from the one constant instead of being spelled again in the UI:
+/// a second copy is a second thing to update when the list moves, and the symptom would be a button
+/// that adds a store nobody publishes.
+#[tauri::command]
+fn official_store_url() -> &'static str {
+    stores::OFFICIAL_STORE_URL
+}
+
+/// Tauri command: fetch and validate a store index **without** remembering it.
+///
+/// This is what makes adding a store a decision rather than a leap. Before this existed the screen
+/// asked the user to paste a URL and press Add, and the first thing they learned about what they had
+/// just trusted was a row appearing in a list — a store that turned out to be the wrong address, or
+/// a list of relays in the wrong hemisphere, was found out after it was already contributing
+/// endpoints. Now the same fetch happens first and its result is shown: the name the publisher gives
+/// itself, and every service it carries.
+///
+/// Nothing is persisted, so a preview that the user walks away from leaves no trace. The store is
+/// fetched a second time by [`add_tracker_store`] if they go ahead, which is deliberate: a preview
+/// the app then *stored* would be a list the user confirmed and a list the app kept, and those are
+/// only the same thing until a publisher edits the file between the two calls.
+#[tauri::command]
+async fn preview_tracker_store(url: String) -> Result<stores::ServiceIndex, String> {
+    let target = url.trim().to_owned();
+    stores::check_url(&target).map_err(|e| e.to_string())?;
+    let body = tokio::task::spawn_blocking(move || stores::fetch_index(&target))
+        .await
+        .map_err(|e| format!("the fetch task failed: {e}"))?
+        .map_err(|e| e.to_string())?;
+    stores::parse_index(&body).map_err(|e| e.to_string())
+}
+
 /// Tauri command: fetch a store index, validate it, and remember it.
 ///
 /// Called only after the user has confirmed. Fetching happens on a blocking pool because this is a
@@ -205,6 +240,47 @@ async fn refresh_tracker_stores(
     settings::write_sync_file(&state.snapshot());
     push.request();
     Ok(refreshed)
+}
+
+/// Tauri command: re-read one store.
+///
+/// The all-or-nothing refresh is the wrong shape for the case that actually happens: one store in a
+/// list of several is failing, and the user wants to retry *that one* after fixing something at the
+/// other end. Refreshing all of them to retry one makes every other row's timestamp lie about when
+/// it was last confirmed.
+#[tauri::command]
+async fn refresh_tracker_store(
+    state: tauri::State<'_, Arc<settings::SettingsHandle>>,
+    push: tauri::State<'_, Arc<PushSignal>>,
+    url: String,
+) -> Result<stores::TrackerStore, String> {
+    let target = url.trim().to_owned();
+    let fetch_url = target.clone();
+    let fetched = tokio::task::spawn_blocking(move || stores::fetch_index(&fetch_url))
+        .await
+        .map_err(|e| format!("the fetch task failed: {e}"))?;
+
+    let mut settings = state.snapshot();
+    let store = settings
+        .network
+        .tracker_stores
+        .iter_mut()
+        .find(|held| held.url == target)
+        .ok_or_else(|| format!("no store here is served from {target}"))?;
+    match fetched.and_then(|body| stores::parse_index(&body)) {
+        Ok(index) => {
+            let built_in = store.built_in;
+            *store = stores::store_from(&target, index, now_millis(), built_in);
+        }
+        // Beside the services, never instead of them: a store that failed to refresh keeps working
+        // with what it said before. See `refresh_tracker_stores`.
+        Err(e) => store.last_error = e.to_string(),
+    }
+    let updated = store.clone();
+    state.save(settings)?;
+    settings::write_sync_file(&state.snapshot());
+    push.request();
+    Ok(updated)
 }
 
 /// How often the stores are re-read in the background.
@@ -309,17 +385,24 @@ fn get_config_status(status: tauri::State<Arc<ConfigStatusHandle>>) -> config::C
 /// Always read from the worker rather than cached here: the record lives on the node, and the app
 /// is one of several things that may have changed it (the mod's `/nodera telemetry` is another).
 #[tauri::command]
-async fn get_telemetry_status() -> telemetry::TelemetryStatus {
-    telemetry::status(&control_addr()).await
+async fn get_telemetry_status(
+    settings: tauri::State<'_, Arc<settings::SettingsHandle>>,
+) -> Result<telemetry::TelemetryStatus, String> {
+    Ok(telemetry::status(&control_addr(), &settings).await)
 }
 
-/// Tauri command: record the person's answer on the node.
+/// Tauri command: record the person's answer.
 ///
-/// Returns the status **as the worker reports it afterwards**, so the UI badges what was confirmed
-/// rather than what was requested.
+/// Recorded locally first and handed to the worker second, so a node that is still starting — which
+/// on a fresh install is the normal case — cannot turn a question into a dead end. The reply
+/// carries both halves: `consent` is what the worker confirmed, `pending` says an answer is still
+/// waiting to reach it. The UI badges the first and explains the second; neither is invented.
 #[tauri::command]
-async fn set_telemetry_consent(granted: bool) -> Result<telemetry::TelemetryStatus, String> {
-    telemetry::set(&control_addr(), granted).await
+async fn set_telemetry_consent(
+    settings: tauri::State<'_, Arc<settings::SettingsHandle>>,
+    granted: bool,
+) -> Result<telemetry::TelemetryStatus, String> {
+    Ok(telemetry::set(&control_addr(), &settings, granted).await)
 }
 
 /// Tauri command: what the configured collector says it accepts.
@@ -831,8 +914,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_tracker_stores,
             take_pending_tracker_store,
+            official_store_url,
+            preview_tracker_store,
             add_tracker_store,
             remove_tracker_store,
+            refresh_tracker_store,
             refresh_tracker_stores,
             api::commands::dashboard,
             prove_world_admin,
@@ -1093,6 +1179,16 @@ pub fn run() {
                     let _ = handle.emit("nodera://system", system_ui.snapshot());
                 }
             });
+
+            // A telemetry answer given while the worker was still starting is delivered here, not
+            // lost. First run is precisely when the node is least likely to be listening, and the
+            // person answering deserves the flow to move on regardless.
+            {
+                let settings_consent = Arc::clone(&user_settings);
+                tauri::async_runtime::spawn(async move {
+                    telemetry::reconcile_loop(control_addr(), settings_consent).await;
+                });
+            }
 
             // Last setup action: only now may the context/settings gate start the Java worker.
             #[cfg(target_os = "android")]

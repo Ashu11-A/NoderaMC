@@ -72,7 +72,7 @@ archival peer with a single, non-authoritative vote.
 
 <p align="center">
 <a href="https://github.com/Ashu11-A/NoderaMC/stargazers"><img alt="Star Repo" src="https://img.shields.io/badge/Leave%20a%20Star%20🌟-302D41?style=for-the-badge&color=302D41&labelColor=f9e2af"></a>
-<a href="https://noderamc.org/add-store?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fmain%2Fservices%2Fofficial.json"><img alt="Add the official service list" src="https://img.shields.io/badge/Add%20the%20official%20list%20📡-302D41?style=for-the-badge&color=302D41&labelColor=89dceb"></a>
+<a href="https://noderamc.org/add-store?url=https%3A%2F%2Fraw.githubusercontent.com%2FAshu11-A%2FNoderaMC%2Fservices%2Findex.min.json"><img alt="Add the official service list" src="https://img.shields.io/badge/Add%20the%20official%20list%20📡-302D41?style=for-the-badge&color=302D41&labelColor=89dceb"></a>
 </p>
 
 </div>
@@ -113,9 +113,13 @@ sole authority over its world.
 ### Import a service list
 
 <!-- AI-AGENT-INSTRUCTION: This is app Task.9 (✅) + tracker Task.6 + mobile Task.5; the format and
-     the publishing guide live in services/README.md and services/index.schema.json. The rule that
-     must never be softened: a deep link RECORDS a URL, it never adds a store — the app shows the
-     URL and the user decides, and nothing is fetched before they confirm. There is no privileged
+     the publishing guide live on the `services` branch, which holds index.json, index.min.json and
+     index.schema.json and shares no history with main. Two rules that must never be softened.
+     (1) A deep link RECORDS a URL, it never adds a store and never fetches one — the app shows the
+     URL and waits, because the request itself tells that address this install exists. (2) Adding is
+     preview-first: `preview_tracker_store` fetches and shows what was served, and
+     `add_tracker_store` is reachable only from that preview. An "add without checking" shortcut
+     puts the decision back where it was. There is no privileged
      store: the bundled list is deletable like any other. The header button CANNOT be a `nodera://`
      href: GitHub's markdown sanitiser strips every scheme but http/https/mailto, so it points at
      https://noderamc.org/add-store, which is web/add-store.html deployed by
@@ -127,9 +131,12 @@ any publisher's `nodera://tracker-store?url=…` link (registered on desktop **a
 paste the address by hand under **Settings → Tracker stores**.
 
 A link only *records* the URL: the app shows it, you decide, and nothing is fetched before you
-confirm. The list the app ships with is one store among however many you add, and is deletable like
-any other. Publishing your own is a JSON file against `services/index.schema.json` — the format, and
-how to get a service listed, are in [`services/README.md`](services/README.md).
+confirm. When you do, the app reads the list and shows you what it found — the publisher's name for
+it and every tracker and relay in it — **before** anything is added. The list the app ships with is
+one store among however many you add, and is deletable like
+any other. Publishing your own is a JSON file against the published `index.schema.json` — the
+format, and how to get a service listed, are on the
+[`services` branch](https://github.com/Ashu11-A/NoderaMC/blob/services/README.md).
 
 ## Quick start
 
@@ -256,7 +263,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
 | `telemetry` | Opt-in telemetry ingest; carries no authority, nothing in the network reads it | 98 | ✅ |
-| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 193 | 🚧 |
+| `app` | Tauri companion app — worker supervisor, tray, dashboard (separate workspace) | 196 | 🚧 |
 | `integration-tests` | Three-client quorum, failover, byzantine, cross-region, debugger | — | ⬜ |
 
 ## Roadmap

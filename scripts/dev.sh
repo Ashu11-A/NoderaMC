@@ -102,7 +102,7 @@
 #                   swarm below the quorum floor, which is a useful thing to watch degrade.
 #   --no-worker     INFRA mode only: do not run the peer worker (infra services only). The mod
 #                   will refuse to launch unless a worker is running elsewhere.
-#   --official      Use the PRODUCTION trackers and relays from services/official.json instead of
+#   --official      Use the PRODUCTION trackers and relays from the published index instead of
 #                   starting a pair on this machine. Works with every mode: INFRA points the worker
 #                   at them, --play hands the same decision to the e2e launcher, --lan uses them for
 #                   the two unmodified clients, and --install-mod writes config/nodera-*.toml so the
@@ -493,7 +493,7 @@ toml_array() {
 #
 # Two modes, one variable pair. LOCAL (default) starts a tracker and a rendezvous on this machine
 # and points everything at them. OFFICIAL (--official) points everything at
-# services/official.json — the real deployed infrastructure — and starts nothing.
+# the published service index — the real deployed infrastructure — and starts nothing.
 #
 # `--official` exists because a stack that only ever talks to itself over loopback cannot tell you
 # whether the thing you are about to ship works. It is NOT the default: development must keep

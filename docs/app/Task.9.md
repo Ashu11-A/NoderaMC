@@ -28,7 +28,7 @@ Android. 172 `nodera-app` tests green — and now running in CI, which they neve
 
 | # | Deliverable | State |
 |---|---|---|
-| 1 | The index format, shared with `services/official.json` | ✅ |
+| 1 | The index format, shared with the project's own published index | ✅ |
 | 2 | Fetch over HTTPS with a timeout, a redirect limit and a size cap | ✅ |
 | 3 | Strict parsing; a future schema version refused, not guessed at | ✅ |
 | 4 | Stores persisted in settings, one entry per URL | ✅ |
@@ -41,8 +41,9 @@ Android. 172 `nodera-app` tests green — and now running in CI, which they neve
 
 ## Design
 
-**One format, no privileged store.** The index a third party publishes is the same format as
-`services/official.json`. The project's list is one store among however many a user adds, and is
+**One format, no privileged store.** The index a third party publishes is the same format as the
+project's own — `index.json` on the `services` branch. The project's list is one store among
+however many a user adds, and is
 deletable like any other — a built-in the user cannot remove would make the project the authority
 this design spends its whole architecture avoiding.
 

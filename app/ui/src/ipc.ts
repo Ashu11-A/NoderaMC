@@ -230,7 +230,14 @@ export async function fetchPauseReason(): Promise<string> {
 /** Mirrors `rust/nodera-app/src/telemetry.rs::Consent`. */
 export type Consent = "unanswered" | "denied" | "granted";
 
-/** Mirrors `TelemetryStatus`. Everything except `asked` comes from the worker. */
+/**
+ * Mirrors `TelemetryStatus`. `consent` and everything under it comes from the worker; `asked`,
+ * `answer` and `pending` are what this installation recorded.
+ *
+ * The two halves are deliberately separate. `consent` is the state of the NODE and is the only
+ * thing a badge may claim; `answer` is what the person tapped, which exists even when no worker was
+ * listening at the time. They differ exactly while `pending` is true.
+ */
 export interface TelemetryStatus {
   consent: Consent;
   /** false ⇒ the worker did not answer, or predates the verb: say so, do not show a live toggle. */
@@ -241,6 +248,12 @@ export interface TelemetryStatus {
   last_error: string;
   /** Whether this installation has ever answered the question — the modal's gate. */
   asked: boolean;
+  /** The answer this installation recorded, or null if the question was never answered. */
+  answer: boolean | null;
+  /** true ⇒ an answer is recorded here and no worker has accepted it yet. */
+  pending: boolean;
+  /** Why the last delivery attempt failed; empty when none did. */
+  delivery_error: string;
 }
 
 export const EMPTY_TELEMETRY: TelemetryStatus = {
@@ -251,6 +264,9 @@ export const EMPTY_TELEMETRY: TelemetryStatus = {
   sent: 0,
   last_error: "",
   asked: false,
+  answer: null,
+  pending: false,
+  delivery_error: "",
 };
 
 export async function fetchTelemetryStatus(): Promise<TelemetryStatus> {
@@ -258,10 +274,12 @@ export async function fetchTelemetryStatus(): Promise<TelemetryStatus> {
 }
 
 /**
- * Record the person's answer on the NODE.
+ * Record the person's answer.
  *
- * Returns the status the worker reports afterwards — the UI badges what was confirmed, never what
- * was requested.
+ * Stored on this installation first and handed to the node second, so an answer given while the
+ * worker is still starting is delivered later rather than refused. Does not reject when the node is
+ * unreachable: the returned status carries `pending: true` instead, and the caller shows that as a
+ * note rather than as a failure. The badge still follows `consent`, which is the node's own word.
  */
 export async function setTelemetryConsent(granted: boolean): Promise<TelemetryStatus> {
   return invoke<TelemetryStatus>("set_telemetry_consent", { granted });
@@ -546,12 +564,39 @@ export const trackerStores = (): Promise<TrackerStore[]> => invoke("get_tracker_
 export const pendingTrackerStore = (): Promise<string | null> =>
   invoke("take_pending_tracker_store");
 
+/** A store index as published, before anything has decided to keep it (mirrors `stores::ServiceIndex`). */
+export interface StoreIndex {
+  schema_version: number;
+  name: string;
+  description: string;
+  homepage: string;
+  updated: string;
+  services: StoreService[];
+}
+
+/** Where the project publishes its own list. Read from the app so the UI never spells a URL. */
+export const officialStoreUrl = (): Promise<string> => invoke("official_store_url");
+
+/**
+ * Fetch and validate an index **without** keeping it.
+ *
+ * What turns adding a store from a leap into a decision: the screen shows what was actually served
+ * — the publisher's own name for the list, and every service in it — before anything is trusted.
+ * Nothing is persisted, so a preview the user walks away from leaves no trace.
+ */
+export const previewTrackerStore = (url: string): Promise<StoreIndex> =>
+  invoke("preview_tracker_store", { url });
+
 /** Fetch, validate and remember a store. Only ever called after the user has confirmed. */
 export const addTrackerStore = (url: string): Promise<TrackerStore> =>
   invoke("add_tracker_store", { url });
 
 export const removeTrackerStore = (url: string): Promise<void> =>
   invoke("remove_tracker_store", { url });
+
+/** Re-read one store. For retrying the row that is failing without relabelling every other row. */
+export const refreshTrackerStore = (url: string): Promise<TrackerStore> =>
+  invoke("refresh_tracker_store", { url });
 
 /** Re-read every store. One that fails keeps what it last said, with the error beside it. */
 export const refreshTrackerStores = (): Promise<TrackerStore[]> =>

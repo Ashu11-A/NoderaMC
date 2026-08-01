@@ -10,15 +10,26 @@
 //! * The app also never sends telemetry itself. It has events worth reporting (which screens are
 //!   used, whether the tray is used) and it hands them to the worker like everything else.
 //!
-//! What is stored locally is exactly one bit — "the question has been answered" — because the modal
-//! must not reappear, and that is a property of this installation's UI, not of the node.
+//! What is stored locally is the answer itself plus one bit — "the question has been answered" —
+//! because the person answering it is entitled to be asked once, and because **the node may not be
+//! running when they answer**. On a fresh Android install it usually is not: first run is exactly
+//! the moment the worker is still starting, and the flow used to refuse to move on until a process
+//! that had not finished booting confirmed the tap. The answer is therefore recorded here and
+//! delivered to the worker as soon as one answers — by [`deliver_pending`], on the reconciliation
+//! loop below.
+//!
+//! The split above survives that: the local copy is the *answer*, never the *state*. The UI still
+//! badges what the worker confirmed, and an undelivered answer renders as "not yet recorded on this
+//! node" rather than as consent.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::control::{self, PROTOCOL_VERSION};
+use crate::settings::SettingsHandle;
 
 const TELEMETRY: &str = "NODERA-TELEMETRY";
 
@@ -72,44 +83,138 @@ pub struct TelemetryStatus {
     pub last_error: String,
     /// Whether this installation has ever answered the question. Local: the modal is a UI concern.
     pub asked: bool,
+    /// The answer this person gave, as this installation recorded it. `None` = never answered.
+    ///
+    /// Not the same thing as [`Self::consent`], which is what the *node* says. They differ exactly
+    /// while an answer is waiting to be delivered, and the UI is expected to show the difference
+    /// rather than smooth it over.
+    pub answer: Option<bool>,
+    /// `true` when an answer was recorded here and no worker has accepted it yet.
+    pub pending: bool,
+    /// Why the last delivery attempt failed, in the transport's own words; empty when none failed.
+    pub delivery_error: String,
 }
 
-/// Read the worker's telemetry status.
-pub async fn status(control_addr: &str) -> TelemetryStatus {
-    let asked = has_been_asked();
-    match control::request(control_addr, format!("{TELEMETRY} {PROTOCOL_VERSION} GET")).await {
-        Ok(line) => {
-            let mut status = parse_status(&line);
-            status.asked = asked;
+/// Read the worker's telemetry status, plus whatever this installation recorded locally.
+pub async fn status(control_addr: &str, settings: &SettingsHandle) -> TelemetryStatus {
+    let setup = settings.snapshot().setup;
+    let asked = has_been_asked() || setup.telemetry_granted.is_some();
+    let mut status =
+        match control::request(control_addr, format!("{TELEMETRY} {PROTOCOL_VERSION} GET")).await {
+            Ok(line) => parse_status(&line),
+            Err(_) => TelemetryStatus {
+                // An unreachable worker is not consent, and it is not a denial either: it is an
+                // unknown, and the UI shows it as one.
+                consent: Consent::Unanswered,
+                supported: false,
+                ..TelemetryStatus::default()
+            },
+        };
+    status.asked = asked;
+    status.answer = setup.telemetry_granted;
+    status.pending = setup.telemetry_granted.is_some() && !setup.telemetry_delivered;
+    status
+}
+
+/// Record a decision locally, then try to hand it to the worker.
+///
+/// **Never fails.** The person answered; whether their node was listening at that instant is not
+/// their problem and must not be their dead end. The answer is persisted first, the push is
+/// attempted second, and an undelivered answer comes back as [`TelemetryStatus::pending`] — which
+/// the loop in [`reconcile_loop`] retries until a worker takes it.
+///
+/// The local "asked" marker is set whichever way the question was answered, and whether or not the
+/// push worked: re-asking someone because their node was busy would be the app nagging.
+pub async fn set(control_addr: &str, settings: &SettingsHandle, granted: bool) -> TelemetryStatus {
+    mark_asked();
+    record_answer(settings, granted);
+    let delivery = deliver(control_addr, granted).await;
+    match delivery {
+        Ok(()) => {
+            mark_delivered(settings);
+            let mut status = status(control_addr, settings).await;
+            status.pending = false;
             status
         }
-        Err(_) => TelemetryStatus {
-            // An unreachable worker is not consent, and it is not a denial either: it is an
-            // unknown, and the UI shows it as one.
-            consent: Consent::Unanswered,
-            supported: false,
-            asked,
-            ..TelemetryStatus::default()
-        },
+        Err(reason) => {
+            let mut status = status(control_addr, settings).await;
+            status.delivery_error = reason;
+            status
+        }
     }
 }
 
-/// Push a decision to the worker and read back what it recorded.
+/// Hand a recorded-but-undelivered answer to the worker, if there is one.
 ///
-/// The local "asked" flag is set **whichever way the question was answered**, and it is set even if
-/// the push failed: the person answered, and re-asking them because their node was busy would be
-/// the app nagging.
-pub async fn set(control_addr: &str, granted: bool) -> Result<TelemetryStatus, String> {
-    mark_asked();
+/// Returns `true` when something was delivered, so the caller can log the edge rather than the
+/// silence around it.
+pub async fn deliver_pending(control_addr: &str, settings: &SettingsHandle) -> bool {
+    let setup = settings.snapshot().setup;
+    let Some(granted) = setup.telemetry_granted else {
+        return false;
+    };
+    if setup.telemetry_delivered {
+        return false;
+    }
+    match deliver(control_addr, granted).await {
+        Ok(()) => {
+            mark_delivered(settings);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Keep trying to deliver the recorded answer until a worker accepts it.
+///
+/// Cheap by construction: with nothing pending it is a settings snapshot every [`RECONCILE_EVERY`]
+/// and no socket at all, so a node that answered on the first attempt never opens a second
+/// connection.
+pub async fn reconcile_loop(control_addr: String, settings: Arc<SettingsHandle>) {
+    let mut tick = tokio::time::interval(RECONCILE_EVERY);
+    loop {
+        tick.tick().await;
+        if deliver_pending(&control_addr, &settings).await {
+            log::info!("telemetry: the recorded consent answer reached the worker");
+        }
+    }
+}
+
+/// How often an undelivered answer is offered to the worker again.
+const RECONCILE_EVERY: Duration = Duration::from_secs(20);
+
+/// One `SET` exchange.
+async fn deliver(control_addr: &str, granted: bool) -> Result<(), String> {
     let decision = if granted { "granted" } else { "denied" };
-    let reply = control::request(
+    control::request(
         control_addr,
         format!("{TELEMETRY} {PROTOCOL_VERSION} SET {decision}"),
     )
-    .await;
-    match reply {
-        Ok(_) => Ok(status(control_addr).await),
-        Err(reason) => Err(reason),
+    .await
+    .map(|_| ())
+}
+
+/// Persist the answer, marking it undelivered.
+fn record_answer(settings: &SettingsHandle, granted: bool) {
+    let mut next = settings.snapshot();
+    next.setup.telemetry_granted = Some(granted);
+    next.setup.telemetry_delivered = false;
+    if let Err(reason) = settings.save(next) {
+        // Logged rather than surfaced: the worker push below is still attempted, and a settings
+        // file that cannot be written is a fault the Settings screen already reports on its own.
+        log::warn!("telemetry: could not record the answer locally: {reason}");
+    }
+}
+
+/// Mark the recorded answer as accepted by a worker.
+fn mark_delivered(settings: &SettingsHandle) {
+    let mut next = settings.snapshot();
+    if next.setup.telemetry_delivered {
+        return;
+    }
+    next.setup.telemetry_delivered = true;
+    if let Err(reason) = settings.save(next) {
+        log::warn!("telemetry: could not record that the answer was delivered: {reason}");
     }
 }
 
@@ -200,7 +305,7 @@ fn parse_status(line: &str) -> TelemetryStatus {
         queued: number(line, "queued"),
         sent: number(line, "sent"),
         last_error: text(line, "last_error"),
-        asked: false,
+        ..TelemetryStatus::default()
     }
 }
 

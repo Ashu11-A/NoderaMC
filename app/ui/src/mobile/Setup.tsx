@@ -28,6 +28,8 @@ export function SetupFlow(props: { onDone: () => void }) {
   const [chosen, setChosen] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** Something the person should know but that must not stop them — rendered without alarm colour. */
+  const [notice, setNotice] = useState("");
   const [battery, setBattery] = useState<BatteryPolicy | null>(null);
 
   useEffect(() => {
@@ -49,6 +51,14 @@ export function SetupFlow(props: { onDone: () => void }) {
   /**
    * Record the telemetry answer, then either show the battery step or finish.
    *
+   * **The answer is never lost and the flow is never blocked.** It used to be pushed straight at the
+   * worker, and a worker that had not finished starting — which on a fresh install is the normal
+   * case, since first run and worker startup are the same minute — turned this screen into a dead
+   * end: "your answer could not be recorded on this node (connection refused). Try again." with no
+   * way past it and nothing that would ever make Try again work. The backend now records the answer
+   * on this device and delivers it to the node when one answers, so what is left here is a note, not
+   * a wall.
+   *
    * The battery step is skipped when the OS is not restricting this app — there is nothing to ask
    * for, and a screen that congratulates you on a setting you never changed is noise.
    */
@@ -56,19 +66,22 @@ export function SetupFlow(props: { onDone: () => void }) {
     setBusy(true);
     setError("");
     setTelemetryConsent(telemetry)
-      // The failure used to be swallowed and the flow completed anyway, so someone could believe
-      // they had answered a question the node never recorded. Reported, and the flow stops here.
       .then(
-        () => true,
-        (e: unknown) => {
-          setError(
-            `Your answer could not be recorded on this node (${String(e)}). Try again.`,
-          );
-          return false;
+        (status) => {
+          // Said plainly, and only as a note: their answer is kept and will reach the node. This is
+          // the one thing they are entitled to know, and it is not a reason to stop.
+          if (status.pending) {
+            setNotice(
+              "Your answer is saved on this device. It will be applied to your node as soon as it is running.",
+            );
+          }
         },
+        // A rejection now means the command itself failed, not that the node was busy — the backend
+        // does not reject for an unreachable worker. Still not a dead end: the person answered.
+        (e: unknown) =>
+          setNotice(`Your answer is saved on this device (${String(e)}).`),
       )
-      .then((recorded) => {
-        if (!recorded) return undefined;
+      .then(() => {
         // `battery` is fetched asynchronously and may still be null — answering quickly used to
         // skip the battery step entirely, which is the one thing this flow exists to say. Resolve
         // it now if it has not arrived, and only skip when the OS really is unrestricted.
@@ -158,6 +171,11 @@ export function SetupFlow(props: { onDone: () => void }) {
         )}
         {error && (
           <p className="px-2 pt-3 text-[14px] text-[var(--md-sys-color-error)]">{error}</p>
+        )}
+        {notice && (
+          <p className="px-2 pt-3 text-[14px] text-[var(--md-sys-color-on-surface-variant)]">
+            {notice}
+          </p>
         )}
       </div>
 

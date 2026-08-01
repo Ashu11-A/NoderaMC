@@ -323,7 +323,7 @@ mod tests {
     /// cheapest possible way to notice.
     ///
     /// Deliberately built with **no tracker stores**. `Settings::default()` now carries the built-in
-    /// store, whose contents come from `services/official.json` — a file maintained by pull request
+    /// store, whose contents come from the `services` branch — a list maintained by pull request
     /// from outside the project. Pinning the golden string to that data would mean a contributor
     /// adding their own tracker breaks a Rust wire-contract test, which teaches exactly the wrong
     /// lesson about what this test is for. The merge itself is asserted separately below.

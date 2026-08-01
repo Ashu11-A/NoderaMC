@@ -178,8 +178,13 @@ telemetry/    the consented-measurement ingest service
 library/
   java/       core · engine · transport · storage · endpoint · testing · build-logic
   rust/       nodera-codec · nodera-service
-docker/ scripts/ fixtures/ services/ gradle/ docs/
+docker/ scripts/ fixtures/ gradle/ docs/
 ```
+
+The published tracker and rendezvous list is **not** in this tree. It lives on the orphan `services`
+branch, which shares no history with `main` — a list that changes when an operator joins is data, not
+source. See [that branch's README](https://github.com/Ashu11-A/NoderaMC/blob/services/README.md);
+`layout.properties` names the branch, and `scripts/services.py` resolves it.
 
 **`layout.properties` at the root is THE layout table**, and the block above is a description of it
 rather than a second copy. Gradle's settings script, `LayoutManifest`, the structural report,

@@ -2,9 +2,10 @@
 //!
 //! Modelled on how Mihon and Tachiyomi handle extension repositories, and for the same reason: the
 //! project cannot be the only source of infrastructure without becoming the authority the whole
-//! design avoids having. A store is a URL serving an index in the format documented at
-//! [`services/index.schema.json`](../../services/index.schema.json); the project's own list is
-//! one store among however many a user adds, and can be removed like any other.
+//! design avoids having. A store is a URL serving an index in the format published as
+//! `index.schema.json` on the orphan `services` branch (`git show services:README.md`); the
+//! project's own list is one store among however many a user adds, and can be removed like any
+//! other.
 //!
 //! ## What adding a store does and does not mean
 //!
@@ -19,13 +20,14 @@
 //! file came from whoever published this file". What carries the weight is the user's explicit
 //! decision, taken with the URL in front of them.
 //!
-//! ## Why a phone needed this
+//! ## Why every install needs this
 //!
-//! A fresh install on a handset ships with *no* trackers, deliberately — `127.0.0.1` is the handset
-//! and a baked LAN address is unreachable everywhere but one network, so both options produce a
-//! permanently failing row that teaches the user to ignore red. The built-in store is the first
-//! honest default this app has had: a real, reachable, publicly operated tracker, in a list the user
-//! can inspect and delete.
+//! A shipped build starts with *no* configured trackers on any platform, deliberately — `127.0.0.1`
+//! is the handset on a phone and a tracker the user never installed on a desktop, and a baked LAN
+//! address is unreachable everywhere but one network. All of those produce a permanently failing row
+//! that teaches the user to ignore red. The built-in store is what a fresh install actually dials: a
+//! real, reachable, publicly operated tracker, in a list the user can inspect and delete. Loopback
+//! comes back only in [`crate::settings::dev_mode`].
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -37,8 +39,13 @@ use std::time::Duration;
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// Where the project's own list is served from.
+///
+/// The minified index on the orphan `services` branch. It is spelled here and in
+/// `/layout.properties` (`services.rawUrl`), and `official_store_url_matches_the_layout_manifest`
+/// holds the two together: a URL assembled independently in four languages is four chances to
+/// assemble it differently, and the symptom would be a built-in store that never refreshes.
 pub const OFFICIAL_STORE_URL: &str =
-    "https://raw.githubusercontent.com/Ashu11-A/NoderaMC/main/services/official.json";
+    "https://raw.githubusercontent.com/Ashu11-A/NoderaMC/services/index.min.json";
 
 /// The URI scheme a website's "add this store" button uses.
 ///
@@ -293,7 +300,10 @@ pub fn store_from(
 /// has a working network — and so an install that is never online still shows the user what the
 /// default is rather than an empty screen.
 pub fn built_in_store() -> Option<TrackerStore> {
-    const BUNDLED: &str = include_str!("../../services/official.json");
+    // Resolved from the `services` branch by `build.rs`, not read from this tree — the list is data
+    // published on its own branch, and a copy of it sitting in `app/` would be the second table
+    // that quietly disagrees with the first.
+    const BUNDLED: &str = include_str!(concat!(env!("OUT_DIR"), "/official-index.json"));
     parse_index(BUNDLED)
         .ok()
         .map(|index| store_from(OFFICIAL_STORE_URL, index, 0, true))
@@ -463,6 +473,32 @@ mod tests {
         assert!(store.built_in);
         assert!(!endpoints_of(std::slice::from_ref(&store), ServiceKind::Tracker).is_empty());
         assert!(!endpoints_of(&[store], ServiceKind::Rendezvous).is_empty());
+    }
+
+    #[test]
+    fn official_store_url_matches_the_layout_manifest() {
+        // Two spellings of one URL: this constant, which a shipped client refreshes from, and
+        // `services.rawUrl` in `/layout.properties`, which the three build-time resolvers fetch
+        // from. Drift between them would not break a build — it would ship a built-in store that
+        // points at a file nobody publishes, and the only symptom is a row that never refreshes.
+        let mut manifest = None;
+        let mut directory = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")));
+        while let Some(candidate) = directory {
+            let file = candidate.join("layout.properties");
+            if file.is_file() && candidate.join("VERSION").is_file() {
+                manifest = std::fs::read_to_string(file).ok();
+                break;
+            }
+            directory = candidate.parent();
+        }
+        let manifest = manifest.expect("the layout manifest must be findable from this crate");
+        let declared = manifest
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .find(|(key, _)| key.trim() == "services.rawUrl")
+            .map(|(_, value)| value.trim().to_owned())
+            .expect("layout.properties must declare services.rawUrl");
+        assert_eq!(declared, OFFICIAL_STORE_URL);
     }
 
     #[test]

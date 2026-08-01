@@ -97,7 +97,7 @@ path — firewall, NAT, port publishing — which the local one cannot see.
 ## Two defects the deployment found that no test had
 
 **A service configured the documented way announced to nobody.** `tcp://host:port` is the endpoint
-form used by every example config, the compose file, `services/official.json` and the Java
+form used by every example config, the compose file, the published index and the Java
 `Endpoint.parse` — and `directory::exchange` handed the whole string to the resolver. One error line
 at boot, then a service that ran perfectly and was undiscoverable. Fixed with one shared
 `nodera_service::endpoint::socket_target`, which the telemetry reporter (the only place that had it

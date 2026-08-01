@@ -534,8 +534,8 @@ network-visible countdown, while the drop decision stays with the peers.
 | Worker control (loopback) | `127.0.0.1:25610` | `HeadlessPeerMain.java:59`, `NoderaConfig.java:217` |
 | Worker P2P | `25620` (or `NODERA_P2P_PORT_RANGE`) | `HeadlessPeerMain.java:61` |
 | Mod host P2P | `p2p.port = 25566` | `NoderaConfig.java:63` |
-| Mod tracker endpoints | `127.0.0.1:25600` (server + client specs) | `NoderaConfig.java:86` |
-| Mod rendezvous endpoints | `127.0.0.1:25601` | `NoderaConfig.java:88` |
+| Mod tracker endpoints | `services:index.json`; `127.0.0.1:25600` in development mode | `DefaultServices.java` |
+| Mod rendezvous endpoints | `services:index.json`; `127.0.0.1:25601` in development mode | `DefaultServices.java` |
 | Vanilla game port | `GAME_PORT`, `0` → free port | `NoderaHost.java:372` |
 
 Endpoint routes parse as `host:port`, `tcp://host:port`, or `udp://host:port`; a bare form is TCP, so
@@ -543,6 +543,15 @@ UDP is always an explicit opt-in (`TrackerClient.Endpoint.parse`, `:138`). Worke
 environment-driven (`NODERA_TRACKER_ENDPOINTS`, `NODERA_RENDEZVOUS_ENDPOINTS`, `NODERA_ARCHIVE_DIR`,
 `NODERA_IDENTITY_FILE`, `NODERA_REPLICATION_BUDGET`, `NODERA_WORLD_SEED`, …) so the supervisor can pass
 it without a config file.
+
+**Development mode.** `dev.nodera.core.services.DefaultServices` decides whether a build may default
+to services on the machine it runs on. `NODERA_DEV=1` in the environment or `-Dnodera.dev=true` as a
+system property means yes — Gradle's `runClient`/`runServer` set the property, so a checkout still
+comes up against the localhost stack `scripts/dev.sh` starts. Anything else, including absence, is a
+production run and defaults to the project's own list in
+[`index.json` on the `services` branch](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json). The companion app applies the same rule
+(`app/src/settings.rs::dev_mode`), and compiles the same file in as its built-in tracker store, so
+worker and app default to one set of addresses by construction.
 
 ---
 

@@ -35,7 +35,7 @@ public record RendezvousEndpoint(String host, int port) {
     public static RendezvousEndpoint parse(String route) {
         Objects.requireNonNull(route, "route");
         // The scheme comes off first. `tcp://host:port` is the documented endpoint form everywhere
-        // in this project — the example configs, docker/compose.yml, services/official.json and the
+        // in this project — the example configs, docker/compose.yml, the published index and the
         // tracker's own `TrackerClient.Endpoint.parse` all use it — and splitting on the last colon
         // without removing it yields the host "tcp://150.230.84.206", which resolves to nothing.
         //

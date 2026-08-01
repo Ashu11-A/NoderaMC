@@ -233,16 +233,27 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: scripts/test-counts.sh --check
 
-  # `services/official.json` is data maintained by pull request from outside the project, so the
-  # gate has to be something a contributor can run before opening one — and the failure has to name
-  # the offending line rather than being "the app did not start". Pure stdlib Python: a validation
-  # job that needs its own dependency install is a job that breaks for reasons unrelated to the file
-  # it validates.
+  # The service index is data maintained by pull request from outside the project, and it lives on
+  # the orphan `services` branch rather than in this tree. The pull requests that *change* it are
+  # gated by `.github/workflows/index.yml` on that branch; this job gates the other direction — that
+  # `main` can still resolve it, and that what it resolves is still usable.
+  #
+  # That distinction matters. A change on `main` — a renamed layout key, a moved cache directory, a
+  # resolver that stopped falling back — breaks every build that compiles the list in, and it breaks
+  # them somewhere unhelpful: an app whose built-in store is empty reports "no trackers are
+  # answering", which reads as a broken network rather than a broken build. Pure stdlib Python: a
+  # validation job that needs its own dependency install is a job that breaks for reasons unrelated
+  # to what it validates.
   services:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate the official service index
+      # Shallow and explicit. `actions/checkout` fetches only the pushed ref, so the resolver would
+      # otherwise fall through to the raw URL and this job would pass on a network round trip rather
+      # than on the ref every other build reads.
+      - name: Fetch the services branch
+        run: git fetch --depth 1 origin services:services
+      - name: Main resolves the official service index from the branch
         run: scripts/services.py --validate
       # Proves the file is usable, not merely well-formed: a list that parses and yields no
       # endpoints would pass a schema check and leave every peer with nothing to contact.
@@ -251,6 +262,28 @@ jobs:
           set -euo pipefail
           scripts/services.py --endpoints tracker
           scripts/services.py --endpoints rendezvous
+      # The fallbacks are the whole design, and an untested fallback is one that is broken the day
+      # it is needed. Two of them are exercised here, in the order a build would meet them.
+      #
+      # First: no ref at all, which is what a shallow clone and every `actions/checkout` look like.
+      # The resolver must fetch the branch itself rather than falling through to a web server.
+      - name: With no local ref, the resolver fetches the branch
+        run: |
+          set -euo pipefail
+          git branch -D services
+          git update-ref -d refs/remotes/origin/services || true
+          rm -rf build/services
+          scripts/services.py --validate
+      # Second: no ref and no way to get one, which is a build behind a firewall that permits https
+      # and not git. The published URL is the last thing between that build and a failure.
+      - name: With no ref and no remote, the resolver falls back to the published URL
+        run: |
+          set -euo pipefail
+          git branch -D services || true
+          git update-ref -d refs/remotes/origin/services || true
+          git remote set-url origin https://example.invalid/nothing.git
+          rm -rf build/services
+          scripts/services.py --validate
 
   # The release naming table has two implementations — `scripts/lib/release.sh` and
   # `update.rs::service_asset_name` — and `release_names_match_the_shell_table` (in the `rust` job)

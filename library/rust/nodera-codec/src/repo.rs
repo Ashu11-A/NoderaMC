@@ -139,9 +139,22 @@ mod tests {
             .collect();
         assert!(keys.len() >= 15, "manifest looks truncated: {keys:?}");
         for key in keys {
-            // `dir.cargoTarget` and `dir.artifacts` are build outputs: they exist after a build,
-            // not in a clean checkout. Every other key names a directory that is tracked.
-            if key == "dir.cargoTarget" || key == "dir.artifacts" || key == "dir.run" {
+            // The `services.*` block is the one part of the manifest that does not name a path. It
+            // names the orphan branch the published service index lives on, the files inside it and
+            // the URL it is served from — the list stopped being a directory in this tree when it
+            // moved to its own branch, and it is written down here rather than in a second manifest
+            // because three builds in three languages have to resolve the same list.
+            if key.starts_with("services.") {
+                continue;
+            }
+            // `dir.cargoTarget`, `dir.artifacts`, `dir.run` and `dir.services` are build outputs:
+            // they exist after a build, not in a clean checkout. Every other key names a directory
+            // that is tracked.
+            if key == "dir.cargoTarget"
+                || key == "dir.artifacts"
+                || key == "dir.run"
+                || key == "dir.services"
+            {
                 continue;
             }
             let resolved = path(key);

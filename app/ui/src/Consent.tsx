@@ -214,6 +214,16 @@ export function PrivacyCard(props: {
 
       {error && <div className="mt-2 text-sm text-down">{error}</div>}
 
+      {/* An answer this app holds but the node has not taken. Not an error — the answer is kept and
+          re-offered until a worker accepts it — but it must not be rendered as though it were in
+          force, which is why the badge above still follows the node's own `consent`. */}
+      {status.pending && (
+        <div className="mt-2 text-sm text-warn">
+          Your answer ({status.answer ? "share" : "don't share"}) is saved here and will be applied
+          to the node as soon as it is running.
+        </div>
+      )}
+
       {status.consent === "granted" && (
         <div className={cx("mt-3 grid gap-1 text-sm text-muted", MONO)}>
           <div>collector: {status.endpoint || "not configured on this node"}</div>

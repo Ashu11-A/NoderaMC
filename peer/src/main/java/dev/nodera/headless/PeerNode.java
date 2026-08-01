@@ -4,6 +4,7 @@ import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.identity.PeerRole;
+import dev.nodera.core.services.DefaultServices;
 import dev.nodera.diagnostics.metric.MessageCounters;
 import dev.nodera.diagnostics.metric.TrafficMeter;
 import dev.nodera.peer.PeerEventListener;
@@ -169,15 +170,23 @@ public final class PeerNode implements AutoCloseable {
                 dev.nodera.protocol.service.ServiceRecord.DEFAULT_NETWORK, caps));
 
         // Discovery services this worker announces hosted worlds to (Task 32 live lane). Defaults
-        // match the mod's DEFAULT_TRACKER/RENDEZVOUS_ENDPOINTS so a fresh install is functional; the
-        // Tauri supervisor (or scripts/dev.sh) can override with the two env vars below.
-        // The companion app's synchronised list, when there is one. Consulted only where the
-        // environment is silent, so anything explicitly configured still wins.
+        // match the mod's DEFAULT_TRACKER/RENDEZVOUS_ENDPOINTS — both read them from
+        // `DefaultServices`, which is the published service index compiled in, or the localhost stack
+        // in development mode. The Tauri supervisor (or scripts/dev.sh) can override with the two
+        // env vars below.
+        //
+        // The last fallback used to be `127.0.0.1:25600` unconditionally. On a phone, where the app
+        // is the only thing that can supply a list and does so through the file below, a worker that
+        // started before the file was written announced to the handset itself and stayed there.
+        // The official list is the honest floor: reachable from anywhere, and the same addresses the
+        // app's built-in store carries.
         SyncedServices synced = SyncedServices.load(setting("NODERA_SERVICES_FILE"));
         List<TrackerClient.Endpoint> trackerEndpoints = parseTrackers(
-                env("NODERA_TRACKER_ENDPOINTS", synced.trackersOr("127.0.0.1:25600")));
+                env("NODERA_TRACKER_ENDPOINTS", synced.trackersOr(
+                        DefaultServices.joined(DefaultServices.trackerEndpoints()))));
         List<RendezvousEndpoint> rendezvousEndpoints = parseRendezvous(
-                env("NODERA_RENDEZVOUS_ENDPOINTS", synced.rendezvousOr("127.0.0.1:25601")));
+                env("NODERA_RENDEZVOUS_ENDPOINTS", synced.rendezvousOr(
+                        DefaultServices.joined(DefaultServices.rendezvousEndpoints()))));
 
         // ONE tracker client for the whole node. The archive lane, the hosting/announce lane, peer
         // discovery and replication each used to hold their own — four announce cadences and four

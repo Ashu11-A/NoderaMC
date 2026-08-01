@@ -72,7 +72,7 @@ public final class WorldHostingService implements AutoCloseable {
      * probe that reports a usable service as dead.
      *
      * <p>It was 400 ms, which is less than one round trip to most of the planet. Measured on a
-     * handset behind a VPN, reaching the project's own Frankfurt tracker:
+     * handset behind a VPN, reaching the project's own tracker in São Paulo:
      *
      * <pre>
      *   port 6970 (closed)  652 ms   connection refused

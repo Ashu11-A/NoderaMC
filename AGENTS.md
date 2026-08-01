@@ -12,6 +12,14 @@
 > `tauri.*.conf.json` cannot read it (GitHub, Docker and Tauri parse them first), so
 > `scripts/check-layout-drift.sh` greps those in CI. The paths below are what the manifest says
 > today, not a second copy of it.
+>
+> **The published tracker/rendezvous list is not in this tree.** It lives on the orphan `services`
+> branch (`git show services:README.md`), which shares no history with `main` and must never be
+> merged with it — a list that changes when an operator joins is data, not source. `layout.properties`
+> names the branch, the two file names and the raw URL under `services.*`; three builds resolve it
+> identically (`scripts/services.py`, `:core`'s `generateOfficialServices`, `app/build.rs`) with the
+> same fallback ladder — local ref, remote ref, shallow fetch, published URL, cache under
+> `build/services`. Never add a copy of the list to `main` to "fix" a build; fetch the branch.
 
 - **Nine Gradle modules** (plus `build-logic`): `core` · `engine` · `transport` · `storage` ·
   `peer` · `endpoint` · `testing` · `neoforge-mod` · `paper-plugin`. `:endpoint`

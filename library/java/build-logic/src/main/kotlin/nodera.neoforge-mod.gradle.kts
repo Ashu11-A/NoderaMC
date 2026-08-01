@@ -32,6 +32,16 @@ the<NeoForgeExtension>().version = "21.1.238"
 // absent means the bridge stays inert.
 val noderaRunJvmArgs: List<String> = buildList {
     add("-XX:+EnableDynamicAgentLoading")
+    // A Gradle run IS a development run, and that is now load-bearing rather than cosmetic: the
+    // compiled default tracker/rendezvous lists are the project's official services unless this
+    // property says otherwise (`dev.nodera.core.services.DefaultServices`). Without it a
+    // `./gradlew runClient` with no config would announce to the production tracker instead of to
+    // the localhost stack `scripts/dev.sh` starts. `NODERA_DEV` still wins, so a run deliberately
+    // pointed at the real network (`dev.sh --official`) can say so.
+    add("-Dnodera.dev=" + (providers.environmentVariable("NODERA_DEV").orNull
+        ?.takeIf { it.isNotBlank() }
+        ?.let { it == "1" || it.equals("true", ignoreCase = true) || it.equals("yes", ignoreCase = true) }
+        ?: true))
     providers.environmentVariable("NODERA_SPARK_PROFILE").orNull
         ?.takeIf { it.isNotBlank() }
         ?.let { add("-Dnodera.spark.profile=$it") }
