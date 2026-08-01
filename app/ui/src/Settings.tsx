@@ -36,7 +36,9 @@ import {
   fetchWorkerOwnership,
   fetchSettingsFault,
   restartWorker,
+  resolvedServices,
   EMPTY_CONFIG_STATUS,
+  type ResolvedEndpoint,
   type Settings as SettingsDoc,
   type SettingStatus,
   type SettingState,
@@ -425,6 +427,11 @@ export function SettingsScreen(props: {
               />
             </Card>
 
+            {/* The two boxes above are what this install typed. They are not the whole list, and
+                omitting the rest is what made a store look inert: a fresh install has empty boxes,
+                one built-in store, and a screen that appeared to say it had no trackers. */}
+            <StoreContributions />
+
             {/* A cost rule, not a speed limit — which is why it is not in the bandwidth card. On a
                 phone this is the difference between a helpful node and an unexpected bill; on a
                 desktop it is normally inert, and says so. */}
@@ -621,5 +628,68 @@ function SpeedSlider(props: {
       hint={props.value === 0 ? "Unlimited" : `${formatBytes(props.value)}/s`}
       onChange={(i) => props.onChange(SPEEDS[i])}
     />
+  );
+}
+
+/**
+ * What the tracker stores contribute, beside the boxes the user types into.
+ *
+ * ## Why this card exists
+ *
+ * The two textareas above hold `network.default_trackers` and `network.rendezvous_endpoints` — what
+ * *this install* typed. They were rendered as though they were the tracker list, and they are not:
+ * everything handed to the worker is those plus whatever the stores add, which is what
+ * `worker_env`, `WorkerConfig::of` and the synchronisation file have always built.
+ *
+ * On a fresh install the boxes are empty and the built-in store supplies both services, so this
+ * screen showed two empty boxes and the settings row read "0 tracker(s)" — while Tracker stores,
+ * one screen away, listed a tracker and a relay. Nothing was broken; the app simply never said what
+ * it was actually going to dial. That reads exactly like a store being ignored.
+ *
+ * Read-only, because these are another publisher's addresses. Changing them means removing the
+ * store or adding a different one, and an editable copy here would be a second place holding the
+ * same list.
+ */
+function StoreContributions() {
+  const [effective, setEffective] = useState<Record<
+    "trackers" | "rendezvous",
+    ResolvedEndpoint[]
+  > | null>(null);
+
+  useEffect(() => {
+    resolvedServices().then(setEffective).catch(() => setEffective(null));
+  }, []);
+
+  if (!effective) return null;
+  const groups = [
+    { label: "Trackers", entries: effective.trackers.filter((e) => e.store) },
+    { label: "Relays", entries: effective.rendezvous.filter((e) => e.store) },
+  ].filter((group) => group.entries.length > 0);
+
+  return (
+    <Card
+      title="From your tracker stores"
+      hint="Addresses this node also uses, contributed by the lists you trust. The boxes above are your own; these are added to them, never in place of them."
+    >
+      {groups.length === 0 ? (
+        <p className="py-1 text-xs text-faint">
+          No store is contributing an address. Add one under Tracker stores and it appears here.
+        </p>
+      ) : (
+        groups.map((group) => (
+          <div key={group.label} className="py-1">
+            <p className="text-[11px] tracking-wide text-faint uppercase">{group.label}</p>
+            <ul className="mt-1 flex flex-col gap-1">
+              {group.entries.map((entry) => (
+                <li key={entry.endpoint} className="flex items-baseline justify-between gap-3">
+                  <code className="font-mono text-[12px] break-all">{entry.endpoint}</code>
+                  <span className="shrink-0 text-xs text-faint">from {entry.store}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+    </Card>
   );
 }

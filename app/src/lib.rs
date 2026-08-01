@@ -32,6 +32,7 @@ mod stores;
 mod system;
 mod telemetry;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -116,6 +117,42 @@ fn get_tracker_stores(
 #[tauri::command]
 fn take_pending_tracker_store(state: tauri::State<Arc<PendingStore>>) -> Option<String> {
     state.take()
+}
+
+/// Tauri command: the endpoints this node will actually dial, and where each one came from.
+///
+/// The settings screen used to render `network.default_trackers` — the box the user types into —
+/// and call that the tracker list. It is not: the effective list is that box *plus* whatever the
+/// stores contribute, which is what `worker_env`, `WorkerConfig::of` and the synchronisation file
+/// have always built. An install whose only tracker came from the built-in store therefore read
+/// "0 tracker(s)" in Settings while the store screen beside it read "1 tracker · 1 relay", and the
+/// obvious conclusion — that adding a store does nothing — was wrong but entirely reasonable.
+///
+/// So the screens ask for this instead. Provenance comes with it, because "where did this address
+/// come from" is the next question anyone has in front of a list they did not fully write.
+#[tauri::command]
+fn resolved_services(
+    state: tauri::State<Arc<settings::SettingsHandle>>,
+) -> HashMap<String, Vec<stores::ResolvedEndpoint>> {
+    let settings = state.snapshot();
+    HashMap::from([
+        (
+            "trackers".to_owned(),
+            stores::resolved(
+                &settings.network.default_trackers,
+                &settings.network.tracker_stores,
+                stores::ServiceKind::Tracker,
+            ),
+        ),
+        (
+            "rendezvous".to_owned(),
+            stores::resolved(
+                &settings.network.rendezvous_endpoints,
+                &settings.network.tracker_stores,
+                stores::ServiceKind::Rendezvous,
+            ),
+        ),
+    ])
 }
 
 /// Tauri command: where the project's own list is published.
@@ -915,6 +952,7 @@ pub fn run() {
             get_tracker_stores,
             take_pending_tracker_store,
             official_store_url,
+            resolved_services,
             preview_tracker_store,
             add_tracker_store,
             remove_tracker_store,

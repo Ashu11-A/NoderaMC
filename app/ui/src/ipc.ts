@@ -577,6 +577,23 @@ export interface StoreIndex {
 /** Where the project publishes its own list. Read from the app so the UI never spells a URL. */
 export const officialStoreUrl = (): Promise<string> => invoke("official_store_url");
 
+/** One endpoint in the effective list, with the store that contributed it (empty if typed). */
+export interface ResolvedEndpoint {
+  endpoint: string;
+  store: string;
+}
+
+/**
+ * The endpoints this node will actually dial — what the user typed **plus** what the stores add.
+ *
+ * Not the same thing as `settings.network.default_trackers`, and that difference was a bug for as
+ * long as the screens rendered the setting: an install whose only tracker came from the built-in
+ * store showed "0 tracker(s)" in Settings while the store screen listed it. Anything that reports a
+ * count of trackers or relays to a person must read this.
+ */
+export const resolvedServices = (): Promise<Record<"trackers" | "rendezvous", ResolvedEndpoint[]>> =>
+  invoke("resolved_services");
+
 /**
  * Fetch and validate an index **without** keeping it.
  *

@@ -32,10 +32,12 @@ import {
   fetchSettingsFault,
   fetchStorageInfo,
   fetchTelemetryStatus,
+  resolvedServices,
   saveSettings,
   setTelemetryConsent,
   type NetworkPolicy,
   type NetworkState,
+  type ResolvedEndpoint,
   type Settings as SettingsDoc,
   type StorageInfo,
   type TelemetryStatus,
@@ -78,6 +80,10 @@ export function SettingsScreen(props: {
   const page = props.nav.current;
   const [settings, setSettingsState] = useState<SettingsDoc | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
+  // What this node will actually dial: the boxes below PLUS whatever the stores contribute. The
+  // root row used to count `network.default_trackers` and so read "0 tracker(s)" on an install
+  // whose tracker came from the built-in store — while Tracker stores, one row down, listed it.
+  const [effective, setEffective] = useState<ResolvedServices | null>(null);
   const [fault, setFault] = useState("");
   const onSaved = props.onSaved;
   const setSettings = useCallback(
@@ -93,6 +99,11 @@ export function SettingsScreen(props: {
     // Battery was two IPC round trips for screens that use neither.
     if (page === "root" || page === "appearance" || page === "network") {
       fetchSettings().then(setSettings).catch(() => {});
+    }
+    // Re-read on the way into either screen that reports a count, and on the way back out of the
+    // store screen — adding or removing a store changes this without touching the settings document.
+    if (page === "root" || page === "network") {
+      resolvedServices().then(setEffective).catch(() => {});
     }
     if (page === "root" || page === "storage") {
       fetchStorageInfo().then(setStorage).catch(() => {});
@@ -119,7 +130,7 @@ export function SettingsScreen(props: {
               key={row.id}
               leading={row.icon}
               headline={row.title}
-              supporting={summary(row.id, settings, storage)}
+              supporting={summary(row.id, settings, storage, effective)}
               trailing={<FiChevronRight className="text-[var(--md-sys-color-on-surface-variant)]" />}
               onClick={() => props.nav.push(row.id)}
             />
@@ -156,7 +167,9 @@ export function SettingsScreen(props: {
           />
         )}
         {page === "storage" && <StoragePicker info={storage} onChanged={setStorage} />}
-        {page === "network" && <NetworkPage settings={settings} onSaved={setSettings} />}
+        {page === "network" && (
+          <NetworkPage settings={settings} effective={effective} onSaved={setSettings} />
+        )}
         {page === "stores" && <TrackerStoresScreen shell="mobile" />}
         {page === "battery" && <BatteryPage />}
         {page === "privacy" && <PrivacyPage />}
@@ -185,10 +198,14 @@ const POLICY_LABEL: Record<NetworkPolicy, string> = {
  * slot whenever it is not `undefined`, so an empty string produced a blank line that left the About
  * row visibly taller than its neighbours.
  */
+/** The effective endpoint lists, keyed the way `resolved_services` returns them. */
+type ResolvedServices = Record<"trackers" | "rendezvous", ResolvedEndpoint[]>;
+
 function summary(
   page: Page,
   settings: SettingsDoc | null,
   storage: StorageInfo | null,
+  effective: ResolvedServices | null,
 ): string | undefined {
   switch (page) {
     case "appearance":
@@ -197,7 +214,11 @@ function summary(
       return storage ? shortPath(storage.current) : "…";
     case "network":
       if (!settings) return "…";
-      return `${settings.network.default_trackers.length} tracker(s) · ${
+      // The EFFECTIVE count, not `network.default_trackers.length`. Those differ exactly when a
+      // store is contributing, which is the normal case on a fresh install — and reporting the raw
+      // setting there said "0 tracker(s)" about a node with a tracker.
+      if (!effective) return "…";
+      return `${effective.trackers.length} tracker(s) · ${
         POLICY_LABEL[settings.network.transfer_network]
       }`;
     case "battery":
@@ -322,9 +343,11 @@ const POLICIES: { id: NetworkPolicy; label: string; hint: string }[] = [
 
 function NetworkPage(props: {
   settings: SettingsDoc | null;
+  /** The effective lists, so the box below is not mistaken for the whole of what this node dials. */
+  effective: ResolvedServices | null;
   onSaved: (next: SettingsDoc) => void;
 }) {
-  const { settings } = props;
+  const { settings, effective } = props;
   const [draft, setDraft] = useState<string | null>(null);
   // `null` = nothing to report. An empty string used to mean both "no result yet" and "cleared",
   // and the success text was never cleared at all — so "Saved" sat next to an edited, unsaved box.
@@ -593,9 +616,16 @@ function NetworkPage(props: {
         <div className="mt-3 flex items-center gap-3">
           <Button
             onClick={() => {
-              // Emptying the box makes this node undiscoverable. That is a legitimate thing to want
-              // and a terrible thing to do by accident, so it is confirmed rather than refused.
-              if (trackers.length === 0 && settings.network.default_trackers.length > 0) {
+              // Emptying the box is only undiscoverable when nothing else is contributing. It used
+              // to warn unconditionally, which was wrong on the common install: with a store
+              // supplying a tracker, clearing this box changes nothing about being findable, and a
+              // warning that is false is a warning people learn to click through.
+              const fromStores = effective?.trackers.filter((e) => e.store).length ?? 0;
+              if (
+                trackers.length === 0
+                && settings.network.default_trackers.length > 0
+                && fromStores === 0
+              ) {
                 setResult({
                   ok: false,
                   text: "Removing every tracker means nobody can find this node. Press Save again to confirm.",
@@ -626,6 +656,59 @@ function NetworkPage(props: {
             </span>
           )}
         </div>
+      </Card>
+
+      {/* The box above is what the user typed. This is everything else the node will dial, and it
+          exists because its absence read as "adding a store does nothing": a fresh install has an
+          empty box, one store, and — until this card — a screen that said "0 tracker(s)". */}
+      <FromStores effective={effective} />
+    </>
+  );
+}
+
+/**
+ * The endpoints the stores contribute, shown where a user goes looking for their trackers.
+ *
+ * Read-only on purpose. These are not this install's settings — they are another publisher's list,
+ * and the way to change them is to remove the store or add a different one, which is one row up
+ * under **Tracker stores**. An editable copy here would be a second place to keep the same list.
+ */
+function FromStores(props: { effective: ResolvedServices | null }) {
+  const { effective } = props;
+  if (!effective) return null;
+  const rows = [
+    { label: "Trackers", entries: effective.trackers.filter((e) => e.store) },
+    { label: "Relays", entries: effective.rendezvous.filter((e) => e.store) },
+  ].filter((group) => group.entries.length > 0);
+
+  return (
+    <>
+      <div className="h-3" />
+      <Card>
+        <p className="pb-1 text-[14px] text-[var(--md-sys-color-on-surface-variant)]">
+          From your stores
+        </p>
+        {rows.length === 0 ? (
+          <ListItem
+            headline="Nothing yet"
+            supporting="Add a store under Settings › Tracker stores and its addresses appear here."
+          />
+        ) : (
+          rows.map((group) => (
+            <div key={group.label}>
+              <p className="pt-2 text-[12px] tracking-wide text-[var(--md-sys-color-on-surface-variant)] uppercase">
+                {group.label}
+              </p>
+              {group.entries.map((entry) => (
+                <ListItem
+                  key={entry.endpoint}
+                  headline={entry.endpoint}
+                  supporting={`from ${entry.store}`}
+                />
+              ))}
+            </div>
+          ))
+        )}
       </Card>
     </>
   );

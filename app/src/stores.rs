@@ -332,21 +332,77 @@ pub fn endpoints_of(stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
     out
 }
 
-/// Merge configured endpoints with what the stores contribute.
-pub fn merged(configured: &[String], stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for endpoint in configured {
-        let trimmed = endpoint.trim();
-        if !trimmed.is_empty() && !out.iter().any(|held| held == trimmed) {
-            out.push(trimmed.to_owned());
+/// One endpoint in the effective list, and where it came from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedEndpoint {
+    /// The route, exactly as it will be handed to the worker.
+    pub endpoint: String,
+    /// The name of the store that contributed it, or empty when the user typed it.
+    ///
+    /// Provenance rather than a boolean, because "where did this address come from" is the question
+    /// a user actually has in front of a list they did not fully write.
+    #[serde(default)]
+    pub store: String,
+}
+
+/// Merge configured endpoints with what the stores contribute, keeping provenance.
+///
+/// ## Why this is the primitive and [`merged`] is derived from it
+///
+/// The app knew the effective list all along — it is what `worker_env`, `WorkerConfig::of` and the
+/// synchronisation file are all built from — but nothing ever *showed* it. The settings screen
+/// rendered `network.default_trackers`, which is only what the user typed, so an install whose
+/// single tracker came from the built-in store read "0 tracker(s)" on one screen while the store
+/// screen beside it read "1 tracker · 1 relay". Both were describing the same working node. The
+/// store looked ignored because the app never said otherwise.
+///
+/// So the merge returns provenance now, and the screens render this rather than the raw setting. It
+/// is the same walk in the same order — the user's own first, stores after, deduplicated — because
+/// [`merged`] is literally this function with the provenance dropped. Two implementations of "what
+/// this node will actually dial" is exactly the drift that produced the wrong screen.
+pub fn resolved(
+    configured: &[String],
+    stores: &[TrackerStore],
+    kind: ServiceKind,
+) -> Vec<ResolvedEndpoint> {
+    let mut out: Vec<ResolvedEndpoint> = Vec::new();
+    let mut push = |endpoint: String, store: &str| {
+        if endpoint.is_empty() || out.iter().any(|held| held.endpoint == endpoint) {
+            return;
         }
+        out.push(ResolvedEndpoint {
+            endpoint,
+            store: store.to_owned(),
+        });
+    };
+
+    // The user's own first. A store must be able to *add* somewhere to look and must never displace
+    // an address the user typed.
+    for endpoint in configured {
+        push(endpoint.trim().to_owned(), "");
     }
-    for endpoint in endpoints_of(stores, kind) {
-        if !out.iter().any(|held| held == &endpoint) {
-            out.push(endpoint);
+    for store in stores {
+        for service in &store.services {
+            if service.kind != kind {
+                continue;
+            }
+            for endpoint in &service.endpoints {
+                push(endpoint.clone(), &store.name);
+            }
         }
     }
     out
+}
+
+/// Merge configured endpoints with what the stores contribute.
+///
+/// The plain-string view of [`resolved`], for the three places that hand the list to the worker and
+/// have no use for provenance: the environment, `NODERA-CONFIG`, and the synchronisation file.
+pub fn merged(configured: &[String], stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
+    resolved(configured, stores, kind)
+        .into_iter()
+        .map(|resolved| resolved.endpoint)
+        .collect()
 }
 
 /// Pull the store URL out of a `nodera://tracker-store?url=…` deep link.
@@ -650,6 +706,53 @@ mod tests {
             "the temporary file must be renamed, not left beside the real one"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_effective_list_says_where_each_address_came_from() {
+        // The bug this closes: the settings screen read `network.default_trackers` and reported
+        // "0 tracker(s)" on an install whose tracker came from the built-in store — while the store
+        // screen beside it listed that tracker. Nothing was broken except what the app said.
+        let index = parse_index(&index_json("")).unwrap();
+        let store = store_from("https://example.org/i.json", index, 10, true);
+        let typed = vec!["tcp://mine.example.org:6969".to_owned()];
+
+        let trackers = resolved(&typed, std::slice::from_ref(&store), ServiceKind::Tracker);
+        assert_eq!(
+            trackers,
+            vec![
+                ResolvedEndpoint {
+                    endpoint: "tcp://mine.example.org:6969".to_owned(),
+                    store: String::new(),
+                },
+                ResolvedEndpoint {
+                    endpoint: "tcp://a.example.org:6969".to_owned(),
+                    store: "Example".to_owned(),
+                },
+            ],
+            "the user's own comes first and carries no store name"
+        );
+    }
+
+    #[test]
+    fn the_effective_list_and_the_worker_list_cannot_disagree() {
+        // `merged` is what the worker is handed; `resolved` is what the user is shown. A screen
+        // that describes a different list from the one being dialled is the defect this whole pair
+        // exists to prevent, so one is defined as the other with a field dropped.
+        let index = parse_index(&index_json("")).unwrap();
+        let store = store_from("https://example.org/i.json", index, 10, false);
+        let typed = vec![
+            "tcp://mine.example.org:6969".to_owned(),
+            "  ".to_owned(),
+            "tcp://a.example.org:6969".to_owned(),
+        ];
+        for kind in [ServiceKind::Tracker, ServiceKind::Rendezvous] {
+            let shown: Vec<String> = resolved(&typed, std::slice::from_ref(&store), kind)
+                .into_iter()
+                .map(|entry| entry.endpoint)
+                .collect();
+            assert_eq!(shown, merged(&typed, std::slice::from_ref(&store), kind));
+        }
     }
 
     #[test]
