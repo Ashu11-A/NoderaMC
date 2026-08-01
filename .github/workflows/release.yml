@@ -294,7 +294,7 @@ jobs:
       # The Tauri CLI comes from here (a prebuilt npm binary bun has cached), not from
       # `cargo install tauri-cli`, which compiles it from source.
       - name: The companion UI
-        run: cd app/ui && bun install --frozen-lockfile && bun run build
+        run: scripts/build-app-ui.sh
 
       - name: Build, sign and stage the APK
         run: scripts/release.sh --component android
