@@ -15,7 +15,17 @@ import {
   FiAlertCircle,
   FiRefreshCw,
   FiShield,
+  FiTag,
+  FiUsers,
+  FiPackage,
+  FiTerminal,
+  FiInfo,
 } from "react-icons/fi";
+import TrackerStoresScreen from "./TrackerStores";
+import { PeersScreen } from "./Peers";
+import { ModInstallScreen } from "./ModInstall";
+import { ConsoleScreen } from "./Console";
+import { AboutScreen } from "./About";
 import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
   Card,
@@ -47,17 +57,41 @@ import {
   type Theme,
   type NetworkPolicy,
 } from "./ipc";
-import { formatBytes } from "./api";
-import { fetchStorageInfo, type StorageInfo } from "./ipc";
+import { formatBytes, type Dashboard } from "./api";
+import { fetchStorageInfo, type StorageInfo, type SystemStats } from "./ipc";
 
-type Section = "appearance" | "behavior" | "network" | "storage" | "privacy";
+/**
+ * Settings is where everything that is not playing lives now.
+ *
+ * The rail used to carry nine destinations, six of which were about the machinery: tracker stores,
+ * peers, the worker console, the mod installer, an overview of counters, and About. A launcher has
+ * one front page and a settings drawer, so those became sections here — the Worlds screen in
+ * particular was carrying trackers, piece grids and store links, which is why it read as a report
+ * rather than a library.
+ */
+export type Section =
+  | "appearance"
+  | "behavior"
+  | "network"
+  | "stores"
+  | "peers"
+  | "storage"
+  | "minecraft"
+  | "diagnostics"
+  | "privacy"
+  | "about";
 
 const SECTIONS: { id: Section; label: string; icon: JSX.Element }[] = [
   { id: "appearance", label: "Appearance", icon: <FiEye /> },
   { id: "behavior", label: "Behavior", icon: <FiPower /> },
   { id: "network", label: "Network", icon: <FiWifi /> },
+  { id: "stores", label: "Tracker stores", icon: <FiTag /> },
+  { id: "peers", label: "Peers", icon: <FiUsers /> },
   { id: "storage", label: "Storage", icon: <FiHardDrive /> },
+  { id: "minecraft", label: "Minecraft", icon: <FiPackage /> },
+  { id: "diagnostics", label: "Diagnostics", icon: <FiTerminal /> },
   { id: "privacy", label: "Privacy", icon: <FiShield /> },
+  { id: "about", label: "About", icon: <FiInfo /> },
 ];
 
 /** Bytes/sec presets for the speed sliders; index 0 is "unlimited". */
@@ -156,8 +190,13 @@ const NESTED = "my-0.5 ml-3.5 border-l-2 border-line pl-3.5";
 export function SettingsScreen(props: {
   settings: SettingsDoc | null;
   onChange: (next: SettingsDoc) => void;
+  /** Which section to open on, when something sent the user here to fix one thing. */
+  initial?: Section;
+  /** Live node figures, for the sections that report on the node rather than configure it. */
+  d: Dashboard;
+  sys: SystemStats;
 }) {
-  const [section, setSection] = useState<Section>("appearance");
+  const [section, setSection] = useState<Section>(props.initial ?? "appearance");
   const [statuses, setStatuses] = useState<SettingStatus[]>([]);
   const [config, setConfig] = useState<ConfigStatus>(EMPTY_CONFIG_STATUS);
   const [ownership, setOwnership] = useState<WorkerOwnership | null>(null);
@@ -590,9 +629,22 @@ export function SettingsScreen(props: {
           </Card>
         )}
 
+        {/* The five sections below are screens that used to have their own rail entries. They are
+            not settings in the "toggle a preference" sense — they are the machinery, and the point
+            of moving them is that a launcher's front page should not be a report about a daemon. */}
+        {section === "stores" && <TrackerStoresScreen />}
+
+        {section === "peers" && <PeersScreen d={props.d} />}
+
+        {section === "minecraft" && <ModInstallScreen />}
+
+        {section === "diagnostics" && <ConsoleScreen d={props.d} sys={props.sys} />}
+
         {section === "privacy" && (
           <PrivacyCard status={telemetry} onChanged={setTelemetry} />
         )}
+
+        {section === "about" && <AboutScreen />}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const trackerStores = readFileSync(new URL("../src/TrackerStores.tsx", import.meta.url), "utf8");
-const desktopShell = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const desktopSettings = readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8");
 const mobileSettings = readFileSync(new URL("../src/mobile/Settings.tsx", import.meta.url), "utf8");
 const assets = new URL("../dist/assets/", import.meta.url);
 const builtCss = readdirSync(assets)
@@ -98,9 +98,14 @@ test("built tracker-store CSS resolves desktop and mobile shell roles", () => {
     assertBuiltRule(declaration);
   }
 
+  // The store screen is a Settings section now, not a rail destination. It was one of the six
+  // subsystem screens the launcher redesign moved out of the player's way — and the point of
+  // asserting where it renders is that both shells must keep using the SAME component, so the
+  // `--tracker-store-*` roles above have exactly one consumer per shell.
   assert.match(
-    desktopShell,
-    /screen\.name === "stores"[\s\S]*?<div className="max-w-\[1100px\] px-\[26px\] pt-5 pb-10">\s*<TrackerStoresScreen \/>/,
+    desktopSettings,
+    /section === "stores" && <TrackerStoresScreen \/>/,
+    "the desktop store screen is not rendered from Settings",
   );
   assert.match(
     mobileSettings,

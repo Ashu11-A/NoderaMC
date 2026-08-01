@@ -22,6 +22,7 @@
 // the authority on what resolved, because it *is* what resolved.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readCrate } from "./layout.mjs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import test from "node:test";
@@ -148,4 +149,91 @@ test("the consent modal's own classes are among them", () => {
   }
   assert.ok(consent.includes("bg-surface"), "the modal panel needs a background that exists");
   assert.ok(consent.includes("text-dim"), "the modal's prose is meant to be dimmed");
+});
+
+/**
+ * A declaration must be emitted from a **class selector** in the shipped stylesheet.
+ *
+ * Stronger than "the token is declared": a custom property can exist in `:root` and still be read
+ * by nothing, which is a hero that renders as a flat rectangle with no error anywhere. This proves
+ * the rule that uses it actually reached `dist`.
+ */
+function assertBuiltRule(declaration) {
+  const position = builtCss.indexOf(declaration);
+  assert.notEqual(position, -1, `production CSS omits ${declaration}`);
+
+  const ruleStart = builtCss.lastIndexOf("{", position);
+  const previousRule = Math.max(
+    builtCss.lastIndexOf("{", ruleStart - 1),
+    builtCss.lastIndexOf("}", ruleStart - 1),
+  );
+  const selector = builtCss.slice(previousRule + 1, ruleStart);
+  assert.match(selector, /\./, `${declaration} is not emitted by a class selector`);
+}
+
+test("the launcher's own surfaces reach the shipped stylesheet", () => {
+  // The hero is the screen. Each of these is a token that, if it silently resolved to nothing,
+  // would leave the page looking merely plain rather than broken — which is why a human reviewing
+  // a screenshot would not catch it and this does.
+  assertBuiltRule("background-image:var(--hero-scrim)");
+  assertBuiltRule("background-image:var(--play-fill)");
+  // The generated art: the class carries the gradients, the element carries only the hashed hues.
+  assertBuiltRule("--wa-h1");
+  assertBuiltRule("--wa-a");
+});
+
+test("every launch phase and remedy has a word on the Play screen", () => {
+  // A `LaunchPhase` with no label renders an unlabelled spinner, and a `Remedy` with no label
+  // renders a button with no text — both are the "a number with no provenance" failure in another
+  // shape. The Rust enums are the source of truth, so they are read rather than restated.
+  const rust = readCrate("nodera-core", "src/launch/mod.rs");
+  const play = readFileSync(new URL("../src/Play.tsx", import.meta.url), "utf8");
+
+  const variants = (enumName) => {
+    const start = rust.indexOf(`pub enum ${enumName} {`);
+    assert.notEqual(start, -1, `${enumName} is gone from launch/mod.rs`);
+    const body = rust.slice(start, rust.indexOf("\n}", start));
+    return [...body.matchAll(/^    ([A-Z][A-Za-z]*),$/gm)].map((m) => m[1]);
+  };
+
+  const kebab = (name) => name.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
+
+  const phases = variants("Phase");
+  assert.ok(phases.length >= 6, `only found ${phases.length} phases`);
+  for (const phase of phases) {
+    assert.match(
+      play,
+      new RegExp(`\\b${phase.toLowerCase()}:`),
+      `LaunchPhase::${phase} has no word on the Play screen`,
+    );
+  }
+
+  for (const remedy of variants("Remedy")) {
+    const key = kebab(remedy);
+    assert.ok(
+      play.includes(`"${key}"`) || play.includes(`${key}:`),
+      `Remedy::${remedy} has no button on the Play screen`,
+    );
+  }
+});
+
+test("the launcher never promises an auto-connect it cannot deliver", () => {
+  const play = readFileSync(new URL("../src/Play.tsx", import.meta.url), "utf8");
+  const lane = readFileSync(new URL("../src/play.ts", import.meta.url), "utf8");
+
+  // Two tiers land the player in the world and two do not, and the screen says which before the
+  // button is pressed. Deriving that from the tier — rather than assuming — is what stops the
+  // `servers.dat` route from claiming it will open the world when it only adds it to a list.
+  assert.match(lane, /export function autoConnects/, "the tier distinction is gone");
+  assert.match(
+    lane,
+    /tier === "prism" \|\| tier === "direct"/,
+    "autoConnects must name exactly the two quick-play tiers",
+  );
+  assert.match(play, /autoConnects\(/, "the Play screen does not consult it");
+  assert.match(
+    play,
+    /Multiplayer list/,
+    "the non-auto-connect wording must say what actually happens",
+  );
 });

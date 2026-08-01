@@ -5,7 +5,7 @@
 // Styling is Tailwind utilities on the elements themselves. The repeated strings below are the
 // former CSS classes, kept as module constants so "the row layout" is still one edit, but they are
 // now inert text a component opts into rather than a selector reaching across the app.
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { FiChevronDown, FiInfo } from "react-icons/fi";
 
 /** Joins class names, dropping the falsy branches of a conditional. */
@@ -456,4 +456,281 @@ export function Td(props: { children?: ReactNode; num?: boolean; mono?: boolean;
       {props.children}
     </td>
   );
+}
+
+/* ------------------------------------------------------------------------------------- buttons */
+
+/**
+ * The app's only button.
+ *
+ * There was none. The string
+ * `"rounded-sm border border-line bg-surface-2 px-2.5 py-1 text-xs hover:bg-surface-hover …"`
+ * was copy-pasted as a local `BUTTON` constant in six screens, `TrackerStores.tsx` carried a
+ * seventh set of its own, and the consent modal's two buttons were the same 100-character literal
+ * written twice — one of which named a hover colour that did not exist, so it had no hover state at
+ * all and nobody noticed.
+ *
+ * `hero` is the size the Play button uses. It is a size rather than a variant because it is still
+ * the same control; what makes it the loudest thing on the screen is `primary` plus the gradient.
+ */
+export function Button(props: {
+  children: ReactNode;
+  onClick?: () => void;
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "sm" | "md" | "hero";
+  disabled?: boolean;
+  title?: string;
+  type?: "button" | "submit";
+  className?: string;
+}) {
+  const variant = props.variant ?? "secondary";
+  const size = props.size ?? "sm";
+  return (
+    <button
+      type={props.type ?? "button"}
+      title={props.title}
+      disabled={props.disabled}
+      onClick={props.onClick}
+      className={cx(
+        "inline-flex flex-none items-center justify-center gap-2 rounded-sm font-medium",
+        "transition-[background-color,border-color,box-shadow,transform] duration-[var(--motion-fast)]",
+        // One ring, from one token. Every other control in the app had no visible focus state.
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
+        "disabled:pointer-events-none disabled:opacity-50",
+        size === "sm" && "px-2.5 py-1 text-xs",
+        size === "md" && "px-3.5 py-2 text-sm",
+        size === "hero" && "rounded-lg px-8 py-3.5 text-[15px] tracking-wide shadow-e2",
+        variant === "primary" && "bg-play text-on-play hover:brightness-110 active:brightness-95",
+        variant === "secondary" && "border border-line bg-surface-2 hover:bg-surface-hover",
+        variant === "ghost" && "text-dim hover:bg-surface-hover hover:text-text",
+        variant === "danger" && "border border-danger/45 text-danger hover:bg-danger/10",
+        props.className,
+      )}
+    >
+      {props.children}
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------------------- modals */
+
+/**
+ * The app's only dialog.
+ *
+ * There were four independent implementations — the store dialog, the LAN offer, the consent gate,
+ * and the mobile sheet — and only one of them set `role="dialog"`, so three were invisible to a
+ * screen reader. Each is folded into this: the good parts came from the store dialog (Escape, the
+ * scrim as a real button, refusing to close while an action is in flight) and the two nobody had
+ * written are here — a focus trap, and locking the page behind it.
+ */
+export function Modal(props: {
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  /** Absent means this dialog cannot be dismissed — a gate, not a panel. */
+  onClose?: () => void;
+  /** While true, Escape and the scrim do nothing: an action is in flight and half-closing it is worse. */
+  busy?: boolean;
+  width?: "sm" | "md" | "lg";
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const dismissable = Boolean(props.onClose) && !props.busy;
+
+  useEffect(() => {
+    // The page behind a dialog must not scroll under it. Restored on unmount rather than set to a
+    // literal, because the shell's own `overflow: hidden` is what was there before.
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && dismissable) {
+        props.onClose?.();
+        return;
+      }
+      if (event.key !== "Tab" || !panel.current) return;
+      // The trap. Without it, Tab walks out of the dialog and into the page behind it, which is
+      // still rendered — a keyboard user ends up operating controls they cannot see.
+      const focusable = panel.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dismissable, props]);
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        tabIndex={-1}
+        disabled={!dismissable}
+        onClick={() => props.onClose?.()}
+        className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm disabled:cursor-default"
+      />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label={props.title}
+        className={cx(
+          "relative w-full overflow-hidden rounded-lg border border-line bg-surface shadow-e3",
+          props.width === "lg" ? "max-w-3xl" : props.width === "md" ? "max-w-xl" : "max-w-lg",
+        )}
+      >
+        <header className="border-b border-line-soft px-5 py-3.5">
+          <h2 className="text-sm font-semibold">{props.title}</h2>
+        </header>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{props.children}</div>
+        {props.footer && (
+          <footer className="flex justify-end gap-2 border-t border-line-soft px-5 py-3">
+            {props.footer}
+          </footer>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------------------- tabs */
+
+/**
+ * An underline tab strip.
+ *
+ * The world detail screen and the settings screen each rolled their own, with different padding,
+ * different active colours, and — in one of them — no `role="tab"` at all.
+ */
+export function Tabs<T extends string>(props: {
+  tabs: readonly { id: T; label: string }[];
+  active: T;
+  onSelect: (id: T) => void;
+  className?: string;
+}) {
+  return (
+    <div role="tablist" className={cx("flex gap-1 border-b border-line", props.className)}>
+      {props.tabs.map((tab) => (
+        <button
+          key={tab.id}
+          role="tab"
+          aria-selected={tab.id === props.active}
+          onClick={() => props.onSelect(tab.id)}
+          className={cx(
+            "-mb-px border-b-2 px-3 py-2 text-sm transition-colors duration-[var(--motion-fast)]",
+            "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus",
+            tab.id === props.active
+              ? "border-brand-2 text-text"
+              : "border-transparent text-faint hover:text-dim",
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------------------- select */
+
+/** A native select, themed. Needed by the hero's world picker; nothing like it existed. */
+export function Select<T extends string>(props: {
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  className?: string;
+}) {
+  return (
+    <select
+      aria-label={props.ariaLabel}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value as T)}
+      className={cx(
+        "min-w-0 max-w-full appearance-none rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
+        props.className,
+      )}
+    >
+      {props.options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/* -------------------------------------------------------------------------------------- banner */
+
+/**
+ * A line of state above a screen: something is wrong, or something is pending.
+ *
+ * `StaleDataNotice` is this with one tone and one sentence, and stays a named export because the
+ * honesty test asserts on it by name — the notice is a rule, not a style.
+ */
+export function Banner(props: {
+  tone: "warn" | "danger" | "info";
+  children: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div
+      className={cx(
+        "flex items-center justify-between gap-3 rounded-md border px-3.5 py-2 text-xs",
+        props.tone === "warn" && "border-warn/35 bg-warn/10 text-warn",
+        props.tone === "danger" && "border-danger/35 bg-danger/10 text-danger",
+        props.tone === "info" && "border-brand-3/35 bg-brand-3/10 text-brand-3",
+      )}
+    >
+      <span className="flex items-center gap-2">
+        <FiInfo aria-hidden className="flex-none" />
+        {props.children}
+      </span>
+      {props.action}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------------- generated art */
+
+/**
+ * A world's picture, derived from its id.
+ *
+ * Two hues and an angle out of an FNV-1a hash. Deterministic on purpose: the same world looks the
+ * same on every machine and in every session, which is what makes the art a way to *recognise* a
+ * world in a grid rather than decoration.
+ *
+ * Returned as inline custom properties, which the `.world-art` class in `styles.css` reads. The
+ * split matters: a remote image is forbidden by this app's CSP, an inline `style` attribute is not,
+ * and keeping the gradients in a class is what lets the token test prove they reach the shipped CSS.
+ */
+export function worldArt(worldId: string): React.CSSProperties {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < worldId.length; i += 1) {
+    hash ^= worldId.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  const h1 = hash % 360;
+  // Offset rather than a second hash: two independent hues land on near-identical colours often
+  // enough to make two worlds look the same, which is the one thing this must not do.
+  const h2 = (h1 + 90 + (hash % 80)) % 360;
+  return {
+    ["--wa-h1" as string]: String(h1),
+    ["--wa-h2" as string]: String(h2),
+    ["--wa-a" as string]: `${(hash % 8) * 22.5}deg`,
+  };
 }

@@ -29,6 +29,31 @@
   --down: #38bdf8;
   --warn: #f59e0b;
   --danger: #ef4444;
+
+  /* --- The launcher.
+   *
+   * A hero-led screen needs three things this palette never had: a veil that keeps text legible over
+   * generated art, more than one elevation, and a fill for the one button on the page that matters.
+   * They are declared here and re-exported by reference below, so a theme switch still repaints
+   * everything from one attribute write and no component carries a theme prop. */
+  --radius-xl: 24px;
+  --top-nav-height: 52px;
+  /* Tall enough to read as art, short enough that the world list under it is not below the fold on
+   * a 900x600 window — which is the size this app opens at. */
+  --hero-height: clamp(240px, 38vh, 340px);
+
+  /* The one button on the page that matters, and the text that sits on it. */
+  --play-fill: var(--brand-gradient);
+  --on-play: #ffffff;
+
+  /* Written once, read by every focusable thing. There was no focus token at all: the only styled
+   * ring in the app was hand-written on one control, so keyboard focus was invisible everywhere
+   * else. */
+  --focus-ring: var(--brand-3);
+
+  /* Durations were literals scattered across three files (`duration-150`, `duration-[180ms]`). */
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
 }
 
 :root,
@@ -45,6 +70,17 @@
   --text-dim: #9aa0af;
   --text-faint: #656b7a;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+
+  /* A glass strip over hero art, and three elevations where there used to be one. A launcher has a
+   * card that sits above the page and a control that sits above the card, and one shadow cannot
+   * say which is which. */
+  --surface-3: rgba(22, 22, 31, 0.72);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --elev-3: 0 18px 48px rgba(0, 0, 0, 0.6);
+  /* Dark art needs a dark veil; the light theme needs the opposite, which is why this is a token
+   * rather than one gradient written into the hero. */
+  --hero-scrim: linear-gradient(180deg, rgba(8, 8, 12, 0.15) 0%, rgba(8, 8, 12, 0.72) 62%, var(--bg) 100%);
 }
 
 :root[data-theme="light"] {
@@ -62,6 +98,12 @@
   --shadow: 0 8px 24px rgba(20, 22, 29, 0.08);
   --up: #16a34a;
   --down: #0284c7;
+
+  --surface-3: rgba(255, 255, 255, 0.78);
+  --elev-1: 0 1px 2px rgba(20, 22, 29, 0.06);
+  --elev-2: 0 8px 24px rgba(20, 22, 29, 0.1);
+  --elev-3: 0 18px 48px rgba(20, 22, 29, 0.16);
+  --hero-scrim: linear-gradient(180deg, rgba(246, 247, 251, 0.1) 0%, rgba(246, 247, 251, 0.66) 60%, var(--bg) 100%);
 }
 
 /* Palette → Tailwind namespaces, by reference. */
@@ -81,12 +123,19 @@
   --color-dim: var(--text-dim);
   --color-faint: var(--text-faint);
 
+  --color-surface-3: var(--surface-3);
+  --color-focus: var(--focus-ring);
+  --color-on-play: var(--on-play);
+
   --color-up: var(--up);
   --color-down: var(--down);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
 
   --shadow-card: var(--shadow);
+  --shadow-e1: var(--elev-1);
+  --shadow-e2: var(--elev-2);
+  --shadow-e3: var(--elev-3);
 }
 
 /* Shape and type scale. The radii deliberately mirror the legacy --radius-* names above, which are
@@ -95,6 +144,7 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
+  --radius-xl: 24px;
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
@@ -133,6 +183,44 @@
 
 @utility bg-brand {
   background-image: var(--brand-gradient);
+}
+
+/* The fill of the one button on the page that matters. */
+@utility bg-play {
+  background-image: var(--play-fill);
+}
+
+/* ------------------------------------------------------------------------------ generated art
+ *
+ * Every world gets a picture, and it is computed from its id rather than fetched. Three numbers —
+ * two hues and an angle — are hashed from the `world_id` in TypeScript and passed as inline custom
+ * properties; the layering lives here, in a class.
+ *
+ * Both halves of that split are deliberate. Inline custom properties are legal under this app's CSP
+ * (`style-src 'self' 'unsafe-inline'`) while a remote image is not, so the art costs no network and
+ * no bundle. And the declarations being in a *class* is what lets the design-token test prove they
+ * reach production CSS — a hero whose gradient silently resolved to nothing is the same class of
+ * bug as the consent modal's transparent panel.
+ *
+ * Deterministic, so a world looks the same on every machine and the picture is a way to recognise
+ * it rather than decoration. */
+@utility world-art {
+  background-color: hsl(var(--wa-h1, 280) 42% 18%);
+  background-image:
+    radial-gradient(120% 90% at 22% 18%, hsl(var(--wa-h1, 280) 78% 52% / 0.55) 0%, transparent 60%),
+    radial-gradient(100% 80% at 82% 72%, hsl(var(--wa-h2, 190) 82% 55% / 0.45) 0%, transparent 62%),
+    repeating-linear-gradient(
+      var(--wa-a, 45deg),
+      rgba(255, 255, 255, 0.045) 0px,
+      rgba(255, 255, 255, 0.045) 1px,
+      transparent 1px,
+      transparent 7px
+    );
+}
+
+/* The veil that keeps hero text legible over any of the above. */
+@utility hero-scrim {
+  background-image: var(--hero-scrim);
 }
 
 /* ------------------------------------------------------------------ Material 3 (mobile layout)
