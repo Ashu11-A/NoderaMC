@@ -1,7 +1,6 @@
 package dev.nodera.app
 
 import android.app.Dialog
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -13,112 +12,127 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.LinearLayout
 import androidx.browser.customtabs.CustomTabsIntent
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.TimeUnit
 
 /**
  * Opens a web link outside the app's own interface.
  *
- * ## Why this is not one `startActivity`
+ * ## Why the whole ladder is here and not split with Rust
  *
- * A phone with a browser installed is the normal case, not the only case. Nodera runs on handsets
- * that have had their browser removed, on work profiles that block one, and on the odd device that
- * ships without one — and on all of those a bare `ACTION_VIEW` throws
- * `ActivityNotFoundException` and the link silently does nothing. A link that does nothing is worse
- * than a link that opens something imperfect, because the user cannot tell it apart from a frozen
- * app.
+ * It used to be split: Rust called this, and on failure Rust made a *second* JNI call to try
+ * `ACTION_VIEW` itself. That second call happened with the Java exception from the first still
+ * pending, and ART aborts a process that makes a JNI call in that state — so a link that could not
+ * open did not fail, it killed the app.
  *
- * So this is a ladder, best first:
+ * Every rung lives on this side now. A rung that fails throws into a `catch` here, which is an
+ * ordinary caught exception and never becomes a pending JNI one. Rust makes exactly one call.
  *
- * 1. **A Custom Tab.** The user's own browser engine, with their cookies and their logins, drawn
- *    inside this task so the back gesture returns to Nodera instead of leaving it. This is what
- *    "opens in the browser" should feel like on Android.
- * 2. **`ACTION_VIEW`.** The default browser as a separate app. Correct, just heavier: it leaves
- *    Nodera, and coming back is the user's problem.
- * 3. **A WebView in a dialog.** No browser at all. Deliberately last and deliberately plain — no
- *    JavaScript, no storage, no downloads. It exists so the address the user tapped is *readable*,
+ * ## The ladder
+ *
+ * 1. **`ACTION_VIEW`** — the user's default browser, as its own app. First because it is what
+ *    "open in my browser" means, and because it is the rung with the fewest ways to go wrong.
+ * 2. **A Custom Tab** — the same browser engine drawn inside this task, for devices where the
+ *    intent found no handler but a Custom Tabs provider exists.
+ * 3. **A WebView in a dialog** — no browser at all. Deliberately last and deliberately plain: no
+ *    JavaScript, no storage, no file access. It exists so the page the user asked for is *readable*,
  *    not so this app becomes a browser.
  *
- * Rust calls this through JNI ([`dev.nodera.app.NoderaBrowser.open`]) and falls back to its own
- * `ACTION_VIEW` if the class is missing, so a build staged without this file still opens links.
+ * There is no fourth rung. Copying the address to the clipboard was one once, and it is not opening
+ * a link.
  *
  * Kept in `android/kotlin/` and copied into the generated Gradle project by
  * `scripts/android-apk.sh`, because `gen/` is disposable — Tauri regenerates it, and an edit made
- * there is an edit that disappears.
+ * there is an edit that disappears. `NoderaBrowser` is also named in that script's R8 keep list:
+ * R8 cannot see a reflective JNI call, and a renamed class would take the whole ladder with it.
  */
 object NoderaBrowser {
 
     private const val TAG = "NoderaMC"
 
+    /** How long the caller will wait for the UI thread to put a dialog up. */
+    private const val UI_TIMEOUT_SECONDS = 5L
+
     /**
-     * Open [url], and say which rung of the ladder answered.
+     * Open [url], and say which rung answered.
+     *
+     * Never throws. Rust is on the other side of this call and a thrown exception there is a pending
+     * JNI exception, which is a crash rather than an error — so everything is caught, including the
+     * `Throwable` cases that are normally worth rethrowing.
      *
      * @param context the application context Rust holds. The dialog rung needs an *activity*, which
      *   is why [MainActivity] publishes the live one — an application context cannot show a window.
-     * @param url an `http`/`https` address. **Already validated by the Rust side**
-     *   (`browser::check_url`), which is where the scheme whitelist lives; this method does not
-     *   re-derive that rule, it only refuses to act on something obviously empty.
-     * @return `custom-tab`, `browser` or `webview`, or `null` when every rung failed.
+     * @param url an `http`/`https` address, already validated by `browser::check_url` on the Rust
+     *   side, which is where the scheme whitelist lives.
+     * @return `browser`, `custom-tab` or `webview`, or `null` when every rung failed.
      */
     @JvmStatic
     fun open(context: Context, url: String): String? {
-        if (url.isBlank()) return null
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return null
-        // Belt and braces against a caller that is not the Rust command — the scheme whitelist is
-        // enforced there, and this is the second lock on the same door rather than a substitute.
-        val scheme = uri.scheme?.lowercase()
-        if (scheme != "http" && scheme != "https") {
-            Log.w(TAG, "refusing to open a $scheme link")
-            return null
+        return try {
+            if (url.isBlank()) return null
+            val uri = Uri.parse(url)
+            // The second lock on a door Rust already locked, not a substitute for it.
+            val scheme = uri.scheme?.lowercase()
+            if (scheme != "http" && scheme != "https") {
+                Log.w(TAG, "refusing to open a $scheme link")
+                return null
+            }
+            browser(context, uri) ?: customTab(context, uri) ?: webView(url)
+        } catch (t: Throwable) {
+            // Including Error: whatever went wrong, the caller is native code that must get a value
+            // back rather than an exception it would carry into its next JNI call.
+            Log.w(TAG, "could not open $url", t)
+            null
         }
-
-        customTab(context, uri)?.let { return it }
-        browser(context, uri)?.let { return it }
-        return webView(url)
     }
 
-    /** The user's browser engine, drawn inside this task. */
-    private fun customTab(context: Context, uri: Uri): String? = runCatching {
-        val intent = CustomTabsIntent.Builder()
-            .setShowTitle(true)
-            // Without this the tab cannot be started from an application context, which is the only
-            // context Rust holds (`NoderaBridge.initialise` is given `applicationContext`).
-            .build()
-            .also { it.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-        intent.launchUrl(context, uri)
-        "custom-tab"
-    }.getOrElse {
-        Log.i(TAG, "no custom tab available: ${it.message}")
-        null
-    }
-
-    /** The default browser as its own app. */
+    /** The user's default browser, as its own app. */
     private fun browser(context: Context, uri: Uri): String? = try {
-        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
         "browser"
-    } catch (e: ActivityNotFoundException) {
-        Log.i(TAG, "no browser installed: ${e.message}")
+    } catch (t: Throwable) {
+        // ActivityNotFoundException when nothing handles http, SecurityException behind some work
+        // profiles. Both mean "try the next rung", and neither should reach the caller.
+        Log.i(TAG, "no browser for this link: ${t.message}")
         null
-    } catch (e: SecurityException) {
-        Log.i(TAG, "not allowed to open a browser: ${e.message}")
+    }
+
+    /** The same engine, drawn inside this task. */
+    private fun customTab(context: Context, uri: Uri): String? = try {
+        CustomTabsIntent.Builder()
+            .setShowTitle(true)
+            .build()
+            // Required to start from an application context, which is the only context Rust holds:
+            // `NoderaBridge.initialise` is given `applicationContext`.
+            .also { it.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+            .launchUrl(context, uri)
+        "custom-tab"
+    } catch (t: Throwable) {
+        Log.i(TAG, "no custom tab available: ${t.message}")
         null
     }
 
     /**
      * The last resort: a plain WebView in a dialog over the app.
      *
-     * Needs the live activity, which is why it does not take the context above. Everything optional
-     * is off — no JavaScript, no DOM storage, no file access. This is here to render a page the user
-     * asked to see on a device with nothing else that can, and the smaller its attack surface the
-     * better: it is showing a URL that, at the far end of the chain, a third-party index supplied.
+     * Everything optional is off. This renders a page on a device with nothing else that can, and
+     * the smaller its surface the better — at the far end of the chain the URL came from a
+     * third-party index.
      */
     private fun webView(url: String): String? {
         val activity = MainActivity.live() ?: run {
             Log.w(TAG, "no activity to host a webview")
             return null
         }
-        val done = java.util.concurrent.CountDownLatch(1)
-        var shown = false
+        val done = CountDownLatch(1)
+        // Atomic rather than a plain local: it is written on the UI thread and read on this
+        // one, and `@Volatile` is not something Kotlin allows on a local variable.
+        val shown = AtomicBoolean(false)
         Handler(Looper.getMainLooper()).post {
-            shown = runCatching {
+            try {
                 val view = WebView(activity).apply {
                     settings.javaScriptEnabled = false
                     settings.domStorageEnabled = false
@@ -136,22 +150,24 @@ object NoderaBrowser {
                 Dialog(activity).apply {
                     setContentView(view)
                     setCancelable(true)
-                    // Destroyed with the dialog: a WebView outliving its window is a leaked activity.
+                    // Destroyed with the dialog: a WebView outliving its window leaks the activity.
                     setOnDismissListener {
                         view.stopLoading()
                         view.destroy()
                     }
                     show()
                 }
-                true
-            }.getOrElse {
-                Log.w(TAG, "could not show a webview: ${it.message}")
-                false
+                shown.set(true)
+            } catch (t: Throwable) {
+                Log.w(TAG, "could not show a webview: ${t.message}")
+            } finally {
+                // In `finally`, so a throw above cannot leave the caller waiting the full timeout.
+                done.countDown()
             }
-            done.countDown()
         }
-        // Bounded: the caller is a Tauri command thread and must not hang on a wedged UI thread.
-        done.await(5, java.util.concurrent.TimeUnit.SECONDS)
-        return if (shown) "webview" else null
+        // Bounded, and never called from the UI thread — Rust reaches this from a blocking pool, so
+        // the post above is always a hand-off to a different thread.
+        done.await(UI_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        return if (shown.get()) "webview" else null
     }
 }

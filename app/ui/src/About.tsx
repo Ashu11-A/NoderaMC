@@ -20,8 +20,8 @@ export function AboutScreen() {
   const [build, setBuild] = useState<AboutBuild | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  // Opening the repository link, with the clipboard as the fallback when nothing on this
-  // machine can open a browser.
+  // Opening the repository link. The host's ladder ends in a window of our own, so this always
+  // shows the page — there is no clipboard consolation prize.
   const repository = useExternalLink();
 
   useEffect(() => {
@@ -73,8 +73,8 @@ export function AboutScreen() {
           <KeyValue label="Control protocol" value={`v${build.protocol_version}`} />
           {/* A real link again. It was a copy-to-clipboard button because `<a target="_blank">`
               opens nothing in a Tauri v2 webview and this app depended on no opener — a workaround
-              that told the truth about the link not working. The host opens it now, and the
-              clipboard is what happens when the host cannot. */}
+              that told the truth about the link not working. The host opens it now: the default
+              browser, or failing that a window pointed at the page. */}
           <KeyValue
             label="Repository"
             value={

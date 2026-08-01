@@ -121,14 +121,14 @@ pub fn open_settings() -> Result<(), String> {
 /// a perfectly good thing to open on a desktop — refusing was an artefact of `ACTION_VIEW` being the
 /// only implementation, not a decision about what the button should do.
 #[cfg(target_os = "android")]
-pub fn open_help() -> Result<(), String> {
+pub fn open_help(app: &tauri::AppHandle) -> Result<(), String> {
     let url = help_url(&property("ro.product.manufacturer"));
-    crate::browser::open(&url).map(|_| ())
+    crate::browser::open(app, &url).map(|_| ())
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn open_help() -> Result<(), String> {
-    crate::browser::open(&help_url("")).map(|_| ())
+pub fn open_help(app: &tauri::AppHandle) -> Result<(), String> {
+    crate::browser::open(app, &help_url("")).map(|_| ())
 }
 
 /// The vendor page, or the site's index when the vendor is unknown.

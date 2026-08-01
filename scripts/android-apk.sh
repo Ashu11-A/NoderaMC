@@ -363,17 +363,30 @@ grep -q "androidx.browser" "$GRADLE_APP" \
 #   java.lang.NoSuchMethodError: no static method "Ldev/nodera/app/NoderaStorage;.pick()V"
 #
 # Only these four types are reachable from native code; everything else stays minifiable.
+#
+# Checked ONE AT A TIME, and this is not fussiness. The block used to be guarded by a single
+# `grep -q NoderaStorage`: add a fourth class to the list and, on any tree where `gen/` survived an
+# earlier build, the guard sees NoderaStorage already there and skips the whole block — so the new
+# rule never lands. R8 then keeps the class name and strips every member, and the dex holds an empty
+# `NoderaBrowser`. On the device that is `NoSuchMethodError` from Rust, which is exactly how tapping
+# a link came to kill the app. A guard that tests a different thing from what it protects is worse
+# than no guard, because it looks like one.
 PROGUARD="$APP_DIR/gen/android/app/proguard-rules.pro"
-if [[ -f "$PROGUARD" ]] && ! grep -q "dev.nodera.app.NoderaStorage" "$PROGUARD"; then
-  say "proguard   keeping the JNI entry points"
-  cat >> "$PROGUARD" <<'PROEOF'
-
-# Called from Rust over JNI — invisible to R8's reachability analysis.
--keep class dev.nodera.app.NoderaStorage { *; }
--keep class dev.nodera.app.NoderaWorker { *; }
--keep class dev.nodera.app.NoderaBridge { *; }
--keep class dev.nodera.app.NoderaBrowser { *; }
-PROEOF
+if [[ -f "$PROGUARD" ]]; then
+  JNI_CLASSES=(NoderaStorage NoderaWorker NoderaBridge NoderaBrowser)
+  for CLASS in "${JNI_CLASSES[@]}"; do
+    if ! grep -q "dev.nodera.app.$CLASS" "$PROGUARD"; then
+      say "proguard   keeping dev.nodera.app.$CLASS (called from Rust over JNI)"
+      printf '\n# Called from Rust over JNI — invisible to R8'"'"'s reachability analysis.\n-keep class dev.nodera.app.%s { *; }\n' \
+        "$CLASS" >> "$PROGUARD"
+    fi
+  done
+  # Asserted rather than assumed: a missing keep is invisible in a green build and only shows up as
+  # a crash on a device, which is the whole history of this block.
+  for CLASS in "${JNI_CLASSES[@]}"; do
+    grep -q "dev.nodera.app.$CLASS" "$PROGUARD" \
+      || die "proguard-rules.pro does not keep dev.nodera.app.$CLASS — R8 would strip it and Rust would crash calling it"
+  done
 fi
 
 # Two permissions Tauri does not generate, injected here because it regenerates the manifest:

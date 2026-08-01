@@ -3,22 +3,21 @@
 // ## Why an anchor is not enough
 //
 // In a Tauri v2 webview `<a target="_blank">` opens **nothing**: there is no browser chrome and no
-// tab for it to open in, so the click is swallowed. Every outbound link in this app was therefore
-// decorative — `About.tsx` had already noticed and turned its repository link into a
-// copy-to-clipboard button, which is a workaround that admits the link did not work.
+// tab for it to open in, so the click is swallowed. An anchor *without* it is worse — this window
+// navigates away, and the user is left looking at somebody's web page where the application used to
+// be, with no back button because the app has no browser chrome either.
 //
-// An anchor *without* `target="_blank"` is worse, not better: this window would navigate away, and
-// the user would be left looking at somebody's web page where the application used to be, with no
-// back button because the app has no browser chrome either.
+// So links are buttons that ask the host, and the host decides where they open.
 //
-// So links are buttons that ask the host to open them, and the host decides where — the desktop's
-// default browser, or on Android a Custom Tab, then the browser, then an in-app WebView.
+// ## A link always opens something
 //
-// ## Failing honestly
+// This used to fall back to the clipboard: when nothing could open a browser it copied the address
+// and said so. That is not opening a link — it is telling the user to go and do it themselves, in
+// an app that is itself a webview and could have shown them the page.
 //
-// A device can have no browser at all. When every rung of that ladder fails the link cannot be
-// opened, and the useful thing to do is put the address on the clipboard and say so, rather than
-// showing a dead control that appears to do nothing when pressed.
+// The host's ladder ends in a webview on both platforms now: the default browser first, then a
+// Custom Tab on Android or a window of our own on the desktop, then a plain WebView. There is no
+// clipboard rung, and nothing here should add one back.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openExternal } from "./ipc";
 
@@ -26,23 +25,21 @@ import { openExternal } from "./ipc";
 export type LinkState =
   | { status: "idle" }
   | { status: "opening" }
-  /** Opened. `how` is the platform's answer: `browser`, `custom-tab` or `webview`. */
+  /** Opened. `how` is which rung answered: `browser`, `custom-tab` or `webview`. */
   | { status: "opened"; how: string }
-  /** Could not open, so the address was put on the clipboard instead. */
-  | { status: "copied" }
-  /** Could not open and could not copy. `reason` is the host's own words. */
+  /** Nothing on this device could show the page. `reason` is the host's own words. */
   | { status: "failed"; reason: string };
 
-/** How long a transient "opened"/"copied" note stays on screen. */
-const NOTE_MS = 2000;
+/** How long the transient "opened" note stays on screen. */
+const NOTE_MS = 1500;
 
 /**
- * Open links, with the clipboard as the fallback nobody has to think about.
+ * Open links.
  *
  * ```tsx
  * const link = useExternalLink();
  * <button onClick={() => link.open(store.homepage)}>Homepage</button>
- * {link.state.status === "copied" && <span>no browser — address copied</span>}
+ * {linkNote(link.state) && <span>{linkNote(link.state)}</span>}
  * ```
  */
 export function useExternalLink() {
@@ -62,9 +59,9 @@ export function useExternalLink() {
     if (!live.current) return;
     setState(next);
     clearTimeout(timer.current);
-    // A failure stays until the next attempt: it carries the reason, and a message that explains
-    // why nothing happened is the one message that must not vanish before it is read.
-    if (next.status === "opened" || next.status === "copied") {
+    // A failure stays until the next attempt: it carries the reason, and a message explaining why
+    // nothing happened is the one message that must not vanish before it is read.
+    if (next.status === "opened") {
       timer.current = setTimeout(() => live.current && setState({ status: "idle" }), NOTE_MS);
     }
   }, []);
@@ -76,12 +73,7 @@ export function useExternalLink() {
       try {
         settle({ status: "opened", how: await openExternal(url) });
       } catch (e) {
-        try {
-          await navigator.clipboard?.writeText(url);
-          settle({ status: "copied" });
-        } catch {
-          settle({ status: "failed", reason: String(e) });
-        }
+        settle({ status: "failed", reason: String(e) });
       }
     },
     [settle],
@@ -92,14 +84,7 @@ export function useExternalLink() {
 
 /** The note to show beside a link control, or `""` when there is nothing to say. */
 export function linkNote(state: LinkState): string {
-  switch (state.status) {
-    case "copied":
-      return "no browser here — address copied";
-    case "failed":
-      return state.reason;
-    default:
-      return "";
-  }
+  return state.status === "failed" ? state.reason : "";
 }
 
 /**

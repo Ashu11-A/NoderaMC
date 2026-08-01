@@ -167,13 +167,15 @@ fn resolved_services(
 /// `homepage` is written by whoever published the index, and trusting a publisher to list trackers
 /// is not trusting them to hand this device a `file://` or an `intent://`.
 ///
-/// Returns how it opened, for the log: `browser` on the desktop; on Android `custom-tab`, `browser`
-/// or `webview`, depending on how far down the ladder that device made it.
+/// A link always opens something. The ladder ends in a webview on both platforms rather than in the
+/// clipboard, which is what it used to do and which is not opening a link.
+///
+/// Returns which rung answered, for the log: `browser`, `custom-tab` or `webview`.
 #[tauri::command]
-async fn open_external(url: String) -> Result<String, String> {
+async fn open_external(app: tauri::AppHandle, url: String) -> Result<String, String> {
     // On a blocking pool: `startActivity` and the desktop openers all block, and the window that
     // has to keep drawing while the browser comes up is this one.
-    tokio::task::spawn_blocking(move || browser::open(&url).map(|how| how.to_owned()))
+    tokio::task::spawn_blocking(move || browser::open(&app, &url).map(|how| how.to_owned()))
         .await
         .map_err(|e| format!("the open task failed: {e}"))?
 }
@@ -892,8 +894,8 @@ fn open_battery_settings() -> Result<(), String> {
 
 /// Tauri command: open this vendor's page on dontkillmyapp.com.
 #[tauri::command]
-fn open_battery_help() -> Result<(), String> {
-    android::battery::open_help()
+fn open_battery_help(app: tauri::AppHandle) -> Result<(), String> {
+    android::battery::open_help(&app)
 }
 
 /// Build and run the application.

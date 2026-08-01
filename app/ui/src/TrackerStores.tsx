@@ -812,9 +812,8 @@ function StoreCard(props: {
         </div>
       </div>
 
-      {/* Said only when there is something to say: a device with no browser puts the address on the
-          clipboard instead, and a button that appears to do nothing when pressed is the outcome
-          this line exists to prevent. */}
+      {/* Said only when there is something to say. The host's ladder ends in a webview, so this is
+          for the case where even that failed — rare, and worth the words when it happens. */}
       {linkNote(homepage.state) && (
         <p className="px-4 pb-3 text-xs text-[var(--tracker-store-muted)]">
           {linkNote(homepage.state)}
