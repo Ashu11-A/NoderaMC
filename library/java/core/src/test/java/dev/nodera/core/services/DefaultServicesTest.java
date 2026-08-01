@@ -3,9 +3,15 @@ package dev.nodera.core.services;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -16,23 +22,35 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * every phone. These assertions are about the list that gets compiled in, so a pull request that
  * puts a loopback or LAN address into the published {@code index.json} fails here rather than on a
  * user's device.
+ *
+ * <p>The list is read from the <em>generated resource</em> rather than through an accessor on
+ * {@link DefaultServices}. Two reasons, and the second is the important one. It is mode-independent,
+ * so this gate bites the same whether or not the run has {@code NODERA_DEV} set. And it needs no
+ * production API that only a test would ever call: this class used to reach for
+ * {@code officialTrackerEndpoints()}, which nothing shipped ever called, and the structural report
+ * was right to name it dead. A test that has to grow the production surface to observe something is
+ * usually observing the wrong thing — here, what actually matters is the file in the jar.
  */
 final class DefaultServicesTest {
+
+    /** The resource the {@code generateOfficialServices} task writes. */
+    private static final String RESOURCE = "/dev/nodera/core/official-services.list";
 
     @Test
     @DisplayName("the official list is compiled into the jar and names both kinds of service")
     void theOfficialListIsPresent() {
-        assertFalse(DefaultServices.officialTrackerEndpoints().isEmpty(),
+        assertFalse(compiled("tracker").isEmpty(),
                 "a build with no tracker to announce to is a build that cannot join a network");
-        assertFalse(DefaultServices.officialRendezvousEndpoints().isEmpty(),
+        assertFalse(compiled("rendezvous").isEmpty(),
                 "a build with no relay cannot reach a peer behind NAT");
     }
 
     @Test
     @DisplayName("no official service is an address only its publisher can reach")
     void noOfficialServiceIsLocal() {
-        for (String route : concat(DefaultServices.officialTrackerEndpoints(),
-                DefaultServices.officialRendezvousEndpoints())) {
+        List<String> routes = new ArrayList<>(compiled("tracker"));
+        routes.addAll(compiled("rendezvous"));
+        for (String route : routes) {
             String host = host(route);
             assertFalse(host.equals("127.0.0.1") || host.equals("localhost") || host.equals("::1"),
                     route + " is loopback — on a player's machine that is their machine, and on a "
@@ -46,12 +64,17 @@ final class DefaultServicesTest {
     /**
      * A relay route is dialled as a bare {@code host:port}. The published list writes {@code tcp://}
      * because that is the form every other consumer uses, and the mod's own config validator refuses
-     * a scheme on a rendezvous route — so the strip has to happen, and it has to happen here.
+     * a scheme on a rendezvous route — so the strip has to happen, and it has to happen in
+     * {@link DefaultServices}.
+     *
+     * <p>Asserted through the accessor, not the resource: the stripping is the behaviour under test,
+     * and the resource is its input. It holds in either mode — the development relay carries no
+     * scheme either — so there is nothing to guard.
      */
     @Test
     @DisplayName("rendezvous routes arrive without a scheme")
     void rendezvousRoutesCarryNoScheme() {
-        for (String route : DefaultServices.officialRendezvousEndpoints()) {
+        for (String route : DefaultServices.rendezvousEndpoints()) {
             assertFalse(route.contains("://"), route + " must be a bare host:port");
         }
     }
@@ -66,8 +89,8 @@ final class DefaultServicesTest {
         if (DefaultServices.developmentMode()) {
             assertTrue(trackers.contains(DefaultServices.DEVELOPMENT_TRACKER));
         } else {
-            assertTrue(trackers.equals(DefaultServices.officialTrackerEndpoints()),
-                    "a production run defaults to the official list and to nothing else");
+            assertTrue(trackers.equals(compiled("tracker")),
+                    "a production run defaults to the compiled list and to nothing else");
         }
     }
 
@@ -77,10 +100,43 @@ final class DefaultServicesTest {
         assertTrue(DefaultServices.joined(List.of("a:1", "b:2")).equals("a:1,b:2"));
     }
 
-    private static List<String> concat(List<String> first, List<String> second) {
-        List<String> all = new java.util.ArrayList<>(first);
-        all.addAll(second);
-        return all;
+    /**
+     * The routes of one kind, read straight out of the generated resource.
+     *
+     * <p>Deliberately a second, dumber parser than the one in {@link DefaultServices}: if both sides
+     * of this gate shared an implementation, a parsing bug would agree with itself and the test
+     * would pass on a jar that ships nothing.
+     *
+     * <p>Returned exactly as written, scheme and all. {@link DefaultServices} strips {@code tcp://}
+     * from relay routes and leaves it on tracker routes, and reproducing that here would make the
+     * comparison in {@code developmentModeIsTheOnlyWayToGetLoopback} test nothing.
+     *
+     * @param kind {@code tracker} or {@code rendezvous}.
+     * @return the routes, exactly as written in the file.
+     */
+    private static List<String> compiled(String kind) {
+        List<String> routes = new ArrayList<>();
+        try (InputStream in = DefaultServicesTest.class.getResourceAsStream(RESOURCE)) {
+            assertNotNull(in, RESOURCE + " is missing — the generateOfficialServices task did not "
+                    + "run, so this build has no services at all");
+            try (BufferedReader reader =
+                    new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                        continue;
+                    }
+                    int space = trimmed.indexOf(' ');
+                    if (space > 0 && trimmed.substring(0, space).equals(kind)) {
+                        routes.add(trimmed.substring(space + 1).trim());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new AssertionError("cannot read " + RESOURCE, e);
+        }
+        return routes;
     }
 
     private static String host(String route) {

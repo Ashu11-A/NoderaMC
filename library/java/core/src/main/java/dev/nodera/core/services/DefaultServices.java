@@ -132,23 +132,14 @@ public final class DefaultServices {
         return developmentMode() ? List.of(DEVELOPMENT_RENDEZVOUS) : OFFICIAL_RENDEZVOUS;
     }
 
-    /**
-     * The official tracker routes, whatever mode this process is in.
-     *
-     * @return the compiled-in list.
-     */
-    public static List<String> officialTrackerEndpoints() {
-        return OFFICIAL_TRACKERS;
-    }
-
-    /**
-     * The official rendezvous routes, whatever mode this process is in.
-     *
-     * @return the compiled-in list, as bare {@code host:port}.
-     */
-    public static List<String> officialRendezvousEndpoints() {
-        return OFFICIAL_RENDEZVOUS;
-    }
+    // There were once `officialTrackerEndpoints()` / `officialRendezvousEndpoints()` here, returning
+    // the compiled list whatever mode the process was in. Nothing in production ever called them —
+    // a caller either wants the defaults for the mode it is in, which is the two methods above, or
+    // it wants to inspect the artefact, which is a test's job and not an API's. The structural
+    // report caught them as test-only methods, which is exactly what they were. The gate they
+    // existed to serve now reads the generated resource directly (`DefaultServicesTest`), and is
+    // stronger for it: it asserts about the file that shipped rather than about a list this class
+    // chose to expose.
 
     /**
      * Join a route list the way every {@code NODERA_*_ENDPOINTS} variable is spelled.

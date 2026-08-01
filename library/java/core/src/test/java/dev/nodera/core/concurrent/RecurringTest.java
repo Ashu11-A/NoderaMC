@@ -36,13 +36,20 @@ final class RecurringTest {
                     Recurring.survivable(
                             () -> {
                                 ticks.incrementAndGet();
-                                ranAgain.countDown();
                                 throw new IllegalStateException("every single tick fails");
                             },
+                            // The latch is released HERE and not in the body. It used to count down
+                            // before the throw, which made the third release happen a moment before
+                            // the third failure was recorded — so `await` could return with only two
+                            // entries in `reported` and the size assertion below failed roughly one
+                            // run in a hundred, on CI and never locally. Releasing from the reporter
+                            // makes the latch mean what the assertions need it to mean: three
+                            // failures have been *reported*, not three ticks have started.
                             failure -> {
                                 synchronized (reported) {
                                     reported.add(failure);
                                 }
+                                ranAgain.countDown();
                             }),
                     0, 5, TimeUnit.MILLISECONDS);
 
