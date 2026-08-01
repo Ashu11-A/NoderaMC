@@ -96,6 +96,24 @@ pub async fn run_events(control_addr: String, app: AppHandle) {
     nodera_core::api::events::pump(control_addr, sink).await;
 }
 
+/// The launch lane's sink: the fifth and last event this app emits.
+///
+/// Desktop only, because the lane is. There is no Java Minecraft client on Android, so a Play button
+/// there would be a button that cannot work.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub struct TauriLaunchSink(pub AppHandle);
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+impl nodera_core::launch::LaunchSink for TauriLaunchSink {
+    fn publish(&self, state: nodera_core::launch::LaunchState) {
+        let _ = self.0.emit(LAUNCH_EVENT, state);
+    }
+}
+
+/// The event a Play button lives on.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub const LAUNCH_EVENT: &str = "nodera://launch";
+
 /// The desktop link ladder: the system browser, then a window of our own.
 ///
 /// Only the desktop needs a shell-side opener. Android's whole ladder lives in Kotlin — deliberately,

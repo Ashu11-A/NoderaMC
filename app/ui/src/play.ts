@@ -194,3 +194,112 @@ export interface AboutBuild {
 export async function aboutBuild(): Promise<AboutBuild> {
   return invoke<AboutBuild>("about_build");
 }
+
+/* ---------------------------------------------------------------------------------- launching */
+
+/**
+ * How far a launch got. Mirrors `launch::Phase`.
+ *
+ * A closed set, and every one of them is a word the Play button says out loud. A spinner with no
+ * text under it is the same failure as a tile reporting `0` for "we never asked".
+ */
+export type LaunchPhase =
+  | "idle"
+  | "resolving"
+  | "joining"
+  | "preparing"
+  | "spawning"
+  | "running"
+  | "exited"
+  | "failed";
+
+/** The one thing to offer next. Mirrors `launch::Remedy`. */
+export type Remedy =
+  | "none"
+  | "install-mod"
+  | "pick-install"
+  | "install-java"
+  | "sign-in"
+  | "copy-address"
+  | "retry";
+
+/** Which route a launch takes. Mirrors `launch::Tier`. */
+export type LaunchTier = "prism" | "direct" | "servers-dat" | "address";
+
+/** Whether a tier lands the player *in* the world rather than in the Multiplayer menu. */
+export function autoConnects(tier: LaunchTier | null): boolean {
+  return tier === "prism" || tier === "direct";
+}
+
+/** Mirrors `launch::LaunchState`. */
+export interface LaunchState {
+  phase: LaunchPhase;
+  world_id: string;
+  session_id: string | null;
+  address: string | null;
+  tier: LaunchTier | null;
+  install_path: string | null;
+  profile: string | null;
+  java: string | null;
+  pid: number | null;
+  exit_code: number | null;
+  reason: string;
+  remedy: Remedy;
+}
+
+export const IDLE_LAUNCH: LaunchState = {
+  phase: "idle",
+  world_id: "",
+  session_id: null,
+  address: null,
+  tier: null,
+  install_path: null,
+  profile: null,
+  java: null,
+  pid: null,
+  exit_code: null,
+  reason: "",
+  remedy: "none",
+};
+
+/** Something this machine can start. Mirrors `launch::discover::LaunchTarget`. */
+export interface LaunchTarget {
+  name: string;
+  tier: LaunchTier;
+  game_dir: string;
+  version_id: string | null;
+  launcher: string | null;
+  instance: string | null;
+  java: string | null;
+  has_mod: boolean;
+  last_used: number;
+}
+
+/**
+ * What this machine could start, read before the button is pressed.
+ *
+ * So the screen can name the instance and say whether Play will land in the world or in a menu. A
+ * launcher that only reveals its choice by doing it is one nobody can predict.
+ */
+export async function fetchLaunchTargets(): Promise<LaunchTarget[]> {
+  return invoke<LaunchTarget[]>("launch_targets");
+}
+
+/**
+ * Join a world and start the game in it.
+ *
+ * Resolves as soon as the launch is under way. Everything after that arrives on `nodera://launch`,
+ * because a launch is a sequence of states a player watches rather than a call that answers once.
+ */
+export async function launchPlay(
+  worldId: string,
+  worldName: string,
+  profile?: string,
+): Promise<void> {
+  return invoke<void>("launch_play", { worldId, worldName, profile: profile ?? null });
+}
+
+/** Every transition of the running launch. */
+export function onLaunch(cb: (s: LaunchState) => void): Promise<UnlistenFn> {
+  return listen<LaunchState>("nodera://launch", (event) => cb(event.payload));
+}

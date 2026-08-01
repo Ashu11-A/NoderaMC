@@ -36,6 +36,13 @@ pub mod config;
 pub mod control;
 pub mod core;
 pub mod daemon;
+/// Starting the game.
+///
+/// Desktop only, and structurally so: there is no Java Minecraft client on Android, so a `Play`
+/// button on a phone would be a button that cannot work. The gate is here rather than a runtime
+/// check inside, so a Compose screen cannot call it by accident.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub mod launch;
 pub mod logs;
 pub mod metrics;
 pub mod peer;

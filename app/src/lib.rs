@@ -485,6 +485,38 @@ fn is_mobile_build() -> bool {
     peer::is_mobile()
 }
 
+/// Tauri command: what this machine could start, and how each one would start it.
+///
+/// Read before the button is pressed, so the interface can name the instance and say whether the
+/// player will land in the world or in the Multiplayer menu.
+#[cfg(desktop)]
+#[tauri::command]
+async fn launch_targets(
+    app: tauri::AppHandle,
+) -> Vec<nodera_core::launch::discover::LaunchTarget> {
+    core_of(&app).launch_targets().await
+}
+
+/// Tauri command: join a world and start the game in it.
+///
+/// Returns as soon as the launch is *under way*; everything after that arrives on
+/// `nodera://launch`, because a launch is a sequence of states a player watches rather than a call
+/// that answers once. The task owns the tunnel it opened and closes it when the game exits.
+#[cfg(desktop)]
+#[tauri::command]
+async fn launch_play(
+    app: tauri::AppHandle,
+    world_id: String,
+    world_name: String,
+    profile: Option<String>,
+) -> Result<(), String> {
+    let core = core_of(&app);
+    let sink: Arc<dyn nodera_core::launch::LaunchSink> =
+        Arc::new(shell::TauriLaunchSink(app.clone()));
+    tokio::spawn(async move { core.play(world_id, world_name, profile, sink).await });
+    Ok(())
+}
+
 /// Tauri command: what this build is and what it is built out of.
 ///
 /// The dependency list is embedded from a generated manifest, so it describes *this* binary rather
@@ -769,6 +801,10 @@ pub fn run() {
             save_share_file,
             parse_share_link,
             about_build,
+            #[cfg(desktop)]
+            launch_targets,
+            #[cfg(desktop)]
+            launch_play,
             peer_status,
             peer_self_test,
             is_mobile_build,

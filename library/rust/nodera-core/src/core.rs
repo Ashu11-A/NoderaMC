@@ -585,6 +585,153 @@ impl NoderaCore {
     ) -> Result<&'static str, String> {
         crate::browser::open(opener, url)
     }
+
+    /* ----------------------------------------------------------------------------------- play */
+
+    /// What this machine could start, and which route each would take.
+    ///
+    /// Read before the button is pressed, so the interface can name the instance and say whether the
+    /// player will land in the world or in the Multiplayer menu. A launcher that only reveals its
+    /// choice by doing it is one nobody can predict.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub async fn launch_targets(&self) -> Vec<crate::launch::discover::LaunchTarget> {
+        tokio::task::spawn_blocking(crate::launch::discover::targets)
+            .await
+            .unwrap_or_default()
+    }
+
+    /// Join a world and start the game in it.
+    ///
+    /// # The order is the design
+    ///
+    /// 1. **Plan first.** Choosing a route reads the filesystem and nothing else, so the two common
+    ///    failures — no installation, and one without the mod — cost the player nothing rather than
+    ///    opening a tunnel to somebody's host and then finding there is nothing to start.
+    /// 2. **Then the tunnel.** A game that starts and finds nothing listening is a player staring at
+    ///    "connection refused" with no idea which half broke.
+    /// 3. **Then prepare, then spawn.**
+    /// 4. **Close the tunnel when the game exits — and when anything after step 2 fails.** This is
+    ///    the leak the old Join screen had: it opened a tunnel and never closed it, so a session
+    ///    outlived the game and the node kept a door open to a host the player had finished with.
+    ///
+    /// Every transition is published, because a Play button that shows a spinner and no word is the
+    /// same failure as a dashboard reporting `0` for "we never asked".
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub async fn play(
+        self: Arc<Self>,
+        world_id: String,
+        world_name: String,
+        preferred: Option<String>,
+        sink: Arc<dyn crate::launch::LaunchSink>,
+    ) {
+        use crate::launch::{plan as planner, Phase, Remedy};
+
+        let mut state = crate::launch::LaunchState {
+            world_id: world_id.clone(),
+            ..crate::launch::LaunchState::idle()
+        }
+        .at(Phase::Resolving);
+        sink.publish(state.clone());
+
+        let targets = self.launch_targets().await;
+        let chosen = match planner::plan(&targets, preferred.as_deref()) {
+            Ok(chosen) => chosen,
+            Err(no) => {
+                sink.publish(state.failed(no.reason, no.remedy));
+                return;
+            }
+        };
+        state.tier = Some(chosen.tier);
+        state.profile = Some(chosen.target.name.clone());
+        state.install_path = Some(chosen.target.game_dir.clone());
+
+        state = state.at(Phase::Joining);
+        sink.publish(state.clone());
+        let joined = self.join_world(world_id.clone()).await;
+        if !joined.ok {
+            let reason = if joined.error.is_empty() {
+                "the worker could not open a tunnel to that world".to_owned()
+            } else {
+                joined.error.clone()
+            };
+            sink.publish(state.failed(reason, Remedy::Retry));
+            return;
+        }
+        state.session_id = Some(world_id.clone());
+        state.address = Some(joined.value.clone());
+
+        state = state.at(Phase::Preparing);
+        sink.publish(state.clone());
+        let prepared = match planner::prepare(
+            &chosen,
+            &joined.value,
+            &world_name,
+            // Only the offline identity uses this, and only the two delegating tiers ever run today
+            // — neither of which takes a player name from us, because their launcher owns the
+            // account. A real name arrives with a real sign-in, not before.
+            "Player",
+            crate::launch::auth::client_id().as_deref(),
+        ) {
+            Ok(prepared) => prepared,
+            Err(no) => {
+                // The tunnel is already open at this point, and nothing is going to use it.
+                self.leave_world(world_id.clone()).await;
+                state.session_id = None;
+                sink.publish(state.failed(no.reason, no.remedy));
+                return;
+            }
+        };
+        state.java = prepared.java.as_ref().map(|p| p.display().to_string());
+
+        state = state.at(Phase::Spawning);
+        sink.publish(state.clone());
+        let command = prepared.command.clone();
+        let spawned = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(&command.program)
+                .args(&command.arguments)
+                .current_dir(&command.working_dir)
+                .spawn()
+                .map_err(|e| format!("{} could not be started: {e}", command.program.display()))
+        })
+        .await;
+
+        let child = match spawned {
+            Ok(Ok(child)) => child,
+            Ok(Err(reason)) => {
+                self.leave_world(world_id.clone()).await;
+                state.session_id = None;
+                sink.publish(state.failed(reason, Remedy::PickInstall));
+                return;
+            }
+            Err(e) => {
+                self.leave_world(world_id.clone()).await;
+                state.session_id = None;
+                sink.publish(state.failed(format!("the launch task failed: {e}"), Remedy::Retry));
+                return;
+            }
+        };
+
+        state.pid = Some(child.id());
+        state = state.at(Phase::Running);
+        sink.publish(state.clone());
+        log::info!(
+            "launch: {} started for {world_id} on {}",
+            chosen.target.name,
+            joined.value
+        );
+
+        // Waited on rather than forgotten: the exit is what closes the tunnel, and it is also the
+        // only honest way to stop saying "Running".
+        let mut child = child;
+        let exited = tokio::task::spawn_blocking(move || child.wait()).await;
+        state.exit_code = match exited {
+            Ok(Ok(status)) => status.code(),
+            _ => None,
+        };
+        self.leave_world(world_id).await;
+        state.session_id = None;
+        sink.publish(state.at(Phase::Exited));
+    }
 }
 
 impl Default for NoderaCore {

@@ -113,7 +113,9 @@ function registeredCommands() {
   return list
     .split("\n")
     .map((line) => line.replace(/\/\/.*$/, "").trim().replace(/,$/, ""))
-    .filter(Boolean)
+    // `#[cfg(...)]` gates entries in this list — the launch lane is desktop-only, because there is
+    // no Java Minecraft client on Android. An attribute is not a command name.
+    .filter((line) => line && !line.startsWith("#["))
     .map((name) => name.split("::").pop());
 }
 
