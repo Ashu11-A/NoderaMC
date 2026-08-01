@@ -168,8 +168,17 @@ mod tests {
             "an offline identity must never claim otherwise"
         );
         assert_eq!(first.user_type, "legacy");
-        assert_eq!(first.uuid.len(), 36, "{}", first.uuid);
-        assert_eq!(first.uuid.matches('-').count(), 4);
+        // Shape only, and the failure message carries the shape rather than the value. An account
+        // identifier printed in the clear is an account identifier in a log file, and a test's
+        // assertion message is a log line like any other — CodeQL's `rust/cleartext-logging` is
+        // right about that even when the account is synthetic, because the same habit applied to
+        // `Account::access_token` would leak a real credential.
+        let shape: String = first
+            .uuid
+            .chars()
+            .map(|c| if c == '-' { '-' } else { 'x' })
+            .collect();
+        assert_eq!(shape, "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", "{shape}");
 
         // An empty name still produces a usable identity rather than an empty `${auth_player_name}`,
         // which the game renders as a nameless player.
