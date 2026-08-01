@@ -309,23 +309,68 @@ pub fn built_in_store() -> Option<TrackerStore> {
         .map(|index| store_from(OFFICIAL_STORE_URL, index, 0, true))
 }
 
-/// Every endpoint of one kind that the stores contribute, deduplicated, in store order.
+// `endpoints_of(stores, kind)` lived here: the store-only half of the walk. `merged` was the only
+// caller, and once `resolved` below took over the walk it had none — `merged(&[], stores, kind)` is
+// the same list, from the same code, and a second entry point into one algorithm is how the two
+// halves of it drift. Deleted rather than kept for the tests that used it; they say
+// `merged(&[], …)` now.
+
+/// One endpoint in the effective list, and where it came from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedEndpoint {
+    /// The route, exactly as it will be handed to the worker.
+    pub endpoint: String,
+    /// The name of the store that contributed it, or empty when the user typed it.
+    ///
+    /// Provenance rather than a boolean, because "where did this address come from" is the question
+    /// a user actually has in front of a list they did not fully write.
+    #[serde(default)]
+    pub store: String,
+}
+
+/// Merge configured endpoints with what the stores contribute, keeping provenance.
 ///
-/// The caller puts the user's own configured endpoints first. That ordering is the whole point: a
-/// store must be able to *add* somewhere to look and must never be able to displace an address the
-/// user typed. Peers reorder all of it by measurement anyway, so position here is about provenance,
-/// not preference.
-pub fn endpoints_of(stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+/// ## Why this is the primitive and [`merged`] is derived from it
+///
+/// The app knew the effective list all along — it is what `worker_env`, `WorkerConfig::of` and the
+/// synchronisation file are all built from — but nothing ever *showed* it. The settings screen
+/// rendered `network.default_trackers`, which is only what the user typed, so an install whose
+/// single tracker came from the built-in store read "0 tracker(s)" on one screen while the store
+/// screen beside it read "1 tracker · 1 relay". Both were describing the same working node. The
+/// store looked ignored because the app never said otherwise.
+///
+/// So the merge returns provenance now, and the screens render this rather than the raw setting. It
+/// is the same walk in the same order — the user's own first, stores after, deduplicated — because
+/// [`merged`] is literally this function with the provenance dropped. Two implementations of "what
+/// this node will actually dial" is exactly the drift that produced the wrong screen.
+pub fn resolved(
+    configured: &[String],
+    stores: &[TrackerStore],
+    kind: ServiceKind,
+) -> Vec<ResolvedEndpoint> {
+    let mut out: Vec<ResolvedEndpoint> = Vec::new();
+    let mut push = |endpoint: String, store: &str| {
+        if endpoint.is_empty() || out.iter().any(|held| held.endpoint == endpoint) {
+            return;
+        }
+        out.push(ResolvedEndpoint {
+            endpoint,
+            store: store.to_owned(),
+        });
+    };
+
+    // The user's own first. A store must be able to *add* somewhere to look and must never displace
+    // an address the user typed.
+    for endpoint in configured {
+        push(endpoint.trim().to_owned(), "");
+    }
     for store in stores {
         for service in &store.services {
             if service.kind != kind {
                 continue;
             }
             for endpoint in &service.endpoints {
-                if !out.iter().any(|held| held == endpoint) {
-                    out.push(endpoint.clone());
-                }
+                push(endpoint.clone(), &store.name);
             }
         }
     }
@@ -333,20 +378,14 @@ pub fn endpoints_of(stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
 }
 
 /// Merge configured endpoints with what the stores contribute.
+///
+/// The plain-string view of [`resolved`], for the three places that hand the list to the worker and
+/// have no use for provenance: the environment, `NODERA-CONFIG`, and the synchronisation file.
 pub fn merged(configured: &[String], stores: &[TrackerStore], kind: ServiceKind) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for endpoint in configured {
-        let trimmed = endpoint.trim();
-        if !trimmed.is_empty() && !out.iter().any(|held| held == trimmed) {
-            out.push(trimmed.to_owned());
-        }
-    }
-    for endpoint in endpoints_of(stores, kind) {
-        if !out.iter().any(|held| held == &endpoint) {
-            out.push(endpoint);
-        }
-    }
-    out
+    resolved(configured, stores, kind)
+        .into_iter()
+        .map(|resolved| resolved.endpoint)
+        .collect()
 }
 
 /// Pull the store URL out of a `nodera://tracker-store?url=…` deep link.
@@ -471,8 +510,8 @@ mod tests {
         let store = built_in_store().expect("the bundled official list must parse");
         assert!(!store.services.is_empty());
         assert!(store.built_in);
-        assert!(!endpoints_of(std::slice::from_ref(&store), ServiceKind::Tracker).is_empty());
-        assert!(!endpoints_of(&[store], ServiceKind::Rendezvous).is_empty());
+        assert!(!merged(&[], std::slice::from_ref(&store), ServiceKind::Tracker).is_empty());
+        assert!(!merged(&[], &[store], ServiceKind::Rendezvous).is_empty());
     }
 
     #[test]
@@ -557,7 +596,7 @@ mod tests {
         let index = parse_index(&index_json("")).unwrap();
         let a = store_from("https://a.example.org/i.json", index.clone(), 1, false);
         let b = store_from("https://b.example.org/i.json", index, 1, false);
-        assert_eq!(endpoints_of(&[a, b], ServiceKind::Tracker).len(), 1);
+        assert_eq!(merged(&[], &[a, b], ServiceKind::Tracker).len(), 1);
     }
 
     #[test]
@@ -567,11 +606,11 @@ mod tests {
         let index = parse_index(&index_json("")).unwrap();
         let store = store_from("https://example.org/i.json", index, 1, false);
         assert_eq!(
-            endpoints_of(std::slice::from_ref(&store), ServiceKind::Tracker),
+            merged(&[], std::slice::from_ref(&store), ServiceKind::Tracker),
             vec!["tcp://a.example.org:6969"]
         );
         assert_eq!(
-            endpoints_of(&[store], ServiceKind::Rendezvous),
+            merged(&[], &[store], ServiceKind::Rendezvous),
             vec!["tcp://b.example.org:7500"]
         );
     }
@@ -653,11 +692,58 @@ mod tests {
     }
 
     #[test]
+    fn the_effective_list_says_where_each_address_came_from() {
+        // The bug this closes: the settings screen read `network.default_trackers` and reported
+        // "0 tracker(s)" on an install whose tracker came from the built-in store — while the store
+        // screen beside it listed that tracker. Nothing was broken except what the app said.
+        let index = parse_index(&index_json("")).unwrap();
+        let store = store_from("https://example.org/i.json", index, 10, true);
+        let typed = vec!["tcp://mine.example.org:6969".to_owned()];
+
+        let trackers = resolved(&typed, std::slice::from_ref(&store), ServiceKind::Tracker);
+        assert_eq!(
+            trackers,
+            vec![
+                ResolvedEndpoint {
+                    endpoint: "tcp://mine.example.org:6969".to_owned(),
+                    store: String::new(),
+                },
+                ResolvedEndpoint {
+                    endpoint: "tcp://a.example.org:6969".to_owned(),
+                    store: "Example".to_owned(),
+                },
+            ],
+            "the user's own comes first and carries no store name"
+        );
+    }
+
+    #[test]
+    fn the_effective_list_and_the_worker_list_cannot_disagree() {
+        // `merged` is what the worker is handed; `resolved` is what the user is shown. A screen
+        // that describes a different list from the one being dialled is the defect this whole pair
+        // exists to prevent, so one is defined as the other with a field dropped.
+        let index = parse_index(&index_json("")).unwrap();
+        let store = store_from("https://example.org/i.json", index, 10, false);
+        let typed = vec![
+            "tcp://mine.example.org:6969".to_owned(),
+            "  ".to_owned(),
+            "tcp://a.example.org:6969".to_owned(),
+        ];
+        for kind in [ServiceKind::Tracker, ServiceKind::Rendezvous] {
+            let shown: Vec<String> = resolved(&typed, std::slice::from_ref(&store), kind)
+                .into_iter()
+                .map(|entry| entry.endpoint)
+                .collect();
+            assert_eq!(shown, merged(&typed, std::slice::from_ref(&store), kind));
+        }
+    }
+
+    #[test]
     fn a_failed_refresh_keeps_yesterdays_services() {
         // Losing every tracker because a web server had a bad minute is worse than a stale list.
         let index = parse_index(&index_json("")).unwrap();
         let mut store = store_from("https://example.org/i.json", index, 10, false);
         store.last_error = "connection reset".to_owned();
-        assert_eq!(endpoints_of(&[store], ServiceKind::Tracker).len(), 1);
+        assert_eq!(merged(&[], &[store], ServiceKind::Tracker).len(), 1);
     }
 }

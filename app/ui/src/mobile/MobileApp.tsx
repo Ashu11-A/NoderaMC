@@ -184,8 +184,12 @@ function NodeTab(props: { d: Dashboard; onAddTrackers: () => void }) {
         </Card>
       </StaggerItem>
 
-      {/* Not a takeover: the node is working, and this is the one thing that is not. */}
-      {reachable === 0 && (
+      {/* Not a takeover: the node is working, and this is the one thing that is not.
+          Gated on `known`, because "the worker has not told us anything yet" is not "there are no
+          trackers". Without that gate this card appeared on every cold start and after every link
+          drop, telling a user with a perfectly good store that nothing was configured — which is
+          the one conclusion the screen must never invite them to draw. */}
+      {known && reachable === 0 && (
         <StaggerItem>
           <Card variant="outlined">
             <ListItem
@@ -208,8 +212,16 @@ function NodeTab(props: { d: Dashboard; onAddTrackers: () => void }) {
 
       <StaggerItem>
       <Card>
-        {trackers.length === 0 ? (
-          <ListItem headline="No trackers" supporting="Add one in Settings › Network" />
+        {!known ? (
+          // Same rule as the card above: an app that has not yet heard from its worker knows
+          // nothing about the tracker list, and saying "No trackers" is an assertion it cannot
+          // make. It sent a user to add a tracker they already had.
+          <ListItem headline="—" supporting="Waiting for the peer to report" />
+        ) : trackers.length === 0 ? (
+          <ListItem
+            headline="No trackers"
+            supporting="Add one in Settings › Network, or a list under Settings › Tracker stores"
+          />
         ) : (
           trackers.map((t) => (
             <ListItem

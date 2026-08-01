@@ -145,3 +145,66 @@ test("importing a store shows what the address served before anything is trusted
     "a link must not start a fetch on arrival",
   );
 });
+
+test("no screen reports a tracker count from the typed list alone", () => {
+  // `network.default_trackers` is what this install TYPED. The effective list is that plus whatever
+  // the stores contribute, which is what `worker_env`, `WorkerConfig::of` and the synchronisation
+  // file all build. Rendering the setting as though it were the list is what made a working install
+  // read "0 tracker(s)" in Settings while Tracker stores, one row down, listed a tracker and a
+  // relay — and the obvious conclusion, that adding a store does nothing, was wrong.
+  //
+  // So: a count shown to a person comes from `resolvedServices`, never from `.default_trackers
+  // .length`. Editing that array is still fine — the textareas own it.
+  const screens = {
+    "mobile/Settings.tsx": mobileSettings,
+    "mobile/MobileApp.tsx": readFileSync(
+      new URL("../src/mobile/MobileApp.tsx", import.meta.url),
+      "utf8",
+    ),
+    "Settings.tsx": readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8"),
+  };
+  for (const [name, source] of Object.entries(screens)) {
+    for (const line of source.split("\n")) {
+      // Prose about the rule is not a breach of it. Without this the comment explaining *why* the
+      // effective count is used would fail the test that enforces it.
+      const trimmed = line.trim();
+      if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
+      // The one legitimate reading of the raw length is the guard that asks whether the user is
+      // clearing a box they had filled in.
+      if (line.includes("settings.network.default_trackers.length > 0")) continue;
+      assert.doesNotMatch(
+        line,
+        /network\.default_trackers\.length/,
+        `${name} counts the typed list; use resolvedServices() for anything a person reads`,
+      );
+    }
+  }
+
+  assert.match(
+    mobileSettings,
+    /resolvedServices\(\)/,
+    "the phone's settings screen must read the effective list",
+  );
+  assert.match(
+    screens["Settings.tsx"],
+    /resolvedServices\(\)/,
+    "the desktop settings screen must read the effective list",
+  );
+});
+
+test("the node screen does not report zero trackers before the worker has spoken", () => {
+  // `unknown` and `zero` are different states and the screen must not collapse them. An app that
+  // has never heard from its worker was telling users with a perfectly good store that they had no
+  // trackers configured, and sending them to add one they already had.
+  const app = readFileSync(new URL("../src/mobile/MobileApp.tsx", import.meta.url), "utf8");
+  assert.match(
+    app,
+    /\{known && reachable === 0 && \(/,
+    "the no-tracker card must be gated on having heard from the worker",
+  );
+  assert.match(
+    app,
+    /\{!known \? \([\s\S]{0,400}?Waiting for the peer to report/,
+    "the tracker list must say it does not know yet, rather than saying there are none",
+  );
+});
