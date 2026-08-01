@@ -45,6 +45,9 @@ nodera-telemetry = { path = "../telemetry" }
 tauri = { version = "2", features = ["tray-icon"] }
 # The native save dialog behind "Save logs" — the OS picker, not a path typed into the app.
 tauri-plugin-dialog = "2"
+# Handing a link to the desktop's default browser. `<a target="_blank">` opens nothing in a Tauri v2
+# webview, so every outbound link in the interface went through the host or did not work at all.
+tauri-plugin-opener = "2"
 # `nodera://tracker-store?url=…` — the link a website's "add this store" button opens, mirroring
 # Mihon's `mihon://extension-store?url=…`. Registers the scheme with the OS on desktop and delivers
 # the Android VIEW intent; the app never acts on a link, it only shows it and waits.

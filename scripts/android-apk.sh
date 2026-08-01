@@ -337,12 +337,32 @@ if anchor in text:
 PYEOF
 fi
 
+# androidx.browser: Chrome Custom Tabs, the first rung of `NoderaBrowser`'s ladder — the user's own
+# browser engine drawn inside this task, so the back gesture returns to Nodera rather than leaving
+# it. Without the dependency the class is absent, the rung throws, and every link silently falls
+# through to a full browser switch. Added here for the same reason as the line above: Tauri
+# regenerates this Gradle file.
+if ! grep -q "androidx.browser" "$GRADLE_APP"; then
+  say "gradle     adding androidx.browser (custom tabs)"
+  python3 - "$GRADLE_APP" <<'PYEOF'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+anchor = '    implementation("androidx.appcompat:appcompat:1.7.1")\n'
+if anchor in text:
+    text = text.replace(anchor, anchor + '    implementation("androidx.browser:browser:1.8.0")\n', 1)
+    open(path, 'w').write(text)
+PYEOF
+fi
+grep -q "androidx.browser" "$GRADLE_APP" \
+  || die "androidx.browser is not in $GRADLE_APP — custom tabs would be missing from the APK"
+
 # Keep the classes the RUST side calls by name. R8 cannot see a reflective JNI call, so it renamed
 # `NoderaStorage.pick` to `a` and the folder picker failed with:
 #
 #   java.lang.NoSuchMethodError: no static method "Ldev/nodera/app/NoderaStorage;.pick()V"
 #
-# Only these three types are reachable from native code; everything else stays minifiable.
+# Only these four types are reachable from native code; everything else stays minifiable.
 PROGUARD="$APP_DIR/gen/android/app/proguard-rules.pro"
 if [[ -f "$PROGUARD" ]] && ! grep -q "dev.nodera.app.NoderaStorage" "$PROGUARD"; then
   say "proguard   keeping the JNI entry points"
@@ -352,6 +372,7 @@ if [[ -f "$PROGUARD" ]] && ! grep -q "dev.nodera.app.NoderaStorage" "$PROGUARD";
 -keep class dev.nodera.app.NoderaStorage { *; }
 -keep class dev.nodera.app.NoderaWorker { *; }
 -keep class dev.nodera.app.NoderaBridge { *; }
+-keep class dev.nodera.app.NoderaBrowser { *; }
 PROEOF
 fi
 

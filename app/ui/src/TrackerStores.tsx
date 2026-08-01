@@ -57,6 +57,7 @@ import {
   type StoreService,
   type TrackerStore,
 } from "./ipc";
+import { linkNote, useExternalLink } from "./links";
 
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
@@ -715,6 +716,7 @@ function StoreCard(props: {
   const { store } = props;
   const [open, setOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const homepage = useExternalLink();
   const health = healthOf(store);
 
   const refresh = async () => {
@@ -790,23 +792,34 @@ function StoreCard(props: {
             <FiRefreshCw className={refreshing ? "animate-spin" : ""} />
           </IconButton>
           <CopyButton value={store.url} label="Copy the store address" />
+          {/* Not an `<a target="_blank">`, which opened nothing at all in this webview — so the one
+              outbound link on this screen pointed at a publisher's page and did not go there. The
+              host opens it now: the desktop's browser, or on Android a Custom Tab. `homepage` is a
+              string out of a third party's index, which is why the host validates the scheme rather
+              than trusting this call site. */}
           {store.homepage && (
-            <a
-              href={store.homepage}
-              target="_blank"
-              rel="noreferrer"
-              title="Open the publisher's page"
-              aria-label="Open the publisher's page"
-              className="rounded p-2 text-[var(--tracker-store-on-surface-variant)] hover:bg-[var(--tracker-store-surface-hover)] hover:text-[var(--tracker-store-on-surface)]"
+            <IconButton
+              label="Open the publisher's page"
+              onClick={() => homepage.open(store.homepage)}
+              disabled={homepage.state.status === "opening"}
             >
               <FiExternalLink />
-            </a>
+            </IconButton>
           )}
           <IconButton label="Remove this store" danger onClick={props.onRemove}>
             <FiTrash2 />
           </IconButton>
         </div>
       </div>
+
+      {/* Said only when there is something to say: a device with no browser puts the address on the
+          clipboard instead, and a button that appears to do nothing when pressed is the outcome
+          this line exists to prevent. */}
+      {linkNote(homepage.state) && (
+        <p className="px-4 pb-3 text-xs text-[var(--tracker-store-muted)]">
+          {linkNote(homepage.state)}
+        </p>
+      )}
 
       {open && (
         <div className="border-t border-[var(--tracker-store-outline-soft)]">
