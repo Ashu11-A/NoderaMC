@@ -79,12 +79,37 @@ pub fn check_url(url: &str) -> Result<String, String> {
     Ok(trimmed.to_owned())
 }
 
-/// Open a validated web link, and say which rung answered.
+/// How a shell hands an **already validated** address to the platform.
 ///
-/// The tag is for the log and for tests, not for the user: `browser`, `custom-tab`, or `webview`.
-pub fn open(app: &tauri::AppHandle, url: &str) -> Result<&'static str, String> {
+/// The validation is not part of this: refusing `file:///etc/passwd` is the same decision on every
+/// platform, and a trait method that took the raw string would let one shell forget to check. So
+/// [`open`] checks, and the implementor only ever sees an address that passed.
+///
+/// The tag it returns is for the log and for tests, not for the user: `browser`, `custom-tab`, or
+/// `webview`.
+pub trait LinkOpener: Send + Sync {
+    fn open_checked(&self, url: &str) -> Result<&'static str, String>;
+}
+
+/// Open a web link, and say which rung answered.
+pub fn open(opener: &dyn LinkOpener, url: &str) -> Result<&'static str, String> {
     let target = check_url(url)?;
-    platform::open(app, &target)
+    opener.open_checked(&target)
+}
+
+/// The platform's own opener, where the platform has one this crate can drive.
+///
+/// Android's whole ladder is in Kotlin (see below), so the core can own it outright. The desktop's
+/// is not — its second rung is a webview window, which only the Tauri shell can build — so on
+/// desktop the shell supplies the implementation instead.
+#[cfg(target_os = "android")]
+pub struct SystemOpener;
+
+#[cfg(target_os = "android")]
+impl LinkOpener for SystemOpener {
+    fn open_checked(&self, url: &str) -> Result<&'static str, String> {
+        platform::open(url)
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -104,7 +129,7 @@ mod platform {
     /// So the fallback ladder lives entirely in Kotlin now, where a failed rung is an ordinary
     /// caught exception and never becomes a pending JNI one. Rust makes exactly one call, and clears
     /// anything it left behind before returning.
-    pub fn open(_app: &tauri::AppHandle, url: &str) -> Result<&'static str, String> {
+    pub fn open(url: &str) -> Result<&'static str, String> {
         crate::android::with_context(|env, context| {
             let target = env.new_string(url).map_err(|e| format!("string: {e}"))?;
             let call = env.call_static_method(
@@ -146,49 +171,6 @@ mod platform {
                 _ => "browser",
             })
         })
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-mod platform {
-    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
-
-    /// The default browser, then a window of our own.
-    ///
-    /// The second rung replaces the clipboard, which was never an answer to "open this link". A
-    /// desktop with no registered http handler — a bare container, a stripped kiosk image, a Linux
-    /// box with no `xdg-open` — is exactly where a user is least able to work around a dead button,
-    /// and this application is a webview: it can always show the page itself.
-    pub fn open(app: &tauri::AppHandle, url: &str) -> Result<&'static str, String> {
-        match tauri_plugin_opener::open_url(url, None::<&str>) {
-            Ok(()) => Ok("browser"),
-            Err(reason) => {
-                log::warn!("no system browser ({reason}); opening the page in a window");
-                window(app, url).map(|()| "webview")
-            }
-        }
-    }
-
-    /// A plain Tauri window pointed at the page.
-    fn window(app: &tauri::AppHandle, url: &str) -> Result<(), String> {
-        let parsed = url
-            .parse()
-            .map_err(|e| format!("that address is not one a window can open: {e}"))?;
-        // One reusable label. A second click on a link should raise the window that is already
-        // showing a page rather than stack another one behind it — and an unbounded number of
-        // windows named after URLs is a leak with a user interface.
-        const LABEL: &str = "external-page";
-        if let Some(existing) = app.get_webview_window(LABEL) {
-            let _ = existing.navigate(parsed);
-            let _ = existing.set_focus();
-            return Ok(());
-        }
-        WebviewWindowBuilder::new(app, LABEL, WebviewUrl::External(parsed))
-            .title("Nodera — external page")
-            .inner_size(1000.0, 760.0)
-            .build()
-            .map(|_| ())
-            .map_err(|e| format!("could not open a window for that page: {e}"))
     }
 }
 
@@ -255,39 +237,5 @@ mod tests {
             "a bare host has no scheme"
         );
         assert!(check_url(&format!("https://e.org/{}", "a".repeat(4096))).is_err());
-    }
-
-    /// Does this machine's first rung actually work?
-    ///
-    /// Ignored by default because it opens a real browser window, which is not something a test
-    /// suite should do to whoever runs it. Run it by hand when a user reports that links do
-    /// nothing — it separates "the opener is broken here" from "the app never called it".
-    ///
-    ///     cargo test --manifest-path app/Cargo.toml -- --ignored opens_a_real_browser
-    #[test]
-    #[ignore = "opens a real browser window"]
-    fn opens_a_real_browser() {
-        tauri_plugin_opener::open_url("https://noderamc.org", None::<&str>)
-            .expect("the desktop opener should reach a browser on a machine that has one");
-    }
-
-    #[test]
-    fn every_accepted_url_can_be_parsed_by_the_window_fallback() {
-        // The desktop's second rung parses the URL again, and a string this module accepted but
-        // `Url::parse` rejects would turn a working link into an error only reachable on a machine
-        // with no browser — the one machine that cannot afford it.
-        for url in [
-            "https://noderamc.org/",
-            "http://example.org",
-            "HTTPS://example.org",
-            "https://example.org/a/b?c=d#e",
-            "https://user@example.org:8443/path",
-        ] {
-            let checked = check_url(url).expect(url);
-            assert!(
-                checked.parse::<tauri::Url>().is_ok(),
-                "{url} passed check_url but cannot be parsed"
-            );
-        }
     }
 }

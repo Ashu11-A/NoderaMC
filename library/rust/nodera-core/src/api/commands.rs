@@ -13,11 +13,10 @@ use crate::api::model::Dashboard;
 use crate::api::store::DashboardStore;
 use crate::metrics::PieceMapView;
 
-/// The whole current picture. Called once on mount; after that the page lives on the
+/// The whole current picture. Called once on mount; after that the interface lives on the
 /// `nodera://dashboard` event, and calls this again only to re-sync (a reopened window, a resumed
 /// machine) rather than on a timer.
-#[tauri::command]
-pub fn dashboard(store: tauri::State<Arc<DashboardStore>>) -> Dashboard {
+pub fn dashboard(store: &Arc<DashboardStore>) -> Dashboard {
     store.snapshot()
 }
 

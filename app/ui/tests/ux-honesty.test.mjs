@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import { readCrate } from "./layout.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -26,7 +27,7 @@ function frontendSources() {
 
 const frontend = frontendSources();
 const lib = read("../../src/lib.rs");
-const commands = read("../../src/api/commands.rs");
+const commands = readCrate("nodera-core", "src/api/commands.rs");
 
 /* ------------------------------------------------------------------------------------ A-UX-1 */
 
@@ -82,7 +83,7 @@ test("the notifications toggle is badged with why it is not in force", () => {
   // The backing declaration is asserted on the Rust side
   // (`appearance_notifications_is_declared_unenforced_with_a_reason`); this half only proves the
   // screen actually shows the badge that declaration produces.
-  assert.match(read("../../src/settings.rs"), /Enforcement::Never \{\s*reason: "desktop notifications/);
+  assert.match(readCrate("nodera-core", "src/settings.rs"), /Enforcement::Never \{\s*reason: "desktop notifications/);
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-3 */

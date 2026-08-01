@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "library/rust/nodera-codec",
+    "library/rust/nodera-core",
     "library/rust/nodera-service",
     "tracker",
     "rendezvous",
@@ -28,6 +29,7 @@ publish = false
 
 [workspace.dependencies]
 nodera-codec = { path = "library/rust/nodera-codec" }
+nodera-core = { path = "library/rust/nodera-core" }
 nodera-service = { path = "library/rust/nodera-service" }
 nodera-telemetry = { path = "telemetry" }
 ed25519-dalek = { version = "2.1", default-features = false, features = ["alloc"] }

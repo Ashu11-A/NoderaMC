@@ -22,7 +22,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -111,98 +110,44 @@ impl DiscoveryChange {
     }
 }
 
-/// The production sink: the Tauri events every page listens on.
-pub struct EventSink {
-    app: AppHandle,
-    /// The last discovery state reported, so [`DISCOVERY_EVENT`] is edge-triggered.
-    ///
-    /// Held here rather than in the pump because a snapshot reaches the UI by two routes — the
-    /// stream and the polling fallback — and an edge detected in only one of them would go missing
-    /// exactly when the link is degraded, which is when it matters most.
-    last_discovery: std::sync::Mutex<Option<DiscoveryChange>>,
-    /// Whether the last emit failed, so the transition is logged once rather than on every push.
-    emit_failing: std::sync::atomic::AtomicBool,
-}
-
-impl EventSink {
-    pub fn new(app: AppHandle) -> Self {
-        Self {
-            app,
-            last_discovery: std::sync::Mutex::new(None),
-            emit_failing: std::sync::atomic::AtomicBool::new(false),
-        }
-    }
-
-    /// Emit, and report the *transition* between working and not.
-    ///
-    /// This was `let _ = emit(...)`, justified by "no window is listening is normal". That is true
-    /// on a desktop minimised to the tray and false everywhere else — and it meant a link that was
-    /// receiving state perfectly while **nothing reached the screen** looked, from the logs, exactly
-    /// like a link that was working. Discarding the one signal that distinguishes them is how a
-    /// dashboard sits on `—` with a healthy node behind it.
-    fn emit<P: serde::Serialize + Clone>(&self, event: &str, payload: P) {
-        use std::sync::atomic::Ordering;
-        match self.app.emit(event, payload) {
-            Ok(()) => {
-                if self.emit_failing.swap(false, Ordering::Relaxed) {
-                    log::info!("ui: events are reaching the interface again");
-                }
-            }
-            Err(e) => {
-                if !self.emit_failing.swap(true, Ordering::Relaxed) {
-                    log::warn!("ui: {event} could not be delivered to the interface: {e}");
-                }
-            }
-        }
-    }
-}
-
-impl Sink for EventSink {
-    fn publish(&self, dashboard: crate::api::model::Dashboard) {
-        let discovery = DiscoveryChange::of(&dashboard);
-        // Compared and stored before the emit, so a listener that reacts by asking for state
-        // cannot race a second identical edge.
-        let changed = {
-            let mut last = self.last_discovery.lock().unwrap();
-            if last.as_ref() == Some(&discovery) {
-                false
-            } else {
-                *last = Some(discovery.clone());
-                true
-            }
-        };
-        if changed {
-            log::info!(
-                "discovery: {} of {} tracker(s) answering{}",
-                discovery.reachable,
-                discovery.total,
-                if discovery.endpoints.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ({})", discovery.endpoints.join(", "))
-                }
-            );
-            self.emit(DISCOVERY_EVENT, discovery);
-        }
-        self.emit(DASHBOARD_EVENT, dashboard);
-    }
-}
-
-/// Run the link until the app exits.
+/// The edge detector every shell's sink needs, so neither has to write it.
 ///
-/// `on_reconnect` is notified on every offline→online edge, which is what re-pushes configuration
-/// to a worker that came back without it (the worker holds configuration in memory by design).
-pub async fn run(
-    control_addr: String,
-    store: Arc<DashboardStore>,
-    app: AppHandle,
-    on_reconnect: Arc<tokio::sync::Notify>,
-) {
-    let sink: Arc<dyn Sink> = Arc::new(EventSink::new(app));
-    pump(control_addr, store, sink, on_reconnect).await;
+/// Held per sink rather than in the pump because a snapshot reaches the interface by two routes —
+/// the stream and the polling fallback — and an edge detected in only one of them would go missing
+/// exactly when the link is degraded, which is when it matters most.
+///
+/// It also keeps the two shells from disagreeing about what "the trackers changed" means: there is
+/// one comparison, here, and both front ends get the same edges from it.
+#[derive(Default)]
+pub struct DiscoveryEdge(std::sync::Mutex<Option<DiscoveryChange>>);
+
+impl DiscoveryEdge {
+    /// The change to announce, or `None` when nothing about reachability moved.
+    ///
+    /// Compared and stored before the caller emits, so a listener that reacts by asking for state
+    /// cannot race a second identical edge.
+    pub fn take(&self, dashboard: &crate::api::model::Dashboard) -> Option<DiscoveryChange> {
+        let discovery = DiscoveryChange::of(dashboard);
+        let mut last = self.0.lock().unwrap();
+        if last.as_ref() == Some(&discovery) {
+            return None;
+        }
+        *last = Some(discovery.clone());
+        log::info!(
+            "discovery: {} of {} tracker(s) answering{}",
+            discovery.reachable,
+            discovery.total,
+            if discovery.endpoints.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", discovery.endpoints.join(", "))
+            }
+        );
+        Some(discovery)
+    }
 }
 
-/// The link loop, independent of Tauri.
+/// The link loop. The whole of it — there is no shell-specific wrapper left.
 pub async fn pump(
     control_addr: String,
     store: Arc<DashboardStore>,

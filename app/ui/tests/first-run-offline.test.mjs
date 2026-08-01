@@ -13,13 +13,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readCrate } from "./layout.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
 const setup = read("../src/mobile/Setup.tsx");
 const ipc = read("../src/ipc.ts");
-const telemetry = read("../../src/telemetry.rs");
-const settings = read("../../src/settings.rs");
+const telemetry = readCrate("nodera-core", "src/telemetry.rs");
+const settings = readCrate("nodera-core", "src/settings.rs");
 
 test("the first-run telemetry answer is recorded locally rather than requiring the worker", () => {
   // The Rust command cannot report an unreachable worker as a failure: its answer is a status, and

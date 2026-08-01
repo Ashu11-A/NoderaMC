@@ -23,7 +23,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -79,22 +78,7 @@ pub trait EventSink: Send + Sync {
     fn publish(&self, event: WorkerEvent);
 }
 
-/// The production sink.
-pub struct TauriEventSink(pub AppHandle);
-
-impl EventSink for TauriEventSink {
-    fn publish(&self, event: WorkerEvent) {
-        let _ = self.0.emit(WORKER_EVENT, event);
-    }
-}
-
-/// Run the event stream until the app exits.
-pub async fn run(control_addr: String, app: AppHandle) {
-    let sink: Arc<dyn EventSink> = Arc::new(TauriEventSink(app));
-    pump(control_addr, sink).await;
-}
-
-/// The stream loop, independent of Tauri.
+/// The stream loop. The whole of it — there is no shell-specific wrapper left.
 pub async fn pump(control_addr: String, sink: Arc<dyn EventSink>) {
     // Held across reconnects: resuming from the last sequence is what turns a dropped socket into a
     // pause rather than a hole. Starting from 0 each time would replay the whole buffer and reopen

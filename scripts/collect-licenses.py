@@ -8,7 +8,8 @@ An attribution list maintained by a person is wrong the day after somebody adds 
 nobody notices because nothing checks it. This reads the same manifests the build reads, so the list
 is a fact about the project rather than a claim about it.
 
-Output: ``app/licences.json``, which the companion app embeds and its About screen shows.
+Output: ``licences.json`` in the ``nodera-core`` crate, which the companion app embeds and its
+About screen shows. It lives beside the code that ``include_str!``s it, not beside the shell.
 
 What it reports, and what it refuses to
 ---------------------------------------
@@ -46,7 +47,8 @@ import layout  # noqa: E402
 
 ROOT = layout.root()
 APP = layout.crate("nodera-app")
-OUTPUT = APP / "licences.json"
+CORE = layout.crate("nodera-core")
+OUTPUT = CORE / "licences.json"
 
 UNKNOWN = ""
 

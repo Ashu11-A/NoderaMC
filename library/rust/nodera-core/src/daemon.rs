@@ -49,7 +49,7 @@ pub struct WorkerOwnership {
 
 /// Report who owns the worker process.
 ///
-/// **Never on mobile.** [`supervise`] — the only consumer of [`RestartSignal`] — is `#[cfg(desktop)]`,
+/// **Never on mobile.** [`supervise`] — the only consumer of [`RestartSignal`] — is desktop-only,
 /// and on Android the worker is a thread in this very process rather than a child of it. A process
 /// that cannot outlive us cannot be cycled by us, so notifying the signal there wakes nobody and the
 /// button that sent it is a silent lie. Offering nothing is the honest answer, and the UI already
@@ -58,7 +58,7 @@ pub fn ownership() -> WorkerOwnership {
     let attached = attach_mode();
     WorkerOwnership {
         attached,
-        can_restart: !attached && cfg!(desktop),
+        can_restart: !attached && crate::SUPERVISES_A_WORKER,
     }
 }
 
@@ -73,7 +73,7 @@ pub fn restart_unavailable() -> Option<&'static str> {
              where you started it",
         );
     }
-    if !cfg!(desktop) {
+    if !crate::SUPERVISES_A_WORKER {
         return Some(
             "the worker runs inside this app on Android, so it cannot be restarted on its own — \
              close and reopen the app to apply these settings",
@@ -339,7 +339,7 @@ pub async fn supervise(
                                                   // Stream the worker's output into the dashboard's log ring.
                 if let Some(out) = child.stdout.take() {
                     let sink = Arc::clone(&logs);
-                    tauri::async_runtime::spawn(async move {
+                    tokio::spawn(async move {
                         let mut lines = BufReader::new(out).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
                             sink.push(line);
@@ -348,7 +348,7 @@ pub async fn supervise(
                 }
                 if let Some(err) = child.stderr.take() {
                     let sink = Arc::clone(&logs);
-                    tauri::async_runtime::spawn(async move {
+                    tokio::spawn(async move {
                         let mut lines = BufReader::new(err).lines();
                         while let Ok(Some(line)) = lines.next_line().await {
                             sink.push(line);
@@ -681,15 +681,18 @@ mod tests {
         // `attach_mode` reads the process environment, so assert the invariant rather than mutate
         // it: a test that sets NODERA_APP_ATTACH would race every other test in the binary.
         let owned = ownership();
-        assert_eq!(owned.can_restart, !owned.attached && cfg!(desktop));
+        assert_eq!(
+            owned.can_restart,
+            !owned.attached && crate::SUPERVISES_A_WORKER
+        );
     }
 
     /// M-NET-3. The Restart button was offered on Android and did nothing: the signal it notifies
-    /// is consumed only by `supervise`, which is `#[cfg(desktop)]`. Both the flag the UI gates on
+    /// is consumed only by `supervise`, which is desktop-only. Both the flag the UI gates on
     /// and the verb itself now answer for the platform they are compiled for.
     #[test]
     fn restart_is_never_offered_where_nothing_consumes_the_signal() {
-        if cfg!(desktop) {
+        if crate::SUPERVISES_A_WORKER {
             // Desktop, not attached (the test binary sets no NODERA_APP_ATTACH): a restart works.
             if !attach_mode() {
                 assert!(ownership().can_restart);

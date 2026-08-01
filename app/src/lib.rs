@@ -18,20 +18,22 @@
 //! the desktop build. Splitting it is not optional and not cosmetic — a crate with only a binary
 //! target fails the mobile build outright with "no library targets found".
 
-mod android;
-mod api;
-mod browser;
-mod config;
-mod control;
-mod daemon;
-mod logs;
-mod metrics;
-mod peer;
-mod power;
-mod settings;
-mod stores;
-mod system;
-mod telemetry;
+//! # What is here, and what is not
+//!
+//! Only the parts that need a webview. Everything else — the control link, the settings document,
+//! the tracker stores, the telemetry lane, the supervisor, the app's own peer — is `nodera-core`,
+//! which the native Android activity reads through JNI and which nothing in this file is allowed to
+//! be a prerequisite for.
+//!
+//! The modules below are re-exported at this crate's root rather than imported into each function,
+//! so a path like `api::store::DashboardStore` still means what it used to and the move stayed a
+//! move.
+pub use nodera_core::{
+    android, api, browser, config, control, daemon, logs, metrics, peer, power, settings, stores,
+    system, telemetry,
+};
+
+mod shell;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -93,6 +95,16 @@ fn get_system_stats(state: tauri::State<Arc<SystemHandle>>) -> system::SystemSta
 #[tauri::command]
 fn get_worker_logs(state: tauri::State<Arc<LogBuffer>>) -> Vec<String> {
     state.snapshot()
+}
+
+/// Tauri command: the whole current picture, for the first paint.
+///
+/// A delegate rather than the command itself. `api::commands::dashboard` is a plain function on a
+/// `&Arc<DashboardStore>`, because the Android front end calls it too and `tauri::State` means
+/// nothing there — extracting the state is the one part of this that is genuinely about the shell.
+#[tauri::command]
+fn dashboard(store: tauri::State<Arc<DashboardStore>>) -> api::model::Dashboard {
+    api::commands::dashboard(&store)
 }
 
 /// Tauri command: the persisted settings document.
@@ -175,7 +187,9 @@ fn resolved_services(
 async fn open_external(app: tauri::AppHandle, url: String) -> Result<String, String> {
     // On a blocking pool: `startActivity` and the desktop openers all block, and the window that
     // has to keep drawing while the browser comes up is this one.
-    tokio::task::spawn_blocking(move || browser::open(&app, &url).map(|how| how.to_owned()))
+    tokio::task::spawn_blocking(move || {
+        browser::open(&shell::DesktopOpener(app), &url).map(|how| how.to_owned())
+    })
         .await
         .map_err(|e| format!("the open task failed: {e}"))?
 }
@@ -623,7 +637,7 @@ fn save_share_file(name: String, uri: String) -> Result<String, String> {
             }
         })
         .collect();
-    let file = share_dir().join(format!(
+    let file = nodera_core::share_dir().join(format!(
         "{}.nodera",
         if safe.trim_matches('-').is_empty() {
             "world".to_owned()
@@ -633,20 +647,6 @@ fn save_share_file(name: String, uri: String) -> Result<String, String> {
     ));
     api::network::write_share_file(&file, &uri)?;
     Ok(file.display().to_string())
-}
-
-/// Where saved invitations go. Overridable so a test — or a user with an opinion — can move it.
-pub(crate) fn share_dir() -> std::path::PathBuf {
-    std::env::var("NODERA_SHARE_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(
-                std::env::var("HOME")
-                    .or_else(|_| std::env::var("USERPROFILE"))
-                    .unwrap_or_else(|_| ".".to_owned()),
-            )
-            .join("Nodera")
-        })
 }
 
 /// Tauri command: the world id inside a pasted link, or an error the UI can show immediately.
@@ -895,7 +895,7 @@ fn open_battery_settings() -> Result<(), String> {
 /// Tauri command: open this vendor's page on dontkillmyapp.com.
 #[tauri::command]
 fn open_battery_help(app: tauri::AppHandle) -> Result<(), String> {
-    android::battery::open_help(&app)
+    android::battery::open_help(&shell::DesktopOpener(app))
 }
 
 /// Build and run the application.
@@ -922,7 +922,9 @@ pub fn run() {
 
     // `restored`, not `new`: the traffic totals are the node's, not this process's, and they read
     // back from disk so neither a worker restart nor closing the app sends them to zero.
-    let dashboard = Arc::new(DashboardStore::restored());
+    // Not named `dashboard`: `generate_handler!` expands the command of that name inside this
+    // function, and a local binding would shadow it.
+    let dashboard_store = Arc::new(DashboardStore::restored());
     let system_stats = Arc::new(SystemHandle::new());
     let worker_logs = Arc::new(LogBuffer::new());
     let user_settings = Arc::new(settings::SettingsHandle::load());
@@ -967,7 +969,7 @@ pub fn run() {
         // first (see `browser::check_url`). No JS capability is granted for the same reason.
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .manage(Arc::clone(&dashboard))
+        .manage(Arc::clone(&dashboard_store))
         .manage(Arc::clone(&system_stats))
         .manage(Arc::clone(&worker_logs))
         .manage(Arc::clone(&user_settings))
@@ -988,7 +990,7 @@ pub fn run() {
             remove_tracker_store,
             refresh_tracker_store,
             refresh_tracker_stores,
-            api::commands::dashboard,
+            dashboard,
             prove_world_admin,
             lan_action,
             browse_network,
@@ -1105,7 +1107,7 @@ pub fn run() {
 
                 // Background async work on Tauri's async runtime (tokio).
                 // Supervise the worker (unless attach mode, where scripts/dev.sh already runs it)...
-                let store_daemon = Arc::clone(&dashboard);
+                let store_daemon = Arc::clone(&dashboard_store);
                 let logs_daemon = Arc::clone(&worker_logs);
                 let settings_daemon = Arc::clone(&user_settings);
                 let restart_daemon = Arc::clone(&restart_signal);
@@ -1162,11 +1164,11 @@ pub fn run() {
             // (NODERA-WATCH), so the screen is current because the node said so, not because the
             // app guessed when to ask. Its offline→online edge is also what re-pushes configuration
             // to a worker that came back without it — the worker holds config in memory by design.
-            let store_link = Arc::clone(&dashboard);
+            let store_link = Arc::clone(&dashboard_store);
             let reconnect = Arc::clone(&push_signal.0);
             let link_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                api::link::run(control_addr(), store_link, link_app, reconnect).await;
+                shell::run_link(control_addr(), store_link, link_app, reconnect).await;
             });
 
             // ...and the event stream beside it. Two connections on purpose: the link carries what
@@ -1175,7 +1177,7 @@ pub fn run() {
             // this one replays from a sequence number, so the order stops mattering.
             let events_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                api::events::run(control_addr(), events_app).await;
+                shell::run_events(control_addr(), events_app).await;
             });
 
             // Keep the tracker stores fresh, and the worker's synchronisation file with them.
@@ -1226,7 +1228,7 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 let settings_power = Arc::clone(&user_settings);
-                let store_power = Arc::clone(&dashboard);
+                let store_power = Arc::clone(&dashboard_store);
                 let pause_power = Arc::clone(&pause);
                 let push_power = Arc::clone(&push_signal);
                 tauri::async_runtime::spawn(async move {
