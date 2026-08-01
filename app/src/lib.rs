@@ -977,7 +977,14 @@ pub fn run() {
                 Arc::new(shell::TauriSink::new(app.handle().clone()));
             let event_sink: Arc<dyn api::events::EventSink> =
                 Arc::new(shell::TauriEventSink(app.handle().clone()));
-            core.start_shared_loops(link_sink, event_sink);
+            // Tauri's runtime, handed over explicitly. `setup` runs before it is entered, so a
+            // bare `tokio::spawn` inside the core panicked here with "there is no reactor running"
+            // — a window that never opened.
+            core.start_shared_loops(
+                tauri::async_runtime::handle().inner(),
+                link_sink,
+                event_sink,
+            );
 
             // Host power rules: desktop-only. The crate does not build for Android, and deciding
             // when a phone should stop working in the background is the phone's job — which is what

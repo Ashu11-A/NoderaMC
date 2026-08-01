@@ -191,8 +191,7 @@ pub extern "system" fn Java_dev_nodera_app_NoderaCore_nativeStart(
         events,
         discovery: DiscoveryEdge::default(),
     });
-    let _guard = runtime.enter();
-    core.start_shared_loops(sink.clone(), sink.clone());
+    core.start_shared_loops(runtime.handle(), sink.clone(), sink.clone());
 
     // The worker's own log file is the Activity's source. The worker runs inside this process,
     // loaded from the APK's assets — there is nothing to supervise from here.
