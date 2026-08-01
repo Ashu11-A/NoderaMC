@@ -17,6 +17,35 @@ import androidx.activity.enableEdgeToEdge
  */
 class MainActivity : TauriActivity() {
 
+  companion object {
+    /**
+     * The activity currently on screen, or null.
+     *
+     * Weak on purpose: this is a static field holding an activity, which is the textbook way to leak
+     * one. [NoderaBrowser]'s last-resort WebView needs a window to live in, and an application
+     * context — the only context the native side holds — cannot provide one. Nothing else should
+     * reach for this; a feature that needs the activity for longer than one call needs a different
+     * design.
+     */
+    private var current: java.lang.ref.WeakReference<MainActivity>? = null
+
+    /** The live activity, or null if none is resumed. */
+    @JvmStatic
+    fun live(): MainActivity? = current?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    current = java.lang.ref.WeakReference(this)
+  }
+
+  override fun onPause() {
+    // Cleared on the way out rather than only in onDestroy: a paused activity cannot host a dialog,
+    // and showing one against it throws instead of failing over to the rung below.
+    if (current?.get() === this) current = null
+    super.onPause()
+  }
+
   /**
    * Let the system back gesture walk the WebView's history.
    *

@@ -618,3 +618,23 @@ export const refreshTrackerStore = (url: string): Promise<TrackerStore> =>
 /** Re-read every store. One that fails keeps what it last said, with the error beside it. */
 export const refreshTrackerStores = (): Promise<TrackerStore[]> =>
   invoke("refresh_tracker_stores");
+
+/* --------------------------------------------------------------------------------------- links */
+
+/**
+ * Open a web link outside this window.
+ *
+ * **Every outbound link goes through here.** In a Tauri v2 webview `<a target="_blank">` opens
+ * nothing — there is no tab for it to open in — so an anchor is at best decorative, and an anchor
+ * that *did* navigate would be worse: this window would follow it, replacing the interface with
+ * somebody's web page and no way back.
+ *
+ * The host validates the URL before the platform sees it (`http`/`https` only). That is not
+ * ceremony: a tracker store's `homepage` is written by whoever published the index, and trusting a
+ * publisher to list trackers is not trusting them to hand this device a `file://` or an `intent://`.
+ *
+ * Resolves to how it opened — `browser` on the desktop, `custom-tab` / `browser` / `webview` on
+ * Android — and rejects when nothing on the device could. Callers should offer the URL to copy on
+ * rejection; `useExternalLink` does that for you.
+ */
+export const openExternal = (url: string): Promise<string> => invoke("open_external", { url });

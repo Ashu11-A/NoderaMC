@@ -20,6 +20,7 @@
 
 mod android;
 mod api;
+mod browser;
 mod config;
 mod control;
 mod daemon;
@@ -153,6 +154,28 @@ fn resolved_services(
             ),
         ),
     ])
+}
+
+/// Tauri command: open a web link outside this window.
+///
+/// Every outbound link in the interface comes through here, because in a Tauri v2 webview an
+/// `<a target="_blank">` opens nothing at all — there is no tab to open — and an anchor that *did*
+/// navigate would replace the interface with somebody's web page and no way back.
+///
+/// The URL is validated before the platform sees it ([`browser::check_url`]): `http` and `https`
+/// only. That matters because most of what this opens is third-party data — a tracker store's
+/// `homepage` is written by whoever published the index, and trusting a publisher to list trackers
+/// is not trusting them to hand this device a `file://` or an `intent://`.
+///
+/// Returns how it opened, for the log: `browser` on the desktop; on Android `custom-tab`, `browser`
+/// or `webview`, depending on how far down the ladder that device made it.
+#[tauri::command]
+async fn open_external(url: String) -> Result<String, String> {
+    // On a blocking pool: `startActivity` and the desktop openers all block, and the window that
+    // has to keep drawing while the browser comes up is this one.
+    tokio::task::spawn_blocking(move || browser::open(&url).map(|how| how.to_owned()))
+        .await
+        .map_err(|e| format!("the open task failed: {e}"))?
 }
 
 /// Tauri command: where the project's own list is published.
@@ -937,6 +960,10 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        // Opening a link outside this window. Registered for its Rust API only — the interface
+        // never calls the plugin directly, it calls `open_external`, which validates the URL
+        // first (see `browser::check_url`). No JS capability is granted for the same reason.
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(Arc::clone(&dashboard))
         .manage(Arc::clone(&system_stats))
@@ -953,6 +980,7 @@ pub fn run() {
             take_pending_tracker_store,
             official_store_url,
             resolved_services,
+            open_external,
             preview_tracker_store,
             add_tracker_store,
             remove_tracker_store,

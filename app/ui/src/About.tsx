@@ -8,6 +8,7 @@ import { FiExternalLink, FiSearch } from "react-icons/fi";
 import { Card, Empty, KeyValue, MONO, Pill, Td, Th, Tr, cx } from "./components";
 import { UNKNOWN, formatDate } from "./api";
 import { aboutBuild, type AboutBuild, type Package } from "./play";
+import { linkNote, useExternalLink } from "./links";
 
 const ECOSYSTEMS = [
   { id: "rust", label: "Rust" },
@@ -19,7 +20,9 @@ export function AboutScreen() {
   const [build, setBuild] = useState<AboutBuild | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+  // Opening the repository link, with the clipboard as the fallback when nothing on this
+  // machine can open a browser.
+  const repository = useExternalLink();
 
   useEffect(() => {
     aboutBuild()
@@ -68,26 +71,25 @@ export function AboutScreen() {
           <KeyValue label="Version" value={build.version} mono />
           <KeyValue label="Licence" value={build.licence} />
           <KeyValue label="Control protocol" value={`v${build.protocol_version}`} />
-          {/* Copy, not a link. `<a target="_blank">` opens nothing in a Tauri v2 webview without an
-              opener plugin, and this app depends on none — so the only outbound link in the whole
-              interface was decorative. A button that visibly copies the URL does the job the link
-              was pretending to do. */}
+          {/* A real link again. It was a copy-to-clipboard button because `<a target="_blank">`
+              opens nothing in a Tauri v2 webview and this app depended on no opener — a workaround
+              that told the truth about the link not working. The host opens it now, and the
+              clipboard is what happens when the host cannot. */}
           <KeyValue
             label="Repository"
             value={
               <button
                 type="button"
+                title={build.repository}
+                disabled={repository.state.status === "opening"}
                 className="inline-flex items-center gap-1.5 text-brand-3 hover:underline"
-                onClick={() => {
-                  navigator.clipboard
-                    ?.writeText(build.repository)
-                    .then(() => setCopied(true))
-                    .catch(() => setCopied(false));
-                }}
+                onClick={() => repository.open(build.repository)}
               >
                 {build.repository}
                 <FiExternalLink aria-hidden className="inline" />
-                {copied && <span className="text-xs text-dim">copied</span>}
+                {linkNote(repository.state) && (
+                  <span className="text-xs text-dim">{linkNote(repository.state)}</span>
+                )}
               </button>
             }
           />

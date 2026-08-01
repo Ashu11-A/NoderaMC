@@ -109,16 +109,26 @@ pub fn open_settings() -> Result<(), String> {
     Err("battery optimisation is an Android setting".to_owned())
 }
 
-/// Open the vendor's page on dontkillmyapp.com in a browser.
+/// Open the vendor's page on dontkillmyapp.com.
+///
+/// Through [`crate::browser`] rather than a bare `ACTION_VIEW`, which is what this used to be: it is
+/// an ordinary web link and gets the same ladder as every other one — a Custom Tab first, the
+/// browser next, an in-app WebView on a device with neither. The URL is validated on the way, which
+/// costs nothing here (it is composed from a whitelist-shaped slug) and means there is one door out
+/// of this app instead of two with different rules.
+///
+/// No longer Android-only. The vendor page for an unknown manufacturer is the site's index, which is
+/// a perfectly good thing to open on a desktop — refusing was an artefact of `ACTION_VIEW` being the
+/// only implementation, not a decision about what the button should do.
 #[cfg(target_os = "android")]
 pub fn open_help() -> Result<(), String> {
     let url = help_url(&property("ro.product.manufacturer"));
-    open_intent_action("android.intent.action.VIEW", Some(&url))
+    crate::browser::open(&url).map(|_| ())
 }
 
 #[cfg(not(target_os = "android"))]
 pub fn open_help() -> Result<(), String> {
-    Err("battery optimisation is an Android setting".to_owned())
+    crate::browser::open(&help_url("")).map(|_| ())
 }
 
 /// The vendor page, or the site's index when the vendor is unknown.
@@ -139,7 +149,7 @@ fn help_url(manufacturer: &str) -> String {
 }
 
 #[cfg(target_os = "android")]
-mod platform {
+pub(crate) mod platform {
     use jni::objects::{JObject, JString, JValue};
     use jni::JavaVM;
 

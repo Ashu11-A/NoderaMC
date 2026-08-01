@@ -148,3 +148,49 @@ test("the six A-UX-5 commands are each resolved, and stay resolved", () => {
   assert.doesNotMatch(lib, /nodera:\/\/pause/, "the orphan pause event is back");
   assert.doesNotMatch(frontend, /nodera:\/\/pause/, "the orphan pause event has a listener again");
 });
+
+/**
+ * A source file with its comments removed.
+ *
+ * Every rule below is about what the code DOES, and the prose explaining a rule necessarily quotes
+ * the thing the rule forbids. Without this, the comment justifying "no anchors" fails the test
+ * enforcing "no anchors".
+ */
+function code(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+test("no link is an anchor the webview would swallow", () => {
+  // `<a target="_blank">` opens NOTHING in a Tauri v2 webview — there is no tab for it to open in —
+  // and an anchor without it navigates this window away from the application, to a page with no
+  // back button because the app has no browser chrome either. Both outcomes look like a bug to the
+  // person who tapped. So links go through `openExternal`, and the host decides where they open.
+  const dirs = ["../src", "../src/mobile", "../src/m3"];
+  const offenders = [];
+  for (const dir of dirs) {
+    const base = new URL(`${dir}/`, import.meta.url);
+    for (const name of readdirSync(base)) {
+      if (!name.endsWith(".tsx")) continue;
+      const source = code(readFileSync(new URL(name, base), "utf8"));
+      // Only outbound links matter: an `href` to a data: or mailto: is not this rule's business,
+      // and neither is an anchor built by the licence table for a package with no URL.
+      if (/<a[\s\n][^>]*href=\{?["']?https?:/.test(source) || /<a[\s\n][^>]*target="_blank"/.test(source)) {
+        offenders.push(`${dir}/${name}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], "these render an anchor for a web link; use openExternal");
+});
+
+test("the link helper falls back to the clipboard rather than doing nothing", () => {
+  // A device can have no browser at all — a stripped handset, a locked-down work profile. The
+  // control must not simply appear dead when pressed, so the address goes on the clipboard and the
+  // screen says so.
+  const links = code(readFileSync(new URL("../src/links.tsx", import.meta.url), "utf8"));
+  assert.match(links, /catch[\s\S]{0,200}?clipboard\?\.writeText\(url\)/);
+  assert.match(links, /status: "copied"/);
+  // And it is a button, not an anchor: an `<a>` would invite middle-click and copy-link-address,
+  // both of which silently do nothing here.
+  assert.match(links, /<button/);
+  assert.doesNotMatch(links, /<a\s/);
+});
