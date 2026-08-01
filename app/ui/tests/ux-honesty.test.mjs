@@ -182,13 +182,14 @@ test("no link is an anchor the webview would swallow", () => {
   assert.deepEqual(offenders, [], "these render an anchor for a web link; use openExternal");
 });
 
-test("the link helper falls back to the clipboard rather than doing nothing", () => {
-  // A device can have no browser at all — a stripped handset, a locked-down work profile. The
-  // control must not simply appear dead when pressed, so the address goes on the clipboard and the
-  // screen says so.
+test("the link helper never settles for the clipboard", () => {
+  // It used to: when no browser could be opened it copied the address and said so. That is not
+  // opening a link — it is telling the user to do it themselves, in an app that is itself a webview
+  // and could have shown them the page. The host's ladder ends in a webview on both platforms now,
+  // so there is nothing for a clipboard rung to be a fallback *from*.
   const links = code(readFileSync(new URL("../src/links.tsx", import.meta.url), "utf8"));
-  assert.match(links, /catch[\s\S]{0,200}?clipboard\?\.writeText\(url\)/);
-  assert.match(links, /status: "copied"/);
+  assert.doesNotMatch(links, /clipboard/, "a link must open a page, not copy an address");
+  assert.doesNotMatch(links, /status: "copied"/);
   // And it is a button, not an anchor: an `<a>` would invite middle-click and copy-link-address,
   // both of which silently do nothing here.
   assert.match(links, /<button/);
