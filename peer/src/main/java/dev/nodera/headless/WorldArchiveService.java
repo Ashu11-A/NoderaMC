@@ -122,6 +122,11 @@ public final class WorldArchiveService implements AutoCloseable {
     private final Map<String, NavigableMap<Long, PieceManifest>> manifests =
             new ConcurrentHashMap<>();
 
+    /** World IDs this node holds manifests for — hosted and replicated alike. */
+    public Set<String> knownWorldIds() {
+        return Set.copyOf(manifests.keySet());
+    }
+
     /**
      * worldIdHex → region → snapshot version → manifest: the <b>validated-lane region pieces</b>
      * this node seeds (L-41).

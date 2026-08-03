@@ -14,8 +14,10 @@ import dev.nodera.storage.WorldIdentity;
 
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Task 32/33: the worker's {@link ControlHandler} — answers the mod's / companion app's control verbs
@@ -298,7 +300,9 @@ public final class WorkerControlHandler implements ControlHandler {
         List<String> worldJson = new ArrayList<>();
         long totalPieces = 0;
         long totalHeldPieces = 0;
+        Set<String> hostedIds = new HashSet<>();
         for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
+            hostedIds.add(world.worldIdHex());
             String mc = world.mcRoute();
             WorldArchiveService.PieceReport report =
                     archive == null ? null : archive.pieceReport(world.worldIdHex());
@@ -367,6 +371,53 @@ public final class WorkerControlHandler implements ControlHandler {
                     + (archive == null ? 0 : archive.heldRegions(world.worldIdHex()).size())
                     + ",\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\""
                     + "}");
+        }
+
+        // Archive-only worlds are replicated for the network, not hosted or joinable here.
+        if (archive != null) {
+            for (String worldIdHex : archive.knownWorldIds()) {
+                if (hostedIds.contains(worldIdHex)) {
+                    continue;
+                }
+                WorldArchiveService.PieceReport report = archive.pieceReport(worldIdHex);
+                if (report == null) {
+                    continue;
+                }
+                if (report.heldCount() == 0) {
+                    continue;
+                }
+                totalPieces += report.pieceCount();
+                totalHeldPieces += report.heldCount();
+                int holders = archive.holdersFor(worldIdHex).size();
+                worldJson.add("{\"world_id\":\"" + escape(worldIdHex) + "\",\"name\":\""
+                        + escape(worldIdHex) + "\""
+                        // -1 is the worker's "nobody in that world has reported to me", which is
+                        // always true here: a replication peer has no game in the world.
+                        + ",\"players\":-1"
+                        + ",\"mc_route\":\"\""
+                        + ",\"added_at\":0"
+                        + ",\"updated_at\":0"
+                        + ",\"total_bytes\":" + report.totalBytes()
+                        + ",\"checksum\":\"" + escape(report.manifestRoot().toHex()) + "\""
+                        + ",\"version\":" + report.version()
+                        + ",\"piece_count\":" + report.pieceCount()
+                        + ",\"pieces_held\":" + report.heldCount()
+                        + ",\"seeders\":" + holders
+                        + ",\"backup_copies\":" + backupCopies(report, holders)
+                        + ",\"backup_copies_wanted\":" + BACKUP_TARGET.replicasFor(holders + 1)
+                        + ",\"loss_risk_permille\":"
+                        + BACKUP_TARGET.lossRiskPermille(backupCopies(report, holders))
+                        // This node never announced it, so it can say nothing about whether a
+                        // tracker took an announce for it.
+                        + ",\"listed_on_trackers\":0"
+                        + ",\"announced_to_trackers\":0"
+                        + ",\"seeding\":true"
+                        + ",\"connected\":false"
+                        + ",\"owned\":false"
+                        + ",\"regions_held\":" + archive.heldRegions(worldIdHex).size()
+                        + ",\"world_public_key\":\"\""
+                        + "}");
+            }
         }
 
         // The worker's declared roles (BOOTSTRAP / FULL_ARCHIVE / REGION_VALIDATOR …).

@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE (test name), then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** worker · **Last audit:** 2026-07-30 · Tasks completed: **6 / 8**
+**Category:** worker · **Last audit:** 2026-08-03 · Tasks completed: **6 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -27,6 +27,23 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-03 — Replicated worlds reach the companion before their download completes
+
+`NODERA-STATE` built `connected_worlds` only from the local hosting registry. An Android worker
+with 91 verified pieces of a 465-piece archive therefore reported aggregate maintained bytes but
+an empty Worlds screen. Archive-only worlds with verified pieces now become non-hosted state rows,
+marked seeding but neither owned nor connected. Evidence: `ReplicatedWorldAppearsInStateIT` (2),
+the focused peer test, and `./gradlew check`.
+
+### 2026-08-01 — Android startup persists securely; commons stays out of archive replication
+
+Physical Android 15 startup exposed `Files.getFileStore` throwing `SecurityException` inside private
+app storage. `AtomicFileWriter` now attempts owner-only temp creation directly in that case; worker
+identity persisted and the node reached Online. The same run showed `WorldReplicationService`
+treating synthetic `Nodera commons` presence as content. Catalog filtering now excludes that exact
+cross-language id before placement or fetch. Evidence: `AtomicFileWriterTest` (4),
+`ReplicationRepairsEmptyClaimsTest` (5), full APK startup, and post-fix log `list no worlds`.
 
 ### 2026-07-30 — The replication sweep gives the budget back, and the join gate stops answering guesses
 
