@@ -31,7 +31,9 @@ import java.util.Set;
  *   C3  ADMINISTRATION: player A is an operator of their own world and stays one
  *   C4  TRAFFIC: nobody touches anything for three minutes, and the peers stay quiet
  *   C5  DELTA: a small edit costs a small transfer
+ *   C5b TICK: two players sharing a region does not cost a quarter of the tick budget
  *   C6  SEAMLESS: player A's game is killed and player B does not leave the world
+ *   C6b GRACEFUL: the survivor is asked to quit and the shutdown returns
  *   C7  the phone is a peer of that world, not a spectator of it
  *   C8  the evidence bundle
  * </pre>
@@ -44,6 +46,13 @@ import java.util.Set;
  * — several megabytes over three minutes — because the failure it exists to catch is three orders
  * of magnitude away from it. A tight ceiling would flake on ordinary discovery chatter and teach
  * everyone to ignore this stage.
+ *
+ * <h2>Why C5b exists</h2>
+ *
+ * <p>Nothing in this suite read TPS, and a live session reported it falling from 20.0 to 15.5 the
+ * moment one player walked into the other's region — every run before this one was blind to it. A
+ * commit re-extracts and hashes a WHOLE region, a region is pending whenever any ghost moved, and
+ * overlap makes each player a validator of the other's region, so the cost arrives in pairs.
  *
  * <h2>Why C6 is a kill and not a shutdown</h2>
  *
@@ -101,6 +110,19 @@ public final class ChunkContinuityScenario implements Scenario {
 
     /** How far the world list is scanned; a run has one world and a peer holds few. */
     private static final int MAX_WORLD_ROWS = 32;
+
+    /** How long C5b watches the tick rate with both players in the world. */
+    private static final Duration TPS_WINDOW = Duration.ofSeconds(60);
+
+    /**
+     * The tick rate a shared world must stay above.
+     *
+     * <p>Eighteen, not twenty: a real client hosting a real world has ordinary variance, and a floor
+     * at the nominal rate would fail on a garbage collection. What this catches is the reported
+     * 15.5 — a persistent drop of a quarter of the tick budget, which is a different shape from
+     * noise.
+     */
+    private static final double TPS_FLOOR = 18.0;
 
     /**
      * How long a graceful quit may take before it counts as stuck.
@@ -386,6 +408,31 @@ public final class ChunkContinuityScenario implements Scenario {
         });
 
         // -----------------------------------------------------------------------------------
+        // C5b — the tick survives two players sharing a region
+        // -----------------------------------------------------------------------------------
+        ctx.stage("C5b", "server TPS stays above the floor while both players are in one world",
+                () -> {
+            // Nothing in this suite read TPS, which is why a drop from 20.0 to 15.5 — reported from
+            // a live session the moment one player walked into the other's region — went unnoticed
+            // through every run. A commit re-extracts and hashes a WHOLE region, a region is pending
+            // whenever any ghost moved, and overlap makes each player a validator of the other's
+            // region, so the cost arrives in pairs.
+            double worst = 20.0;
+            long deadline = System.nanoTime() + TPS_WINDOW.toNanos();
+            while (System.nanoTime() < deadline) {
+                ctx.settle(Duration.ofSeconds(5));
+                double tps = lowestTps(hostLogFile, joinerLogFile);
+                worst = Math.min(worst, tps);
+            }
+            ctx.note("tps        worst observed " + String.format("%.1f", worst)
+                    + " over " + TPS_WINDOW.toSeconds() + "s");
+            ctx.check(worst < 0 || worst >= TPS_FLOOR,
+                    "server TPS fell to " + String.format("%.1f", worst) + ", under the "
+                            + TPS_FLOOR + " floor. The validated lane is doing per-tick work on the "
+                            + "world thread — see Plan.9 (commit cadence, validator ticket level)");
+        });
+
+        // -----------------------------------------------------------------------------------
         // C6 — the seamless kill
         // -----------------------------------------------------------------------------------
         ctx.stage("C6", "player A's game is killed and player B stays in the world", () -> {
@@ -554,6 +601,41 @@ public final class ChunkContinuityScenario implements Scenario {
             }
         }
         return false;
+    }
+
+    /**
+     * The lowest TPS either client has reported, or {@code -1} when neither has said.
+     *
+     * <p>Read from the boss-bar line the diagnostics service already logs, because that is the
+     * server's own measurement rather than one this harness could invent. Unknown answers -1 and the
+     * check passes: a stage that fails because it could not measure teaches a reader to ignore it.
+     */
+    private static double lowestTps(Path... logs) {
+        double lowest = -1;
+        for (Path log : logs) {
+            for (String line : HostWorldSupport.matchesAfter(log, 0, "TPS ")) {
+                int at = line.lastIndexOf("TPS ");
+                if (at < 0) {
+                    continue;
+                }
+                String tail = line.substring(at + 4).trim();
+                int end = 0;
+                while (end < tail.length()
+                        && (Character.isDigit(tail.charAt(end)) || tail.charAt(end) == '.')) {
+                    end++;
+                }
+                if (end == 0) {
+                    continue;
+                }
+                try {
+                    double tps = Double.parseDouble(tail.substring(0, end));
+                    lowest = lowest < 0 ? tps : Math.min(lowest, tps);
+                } catch (NumberFormatException notANumber) {
+                    // A line that mentions TPS without a number is not a measurement.
+                }
+            }
+        }
+        return lowest;
     }
 
     /** The ceiling for a world of {@code worldBytes}, never below the floor. */
