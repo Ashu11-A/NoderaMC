@@ -88,6 +88,10 @@ public final class ServerBootstrap {
     }
 
     private static void onServerStarted(ServerStartedEvent event) {
+        // A fresh server is not stopping, whatever the last one was doing. The flag is process-wide
+        // and a client opens many worlds in one launch; leaving it set would make the next world's
+        // lane bootstrap abandon itself before it started.
+        NoderaHost.onServerStarted();
         MinecraftServer server = event.getServer();
         // Task 32's server half: a dedicated server links (and, when `companion.required`,
         // demands) the always-on worker exactly like the client gate does — identity minting,

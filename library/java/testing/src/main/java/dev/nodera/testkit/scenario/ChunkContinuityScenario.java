@@ -73,20 +73,43 @@ public final class ChunkContinuityScenario implements Scenario {
     private static final Duration SAMPLE_INTERVAL = Duration.ofSeconds(10);
 
     /**
-     * The most a peer may receive across {@link #IDLE_WINDOW} while nothing is happening.
+     * The floor under the idle ceiling, for a run whose world size cannot be read.
      *
-     * <p>Sixteen megabytes over three minutes is about 90 KB/s, which is generous for a world
-     * nobody is editing. The behaviour this catches ran at roughly 3 MB/s — five hundred megabytes
-     * across this window — so the gap between "quiet" and "broken" is enormous and the ceiling sits
-     * comfortably in it rather than on the edge of ordinary discovery traffic.
+     * <p>The ceiling itself is derived from the world (see {@link #idleCeiling}), because the number
+     * that matters is not an absolute rate — it is <b>how many copies of the world</b> move while
+     * nobody is playing.
      */
-    private static final long IDLE_CEILING_BYTES = 16L * 1024 * 1024;
+    private static final long IDLE_CEILING_FLOOR_BYTES = 16L * 1024 * 1024;
+
+    /**
+     * How many whole copies of the world a settled peer may receive across {@link #IDLE_WINDOW}.
+     *
+     * <p>Two, which allows one whole-save repack to land inside the window and be replicated, plus
+     * headroom. That repack is the design: Minecraft rewrites its region files on every save, so a
+     * world nobody is editing still packs to different bytes, and entry-aligned pieces confine the
+     * damage per file rather than eliminating it. What this catches is the failure that prompted the
+     * ceiling — a peer re-fetching the world continuously, measured at 3 MB/s, which is roughly
+     * thirteen copies inside this window rather than one.
+     */
+    private static final long IDLE_COPIES_ALLOWED = 2;
 
     /** How long player B must keep playing after player A's game is killed. */
     private static final Duration SURVIVAL_WINDOW = Duration.ofSeconds(90);
 
     /** How far the tracker list in a state document is scanned; a node configures few. */
     private static final int MAX_TRACKER_ROWS = 16;
+
+    /** How far the world list is scanned; a run has one world and a peer holds few. */
+    private static final int MAX_WORLD_ROWS = 32;
+
+    /**
+     * How long a graceful quit may take before it counts as stuck.
+     *
+     * <p>Generous — a large world genuinely takes a while to write, and the final archive flush is
+     * allowed twenty seconds of its own. What this is sized to catch is not slowness but a handler
+     * that never returns at all, which is what "stuck on Saving world" means.
+     */
+    private static final Duration GRACEFUL_QUIT_BUDGET = Duration.ofSeconds(150);
 
     private AndroidDevice phone = new AndroidDevice();
 
@@ -279,7 +302,17 @@ public final class ChunkContinuityScenario implements Scenario {
         // -----------------------------------------------------------------------------------
         ctx.stage("C4", "nobody edits anything for " + IDLE_WINDOW.toMinutes()
                 + " minutes and the peers stay under the traffic ceiling", () -> {
+            // Sized from the world, not from a constant: the question is how many COPIES of it move
+            // while nobody plays, and a bigger world legitimately costs more per repack.
+            long[] worldBytes = {largestWorldBytes(ctx)};
+            long[] ceiling = {idleCeiling(worldBytes[0])};
+            ctx.note("ceiling    " + ceiling[0] + " bytes (" + IDLE_COPIES_ALLOWED + " copies of a "
+                    + worldBytes[0] + "-byte world)");
             Map<String, Long> before = receivedByNode(ctx);
+            // Completeness is sampled at BOTH ends. A node that finished its first copy DURING the
+            // window holds everything by the time it is asked, while the bytes it moved were that
+            // first copy — so asking only at the end fails the stage for the system working.
+            Map<String, Boolean> completeBefore = completeByNode(ctx);
             long deadline = System.nanoTime() + IDLE_WINDOW.toNanos();
             bandwidth.add("| sample | " + String.join(" | ", before.keySet()) + " |");
             bandwidth.add("|---" + "|---".repeat(before.size()) + "|");
@@ -296,15 +329,36 @@ public final class ChunkContinuityScenario implements Scenario {
                 bandwidth.add(row.toString());
             }
             Map<String, Long> after = receivedByNode(ctx);
+            Map<String, Boolean> settled = completeByNode(ctx);
             for (Map.Entry<String, Long> entry : after.entrySet()) {
                 long delta = entry.getValue() - before.getOrDefault(entry.getKey(), 0L);
+                boolean complete = settled.getOrDefault(entry.getKey(), Boolean.FALSE)
+                        && completeBefore.getOrDefault(entry.getKey(), Boolean.FALSE);
                 ctx.note("idle       " + entry.getKey() + " received " + delta + " bytes in "
-                        + IDLE_WINDOW.toSeconds() + "s");
-                ctx.check(delta < IDLE_CEILING_BYTES, entry.getKey() + " received " + delta
-                        + " bytes across an idle " + IDLE_WINDOW.toSeconds() + " seconds, over the "
-                        + IDLE_CEILING_BYTES + "-byte ceiling. A world nobody is editing is being "
-                        + "moved across the network again — check archive.streamIntervalTicks and "
-                        + "WorldReplicationService.refresh()");
+                        + IDLE_WINDOW.toSeconds() + "s"
+                        + (complete ? "" : " (still completing its first copy)"));
+                if (!complete) {
+                    // A peer that does not yet hold every world it is replicating has fetching left
+                    // to do, and that fetch is the design working rather than the waste this ceiling
+                    // exists to catch. The distinction is exact and the worker already reports it —
+                    // pieces_held against piece_count, per world — so the stage asks instead of
+                    // guessing from the byte count.
+                    //
+                    // A device with a persistent state directory carries worlds from earlier runs,
+                    // so it is routinely mid-backlog here. That is worth noting and not worth
+                    // failing on: this run cannot make a steady-state claim about a node that is
+                    // still catching up on somebody else's world.
+                    ctx.note("idle       " + entry.getKey() + " is still replicating — no "
+                            + "steady-state claim made about it");
+                    continue;
+                }
+                ctx.check(delta < ceiling[0], entry.getKey() + " received " + delta
+                        + " bytes across an idle " + IDLE_WINDOW.toSeconds() + " seconds while "
+                        + "already holding every world it is replicating — over the " + ceiling[0]
+                        + "-byte ceiling, which allows " + IDLE_COPIES_ALLOWED + " whole copies of "
+                        + "a " + worldBytes[0] + "-byte world. That is more than one repack's worth,"
+                        + " so the world is being re-fetched rather than caught up — check "
+                        + "archive.streamIntervalTicks and WorldReplicationService.refresh()");
             }
         });
 
@@ -371,6 +425,50 @@ public final class ChunkContinuityScenario implements Scenario {
                             "Client disconnected with reason"),
                     "player B was disconnected by vanilla — the takeover did not intercept it, and "
                             + "the player was taken out of the world");
+        });
+
+        // -----------------------------------------------------------------------------------
+        // C6b — the GRACEFUL quit, which is the one nobody was testing
+        // -----------------------------------------------------------------------------------
+        ctx.stage("C6b", "the surviving host is asked to quit and its shutdown completes", () -> {
+            // C6 kills, and a kill runs none of the shutdown path — so every handler on
+            // ServerStopping/ServerStopped went untested by this suite while a player quitting from
+            // the pause menu ran all of them. That player reported being stuck on "Saving world"
+            // forever, which is precisely a shutdown handler that never returns.
+            //
+            // SIGTERM is the closest a script can get to the menu: it triggers the JVM's shutdown
+            // hook, which halts the integrated server on the server thread exactly as the menu does.
+            // What the player sees while that runs IS the "Saving world" screen.
+            int mark = HostWorldSupport.readLines(joinerLogFile).size();
+            HostWorldSupport.stopRunJvms(JOINER_RUN);
+            try {
+                HostWorldSupport.awaitRunJvmsGone(JOINER_RUN, GRACEFUL_QUIT_BUDGET);
+            } catch (RuntimeException stuck) {
+                write(stack.resultsDir().resolve("host-quit-threads.txt"),
+                        HostWorldSupport.threadDump(JOINER_RUN));
+                ctx.fail("the host was still running " + GRACEFUL_QUIT_BUDGET.toSeconds()
+                        + "s after being asked to quit — this is the \"stuck on Saving world\" "
+                        + "report. Thread dump written to "
+                        + stack.resultsDir().resolve("host-quit-threads.txt"));
+            }
+            // What this proves and what it does not.
+            //
+            // It proves the shutdown path RETURNS. That is the whole of the "stuck on Saving world"
+            // report: NoderaHost.onServerStopping held the class monitor that a lane bootstrap also
+            // wanted, and that bootstrap does blocking per-peer network I/O with a thirty-second
+            // handshake timeout each — so a quit issued while a lane was starting parked the server
+            // thread, which is the thread the "Saving world" screen waits for, with no bound.
+            //
+            // It does NOT prove a clean save. SIGTERM runs the JVM's shutdown hook, which is not
+            // what the pause menu's "Save and Quit to Title" runs, and this harness has no way to
+            // drive an in-game menu (docs/testing/LIMITATIONS.md T-2). Asserting SAVE_COMPLETE here
+            // asserts a property of the signal rather than of the product.
+            ctx.note("quit       the shutdown returned within "
+                    + GRACEFUL_QUIT_BUDGET.toSeconds() + "s");
+            ctx.check(!HostWorldSupport.containsAfter(joinerLogFile, mark,
+                            "the entity lane is still starting up"),
+                    "the shutdown had to abandon the entity lane, which means it WOULD have blocked "
+                            + "without the bounded wait — the underlying contention is still there");
         });
 
         // -----------------------------------------------------------------------------------
@@ -456,6 +554,80 @@ public final class ChunkContinuityScenario implements Scenario {
             }
         }
         return false;
+    }
+
+    /** The ceiling for a world of {@code worldBytes}, never below the floor. */
+    private static long idleCeiling(long worldBytes) {
+        return Math.max(IDLE_CEILING_FLOOR_BYTES, worldBytes * IDLE_COPIES_ALLOWED);
+    }
+
+    /** The biggest world any node in this run is replicating, in bytes; 0 when none is reported. */
+    private long largestWorldBytes(ScenarioContext ctx) {
+        long largest = 0;
+        List<String> states = new ArrayList<>();
+        for (PlayerRole role : List.of(PlayerRole.PLAYER_ONE, PlayerRole.PLAYER_TWO)) {
+            states.add(ctx.worker(role).state());
+        }
+        states.add(phone.state());
+        for (String state : states) {
+            Object document = ServerJson.tryParse(state).orElse(Map.of());
+            for (int i = 0; i < MAX_WORLD_ROWS; i++) {
+                java.util.Optional<Object> row = ServerJson.at(document, "connected_worlds." + i);
+                if (row.isEmpty()) {
+                    break;
+                }
+                largest = Math.max(largest, ServerJson.number(row.get(), "total_bytes"));
+            }
+        }
+        return largest;
+    }
+
+    /**
+     * Which nodes hold every world they are replicating, and which are still fetching a first copy.
+     *
+     * <p>The traffic ceiling is about steady state. A node that has never held a world must download
+     * it once, and counting that as "the world is being moved again" fails the stage for the system
+     * working correctly — which is worse than not checking, because it teaches a reader to ignore
+     * the number. The worker publishes {@code pieces_held} and {@code piece_count} per world, so the
+     * difference is a fact rather than an inference from the byte count.
+     *
+     * @return node label → whether every connected world is complete there.
+     */
+    private Map<String, Boolean> completeByNode(ScenarioContext ctx) {
+        Map<String, Boolean> complete = new LinkedHashMap<>();
+        for (PlayerRole role : List.of(PlayerRole.PLAYER_ONE, PlayerRole.PLAYER_TWO)) {
+            complete.put(role.cliName(), holdsEverything(ctx.worker(role).state()));
+        }
+        complete.put("phone", holdsEverything(phone.state()));
+        return complete;
+    }
+
+    /**
+     * Whether every {@code connected_worlds} row reports a complete copy.
+     *
+     * <p>A node with no rows at all answers <b>false</b>: it is not holding everything, it is
+     * holding nothing, and it is about to start fetching. Reading that as "settled" is how a node
+     * that had not begun yet got judged against a steady-state ceiling.
+     */
+    private static boolean holdsEverything(String state) {
+        Object document = ServerJson.tryParse(state).orElse(Map.of());
+        boolean anyRow = false;
+        for (int i = 0; i < MAX_WORLD_ROWS; i++) {
+            java.util.Optional<Object> row = ServerJson.at(document, "connected_worlds." + i);
+            if (row.isEmpty()) {
+                return anyRow;
+            }
+            anyRow = true;
+            long pieces = ServerJson.number(row.get(), "piece_count");
+            long held = ServerJson.number(row.get(), "pieces_held");
+            // `piece_count == 0` is "this node has no manifest for that world yet" — a row it has
+            // registered and not begun. Reading it as complete is how a node holding NOTHING was
+            // judged against a steady-state ceiling and blamed for its own first download.
+            if (pieces == 0 || held < pieces) {
+                return false;
+            }
+        }
+        return anyRow;
     }
 
     /** A top-level string field of a worker's state document. */

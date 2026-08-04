@@ -829,9 +829,22 @@ public final class NoderaPeerService {
             announceScheduler = null;
         }
         // Tell the tracker the world is gone (best-effort) before we tear the runtime down.
+        //
+        // Off-thread with a short join, because this runs on the SERVER thread during shutdown and
+        // the "Saving world" screen is waiting for that thread. A tracker is allowed five seconds to
+        // connect and ten to answer, per endpoint, serially — so a host announcing to two trackers,
+        // one of them a remote one that has gone away, spent half a minute of the player's shutdown
+        // on a courtesy message. Best-effort means best-effort: if it does not land quickly, the
+        // world's entry expires on its own.
         if (serverTrackerClient != null && !serverTrackerClient.endpoints().isEmpty()
                 && serverIdentity != null && hostWorldId != null) {
-            sendAnnounce(AnnounceEvent.STOPPED);
+            Thread goodbye = Thread.ofPlatform().name("nodera-tracker-stopped").daemon()
+                    .start(() -> sendAnnounce(AnnounceEvent.STOPPED));
+            try {
+                goodbye.join(2_000L);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
         if (serverRuntime != null) {
             LOG.info("Nodera host peer shutting down");

@@ -616,6 +616,38 @@ public final class HostWorldSupport {
         return log.pollFor(SAVE_COMPLETE, timeout, 0);
     }
 
+    /**
+     * A thread dump of one run's game JVM, for the failures where "it is stuck" is the whole
+     * symptom.
+     *
+     * <p>A hang has no log line. The only evidence that distinguishes "slow" from "deadlocked" is
+     * what the threads are doing, and by the time a human is looking the process is usually gone —
+     * so the harness takes the dump at the moment the wait expires.
+     *
+     * @param runToken the run's {@code <run>RunProgramArgs} token.
+     * @return the dump, or an explanation of why there is none.
+     * @Thread-context any thread; runs an external command.
+     */
+    public static String threadDump(String runToken) {
+        OptionalLong pid = findRunJvm(runToken);
+        if (pid.isEmpty()) {
+            return "no JVM matched " + runToken + " — nothing to dump";
+        }
+        try {
+            Process jstack = new ProcessBuilder("jstack", Long.toString(pid.getAsLong()))
+                    .redirectErrorStream(true).start();
+            String out = new String(jstack.getInputStream().readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            jstack.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+            return out;
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return "jstack of pid " + pid.getAsLong() + " failed: " + e;
+        }
+    }
+
     /** What vanilla writes once every dimension has been flushed to disk. */
     public static final String SAVE_COMPLETE = "All dimensions are saved";
 

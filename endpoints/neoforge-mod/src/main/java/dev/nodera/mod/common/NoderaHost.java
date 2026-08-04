@@ -62,7 +62,45 @@ import java.util.Optional;
 public final class NoderaHost {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaHost");
-    private static LiveEntityLaneSession entityLane;
+    private static volatile LiveEntityLaneSession entityLane;
+
+    /**
+     * Guards {@link #entityLane}, and is explicitly NOT the class monitor.
+     *
+     * <h2>Why this stopped being {@code synchronized}</h2>
+     *
+     * <p>{@code activateEntityLane} held the class monitor across
+     * {@code LiveEntityLaneSession.open}, whose catch-up does a synchronous send per (region ×
+     * committee peer) with a five-second connect and a thirty-second authentication handshake each.
+     * One unreachable peer therefore held that monitor for minutes.
+     *
+     * <p>{@code onServerStopping} wanted the same monitor, and it runs on the <b>server thread</b> —
+     * which is the thread the "Saving world" screen is waiting for. So a lane bootstrap in flight
+     * when a player quit from the pause menu parked the shutdown behind it, with no timeout and
+     * nothing in any log. That is the "stuck on Saving world" report, and no test could see it
+     * because every departure test killed the process instead of asking it to leave.
+     *
+     * <p>A lock the shutdown path can give up on is the whole point.
+     */
+    private static final java.util.concurrent.locks.ReentrantLock LANE_LOCK =
+            new java.util.concurrent.locks.ReentrantLock();
+
+    /**
+     * Set the moment shutdown begins, before anything is locked.
+     *
+     * <p>Volatile and lock-free on purpose: a lane bootstrap that is about to spend minutes dialling
+     * peers for a world that is closing should abandon the attempt, and it must be able to learn
+     * that without taking the lock the shutdown is trying to take.
+     */
+    private static volatile boolean stopping;
+
+    /**
+     * How long shutdown waits for a lane bootstrap to finish before walking away from it.
+     *
+     * <p>Long enough for an ordinary close, far shorter than a peer dial. What is given up by
+     * walking away is an orderly close of a session that is about to die with the process anyway.
+     */
+    private static final java.time.Duration LANE_CLOSE_BUDGET = java.time.Duration.ofSeconds(5);
 
     /** The hosted world's permission set (L-49): drives the mesh admission gate; grants apply here. */
     private static volatile dev.nodera.storage.WorldPermissions hostedPermissions;
@@ -1379,7 +1417,7 @@ public final class NoderaHost {
     }
 
     /** Install live entity validation once Task-5b supplies certified genesis and region bindings. */
-    public static synchronized void activateEntityLane(
+    public static void activateEntityLane(
             MinecraftServer server,
             GenesisManifest genesis,
             java.util.List<LiveEntityLaneSession.RegionBinding> regions,
@@ -1388,6 +1426,26 @@ public final class NoderaHost {
         if (host == null) {
             throw new IllegalStateException("host peer must be running before entity lane activation");
         }
+        // Checked before the lock and again after opening: this call can spend minutes dialling
+        // peers, and a world that is closing does not need a lane.
+        if (stopping) {
+            LOG.info("Nodera: the server is stopping — abandoning the entity-lane bootstrap");
+            return;
+        }
+        LANE_LOCK.lock();
+        try {
+            activateEntityLaneLocked(server, genesis, regions, peers, host);
+        } finally {
+            LANE_LOCK.unlock();
+        }
+    }
+
+    private static void activateEntityLaneLocked(
+            MinecraftServer server,
+            GenesisManifest genesis,
+            java.util.List<LiveEntityLaneSession.RegionBinding> regions,
+            java.util.List<LiveEntityLaneSession.CommitteePeer> peers,
+            NoderaPeerService.HostContext host) {
         closeEntityLane();
         entityLane = LiveEntityLaneSession.open(
                 server, genesis, regions, peers,
@@ -1414,7 +1472,7 @@ public final class NoderaHost {
     }
 
     /** Whether a live entity-lane session is currently installed. */
-    public static synchronized boolean entityLaneActive() {
+    public static boolean entityLaneActive() {
         return entityLane != null;
     }
 
@@ -1422,7 +1480,7 @@ public final class NoderaHost {
      * The live lane's per-peer relay metrics (who processes whose events, and how long), or null
      * without an active lane. Read by {@code /nodera debug relay} + the verbose console stream.
      */
-    public static synchronized dev.nodera.diagnostics.metric.RelayMetrics entityLaneRelayMetrics() {
+    public static dev.nodera.diagnostics.metric.RelayMetrics entityLaneRelayMetrics() {
         return entityLane == null ? null : entityLane.runtime().validation().relayMetrics();
     }
 
@@ -1431,13 +1489,20 @@ public final class NoderaHost {
      * need the committed state itself rather than a metric derived from it
      * ({@code /nodera debug extract} compares a live extraction against it).
      */
-    public static synchronized dev.nodera.mod.server.entity.LiveEntityLaneRuntime
+    public static dev.nodera.mod.server.entity.LiveEntityLaneRuntime
             entityLaneRuntime() {
         return entityLane == null ? null : entityLane.runtime();
     }
 
     /** Stop local validation resources without changing the world's shared flag. */
-    public static synchronized void onServerStopping(MinecraftServer server) {
+    /** A new server is up: this process is no longer shutting one down. */
+    public static void onServerStarted() {
+        stopping = false;
+    }
+
+    public static void onServerStopping(MinecraftServer server) {
+        // Announced before anything is attempted, so a bootstrap already running can give up.
+        stopping = true;
         // The game endpoint dies with the game. Tell the worker so the world stays LISTED on the
         // network (the worker keeps announcing) but stops advertising a joinable game server.
         if (NoderaPeerService.get().isHosting() && CompanionLink.isPresent()) {
@@ -1449,7 +1514,7 @@ public final class NoderaHost {
             });
         }
         publishedGamePort = -1;
-        closeEntityLane();
+        closeEntityLaneForShutdown();
         // The gate belongs to the hosted game, not to the process: a stale armed gate would keep
         // challenging joiners of whatever world is opened next (L-52).
         HostJoinGate.get().disarm();
@@ -1525,6 +1590,35 @@ public final class NoderaHost {
         return WorldGenesisService.read(saveRoot)
                 .map(g -> g.manifest().genesisRoot().hash())
                 .orElse(interim);
+    }
+
+    /**
+     * Close the lane if it can be reached, and walk away if it cannot.
+     *
+     * <p>This runs on the server thread with the "Saving world" screen up. A lane bootstrap holding
+     * the lock is doing blocking network I/O that can run for minutes, and waiting for it is how a
+     * player ends up staring at that screen forever. The session's resources die with the process,
+     * so the cost of not closing it tidily is a log line.
+     */
+    private static void closeEntityLaneForShutdown() {
+        boolean taken = false;
+        try {
+            taken = LANE_LOCK.tryLock(LANE_CLOSE_BUDGET.toMillis(),
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        if (!taken) {
+            LOG.warn("Nodera: the entity lane is still starting up after {}s — leaving it to die "
+                    + "with the process rather than holding the shutdown open",
+                    LANE_CLOSE_BUDGET.toSeconds());
+            return;
+        }
+        try {
+            closeEntityLane();
+        } finally {
+            LANE_LOCK.unlock();
+        }
     }
 
     private static void closeEntityLane() {

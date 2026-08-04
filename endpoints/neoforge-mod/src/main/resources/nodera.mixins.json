@@ -9,7 +9,8 @@
     "ServerLevelRandomTickMixin"
   ],
   "client": [
-    "ClientDisconnectMixin"
+    "ClientDisconnectMixin",
+    "ConnectionHandledMixin"
   ],
   "server": [],
   "injectors": {
