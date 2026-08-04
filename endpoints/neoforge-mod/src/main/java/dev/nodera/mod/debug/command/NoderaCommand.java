@@ -332,7 +332,10 @@ public final class NoderaCommand {
         }
         return CommandTree.sendPanel(ctx.getSource(),
                 ViewBuilder.zonePanel(s, dev.nodera.mod.debug.Dimensions.of(player),
-                        player.blockPosition().getX(), player.blockPosition().getZ()));
+                        player.blockPosition().getX(), player.blockPosition().getZ(),
+                        // The caller's own zone, not the host's. Same fix as the boss bar: this
+                        // command runs on the host for whoever typed it.
+                        dev.nodera.mod.debug.PlayerZones.stateOf(player, s.regions())));
     }
 
     /** {@code /nodera net <type>} — the per-type breakdown filtered to one type. */

@@ -67,8 +67,10 @@ public final class BossBarManager {
         // permanent red readings about a subsystem that is not running is worse than no reading —
         // it sent a live session hunting for a fault that was a scope decision.
         if (dev.nodera.endpoint.lane.ValidationLane.deterministicValidationEnabled()) {
-            OwnershipState zone = ZoneClassifier.classify(Dimensions.of(player),
-                    player.blockPosition().getX(), player.blockPosition().getZ(), snap.regions());
+            // Per PLAYER, not per snapshot. `snap.regions()` is this node's own seats and is not a
+            // function of `player`, so classifying every player against it printed one node's
+            // answer on every screen — see PlayerZones for what that looked like live.
+            OwnershipState zone = dev.nodera.mod.debug.PlayerZones.stateOf(player, snap.regions());
             pb.updateZone(zone);
             pb.updateHealth(snap);
         } else {

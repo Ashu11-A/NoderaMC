@@ -207,8 +207,26 @@ public final class ViewBuilder {
 
     /** The zone panel: the region at the position + its {@link OwnershipState}. */
     public static Panel zonePanel(TelemetrySnapshot s, DimensionKey dim, int blockX, int blockZ) {
+        return zonePanel(s, dim, blockX, blockZ, null);
+    }
+
+    /**
+     * As {@link #zonePanel(TelemetrySnapshot, DimensionKey, int, int)}, with the state decided by
+     * the caller.
+     *
+     * <p>The caller knows something this class cannot: <b>whose</b> zone is being asked about.
+     * Classifying against {@code s.regions()} answers for the node that took the snapshot, which is
+     * correct only when that is also the player asking — and on a player-hosted world it is the host
+     * for everybody, so a joiner was told their own ground was foreign.
+     *
+     * @param state the already-resolved state, or {@code null} to classify against the snapshot.
+     */
+    public static Panel zonePanel(TelemetrySnapshot s, DimensionKey dim, int blockX, int blockZ,
+                                  OwnershipState state) {
         var region = ZoneClassifier.regionAt(dim, blockX, blockZ);
-        OwnershipState state = ZoneClassifier.classify(dim, blockX, blockZ, s.regions());
+        if (state == null) {
+            state = ZoneClassifier.classify(dim, blockX, blockZ, s.regions());
+        }
         String coord = region.regionX() + "," + region.regionZ();
         List<Row> rows = List.of(
                 row(LBL_REGION, Cell.raw(coord)),

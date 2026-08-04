@@ -1088,12 +1088,21 @@ public final class NoderaHost {
                 // L-80: this node computed the plan, so it knows who owns every region — including
                 // the ones it holds no replica for. Keeping that answer is what lets a captured
                 // action reach its owner from a node that owns nothing.
-                Map<dev.nodera.core.region.RegionId, NodeId> planPrimaries =
+                // The whole committee, not only the primary. The forwarding path only ever needed
+                // the primary, but this index is also the one thing in the process that knows what
+                // EVERY node was given — and the boss bar has to answer "what is that player over
+                // there responsible for" once per online player. Reading a lane for that answered
+                // with THIS node's seats for everybody, which is why a joiner read FOREIGN on
+                // ground its own node owned.
+                Map<dev.nodera.core.region.RegionId,
+                        dev.nodera.endpoint.lane.ObserverOwnership.Seats> planSeats =
                         new java.util.LinkedHashMap<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
-                    planPrimaries.put(planned.region(), planned.lease().primary());
+                    planSeats.put(planned.region(),
+                            new dev.nodera.endpoint.lane.ObserverOwnership.Seats(
+                                    planned.lease().primary(), planned.lease().validators()));
                 }
-                dev.nodera.endpoint.lane.ObserverOwnership.publish(planPrimaries);
+                dev.nodera.endpoint.lane.ObserverOwnership.publish(planSeats);
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive

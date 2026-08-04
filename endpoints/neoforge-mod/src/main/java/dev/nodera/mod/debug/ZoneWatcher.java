@@ -50,7 +50,11 @@ final class ZoneWatcher {
         if (prev == null || prev.equals(region)) {
             return; // first sighting seeds silently; same region is not an edge
         }
-        OwnershipState state = ZoneClassifier.classify(dim, bx, bz, snap.regions());
+        // The same per-player question the bar asks, and for the same reason: this snapshot's
+        // region set is the HOST's seats, so classifying a joiner against it alerted them about
+        // ground they own. The alert and the bar must agree, and they must both be about the
+        // player being alerted.
+        OwnershipState state = PlayerZones.stateOf(player, snap.regions());
         String coord = region.regionX() + "," + region.regionZ();
         if (state == OwnershipState.OWNED || state == OwnershipState.VALIDATING) {
             ActionBarNotifier.alertOwned(player, coord);

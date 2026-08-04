@@ -2,6 +2,9 @@ package dev.nodera.endpoint.lane;
 
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.diagnostics.state.OwnershipState;
+
+import java.util.List;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,18 +30,43 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ObserverOwnership {
 
-    private static final Map<RegionId, NodeId> PRIMARIES = new ConcurrentHashMap<>();
+    /**
+     * One region's planned committee.
+     *
+     * @param primary    the node that runs the region.
+     * @param validators the nodes that re-execute and vote on it.
+     */
+    public record Seats(NodeId primary, List<NodeId> validators) {
+
+        /** Compact constructor. */
+        public Seats {
+            validators = validators == null ? List.of() : List.copyOf(validators);
+        }
+
+        /** @return this node's relationship to the region: OWNED, VALIDATING, or FOREIGN. */
+        public OwnershipState stateFor(NodeId node) {
+            if (node == null) {
+                return OwnershipState.FOREIGN;
+            }
+            if (node.equals(primary)) {
+                return OwnershipState.OWNED;
+            }
+            return validators.contains(node) ? OwnershipState.VALIDATING : OwnershipState.FOREIGN;
+        }
+    }
+
+    private static final Map<RegionId, Seats> COMMITTEES = new ConcurrentHashMap<>();
 
     private ObserverOwnership() {
     }
 
     /** Replace the index with the current plan. */
-    public static void publish(Map<RegionId, NodeId> primaries) {
-        PRIMARIES.clear();
-        if (primaries != null) {
-            primaries.forEach((region, primary) -> {
-                if (region != null && primary != null) {
-                    PRIMARIES.put(region, primary);
+    public static void publish(Map<RegionId, Seats> committees) {
+        COMMITTEES.clear();
+        if (committees != null) {
+            committees.forEach((region, seats) -> {
+                if (region != null && seats != null && seats.primary() != null) {
+                    COMMITTEES.put(region, seats);
                 }
             });
         }
@@ -46,16 +74,50 @@ public final class ObserverOwnership {
 
     /** @return the planned primary for {@code region}, or null when the plan does not cover it. */
     public static NodeId primaryOf(RegionId region) {
-        return region == null ? null : PRIMARIES.get(region);
+        Seats seats = region == null ? null : COMMITTEES.get(region);
+        return seats == null ? null : seats.primary();
+    }
+
+    /**
+     * What {@code node}'s relationship to {@code region} is, according to the plan this session
+     * broadcast.
+     *
+     * <h2>Why this is asked of the plan and not of a lane</h2>
+     *
+     * <p>A lane knows only its own seats. That is the right answer to "what am I responsible for"
+     * and the wrong answer to "what is that player over there responsible for" — and the boss bar
+     * asks the second question, once per online player, from the host. Asking a lane instead meant
+     * every player's bar was rendered from the <b>host's</b> seats evaluated at that player's
+     * coordinates, so a joiner standing on ground its own node owned read {@code FOREIGN} forever
+     * while the host player read {@code OWNED}, and after a teleport both read {@code OWNED} because
+     * both were one node's answer printed on two screens.
+     *
+     * <p>The plan is the only thing that knows every node's seats, and the node that broadcasts it
+     * already computes it. This index just keeps it.
+     *
+     * @param region the region to ask about.
+     * @param node   the node to ask about.
+     * @return {@link OwnershipState#UNASSIGNED} when the plan does not cover the region at all
+     *         (nothing is delegated there yet), otherwise OWNED / VALIDATING / FOREIGN.
+     * @Thread-context any thread.
+     */
+    public static OwnershipState stateFor(RegionId region, NodeId node) {
+        Seats seats = region == null ? null : COMMITTEES.get(region);
+        return seats == null ? OwnershipState.UNASSIGNED : seats.stateFor(node);
+    }
+
+    /** @return whether a plan has been published at all — false means "ask something else". */
+    public static boolean hasPlan() {
+        return !COMMITTEES.isEmpty();
     }
 
     /** @return how many regions the current plan covers. */
     public static int size() {
-        return PRIMARIES.size();
+        return COMMITTEES.size();
     }
 
     /** Session shutdown: the plan dies with the session that computed it. */
     public static void clear() {
-        PRIMARIES.clear();
+        COMMITTEES.clear();
     }
 }
