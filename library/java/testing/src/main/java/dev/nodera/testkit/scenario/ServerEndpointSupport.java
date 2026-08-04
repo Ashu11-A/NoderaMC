@@ -123,7 +123,8 @@ public final class ServerEndpointSupport implements AutoCloseable {
     private ManagedProcess serverProcess;
     private ServerSparkSupport spark;
     private String sharePassword = "";
-    private String streamIntervalTicks = "2400";
+    /** Zero, matching the product default: the whole-save repack is a cold bootstrap, not a timer. */
+    private String streamIntervalTicks = "0";
 
     public ServerEndpointSupport(ScenarioContext context) {
         this.context = context;

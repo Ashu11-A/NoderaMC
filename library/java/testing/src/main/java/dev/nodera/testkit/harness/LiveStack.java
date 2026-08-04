@@ -420,7 +420,14 @@ public final class LiveStack implements AutoCloseable {
                     \tmobCaptureDimensions = ["minecraft:overworld"]
                     """.formatted(topology.gamePort(),
                     hostConfigOverrides.getOrDefault("sharePassword", ""),
-                    hostConfigOverrides.getOrDefault("streamIntervalTicks", "2400")));
+                    // Zero, matching the product default. The harness used to write 2400 here and
+                    // that number silently won every live run: a config FILE beats a code default,
+                    // so every scenario measured the periodic whole-save repack whatever the
+                    // product had decided. On a 76 MB save that is a 40-second pack inside the
+                    // server every two minutes, which starved a joining player's handshake and
+                    // read as "player B never joined". A scenario that wants the old cadence still
+                    // asks for it by name (RekeyScenario does).
+                    hostConfigOverrides.getOrDefault("streamIntervalTicks", "0")));
             toml.append("[tracker]\n\tendpoints = ")
                     .append(tomlArray(topology.trackerEndpoints())).append('\n');
             toml.append("[rendezvous]\n\tendpoints = ")

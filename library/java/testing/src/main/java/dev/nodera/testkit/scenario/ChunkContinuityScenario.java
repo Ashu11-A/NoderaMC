@@ -85,6 +85,9 @@ public final class ChunkContinuityScenario implements Scenario {
     /** How long player B must keep playing after player A's game is killed. */
     private static final Duration SURVIVAL_WINDOW = Duration.ofSeconds(90);
 
+    /** How far the tracker list in a state document is scanned; a node configures few. */
+    private static final int MAX_TRACKER_ROWS = 16;
+
     private AndroidDevice phone = new AndroidDevice();
 
     @Override
@@ -213,14 +216,14 @@ public final class ChunkContinuityScenario implements Scenario {
 
             boolean pointed = false;
             for (int waited = 0; waited < 20 && !pointed; waited++) {
-                phone.verb("NODERA-CONFIG 2 tracker.endpoints "
-                        + hostIp[0] + ":" + ctx.topology().trackerPort());
-                pointed = phone.state().contains(hostIp[0] + ":" + ctx.topology().trackerPort());
+                pushLanTracker(ctx, hostIp[0]);
+                pointed = tracksLan(phone.stateDocument(), hostIp[0], ctx.topology().trackerPort());
             }
             ctx.check(pointed, "the phone never took the run's tracker at " + hostIp[0] + ":"
-                    + ctx.topology().trackerPort() + " — an attached companion app re-asserts its "
-                    + "own settings document seconds later and reverts it, so close the app on the "
-                    + "phone for this run");
+                    + ctx.topology().trackerPort() + ". NODERA-CONFIG reports it applied and the "
+                    + "worker does take it — the attached app re-asserts its own settings document "
+                    + "seconds later and reverts it, so an external tracker configuration is "
+                    + "transient while the app is running.");
 
             // The phone dials OUT: the direction that works without forwarding a port to a handset.
             String route = hostIp[0] + ":" + ctx.topology().workerP2pPort(0);
@@ -233,6 +236,14 @@ public final class ChunkContinuityScenario implements Scenario {
         // C2 — two real clients in one world
         // -----------------------------------------------------------------------------------
         ctx.stage("C2", "player A opens a world from a real launcher and player B joins it", () -> {
+            // Bake (or re-point) the staged world before anything tries to quick-play into it. A
+            // client launched with --quickPlaySingleplayer for a save that is not there does not
+            // fail loudly: it lands on a disconnect screen and sits there until the stage times
+            // out, which reads as "the host would not open the world".
+            Path config = HostWorldSupport.stagedWorld(ctx);
+            // And the cadence this whole run is about, stated rather than inherited: the whole-save
+            // repack is off, so what moves between peers is region deltas.
+            HostWorldSupport.setHostConfig(config, "archive", "streamIntervalTicks", "0");
             players[0] = HostWorldSupport.hostedTwoPlayers(ctx);
             ctx.check(HostWorldSupport.runJvmAlive(HOST_RUN), "player A's game JVM is not running");
             ctx.check(HostWorldSupport.runJvmAlive(JOINER_RUN), "player B's game JVM is not running");
@@ -300,16 +311,20 @@ public final class ChunkContinuityScenario implements Scenario {
         // -----------------------------------------------------------------------------------
         // C5 — a small edit costs a small transfer
         // -----------------------------------------------------------------------------------
-        ctx.stage("C5", "the world keeps being seeded region by region rather than whole", () -> {
-            // The evidence that the cadence changed is what the host STOPS saying. A repack logs
-            // its whole-archive seed; a region delta logs a region. Both lines exist, and which one
-            // repeats is the entire behavioural difference.
+        ctx.stage("C5", "the whole-save repack is not running on a timer", () -> {
+            // The evidence that the cadence changed is what the host STOPS saying: a repack logs a
+            // whole-archive seed, and the assertion is that it happens at most at share time and at
+            // stop, never on a clock.
             List<String> archiveSeeds = HostWorldSupport.matchesAfter(hostLogFile, 0,
-                    "Seeding world archive");
+                    "world archive seeded to the worker");
+            // Region seeds are counted for the record, not asserted. A commit is what produces one,
+            // and C4 has just spent three minutes deliberately not producing any — so zero here is
+            // the expected reading for an idle world and asserting on it would make this stage a
+            // test of whether the players happened to move.
             List<String> regionSeeds = HostWorldSupport.matchesAfter(hostLogFile, 0,
-                    "Seeding region");
+                    "seeded region");
             ctx.note("seeds      " + archiveSeeds.size() + " whole-archive, " + regionSeeds.size()
-                    + " per-region");
+                    + " per-region (an idle world commits nothing, so zero regions is expected)");
             ctx.check(archiveSeeds.size() <= 2, "the host repacked the whole save "
                     + archiveSeeds.size() + " times. The archive is a cold bootstrap now — once on "
                     + "share and once on stop — and anything more is the periodic repack still "
@@ -390,6 +405,43 @@ public final class ChunkContinuityScenario implements Scenario {
         }
         received.put("phone", ServerJson.number(phone.stateDocument(), "total_received_bytes"));
         return received;
+    }
+
+    /**
+     * Point the phone's worker at this run's tracker.
+     *
+     * <p>The key is {@code network.default_trackers} and the value is a list of {@code tcp://}
+     * routes, because that is the documented form the worker reads — a route handed over without
+     * its scheme is accepted, stored, and then never resolved, which is a feature that silently
+     * never runs.
+     */
+    private void pushLanTracker(ScenarioContext ctx, String hostIp) {
+        String config = "{\"network.default_trackers\":[\"tcp://" + hostIp + ":"
+                + ctx.topology().trackerPort() + "\"]}";
+        phone.verb("NODERA-CONFIG 2 " + java.util.Base64.getEncoder()
+                .encodeToString(config.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    /**
+     * Whether the phone lists this run's tracker as one it can actually reach.
+     *
+     * <p>"Reachable", not merely "configured". The weaker form passes on a phone still pointed at a
+     * production tracker while the world this run published is on neither of them, and the failure
+     * then surfaces two stages later as "the phone did not replicate".
+     */
+    private static boolean tracksLan(Object document, String hostIp, int port) {
+        for (int i = 0; i < MAX_TRACKER_ROWS; i++) {
+            java.util.Optional<Object> row = ServerJson.at(document, "trackers." + i);
+            if (row.isEmpty()) {
+                return false;
+            }
+            if (hostIp.equals(ServerJson.text(row.get(), "host").orElse(""))
+                    && port == ServerJson.number(row.get(), "port")
+                    && "true".equals(ServerJson.text(row.get(), "reachable").orElse(""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** A top-level string field of a worker's state document. */
