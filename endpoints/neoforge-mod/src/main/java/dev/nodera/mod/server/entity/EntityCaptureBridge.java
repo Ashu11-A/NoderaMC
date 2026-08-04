@@ -32,8 +32,9 @@ import java.util.Queue;
 import java.util.UUID;
 
 /**
- * Live Task-12 entity event bridge. Vanilla item projections are tick-suppressed; ghost-capable
- * entities keep vanilla authority and emit coalescible external mutations after their ticks.
+ * Live Task-12 entity event bridge. Every captured entity — items included, since the engine's item
+ * physics cannot yet see the ground — keeps vanilla authority and emits coalescible external
+ * mutations after its tick; the lane owns identity, ownership and inventory credit, not motion.
  */
 public final class EntityCaptureBridge {
 
@@ -58,6 +59,15 @@ public final class EntityCaptureBridge {
 
         /** Return true only after pickup action reservation is durable. */
         boolean submitPickup(ServerPlayer player, RegionId region, NetworkEntityId id);
+
+        /**
+         * Tell the lane which vanilla entity carries a canonical id, for an entity the lane adopted
+         * rather than created. Without it the lane cannot find that entity again: a later commit
+         * spawns a second one under the same id, and a validated pickup removes the canonical entry
+         * while the real item stays on the ground.
+         */
+        default void registerVanillaEntity(RegionId region, NetworkEntityId id, Entity entity) {
+        }
 
         /**
          * Whether this node may take a vanilla outcome away from the player in {@code region} —
@@ -310,25 +320,17 @@ public final class EntityCaptureBridge {
             NetworkEntityId allocated = NetworkEntityIdAttachment.getOrCreate(item);
             PersistedEntityState state = MinecraftEntityAdapters.item(item, allocated);
             captured.put(entity.getUUID(), new Captured(region, state, true));
-            // A validated item's vanilla projection is tick-suppressed, which would freeze its
-            // pickup delay forever — pickup validity belongs to the validated lane
-            // (PickupItemAction admission), so the projection must be immediately touchable.
+            // The pickup delay is left exactly as vanilla set it. It used to be zeroed here,
+            // because a tick-suppressed item can never decrement it — and that produced, in turn,
+            // an item the thrower vacuumed straight back up (delay gone, nothing replacing it) and
+            // then, once the zeroing was gated on being the primary, an item frozen at 40 forever
+            // on every other node. Both were consequences of suppressing the tick; the tick is no
+            // longer suppressed, so vanilla's own grace period works and neither is possible.
             //
-            // ONLY where this node is the region's primary, though, because that is the only place
-            // the lane actually admits pickups: `submitPickup` refuses on a non-primary node
-            // (VanillaCancelGate, issues #33/#44), so `onPickupPre` does not cancel vanilla there.
-            // Zeroing the delay unconditionally therefore took away vanilla's 40-tick grace and put
-            // nothing in its place — the tossed item lay collectable at the thrower's feet and
-            // vanilla vacuumed it back the same tick.
-            //
-            // That is the "players cannot drop items" report, and it explains its shape exactly:
-            // it appears when both players are VALIDATING (neither is primary of the ground they
-            // are standing on, which happens when they stand close together near a region
-            // boundary) and it stops the moment one walks away and becomes primary of their own
-            // region again.
-            if (runtime.mayCancelVanilla(region)) {
-                item.setPickUpDelay(0);
-            }
+            // Registered before adoption: the lane has to be able to find THIS entity again, or a
+            // later commit spawns a second item carrying the same id and a validated pickup deletes
+            // the canonical entry while leaving the real item lying on the ground.
+            runtime.registerVanillaEntity(region, allocated, item);
             runtime.adoptEntity(region, state);
             return;
         }
@@ -352,17 +354,40 @@ public final class EntityCaptureBridge {
         }
     }
 
+    /**
+     * Item ticks are no longer suppressed. Vanilla owns an item's motion; the lane owns its
+     * existence, its identity and who ends up holding it.
+     *
+     * <h2>Why suppression had to go</h2>
+     *
+     * <p>Suppressing the tick handed an item's physics to the deterministic engine, and the engine's
+     * item physics is a flat-world placeholder: {@code ItemEntityRules.GROUND_Y} is world <b>Y =
+     * 1.0</b> and {@code move()} never reads a block. An item dropped at Y≈78 therefore accelerates
+     * downward in canonical state past the actual floor and comes to rest inside stone near bedrock,
+     * while every commit teleported the vanilla entity to that canonical position and vanilla's next
+     * tick shoved it back out of the ground. Two writers, neither able to converge — seen live as an
+     * item bobbing up and down forever.
+     *
+     * <p>It also made items unpickable, in a way that survived the previous fix. {@code pickupDelay}
+     * is decremented <b>inside</b> {@code ItemEntity.tick()}, so a suppressed item froze whatever
+     * delay it had. Zeroing the delay unconditionally hid that (the item was instantly re-collected
+     * — the earlier "cannot drop items" report); gating the zeroing on being the region's primary,
+     * as the pickup admission already was, left every other node holding an item frozen at vanilla's
+     * 40-tick drop delay <b>forever</b>. Three gates that had to agree and did not.
+     *
+     * <p>Mobs were never affected, and that is the tell: a ghost is vanilla-authoritative and mirrored
+     * into canonical after its tick, with nothing written back. Items are now the same shape. The
+     * engine keeps modelling them — despawn, region transfer, pickup admission and inventory credit
+     * are all unchanged — it simply stops being the authority on where they are until it can see the
+     * ground they are falling towards.
+     */
     private void onTickPre(EntityTickEvent.Pre event) {
         if (!(event.getEntity().level() instanceof ServerLevel)) {
             return;
         }
         Captured tracked = captured.get(event.getEntity().getUUID());
-        if (tracked != null && tracked.validatedItem) {
-            if (runtime.delegated(tracked.region)) {
-                event.setCanceled(true);
-            } else {
-                captured.remove(event.getEntity().getUUID());
-            }
+        if (tracked != null && tracked.validatedItem && !runtime.delegated(tracked.region)) {
+            captured.remove(event.getEntity().getUUID());
         }
     }
 
@@ -379,10 +404,17 @@ public final class EntityCaptureBridge {
             return;
         }
         Captured prior = captured.get(entity.getUUID());
-        if (prior == null || prior.validatedItem) {
+        if (prior == null) {
             return;
         }
-        PersistedEntityState current = MinecraftEntityAdapters.ghost(entity);
+        // Items mirror the same way ghosts do, now that vanilla ticks them again. This direction
+        // used to be disabled for items — the canonical state was never corrected by reality — which
+        // is what let the engine's flat-world item physics walk an item's canonical position down to
+        // Y = 1.0 while the real one sat on the floor, with each commit teleporting the real one
+        // into the ground and vanilla shoving it back out.
+        PersistedEntityState current = prior.validatedItem && entity instanceof ItemEntity item
+                ? MinecraftEntityAdapters.item(item, prior.state.id())
+                : MinecraftEntityAdapters.ghost(entity);
         RegionId currentRegion = MinecraftEntityAdapters.region(entity);
         try {
             if (!prior.region.equals(currentRegion)) {

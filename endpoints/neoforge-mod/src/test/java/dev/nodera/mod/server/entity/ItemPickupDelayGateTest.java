@@ -11,34 +11,36 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * A dropped item may only lose vanilla's pickup grace where the validated lane can actually replace
- * it.
+ * Vanilla owns an item's motion and its pickup timing; the lane owns its identity and who ends up
+ * holding it.
  *
- * <h2>The bug this pins</h2>
+ * <h2>What this pins, and the two ways it was got wrong</h2>
  *
- * <p>{@code EntityCaptureBridge} adopts every item that appears in a delegated region and used to
- * zero its pickup delay unconditionally, reasoning that pickup validity now belongs to the lane's
- * {@code PickupItemAction} admission. It does — but only on the region's <b>primary</b>:
- * {@code submitPickup} refuses everywhere else ({@link VanillaCancelGate}, issues #33/#44), so
- * {@code onPickupPre} does not cancel the vanilla pickup there.
+ * <p>{@code EntityCaptureBridge} used to suppress a captured item's vanilla tick, handing its
+ * physics to the deterministic engine. The engine's item model is a flat-world placeholder —
+ * {@code ItemEntityRules.GROUND_Y} is world <b>Y = 1.0</b> and {@code move()} reads no blocks — so
+ * an item dropped at Y≈78 fell through the real floor in canonical state, every commit teleported
+ * the live entity after it, and vanilla's next tick shoved it back out of the stone. Seen live as an
+ * item bobbing up and down forever.
  *
- * <p>On a node that is merely a validator, the delay was therefore removed and nothing took its
- * place. A tossed item lay collectable at the thrower's feet and vanilla vacuumed it straight back
- * in — reported from a live two-player session as "players simply cannot drop items", and, tellingly,
- * only while <b>both</b> players read {@code VALIDATING}. Two players standing close together near a
- * region boundary are each inside a region whose centre the other is nearer to, so neither is
- * primary of the ground under their own feet; walk one of them away and drops start working again.
+ * <p>The same suppression froze {@code pickupDelay}, which vanilla decrements <b>inside</b>
+ * {@code ItemEntity.tick()}. Zeroing the delay to compensate made the thrower vacuum the item
+ * straight back up ("players simply cannot drop items"); gating that zeroing on being the region's
+ * primary — as the pickup admission already was — left every other node holding an item frozen at
+ * vanilla's 40-tick drop delay <b>forever</b>, which is the "nobody can pick it up" report. Three
+ * gates that had to agree, fixed one at a time, each fix moving the symptom.
  *
- * <p>The rule is asserted twice: once as behaviour on the pure gate, and once structurally on the
- * capture path, because that path needs a live {@code ItemEntity} and a running server and is
- * therefore not reachable from a Minecraft-free test.
+ * <p>Mobs were never affected, and that was the tell: a ghost is vanilla-authoritative and mirrored
+ * into canonical after its tick, with nothing written back. Items are that shape now too.
+ *
+ * <p>The two structural assertions read the source because the capture path needs a live
+ * {@code ItemEntity} and a running server, and is not reachable from a Minecraft-free test.
  */
 final class ItemPickupDelayGateTest {
 
@@ -72,23 +74,39 @@ final class ItemPickupDelayGateTest {
     }
 
     @Test
-    @DisplayName("the capture path zeroes a pickup delay only behind that gate")
-    void theCapturePathIsGated() throws Exception {
-        Path source = LayoutManifest.load()
+    @DisplayName("the capture path never touches an item's pickup delay")
+    void theCapturePathLeavesVanillaTimingAlone() throws Exception {
+        String text = Files.readString(bridgeSource());
+
+        assertThat(text)
+                .as("vanilla stamps 40 ticks on a drop and decrements it inside ItemEntity.tick. "
+                        + "Overriding that from here has been wrong in both directions: zeroed, the "
+                        + "thrower vacuums the item straight back; left at 40 on a tick-suppressed "
+                        + "item, it freezes and nobody can ever pick it up")
+                .doesNotContain("setPickUpDelay");
+    }
+
+    @Test
+    @DisplayName("an item's tick is never cancelled")
+    void itemTicksAreNotSuppressed() throws Exception {
+        String text = Files.readString(bridgeSource());
+
+        int preTick = text.indexOf("private void onTickPre(");
+        assertThat(preTick).as("the pre-tick handler still exists").isPositive();
+        String handler = text.substring(preTick, text.indexOf("private void onTickPost("));
+
+        assertThat(handler)
+                .as("suppressing an item's tick hands its physics to the engine, whose item model "
+                        + "rests on a flat-world plane at Y = 1.0 and reads no blocks — so the "
+                        + "canonical item falls through the floor while every commit teleports the "
+                        + "real one after it and vanilla shoves it back out. Both halves of the "
+                        + "endless bobbing, and the frozen pickup delay, come from this one line")
+                .doesNotContain("setCanceled(true)");
+    }
+
+    private static java.nio.file.Path bridgeSource() {
+        return LayoutManifest.load()
                 .module("neoforge-mod")
                 .resolve("src/main/java/dev/nodera/mod/server/entity/EntityCaptureBridge.java");
-        String text = Files.readString(source);
-
-        int zeroed = text.indexOf("item.setPickUpDelay(0)");
-        assertThat(zeroed).as("the capture path still zeroes a pickup delay somewhere").isPositive();
-
-        // The gate call must appear immediately above it. Asserting adjacency rather than mere
-        // presence is the point: the previous version of this code had the gate available on the
-        // runtime and simply did not consult it here.
-        String preceding = text.substring(Math.max(0, zeroed - 200), zeroed);
-        assertThat(preceding)
-                .as("zeroing the delay outside `mayCancelVanilla` removes vanilla's grace and puts "
-                        + "nothing in its place — see this class's Javadoc")
-                .contains("mayCancelVanilla(region)");
     }
 }

@@ -297,6 +297,29 @@ public final class ServerEntityWorldView implements MutableWorldView {
         }
     }
 
+    /**
+     * Tell the view which vanilla entity carries a canonical id.
+     *
+     * <p>{@link #bind} does this for everything present at activation, and the projection does it
+     * for anything it spawns — but an entity <b>adopted</b> at runtime (a player drops an item into
+     * a delegated region) went into canonical without ever being registered here. The consequences
+     * were both invisible and severe: {@code existing(...)} answered null, so the next committed
+     * mutation spawned a <i>second</i> item carrying the same id, and {@code removeProjection}
+     * could not delete the real one — so a validated pickup credited the inventory and left the
+     * item lying on the ground.
+     *
+     * @param region the region the entity is in.
+     * @param id     its canonical id.
+     * @param entity the vanilla entity; ignored when null.
+     * @Thread-context server thread.
+     */
+    public void registerVanillaEntity(RegionId region, NetworkEntityId id, Entity entity) {
+        if (region == null || id == null || entity == null) {
+            return;
+        }
+        vanillaEntities.put(new ProjectionKey(region, id), entity.getUUID());
+    }
+
     /** Mirror one vanilla-authoritative ghost change into canonical state before certification. */
     public void captureExternal(
             RegionId region, PersistedEntityState expected, PersistedEntityState replacement) {
@@ -335,12 +358,23 @@ public final class ServerEntityWorldView implements MutableWorldView {
         ItemStack stack = new ItemStack(
                 BuiltInRegistries.ITEM.byId(payload.itemStackId()), payload.count());
         Runnable projection = () -> {
-            ItemEntity item;
             if (existing instanceof ItemEntity existingItem && !existingItem.isRemoved()) {
-                item = existingItem;
-                item.setItem(stack);
-            } else {
-                item = new ItemEntity(
+                // An item this world already has: update WHAT it is, never WHERE it is.
+                //
+                // Writing the canonical position back was the other half of the endless bobbing.
+                // The engine's item physics is a flat-world placeholder — `ItemEntityRules.GROUND_Y`
+                // is world Y = 1.0 and `move()` reads no blocks — so canonical Y falls past the real
+                // floor forever. Each commit teleported the live item down to it and vanilla's next
+                // tick shoved it back out of the stone. Vanilla owns an item's motion now; the lane
+                // owns its identity, its stack, and who ends up holding it.
+                existingItem.setItem(stack);
+                return;
+            }
+            {
+                // Not here yet: a genuinely remote item, arriving from the peer that holds it. It
+                // has to appear somewhere, so it appears where canonical says — and from that
+                // moment vanilla ticks it like any other item.
+                ItemEntity item = new ItemEntity(
                         level,
                         dev.nodera.core.state.FixedVec3.toExternal(state.pos().x()),
                         dev.nodera.core.state.FixedVec3.toExternal(state.pos().y()),
@@ -350,15 +384,11 @@ public final class ServerEntityWorldView implements MutableWorldView {
                     throw new IllegalStateException("vanilla item projection could not be spawned");
                 }
                 vanillaEntities.put(new ProjectionKey(region, state.id()), item.getUUID());
+                item.setDeltaMovement(
+                        dev.nodera.core.state.FixedVec3.toExternal(state.vel().x()),
+                        dev.nodera.core.state.FixedVec3.toExternal(state.vel().y()),
+                        dev.nodera.core.state.FixedVec3.toExternal(state.vel().z()));
             }
-            item.setPos(
-                    dev.nodera.core.state.FixedVec3.toExternal(state.pos().x()),
-                    dev.nodera.core.state.FixedVec3.toExternal(state.pos().y()),
-                    dev.nodera.core.state.FixedVec3.toExternal(state.pos().z()));
-            item.setDeltaMovement(
-                    dev.nodera.core.state.FixedVec3.toExternal(state.vel().x()),
-                    dev.nodera.core.state.FixedVec3.toExternal(state.vel().y()),
-                    dev.nodera.core.state.FixedVec3.toExternal(state.vel().z()));
         };
         EntityCaptureBridge.get().materialize(projection);
     }

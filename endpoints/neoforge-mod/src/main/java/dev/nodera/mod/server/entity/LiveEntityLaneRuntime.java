@@ -502,6 +502,15 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     }
 
     @Override
+    public void registerVanillaEntity(RegionId region, dev.nodera.core.state.NetworkEntityId id,
+                                      net.minecraft.world.entity.Entity entity) {
+        if (!delegated(region)) {
+            return;
+        }
+        world.registerVanillaEntity(region, id, entity);
+    }
+
+    @Override
     public void adoptEntity(RegionId region, PersistedEntityState state) {
         if (!delegated(region)) {
             return;
