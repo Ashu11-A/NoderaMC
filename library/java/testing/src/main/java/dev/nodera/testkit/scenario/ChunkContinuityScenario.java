@@ -347,9 +347,23 @@ public final class ChunkContinuityScenario implements Scenario {
 
             ctx.check(HostWorldSupport.runJvmAlive(JOINER_RUN),
                     "player B's game exited when the host died — the whole point is that it does not");
-            ctx.check(HostWorldSupport.containsAfter(joinerLogFile, killMark[0],
-                            "keeping this player in the world"),
-                    "player B never took over locally; see " + joinerLogFile);
+            // Exactly one peer takes the world over, and with two players the survivor is it. The
+            // alternative branch is a real outcome too — a peer that was NOT elected holds its
+            // ghost and reconnects to whoever was — so both are accepted here and the anti-fork
+            // property is that they are mutually exclusive.
+            boolean elected = HostWorldSupport.containsAfter(joinerLogFile, killMark[0],
+                    "was elected to take the world over");
+            boolean waiting = HostWorldSupport.containsAfter(joinerLogFile, killMark[0],
+                    "another peer is taking the world over");
+            ctx.check(elected || waiting,
+                    "player B neither took the world over nor waited for a successor — the "
+                            + "departure was not handled at all; see " + joinerLogFile);
+            ctx.check(!(elected && waiting),
+                    "player B both took over AND waited for somebody else to; the election is not "
+                            + "deciding, which is how one world becomes several");
+            ctx.check(elected,
+                    "player B was the only surviving player and should have been elected; it "
+                            + "waited instead, so nobody is hosting the world");
             // The rule, stated as an assertion: no screen. The migration screen is gone from the
             // build, so what is checked is that vanilla's own disconnect handling did not run in
             // its place.

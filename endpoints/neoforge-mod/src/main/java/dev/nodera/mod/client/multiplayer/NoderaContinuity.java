@@ -228,6 +228,42 @@ public final class NoderaContinuity {
     }
 
     /**
+     * The game clients in the session, from the last broadcast lane plan.
+     *
+     * <p>Only these are candidates to take a world over. The mesh's membership additionally
+     * contains every always-on worker, and a worker cannot open a Minecraft world — electing one is
+     * how a live run ended with nobody hosting and both players waiting.
+     */
+    private static volatile java.util.List<dev.nodera.protocol.membership.PeerEntry> planMembers =
+            java.util.List.of();
+
+    /**
+     * Remember which peers are players.
+     *
+     * @param plan the plan the session just broadcast.
+     * @Thread-context client thread.
+     */
+    public static void onLanePlan(dev.nodera.endpoint.lane.LanePlan plan) {
+        if (plan == null) {
+            return;
+        }
+        java.util.List<dev.nodera.protocol.membership.PeerEntry> members = new java.util.ArrayList<>();
+        for (dev.nodera.endpoint.lane.LanePlan.Member member : plan.members()) {
+            try {
+                members.add(new dev.nodera.protocol.membership.PeerEntry(
+                        new dev.nodera.core.identity.NodeId(
+                                java.util.UUID.fromString(member.nodeIdUuid())),
+                        member.route() == null ? "" : member.route(),
+                        dev.nodera.core.identity.NodeCapabilities.initial(), false));
+            } catch (RuntimeException malformed) {
+                // A member this client cannot even name is a member it cannot elect.
+                LOG.debug("lane plan member ignored for succession: {}", malformed.toString());
+            }
+        }
+        planMembers = java.util.List.copyOf(members);
+    }
+
+    /**
      * Whether THIS node is the one peer that should re-open the world.
      *
      * <h2>Why this check has to exist</h2>
@@ -256,19 +292,35 @@ public final class NoderaContinuity {
             return false;
         }
         try {
-            // The departing host is identified by the route every joiner dialled to reach it. That
-            // is the one fact about "who is hosting" that every peer holds identically, so every
-            // peer excludes the same node — which is what makes the election agree without asking.
+            // Elected among the PLAYERS, not among the mesh.
+            //
+            // The first version of this elected over the raw membership set, and a live run picked
+            // a headless worker — which cannot open a Minecraft world at all, so nobody took over
+            // and every player sat waiting. The session's always-on peers are members in every
+            // sense that matters to the mesh and in no sense that matters here.
+            //
+            // The broadcast lane plan already draws exactly this line: `members` are the game
+            // clients, each with a player position, and `residents` are the workers. Every peer
+            // receives the same plan, so electing over it is at least as deterministic as electing
+            // over membership and is the only version that can produce a host.
+            java.util.List<dev.nodera.protocol.membership.PeerEntry> candidates = planMembers;
+            if (candidates.isEmpty()) {
+                LOG.info("Nodera continuity: no lane plan has been received, so there is no way to "
+                        + "tell which peers are players — not taking over");
+                return false;
+            }
+            // The departing host is identified by the route every joiner dialled to reach it: the
+            // one fact about "who is hosting" that every peer holds identically.
             String hostRoute = NoderaPeerService.get().clientBootstrapRoute();
             dev.nodera.core.identity.NodeId departing = null;
-            for (dev.nodera.protocol.membership.PeerEntry entry : runtime.sessionView().members()) {
+            for (dev.nodera.protocol.membership.PeerEntry entry : candidates) {
                 if (!hostRoute.isBlank() && hostRoute.equals(entry.route())) {
                     departing = entry.nodeId();
                     break;
                 }
             }
             return dev.nodera.endpoint.lane.HostSuccession.isSuccessor(
-                    identity.nodeId(), runtime.sessionView().members(), departing,
+                    identity.nodeId(), candidates, departing,
                     dev.nodera.endpoint.lane.HostSuccession.epochFor(world.worldIdHex()));
         } catch (RuntimeException unreadable) {
             LOG.info("Nodera continuity: could not read the session membership ({}) — not taking "

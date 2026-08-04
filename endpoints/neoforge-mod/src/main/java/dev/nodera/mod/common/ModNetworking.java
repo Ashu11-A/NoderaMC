@@ -242,6 +242,9 @@ public final class ModNetworking {
             // off: it is what keeps the world alive when this game exits.
             LanePlan plan = payload.plan();
             NoderaPeerService.get().bindCompanionToSession(plan.worldSeed());
+            // The plan is also the only broadcast that says which peers are PLAYERS rather than
+            // always-on workers, which is what the host-succession election has to elect among.
+            dev.nodera.mod.client.multiplayer.NoderaContinuity.onLanePlan(plan);
             var listener = planListener;
             if (listener != null) {
                 listener.accept(plan);
