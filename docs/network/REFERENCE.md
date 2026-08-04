@@ -79,7 +79,7 @@ Two planes must be kept apart when reading the code:
 | Consensus body | one opaque `BYTES` field holding the strict canonical encoding, untouched | `.../wire/WireCodec.java` |
 | Canonical encoding | `u16 typeTag` + `u16 version` + positional body; big-endian fixed-width, no varints, no floats in hashed state. Still what is hashed and signed — no longer what crosses a socket | `library/java/transport/.../protocol/codec/MessageCodec.java` |
 | Kind registry | frozen, append-only; kinds 1–75 assigned, `NEXT_KIND = 75`. **One declarative row each**, and everything else is derived or generated from it | `library/java/transport/.../protocol/wire/WireRegistry.java`; generated into `library/rust/nodera-codec/src/kinds.rs` |
-| Nested values | `TypeTags` (1–118) for `Encodable` values inside consensus bodies | `library/java/core/.../crypto/TypeTags.java`; `library/rust/nodera-codec/src/tags.rs:11` |
+| Nested values | `TypeTags` (1–124) for `Encodable` values inside consensus bodies | `library/java/core/.../crypto/TypeTags.java`; `library/rust/nodera-codec/src/tags.rs:11` |
 | Cross-language parity | a test **parses the Java schema** and compares it with the generated Rust table, totally and both ways, plus uniqueness and contiguity | `library/rust/nodera-codec/tests/tag_mirror.rs` |
 
 One encoding serves wire transport, hashing, and signing alike, which is what makes a signature
@@ -309,6 +309,7 @@ because `ControlServer.dispatch` splits on whitespace.
 | `NODERA-ARCHIVE <worldId> <destPathB64> <timeout>` | mod → worker | fetch + verify a world's newest archive from the swarm |
 | `NODERA-WORLDID …` | mod → worker | mint a signed `WorldIdentity` (worker signs as author) |
 | `NODERA-GRANT …` | mod → worker | mint a signed `WorldPermissionGrant` |
+| `NODERA-DELEGATE <ver> <worldId> <sessionPubKeyB64> <ttlSeconds>` | mod → worker | sign a `SessionDelegation`: the game's per-session transport key speaks in the worker's name, for one world, until a stated instant. Without it the key a player proves possession of at join time is a key no world has ever heard of, so a world's own author is evaluated as an ordinary member of it |
 | `NODERA-PASSWORD <worldId> <newPwdB64>` | mod → worker | author-only re-key (plaintext over loopback, deliberately) |
 | `NODERA-REKEY <ver> <worldId> <archiveB64> <newPwdB64> <identityB64>` | mod → worker | re-encrypt under a fresh Argon2id salt, re-sign the identity, re-announce |
 | `NODERA-PIECES <ver> <worldId>` | mod, app → worker | per-world piece picture (manifest root, version, counts, held bitmap, holders) |

@@ -43,6 +43,7 @@ report from the new tool maps onto an old run line by line.
 |---|---|---|
 | `telemetry` | headless,telemetry | nothing is collected until consent is granted, and nothing identifying survives it |
 | `android-mesh` | android,hardware,live | the peer on an Android phone joins the Linux mesh and receives bytes from it |
+| `chunk-continuity` | android,continuity,hardware,live | two launchers and a phone: the creator keeps `/op`, an idle world stays under a per-peer traffic ceiling, and a killed host does not take anybody out of the world |
 | `churn` | continuity,live | repeated join/leave churn leaves the world and the peers undamaged |
 | `commands` | commands,live | every /nodera command answers correctly for two players in one world |
 | `continuity` | continuity,live | a shared world survives the player who was hosting it |
