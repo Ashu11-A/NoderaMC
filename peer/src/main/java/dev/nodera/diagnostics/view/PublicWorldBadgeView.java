@@ -76,6 +76,40 @@ public final class PublicWorldBadgeView {
         return Cell.tr(BADGE_ONLINE, Semantic.WORLD_HEALTHY, connectedPlayers);
     }
 
+    /**
+     * The players online across every shared world, or {@code -1} when nobody can say.
+     *
+     * <p>Unknown is not zero. A world nobody has reported a count for publishes {@code -1}, and
+     * summing that as nothing turns "I cannot tell" into a confident "nobody is playing" — which is
+     * the same mistake this codebase has now made on three separate surfaces.
+     *
+     * @param worlds the shared worlds.
+     * @return the total, or {@code -1} if no world reported one.
+     */
+    public static long onlinePlayers(List<PublicWorldStatus> worlds) {
+        if (worlds == null) {
+            return -1;
+        }
+        long total = -1;
+        for (PublicWorldStatus world : worlds) {
+            if (world.shared() && world.connectedPlayers() >= 0) {
+                total = Math.max(total, 0) + world.connectedPlayers();
+            }
+        }
+        return total;
+    }
+
+    /**
+     * The online badge for a whole list of shared worlds, or {@code null} when none reports a count.
+     *
+     * @param worlds the shared worlds.
+     * @return the cell, or {@code null}.
+     */
+    public static Cell onlineCell(List<PublicWorldStatus> worlds) {
+        long online = onlinePlayers(worlds);
+        return online < 0 ? null : badgeCell(online);
+    }
+
     /** @return how many of the given worlds are currently shared. */
     public static long sharedCount(List<PublicWorldStatus> worlds) {
         if (worlds == null) {

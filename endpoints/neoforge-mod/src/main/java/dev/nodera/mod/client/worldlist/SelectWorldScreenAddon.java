@@ -36,6 +36,9 @@ import java.util.function.Supplier;
  */
 public final class SelectWorldScreenAddon {
 
+    /** Where vanilla draws the screen title; this line goes under it, never through it. */
+    private static final int TITLE_BASELINE = 8;
+
     private static volatile Supplier<List<PublicWorldStatus>> statusSupplier = List::of;
 
     private SelectWorldScreenAddon() {
@@ -51,7 +54,8 @@ public final class SelectWorldScreenAddon {
         if (!(event.getScreen() instanceof SelectWorldScreen screen)) {
             return;
         }
-        Cell cell = PublicWorldBadgeView.summaryCell(statusSupplier.get());
+        List<PublicWorldStatus> shared = statusSupplier.get();
+        Cell cell = PublicWorldBadgeView.summaryCell(shared);
         if (cell == null) {
             return; // no shared worlds → nothing to annotate
         }
@@ -61,7 +65,25 @@ public final class SelectWorldScreenAddon {
         var font = Minecraft.getInstance().font;
         Integer colour = Palette.chat(Semantic.WORLD_HEALTHY).getColor();
         int rgb = colour == null ? 0xFFFFFF : colour;
+        // BELOW the title, not on top of it. `y = 8` is where vanilla centres "Select World", so
+        // this drew one line straight through another and both became unreadable.
+        //
+        // Vanilla's title sits at y=8 with a line height of 9, so the first row that is certainly
+        // clear of it is y=20 — still in the header band, above the search box, and clear of the
+        // list below.
         int x = screen.width / 2 - font.width(summary) / 2;
-        graphics.drawString(font, summary, x, 8, rgb);
+        int y = TITLE_BASELINE + font.lineHeight + 3;
+        graphics.drawString(font, summary, x, y, rgb);
+
+        // The one server-like fact this screen can state today without new plumbing: how many
+        // people are in those worlds right now. It comes from the same worker STATE the multiplayer
+        // tab reads, and it distinguishes "nobody is playing" from "nobody has told me", which the
+        // worker reports as -1 and this refuses to render as a zero.
+        Cell online = PublicWorldBadgeView.onlineCell(shared);
+        if (online != null) {
+            Component players = ComponentRenderer.text(online);
+            graphics.drawString(font, players,
+                    screen.width / 2 - font.width(players) / 2, y + font.lineHeight + 1, rgb);
+        }
     }
 }

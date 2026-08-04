@@ -77,7 +77,14 @@ public final class MultiplayerWorldFeed {
             ownWorldStatuses() {
         java.util.List<dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus> out =
                 new java.util.ArrayList<>();
+        // Only worlds this install HOSTS. Every row the worker reports was being counted, including
+        // the ones this node merely stores for other people, so the screen said "7 worlds shared to
+        // Nodera" to somebody who had shared one and was replicating six.
+        java.util.Set<String> hosted = authoritative;
         for (TorrentWorldEntry entry : ownWorlds) {
+            if (!hosted.contains(entry.worldIdHex())) {
+                continue;
+            }
             out.add(new dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus(
                     entry.name(), true, entry.playerCount()));
         }
