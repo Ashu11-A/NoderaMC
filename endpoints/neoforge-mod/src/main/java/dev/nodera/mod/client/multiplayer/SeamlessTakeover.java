@@ -65,7 +65,18 @@ public final class SeamlessTakeover {
 
     /** @return whether a takeover is running right now. */
     public static boolean active() {
-        return ACTIVE.get();
+        if (!ACTIVE.get()) {
+            return false;
+        }
+        long deadline = DEADLINE.get();
+        if (deadline > 0 && System.nanoTime() > deadline) {
+            LOG.warn("Nodera: the takeover has been running for over {} minutes — giving up on it "
+                    + "so the player is not left without a way back to the menu",
+                    MAX_TAKEOVER.toMinutes());
+            finish();
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -78,6 +89,7 @@ public final class SeamlessTakeover {
         if (!NoderaContinuity.canTakeOver()) {
             return false;
         }
+        DEADLINE.set(System.nanoTime() + MAX_TAKEOVER.toNanos());
         if (!ACTIVE.compareAndSet(false, true)) {
             // Already taking over. Still cancel: letting a second disconnect through would tear
             // down the level the first one is keeping alive.
@@ -98,10 +110,38 @@ public final class SeamlessTakeover {
         return true;
     }
 
-    /** The takeover is over, one way or the other. */
-    static void finish() {
+    /**
+     * The takeover is over, one way or the other.
+     *
+     * <p>Timing is the whole difficulty here. {@code WorldOpenFlows.openWorld} <b>returns before the
+     * world loads</b> — it chains through {@code thenAcceptAsync(..., minecraft)}, so
+     * {@code Minecraft.doWorldLoad} runs on a later client-thread task. Clearing the flag around the
+     * call, or in a {@code finally} beside it, therefore clears it while the open has only been
+     * queued, and every screen the load puts up sails past a suppression that is already switched
+     * off. That is why {@code handleDisconnection() called twice} logged twenty times a second for
+     * ninety seconds and the 51% screen appeared anyway.
+     *
+     * <p>So this is called from {@code ClientPlayerNetworkEvent.LoggingIn}, which fires inside
+     * {@code handleLogin} — after the level exists and the player is constructed. Plus a deadline,
+     * because a takeover that never completes must not leave the client permanently altered.
+     */
+    public static void finish() {
         ACTIVE.set(false);
+        DEADLINE.set(0L);
     }
+
+    /** When the current takeover stops being believed, whatever else happens. */
+    private static final java.util.concurrent.atomic.AtomicLong DEADLINE =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * How long a takeover may run before the client stops treating itself as mid-takeover.
+     *
+     * <p>A backstop, not a schedule: the ordinary end is the player logging in to the re-opened
+     * world. This exists so that a takeover which never reaches that point cannot leave the
+     * disconnect screen suppressed forever, which would leave the player with no route to the menu.
+     */
+    private static final java.time.Duration MAX_TAKEOVER = java.time.Duration.ofMinutes(5);
 
     /**
      * Whether a screen about to open should be suppressed because a takeover is running.
@@ -122,14 +162,22 @@ public final class SeamlessTakeover {
         if (!ACTIVE.get() || screen == null) {
             return false;
         }
-        return screen instanceof DisconnectedScreen
-                || screen instanceof ReceivingLevelScreen
-                || screen instanceof ProgressScreen
-                || screen instanceof GenericMessageScreen
-                // Vanilla's world-GENERATION screen — the chunk-status grid with a percentage.
-                // It was missing from this list, and it is the one the player actually reported
-                // seeing: the local re-open runs the same load sequence a brand-new world does.
-                || screen instanceof net.minecraft.client.gui.screens.LevelLoadingScreen;
+        // ONLY the disconnect screen.
+        //
+        // The world-load screens used to be here too, and that was wrong in a way worth writing
+        // down rather than quietly reverting. `Minecraft.doWorldLoad` begins with `disconnect()`,
+        // which nulls `mc.level` — and `runTick` clears the framebuffer every frame while nothing
+        // draws it, because the level renderer is gated on a level that no longer exists. So
+        // suppressing them does not reveal the world underneath: it reveals a BLACK WINDOW, for the
+        // whole spawn-prep loop. A progress bar is strictly better than that.
+        //
+        // What this still buys is the thing that actually matters: the player is never told they
+        // were disconnected and never sent to a server list. They watch the world load and come
+        // back into it.
+        //
+        // Genuinely hiding the load is Plan 8 phase 5/6 work — streaming into a live level, or a
+        // session endpoint that outlives its host. It cannot be done by hiding screens.
+        return screen instanceof DisconnectedScreen;
     }
 
     /**

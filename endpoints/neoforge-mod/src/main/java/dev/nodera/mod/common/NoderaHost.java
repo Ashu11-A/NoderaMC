@@ -1387,8 +1387,15 @@ public final class NoderaHost {
             // surfaces so the panels never blink to "no delegated regions" / UNASSIGNED mid-swap.
             dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.beginSwap();
             try {
-                synchronized (NoderaHost.class) {
+                // LANE_LOCK, not the class monitor. Two locks over one field meant the
+                // shutdown's five-second budget did not apply to this path at all — a re-plan close
+                // could run concurrently with the shutdown close on the same session and double
+                // close its store.
+                LANE_LOCK.lock();
+                try {
                     closeEntityLane();
+                } finally {
+                    LANE_LOCK.unlock();
                 }
                 server.execute(() -> {
                     boolean planning = false;
@@ -1507,10 +1514,16 @@ public final class NoderaHost {
         // network (the worker keeps announcing) but stops advertising a joinable game server.
         if (NoderaPeerService.get().isHosting() && CompanionLink.isPresent()) {
             Path saveRoot = server.getWorldPath(LevelResource.ROOT);
+            String levelName = server.getWorldData().getLevelName();
+            ShareOptions opts = NoderaPeerService.get().hostOptions();
             NoderaWorldStore.read(saveRoot).ifPresent(id -> {
-                ShareOptions opts = NoderaPeerService.get().hostOptions();
-                notifyWorker(server, id.worldId(), server.getWorldData().getLevelName(),
-                        opts == null ? ShareOptions.playerDefault() : opts, null, null);
+                // Off the server thread. `CompanionClient.host` allows itself ten seconds to read a
+                // reply plus a second and a half to connect, and this runs while "Saving world" is
+                // on screen. The message is a courtesy — "my game is closed" — and the worker's own
+                // lease expires without it.
+                Thread.ofPlatform().name("nodera-worker-closing").daemon().start(() ->
+                        notifyWorker(server, id.worldId(), levelName,
+                                opts == null ? ShareOptions.playerDefault() : opts, null, null));
             });
         }
         publishedGamePort = -1;
@@ -1615,9 +1628,41 @@ public final class NoderaHost {
             return;
         }
         try {
-            closeEntityLane();
+            closeEntityLaneBounded();
         } finally {
             LANE_LOCK.unlock();
+        }
+    }
+
+    /**
+     * Close the lane on another thread and wait a bounded time for it.
+     *
+     * <p>Taking the lock quickly is not the same as closing quickly. {@code LiveEntityLaneSession
+     * .close} persists validation state and then closes a RocksDB store, and a native RocksDB close
+     * blocks until its background flush and compaction jobs drain — with no timeout anywhere. On the
+     * server thread that is the same unbounded "Saving world" the lock contention was, arriving one
+     * statement later.
+     *
+     * <p>What is given up by walking away is an orderly close of a store that is about to be
+     * released by process exit. What is gained is that the player's quit finishes.
+     */
+    private static void closeEntityLaneBounded() {
+        LiveEntityLaneSession session = entityLane;
+        if (session == null) {
+            return;
+        }
+        entityLane = null;
+        Thread closer = Thread.ofPlatform().name("nodera-entity-lane-close").daemon()
+                .start(session::close);
+        try {
+            closer.join(LANE_CLOSE_BUDGET.toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        if (closer.isAlive()) {
+            LOG.warn("Nodera: the entity lane took longer than {}s to close — leaving it to the "
+                    + "process exit rather than holding the shutdown open",
+                    LANE_CLOSE_BUDGET.toSeconds());
         }
     }
 

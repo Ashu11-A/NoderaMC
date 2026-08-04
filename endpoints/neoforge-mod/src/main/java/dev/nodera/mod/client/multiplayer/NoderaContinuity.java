@@ -375,13 +375,13 @@ public final class NoderaContinuity {
                         LOG.info("Nodera continuity: '{}' is being hosted again at {} — "
                                 + "reconnecting", world.name(), route);
                         disarm();
-                        mc.execute(() -> {
-                            try {
-                                NoderaJoinFlow.reconnect(world.name(), route, world.worldIdHex());
-                            } finally {
-                                SeamlessTakeover.finish();
-                            }
-                        });
+                        // No `finish()` here and none in the finally below: the reconnect is only
+                        // QUEUED by mc.execute, and the takeover ends when the player is actually
+                        // logged into the world again (ClientBootstrap.onLoggingIn). Clearing it on
+                        // the way out of this method is the same one-hop-early mistake the world
+                        // open path made.
+                        mc.execute(() ->
+                                NoderaJoinFlow.reconnect(world.name(), route, world.worldIdHex()));
                         return;
                     }
                     Thread.sleep(SUCCESSOR_POLL_MILLIS);
@@ -390,12 +390,12 @@ public final class NoderaContinuity {
                         SUCCESSOR_WAIT.toSeconds());
                 SeamlessTakeover.say(Component.translatable("nodera.continuity.waiting.failed",
                         world.name()));
+                giveUp(mc, world);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
                 LOG.warn("Nodera continuity: waiting for a successor failed: {}", e.toString());
-            } finally {
-                SeamlessTakeover.finish();
+                giveUp(mc, world);
             }
         });
     }
@@ -451,10 +451,11 @@ public final class NoderaContinuity {
             try {
                 String dirName = materialize(mc, world);
                 if (dirName == null) {
-                    // Nothing to open. Releasing the flag matters as much as the chat line: a
-                    // stranded takeover used to leave every later screen suppressed, so the player
-                    // had no route to the menu either.
-                    SeamlessTakeover.finish();
+                    // Nothing to open — and the client is holding a level whose connection this mod
+                    // deliberately cancelled, so there is no vanilla path out of it either. Left
+                    // alone it stands in a dead world re-handling the same disconnect twenty times
+                    // a second, forever, with no screen and no menu. Hand it back to vanilla.
+                    giveUp(mc, world);
                     return;
                 }
                 disarm();
@@ -463,24 +464,45 @@ public final class NoderaContinuity {
                 // ran nanoseconds later and set the flag false before the open flow had shown its
                 // first screen — which is why the suppression never suppressed anything and the
                 // player watched the full world-load sequence.
-                mc.execute(() -> {
-                    try {
-                        mc.createWorldOpenFlows().openWorld(dirName, () -> {
-                            // The open failed after the level was already being replaced, so there
-                            // is no ghost left to hold and nothing to do but say so honestly.
-                            LOG.warn("Nodera continuity: could not open the restored world");
-                            mc.setScreen(new TitleScreen());
-                        });
-                    } finally {
-                        SeamlessTakeover.finish();
-                    }
-                });
+                // No `finally { finish() }`: openWorld RETURNS BEFORE THE WORLD LOADS — it chains
+                // through thenAcceptAsync onto a later client-thread task — so clearing the flag
+                // here clears it while doWorldLoad is still queued. The takeover ends when the
+                // player logs in (ClientBootstrap.onLoggingIn).
+                mc.execute(() -> mc.createWorldOpenFlows().openWorld(dirName, () -> {
+                    LOG.warn("Nodera continuity: could not open the restored world");
+                    SeamlessTakeover.finish();
+                    mc.setScreen(new TitleScreen());
+                }));
             } catch (Exception e) {
                 LOG.warn("Nodera continuity: local takeover failed: {}", e.toString());
                 SeamlessTakeover.say(Component.translatable("nodera.continuity.holding.failed",
                         e.toString()));
-                SeamlessTakeover.finish();
+                giveUp(mc, world);
             }
+        });
+    }
+
+    /**
+     * Hand a failed takeover back to vanilla.
+     *
+     * <p>Cancelling vanilla's disconnect is a promise to put the player somewhere. When the takeover
+     * cannot keep that promise, the promise has to be released — otherwise the client sits in a
+     * level whose connection is dead, re-handling the same disconnect on every tick, with no screen
+     * and no way to the menu. That state was reachable from three separate failure branches.
+     *
+     * @Thread-context any thread; the disconnect itself hops to the client thread.
+     */
+    private static void giveUp(Minecraft mc, JoinedWorld world) {
+        disarm();
+        SeamlessTakeover.finish();
+        mc.execute(() -> {
+            try {
+                mc.disconnect();
+            } catch (RuntimeException degraded) {
+                LOG.warn("Nodera continuity: could not release '{}' back to vanilla: {}",
+                        world == null ? "the world" : world.name(), degraded.toString());
+            }
+            mc.setScreen(new TitleScreen());
         });
     }
 

@@ -167,10 +167,15 @@ public final class ClientBootstrap {
         // Being here means the gate, if there was one, let us through. Clearing the marker is what
         // keeps a later, genuine host loss from being mistaken for a password refusal.
         dev.nodera.endpoint.client.ClientJoinPasswords.passedGate();
+        // The takeover ends HERE, not when openWorld returns. `WorldOpenFlows.openWorld` chains
+        // through `thenAcceptAsync(..., minecraft)`, so it returns while `doWorldLoad` is still
+        // queued — clearing the flag around that call cleared it before the load had shown a single
+        // screen. This event fires inside `handleLogin`, with the level built and the player in it.
+        dev.nodera.mod.client.multiplayer.SeamlessTakeover.finish();
     }
 
     /**
-     * Suppress the world-open flow's progress screens while a seamless takeover is running.
+     * Suppress the DISCONNECT screen while a seamless takeover is running.
      *
      * <p>Cancelling {@code Opening} means the screen is never set, so whatever the player was
      * looking at stays — and for the length of a takeover that is the world they are standing in.

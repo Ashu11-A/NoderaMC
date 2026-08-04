@@ -823,47 +823,79 @@ public final class NoderaPeerService {
     }
 
     /** Stop hosting this world (server stopping, or the "Stop sharing" action). Idempotent. */
-    public synchronized void stopHosting() {
+    public void stopHosting() {
+        // Snapshot under the monitor, then do every slow thing OUTSIDE it.
+        //
+        // This method used to hold the singleton monitor across a two-second join, a three-second
+        // companion detach and a two-second runtime stop — on the SERVER thread, which is the thread
+        // the "Saving world" screen waits for. Worse, `isHosting()` and `hostOptions()` need the
+        // same monitor, so the shutdown path queued behind anything already holding it: a
+        // `startHost` retry or an `onServerSessionInfo` dial can hold it for minutes, and the player
+        // watched "Saving world" for all of it.
+        //
+        // Nulling the fields first is what makes the wait unnecessary rather than merely shorter:
+        // `isHosting()` goes false immediately, so nothing else on the shutdown path blocks, and the
+        // teardown below runs against a private snapshot that cannot be seen half-done.
+        dev.nodera.peer.discovery.TrackerClient tracker;
+        PeerRuntime runtime;
+        java.util.concurrent.ScheduledExecutorService announces;
+        boolean announceStopped;
+        synchronized (this) {
+            announces = announceScheduler;
+            announceScheduler = null;
+            tracker = serverTrackerClient;
+            runtime = serverRuntime;
+            announceStopped = tracker != null && !tracker.endpoints().isEmpty()
+                    && serverIdentity != null && hostWorldId != null;
+            serverRuntime = null;
+            serverTrackerClient = null;
+        }
+        if (announces != null) {
+            announces.shutdownNow();
+        }
+        stopHostingOutsideTheLock(tracker, runtime, announceStopped);
+        synchronized (this) {
+            clearHostState();
+        }
+    }
+
+    /** The slow half of {@link #stopHosting}, deliberately not holding the singleton monitor. */
+    private void stopHostingOutsideTheLock(
+            dev.nodera.peer.discovery.TrackerClient tracker, PeerRuntime runtime,
+            boolean announceStopped) {
+        // Fire and forget. The tracker entry expires on its own, and a goodbye nobody waits for is
+        // worth exactly as much as one somebody waits two seconds for — which is what the previous
+        // version did, while holding the monitor the goodbye itself needed.
+        if (announceStopped) {
+            Thread.ofPlatform().name("nodera-tracker-stopped").daemon()
+                    .start(() -> sendAnnounce(AnnounceEvent.STOPPED));
+        }
+        if (runtime != null) {
+            LOG.info("Nodera host peer shutting down");
+            // Off-thread for the same reason the JOINER's detach already is: it is a control
+            // exchange with its own timeouts, and the host path never got the same treatment.
+            Thread.ofPlatform().name("nodera-companion-detach").daemon().start(() -> {
+                try {
+                    CompanionClient companion = CompanionLink.client();
+                    if (companion != null) {
+                        companion.mesh("", null);
+                    }
+                } catch (RuntimeException ignored) {
+                    // Teardown is best-effort; never let it block the shutdown path.
+                }
+            });
+            runtime.stop();
+        }
+        if (tracker != null) {
+            tracker.close();
+        }
+    }
+
+    /** The old body, kept for the fields that must be cleared under the monitor. */
+    private synchronized void clearHostState() {
         if (announceScheduler != null) {
             announceScheduler.shutdownNow();
             announceScheduler = null;
-        }
-        // Tell the tracker the world is gone (best-effort) before we tear the runtime down.
-        //
-        // Off-thread with a short join, because this runs on the SERVER thread during shutdown and
-        // the "Saving world" screen is waiting for that thread. A tracker is allowed five seconds to
-        // connect and ten to answer, per endpoint, serially — so a host announcing to two trackers,
-        // one of them a remote one that has gone away, spent half a minute of the player's shutdown
-        // on a courtesy message. Best-effort means best-effort: if it does not land quickly, the
-        // world's entry expires on its own.
-        if (serverTrackerClient != null && !serverTrackerClient.endpoints().isEmpty()
-                && serverIdentity != null && hostWorldId != null) {
-            Thread goodbye = Thread.ofPlatform().name("nodera-tracker-stopped").daemon()
-                    .start(() -> sendAnnounce(AnnounceEvent.STOPPED));
-            try {
-                goodbye.join(2_000L);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        if (serverRuntime != null) {
-            LOG.info("Nodera host peer shutting down");
-            // Detach the companion from the session this runtime is about to take down, so it
-            // returns to its own session of one instead of heartbeating at a dead route.
-            try {
-                CompanionClient companion = CompanionLink.client();
-                if (companion != null) {
-                    companion.mesh("", null);
-                }
-            } catch (RuntimeException ignored) {
-                // Teardown is best-effort; never let it block the shutdown path.
-            }
-            serverRuntime.stop();
-            serverRuntime = null;
-        }
-        if (serverTrackerClient != null) {
-            serverTrackerClient.close();
-            serverTrackerClient = null;
         }
         serverCollector = null;
         serverDiagnostics = null;
