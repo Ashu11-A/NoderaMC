@@ -48,6 +48,14 @@ public final class PauseScreenShareAddon {
         }
 
         boolean sharing = NoderaPeerService.get().isHosting();
+        // Sharing an unshared world makes you its author; changing a shared world's settings is
+        // the author's alone. `hasSingleplayerServer()` above answers neither question — it asks
+        // whether the server is in this JVM, which is TRUE for a player who has just recovered
+        // somebody else's world onto their own machine. Those players were being handed that
+        // world's share options, password field and delete button.
+        if (!WorldOwnershipView.mayShare(sharing)) {
+            return;
+        }
         Component label = Component.translatable(
                 sharing ? "nodera.open.button.sharing" : "nodera.open.button");
 

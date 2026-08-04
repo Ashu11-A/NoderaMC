@@ -1454,6 +1454,44 @@ public final class WorldArchiveService implements AutoCloseable {
     }
 
     /**
+     * The version of the bytes just handed over — not the newest version this node has heard of.
+     *
+     * <h2>Why the distinction is load-bearing</h2>
+     *
+     * <p>The fetch reply used to carry {@code newestManifest(...)}, which is "the highest version
+     * number anybody has told me about". Every path that legitimately returns older bytes — the
+     * probe timeout keeping a held copy, the stall fallback returning the newest complete local
+     * version — still reported that high number. So a v5 blob arrived labelled v9, and the client's
+     * freshness guard, whose entire job is to refuse to overwrite a newer local save with an older
+     * network one, was comparing against a number the bytes did not have.
+     *
+     * <p>Answered by content: the blob is hashed and matched against the manifests this node holds,
+     * so the version is a property of the bytes rather than of the conversation.
+     *
+     * @param worldIdHex the world.
+     * @param blob       the bytes that were returned.
+     * @return the version those bytes belong to, or {@code -1} when no held manifest describes them
+     *         — which is itself honest, and better than a confident wrong number.
+     * @Thread-context any thread.
+     */
+    public long versionOfBlob(String worldIdHex, byte[] blob) {
+        if (worldIdHex == null || blob == null || blob.length == 0) {
+            return -1L;
+        }
+        Bytes hash = new dev.nodera.core.crypto.HashService().sha256(blob);
+        NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
+        if (versions == null) {
+            return -1L;
+        }
+        for (Map.Entry<Long, PieceManifest> entry : versions.descendingMap().entrySet()) {
+            if (entry.getValue().blob().hash().equals(hash)) {
+                return entry.getKey();
+            }
+        }
+        return -1L;
+    }
+
+    /**
      * Bring this node's copy of a world up to the newest version the swarm can actually serve.
      *
      * <p>The difference from {@link #fetchArchive} is what it does when there is nothing to do: this

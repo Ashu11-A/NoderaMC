@@ -427,7 +427,12 @@ public final class LiveStack implements AutoCloseable {
                     // server every two minutes, which starved a joining player's handshake and
                     // read as "player B never joined". A scenario that wants the old cadence still
                     // asks for it by name (RekeyScenario does).
-                    hostConfigOverrides.getOrDefault("streamIntervalTicks", "0")));
+                    // Match the product default rather than asserting one. The harness used to
+                    // write 2400 here and that number silently won every live run, because a config
+                    // FILE beats a code default; then it wrote 0 and hid the rollback hole that
+                    // turning the repack off had opened. Whatever the product decides is what the
+                    // suites should measure.
+                    hostConfigOverrides.getOrDefault("streamIntervalTicks", "12000")));
             toml.append("[tracker]\n\tendpoints = ")
                     .append(tomlArray(topology.trackerEndpoints())).append('\n');
             toml.append("[rendezvous]\n\tendpoints = ")

@@ -110,7 +110,17 @@ public final class TorrentWorldListView {
          * @return whether the join flow may be offered for this world.
          */
         public boolean joinable() {
-            return health != WorldHealth.DEAD && !(mcRoute.isBlank() && worldIdHex.isBlank());
+            // A DEAD world used to be un-joinable, which made the continuity lane's
+            // "the host is gone but the world is not" path unreachable from the one screen it was
+            // written for: the flow that materialises a world from the network needs only an id,
+            // and refusing to offer it left players staring at a world the swarm was holding for
+            // them. What is genuinely un-joinable is a world with no handle at all.
+            return !(mcRoute.isBlank() && worldIdHex.isBlank());
+        }
+
+        /** @return whether joining will connect to a live host rather than materialise the world. */
+        public boolean joinableNow() {
+            return health != WorldHealth.DEAD && !mcRoute.isBlank();
         }
 
         /** @return whether an owner/host name is known for this world. */

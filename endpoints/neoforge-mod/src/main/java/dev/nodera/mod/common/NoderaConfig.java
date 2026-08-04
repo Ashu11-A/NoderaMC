@@ -245,7 +245,7 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue ARCHIVE_SEED_ON_SHARE =
             SERVER_BUILDER.define("archive.seedOnShare", true);
     // Issue #43 continuous streaming: while a world is hosted, re-seed its archive to the worker
-    // every N server ticks. DEFAULT 0 — OFF.
+    // every N server ticks. DEFAULT 12000 — ten minutes.
     //
     // It used to be 2400 (two minutes), and that one number was most of this project's bandwidth
     // problem. Each tick of it repacks the ENTIRE save into a new archive and seeds it as a new
@@ -258,11 +258,22 @@ public final class NoderaConfig {
     // being: a cold bootstrap, seeded when a world is shared and again on server stop, for a peer
     // that has nothing at all.
     //
-    // Setting it back to a positive value restores the old cadence. It is honest to want that on a
-    // world with no validated lane — but read `archive.streamIntervalTicks` as "repack and re-seed
-    // the whole save this often", because that is what it does.
+    // Turning it off entirely, which this briefly defaulted to, opened a worse hole than the one it
+    // closed. The whole-save archive is the ONLY artefact anything can write back into a save: the
+    // region-delta lane carries blocks and entities, carries no player state, and has no path into
+    // a `.mca` file. With the repack off, an abrupt host death left the network holding the archive
+    // packed when the world was SHARED — so every player's position, inventory and advancements
+    // rolled back to that instant, which in a long-lived world is days. Ten minutes is the bound.
+    //
+    // Ten minutes rather than two is affordable now for a reason that did not hold before: archive
+    // pieces are cut at entry boundaries and reused across versions by content hash, so re-seeding
+    // a world where one region file changed costs that region file, not the world. The repack's
+    // remaining cost is CPU on the host, which is why the interval is long rather than short.
+    //
+    // Read `archive.streamIntervalTicks` as "repack and re-seed the whole save this often";
+    // 0 disables it and accepts the rollback window above.
     public static final ModConfigSpec.IntValue ARCHIVE_STREAM_INTERVAL_TICKS =
-            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 0, 0, 24_000 * 60);
+            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 12_000, 0, 24_000 * 60);
     // Issue #43 bounded final flush: the server-stopped seed waits at most this long before
     // abandoning (the streaming lane already holds a copy ≤ one interval old) — a hung worker
     // can no longer wedge the "Saving World" screen.

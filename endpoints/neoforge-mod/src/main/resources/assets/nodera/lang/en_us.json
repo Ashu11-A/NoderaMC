@@ -148,6 +148,8 @@
   "nodera.continuity.holding": "The host of %s left. Holding your world here — keep playing.",
   "nodera.continuity.holding.progress": "Recovering the world from nearby peers — %s of %s pieces",
   "nodera.continuity.holding.failed": "Still holding your world locally. Could not reach the network: %s",
+  "nodera.continuity.waiting": "The host of %s left. Another player is taking the world over — holding here until it is back.",
+  "nodera.continuity.waiting.failed": "Nobody re-opened %s. It is still on the network; try joining it again from the Worlds list.",
   "nodera.create.title": "Nodera network options",
   "nodera.create.button.private": "Nodera: Private",
   "nodera.create.button.shared": "Nodera: Shared ✓",

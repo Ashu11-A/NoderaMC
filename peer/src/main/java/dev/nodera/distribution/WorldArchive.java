@@ -212,6 +212,12 @@ public final class WorldArchive {
                 || relativePath.equals("level.dat_old")
                 || relativePath.equals("nodera-world.dat")
                 || relativePath.equals("nodera-genesis.dat")
+                // The world's signed permission grants. Neither named nor excluded before, which
+                // means excluded — so a world recovered by another peer arrived with an EMPTY grant
+                // set and its author walked back into their own world as an ordinary member. Every
+                // grant is signed and re-verified on load (`WorldPermissionStore.read` drops what
+                // does not check out), so carrying them costs nothing an attacker could use.
+                || relativePath.equals("nodera-permissions.dat")
                 || relativePath.startsWith("region/")
                 || relativePath.startsWith("entities/")
                 || relativePath.startsWith("poi/")

@@ -228,6 +228,154 @@ public final class NoderaContinuity {
     }
 
     /**
+     * Whether THIS node is the one peer that should re-open the world.
+     *
+     * <h2>Why this check has to exist</h2>
+     *
+     * <p>Everything in {@link #canTakeOver} is local, and local conditions are true on every
+     * surviving player at once. So every one of them fetched the archive, unpacked it into their own
+     * save directory, opened it and re-shared it — and one world became <i>N</i> divergent worlds all
+     * announcing the same id. That is not a handover, and it is what a live session saw as the world
+     * being cloned into everybody's singleplayer list.
+     *
+     * <p>{@link HostSuccession} is a pure function of the membership set, so every peer reaches the
+     * same answer at the same moment with no round trip. A node that cannot see the membership
+     * answers <b>false</b> and waits: two winners cost two worlds, and no winner costs a wait.
+     *
+     * @return whether to open the world here.
+     * @Thread-context any thread.
+     */
+    static boolean isElectedSuccessor() {
+        JoinedWorld world = joined;
+        if (world == null) {
+            return false;
+        }
+        var runtime = NoderaPeerService.get().clientRuntime();
+        var identity = NoderaPeerService.get().clientIdentity();
+        if (runtime == null || identity == null) {
+            return false;
+        }
+        try {
+            // The departing host is identified by the route every joiner dialled to reach it. That
+            // is the one fact about "who is hosting" that every peer holds identically, so every
+            // peer excludes the same node — which is what makes the election agree without asking.
+            String hostRoute = NoderaPeerService.get().clientBootstrapRoute();
+            dev.nodera.core.identity.NodeId departing = null;
+            for (dev.nodera.protocol.membership.PeerEntry entry : runtime.sessionView().members()) {
+                if (!hostRoute.isBlank() && hostRoute.equals(entry.route())) {
+                    departing = entry.nodeId();
+                    break;
+                }
+            }
+            return dev.nodera.endpoint.lane.HostSuccession.isSuccessor(
+                    identity.nodeId(), runtime.sessionView().members(), departing,
+                    dev.nodera.endpoint.lane.HostSuccession.epochFor(world.worldIdHex()));
+        } catch (RuntimeException unreadable) {
+            LOG.info("Nodera continuity: could not read the session membership ({}) — not taking "
+                    + "over, because a node that cannot tell whether it won must not act as though "
+                    + "it did", unreadable.toString());
+            return false;
+        }
+    }
+
+
+    /**
+     * How long a non-successor waits for the elected peer's endpoint before giving up.
+     *
+     * <p>Generous, because the successor has to fetch, unpack and open a world before it can
+     * publish anything, and a player who waits ninety seconds and reconnects has lost nothing —
+     * whereas a player who gives up early lands on a title screen with their world still alive.
+     */
+    private static final java.time.Duration SUCCESSOR_WAIT = java.time.Duration.ofSeconds(180);
+
+    /** How often the worker is asked whether the world has a game endpoint again. */
+    private static final long SUCCESSOR_POLL_MILLIS = 3_000L;
+
+    /**
+     * Hold this player where they are and reconnect when the elected successor opens the world.
+     *
+     * <p>This is the other half of the election: the winner opens the world, and everyone else does
+     * <b>this</b> instead of opening their own copy. The player keeps their ghost chunks, is told in
+     * chat what is happening, and is reconnected to the one surviving world rather than being handed
+     * a private fork of it.
+     *
+     * <p>The endpoint is read from this machine's own worker rather than from a tracker: the worker
+     * is already following the world and already knows when its {@code mc_route} comes back, and
+     * asking it costs a loopback line instead of a network round trip per poll.
+     *
+     * @Thread-context any thread; polls off-thread and reconnects on the client thread.
+     */
+    static void awaitSuccessor() {
+        JoinedWorld world = joined;
+        if (world == null) {
+            SeamlessTakeover.finish();
+            return;
+        }
+        rehosting = true;
+        Minecraft mc = Minecraft.getInstance();
+        SeamlessTakeover.say(Component.translatable("nodera.continuity.waiting", world.name()));
+        Thread.ofPlatform().name("nodera-await-successor").daemon().start(() -> {
+            long deadline = System.nanoTime() + SUCCESSOR_WAIT.toNanos();
+            try {
+                while (System.nanoTime() < deadline) {
+                    String route = liveRouteOf(world.worldIdHex());
+                    if (route != null && !route.isBlank()) {
+                        LOG.info("Nodera continuity: '{}' is being hosted again at {} — "
+                                + "reconnecting", world.name(), route);
+                        disarm();
+                        mc.execute(() -> {
+                            try {
+                                NoderaJoinFlow.reconnect(world.name(), route, world.worldIdHex());
+                            } finally {
+                                SeamlessTakeover.finish();
+                            }
+                        });
+                        return;
+                    }
+                    Thread.sleep(SUCCESSOR_POLL_MILLIS);
+                }
+                LOG.info("Nodera continuity: nobody re-opened '{}' within {}s", world.name(),
+                        SUCCESSOR_WAIT.toSeconds());
+                SeamlessTakeover.say(Component.translatable("nodera.continuity.waiting.failed",
+                        world.name()));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } catch (RuntimeException e) {
+                LOG.warn("Nodera continuity: waiting for a successor failed: {}", e.toString());
+            } finally {
+                SeamlessTakeover.finish();
+            }
+        });
+    }
+
+    /**
+     * The world's current game endpoint according to this machine's worker, or {@code null}.
+     *
+     * @param worldIdHex the world to ask about.
+     * @Thread-context any thread; blocks on a loopback exchange.
+     */
+    private static String liveRouteOf(String worldIdHex) {
+        if (!CompanionLink.isPresent()) {
+            return null;
+        }
+        try {
+            String state = CompanionLink.client().state().orElse("");
+            if (state.isBlank()) {
+                return null;
+            }
+            for (dev.nodera.endpoint.state.WorkerStateParser.HostedWorldInfo info
+                    : dev.nodera.endpoint.state.WorkerStateParser.connectedWorlds(state)) {
+                if (worldIdHex.equalsIgnoreCase(info.worldId()) && !info.mcRoute().isBlank()) {
+                    return info.mcRoute();
+                }
+            }
+            return null;
+        } catch (RuntimeException unreachable) {
+            return null;
+        }
+    }
+
+    /**
      * Re-open the world locally while the player stays where they are.
      *
      * <p>The client is already holding the chunks around the player and, thanks to the standby
@@ -251,24 +399,34 @@ public final class NoderaContinuity {
             try {
                 String dirName = materialize(mc, world);
                 if (dirName == null) {
+                    // Nothing to open. Releasing the flag matters as much as the chat line: a
+                    // stranded takeover used to leave every later screen suppressed, so the player
+                    // had no route to the menu either.
+                    SeamlessTakeover.finish();
                     return;
                 }
                 disarm();
-                mc.execute(() -> mc.createWorldOpenFlows().openWorld(dirName, () -> {
-                    // The open failed after the level was already being replaced, so there is no
-                    // ghost left to hold and nothing to do but say so honestly.
-                    LOG.warn("Nodera continuity: could not open the restored world");
-                    SeamlessTakeover.finish();
-                    mc.setScreen(new TitleScreen());
-                }));
+                // The flag is cleared INSIDE this lambda, not in a finally on this thread.
+                // `mc.execute` from a background thread only QUEUES the work, so a finally here
+                // ran nanoseconds later and set the flag false before the open flow had shown its
+                // first screen — which is why the suppression never suppressed anything and the
+                // player watched the full world-load sequence.
+                mc.execute(() -> {
+                    try {
+                        mc.createWorldOpenFlows().openWorld(dirName, () -> {
+                            // The open failed after the level was already being replaced, so there
+                            // is no ghost left to hold and nothing to do but say so honestly.
+                            LOG.warn("Nodera continuity: could not open the restored world");
+                            mc.setScreen(new TitleScreen());
+                        });
+                    } finally {
+                        SeamlessTakeover.finish();
+                    }
+                });
             } catch (Exception e) {
                 LOG.warn("Nodera continuity: local takeover failed: {}", e.toString());
                 SeamlessTakeover.say(Component.translatable("nodera.continuity.holding.failed",
                         e.toString()));
-            } finally {
-                // Cleared once the open flow has been handed the world: from here vanilla's own
-                // screens are legitimate again, and a takeover that never completes must not leave
-                // every future screen suppressed.
                 SeamlessTakeover.finish();
             }
         });
@@ -307,6 +465,16 @@ public final class NoderaContinuity {
         // local save untouched (it is at least as fresh).
         long fetchedVersion = parseFetchedVersion(fetched.get());
         long localVersion = dev.nodera.mod.common.WorldArchiver.seededVersion(saveDir);
+        // A blob the worker could not date is a blob nothing should be overwritten with. The reply
+        // now carries the version of the BYTES rather than the newest version heard of, so -1 means
+        // "these bytes match no manifest I hold" — which is exactly the case where trusting them
+        // would replace a good save with an unknown one.
+        if (fetchedVersion < 0 && Files.isDirectory(saveDir)) {
+            LOG.warn("Nodera continuity: the fetched archive for '{}' could not be dated — keeping "
+                    + "the local save rather than overwriting it with bytes of unknown age",
+                    world.name());
+            return dirName;
+        }
         if (Files.isDirectory(saveDir) && localVersion >= 0 && fetchedVersion >= 0
                 && fetchedVersion <= localVersion) {
             LOG.info("Nodera continuity: network archive v{} is not newer than local save v{} — "

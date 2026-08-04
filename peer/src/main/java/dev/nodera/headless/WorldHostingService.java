@@ -412,6 +412,12 @@ public final class WorldHostingService implements AutoCloseable {
         // hosting player's game is open, absent once it closes) and the live player count. The
         // next announce/heartbeat carries the change to every tracker.
         world.mcRoute = jsonStringField(optionsJson, "mc");
+        // Renewed by the same re-HOST that renews the player count. A host that stops talking stops
+        // claiming its game is reachable, which is the difference between "the host quit" and "the
+        // host was killed" no longer mattering to a joiner.
+        world.mcRouteUntilEpochMillis = world.mcRoute == null || world.mcRoute.isBlank()
+                ? 0L
+                : System.currentTimeMillis() + MC_ROUTE_LEASE_SECONDS * 1000L;
         // Through the lease, not straight onto the field: a HOST is an observation by a node that
         // has the game open, and it stops being credible when that game stops refreshing it. The
         // hosting mod re-sends this on a cadence for exactly that reason.
@@ -584,6 +590,15 @@ public final class WorldHostingService implements AutoCloseable {
      * silently stops vouching for its count within the window.
      */
     public static final long PLAYERS_LEASE_SECONDS = 90;
+
+    /**
+     * How long a published game endpoint is believed without renewal.
+     *
+     * <p>Deliberately longer than the player lease: a stale player count is cosmetic, while
+     * withdrawing a live world's endpoint too eagerly would make a healthy world briefly
+     * un-joinable. The hosting mod re-HOSTs well inside this window.
+     */
+    public static final long MC_ROUTE_LEASE_SECONDS = 180;
 
     /**
      * Record a player-count observation for a world, from a node that is <b>in</b> that world.
@@ -1053,6 +1068,16 @@ public final class WorldHostingService implements AutoCloseable {
          *  hosting player's game is closed. Updated by every re-HOST. */
         volatile String mcRoute;
         /**
+         * When {@link #mcRoute} stops being believable.
+         *
+         * <p>It was the one liveness field with no lease. A clean quit re-HOSTs with the endpoint
+         * omitted and clears it, but a killed game never gets to say anything — so the worker went
+         * on advertising a dead {@code host:port} indefinitely, and every joiner kept dialling a
+         * closed port instead of falling through to the network-open path. A lease makes silence
+         * mean what it should: the host stopped talking, so stop claiming its game is up.
+         */
+        volatile long mcRouteUntilEpochMillis;
+        /**
          * Players in-world, as last reported by a node that is actually in it.
          *
          * <p>Meaningless without {@link #playersObservedUntilEpochMillis} — see {@link #players()}.
@@ -1206,9 +1231,16 @@ public final class WorldHostingService implements AutoCloseable {
             return seeding;
         }
 
-        /** @return the game endpoint joiners connect to, or {@code null} (host's game closed). */
+        /**
+         * @return the game endpoint joiners connect to, or {@code null} when the host's game is
+         *         closed <b>or</b> has stopped renewing the claim. See
+         *         {@link #mcRouteUntilEpochMillis}.
+         */
         public String mcRoute() {
-            return mcRoute;
+            if (mcRoute == null || mcRoute.isBlank()) {
+                return mcRoute;
+            }
+            return System.currentTimeMillis() <= mcRouteUntilEpochMillis ? mcRoute : null;
         }
 
         /**

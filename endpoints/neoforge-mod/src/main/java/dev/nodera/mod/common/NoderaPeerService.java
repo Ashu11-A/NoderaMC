@@ -710,6 +710,16 @@ public final class NoderaPeerService {
     }
 
     /**
+     * @return the route this client dialled to reach the session's host, or {@code ""}. The one
+     *         thing every joiner agrees on about who is hosting, which is what the succession
+     *         election needs in order to exclude the departing host identically on every peer.
+     * @Thread-context any thread.
+     */
+    public String clientBootstrapRoute() {
+        return clientBootstrapRoute;
+    }
+
+    /**
      * @return base64 of this session's {@code SessionDelegation}, or {@code ""} when no worker was
      *         reachable to sign one. Blank is not an error: the session then announces exactly what
      *         it announced before delegations existed, and is evaluated as an ordinary member.

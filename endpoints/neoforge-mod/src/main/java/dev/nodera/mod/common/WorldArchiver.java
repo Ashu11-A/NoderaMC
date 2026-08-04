@@ -171,8 +171,9 @@ public final class WorldArchiver {
             Thread.currentThread().interrupt();
         }
         if (flush.isAlive()) {
-            LOG.warn("Nodera: final archive flush exceeded {} s — abandoning (the streaming lane "
-                    + "already seeded a copy at most one interval old); shutdown continues", timeoutSeconds);
+            LOG.warn("Nodera: final archive flush exceeded {} s — abandoning; the newest copy on "
+                    + "the network is the last streaming seed, at most archive.streamIntervalTicks "
+                    + "old. Shutdown continues.", timeoutSeconds);
         }
     }
 

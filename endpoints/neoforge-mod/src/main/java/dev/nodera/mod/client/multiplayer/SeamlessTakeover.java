@@ -83,8 +83,17 @@ public final class SeamlessTakeover {
             // down the level the first one is keeping alive.
             return true;
         }
-        LOG.info("Nodera: the host's connection ended — keeping this player in the world and "
-                + "re-opening it locally. No screen, by design.");
+        // Exactly one peer opens the world. Every other survivor holds its ghost and waits for the
+        // successor's endpoint to appear, then reconnects — one reconnect instead of a fork into N
+        // divergent copies of the same world id.
+        if (!NoderaContinuity.isElectedSuccessor()) {
+            LOG.info("Nodera: the host's connection ended — another peer is taking the world over; "
+                    + "holding here and waiting to reconnect to it.");
+            NoderaContinuity.awaitSuccessor();
+            return true;
+        }
+        LOG.info("Nodera: the host's connection ended — this peer was elected to take the world "
+                + "over. Re-opening it locally.");
         NoderaContinuity.takeOverLocally();
         return true;
     }
@@ -116,7 +125,11 @@ public final class SeamlessTakeover {
         return screen instanceof DisconnectedScreen
                 || screen instanceof ReceivingLevelScreen
                 || screen instanceof ProgressScreen
-                || screen instanceof GenericMessageScreen;
+                || screen instanceof GenericMessageScreen
+                // Vanilla's world-GENERATION screen — the chunk-status grid with a percentage.
+                // It was missing from this list, and it is the one the player actually reported
+                // seeing: the local re-open runs the same load sequence a brand-new world does.
+                || screen instanceof net.minecraft.client.gui.screens.LevelLoadingScreen;
     }
 
     /**

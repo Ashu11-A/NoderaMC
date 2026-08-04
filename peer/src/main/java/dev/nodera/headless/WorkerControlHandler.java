@@ -856,6 +856,20 @@ public final class WorkerControlHandler implements ControlHandler {
         if (worldId == null || worldId.isBlank() || path.isBlank()) {
             throw new IllegalArgumentException("missing worldId/archive path");
         }
+        // Seeding publishes a NEW NEWEST VERSION of somebody's world, and that is an authorship
+        // act however innocuous the verb sounds. Without this check a peer that had merely
+        // recovered an encrypted world could press "Share" and publish a PLAINTEXT archive that
+        // superseded the ciphertext everyone else was holding — the exact supersede hazard the
+        // re-key path documents and refuses, reachable through the back door.
+        //
+        // The predicate is key possession, which is exact: the author's key is minted by
+        // `mintWorldIdentity` before the first seed ever runs, and a peer that merely recovered the
+        // world has none. Replication does not come through this verb — it seeds through
+        // `WorldHostingService` directly — so nothing legitimate is refused here.
+        if (keys != null && !keys.administers(worldId.trim().toLowerCase(java.util.Locale.ROOT))) {
+            throw new IllegalArgumentException(
+                    "this peer does not administer that world, so it cannot publish a version of it");
+        }
         java.nio.file.Path archiveFile = controlPaths.resolve(path, "archive path");
         byte[] blob;
         try {
@@ -918,8 +932,14 @@ public final class WorkerControlHandler implements ControlHandler {
         long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
         byte[] blob = archive.fetchArchive(worldId, java.time.Duration.ofSeconds(seconds),
                 progress::at);
-        long version = archive.newestManifest(worldId)
-                .map(m -> m.version().value()).orElse(0L);
+        // The version of the BYTES, not the newest version this node has heard of. Reporting the
+        // latter meant a stale blob — returned by the probe-timeout path or the stall fallback —
+        // arrived labelled with a version it did not have, and the client's freshness guard was
+        // comparing against a number that was not about the bytes in front of it.
+        long version = archive.versionOfBlob(worldId, blob);
+        if (version < 0) {
+            version = archive.newestManifest(worldId).map(m -> m.version().value()).orElse(0L);
+        }
         try {
             java.nio.file.Path dest = controlPaths.resolve(path, "archive destination");
             if (dest.getParent() != null) {
@@ -957,7 +977,16 @@ public final class WorkerControlHandler implements ControlHandler {
         // Doing it here rather than behind a separate verb means a node cannot be talked into
         // claiming a world it did not author: there is no code path that mints a key for a world id
         // that arrived from outside.
-        mintOwnership(id.worldId(), createdAtEpoch);
+        //
+        // Except there was: a PINNED id does arrive from outside. A world recovered from the network
+        // carries its author's id in `nodera-world.dat`, and re-sharing it passed that id in here —
+        // so this node minted a private key and published a WorldOwnership claim for a world it did
+        // not author, after which `localWorkerIsAuthor` answered true for it and the whole owner-only
+        // surface unlocked. A pin is an instruction to keep somebody's id, never a claim to it, so a
+        // key is minted only for an id this node derived.
+        if (pinned == null || keys.administers(id.worldId().toHex())) {
+            mintOwnership(id.worldId(), createdAtEpoch);
+        }
         CanonicalWriter w = new CanonicalWriter();
         id.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
