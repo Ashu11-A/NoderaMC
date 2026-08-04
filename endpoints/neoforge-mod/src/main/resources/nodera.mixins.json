@@ -10,7 +10,8 @@
   ],
   "client": [
     "ClientDisconnectMixin",
-    "ConnectionHandledMixin"
+    "ConnectionHandledMixin",
+    "WorldListEntryMixin"
   ],
   "server": [],
   "injectors": {

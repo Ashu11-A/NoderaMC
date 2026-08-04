@@ -91,6 +91,32 @@ public final class MultiplayerWorldFeed {
         return out;
     }
 
+    /**
+     * How many players are in a world this install HOSTS, or {@code null} when it hosts no such
+     * world.
+     *
+     * <p>Keyed by world id rather than by name, unlike the badge feed next door: a row in the
+     * singleplayer list knows its save folder, and the save folder knows its world id — the display
+     * name is the one thing that can differ between the two, because a save can be renamed on disk.
+     *
+     * @param worldIdHex the world id.
+     * @return the count ({@code -1} for "nobody has reported one"), or {@code null} if not hosted.
+     * @Thread-context any thread.
+     */
+    public static Long playersInHostedWorld(String worldIdHex) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return null;
+        }
+        java.util.Set<String> hosted = authoritative;
+        for (TorrentWorldEntry entry : ownWorlds) {
+            if (worldIdHex.equalsIgnoreCase(entry.worldIdHex())
+                    && hosted.contains(entry.worldIdHex())) {
+                return entry.playerCount();
+            }
+        }
+        return null;
+    }
+
     public static List<TorrentWorldEntry> snapshot() {
         return merge(ownWorlds, networkWorlds, authoritative);
     }

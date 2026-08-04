@@ -68,6 +68,23 @@ public final class NoderaWorldList extends ObjectSelectionList<NoderaWorldList.R
     }
 
     /** One world row. */
+    /**
+     * Where a world's measured round trip comes from, or {@code -1} for "not measured".
+     *
+     * <p>Injected rather than looked up, because the measurement belongs to the screen that owns
+     * the pinger's lifetime — a list that measured for itself would keep pinging after the screen
+     * that built it had gone.
+     */
+    private java.util.function.ToLongFunction<String> pingSupplier = id -> -1;
+
+    /**
+     * @param supplier world id → milliseconds, or {@code -1} when unmeasured.
+     * @Thread-context client thread.
+     */
+    public void setPingSupplier(java.util.function.ToLongFunction<String> supplier) {
+        this.pingSupplier = supplier == null ? id -> -1 : supplier;
+    }
+
     public final class Row extends ObjectSelectionList.Entry<Row> {
         final TorrentWorldEntry entry;
 
@@ -108,6 +125,14 @@ public final class NoderaWorldList extends ObjectSelectionList<NoderaWorldList.R
             stats.append(SEP).append(Component.translatable(
                     TorrentWorldListView.KEY_RELIABILITY,
                     (entry.reliabilityBps() / 100) + "%"));
+            // Round trip to the host's game endpoint, when one has been measured. Only worlds with
+            // a live endpoint can be pinged, which is exactly the set already shown as joinable
+            // now; a world whose host is offline shows nothing rather than a fabricated number.
+            long ping = pingSupplier.applyAsLong(entry.worldIdHex());
+            if (ping >= 0) {
+                stats.append(SEP).append(Component.translatable(
+                        "nodera.worlds.ping", ping));
+            }
             graphics.drawString(font, stats, left + 14, top + 18, 0x9C9CA8);
 
             // Right-aligned joinability / health badge.

@@ -112,6 +112,8 @@ public final class ClientBootstrap {
         // L-46: the single-player world-list badge was the last feed defaulting empty — feed it
         // from the same worker-backed world feed (shared summary; per-row placement is the
         // WorldSelectionListEntryMixin GUI-pass work).
+        NeoForge.EVENT_BUS.addListener(
+                dev.nodera.mod.client.worldlist.SelectWorldScreenAddon::onScreenInit);
         dev.nodera.mod.client.worldlist.SelectWorldScreenAddon.setStatusSupplier(
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::ownWorldStatuses);
 

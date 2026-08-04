@@ -52,6 +52,19 @@ public final class SelectWorldScreenAddon {
         statusSupplier = supplier == null ? List::of : supplier;
     }
 
+    /**
+     * Screen open: forget which saves carry which world.
+     *
+     * <p>The mapping is a file read per save, so it is cached for the life of the process — but a
+     * world can be shared, unshared or deleted between two visits to this screen, and re-reading a
+     * handful of small files when it opens costs nothing.
+     */
+    public static void onScreenInit(ScreenEvent.Init.Post event) {
+        if (event.getScreen() instanceof SelectWorldScreen) {
+            WorldRowBadges.invalidate();
+        }
+    }
+
     /** Registered on the NeoForge event bus by {@code ClientBootstrap}. */
     public static void onScreenRender(ScreenEvent.Render.Post event) {
         if (!(event.getScreen() instanceof SelectWorldScreen screen)) {

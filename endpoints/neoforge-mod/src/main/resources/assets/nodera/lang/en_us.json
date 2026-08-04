@@ -145,6 +145,7 @@
   "nodera.join.password.hint": "Password",
   "nodera.join.password.enter": "Enter world password",
   "nodera.join.password.join": "Join",
+  "nodera.worlds.ping": "%s ms",
   "nodera.continuity.holding": "The host of %s left. Holding your world here — keep playing.",
   "nodera.continuity.holding.progress": "Recovering the world from nearby peers — %s of %s pieces",
   "nodera.continuity.holding.failed": "Still holding your world locally. Could not reach the network: %s",
