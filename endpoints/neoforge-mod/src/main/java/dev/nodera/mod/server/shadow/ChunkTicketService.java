@@ -43,21 +43,46 @@ public final class ChunkTicketService {
     /** Fully loaded and block-ticking — a region cannot be validated while the game skips it. */
     private static final int TICKET_RADIUS = 1;
 
+    /**
+     * Loaded but not block-ticking — what a validator needs.
+     *
+     * <p>Radius 0 keeps the chunk in memory and readable, which is all re-executing a batch and
+     * comparing roots requires. The difference against {@link #TICKET_RADIUS} is 64 chunks per
+     * validator seat that the server no longer ticks.
+     */
+    private static final int WITNESS_RADIUS = 0;
+
     private final RegionChunkHolds holds = new RegionChunkHolds();
 
-    /** Hold every chunk of {@code region}; already-held chunks cost nothing. */
+    /**
+     * Hold every chunk of {@code region}; already-held chunks cost nothing.
+     *
+     * @param simulate whether the chunks must be block-ticking, or merely loaded.
+     *
+     *        <p>Only a region's <b>primary</b> needs simulation: it runs the authoritative tick and
+     *        its snapshot is the proposal. A validator re-executes a batch it is given and compares
+     *        roots — it has to be able to READ the ground, not run it. Holding every validator's
+     *        regions at block-ticking level pinned 64 extra force-ticked chunks per seat,
+     *        permanently, which is why a TPS drop that began when two players' zones overlapped
+     *        never recovered when they walked apart.
+     */
+    public void hold(ServerLevel level, RegionId region, boolean simulate) {
+        apply(level, holds.hold(region), simulate);
+    }
+
+    /** As {@link #hold(ServerLevel, RegionId, boolean)}, simulating — the primary's hold. */
     public void hold(ServerLevel level, RegionId region) {
-        apply(level, holds.hold(region));
+        hold(level, region, true);
     }
 
     /** Drop this region's hold; a chunk another region still holds stays loaded. */
     public void release(ServerLevel level, RegionId region) {
-        apply(level, holds.release(region));
+        apply(level, holds.release(region), true);
     }
 
     /** Session shutdown: release everything exactly once. */
     public void releaseAll(ServerLevel level) {
-        apply(level, holds.releaseAll());
+        apply(level, holds.releaseAll(), true);
     }
 
     /** @return how many distinct chunks this service is currently holding. */
@@ -65,7 +90,7 @@ public final class ChunkTicketService {
         return holds.heldChunks();
     }
 
-    private void apply(ServerLevel level, RegionChunkHolds.Delta delta) {
+    private void apply(ServerLevel level, RegionChunkHolds.Delta delta, boolean simulate) {
         if (level == null || delta.isEmpty()) {
             return;
         }
@@ -82,20 +107,25 @@ public final class ChunkTicketService {
         // in that order, and a hop cannot invert them.
         MinecraftServer server = level.getServer();
         if (server != null && !server.isSameThread()) {
-            server.execute(() -> mutate(level, delta));
+            server.execute(() -> mutate(level, delta, simulate));
             return;
         }
-        mutate(level, delta);
+        mutate(level, delta, simulate);
     }
 
-    private void mutate(ServerLevel level, RegionChunkHolds.Delta delta) {
+    private void mutate(ServerLevel level, RegionChunkHolds.Delta delta, boolean simulate) {
+        int radius = simulate ? TICKET_RADIUS : WITNESS_RADIUS;
         for (RegionChunkHolds.ChunkRef chunk : delta.newlyHeld()) {
             ChunkPos pos = new ChunkPos(chunk.chunkX(), chunk.chunkZ());
-            level.getChunkSource().addRegionTicket(NODERA_DELEGATED, pos, TICKET_RADIUS, pos);
+            level.getChunkSource().addRegionTicket(NODERA_DELEGATED, pos, radius, pos);
         }
         for (RegionChunkHolds.ChunkRef chunk : delta.released()) {
             ChunkPos pos = new ChunkPos(chunk.chunkX(), chunk.chunkZ());
+            // Released at BOTH levels: a region that was held as a witness and later as a primary
+            // (or the reverse) would otherwise leave the other level's ticket behind, and a leaked
+            // ticket is a chunk this world never stops loading.
             level.getChunkSource().removeRegionTicket(NODERA_DELEGATED, pos, TICKET_RADIUS, pos);
+            level.getChunkSource().removeRegionTicket(NODERA_DELEGATED, pos, WITNESS_RADIUS, pos);
         }
     }
 }

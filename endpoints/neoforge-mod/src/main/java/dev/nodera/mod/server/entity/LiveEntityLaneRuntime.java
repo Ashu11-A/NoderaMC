@@ -115,6 +115,25 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
      */
     private final dev.nodera.mod.common.RegionSeedSpool regionSeeds =
             dev.nodera.mod.common.RegionSeedSpool.companion();
+    /**
+     * Where a block edit's proposal is voted on, off the world thread.
+     *
+     * <p>Single-threaded and bounded: proposals for one node must keep their order, and a queue that
+     * can grow without limit turns a stalled committee into an out-of-memory error instead of a
+     * dropped edit. A full queue drops the newest proposal, which the committed state reconciles —
+     * the same contract the forward path and {@code submitMove} already work under.
+     */
+    private final java.util.concurrent.ThreadPoolExecutor proposals =
+            new java.util.concurrent.ThreadPoolExecutor(1, 1, 0L,
+                    java.util.concurrent.TimeUnit.MILLISECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(256),
+                    r -> {
+                        Thread t = new Thread(r, "nodera-block-proposals");
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
+
     private long currentTick;
 
     public LiveEntityLaneRuntime(
@@ -145,7 +164,15 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                             delta.resultingVersion().value());
                 },
                 authority);
+        // Half a second, not every tick. A commit re-extracts and hashes a whole region, and a
+        // region is pending whenever any ghost moved — so this ran up to once per tick per region
+        // on the server thread, which is what a live two-player session measured as 15.5 TPS.
+        // Ordering is preserved by flushing the region explicitly before anything proposes into it.
+        this.committer.setCommitIntervalTicks(COMMIT_INTERVAL_TICKS);
     }
+
+    /** See {@link InterferenceCommitter#setCommitIntervalTicks}. */
+    private static final int COMMIT_INTERVAL_TICKS = 10;
 
     /** Expose event capture only after region state and durable recovery are ready. */
     public void install() {
@@ -175,7 +202,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         committer.onCommittedVersion(snapshot.region(), snapshot.version());
         regions.add(snapshot.region());
         boundLevels.put(snapshot.region(), level);
-        tickets.hold(level, snapshot.region());
+        // Simulated only where this node is the region's PRIMARY. A validator re-executes what it
+        // is given and compares roots; it needs the ground readable, not running.
+        tickets.hold(level, snapshot.region(), authority.nodeId().equals(lease.primary()));
         // Task 13: the engine is THE scheduler for this region now — vanilla scheduled
         // ticks for its chunks are cancelled at the source (LevelTicksMixin).
         dev.nodera.endpoint.lane.RedstoneSuppression.activate(
@@ -366,7 +395,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     public boolean submitBlockAction(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
         if (delegated(region)) {
-            return submit(player, region, action);
+            return submit(player, region, action, false);
         }
         return submitAsObserver(player, region, action);
     }
@@ -451,6 +480,31 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     private boolean submit(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
+        return submit(player, region, action, true);
+    }
+
+    /**
+     * Capture one action.
+     *
+     * @param awaitTheCommittee whether the caller may be blocked until the committee decides.
+     *
+     *        <p><b>Only a caller whose vanilla outcome depends on the answer may pass true.</b>
+     *        {@code proposeBatch} waits on {@code round.done().await(voteTimeout + 500)} — five and a
+     *        half seconds with the current settings — and the block-capture path calls this from
+     *        {@code BlockCaptureBridge} on the <b>server main thread</b>. One edit whose committee
+     *        lacked a reachable majority froze the tick loop for that long; a few of them exceeded
+     *        the vanilla keepalive and the client was kicked, which the continuity lane then
+     *        correctly treated as a lost host and answered with a world reopen. A player reported it
+     *        as "a loading screen appears when I break a block".
+     *
+     *        <p>Drops and pickups still pass true, because their return value is what cancels
+     *        vanilla ({@code EntityCaptureBridge}) and an optimistic answer there re-opens issues
+     *        #33/#44. A block edit has already happened in the world when this is called, so
+     *        nothing is waiting on the verdict — which is the same deal {@code submitMove} took.
+     */
+    private boolean submit(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action,
+            boolean awaitTheCommittee) {
         Optional<RegionSnapshot> current = validation.currentSnapshot(region);
         if (current.isEmpty() || !playerRegion(player).equals(region)) {
             return false;
@@ -488,6 +542,31 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                 handover.acknowledge(actor, playerSequence);
                 return true;
             }
+            if (!awaitTheCommittee) {
+                // Off the tick. The proposal still happens, on the same executor the forward path
+                // uses; what changes is that the world thread does not sit through the vote.
+                // Flushed on THIS thread, before handing off: the buffer is the world thread's
+                // and must not be touched from the proposal executor.
+                committer.flushNow(region);
+                proposals.execute(() -> {
+                    try {
+                        if (validation.proposeBatch(region, tick, tick,
+                                java.util.List.of(signed)).isPresent()) {
+                            handover.acknowledge(actor, playerSequence);
+                        }
+                    } catch (RuntimeException unavailable) {
+                        // Held rather than lost: an unacknowledged action is exactly what the next
+                        // resume replays.
+                        LOG.debug("deferred proposal for {} failed: {}", region,
+                                unavailable.toString());
+                    }
+                });
+                return true;
+            }
+            // The proposal's base is the committed root, so anything still buffered for this
+            // region has to land first — otherwise the batch is built on a state the region has
+            // already moved past. This is the ordering the commit cadence trades against.
+            committer.flushNow(region);
             boolean proposed = validation.proposeBatch(
                     region, tick, tick, java.util.List.of(signed)).isPresent();
             if (proposed) {
@@ -706,6 +785,8 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     @Override
     public void close() {
+        // Stopped first, so nothing proposes into a lane that is being torn down.
+        proposals.shutdownNow();
         EntityCaptureBridge.get().uninstall(this);
         dev.nodera.mod.server.shadow.BlockCaptureBridge.get().uninstall(this);
         if (dev.nodera.mod.server.shadow.BlockWriteGuard.guard() == writeGuard) {

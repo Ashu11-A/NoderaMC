@@ -115,16 +115,68 @@ public final class InterferenceCommitter {
      * @return the certified deltas emitted this tick (also delivered to the sink).
      */
     public List<RegionDelta> onTickEnd(Function<RegionId, PipelineState> pipelineStates) {
+        ticks++;
         List<RegionDelta> emitted = new ArrayList<>();
+        boolean due = commitIntervalTicks <= 1 || ticks % commitIntervalTicks == 0;
         for (RegionId region : buffer.pendingRegions()) {
             if (busy(pipelineStates.apply(region))) {
                 held.add(region);
+                continue;
+            }
+            if (!due) {
+                // Held for the cadence, not for the pipeline. The mutations stay buffered and are
+                // committed on the next due tick — or immediately by flushNow if somebody proposes
+                // into this region first, which is the only ordering the contract actually needs.
                 continue;
             }
             commitRegion(region).ifPresent(emitted::add);
         }
         return emitted;
     }
+
+    /**
+     * How often a pending region may be committed, in calls to {@link #onTickEnd}.
+     *
+     * <h2>Why a cadence at all</h2>
+     *
+     * <p>A commit re-extracts the whole region and SHA-256s it, and a region is pending whenever any
+     * ghost moved — so on a busy world this ran once per tick per region, on the server thread. Two
+     * players standing in each other's regions measured 15.5 TPS for exactly this reason, with the
+     * cost doubled because overlap makes each of them a validator of the other's region.
+     *
+     * <p>Per-tick was never required. The only ordering the lane depends on is that a region's
+     * buffer is flushed before the next batch is proposed for it, and {@link #flushNow} is how a
+     * proposer guarantees that. What a cadence costs is latency on certifying ghost movement; what
+     * it buys is the tick back.
+     *
+     * @param ticks the interval; {@code <= 1} restores committing on every tick.
+     * @Thread-context call before the lane starts taking ticks.
+     */
+    public void setCommitIntervalTicks(int ticks) {
+        this.commitIntervalTicks = Math.max(1, ticks);
+    }
+
+    /**
+     * Commit one region's buffer right now, whatever the cadence says.
+     *
+     * <p>Called immediately before a batch is proposed for that region: the proposal's base is the
+     * committed root, so a buffer still holding mutations would have the proposal built on a state
+     * the region has already moved past.
+     *
+     * @param region the region about to be proposed into.
+     * @return the delta, if anything was pending.
+     * @Thread-context the caller's; same thread as {@link #onTickEnd}.
+     */
+    public Optional<RegionDelta> flushNow(RegionId region) {
+        held.remove(region);
+        return commitRegion(region);
+    }
+
+    /** Ticks seen, for the cadence. */
+    private long ticks;
+
+    /** See {@link #setCommitIntervalTicks}. */
+    private int commitIntervalTicks = 1;
 
     /**
      * Called after a pipeline decision (commit/reject/timeout) for {@code region}, before the next
