@@ -144,7 +144,9 @@ final class TypeTagsTest {
         expected.put("HALO_ENDORSEMENT", 119);
         // The owner's undo of a deletion, ranked against the tombstone it supersedes.
         expected.put("WORLD_REVIVAL", 120);
-        expected.put("NEXT", 120);
+        // A worker signing that one game session's throwaway key speaks for its persistent one.
+        expected.put("SESSION_DELEGATION", 121);
+        expected.put("NEXT", 121);
         return expected;
     }
 

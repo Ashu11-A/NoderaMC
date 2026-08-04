@@ -65,9 +65,16 @@ public final class OperatorBridge {
         if (perms == null) {
             return;
         }
+        // The AUTHORITY identity, not the session one. A session key is minted fresh on every join
+        // and is therefore a key no world has ever issued anything to; asking the permission set
+        // about it answers MEMBER for everybody, which is how a world's own author got de-opped
+        // from their own world. Where no delegation was presented the two are the same value, so
+        // this is the previous behaviour plus the case it was getting wrong.
         PlayerNodeRegistry.PlayerNode node = PlayerNodeRegistry.nodeOf(player.getUUID());
-        WorldRole role = node == null ? null : perms.roleOf(node.nodeId(), node.publicKey());
-        apply(server, player, OpSyncDecision.decide(role, ourOps.contains(player.getUUID())));
+        WorldRole role = node == null ? null
+                : perms.roleOf(node.authorityNodeId(), node.authorityPublicKey());
+        apply(server, player, OpSyncDecision.decide(role, ourOps.contains(player.getUUID()),
+                isThisMachinesOwner(server, player)));
     }
 
     /**
@@ -81,9 +88,31 @@ public final class OperatorBridge {
 
     /** Drop any op the bridge granted this player (logout). */
     public void onLogout(MinecraftServer server, ServerPlayer player) {
-        if (ourOps.contains(player.getUUID())) {
-            apply(server, player, OpSyncDecision.Action.DEOP);
+        if (!ourOps.contains(player.getUUID())) {
+            return;
         }
+        if (isThisMachinesOwner(server, player)) {
+            // Their op is not ours to take back, but the bookkeeping is ours to forget: leaving the
+            // uuid in `ourOps` would make a later sync think this bridge granted something it did
+            // not, and the whole point of that set is that we only ever undo our own decisions.
+            ourOps.remove(player.getUUID());
+            return;
+        }
+        apply(server, player, OpSyncDecision.Action.DEOP);
+    }
+
+    /** @return whether this bridge currently ops the given player (test/diagnostic seam). */
+    public boolean opped(UUID player) {
+        return ourOps.contains(player);
+    }
+
+    /**
+     * Whether this player owns the integrated server they are playing on — the floor
+     * {@link OpSyncDecision#decide(WorldRole, boolean, boolean)} refuses to go under, and the reason
+     * it does is written up there.
+     */
+    private static boolean isThisMachinesOwner(MinecraftServer server, ServerPlayer player) {
+        return !server.isDedicatedServer() && server.isSingleplayerOwner(player.getGameProfile());
     }
 
     private void apply(MinecraftServer server, ServerPlayer player, OpSyncDecision.Action decision) {

@@ -372,6 +372,13 @@ public final class ControlServer implements AutoCloseable {
                         parseLong(arg(parts, 6)));
                 return grant == null ? err("cannot mint grant") : ControlProtocol.OK + " " + grant;
             }
+            if (ControlProtocol.DELEGATE.equals(verb)) {
+                // NODERA-DELEGATE <ver> <worldIdHex> <sessionPubKeyB64> <ttlSeconds>
+                String delegation = handler.delegateSession(arg(parts, 2), arg(parts, 3),
+                        parseLong(arg(parts, 4)));
+                return delegation == null ? err("cannot mint session delegation")
+                        : ControlProtocol.OK + " " + delegation;
+            }
             if (ControlProtocol.REKEY.equals(verb)) {
                 // NODERA-REKEY <ver> <worldIdHex> <archivePathB64> <newPasswordB64> <currentIdentityB64>
                 String reKeyed = handler.rekey(arg(parts, 2), arg(parts, 3), arg(parts, 4),

@@ -237,6 +237,14 @@ public final class TypeTags {
      */
     public static final int WORLD_REVIVAL = 120;
 
+    /**
+     * {@code SessionDelegation} — a worker signing that one game session's throwaway transport key
+     * speaks in its name, for one world, until a stated instant. Without it the key a player proves
+     * possession of at join time is a key no world has ever heard of, so a world's own author reads
+     * as an ordinary member of it.
+     */
+    public static final int SESSION_DELEGATION = 121;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 120;
+    public static final int NEXT = 121;
 }

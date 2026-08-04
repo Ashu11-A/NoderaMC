@@ -104,6 +104,20 @@ public final class NoderaPeerService {
     private volatile RendezvousPeerTransport serverRendezvous;
 
     private NodeIdentity clientIdentity;
+
+    /**
+     * Base64 of the {@code SessionDelegation} this session announces, or {@code ""}.
+     *
+     * <p>{@link #clientIdentity} is deliberately a throwaway: a fresh keypair per session, because
+     * it is a transport credential and nothing more. That leaves a gap the permission model cannot
+     * bridge on its own — a world's author and every grant it issued are anchored to the persistent
+     * key inside the player's always-on worker, so a session announcing only its own key is a
+     * stranger to every world it has ever been given anything in. This is the worker's signed
+     * statement that the two belong together, and it is what stops a world's creator from being
+     * de-opped on joining their own world.
+     */
+    private volatile String sessionDelegationB64 = "";
+
     private SocketPeerTransport clientTransport;
     private PeerTransport clientDataTransport;
     /** The joiner's rendezvous transport; see {@link #serverRendezvous}. */
@@ -695,6 +709,16 @@ public final class NoderaPeerService {
         return clientIdentity;
     }
 
+    /**
+     * @return base64 of this session's {@code SessionDelegation}, or {@code ""} when no worker was
+     *         reachable to sign one. Blank is not an error: the session then announces exactly what
+     *         it announced before delegations existed, and is evaluated as an ordinary member.
+     * @Thread-context any thread.
+     */
+    public String sessionDelegationB64() {
+        return sessionDelegationB64;
+    }
+
     /** @return the client peer's metered transport, or {@code null} when no session is joined. */
     public synchronized PeerTransport clientDataTransport() {
         return clientDataTransport;
@@ -860,6 +884,12 @@ public final class NoderaPeerService {
         this.sessionWorldIdHex = worldIdHex == null ? "" : worldIdHex.trim();
         this.clientBootstrapRoute = bootstrapRoute == null ? "" : bootstrapRoute.trim();
         clientIdentity = NodeIdentity.generate();
+        // Immediately ask this machine's worker to vouch for the key we just generated. The key
+        // stays throwaway — it is a transport credential — but the announce that carries it now
+        // also carries the worker's signature saying whose authority it speaks with. Without this
+        // step the announce is cryptographically perfect and semantically anonymous, which is how a
+        // world's own creator lost /op the moment they joined their own world as a client.
+        sessionDelegationB64 = mintSessionDelegation(this.sessionWorldIdHex, clientIdentity);
         String advertise = resolveHost(advertiseHost);
         // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
         clientTransport = new SocketPeerTransport(clientIdentity, "0.0.0.0", 0, advertise);
@@ -888,6 +918,41 @@ public final class NoderaPeerService {
                 .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
         LOG.info("Nodera client peer joining session via {} (node {}, listening {})",
                 bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());
+    }
+
+    /**
+     * Ask the local worker to sign a delegation binding this session's key to the worker's own.
+     *
+     * <p>Best-effort by construction. No worker, an older worker that does not know the verb, or a
+     * session with no world id all produce {@code ""}, and the announce then says only what the
+     * session can prove about itself. That is the pre-existing behaviour rather than a new failure
+     * mode — the player is a member of the world instead of whatever they were granted, which is
+     * wrong but survivable, and the log line says which of the two happened.
+     *
+     * @param worldIdHex the world this session belongs to.
+     * @param session    the session identity to have vouched for.
+     * @return base64 of the signed delegation, or {@code ""}.
+     */
+    private static String mintSessionDelegation(String worldIdHex, NodeIdentity session) {
+        if (worldIdHex == null || worldIdHex.isBlank() || !CompanionLink.isPresent()) {
+            return "";
+        }
+        try {
+            java.util.Optional<dev.nodera.core.Bytes> delegation =
+                    CompanionLink.client().delegateSession(worldIdHex, session.publicKeyBytes(),
+                            dev.nodera.core.identity.SessionDelegation.DEFAULT_TTL_MILLIS / 1000);
+            if (delegation.isEmpty()) {
+                LOG.info("Nodera: this machine's worker did not vouch for the session key — any "
+                        + "operator role or ownership this player holds in '{}' will not be seen "
+                        + "here", worldIdHex);
+                return "";
+            }
+            return java.util.Base64.getEncoder().encodeToString(delegation.get().toArray());
+        } catch (RuntimeException e) {
+            LOG.info("Nodera: could not obtain a session delegation ({}) — this player joins with "
+                    + "no persistent identity attached", e.toString());
+            return "";
+        }
     }
 
     /**
@@ -1014,6 +1079,9 @@ public final class NoderaPeerService {
         clientDataTransport = null;
         clientRendezvous = null;
         clientIdentity = null;
+        // The delegation names a key that no longer exists. Keeping it would let the next session
+        // announce a statement about a dead one.
+        sessionDelegationB64 = "";
     }
 
     /**

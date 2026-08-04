@@ -17,16 +17,22 @@ import net.minecraft.resources.ResourceLocation;
  * @param route        the peer's dialable {@code host:port} P2P route.
  * @param signatureB64 base64 of the peer's signature over the session's announce challenge (issue
  *                     #36 F1: {@code challenge ‖ nodeId ‖ publicKey ‖ mcUuid}), or {@code ""}.
+ * @param delegationB64 base64 of a {@code SessionDelegation} — this player's always-on worker
+ *                     signing that the announced session key speaks in the worker's name for this
+ *                     world — or {@code ""} when no worker was reachable. Permissions are anchored
+ *                     to the worker's persistent key, and the announced key is a fresh per-session
+ *                     one, so without this the world's own author announces a key the world has
+ *                     never heard of and is evaluated as an ordinary member of it.
  */
 public record NoderaNodeAnnouncePayload(String nodeIdUuid, String publicKeyB64, String route,
-                                        String signatureB64)
+                                        String signatureB64, String delegationB64)
         implements CustomPacketPayload {
 
     /** The payload type id ({@code nodera:node}). */
     public static final Type<NoderaNodeAnnouncePayload> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(dev.nodera.mod.NoderaMod.MOD_ID, "node"));
 
-    /** Wire codec: four UTF-8 strings. */
+    /** Wire codec: five UTF-8 strings. */
     public static final StreamCodec<RegistryFriendlyByteBuf, NoderaNodeAnnouncePayload> STREAM_CODEC =
             CustomPacketPayload.codec(
                     (payload, buf) -> {
@@ -34,9 +40,10 @@ public record NoderaNodeAnnouncePayload(String nodeIdUuid, String publicKeyB64, 
                         buf.writeUtf(payload.publicKeyB64());
                         buf.writeUtf(payload.route());
                         buf.writeUtf(payload.signatureB64());
+                        buf.writeUtf(payload.delegationB64());
                     },
                     buf -> new NoderaNodeAnnouncePayload(buf.readUtf(), buf.readUtf(), buf.readUtf(),
-                            buf.readUtf()));
+                            buf.readUtf(), buf.readUtf()));
 
     @Override
     public Type<? extends CustomPacketPayload> type() {

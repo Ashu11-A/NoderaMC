@@ -45,4 +45,39 @@ final class OperatorBridgeTest {
         assertEquals(Action.NONE, OpSyncDecision.decide(null, false));
         assertEquals(Action.DEOP, OpSyncDecision.decide(null, true));
     }
+
+    // --- the owner floor -------------------------------------------------------------------------
+
+    @Test
+    void theProcessOwnerIsNeverDeoppedByARoleLookup() {
+        // The exact live failure: a creator joins their own shared world, their worker is not
+        // reachable so nothing vouches for their persistent key, the permission set answers MEMBER,
+        // and the bridge takes away the op it had granted. On the machine they own, it must not.
+        assertEquals(Action.NONE, OpSyncDecision.decide(WorldRole.MEMBER, true, true));
+        assertEquals(Action.NONE, OpSyncDecision.decide(null, true, true));
+    }
+
+    @Test
+    void theProcessOwnerIsNeverDisconnectedByARoleLookup() {
+        assertEquals(Action.NONE, OpSyncDecision.decide(WorldRole.BANNED, true, true));
+        assertEquals(Action.NONE, OpSyncDecision.decide(WorldRole.BANNED, false, true));
+    }
+
+    @Test
+    void theFloorNeverManufacturesAnOp() {
+        // It suppresses withdrawals. It does not invent authority the role model did not grant, so
+        // an un-opped member stays un-opped and an operator is still opped for the usual reason.
+        assertEquals(Action.NONE, OpSyncDecision.decide(WorldRole.MEMBER, false, true));
+        assertEquals(Action.OP, OpSyncDecision.decide(WorldRole.OPERATOR, false, true));
+    }
+
+    @Test
+    void withoutTheFloorTheMatrixIsUnchanged() {
+        // The two-argument form is the three-argument form with the floor down, so every existing
+        // caller and every case above keeps its previous answer.
+        assertEquals(OpSyncDecision.decide(WorldRole.MEMBER, true),
+                OpSyncDecision.decide(WorldRole.MEMBER, true, false));
+        assertEquals(OpSyncDecision.decide(WorldRole.BANNED, false),
+                OpSyncDecision.decide(WorldRole.BANNED, false, false));
+    }
 }

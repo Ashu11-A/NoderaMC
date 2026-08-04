@@ -658,6 +658,36 @@ public final class CompanionClient implements CompanionProbe {
         }
     }
 
+    /**
+     * Ask the worker to sign a {@link dev.nodera.core.identity.SessionDelegation} for this game
+     * session's transport key, so the session can be evaluated as the worker it belongs to.
+     *
+     * <p>Empty when the worker is unreachable or too old to know the verb. That is not an error the
+     * caller has to handle specially: a session with no delegation announces exactly what it
+     * announced before this existed.
+     *
+     * @param worldIdHex       the world the delegation is scoped to (hex).
+     * @param sessionPublicKey the session's Ed25519 public key.
+     * @param ttlSeconds       requested lifetime; the worker clamps it.
+     * @return the signed delegation's canonical bytes, or empty.
+     */
+    public Optional<Bytes> delegateSession(String worldIdHex, Bytes sessionPublicKey,
+                                           long ttlSeconds) {
+        String req = ControlProtocol.DELEGATE + " " + ControlProtocol.PROTOCOL_VERSION
+                + " " + worldIdHex + " " + b64(sessionPublicKey) + " " + ttlSeconds;
+        String reply = exchange(req);
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        try {
+            byte[] bytes = java.util.Base64.getDecoder().decode(
+                    reply.substring(ControlProtocol.OK.length() + 1).trim());
+            return Optional.of(Bytes.unsafeWrap(bytes));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
     private static String b64(Bytes bytes) {
         byte[] raw = bytes == null ? new byte[0] : bytes.toArray();
         return raw.length == 0 ? "" : java.util.Base64.getEncoder().encodeToString(raw);

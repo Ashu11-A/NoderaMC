@@ -1145,6 +1145,31 @@ public final class WorkerControlHandler implements ControlHandler {
     }
 
     @Override
+    public String delegateSession(String worldIdHex, String sessionPublicKeyB64, long ttlSeconds) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return null;
+        }
+        Bytes sessionKey = decodeBytes(sessionPublicKeyB64);
+        if (sessionKey.isEmpty()) {
+            // Refused rather than signed. A delegation over an empty key would name no session at
+            // all, which is a credential for whoever holds the bytes.
+            throw new IllegalArgumentException("a delegation needs the session's public key");
+        }
+        Bytes worldId = Bytes.fromHex(worldIdHex.trim());
+        // The requested lifetime is a hint. A session that asks for a year gets the default, because
+        // the point of the expiry is that a delegation copied off a disk stops working.
+        long ttlMillis = ttlSeconds <= 0 ? dev.nodera.core.identity.SessionDelegation.DEFAULT_TTL_MILLIS
+                : Math.min(ttlSeconds * 1000L,
+                        dev.nodera.core.identity.SessionDelegation.DEFAULT_TTL_MILLIS);
+        dev.nodera.core.identity.SessionDelegation delegation =
+                dev.nodera.core.identity.SessionDelegation.create(identity, sessionKey, worldId,
+                        System.currentTimeMillis() + ttlMillis);
+        CanonicalWriter w = new CanonicalWriter();
+        delegation.encode(w);
+        return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+    }
+
+    @Override
     public String rekey(String worldIdHex, String archivePathB64, String newPasswordB64,
                         String currentWorldIdentityB64) {
         // Issue #37 / L-51: the actual password re-key. The mod hands a freshly-packed plaintext

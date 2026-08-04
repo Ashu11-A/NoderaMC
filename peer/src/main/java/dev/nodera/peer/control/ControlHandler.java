@@ -194,6 +194,25 @@ public interface ControlHandler {
     }
 
     /**
+     * Sign a {@link dev.nodera.core.identity.SessionDelegation}: this worker's persistent key
+     * vouching that a game session's per-session transport key speaks in its name, in one world,
+     * until a stated instant.
+     *
+     * <p>This confers nothing by itself. It exists so that the permission evaluator, which is
+     * anchored to persistent keys, can resolve a session's announced key to the key the world
+     * actually knows — otherwise a world's own author announces a key no world has heard of and is
+     * evaluated as an ordinary member of it.
+     *
+     * @param worldIdHex        the world the delegation is scoped to (hex).
+     * @param sessionPublicKeyB64 base64 of the session's Ed25519 public key.
+     * @param ttlSeconds        requested lifetime; clamped by the worker.
+     * @return base64 of the signed delegation's canonical bytes, or {@code null} if unsupported.
+     */
+    default String delegateSession(String worldIdHex, String sessionPublicKeyB64, long ttlSeconds) {
+        return null;
+    }
+
+    /**
      * Re-key a world's password (issue #37 / L-51): re-encrypt the archive under the new password,
      * re-sign the {@code WorldIdentity} with the new {@code manifestRef}, re-announce, and return the
      * re-signed identity's canonical bytes (base64). Returns {@code null} when the archive lane is

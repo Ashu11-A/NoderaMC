@@ -101,9 +101,20 @@ public final class RegionSeedSpool {
      *
      * <p>Beside the worker's own store rather than inside a save: a joiner has no save directory for
      * the world it is validating, and the file is a handoff that is deleted immediately after.
+     *
+     * <p>Which worker's store, though, is the question {@code NODERA_STATE_DIR} answers, and this
+     * used to ignore it and hardcode {@code ~/.nodera}. Two game clients on one machine therefore
+     * staged into one directory whichever workers they were actually talking to — so a snapshot
+     * committed by one player could be picked up and seeded by the other player's worker under the
+     * other player's identity. Every other consumer of that env var already honours it; this was the
+     * one that did not.
      */
     public static Path defaultSpoolDir() {
-        return Path.of(System.getProperty("user.home"), ".nodera", "spool");
+        String stateDir = System.getenv("NODERA_STATE_DIR");
+        Path root = stateDir == null || stateDir.isBlank()
+                ? Path.of(System.getProperty("user.home"), ".nodera")
+                : Path.of(stateDir);
+        return root.resolve("spool");
     }
 
     /** A spool wired to the companion worker and the default spool directory. */

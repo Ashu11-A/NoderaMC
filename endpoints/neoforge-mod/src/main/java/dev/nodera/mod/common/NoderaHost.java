@@ -9,6 +9,7 @@ import dev.nodera.endpoint.lane.ValidationLane;
 import dev.nodera.endpoint.share.HostJoinGate;
 import dev.nodera.endpoint.share.ShareOptions;
 import dev.nodera.endpoint.telemetry.ModTelemetry;
+import dev.nodera.endpoint.world.AuthorshipMemo;
 import dev.nodera.endpoint.world.NoderaWorldStore;
 import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import dev.nodera.protocol.wire.WireCodec;
@@ -93,6 +94,29 @@ public final class NoderaHost {
     /** @return the hosted world's permission set, or null when not hosting. */
     public static dev.nodera.storage.WorldPermissions hostedPermissions() {
         return hostedPermissions;
+    }
+
+    /**
+     * @return the hosted world's network id, or {@link Bytes#empty()} when this server is not
+     *         hosting a shared world. The scope a session delegation has to match.
+     */
+    public static Bytes hostedWorldId() {
+        dev.nodera.storage.WorldPermissions perms = hostedPermissions;
+        return perms == null ? Bytes.empty() : perms.worldId();
+    }
+
+    /**
+     * Forget the hosted world (server stopped).
+     *
+     * <p>These two fields were set on every share and cleared by nothing. In a single JVM that opens
+     * one world, closes it and opens another — which is what a player does every time they go back
+     * to the title screen — the second world inherited the first world's permission set and its
+     * grant file path, so a grant made in world B was written into world A's save and evaluated
+     * against world A's author key.
+     */
+    public static void forgetHostedWorld() {
+        hostedPermissions = null;
+        hostedSaveRoot = null;
     }
 
     /**
@@ -423,30 +447,46 @@ public final class NoderaHost {
      * @return whether the local worker may set/change the password.
      */
     public static boolean localWorkerIsAuthor(MinecraftServer server) {
-        Optional<WorldIdentity> existing =
-                NoderaWorldStore.read(server.getWorldPath(LevelResource.ROOT));
+        Path saveRoot = server.getWorldPath(LevelResource.ROOT);
+        Optional<WorldIdentity> existing = NoderaWorldStore.read(saveRoot);
         if (existing.isEmpty()) {
             return true; // not shared yet → this install authors it on first share
         }
         if (!CompanionLink.isPresent()) {
-            return false; // shared by someone; without our worker we cannot prove authorship
+            // No worker to ask right now. Answering `false` here treats "I cannot check" as "I am
+            // not the author", and the cost of that mistake is the author of a world losing the
+            // ability to administer it — including the ability to re-op themselves — because their
+            // companion happened to be restarting. So we answer with the last thing this save
+            // actually proved, and only a genuine, checked mismatch says no.
+            return AuthorshipMemo.lastProven(saveRoot);
         }
         Optional<String> id = CompanionLink.client().identity();
         if (id.isEmpty()) {
-            return false;
+            return AuthorshipMemo.lastProven(saveRoot);
         }
         String workerNodeId = id.get().split("\\s+")[0];
-        return existing.get().authorNodeId().value().toString().equals(workerNodeId);
+        boolean isAuthor = existing.get().authorNodeId().value().toString().equals(workerNodeId);
+        AuthorshipMemo.remember(saveRoot, isAuthor);
+        return isAuthor;
     }
 
     /**
-     * Op the world author only (issue #36 F3 fix — no longer blanket-ops every online player). The
-     * integrated-server owner is the author when {@link #localWorkerIsAuthor} holds; a dedicated
-     * server ops nobody automatically (operator authority flows through signed grants + the
-     * {@link dev.nodera.mod.server.OperatorBridge}). Anyone else's op comes from a key-checked role.
+     * Op the person whose game this is, whenever the world is shared on Nodera.
+     *
+     * <p>Deliberately <b>not</b> gated on {@link #localWorkerIsAuthor} any more. That gate reads a
+     * file and asks a separate process a question, and it answers "no" for a whole family of
+     * ordinary situations — the companion is restarting, the identity verb timed out, the save was
+     * copied from another machine. Each of those took away administration of a world from the person
+     * sitting in front of it, and {@code /op} cannot be the way back because {@code /op} is itself
+     * gated on being an operator.
+     *
+     * <p>Scoped to a shared world for a reason: an unshared save has nothing that could de-op the
+     * owner, so there is nothing to defend against and vanilla's own "allow cheats" answer stands.
+     * A dedicated server has no such person at all and ops nobody automatically — operator authority
+     * there flows through signed grants and the {@link dev.nodera.mod.server.OperatorBridge}.
      */
     private static void grantHostOperator(MinecraftServer server) {
-        if (server.isDedicatedServer() || !localWorkerIsAuthor(server)) {
+        if (server.isDedicatedServer()) {
             return;
         }
         try {
@@ -461,12 +501,12 @@ public final class NoderaHost {
     }
 
     /**
-     * Op the integrated-server owner as author on login (covers an auto-re-share that ran before the
-     * owner joined, when {@link #grantHostOperator} saw no players). Safe no-op on a dedicated server
-     * or when this install did not author the world.
+     * Op the integrated-server owner on login (covers a share that ran before the owner joined, when
+     * {@link #grantHostOperator} saw no players). Safe no-op on a dedicated server or on a world
+     * this process is not sharing.
      */
     public static void syncAuthorOnLogin(MinecraftServer server, ServerPlayer player) {
-        if (server.isDedicatedServer() || hostedPermissions == null || !localWorkerIsAuthor(server)) {
+        if (server.isDedicatedServer() || hostedPermissions == null) {
             return;
         }
         if (server.isSingleplayerOwner(player.getGameProfile())) {

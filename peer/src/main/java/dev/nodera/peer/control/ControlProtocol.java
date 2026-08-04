@@ -159,6 +159,27 @@ public final class ControlProtocol {
     public static final String GRANT = "NODERA-GRANT";
 
     /**
+     * Sign a {@link dev.nodera.core.identity.SessionDelegation} so a game session's throwaway
+     * transport key can speak in this worker's name:
+     * {@code NODERA-DELEGATE <ver> <worldIdHex> <sessionPubKeyB64> <ttlSeconds>}; reply is
+     * {@code NODERA-OK <delegationBytesB64>}.
+     *
+     * <p><b>Why this verb has to exist.</b> Every privilege in a world is anchored to the worker's
+     * persistent key, and the game client generates a fresh keypair per session for its peer
+     * transport. So the key a player proved possession of at join time was a key no world had ever
+     * heard of, the permission evaluator answered {@code MEMBER}, and a world's own author was
+     * de-opped from their own world. The private key must not move into the game, so the statement
+     * moves instead: the worker signs that the session key speaks for it, in one world, until a
+     * stated instant.
+     *
+     * <p>The loopback (127.0.0.1) socket is the local trust boundary, the same one {@link #GRANT}
+     * and {@link #WORLDID} already rely on. Additive verb — an older worker answers
+     * {@code NODERA-ERR unknown verb}, and a client that gets no delegation announces exactly what
+     * it announced before, which is the pre-existing behaviour rather than a new failure.
+     */
+    public static final String DELEGATE = "NODERA-DELEGATE";
+
+    /**
      * Re-key a world's password (issue #37 / L-51): the mod hands the worker a freshly-packed archive
      * file path + the new plaintext password + the current signed {@code WorldIdentity}; the worker
      * re-encrypts the archive under a fresh Argon2id salt (new key → new ciphertext → new

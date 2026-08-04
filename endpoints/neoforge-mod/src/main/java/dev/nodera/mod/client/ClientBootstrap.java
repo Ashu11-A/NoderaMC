@@ -111,7 +111,8 @@ public final class ClientBootstrap {
         dev.nodera.mod.client.worldlist.SelectWorldScreenAddon.setStatusSupplier(
                 dev.nodera.mod.client.multiplayer.MultiplayerWorldFeed::ownWorldStatuses);
 
-        String endpoint = NoderaConfig.COMPANION_CONTROL_ENDPOINT.get();
+        String endpoint = NoderaConfig.resolveControlEndpoint(
+                NoderaConfig.COMPANION_CONTROL_ENDPOINT.get());
         boolean required = NoderaConfig.COMPANION_REQUIRED.get();
         CompanionClient client;
         try {

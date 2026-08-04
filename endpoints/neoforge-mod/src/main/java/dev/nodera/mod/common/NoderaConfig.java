@@ -290,6 +290,40 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue SERVER_COMPANION_REQUIRED =
             SERVER_BUILDER.define("companion.required", true);
 
+    /**
+     * The worker this game process should talk to, with the environment winning over the config.
+     *
+     * <h2>Why the environment has to win</h2>
+     *
+     * <p>The config default is {@code 127.0.0.1:25610} for both the client and the server spec, and
+     * the config file lives in the game directory. Two Minecraft clients launched on one machine —
+     * which is how this project is tested, and how a player runs a second account — therefore
+     * pointed at the <b>same worker</b>, and each also defaulted to the same {@code ~/.nodera} state
+     * directory. One node then wore two hats: one identity, one world registry, one set of world
+     * keys, and two players who each believed they were its author. Every ownership question after
+     * that point had a plausible-looking wrong answer.
+     *
+     * <p>{@code NODERA_CONTROL_PORT} is the same variable the worker itself reads to choose the port
+     * it listens on, and {@code NODERA_STATE_DIR} the same one it reads to choose its store, so a
+     * second instance is launched by setting the pair once and nothing has to agree about anything
+     * else. A launcher that sets neither behaves exactly as before.
+     *
+     * @param configured the endpoint from the config spec.
+     * @return the endpoint to dial.
+     * @Thread-context any thread.
+     */
+    public static String resolveControlEndpoint(String configured) {
+        String endpoint = System.getenv("NODERA_CONTROL_ENDPOINT");
+        if (endpoint != null && !endpoint.isBlank()) {
+            return endpoint.trim();
+        }
+        String port = System.getenv("NODERA_CONTROL_PORT");
+        if (port != null && !port.isBlank()) {
+            return "127.0.0.1:" + port.trim();
+        }
+        return configured;
+    }
+
     private static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
     private static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();
 

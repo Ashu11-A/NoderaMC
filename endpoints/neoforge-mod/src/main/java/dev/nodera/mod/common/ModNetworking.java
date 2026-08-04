@@ -207,10 +207,19 @@ public final class ModNetworking {
                             player.getUUID());
                     return;
                 }
-                PlayerNodeRegistry.announce(player.getUUID(), new PlayerNodeRegistry.PlayerNode(
-                        new dev.nodera.core.identity.NodeId(
-                                java.util.UUID.fromString(payload.nodeIdUuid())),
-                        publicKey, payload.route()));
+                dev.nodera.core.identity.NodeId sessionNode = new dev.nodera.core.identity.NodeId(
+                        java.util.UUID.fromString(payload.nodeIdUuid()));
+                // The delegation, if one verifies, is what makes this player's PERSISTENT identity
+                // visible to the permission set. It is checked against the key just proven and the
+                // world actually being played, so a delegation lifted from another announce or
+                // minted for another world is not a delegation at all — and a session without one
+                // simply speaks for itself, which is the behaviour that predates this.
+                PlayerNodeRegistry.PlayerNode announced =
+                        dev.nodera.endpoint.world.SessionAuthority.resolve(
+                                sessionNode, publicKey, payload.route(), payload.delegationB64(),
+                                NoderaHost.hostedWorldId(), System.currentTimeMillis(),
+                                reason -> log.info("Nodera: {}", reason));
+                PlayerNodeRegistry.announce(player.getUUID(), announced);
             } catch (RuntimeException malformed) {
                 return; // a malformed announce simply never becomes an owner
             }
@@ -275,12 +284,17 @@ public final class ModNetworking {
                         java.util.Base64.getDecoder().decode(payload.challengeB64()));
                 dev.nodera.core.Bytes proof = NodeAnnounceProof.sign(identity, challenge,
                         context.player().getUUID().toString());
+                // The session key proves who is talking; the delegation says whose authority it
+                // carries. Without the second one this player is a stranger to the world's
+                // permission set no matter how well the first one verifies — which is how a
+                // world's own author ended up being de-opped on joining it.
                 context.reply(new NoderaNodeAnnouncePayload(
                         identity.nodeId().value().toString(),
                         java.util.Base64.getEncoder().encodeToString(
                                 identity.publicKeyBytes().toArray()),
                         runtime.selfRoute(),
-                        java.util.Base64.getEncoder().encodeToString(proof.toArray())));
+                        java.util.Base64.getEncoder().encodeToString(proof.toArray()),
+                        NoderaPeerService.get().sessionDelegationB64()));
             }
         });
     }

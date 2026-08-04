@@ -131,7 +131,8 @@ public final class ServerBootstrap {
         if (!server.isDedicatedServer() || dev.nodera.peer.control.CompanionLink.isPresent()) {
             return;
         }
-        String endpoint = NoderaConfig.SERVER_COMPANION_CONTROL_ENDPOINT.get();
+        String endpoint = NoderaConfig.resolveControlEndpoint(
+                NoderaConfig.SERVER_COMPANION_CONTROL_ENDPOINT.get());
         boolean required = NoderaConfig.SERVER_COMPANION_REQUIRED.get();
         org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger("NoderaCompanion");
         try {
@@ -175,6 +176,11 @@ public final class ServerBootstrap {
         java.nio.file.Path saveRoot = event.getServer().getWorldPath(
                 net.minecraft.world.level.storage.LevelResource.ROOT);
         dev.nodera.mod.common.WorldArchiver.seedNow(saveRoot);
+        // Only after the final flush: the archiver reads the world identity through the hosted
+        // state, and forgetting it before the seed would make the last word of the session an
+        // anonymous one. Forgetting it at all is the point — the next world opened in this JVM must
+        // not inherit this world's permission set or write its grants into this world's save.
+        NoderaHost.forgetHostedWorld();
     }
 
     private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
