@@ -60,6 +60,21 @@ public final class EntityCaptureBridge {
         boolean submitPickup(ServerPlayer player, RegionId region, NetworkEntityId id);
 
         /**
+         * Whether this node may take a vanilla outcome away from the player in {@code region} —
+         * i.e. whether it is that region's primary, so a commit is synchronous.
+         *
+         * <p>Exposed on this interface because the capture path needs the same answer the submit
+         * paths already ask {@code VanillaCancelGate} for. Without it the bridge was zeroing an
+         * item's pickup delay on the strength of a lane that only engages on the primary, which is
+         * the whole of the "players cannot drop items" bug.
+         *
+         * @return {@code false} by default, which is the safe answer: vanilla keeps its behaviour.
+         */
+        default boolean mayCancelVanilla(RegionId region) {
+            return false;
+        }
+
+        /**
          * Propose one validated movement step (L-12). Vanilla movement is never cancelled for it —
          * the client proposes and the committee decides, and a step the committee refuses is
          * reconciled by the committed state like any other rejection.
@@ -296,9 +311,24 @@ public final class EntityCaptureBridge {
             PersistedEntityState state = MinecraftEntityAdapters.item(item, allocated);
             captured.put(entity.getUUID(), new Captured(region, state, true));
             // A validated item's vanilla projection is tick-suppressed, which would freeze its
-            // pickup delay forever — pickup validity now belongs to the validated lane
+            // pickup delay forever — pickup validity belongs to the validated lane
             // (PickupItemAction admission), so the projection must be immediately touchable.
-            item.setPickUpDelay(0);
+            //
+            // ONLY where this node is the region's primary, though, because that is the only place
+            // the lane actually admits pickups: `submitPickup` refuses on a non-primary node
+            // (VanillaCancelGate, issues #33/#44), so `onPickupPre` does not cancel vanilla there.
+            // Zeroing the delay unconditionally therefore took away vanilla's 40-tick grace and put
+            // nothing in its place — the tossed item lay collectable at the thrower's feet and
+            // vanilla vacuumed it back the same tick.
+            //
+            // That is the "players cannot drop items" report, and it explains its shape exactly:
+            // it appears when both players are VALIDATING (neither is primary of the ground they
+            // are standing on, which happens when they stand close together near a region
+            // boundary) and it stops the moment one walks away and becomes primary of their own
+            // region again.
+            if (runtime.mayCancelVanilla(region)) {
+                item.setPickUpDelay(0);
+            }
             runtime.adoptEntity(region, state);
             return;
         }

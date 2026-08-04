@@ -201,6 +201,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     }
 
     @Override
+    public boolean mayCancelVanilla(RegionId region) {
+        return VanillaCancelGate.mayCancelVanilla(validation.lease(region), authority.nodeId());
+    }
+
+    @Override
     public boolean submitDrop(ServerPlayer player, ItemEntity vanillaDrop) {
         if (!vanillaDrop.getItem().isComponentsPatchEmpty()
                 || vanillaDrop.getItem().getCount() > 255) {
