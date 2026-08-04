@@ -793,7 +793,11 @@ public final class WorkerControlHandler implements ControlHandler {
         // world: a joiner had no row for it at all, so its companion app showed "Nothing is on the
         // network until you share it" to a player who was standing in the world at the time. A row
         // keyed by a 64-character id would have been only a smaller version of the same problem.
-        String error = hosting.seed(id.toHex(), decodeB64(worldNameB64));
+        // Strictly decoded. `decodeB64` falls back to returning its input "as a plain name", and
+        // that tolerance is what turned a shifted argument into a rename — the worker was handed
+        // "0", could not decode it, and adopted it as the world's name. A name that does not decode
+        // is not a name; it is a caller sending something else.
+        String error = hosting.seed(id.toHex(), decodeName(worldNameB64));
         if (error != null) {
             return error;
         }
@@ -2000,6 +2004,27 @@ public final class WorkerControlHandler implements ControlHandler {
             return Bytes.unsafeWrap(Base64.getDecoder().decode(b64));
         } catch (IllegalArgumentException e) {
             return Bytes.empty();
+        }
+    }
+
+    /**
+     * A world name off the wire, or {@code ""} when the caller supplied none.
+     *
+     * <p>Unlike {@link #decodeB64} this does <b>not</b> fall back to the raw token. A name is the
+     * one field where guessing is destructive: {@code WorldHostingService.seed} keeps the name it
+     * already has when handed a blank one, so an honest "" preserves the world's name, while a
+     * confident wrong guess overwrites it everywhere the world is listed.
+     */
+    private static String decodeName(String b64) {
+        if (b64 == null || b64.isBlank()
+                || dev.nodera.peer.control.ControlProtocol.NO_VALUE.equals(b64.trim())) {
+            return "";
+        }
+        try {
+            return new String(Base64.getDecoder().decode(b64.trim()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException notBase64) {
+            return "";
         }
     }
 

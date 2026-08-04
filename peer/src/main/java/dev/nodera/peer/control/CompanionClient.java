@@ -352,8 +352,18 @@ public final class CompanionClient implements CompanionProbe {
 
     private Optional<String> joinWorld(String worldId, String worldName, String leaseSeconds,
                                        int playersInWorld) {
-        String nameB64 = java.util.Base64.getEncoder().encodeToString(
-                (worldName == null ? "" : worldName).getBytes(StandardCharsets.UTF_8));
+        // NEVER an empty token. Base64 of "" is the empty string, which put two spaces in a row on
+        // a line the server splits with `\\s+` — so the empty argument vanished and every argument
+        // after it shifted one place left. `leaveWorld` passes no name and a lease of "0", so the
+        // worker read "0" as the NAME, could not decode it as base64, tolerated it "as a plain
+        // name", and renamed the world to **0**. A player watched a world called "Teste 1" become
+        // "0" the moment its owner disconnected.
+        //
+        // The sentinel is a token that cannot be mistaken for content and cannot collapse.
+        String nameB64 = worldName == null || worldName.isEmpty()
+                ? ControlProtocol.NO_VALUE
+                : java.util.Base64.getEncoder().encodeToString(
+                        worldName.getBytes(StandardCharsets.UTF_8));
         return errorOf(exchange(ControlProtocol.JOIN + " " + ControlProtocol.PROTOCOL_VERSION
                 + " " + worldId + " " + nameB64 + " " + leaseSeconds + " " + playersInWorld));
     }

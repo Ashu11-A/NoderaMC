@@ -27,6 +27,20 @@ public final class ControlProtocol {
     /** Probe reply the worker sends. */
     public static final String OK = "NODERA-OK";
 
+    /**
+     * The placeholder for an optional argument a caller has nothing to put in.
+     *
+     * <p>This line protocol is split on {@code \s+}, which collapses runs of whitespace — so an
+     * argument sent as the empty string does not arrive as an empty argument, it <b>disappears</b>,
+     * and every argument after it moves one place left. That is not a theoretical hazard: a leave
+     * carried no world name, so the lease value landed in the name slot and a world called
+     * "Teste 1" was renamed to "0" the moment its owner disconnected.
+     *
+     * <p>A single character, chosen because it can never be valid base64 and can never be a world
+     * name anyone typed.
+     */
+    public static final String NO_VALUE = "-";
+
     /** Error reply prefix: {@code NODERA-ERR <message>}. */
     public static final String ERR = "NODERA-ERR";
 
