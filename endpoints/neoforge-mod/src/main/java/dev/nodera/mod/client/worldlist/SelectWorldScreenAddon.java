@@ -36,8 +36,11 @@ import java.util.function.Supplier;
  */
 public final class SelectWorldScreenAddon {
 
-    /** Where vanilla draws the screen title; this line goes under it, never through it. */
+    /** Vanilla's title baseline — this line shares it, out at the right edge. */
     private static final int TITLE_BASELINE = 8;
+
+    /** Clearance kept from the screen edge and from the centred title. */
+    private static final int RIGHT_MARGIN = 8;
 
     private static volatile Supplier<List<PublicWorldStatus>> statusSupplier = List::of;
 
@@ -71,19 +74,33 @@ public final class SelectWorldScreenAddon {
         // Vanilla's title sits at y=8 with a line height of 9, so the first row that is certainly
         // clear of it is y=20 — still in the header band, above the search box, and clear of the
         // list below.
-        int x = screen.width / 2 - font.width(summary) / 2;
-        int y = TITLE_BASELINE + font.lineHeight + 3;
-        graphics.drawString(font, summary, x, y, rgb);
+        int y = TITLE_BASELINE;
 
         // The one server-like fact this screen can state today without new plumbing: how many
         // people are in those worlds right now. It comes from the same worker STATE the multiplayer
         // tab reads, and it distinguishes "nobody is playing" from "nobody has told me", which the
         // worker reports as -1 and this refuses to render as a zero.
+        // ONE line, in the top-right corner.
+        //
+        // The header band is fully spoken for: vanilla's title is centred at y=8, and the search box
+        // occupies y=22..42. Centring under the title — the first attempt at fixing the collision
+        // with the title — put this text straight through that box instead. There is no clear
+        // centred row up here at all.
+        //
+        // The right edge beside the title is free, because the title is short and centred. Skipped
+        // entirely when the screen is too narrow for both, which is the only case where this could
+        // still touch anything.
         Cell online = PublicWorldBadgeView.onlineCell(shared);
-        if (online != null) {
-            Component players = ComponentRenderer.text(online);
-            graphics.drawString(font, players,
-                    screen.width / 2 - font.width(players) / 2, y + font.lineHeight + 1, rgb);
+        Component line = online == null
+                ? summary
+                : Component.empty().append(summary)
+                        .append(Component.literal("  ")).append(ComponentRenderer.text(online));
+        int textWidth = font.width(line);
+        int titleRight = screen.width / 2 + font.width(screen.getTitle()) / 2;
+        int x = screen.width - textWidth - RIGHT_MARGIN;
+        if (x <= titleRight + RIGHT_MARGIN) {
+            return; // not enough room beside the title; saying nothing beats saying it twice
         }
+        graphics.drawString(font, line, x, y, rgb);
     }
 }
