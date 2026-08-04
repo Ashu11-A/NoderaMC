@@ -449,6 +449,7 @@ public final class NoderaContinuity {
         SeamlessTakeover.say(Component.translatable("nodera.continuity.holding", world.name()));
         Thread.ofPlatform().name("nodera-takeover").daemon().start(() -> {
             try {
+                awaitTheDepartingHostsLastWord(world);
                 String dirName = materialize(mc, world);
                 if (dirName == null) {
                     // Nothing to open — and the client is holding a level whose connection this mod
@@ -480,6 +481,88 @@ public final class NoderaContinuity {
                 giveUp(mc, world);
             }
         });
+    }
+
+    /** How long to let a departing host publish its final save before taking the world over. */
+    private static final java.time.Duration FINAL_FLUSH_GRACE = java.time.Duration.ofSeconds(30);
+
+    /** How long the newest advertised version must stay put before it is believed to be final. */
+    private static final long SETTLED_MILLIS = 4_000L;
+
+    /**
+     * Wait for the version the departing host is still writing.
+     *
+     * <h2>The race this closes, measured</h2>
+     *
+     * <p>A host quitting through the pause menu saves its world and then seeds it — and that seed is
+     * the freshest copy of everything, including every player's position and inventory. The takeover
+     * starts the moment its connection drops, which is <b>before</b> that seed lands.
+     *
+     * <p>From a live run: at 18:49:33 the successor fetched version 1, 7,352,010 bytes. At 18:49:34
+     * the host published version 2, 23,376,493 bytes. One second. The survivor restored a copy three
+     * times smaller and older than the one being published as it read, and every player was put back
+     * where that older copy said they were — "it turned back time", exactly as reported.
+     *
+     * <p>So the takeover waits for the world's newest known version to stop moving before it fetches
+     * anything. Bounded, because a host that was killed rather than quitting publishes nothing and
+     * the wait must not become the new hang: after {@link #FINAL_FLUSH_GRACE} it takes whatever
+     * exists.
+     *
+     * @param world the world being taken over.
+     * @Thread-context the takeover thread; blocks it deliberately.
+     */
+    private static void awaitTheDepartingHostsLastWord(JoinedWorld world) {
+        if (!CompanionLink.isPresent()) {
+            return;
+        }
+        long deadline = System.nanoTime() + FINAL_FLUSH_GRACE.toNanos();
+        long lastVersion = -1;
+        long unchangedSince = System.currentTimeMillis();
+        while (System.nanoTime() < deadline) {
+            long version = newestVersionOf(world.worldIdHex());
+            if (version != lastVersion) {
+                lastVersion = version;
+                unchangedSince = System.currentTimeMillis();
+            } else if (version >= 0
+                    && System.currentTimeMillis() - unchangedSince >= SETTLED_MILLIS) {
+                LOG.info("Nodera continuity: '{}' settled at version {} — taking it over from there",
+                        world.name(), version);
+                return;
+            }
+            try {
+                Thread.sleep(1_000L);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        LOG.info("Nodera continuity: '{}' never settled within {}s — taking over the newest copy "
+                        + "anybody is offering (the host may have been killed rather than quitting)",
+                world.name(), FINAL_FLUSH_GRACE.toSeconds());
+    }
+
+    /** The newest version of a world this machine's worker knows of, or -1. */
+    private static long newestVersionOf(String worldIdHex) {
+        try {
+            String state = CompanionLink.client().state().orElse("");
+            int row = state.indexOf("\"world_id\":\"" + worldIdHex.toLowerCase(Locale.ROOT));
+            if (row < 0) {
+                return -1;
+            }
+            int key = state.indexOf("\"version\":", row);
+            if (key < 0) {
+                return -1;
+            }
+            int start = key + "\"version\":".length();
+            int end = start;
+            while (end < state.length() && (Character.isDigit(state.charAt(end))
+                    || state.charAt(end) == '-')) {
+                end++;
+            }
+            return end > start ? Long.parseLong(state.substring(start, end)) : -1;
+        } catch (RuntimeException unreadable) {
+            return -1;
+        }
     }
 
     /**
