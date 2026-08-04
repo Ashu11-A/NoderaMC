@@ -229,6 +229,64 @@ public final class WorldArchive {
     }
 
     /**
+     * Where each entry begins inside an archive blob — the only boundaries a piece may be cut at.
+     *
+     * <h2>Why alignment matters more than it sounds like it should</h2>
+     *
+     * <p>Archive pieces used to be cut at fixed 256 KiB offsets. The container is a length-prefixed
+     * list of entries sorted by path, so a single {@code region/r.0.0.mca} growing by one sector
+     * shifts every byte after it — and with fixed offsets, every piece after it too. Each of those
+     * pieces then hashes differently, and a peer holding the previous version can reuse none of
+     * them despite holding identical content. That is the mechanism behind a peer re-downloading a
+     * whole world every two minutes: not that the world changed, but that everything after the
+     * change moved.
+     *
+     * <p>Cutting only at entry boundaries confines the damage to the entry that actually changed.
+     * The remaining pieces cover the same file bytes as before and therefore hash the same, and
+     * {@code adoptPiecesAlreadyHere} matches them by content.
+     *
+     * <p>Returns {@code null} for a blob that is not a well-formed archive container. That is not an
+     * error case to be reported: the same manifest builder is used for <b>opaque</b> payloads —
+     * ciphertext from {@link #encryptArchive}, and region blobs handed in by callers that assembled
+     * them elsewhere — and opaque bytes genuinely have no entry structure to align to. Those fall
+     * back to a fixed split, which is what {@code splitFixed} exists for.
+     *
+     * @param blob the candidate archive bytes.
+     * @return ascending record starts ({@code 0} for the header, then one per entry), or
+     *         {@code null} if this is not an archive container.
+     * @Thread-context any thread.
+     */
+    static int[] entryStarts(byte[] blob) {
+        try {
+            CanonicalReader r = new CanonicalReader(blob);
+            if (r.readU64() != MAGIC) {
+                return null;
+            }
+            int count = (int) r.readU32();
+            List<Integer> starts = new ArrayList<>(count + 1);
+            starts.add(0); // the header: magic + count. Not an entry, but record 0 must start at 0.
+            for (int i = 0; i < count; i++) {
+                // Every entry encodes a length-prefixed path and a length-prefixed body, so each
+                // one occupies at least eight bytes and the starts are strictly ascending — which
+                // is what `PieceSplitter` requires.
+                starts.add(blob.length - r.available());
+                r.readString();
+                r.readBytesValue();
+            }
+            if (r.available() != 0) {
+                return null; // trailing bytes: not the container this thinks it is
+            }
+            int[] result = new int[starts.size()];
+            for (int i = 0; i < result.length; i++) {
+                result[i] = starts.get(i);
+            }
+            return result;
+        } catch (RuntimeException notAnArchive) {
+            return null;
+        }
+    }
+
+    /**
      * Build the piece manifest for one archive snapshot of a world.
      *
      * <p>{@code regionRoot} is SHA-256 over the archive bytes: self-checking content identity, not
@@ -261,7 +319,10 @@ public final class WorldArchive {
      * @Thread-context any thread.
      */
     public static PieceManifest manifestFor(RegionId region, long version, byte[] blob) {
-        List<Piece> pieces = PieceSplitter.splitFixed(blob, ARCHIVE_PIECE_BYTES);
+        int[] starts = entryStarts(blob);
+        List<Piece> pieces = starts == null
+                ? PieceSplitter.splitFixed(blob, ARCHIVE_PIECE_BYTES)
+                : PieceSplitter.split(blob, starts, ARCHIVE_PIECE_BYTES);
         return PieceManifest.of(
                 region,
                 new SnapshotVersion(version),

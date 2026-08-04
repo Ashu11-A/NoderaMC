@@ -245,10 +245,24 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue ARCHIVE_SEED_ON_SHARE =
             SERVER_BUILDER.define("archive.seedOnShare", true);
     // Issue #43 continuous streaming: while a world is hosted, re-seed its archive to the worker
-    // every N server ticks (default 2400 = 2 min — autosave-like cadence) so the network copy is
-    // never more than one interval behind and a crash/exit cannot revert the world. 0 disables.
+    // every N server ticks. DEFAULT 0 — OFF.
+    //
+    // It used to be 2400 (two minutes), and that one number was most of this project's bandwidth
+    // problem. Each tick of it repacks the ENTIRE save into a new archive and seeds it as a new
+    // version, so every replicating peer saw a manifest it had never seen and fetched the world
+    // again — measured at a steady 3 MB/s on an idle world where nothing was happening at all.
+    //
+    // Live change does not need it. Committed region snapshots go to the worker through
+    // RegionSeedSpool -> NODERA-SEED-REGION as they happen, which moves the chunks that changed
+    // instead of the world that contains them. The whole-world archive is now what it is good at
+    // being: a cold bootstrap, seeded when a world is shared and again on server stop, for a peer
+    // that has nothing at all.
+    //
+    // Setting it back to a positive value restores the old cadence. It is honest to want that on a
+    // world with no validated lane — but read `archive.streamIntervalTicks` as "repack and re-seed
+    // the whole save this often", because that is what it does.
     public static final ModConfigSpec.IntValue ARCHIVE_STREAM_INTERVAL_TICKS =
-            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 2400, 0, 24_000 * 60);
+            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 0, 0, 24_000 * 60);
     // Issue #43 bounded final flush: the server-stopped seed waits at most this long before
     // abandoning (the streaming lane already holds a copy ≤ one interval old) — a hung worker
     // can no longer wedge the "Saving World" screen.

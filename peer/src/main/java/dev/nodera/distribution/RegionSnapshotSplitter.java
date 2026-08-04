@@ -6,7 +6,11 @@ import dev.nodera.core.crypto.Encodable;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.crypto.TypeTags;
 import dev.nodera.core.state.ChunkColumnState;
+import dev.nodera.core.state.ChunkStamp;
+import dev.nodera.core.state.ChunkStampBook;
+import dev.nodera.core.state.Hlc;
 import dev.nodera.core.state.PersistedEntityState;
+import dev.nodera.core.state.RegionChunkIndex;
 import dev.nodera.core.state.RegionSnapshot;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.storage.ContentId;
@@ -75,6 +79,52 @@ public final class RegionSnapshotSplitter {
         }
 
         /**
+         * @return the region's chunk index, or {@code null} for a manifest built before indexes
+         *         existed. Never absent for a layout this class produced.
+         */
+        public dev.nodera.core.state.RegionChunkIndex chunkIndex() {
+            return manifest.chunkIndex();
+        }
+
+        /**
+         * The pieces that have to arrive for this layout to be reachable from {@code held}.
+         *
+         * <p>The whole point of the chunk index: a peer holding an earlier version of this region
+         * asks which columns differ, maps each to the piece carrying it, and fetches that set
+         * instead of the region. Pieces cut only at chunk boundaries, so this is exact — a piece is
+         * either entirely made of unchanged columns or it is needed.
+         *
+         * @param held what the asking peer already has, or {@code null} for nothing.
+         * @return the piece indices to fetch, ascending and duplicate-free.
+         * @Thread-context any thread.
+         */
+        public java.util.SortedSet<Integer> piecesChangedSince(
+                dev.nodera.core.state.RegionChunkIndex held) {
+            java.util.SortedSet<Integer> needed = new java.util.TreeSet<>();
+            dev.nodera.core.state.RegionChunkIndex mine = chunkIndex();
+            if (mine == null) {
+                for (int i = 0; i < manifest.pieceCount(); i++) {
+                    needed.add(i);
+                }
+                return needed;
+            }
+            // The index's stamps and the snapshot's chunks are both sorted by (chunkX, chunkZ) —
+            // RegionSnapshot canonicalises that order and RegionChunkIndex canonicalises the same
+            // one — so a stamp's position in the index IS its chunk ordinal, and `pieceOfChunk`
+            // maps it straight to the piece that carries it.
+            java.util.Set<dev.nodera.core.state.ChunkStamp> changed =
+                    new java.util.HashSet<>(mine.changedSince(held));
+            List<dev.nodera.core.state.ChunkStamp> ordered = mine.stamps();
+            for (int ordinal = 0; ordinal < ordered.size() && ordinal < pieceOfChunk.size();
+                    ordinal++) {
+                if (changed.contains(ordered.get(ordinal))) {
+                    needed.add(pieceOfChunk.get(ordinal));
+                }
+            }
+            return needed;
+        }
+
+        /**
          * @param chunkOrdinal the chunk's position in the snapshot's canonical chunk order.
          * @return the index of the piece that must arrive before this chunk is usable.
          * @throws IndexOutOfBoundsException if {@code chunkOrdinal} is out of range.
@@ -93,7 +143,20 @@ public final class RegionSnapshotSplitter {
      * @Thread-context any thread.
      */
     public static Layout split(RegionSnapshot snapshot) {
-        return split(snapshot, PieceSplitter.DEFAULT_PIECE_TARGET_BYTES);
+        return split(snapshot, PieceSplitter.DEFAULT_PIECE_TARGET_BYTES, null);
+    }
+
+    /**
+     * Split at the default piece size, stamping columns from {@code book}.
+     *
+     * @param snapshot the snapshot to split.
+     * @param book     where this node records when each column was last written; {@code null} to
+     *                 stamp every column from the snapshot alone.
+     * @return the layout.
+     * @Thread-context any thread.
+     */
+    public static Layout split(RegionSnapshot snapshot, ChunkStampBook book) {
+        return split(snapshot, PieceSplitter.DEFAULT_PIECE_TARGET_BYTES, book);
     }
 
     /**
@@ -111,6 +174,27 @@ public final class RegionSnapshotSplitter {
      * @Thread-context any thread.
      */
     public static Layout split(RegionSnapshot snapshot, int pieceTargetBytes) {
+        return split(snapshot, pieceTargetBytes, null);
+    }
+
+    /**
+     * Split {@code snapshot} into pieces of roughly {@code pieceTargetBytes}, cutting only at
+     * chunk-column record boundaries, and index every column.
+     *
+     * @param snapshot         the snapshot to split.
+     * @param pieceTargetBytes the packing goal per piece.
+     * @param book             where this node records when each column was last written;
+     *                         {@code null} to stamp every column from the snapshot alone, which is
+     *                         deterministic and therefore identical on every peer that packs the
+     *                         same snapshot.
+     * @return the layout: blob, manifest (carrying the chunk index), and chunk→piece index.
+     * @throws IllegalArgumentException if {@code snapshot} is null or {@code pieceTargetBytes} is
+     *                                  not positive.
+     * @throws IllegalStateException if the incremental re-encoding does not reproduce the frozen
+     *                               {@code RegionSnapshot} encoding.
+     * @Thread-context any thread.
+     */
+    public static Layout split(RegionSnapshot snapshot, int pieceTargetBytes, ChunkStampBook book) {
         Objects.requireNonNull(snapshot, "snapshot");
 
         List<ChunkColumnState> chunks = snapshot.chunks();
@@ -162,6 +246,20 @@ public final class RegionSnapshotSplitter {
         ContentId contentId = new ContentId(blobHash, blob.length, dev.nodera.storage.Compression.NONE);
         StateRoot regionRoot = StateRoot.of(blobHash);
 
+        // Stamp every column. A book supplies real provenance for anything this node wrote; the
+        // fallback is derived from the snapshot, so a peer with no book still produces an index
+        // byte-identical to every other peer's for the same snapshot — which is what lets two
+        // nodes establish "we hold the same region" by comparing 32 bytes.
+        Hlc fallback = ChunkStampBook.derivedFrom(snapshot.version(), snapshot.tick());
+        List<ChunkStamp> stamps = new java.util.ArrayList<>(chunks.size());
+        for (ChunkColumnState column : chunks) {
+            Hlc stamp = book == null ? fallback
+                    : book.stampFor(column.chunkX(), column.chunkZ(), fallback);
+            stamps.add(ChunkStamp.of(column, stamp));
+        }
+        RegionChunkIndex chunkIndex =
+                RegionChunkIndex.of(snapshot.region(), snapshot.version(), stamps);
+
         PieceManifest manifest = PieceManifest.of(
                 snapshot.region(),
                 snapshot.version(),
@@ -169,7 +267,8 @@ public final class RegionSnapshotSplitter {
                 regionRoot,
                 contentId,
                 blob.length,
-                pieces);
+                pieces,
+                chunkIndex);
 
         return new Layout(snapshot, Bytes.unsafeWrap(blob), manifest, pieceOfChunk);
     }

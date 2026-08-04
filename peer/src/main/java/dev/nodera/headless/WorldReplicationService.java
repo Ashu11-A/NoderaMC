@@ -74,6 +74,18 @@ public final class WorldReplicationService implements AutoCloseable {
      */
     private static final int MAX_RELEASES_PER_SWEEP = 1;
 
+    /**
+     * Worlds this node may catch up to a newer version of, per sweep.
+     *
+     * <p>Catch-up used to be unbounded, and the comment saying so called it "the same obligation,
+     * kept honestly". The obligation is real; the unboundedness was not part of it. A node holding
+     * twenty worlds whose hosts were all repacking on a timer spent every sweep re-fetching all
+     * twenty, and the 8 GiB budget — which exists precisely to stop that — did not apply because a
+     * refresh is not an adoption. Bounding it costs a stale replica one extra sweep, which is five
+     * minutes; not bounding it cost every peer its entire uplink, permanently.
+     */
+    private static final int MAX_REFRESHES_PER_SWEEP = 2;
+
     /** Per-world fetch deadline. */
     private static final Duration FETCH_TIMEOUT = Duration.ofMinutes(5);
 
@@ -351,6 +363,13 @@ public final class WorldReplicationService implements AutoCloseable {
                     skippedComplete++;
                     continue;
                 }
+                if (refreshed >= MAX_REFRESHES_PER_SWEEP) {
+                    // Deferred, not declined: the copy held here stays complete and servable, and
+                    // this world is first in line next sweep. What this refuses is spending an
+                    // entire sweep — and an entire uplink — catching up every world at once.
+                    skippedBounded++;
+                    continue;
+                }
                 if (refresh(worldIdHex, entry.worldName())) {
                     refreshed++;
                 } else {
@@ -433,9 +452,12 @@ public final class WorldReplicationService implements AutoCloseable {
     /**
      * Catch a complete-but-stale copy up to the version the swarm is actually seeding.
      *
-     * <p>Never fatal and never bounded: this is content this node already committed to holding, so
-     * a newer version of it is not a new adoption to be rationed — it is the same obligation, kept
-     * honestly. A world that cannot be refreshed stays exactly as playable as it was.
+     * <p>Never fatal, and bounded per sweep by {@link #MAX_REFRESHES_PER_SWEEP}. This is content
+     * this node already committed to holding, so a newer version of it is the same obligation
+     * rather than a new one — but "the same obligation" was read as "no limit at all", and a node
+     * holding many worlds then re-fetched all of them every five minutes with the byte budget
+     * looking on. A world that cannot be refreshed, or whose turn has not come, stays exactly as
+     * playable as it was.
      *
      * @return whether this node moved to a newer version.
      */

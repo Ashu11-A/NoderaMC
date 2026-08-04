@@ -146,7 +146,12 @@ final class TypeTagsTest {
         expected.put("WORLD_REVIVAL", 120);
         // A worker signing that one game session's throwaway key speaks for its persistent one.
         expected.put("SESSION_DELEGATION", 121);
-        expected.put("NEXT", 121);
+        // Chunk-level content addressing: when a chunk changed, what it holds, and the whole
+        // region's stamps under one merkle root.
+        expected.put("HLC", 122);
+        expected.put("CHUNK_STAMP", 123);
+        expected.put("REGION_CHUNK_INDEX", 124);
+        expected.put("NEXT", 124);
         return expected;
     }
 

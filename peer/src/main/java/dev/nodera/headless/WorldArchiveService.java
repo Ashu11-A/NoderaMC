@@ -6,6 +6,8 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkStampBook;
+import dev.nodera.core.state.HybridClock;
 import dev.nodera.distribution.ContentTransferService;
 import dev.nodera.distribution.PieceDownloader;
 import dev.nodera.distribution.PieceManifest;
@@ -86,6 +88,13 @@ public final class WorldArchiveService implements AutoCloseable {
     public static final int DEFAULT_RETAINED_VERSIONS = 3;
 
     private final NodeId self;
+
+    /**
+     * This node's clock for chunk stamps. One per service rather than one per region: a clock is
+     * only monotone across the readings it issues, and two clocks on one node would issue readings
+     * that tie with each other and be broken by an origin they share.
+     */
+    private final HybridClock stampClock;
     private final PeerTransport transport;
     private final ContentTransferService content;
     private final TrackerLookup tracker;
@@ -322,6 +331,7 @@ public final class WorldArchiveService implements AutoCloseable {
     private WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
                                 TrackerLookup tracker, boolean ownsTracker) {
         this.self = identity.nodeId();
+        this.stampClock = new HybridClock(this.self);
         this.pins = store instanceof dev.nodera.storage.PinnableContentStore p ? p : null;
         // Where this node writes down what it is holding. Only a store that can say where it keeps
         // its blobs gets one: an in-memory store has nothing to survive a restart with, and a
@@ -434,9 +444,26 @@ public final class WorldArchiveService implements AutoCloseable {
                 adopted++;
             }
         }
-        if (adopted > 0) {
-            LOG.info("Resuming world archive {} from {} piece(s) already held here",
-                    shortId(manifest.manifestRoot().toHex()), adopted);
+        // Then the same question asked of every OTHER manifest on this disk. A world's newest
+        // version shares almost all of its bytes with the version before it — the host repacked,
+        // one region file changed — and a piece is addressed by the hash of its bytes, so a piece
+        // held under the old root IS the piece the new root is asking for. Not doing this is why a
+        // peer that already held 99% of a world still downloaded 100% of it, every time the host
+        // seeded, forever.
+        int reused = 0;
+        for (int index = 0; index < manifest.pieceCount(); index++) {
+            if (held.get(index)) {
+                continue;
+            }
+            Optional<Bytes> sameBytes = content.pieceByHash(manifest.piece(index).pieceHash());
+            if (sameBytes.isPresent() && downloader.restoreLocal(index, sameBytes.get())) {
+                reused++;
+            }
+        }
+        if (adopted > 0 || reused > 0) {
+            LOG.info("Resuming world archive {} from {} piece(s) already held here and {} "
+                            + "unchanged from an earlier version",
+                    shortId(manifest.manifestRoot().toHex()), adopted, reused);
         }
     }
 
@@ -603,18 +630,64 @@ public final class WorldArchiveService implements AutoCloseable {
         if (held != null) {
             return held;
         }
+        // Stamp the columns that actually changed since the version this node last saw, and let the
+        // rest keep the reading they already had. Change is observed rather than asserted: the
+        // process that edited the chunk is usually a game client that has already gone, so the
+        // node that publishes the region is the first place with both versions in hand.
         dev.nodera.distribution.RegionSnapshotSplitter.Layout layout =
-                dev.nodera.distribution.RegionSnapshotSplitter.split(snapshot);
+                dev.nodera.distribution.RegionSnapshotSplitter.split(snapshot,
+                        restampAgainstPrevious(snapshot, versions));
         PieceManifest manifest = layout.manifest();
         content.publish(manifest, layout.blob());
         pin(manifest);
         versions.put(version, manifest);
         record(worldIdHex, manifest);
-        LOG.info("Seeding region {} of world {} v{} — {} piece(s), {} byte(s), root {}",
+        dev.nodera.core.state.RegionChunkIndex index = layout.chunkIndex();
+        LOG.info("Seeding region {} of world {} v{} — {} piece(s), {} byte(s), root {}, {} chunk(s)",
                 snapshot.region(), shortId(worldIdHex), version, manifest.pieceCount(),
-                manifest.totalLength(), manifest.manifestRoot().toShortHex(6));
+                manifest.totalLength(), manifest.manifestRoot().toShortHex(6),
+                index == null ? 0 : index.stamps().size());
         trimRegionToRetention(worldIdHex, snapshot.region(), versions);
         return manifest;
+    }
+
+    /**
+     * Build the stamp book for a region about to be seeded, by comparing it with the newest version
+     * of that region this node already holds.
+     *
+     * <p>Columns whose content hash is unchanged keep the reading they arrived with, so a chunk
+     * nobody has touched in a week does not appear to have been rewritten every time its region is
+     * re-seeded — which is what would make every peer re-fetch it. Columns whose content differs are
+     * stamped now, by this node, which is a true statement: this is where the change was first
+     * observed.
+     *
+     * @param snapshot the region about to be seeded.
+     * @param versions the versions of that region held here.
+     * @return a book pre-loaded with the previous readings, or {@code null} when there is no
+     *         previous version to compare against.
+     */
+    private ChunkStampBook restampAgainstPrevious(
+            dev.nodera.core.state.RegionSnapshot snapshot,
+            NavigableMap<Long, PieceManifest> versions) {
+        Map.Entry<Long, PieceManifest> newest = versions.lastEntry();
+        dev.nodera.core.state.RegionChunkIndex previous =
+                newest == null ? null : newest.getValue().chunkIndex();
+        if (previous == null) {
+            return null;
+        }
+        ChunkStampBook book = new ChunkStampBook(stampClock);
+        for (dev.nodera.core.state.ChunkColumnState column : snapshot.chunks()) {
+            dev.nodera.core.state.ChunkStamp before =
+                    previous.stampAt(column.chunkX(), column.chunkZ());
+            dev.nodera.core.state.ChunkStamp now = dev.nodera.core.state.ChunkStamp.of(column,
+                    dev.nodera.core.state.Hlc.ZERO);
+            if (before != null && before.contentHash().equals(now.contentHash())) {
+                book.adopt(column.chunkX(), column.chunkZ(), before.stamp());
+            } else {
+                book.touch(column.chunkX(), column.chunkZ());
+            }
+        }
+        return book;
     }
 
     /**

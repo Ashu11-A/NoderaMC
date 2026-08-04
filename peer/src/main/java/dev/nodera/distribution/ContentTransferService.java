@@ -97,9 +97,25 @@ public final class ContentTransferService implements MessageHandler {
         private volatile ContentId blobId;
         /** Individually-held pieces (partial seeder). */
         private final Map<Integer, Bytes> pieces = new ConcurrentHashMap<>();
+        /** {@code pieceHash → index}, built once. See {@link #pieceByHash}. */
+        private volatile Map<Bytes, Integer> indexByHash;
 
         LocalContent(PieceManifest manifest) {
             this.manifest = manifest;
+        }
+
+        Map<Bytes, Integer> indexByHash() {
+            Map<Bytes, Integer> built = indexByHash;
+            if (built == null) {
+                built = new java.util.HashMap<>();
+                for (Piece p : manifest.pieces()) {
+                    // First index wins: a blob that repeats a run of bytes has several pieces with
+                    // one hash, and any of them serves the same content.
+                    built.putIfAbsent(p.pieceHash(), p.index());
+                }
+                indexByHash = built;
+            }
+            return built;
         }
     }
 
@@ -402,6 +418,40 @@ public final class ContentTransferService implements MessageHandler {
             Piece p = content.manifest.piece(index);
             return new Bytes(blob, (int) p.offset(), (int) p.length());
         });
+    }
+
+    /**
+     * Find any piece this node holds whose bytes hash to {@code pieceHash}, under <b>any</b>
+     * manifest.
+     *
+     * <h2>Why content, not location</h2>
+     *
+     * <p>A piece is addressed by the hash of its bytes, so two manifests naming the same hash name
+     * the same bytes — that is what a content-addressed store means. The download path did not use
+     * that: it reused pieces only within one {@code manifestRoot}, so a node holding version 5 of a
+     * world and fetching version 6 began from zero, even though almost every piece was byte-identical
+     * and already on its disk. Combined with a host that repacked the whole save every two minutes,
+     * that is the entire explanation for a peer sitting at 3 MB/s indefinitely.
+     *
+     * @param pieceHash the hash to look for.
+     * @return the bytes, or empty if no held manifest names them.
+     * @Thread-context any thread.
+     */
+    public Optional<Bytes> pieceByHash(Bytes pieceHash) {
+        if (pieceHash == null || pieceHash.isEmpty()) {
+            return Optional.empty();
+        }
+        for (LocalContent content : local.values()) {
+            Integer index = content.indexByHash().get(pieceHash);
+            if (index == null) {
+                continue;
+            }
+            Optional<Bytes> bytes = pieceBytes(content.manifest.manifestRoot(), index);
+            if (bytes.isPresent()) {
+                return bytes;
+            }
+        }
+        return Optional.empty();
     }
 
     /**

@@ -7,6 +7,7 @@ import dev.nodera.core.crypto.Encodable;
 import dev.nodera.core.crypto.HashService;
 import dev.nodera.core.crypto.TypeTags;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.RegionChunkIndex;
 import dev.nodera.core.state.SnapshotVersion;
 import dev.nodera.core.state.StateRoot;
 import dev.nodera.storage.ContentId;
@@ -58,10 +59,22 @@ import java.util.Objects;
  * while {@code regionRoot} continues to commit the decrypted canonical region state. A seeder
  * verifies and serves content it cannot read.
  *
- * <p>Wire form: {@code [u16 PIECE_MANIFEST][u16 ENCODING_VERSION][RegionId][SnapshotVersion]
+ * <h2>The chunk index (v2)</h2>
+ *
+ * <p>{@code manifestRoot} answers "are your bytes my bytes?" and nothing else, so the only follow-up
+ * it supports is "send me all of them". That is what made a peer re-fetch an entire world because
+ * one block moved. A v2 manifest additionally carries a {@link RegionChunkIndex}: a stamp per chunk
+ * column under a merkle root, which turns the follow-up into "send me these eleven columns".
+ *
+ * <p>Appended rather than versioned across the board, in the {@code ChunkColumnState} idiom: a
+ * manifest with no index <b>always</b> encodes as v1, so every root ever computed keeps its exact
+ * bytes and an older peer reading a v1 frame is unaffected. A v2 frame reaching an older peer fails
+ * its version check loudly, which is the correct outcome — it cannot honour what the frame says.
+ *
+ * <p>Wire form v1: {@code [u16 PIECE_MANIFEST][u16 1][RegionId][SnapshotVersion]
  * [u64 tick][StateRoot regionRoot][bytes blobHash][u64 blobSize][u8 compressionOrdinal]
  * [u64 totalLength][u8 encrypted][u8 keyMaterialPresent]([WorldKeyMaterial])[list Piece]
- * [bytes manifestRoot]}.
+ * [bytes manifestRoot]}. Wire form v2 appends {@code [RegionChunkIndex]}.
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *
@@ -77,6 +90,8 @@ import java.util.Objects;
  * @param pieces       the pieces, index-ordered, contiguous from offset 0.
  * @param manifestRoot SHA-256 over the index-ordered piece list; a derived field, re-verified on
  *                     construction and on decode.
+ * @param chunkIndex   the region's per-chunk stamps under a merkle root, or {@code null} for a v1
+ *                     manifest. What makes a transfer proportional to what changed.
  */
 public record PieceManifest(
         RegionId region,
@@ -88,8 +103,15 @@ public record PieceManifest(
         boolean encrypted,
         WorldKeyMaterial keyMaterial,
         List<Piece> pieces,
-        Bytes manifestRoot
+        Bytes manifestRoot,
+        RegionChunkIndex chunkIndex
 ) implements Encodable {
+
+    /** The original frame: pieces and a flat root, and no way to ask what changed. */
+    public static final int V1 = 1;
+
+    /** Appends the region's chunk index. */
+    public static final int V2_CHUNK_INDEX = 2;
 
     /**
      * Shared hasher. {@link HashService} confines its {@link java.security.MessageDigest} to a
@@ -165,6 +187,27 @@ public record PieceManifest(
                     "manifestRoot " + manifestRoot.toShortHex(6)
                             + " does not match the recomputed root " + recomputed.toShortHex(6));
         }
+        // An index for a different region would let a peer diff this region's content against
+        // somebody else's stamps and conclude nothing had changed.
+        if (chunkIndex != null && !chunkIndex.region().equals(region)) {
+            throw new IllegalArgumentException("chunk index describes region "
+                    + chunkIndex.region() + ", not " + region);
+        }
+    }
+
+    /** @return whether this manifest can say which columns changed. */
+    public boolean hasChunkIndex() {
+        return chunkIndex != null;
+    }
+
+    /**
+     * The frame version this manifest encodes as.
+     *
+     * @return {@link #V2_CHUNK_INDEX} when it carries an index, {@link #V1} otherwise — so a
+     *         manifest without one is byte-identical to what this type has always produced.
+     */
+    public int frameVersion() {
+        return chunkIndex == null ? V1 : V2_CHUNK_INDEX;
     }
 
     /**
@@ -188,8 +231,35 @@ public record PieceManifest(
             ContentId blob,
             long totalLength,
             List<Piece> pieces) {
+        return of(region, version, tick, regionRoot, blob, totalLength, pieces, null);
+    }
+
+    /**
+     * As {@link #of(RegionId, SnapshotVersion, long, StateRoot, ContentId, long, List)}, carrying
+     * the region's chunk index so a peer holding an earlier version can be told what changed.
+     *
+     * @param region      the region the content describes.
+     * @param version     the region snapshot version.
+     * @param tick        the tick the snapshot was taken at.
+     * @param regionRoot  the region's committed state root.
+     * @param blob        the parent blob's content id.
+     * @param totalLength the reassembled byte length.
+     * @param pieces      the pieces, contiguous from offset 0.
+     * @param chunkIndex  the region's chunk index, or {@code null} for a v1 manifest.
+     * @return the manifest, with {@code encrypted = false}.
+     * @Thread-context any thread.
+     */
+    public static PieceManifest of(
+            RegionId region,
+            SnapshotVersion version,
+            long tick,
+            StateRoot regionRoot,
+            ContentId blob,
+            long totalLength,
+            List<Piece> pieces,
+            RegionChunkIndex chunkIndex) {
         return new PieceManifest(region, version, tick, regionRoot, blob, totalLength,
-                false, null, pieces, computeRoot(pieces));
+                false, null, pieces, computeRoot(pieces), chunkIndex);
     }
 
     /**
@@ -222,8 +292,11 @@ public record PieceManifest(
         if (keyMaterial == null) {
             throw new IllegalArgumentException("keyMaterial must not be null for an encrypted manifest");
         }
+        // No chunk index on an encrypted manifest: the stamps commit plaintext column hashes, and
+        // publishing those beside ciphertext would let anyone holding a candidate world confirm it
+        // column by column without ever holding the key.
         return new PieceManifest(region, version, tick, regionRoot, blob, totalLength,
-                true, keyMaterial, pieces, computeRoot(pieces));
+                true, keyMaterial, pieces, computeRoot(pieces), null);
     }
 
     /**
@@ -303,7 +376,7 @@ public record PieceManifest(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PIECE_MANIFEST).writeU16(ENCODING_VERSION);
+        w.writeU16(TypeTags.PIECE_MANIFEST).writeU16(frameVersion());
         region.encode(w);
         version.encode(w);
         w.writeU64(tick);
@@ -321,6 +394,9 @@ public record PieceManifest(
         }
         w.writeList(pieces, CanonicalWriter::writeEncodable);
         w.writeBytes(manifestRoot);
+        if (chunkIndex != null) {
+            chunkIndex.encode(w);
+        }
     }
 
     /**
@@ -338,7 +414,10 @@ public record PieceManifest(
         if (tag != TypeTags.PIECE_MANIFEST) {
             throw new IllegalStateException("expected PIECE_MANIFEST tag, got " + tag);
         }
-        r.readVersion(ENCODING_VERSION);
+        int frame = r.readU16();
+        if (frame != V1 && frame != V2_CHUNK_INDEX) {
+            throw new IllegalStateException("unsupported PIECE_MANIFEST version " + frame);
+        }
         RegionId region = RegionId.decode(r);
         SnapshotVersion version = SnapshotVersion.decode(r);
         long tick = r.readU64();
@@ -356,8 +435,9 @@ public record PieceManifest(
         WorldKeyMaterial keyMaterial = r.readOptional() ? WorldKeyMaterial.decode(r) : null;
         List<Piece> pieces = r.readList(Piece::decode);
         Bytes manifestRoot = r.readBytesValue();
+        RegionChunkIndex chunkIndex = frame >= V2_CHUNK_INDEX ? RegionChunkIndex.decode(r) : null;
         return new PieceManifest(region, version, tick, regionRoot, blob, totalLength,
-                encrypted, keyMaterial, pieces, manifestRoot);
+                encrypted, keyMaterial, pieces, manifestRoot, chunkIndex);
     }
 
     @Override

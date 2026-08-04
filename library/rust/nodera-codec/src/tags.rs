@@ -103,8 +103,27 @@ pub mod type_tags {
     /// neither record can be replayed to undo the other.
     pub const WORLD_REVIVAL: u16 = 120;
 
+    /// `SessionDelegation` — a worker signing that one game session's throwaway transport key
+    /// speaks in its name, for one world, until a stated instant. Without it the key a player
+    /// proves possession of at join time is a key no world has ever heard of, so a world's own
+    /// author reads as an ordinary member of it (Java endpoint only).
+    pub const SESSION_DELEGATION: u16 = 121;
+
+    /// `Hlc` — a hybrid logical clock reading, so two peers agree which of two versions of a chunk
+    /// is newer without either of them having a correct clock (Java core only).
+    pub const HLC: u16 = 122;
+
+    /// `ChunkStamp` — one chunk column's content hash and the reading at which that content became
+    /// its content (Java core only).
+    pub const CHUNK_STAMP: u16 = 123;
+
+    /// `RegionChunkIndex` — every stamp in a region under a merkle root over their *content*, so
+    /// peers establish "identical" in 32 bytes and otherwise transfer only the columns that differ
+    /// (Java core only).
+    pub const REGION_CHUNK_INDEX: u16 = 124;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 120;
+    pub const NEXT: u16 = 124;
 }
 
 /// Message frame kinds — re-exported from the generated schema.

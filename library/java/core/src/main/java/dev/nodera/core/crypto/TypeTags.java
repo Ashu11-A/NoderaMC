@@ -245,6 +245,26 @@ public final class TypeTags {
      */
     public static final int SESSION_DELEGATION = 121;
 
+    /**
+     * {@code Hlc} — a hybrid logical clock reading, so two peers can agree which of two versions of
+     * a chunk is newer without either of them having a correct clock.
+     */
+    public static final int HLC = 122;
+
+    /**
+     * {@code ChunkStamp} — one chunk column's content hash and the reading at which that content
+     * became its content. The unit of change the data plane was missing: without it the smallest
+     * thing that could be said to have changed was a whole region, and the smallest thing actually
+     * moved was a whole world.
+     */
+    public static final int CHUNK_STAMP = 123;
+
+    /**
+     * {@code RegionChunkIndex} — every stamp in a region under a merkle root, so peers establish
+     * "identical" in 32 bytes and, when they are not, transfer only the columns that differ.
+     */
+    public static final int REGION_CHUNK_INDEX = 124;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 121;
+    public static final int NEXT = 124;
 }
