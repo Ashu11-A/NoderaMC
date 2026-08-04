@@ -84,9 +84,7 @@ public final class ChurnScenario implements Scenario {
 
         context.stage("C1", "the world is hosted and the baseline join+leave registers", () -> {
             players[0] = HostWorldSupport.hostedTwoPlayers(context);
-            hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180),
-                    HostWorldSupport.STALE_BAKE_GUARD,
-                    "C1: " + HostWorldSupport.STALE_BAKE_MESSAGE);
+            HostWorldSupport.awaitMemberNodes(context, hostLog, "C1");
             // The first cycle starts from a clean two-player baseline: drop player B again.
             HostWorldSupport.stopClient(players[0].joiner(), JOINER_RUN);
             hostLog.await("JoinerDev left the game", Duration.ofSeconds(120));

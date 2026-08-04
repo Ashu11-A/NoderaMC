@@ -19,10 +19,10 @@
     "windows": [
       {
         "title": "Nodera",
-        "width": 900,
-        "height": 600,
-        "minWidth": 640,
-        "minHeight": 420,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 520,
         "resizable": true,
         "label": "main"
       }

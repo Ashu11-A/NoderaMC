@@ -166,9 +166,11 @@ pub mod message_tags {
     pub const HELLO: u16 = 74;
     /// `HelloAck` — infrastructure plane.
     pub const HELLO_ACK: u16 = 75;
+    /// `WorldRevivalGossip` — consensus plane.
+    pub const WORLD_REVIVAL_GOSSIP: u16 = 76;
 
     /// Highest kind assigned on the Java side; new kinds start at `NEXT_TAG + 1`.
-    pub const NEXT_TAG: u16 = 75;
+    pub const NEXT_TAG: u16 = 76;
 }
 
 /// Which encoding contract governs a kind's body.
@@ -571,6 +573,11 @@ pub const KINDS: &[KindRow] = &[
         kind: 75,
         name: "HelloAck",
         plane: Plane::Infrastructure,
+    },
+    KindRow {
+        kind: 76,
+        name: "WorldRevivalGossip",
+        plane: Plane::Consensus,
     },
 ];
 

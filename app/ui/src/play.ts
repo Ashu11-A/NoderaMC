@@ -210,6 +210,7 @@ export type LaunchPhase =
   | "preparing"
   | "spawning"
   | "running"
+  | "closing"
   | "exited"
   | "failed";
 
@@ -233,11 +234,13 @@ export function autoConnects(tier: LaunchTier | null): boolean {
 
 /** Mirrors `launch::LaunchState`. */
 export interface LaunchState {
+  correlation_id: string;
   phase: LaunchPhase;
   world_id: string;
   session_id: string | null;
   address: string | null;
   tier: LaunchTier | null;
+  target_id: string | null;
   install_path: string | null;
   profile: string | null;
   java: string | null;
@@ -245,14 +248,18 @@ export interface LaunchState {
   exit_code: number | null;
   reason: string;
   remedy: Remedy;
+  handoff: boolean;
+  cancelled: boolean;
 }
 
 export const IDLE_LAUNCH: LaunchState = {
+  correlation_id: "",
   phase: "idle",
   world_id: "",
   session_id: null,
   address: null,
   tier: null,
+  target_id: null,
   install_path: null,
   profile: null,
   java: null,
@@ -260,10 +267,13 @@ export const IDLE_LAUNCH: LaunchState = {
   exit_code: null,
   reason: "",
   remedy: "none",
+  handoff: false,
+  cancelled: false,
 };
 
 /** Something this machine can start. Mirrors `launch::discover::LaunchTarget`. */
 export interface LaunchTarget {
+  id: string;
   name: string;
   tier: LaunchTier;
   game_dir: string;
@@ -275,6 +285,30 @@ export interface LaunchTarget {
   last_used: number;
 }
 
+const PHASE_ORDER: Record<LaunchPhase, number> = {
+  idle: 0,
+  resolving: 1,
+  joining: 2,
+  preparing: 3,
+  spawning: 4,
+  running: 5,
+  closing: 6,
+  exited: 6,
+  failed: 6,
+};
+
+/** Events for one launch may only move forward; a new correlation starts a new ordering. */
+export function mergeLaunchState(current: LaunchState, incoming: LaunchState): LaunchState {
+  if (
+    current.correlation_id &&
+    current.correlation_id === incoming.correlation_id &&
+    PHASE_ORDER[incoming.phase] < PHASE_ORDER[current.phase]
+  ) {
+    return current;
+  }
+  return incoming;
+}
+
 /**
  * What this machine could start, read before the button is pressed.
  *
@@ -283,6 +317,11 @@ export interface LaunchTarget {
  */
 export async function fetchLaunchTargets(): Promise<LaunchTarget[]> {
   return invoke<LaunchTarget[]>("launch_targets");
+}
+
+/** Current launch state, so reopening the window does not reset a running game to idle. */
+export async function fetchLaunchState(): Promise<LaunchState> {
+  return invoke<LaunchState>("launch_state");
 }
 
 /**

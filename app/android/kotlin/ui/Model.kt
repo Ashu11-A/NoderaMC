@@ -33,10 +33,11 @@ data class NodeState(
     val paused: Boolean = false,
     val peers: Int = 0,
     val sharedBytes: Long = 0,
-    val upPerSec: Long = 0,
-    val downPerSec: Long = 0,
+    val upPerSec: Long? = null,
+    val downPerSec: Long? = null,
     val trackers: List<Tracker> = emptyList(),
     val worlds: List<WorldRow> = emptyList(),
+    val peerRows: List<PeerRow> = emptyList(),
 ) {
     val reachableTrackers: Int get() = trackers.count { it.reachable }
 }
@@ -52,9 +53,27 @@ data class WorldRow(
     val piecesHeld: Int,
     val pieceCount: Int,
     val heldBytes: Long,
+    val players: Int?,
+    val completeness: Int?,
+    val seeders: Int,
+    val regionsHeld: Int,
+)
+
+data class PeerRow(
+    val id: String,
+    val route: String,
+    val path: String,
+    val client: String,
+    val upPerSec: Long,
+    val downPerSec: Long,
+    val totalUp: Long,
+    val totalDown: Long,
 )
 
 private fun JSONObject.longOr(key: String, fallback: Long = 0) = optLong(key, fallback)
+
+private fun JSONObject.nullableLong(key: String): Long? =
+    if (isNull(key)) null else optLong(key)
 
 private fun parseWorlds(array: JSONArray?): List<WorldRow> {
     if (array == null) return emptyList()
@@ -75,6 +94,28 @@ private fun parseWorlds(array: JSONArray?): List<WorldRow> {
             // node's share of the world, not the world's size — which is identical on every peer
             // and therefore says nothing about this device.
             heldBytes = if (pieces > 0) total * held / pieces else 0,
+            players = if (w.isNull("players")) null else w.optInt("players"),
+            completeness = if (w.isNull("completeness_permille")) null
+                else w.optInt("completeness_permille"),
+            seeders = w.optInt("seeders"),
+            regionsHeld = w.optInt("regions_held"),
+        )
+    }
+}
+
+private fun parsePeers(array: JSONArray?): List<PeerRow> {
+    if (array == null) return emptyList()
+    return (0 until array.length()).map { i ->
+        val peer = array.getJSONObject(i)
+        PeerRow(
+            id = peer.optString("node_id"),
+            route = peer.optString("route"),
+            path = peer.optString("path", "unknown"),
+            client = peer.optString("client"),
+            upPerSec = peer.optLong("up_bytes_per_sec"),
+            downPerSec = peer.optLong("down_bytes_per_sec"),
+            totalUp = peer.optLong("total_up_bytes"),
+            totalDown = peer.optLong("total_down_bytes"),
         )
     }
 }
@@ -104,8 +145,8 @@ fun parseDashboard(json: JSONObject): NodeState {
         paused = node.optBoolean("transfers_paused"),
         peers = counts.optInt("peers"),
         sharedBytes = counts.longOr("shared_bytes"),
-        upPerSec = traffic.longOr("up_bytes_per_sec"),
-        downPerSec = traffic.longOr("down_bytes_per_sec"),
+        upPerSec = traffic.nullableLong("up_bytes_per_sec"),
+        downPerSec = traffic.nullableLong("down_bytes_per_sec"),
         trackers = (0 until (trackerArray?.length() ?: 0)).map { i ->
             val t = trackerArray!!.getJSONObject(i)
             Tracker(
@@ -116,6 +157,7 @@ fun parseDashboard(json: JSONObject): NodeState {
             )
         },
         worlds = parseWorlds(json.optJSONArray("worlds")),
+        peerRows = parsePeers(json.optJSONArray("peers")),
     )
 }
 

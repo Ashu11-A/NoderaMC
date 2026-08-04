@@ -148,6 +148,8 @@
   "nodera.continuity.title": "Host lost — recovering world from the network",
   "nodera.continuity.starting": "Contacting your Nodera worker…",
   "nodera.continuity.fetching": "Downloading the world archive from the peer network…",
+  "nodera.continuity.fetching.progress": "Downloading the world archive — %s of %s pieces",
+  "nodera.continuity.retry": "Try again",
   "nodera.continuity.unpacking": "Unpacking the world…",
   "nodera.continuity.opening": "Opening the world locally — you become its next host",
   "nodera.continuity.failed": "Recovery failed: %s",

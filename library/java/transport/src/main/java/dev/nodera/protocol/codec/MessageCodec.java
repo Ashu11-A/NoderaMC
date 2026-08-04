@@ -298,6 +298,8 @@ public final class MessageCodec {
     public static final int TAG_HELLO = 74;
     /** {@link dev.nodera.protocol.session.HelloAck} tag (Task 14 / Plan.7 §4.3). */
     public static final int TAG_HELLO_ACK = 75;
+    /** {@link dev.nodera.protocol.membership.WorldRevivalGossip} tag — deletion's counterpart. */
+    public static final int TAG_WORLD_REVIVAL_GOSSIP = 76;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Derived from the schema. */
     public static final int NEXT_TAG = WireRegistry.NEXT_KIND;
@@ -712,6 +714,10 @@ public final class MessageCodec {
                 w.writeU16(TAG_WORLD_DELETION_GOSSIP).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
                 w.writeBytes(m.encodedTombstone());
+        } else if (msg instanceof dev.nodera.protocol.membership.WorldRevivalGossip m) {
+                w.writeU16(TAG_WORLD_REVIVAL_GOSSIP).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+                w.writeBytes(m.encodedRevival());
         } else if (msg instanceof dev.nodera.protocol.service.ServiceAnnounce m) {
                 w.writeU16(TAG_SERVICE_ANNOUNCE).writeU16(ENCODING_VERSION);
                 m.record().encode(w);
@@ -1329,6 +1335,11 @@ public final class MessageCodec {
             case TAG_WORLD_DELETION_GOSSIP -> {
                 Bytes worldId = r.readBytesValue();
                 yield new dev.nodera.protocol.membership.WorldDeletionGossip(
+                        worldId, r.readBytesValue());
+            }
+            case TAG_WORLD_REVIVAL_GOSSIP -> {
+                Bytes worldId = r.readBytesValue();
+                yield new dev.nodera.protocol.membership.WorldRevivalGossip(
                         worldId, r.readBytesValue());
             }
             case TAG_SERVICE_ANNOUNCE -> {

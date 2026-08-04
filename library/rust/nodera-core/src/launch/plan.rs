@@ -59,7 +59,7 @@ pub struct NoPlan {
 /// environment variable and a filesystem probe, and a test that set either would race every other
 /// test in the binary — the same trap `daemon::ownership` documents. Taking them in makes the
 /// decision a pure function, which is the part worth asserting.
-pub fn choose_with(target: &LaunchTarget, credential: Option<&str>, official: bool) -> Plan {
+pub fn choose_with(target: &LaunchTarget, account: Option<&Account>, official: bool) -> Plan {
     if target.tier == Tier::Prism && target.launcher.is_some() && target.instance.is_some() {
         return Plan {
             target: target.clone(),
@@ -68,7 +68,7 @@ pub fn choose_with(target: &LaunchTarget, credential: Option<&str>, official: bo
         };
     }
 
-    if credential.is_none() {
+    if !account.is_some_and(auth::is_usable) {
         // Not a failure. The player gets a worse-but-working route and a sentence saying which and
         // why, rather than a button that silently does something else.
         return Plan {
@@ -93,7 +93,7 @@ pub fn choose_with(target: &LaunchTarget, credential: Option<&str>, official: bo
 pub fn choose(target: &LaunchTarget) -> Plan {
     choose_with(
         target,
-        auth::client_id().as_deref(),
+        auth::account().as_ref(),
         command::official_launcher().is_some(),
     )
 }
@@ -106,7 +106,7 @@ pub fn choose(target: &LaunchTarget) -> Plan {
 pub fn plan_with(
     targets: &[LaunchTarget],
     preferred: Option<&str>,
-    credential: Option<&str>,
+    account: Option<&Account>,
     official: bool,
 ) -> Result<Plan, NoPlan> {
     if targets.is_empty() {
@@ -117,10 +117,27 @@ pub fn plan_with(
     }
 
     let chosen = match preferred {
-        Some(name) => targets.iter().find(|t| t.name == name).ok_or(NoPlan {
-            reason: format!("there is no installation here called {name}"),
-            remedy: Remedy::PickInstall,
-        })?,
+        Some(selector) => {
+            if let Some(target) = targets.iter().find(|target| target.id == selector) {
+                target
+            } else {
+                // Compatibility for callers that sent display names before target ids existed.
+                let mut named = targets.iter().filter(|target| target.name == selector);
+                let target = named.next().ok_or(NoPlan {
+                    reason: format!("there is no installation here called {selector}"),
+                    remedy: Remedy::PickInstall,
+                })?;
+                if named.next().is_some() {
+                    return Err(NoPlan {
+                        reason: format!(
+                            "more than one installation is called {selector}; select its target id"
+                        ),
+                        remedy: Remedy::PickInstall,
+                    });
+                }
+                target
+            }
+        }
         None => &targets[0],
     };
 
@@ -137,7 +154,7 @@ pub fn plan_with(
         });
     }
 
-    Ok(choose_with(chosen, credential, official))
+    Ok(choose_with(chosen, account, official))
 }
 
 /// [`plan_with`], asking this machine the two questions.
@@ -145,7 +162,7 @@ pub fn plan(targets: &[LaunchTarget], preferred: Option<&str>) -> Result<Plan, N
     plan_with(
         targets,
         preferred,
-        auth::client_id().as_deref(),
+        auth::account().as_ref(),
         command::official_launcher().is_some(),
     )
 }
@@ -162,13 +179,12 @@ pub struct Prepared {
 
 /// Turn a plan and an address into something spawnable.
 ///
-/// `world_name` names the `servers.dat` entry; `player` names the offline identity when one is used.
+/// `world_name` names the `servers.dat` entry.
 pub fn prepare(
     plan: &Plan,
     address: &str,
     world_name: &str,
-    player: &str,
-    credential: Option<&str>,
+    account: Option<&Account>,
 ) -> Result<Prepared, NoPlan> {
     let game_dir = PathBuf::from(&plan.target.game_dir);
     match plan.tier {
@@ -184,10 +200,8 @@ pub fn prepare(
             }),
 
         Tier::Direct => {
-            let account = match credential {
-                // The real flow lands here once a credential exists. Until then this arm is
-                // unreachable, because `choose_with` never returns `Direct` without one.
-                Some(_) => Account::offline(player),
+            let account = match account.filter(|account| auth::is_usable(account)) {
+                Some(account) => account.clone(),
                 None => {
                     return Err(NoPlan {
                         reason: auth::DIRECT_UNAVAILABLE.to_owned(),
@@ -265,6 +279,7 @@ mod tests {
 
     fn instance(name: &str, has_mod: bool) -> LaunchTarget {
         LaunchTarget {
+            id: format!("instance:{name}"),
             name: name.to_owned(),
             tier: Tier::Prism,
             game_dir: "/tmp/instance/.minecraft".to_owned(),
@@ -279,6 +294,7 @@ mod tests {
 
     fn profile(name: &str, has_mod: bool) -> LaunchTarget {
         LaunchTarget {
+            id: format!("profile:{name}"),
             name: name.to_owned(),
             tier: Tier::Direct,
             game_dir: "/tmp/.minecraft".to_owned(),
@@ -291,19 +307,25 @@ mod tests {
         }
     }
 
-    const NO_CREDENTIAL: Option<&str> = None;
-    const A_CREDENTIAL: Option<&str> = Some("a-client-id");
+    fn account() -> Account {
+        Account {
+            name: "Ashu".to_owned(),
+            uuid: "00000000-0000-0000-0000-000000000001".to_owned(),
+            access_token: "token".to_owned(),
+            user_type: "msa".to_owned(),
+            online: true,
+        }
+    }
 
     #[test]
     fn nothing_installed_asks_the_player_to_pick_an_installation() {
-        let refused = plan_with(&[], None, NO_CREDENTIAL, false).unwrap_err();
+        let refused = plan_with(&[], None, None, false).unwrap_err();
         assert_eq!(refused.remedy, Remedy::PickInstall);
     }
 
     #[test]
     fn an_installation_without_the_mod_is_refused_by_name() {
-        let refused =
-            plan_with(&[instance("Modded", false)], None, NO_CREDENTIAL, false).unwrap_err();
+        let refused = plan_with(&[instance("Modded", false)], None, None, false).unwrap_err();
         // Launching anyway would start a working Minecraft that connects to nothing, and leave the
         // player wondering why Nodera did nothing.
         assert_eq!(refused.remedy, Remedy::InstallMod);
@@ -312,7 +334,7 @@ mod tests {
 
     #[test]
     fn a_third_party_launcher_is_preferred_and_needs_no_credential() {
-        let chosen = plan_with(&[instance("Modded", true)], None, NO_CREDENTIAL, false).unwrap();
+        let chosen = plan_with(&[instance("Modded", true)], None, None, false).unwrap();
 
         assert_eq!(chosen.tier, Tier::Prism);
         assert!(chosen.auto_connects());
@@ -322,26 +344,26 @@ mod tests {
 
     #[test]
     fn without_a_credential_a_profile_falls_back_and_says_why() {
-        let with_launcher =
-            plan_with(&[profile("Vanilla", true)], None, NO_CREDENTIAL, true).unwrap();
+        let with_launcher = plan_with(&[profile("Vanilla", true)], None, None, true).unwrap();
         assert_eq!(with_launcher.tier, Tier::ServersDat);
         assert!(!with_launcher.auto_connects());
         // A worse-but-working route with a sentence, rather than a button that silently does
         // something else.
         assert!(
-            with_launcher.note.contains("Microsoft client id"),
+            with_launcher.note.contains("signed-in Microsoft account"),
             "{}",
             with_launcher.note
         );
 
         // With no launcher either, the floor is the address — still a plan, never a dead end.
-        let bare = plan_with(&[profile("Vanilla", true)], None, NO_CREDENTIAL, false).unwrap();
+        let bare = plan_with(&[profile("Vanilla", true)], None, None, false).unwrap();
         assert_eq!(bare.tier, Tier::Address);
     }
 
     #[test]
     fn a_credential_opens_the_direct_route() {
-        let chosen = plan_with(&[profile("Vanilla", true)], None, A_CREDENTIAL, true).unwrap();
+        let account = account();
+        let chosen = plan_with(&[profile("Vanilla", true)], None, Some(&account), true).unwrap();
         assert_eq!(chosen.tier, Tier::Direct);
         assert!(chosen.auto_connects());
     }
@@ -350,22 +372,54 @@ mod tests {
     fn the_players_choice_wins_over_the_ordering() {
         let targets = [instance("Modded", true), profile("Vanilla", true)];
         assert_eq!(
-            plan_with(&targets, None, NO_CREDENTIAL, false)
-                .unwrap()
-                .target
-                .name,
+            plan_with(&targets, None, None, false).unwrap().target.name,
             "Modded"
         );
         assert_eq!(
-            plan_with(&targets, Some("Vanilla"), NO_CREDENTIAL, false)
+            plan_with(&targets, Some("Vanilla"), None, false)
                 .unwrap()
                 .target
                 .name,
             "Vanilla"
         );
 
-        let missing = plan_with(&targets, Some("Nope"), NO_CREDENTIAL, false).unwrap_err();
+        let missing = plan_with(&targets, Some("Nope"), None, false).unwrap_err();
         assert_eq!(missing.remedy, Remedy::PickInstall);
+    }
+
+    #[test]
+    fn preferred_profile_uses_stable_id_and_keeps_unique_legacy_name() {
+        let mut renamed = instance("Display Name", true);
+        renamed.id = "instance:stable-folder".to_owned();
+        renamed.instance = Some("stable-folder".to_owned());
+        let targets = [profile("Vanilla", true), renamed];
+
+        let selected = plan_with(&targets, Some("instance:stable-folder"), None, false).unwrap();
+        assert_eq!(selected.target.name, "Display Name");
+        assert_eq!(selected.target.instance.as_deref(), Some("stable-folder"));
+        assert_eq!(
+            plan_with(&targets, Some("Display Name"), None, false)
+                .unwrap()
+                .target
+                .id,
+            "instance:stable-folder"
+        );
+    }
+
+    #[test]
+    fn ambiguous_legacy_profile_name_is_refused() {
+        let mut first = instance("Same", true);
+        first.id = "one".to_owned();
+        let mut second = instance("Same", true);
+        second.id = "two".to_owned();
+
+        let refused = plan_with(&[first, second], Some("Same"), None, false).unwrap_err();
+        assert_eq!(refused.remedy, Remedy::PickInstall);
+        assert!(
+            refused.reason.contains("more than one"),
+            "{}",
+            refused.reason
+        );
     }
 
     #[test]
@@ -375,14 +429,7 @@ mod tests {
             tier: Tier::Address,
             note: String::new(),
         };
-        let outcome = prepare(
-            &chosen,
-            "127.0.0.1:25601",
-            "SkyRealm",
-            "Ashu",
-            NO_CREDENTIAL,
-        )
-        .unwrap_err();
+        let outcome = prepare(&chosen, "127.0.0.1:25601", "SkyRealm", None).unwrap_err();
         assert_eq!(outcome.remedy, Remedy::CopyAddress);
         // The floor still has to be usable: an error with no address in it is worse than no error.
         assert!(
@@ -399,14 +446,7 @@ mod tests {
             tier: Tier::Direct,
             note: String::new(),
         };
-        let outcome = prepare(
-            &chosen,
-            "127.0.0.1:25601",
-            "SkyRealm",
-            "Ashu",
-            NO_CREDENTIAL,
-        )
-        .unwrap_err();
+        let outcome = prepare(&chosen, "127.0.0.1:25601", "SkyRealm", None).unwrap_err();
         // Before anything is started. A flow that begins and then discovers it has no credential has
         // already cost the player a device-code screen they cannot complete.
         assert_eq!(outcome.remedy, Remedy::SignIn);

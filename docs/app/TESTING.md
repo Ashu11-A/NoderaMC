@@ -5,12 +5,12 @@
      dashboard's data path is asserted on the JAVA gate (the worker's STATE verb) — keep it that way:
      no logic in the UI worth testing beyond parsing. Keep counts and Last run current. -->
 
-**Category:** app · **Last run:** 2026-07-28 · **Last audit:** 2026-07-28 ·
-**193 tests** (187 Rust + 6 frontend), all re-run
+**Category:** app · **Last run:** 2026-08-01 · **Last audit:** 2026-08-01 ·
+**303 tests** (270 shared core + 2 shell, one intentionally ignored + 31 frontend): 302 passed, 1 ignored
 
 ```bash
-cd app && cargo test        # REQUIRED — the workspace gate does not cover this crate
-cd rust && cargo test                   # does NOT include nodera-app
+cd app && cargo test        # REQUIRED — root workspace does not cover the Tauri shell
+cargo test                  # includes library/rust/nodera-core
 cd app/ui && bun run test   # type-check + bundle + emitted-CSS contracts
 cd app/ui && bun run build  # same production gate used by CI
 ```
@@ -45,45 +45,17 @@ The app is deliberately the thinnest layer in the project, and its test strategy
   holds — a control may not be shown as enforced unless the worker confirmed it.
 - **Log ring** and **system sampling**.
 
-### Test counts (run 2026-07-28)
+### Test counts (run 2026-08-01)
 
-A count of `#[test]` / `#[tokio::test]` attributes in `app/src/`, plus the frontend's
-Node tests, re-run after the UX honesty bundle (issue #98). The Rust total is unchanged at 187: two
-tests for deleted code went with it (`the_unenforced_shim_lists_exactly_the_non_live_keys` and the
-invitation-file round trip, whose reader half was an uncalled command), one direct assertion on the
-writer replaced them, and the notifications enforcement test is new. The frontend gained five exit
-tests for A-UX-1/2/3/5, including one that walks all 47 registered Tauri commands and fails on any
-without a caller: **193 total.**
+A run count, not a source estimate. Shared behavior moved to root-workspace `nodera-core`; the Tauri
+shell now has only platform integration tests. Frontend tests run after production Vite output exists.
 
-| Module | Tests |
+| Suite | Tests |
 |---|---:|
-| `settings` | 24 |
-| `api::store` | 13 |
-| `api::model` | 15 |
-| `stores` | 15 |
-| `api::link` | 12 |
-| `daemon` | 14 |
-| `config` | 10 |
-| `power` | 10 |
-| `metrics` | 8 |
-| `peer::tracker` | 8 |
-| `android::network` | 7 |
-| `android::worker` | 2 |
-| `telemetry` | 7 |
-| `api::modinstall` | 6 |
-| `api::network` | 5 |
-| `api::events` | 5 |
-| `control` | 5 |
-| `peer::identity` | 5 |
-| `api::about` | 4 |
-| `api::storage` | 4 |
-| `android::battery` | 2 |
-| `api::commands` | 2 |
-| `logs` | 2 |
-| `system` | 2 |
-| `ui/tests/tracker-stores-style.test.mjs` | 1 |
-| `ui/tests/ux-honesty.test.mjs` | 5 |
-| **Total** | **193** |
+| `library/rust/nodera-core` | 270 |
+| `app` Tauri shell | 2 (1 ignored: opens a real browser) |
+| `app/ui/tests` | 31 |
+| **Total** | **303** |
 
 ## 3. Manual smoke, per increment
 
@@ -129,16 +101,17 @@ What it cannot cover is a real game starting. That is a human protocol:
 
 1. Two sides. Two machines, or `scripts/dev.sh --play --with-app` with `NODERA_APP_MULTI=1`.
 2. Host: open a world to LAN from inside Minecraft, then Share when the app asks.
-3. Guest: **Discover** → the world appears → press **Play**.
+3. Guest: **Discover** → the world appears → press **Play**. The shell returns to Play and restores
+   the coordinator's current correlated phase.
 4. Watch all four, not one:
-   - the `nodera://launch` phases arrive in order — `resolving`, `joining`, `preparing`, `spawning`,
-     `running`;
+    - the `nodera://launch` phases arrive in order — `resolving`, `joining`, `preparing`, `spawning`,
+      `running`;
    - `ss -ltnp` shows the loopback port bound between `joining` and `preparing`;
    - `ps -ef | grep quickPlayMultiplayer` shows the flag **and the port matches**;
    - the game window opens straight into the world, with no Multiplayer menu.
-5. Quit the game. `exited` fires, the tunnel is closed, and `ss` shows the port gone. This last step
-   is the one that regressed before the lane existed: the old Join screen opened a tunnel and never
-   closed it.
+5. Direct route: quit the game; `exited` fires and the port disappears. Delegated launcher route:
+    the screen says it handed off because launcher lifetime is not game lifetime; press **Close
+    connection**, observe `closing` while cleanup runs, then verify `exited` and the port disappears.
 
 Each failure path is scriptable through `NODERA_MINECRAFT_DIR`, and each must produce its own remedy
 button rather than a generic error:

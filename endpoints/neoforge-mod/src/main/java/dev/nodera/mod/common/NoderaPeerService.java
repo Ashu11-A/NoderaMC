@@ -31,10 +31,7 @@ import dev.nodera.transport.socket.SocketPeerTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.NetworkInterface;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
@@ -950,7 +947,20 @@ public final class NoderaPeerService {
             try {
                 java.util.Optional<String> error = companion.mesh(route, worldSeed);
                 if (error.isPresent()) {
-                    LOG.warn("Nodera: this player's worker did not join the world session: {}",
+                    // Say what it COSTS, not just that it happened. This player's worker holding no
+                    // seat is the difference between a world validated by an always-on peer and one
+                    // validated only for as long as somebody's game is open, and the previous
+                    // message said neither — a run where this fired every few seconds looked
+                    // identical, in the state document, to a worker nobody had chosen.
+                    //
+                    // The refusal itself is deliberate on the worker's side: rebinding the world
+                    // seed while regions are active would strand replicas that belong to a
+                    // different world. It is retried on the next lane plan, which arrives on every
+                    // membership or region-boundary change, so this is a degraded state and not a
+                    // terminal one — but it is a degraded state that has to be visible.
+                    LOG.warn("Nodera: this player's worker did not join the world session: {}."
+                            + " It will hold no committee seats for this world and cannot keep it"
+                            + " alive once this game closes; the next lane plan retries.",
                             error.get());
                     return;
                 }
@@ -1006,30 +1016,25 @@ public final class NoderaPeerService {
         clientIdentity = null;
     }
 
-    /** Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host. */
+    /**
+     * Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host.
+     *
+     * <p>Delegates to {@link dev.nodera.core.net.NetworkAddresses}, which the headless peer uses
+     * too. This method and {@code PeerNode}'s were byte-for-byte identical copies of a rule that
+     * turned out to be wrong — it treated a docker bridge and a VPN tunnel as being as good a
+     * place to be reached as the real NIC — and two copies of a wrong rule is how one of them gets
+     * fixed and the other goes on being wrong.
+     */
     public static String resolveHost(String configured) {
-        if (configured != null && !configured.equalsIgnoreCase("auto") && !configured.isBlank()) {
-            return configured;
+        String resolved = dev.nodera.core.net.NetworkAddresses.resolveHost(configured);
+        if (dev.nodera.core.net.NetworkAddresses.LOOPBACK.equals(resolved)
+                && (configured == null || configured.isBlank()
+                    || configured.equalsIgnoreCase("auto"))) {
+            LOG.warn("Nodera: no reachable LAN address was found to advertise — falling back to {}."
+                    + " Other peers will not be able to dial this node; set p2p.advertiseHost if"
+                    + " this machine's real address cannot be detected.", resolved);
         }
-        try {
-            Enumeration<NetworkInterface> nics = NetworkInterface.getNetworkInterfaces();
-            while (nics != null && nics.hasMoreElements()) {
-                NetworkInterface nic = nics.nextElement();
-                if (!nic.isUp() || nic.isLoopback() || nic.isVirtual()) {
-                    continue;
-                }
-                Enumeration<InetAddress> addrs = nic.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    InetAddress a = addrs.nextElement();
-                    if (a.isSiteLocalAddress() && a.getAddress().length == 4) {
-                        return a.getHostAddress();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("Nodera advertise-host auto-detect failed, falling back to 127.0.0.1", e);
-        }
-        return "127.0.0.1";
+        return resolved;
     }
 
     /** Logs the session lifecycle so operators can watch the mesh and gateway migration. */

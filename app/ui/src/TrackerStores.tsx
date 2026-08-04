@@ -23,12 +23,10 @@
 // that is what almost everybody arriving here wants and typing a raw.githubusercontent URL by hand
 // is not a thing anyone should be asked to do.
 //
-// ## One screen, two shells
+// ## One trust flow, two native implementations
 //
-// The desktop rail and the mobile settings page render this same component. Everything visual
-// resolves through `--tracker-store-*` custom properties that the shell fills in, so the two look
-// native to their platform without two implementations of what a store is allowed to do — two
-// copies of that is two places to fix a permission bug.
+// Desktop renders this React component. Android mirrors the same preview-before-trust state machine
+// in native Compose over the same core verbs; neither shell may add without previewing.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FiAlertTriangle,
@@ -58,6 +56,7 @@ import {
   type TrackerStore,
 } from "./ipc";
 import { linkNote, useExternalLink } from "./links";
+import { Modal, Pagination } from "./components";
 
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
@@ -65,16 +64,7 @@ const PENDING_POLL_MS = 1000;
 /** Above this many stores, the filter box earns its space. */
 const FILTER_THRESHOLD = 3;
 
-type Shell = "desktop" | "mobile";
-
-/**
- * Shared semantic roles, resolved by the shell rather than by this screen.
- *
- * Every child, including the fixed dialog, inherits these custom properties. Changing the mobile
- * Material You source colour therefore repaints this whole screen without duplicating its markup.
- */
-const SHELL_COLOURS: Record<Shell, string> = {
-  desktop: [
+const STORE_COLOURS = [
     "[--tracker-store-on-surface:var(--text)]",
     "[--tracker-store-on-surface-variant:var(--text-dim)]",
     "[--tracker-store-muted:var(--text-faint)]",
@@ -91,30 +81,8 @@ const SHELL_COLOURS: Record<Shell, string> = {
     "[--tracker-store-on-error-container:var(--danger)]",
     "[--tracker-store-warning:var(--warn)]",
     "[--tracker-store-ok:var(--up)]",
-    "[--tracker-store-scrim:var(--color-black)]",
     "[--tracker-store-mono:var(--font-mono)]",
-  ].join(" "),
-  mobile: [
-    "[--tracker-store-on-surface:var(--md-sys-color-on-surface)]",
-    "[--tracker-store-on-surface-variant:var(--md-sys-color-on-surface-variant)]",
-    "[--tracker-store-muted:var(--md-sys-color-on-surface-variant)]",
-    "[--tracker-store-surface:var(--md-sys-color-surface-container-high)]",
-    "[--tracker-store-surface-container:var(--md-sys-color-surface-container-highest)]",
-    "[--tracker-store-surface-hover:var(--md-sys-color-surface-container-highest)]",
-    "[--tracker-store-outline:var(--md-sys-color-outline-variant)]",
-    "[--tracker-store-outline-soft:var(--md-sys-color-outline-variant)]",
-    "[--tracker-store-primary:var(--md-sys-color-primary)]",
-    "[--tracker-store-primary-fill:var(--md-sys-color-primary)]",
-    "[--tracker-store-on-primary:var(--md-sys-color-on-primary)]",
-    "[--tracker-store-error:var(--md-sys-color-error)]",
-    "[--tracker-store-error-container:var(--md-sys-color-error-container)]",
-    "[--tracker-store-on-error-container:var(--md-sys-color-on-error-container)]",
-    "[--tracker-store-warning:var(--md-sys-color-error)]",
-    "[--tracker-store-ok:var(--md-sys-color-tertiary)]",
-    "[--tracker-store-scrim:var(--md-sys-color-scrim)]",
-    "[--tracker-store-mono:var(--font-mono)]",
-  ].join(" "),
-};
+  ].join(" ");
 
 // ---------------------------------------------------------------------------------------------
 // Wording
@@ -199,8 +167,7 @@ const HEALTH_LABEL: Record<Health, string> = {
   unknown: "Not checked yet",
 };
 
-export default function TrackerStores(props: { shell?: Shell }) {
-  const shell = props.shell ?? "desktop";
+export default function TrackerStores() {
   const [stores, setStores] = useState<TrackerStore[]>([]);
   const [official, setOfficial] = useState("");
   const [busy, setBusy] = useState(false);
@@ -208,6 +175,7 @@ export default function TrackerStores(props: { shell?: Shell }) {
   const [filter, setFilter] = useState("");
   const [importer, setImporter] = useState<ImportState>({ step: "closed" });
   const [pendingRemoval, setPendingRemoval] = useState<TrackerStore | null>(null);
+  const [page, setPage] = useState(1);
 
   const reload = useCallback(() => {
     trackerStores().then(setStores).catch((e) => setError(String(e)));
@@ -260,7 +228,7 @@ export default function TrackerStores(props: { shell?: Shell }) {
     return { stores: stores.length, ...countsOf(services) };
   }, [stores]);
 
-  const visible = useMemo(() => {
+  const filtered = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) return stores;
     return stores.filter((store) =>
@@ -270,6 +238,13 @@ export default function TrackerStores(props: { shell?: Shell }) {
         .includes(needle),
     );
   }, [stores, filter]);
+  const pageSize = 8;
+  const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    const last = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page > last) setPage(last);
+  }, [filtered.length, page, pageSize]);
 
   const addConfirmed = async (url: string) => {
     setError("");
@@ -323,8 +298,8 @@ export default function TrackerStores(props: { shell?: Shell }) {
 
   return (
     <div
-      className={`tracker-stores flex flex-col gap-5 ${SHELL_COLOURS[shell]}`}
-      data-shell={shell}
+      className={`tracker-stores flex flex-col gap-5 ${STORE_COLOURS}`}
+      data-shell="desktop"
     >
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
@@ -378,7 +353,10 @@ export default function TrackerStores(props: { shell?: Shell }) {
           />
           <input
             value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+            onChange={(event) => {
+              setFilter(event.target.value);
+              setPage(1);
+            }}
             placeholder="Filter by name, address or region"
             aria-label="Filter stores"
             className="w-full rounded-lg border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface-container)] py-2 pr-3 pl-9 text-sm text-[var(--tracker-store-on-surface)] outline-none focus:border-[var(--tracker-store-primary)]"
@@ -394,7 +372,7 @@ export default function TrackerStores(props: { shell?: Shell }) {
           }
           onAddOther={() => setImporter({ step: "url", url: "", source: "typed" })}
         />
-      ) : visible.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <p className="rounded-xl border border-dashed border-[var(--tracker-store-outline)] p-8 text-center text-sm text-[var(--tracker-store-on-surface-variant)]">
           No store here matches “{filter}”.
         </p>
@@ -410,6 +388,8 @@ export default function TrackerStores(props: { shell?: Shell }) {
           ))}
         </ul>
       )}
+
+      <Pagination page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} />
 
       {/* The project's own list is one store among however many, so it is offered rather than
           reinstated: a user who removed it did so on purpose, and a screen that quietly put it back
@@ -1129,35 +1109,9 @@ function DialogActions(props: { children: React.ReactNode }) {
  * finish.
  */
 function Dialog(props: { title: string; onClose?: () => void; children: React.ReactNode }) {
-  const { onClose } = props;
-  useEffect(() => {
-    if (!onClose) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button
-        aria-hidden
-        tabIndex={-1}
-        onClick={onClose}
-        className="absolute inset-0 cursor-default bg-[var(--tracker-store-scrim)] opacity-50"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={props.title}
-        className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-[var(--tracker-store-outline)] bg-[var(--tracker-store-surface)] p-5 shadow-xl"
-      >
-        <h3 className="text-base font-semibold text-[var(--tracker-store-on-surface)]">
-          {props.title}
-        </h3>
-        <div className="mt-3">{props.children}</div>
-      </div>
-    </div>
+    <Modal title={props.title} onClose={props.onClose} width="sm">
+      <div className="text-[var(--tracker-store-on-surface)]">{props.children}</div>
+    </Modal>
   );
 }

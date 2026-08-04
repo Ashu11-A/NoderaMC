@@ -182,6 +182,31 @@ test("the launcher's own surfaces reach the shipped stylesheet", () => {
   assertBuiltRule("--wa-a");
 });
 
+test("desktop screens share the wide twelve-column obsidian canvas", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  const settings = readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8");
+  const worlds = readFileSync(new URL("../src/Worlds.tsx", import.meta.url), "utf8");
+
+  assert.match(css, /--canvas-max:\s*1680px/);
+  assert.match(css, /grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\)/);
+  assert.match(css, /--bg:\s*#080a09/);
+  assert.match(css, /--brand-1:\s*#b8ff4a/);
+  assert.doesNotMatch(css, /#ff4d8d|#a855f7|#22d3ee/i);
+  assert.match(settings, /wide:hidden/);
+  assert.match(settings, /hidden pr-6 wide:block/);
+  assert.match(settings, /wide:grid-cols-2/);
+  assert.match(worlds, /<PageGrid/);
+});
+
+test("desktop typefaces are bundled and separated by role", () => {
+  const entry = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(entry, /@fontsource-variable\/inter/);
+  assert.match(entry, /@fontsource-variable\/space-grotesk/);
+  assert.match(css, /--font-ui:\s*"Inter Variable"/);
+  assert.match(css, /--font-display:\s*"Space Grotesk Variable"/);
+});
+
 test("every launch phase and remedy has a word on the Play screen", () => {
   // A `LaunchPhase` with no label renders an unlabelled spinner, and a `Remedy` with no label
   // renders a button with no text — both are the "a number with no provenance" failure in another

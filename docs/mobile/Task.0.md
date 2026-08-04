@@ -4,7 +4,7 @@
      Rule 1 is load-bearing: if the phone ever stops running the real worker, this file must say so
      before any other document is updated. -->
 
-**Status:** ✅ COMPLETED · **Category:** mobile · **Last audit:** 2026-07-28
+**Status:** ✅ COMPLETED · **Category:** mobile · **Last audit:** 2026-08-01
 
 ---
 
@@ -25,11 +25,10 @@ app talks to it over `127.0.0.1:25610` with the same code the desktop uses.
 3. **The OS decides, and is quoted.** Battery restrictions, storage permissions and folder access are
    Android's to grant. The app detects, explains, and links to the setting; it never asserts an
    outcome it did not verify with a real write or a real read.
-4. **One layout question is about the window, another is about the binary.** `useIsCompact` decides
-   density; `useIsMobileBuild` decides which features exist. Conflating them would let a narrow
-   desktop window lose features it genuinely has.
-5. **Material You means generated.** Every colour is derived from a source colour through HCT tonal
-   palettes. No hand-picked palette that merely resembles one.
+4. **Android is native Compose.** Tauri owns Rust/NDK packaging, not the runtime view. Desktop React
+   breakpoints never decide which Android capabilities exist.
+5. **Material You means system dynamic colour.** Android 12+ reads the wallpaper palette through
+   Material 3; older releases use one explicit fallback scheme.
 
 ## Tasks
 

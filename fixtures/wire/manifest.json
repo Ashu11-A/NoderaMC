@@ -76,6 +76,7 @@
     { "kind": 72, "name": "ServiceDrainNotice", "plane": "infrastructure", "fixture": "service-drain-notice.bin" },
     { "kind": 73, "name": "Nack", "plane": "infrastructure", "fixture": "nack.bin" },
     { "kind": 74, "name": "Hello", "plane": "infrastructure", "fixture": "hello.bin" },
-    { "kind": 75, "name": "HelloAck", "plane": "infrastructure", "fixture": "hello-ack.bin" }
+    { "kind": 75, "name": "HelloAck", "plane": "infrastructure", "fixture": "hello-ack.bin" },
+    { "kind": 76, "name": "WorldRevivalGossip", "plane": "consensus", "fixture": "world-revival-gossip.bin" }
   ]
 }

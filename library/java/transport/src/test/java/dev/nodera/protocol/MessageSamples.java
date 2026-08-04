@@ -69,6 +69,7 @@ import dev.nodera.protocol.membership.RegionProgress;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.protocol.membership.WorldDeletionGossip;
 import dev.nodera.protocol.membership.WorldGrantGossip;
+import dev.nodera.protocol.membership.WorldRevivalGossip;
 import dev.nodera.protocol.membership.WorldOwnershipGossip;
 import dev.nodera.protocol.rendezvous.CandidateKind;
 import dev.nodera.protocol.rendezvous.ObservedAddress;
@@ -463,6 +464,8 @@ public final class MessageSamples {
         samples.put(MessageCodec.TAG_TUNNEL_CLOSE, new TunnelClose(1L, "peer-closed"));
         samples.put(MessageCodec.TAG_WORLD_DELETION_GOSSIP,
                 new WorldDeletionGossip(filled(32, 0x11), filled(160, 0x66)));
+        samples.put(MessageCodec.TAG_WORLD_REVIVAL_GOSSIP,
+                new WorldRevivalGossip(filled(32, 0x11), filled(160, 0x67)));
 
         // 67–72: the service directory.
         samples.put(MessageCodec.TAG_SERVICE_ANNOUNCE, new ServiceAnnounce(

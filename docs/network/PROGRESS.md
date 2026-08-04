@@ -5,7 +5,7 @@
      EVIDENCE (test or IT name), then reconcile ../ROADMAP.md §2 and the root README bar. Never
      rewrite an old note — append a new one. -->
 
-**Category:** network · **Last audit:** 2026-07-30 · Tasks completed: **12 / 15**
+**Category:** network · **Last audit:** 2026-08-01 · Tasks completed: **12 / 15**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -18,10 +18,10 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 |---|---|---|---|
 | [1](Task.1.md) | Wire protocol, transports, handshake | ✅ COMPLETED | Tags through 60; authenticated accept handshake (L-53 retired) |
 | [2](Task.2.md) | Peer runtime, membership, gateway | 🚧 IN PROGRESS | Election + continuity + certified committee changes ✅; the negotiation handshake now runs on every announce (2026-07-29); every player's worker joins its own world's session, and the resident pool is a broadcast plan input (L-30's code half); migration end-to-end remains |
-| [3](Task.3.md) | Event-sourced + durable storage | ✅ COMPLETED | RocksDB tier, forced-kill recovery, certified forward sync |
+| [3](Task.3.md) | Event-sourced + durable storage | ✅ COMPLETED | RocksDB tier, forced-kill recovery, certified forward sync; owner-only Android fallback |
 | [4](Task.4.md) | Torrent data plane | ✅ COMPLETED | Production consumer live (world-continuity lane); L-33 render half remains |
 | [5](Task.5.md) | Discovery + multi-bootstrap + identity | ✅ COMPLETED | Serving role moved to the tracker service |
-| [6](Task.6.md) | Placement, replication, repair | ✅ COMPLETED | `WorldReplicationService` closed the "announced but never replicated" gap |
+| [6](Task.6.md) | Placement, replication, repair | ✅ COMPLETED | `WorldReplicationService` replicates real worlds and excludes synthetic commons presence |
 | [7](Task.7.md) | Reliability, quotas, retention | ✅ COMPLETED | Countdown network-visible on every announce |
 | [8](Task.8.md) | Per-world content encryption | ✅ COMPLETED | Re-key now actually revokes (L-55) |
 | [9](Task.9.md) | Crash safety + active-player stream | ✅ COMPLETED | Continuous streaming + bounded final flush + freshness guard |
@@ -35,6 +35,16 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-01 — Android storage inspection and commons catalog entries are handled explicitly
+
+Android denies `Files.getFileStore` even for app-private paths, so owner-only atomic writes now try
+the permission attribute directly when inspection is forbidden and fail without writing if secure
+creation is unsupported. A physical run also proved the
+tracker's synthetic commons namespace reaches the catalog; replication now excludes that id before
+placement and archive fetch. Evidence: `AtomicFileWriterTest` (4),
+`ReplicationRepairsEmptyClaimsTest` (5), installed worker identity persistence, and a post-fix
+replication sweep reporting no worlds rather than attempting `Nodera commons`.
 
 ### 2026-07-30 (fourth pass) — the first live run in this session, and what it found
 

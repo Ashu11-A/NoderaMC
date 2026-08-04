@@ -574,11 +574,35 @@ public final class NoderaHost {
         if (!CompanionLink.isPresent()) {
             return;
         }
-        CompanionLink.client()
+        Optional<String> refusal = CompanionLink.client()
                 .host(worldId.toHex(), world,
-                        shareOptionsJson(opts, mcRoute, livePlayerCount(server, leaving)))
-                .ifPresent(err -> LOG.warn("Nodera worker refused HOST for '{}': {}", world, err));
+                        shareOptionsJson(opts, mcRoute, livePlayerCount(server, leaving)));
+        if (refusal.isEmpty()) {
+            lastHostRefusal.remove(world);
+            return;
+        }
+        String err = refusal.get();
+        LOG.warn("Nodera worker refused HOST for '{}': {}", world, err);
+        // And say so IN THE GAME. This refusal used to be a log line and nothing else, while the
+        // pause menu had already told the player their world was shared — so a world the worker
+        // declined (a tombstoned id is the case that produced this: "this world was deleted by its
+        // owner", refused on every refresh) looked shared, was on no tracker, and no other player
+        // could ever see it. Nothing on screen contradicted the success message.
+        //
+        // Once per distinct reason: notifyWorker runs on the presence-refresh cadence, so an
+        // unconditional message would be a chat line every few seconds for as long as the world
+        // stays open.
+        if (!err.equals(lastHostRefusal.put(world, err))) {
+            tellHost(server, "§cNodera could not share '" + world + "': " + err);
+        }
     }
+
+    /**
+     * World name → the last refusal reported for it, so a repeating refusal is said once. Cleared as
+     * soon as the worker accepts the world, so a problem that is fixed and returns is reported again.
+     */
+    private static final Map<String, String> lastHostRefusal =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Players actually connected to this world right now.
@@ -835,6 +859,13 @@ public final class NoderaHost {
         // The first failure's route and exception, carried into the summary below. Eleven identical
         // DEBUG lines nobody reads are worth less than one WARN that names the cause.
         String[] firstFailure = new String[1];
+        // Per resident, not just in aggregate. The summary below only ever fired when EVERY dispatch
+        // failed, so the shape that actually happens in the field — two residents seated normally
+        // and the third unreachable at the address it advertised — was reported nowhere at all: its
+        // worker simply showed zero regions, with no line anywhere saying why. One resident that
+        // cannot be reached is exactly as worth naming as all of them.
+        Map<NodeId, Integer> seatedPerResident = new java.util.LinkedHashMap<>();
+        Map<NodeId, Integer> failedPerResident = new java.util.LinkedHashMap<>();
         for (EntityLaneBootstrap.PlannedRegion planned : plan) {
             for (NodeId validator : planned.lease().validators()) {
                 dev.nodera.protocol.membership.PeerEntry entry = residents.get(validator);
@@ -856,8 +887,10 @@ public final class NoderaHost {
                                             dev.nodera.core.state.SnapshotVersion.INITIAL,
                                             planned.lease().expiresAtTick(), committee)));
                     sent++;
+                    seatedPerResident.merge(entry.nodeId(), 1, Integer::sum);
                 } catch (RuntimeException unreachable) {
                     failed++;
+                    failedPerResident.merge(entry.nodeId(), 1, Integer::sum);
                     if (firstFailure[0] == null) {
                         firstFailure[0] = entry.route() + " → " + unreachable;
                     }
@@ -882,6 +915,20 @@ public final class NoderaHost {
                 LOG.warn("Nodera: {} resident seat(s) were planned but every dispatch failed — the "
                                 + "world runs with smaller committees than planned; first failure "
                                 + "was {}", failed, firstFailure[0]);
+            }
+        }
+        // And the partial case the summary above cannot see: a resident that was chosen for at
+        // least one committee and could not be reached for ANY of them. That node will report zero
+        // regions and look like it was never picked; this is the line that says otherwise, and
+        // names the route it was picked at so the reader can see it is unreachable.
+        for (Map.Entry<NodeId, Integer> resident : failedPerResident.entrySet()) {
+            if (seatedPerResident.getOrDefault(resident.getKey(), 0) == 0) {
+                dev.nodera.protocol.membership.PeerEntry entry = residents.get(resident.getKey());
+                LOG.warn("Nodera: resident {} was planned into {} committee(s) and could not be "
+                                + "reached at {} for any of them — it will hold NO regions, and the "
+                                + "address it advertised is the thing to check",
+                        resident.getKey(), resident.getValue(),
+                        entry == null ? "an unknown route" : entry.route());
             }
         }
         return sent;

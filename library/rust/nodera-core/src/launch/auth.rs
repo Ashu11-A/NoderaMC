@@ -8,9 +8,8 @@
 //! credential exists in this repository, and none can be produced from the source tree.
 //!
 //! So [`Tier::Direct`](super::Tier::Direct) is built, tested, and **gated**. Everything up to the
-//! network call is here and exercised; the credential is read from `NODERA_MSA_CLIENT_ID`, and when
-//! it is absent the launcher says so *before* it starts anything, rather than failing at the third
-//! redirect of a flow the player has already begun.
+//! network call is here and exercised. A client id alone is not an account credential, so this build
+//! keeps the route unavailable until an authenticated [`Account`] can actually be supplied.
 //!
 //! # Why the gate is a sentence rather than a hidden button
 //!
@@ -97,18 +96,31 @@ fn offline_uuid(name: &str) -> String {
 /// it is an explanation of which route Play is taking, and it has to name the cause *and* what
 /// happens instead.
 pub const DIRECT_UNAVAILABLE: &str =
-    "this build carries no Microsoft client id, so it cannot sign \
-     in to start the game itself — Nodera will use your own launcher instead";
+    "this build has no signed-in Microsoft account, so it cannot start the game itself — \
+     Nodera will use your own launcher instead";
 
 /// Why the direct route is unavailable, or [`None`] when it is available.
 ///
 /// Checked **before** anything is started. A flow that begins and then discovers it has no
 /// credential has already cost the player a device-code screen they cannot complete.
 pub fn direct_unavailable() -> Option<&'static str> {
-    match std::env::var(CLIENT_ID_VAR) {
-        Ok(id) if !id.trim().is_empty() => None,
-        _ => Some(DIRECT_UNAVAILABLE),
-    }
+    account().is_none().then_some(DIRECT_UNAVAILABLE)
+}
+
+/// Authenticated account available to a direct launch.
+///
+/// No token acquisition or persisted account store exists yet. Returning `None` is intentional:
+/// an Azure client id permits starting an OAuth flow, but cannot authenticate a game session.
+pub fn account() -> Option<Account> {
+    None
+}
+
+/// Whether an account has everything an online-mode launch needs.
+pub fn is_usable(account: &Account) -> bool {
+    account.online
+        && !account.name.trim().is_empty()
+        && !account.uuid.trim().is_empty()
+        && !account.access_token.trim().is_empty()
 }
 
 /// The client id, when there is one.
@@ -126,14 +138,12 @@ mod tests {
     #[test]
     fn the_sentence_names_the_cause_and_what_happens_instead() {
         // Not an error the player can act on — an explanation of which route Play is taking.
-        assert!(DIRECT_UNAVAILABLE.contains("Microsoft client id"));
+        assert!(DIRECT_UNAVAILABLE.contains("signed-in Microsoft account"));
         assert!(DIRECT_UNAVAILABLE.contains("your own launcher"));
     }
 
     #[test]
-    fn the_credential_is_read_from_the_environment_and_trimmed() {
-        // One test, not three: `set_var` is process-wide, and separate tests asserting on it would
-        // race each other exactly as `daemon::ownership`'s comment warns.
+    fn a_client_id_alone_never_claims_direct_authentication_is_usable() {
         std::env::remove_var(CLIENT_ID_VAR);
         assert_eq!(client_id(), None);
         assert_eq!(direct_unavailable(), Some(DIRECT_UNAVAILABLE));
@@ -142,9 +152,10 @@ mod tests {
         assert_eq!(
             client_id().as_deref(),
             Some("00000000-aaaa-bbbb-cccc-000000000000"),
-            "a copied-in id with a stray space still works"
+            "configuration still reads a copied-in id with a stray space"
         );
-        assert_eq!(direct_unavailable(), None);
+        assert_eq!(direct_unavailable(), Some(DIRECT_UNAVAILABLE));
+        assert_eq!(account(), None);
 
         // Whitespace is not a credential.
         std::env::set_var(CLIENT_ID_VAR, "   ");
@@ -152,6 +163,20 @@ mod tests {
         assert!(direct_unavailable().is_some());
 
         std::env::remove_var(CLIENT_ID_VAR);
+    }
+
+    #[test]
+    fn only_a_complete_online_account_is_usable() {
+        let mut account = Account {
+            name: "Player".to_owned(),
+            uuid: "00000000-0000-0000-0000-000000000001".to_owned(),
+            access_token: "token".to_owned(),
+            user_type: "msa".to_owned(),
+            online: true,
+        };
+        assert!(is_usable(&account));
+        account.online = false;
+        assert!(!is_usable(&account));
     }
 
     #[test]

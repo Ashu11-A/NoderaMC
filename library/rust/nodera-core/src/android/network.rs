@@ -232,20 +232,29 @@ mod platform {
                 return Ok(None);
             }
 
-            let has_transport = |env: &mut jni::JNIEnv, caps: &JObject, id: i32| -> bool {
-                env.call_method(caps, "hasTransport", "(I)Z", &[JValue::Int(id)])
-                    .and_then(|v| v.z())
-                    .unwrap_or(false)
-            };
+            let has_transport =
+                |env: &mut jni::JNIEnv, caps: &JObject, id: i32| -> Result<bool, String> {
+                    let result = env
+                        .call_method(caps, "hasTransport", "(I)Z", &[JValue::Int(id)])
+                        .and_then(|v| v.z());
+                    // A pending Java exception (e.g. SecurityException) poisons every subsequent JNI
+                    // call until cleared. unwrap_or(false) ate the error AND left the exception pending,
+                    // so every hasTransport after the first failure also returned false and the transport
+                    // silently became Other — which WifiOnly refuses, pausing the node for good.
+                    if env.exception_check().unwrap_or(false) {
+                        env.exception_clear().ok();
+                    }
+                    result.map_err(|e| format!("hasTransport({id}): {e}"))
+                };
 
             // VPN is checked but never reported as *the* transport: a VPN rides on Wi-Fi or on
             // cellular, and answering "VPN" would lose the fact the policy is actually about.
-            let vpn = has_transport(env, &caps, TRANSPORT_VPN);
-            let transport = if has_transport(env, &caps, TRANSPORT_WIFI) {
+            let vpn = has_transport(env, &caps, TRANSPORT_VPN).unwrap_or(false);
+            let transport = if has_transport(env, &caps, TRANSPORT_WIFI)? {
                 Transport::Wifi
-            } else if has_transport(env, &caps, TRANSPORT_CELLULAR) {
+            } else if has_transport(env, &caps, TRANSPORT_CELLULAR)? {
                 Transport::Cellular
-            } else if has_transport(env, &caps, TRANSPORT_ETHERNET) {
+            } else if has_transport(env, &caps, TRANSPORT_ETHERNET)? {
                 Transport::Ethernet
             } else {
                 Transport::Other

@@ -229,6 +229,14 @@ public final class TypeTags {
      */
     public static final int HALO_ENDORSEMENT = 119;
 
+    /**
+     * {@code WorldRevival} — the owner putting back a world they deleted, carrying the same
+     * ownership evidence as the tombstone it supersedes. Without it a deleted world id could never
+     * be shared again, because the id is derived from the save and every node remembers the
+     * deletion.
+     */
+    public static final int WORLD_REVIVAL = 120;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 119;
+    public static final int NEXT = 120;
 }

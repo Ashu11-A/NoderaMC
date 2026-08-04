@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -62,6 +63,30 @@ class SyncedServicesTest {
 
         assertEquals("127.0.0.1:25600", synced.trackersOr("127.0.0.1:25600"));
         assertTrue(synced.trackers().isEmpty());
+    }
+
+    /**
+     * The distinction the tracker pin is keyed on.
+     *
+     * <p>A list read from this file was CHOSEN by whoever wrote it; the compiled-in defaults were
+     * merely not overridden. Only the first is an authority a later config push must not be able to
+     * drop — and on Android this file is the only way to state one at all, because a process there
+     * cannot set environment variables for itself. Keying the pin on the environment alone left
+     * every phone with an empty pin set, which is the whole reason this accessor exists.
+     */
+    @Test
+    @DisplayName("a stated tracker list is distinguishable from an absent one")
+    void statedTrackersAreDistinguishableFromDefaults(@TempDir Path dir) throws IOException {
+        assertTrue(PeerNode.SyncedServices.load(write(dir, WRITTEN).toString()).hasTrackers());
+
+        assertFalse(PeerNode.SyncedServices.load(
+                dir.resolve("nothing-here").toString()).hasTrackers());
+        assertFalse(PeerNode.SyncedServices.load(write(dir,
+                "# only a comment, no endpoints\n").toString()).hasTrackers());
+        // Relays alone are not trackers: a file that pins only a rendezvous must leave the tracker
+        // list unpinned, or the app loses control of a list nobody asked to protect.
+        assertFalse(PeerNode.SyncedServices.load(write(dir,
+                "rendezvous tcp://relay.example:7500\n").toString()).hasTrackers());
     }
 
     @Test

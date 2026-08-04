@@ -22,9 +22,16 @@ object NoderaBridge {
     @JvmStatic
     external fun initialise(context: Context)
 
-    /** Called by Rust after context binding and setup's property handoff have both completed. */
+    /**
+     * Called by Rust after context binding and setup's property handoff have both completed.
+     *
+     * Starts the node through [NoderaWorkerService] rather than directly. Same worker, different
+     * owner: started in-process it lived exactly as long as Android felt like keeping the app, and
+     * a phone holding committee seats was killed 25 minutes into a session with nobody the wiser
+     * (M-2). The service is what tells the system this process is working for the user.
+     */
     @JvmStatic
     fun startWorker(context: Context) {
-        NoderaWorker.start(context)
+        NoderaWorkerService.start(context)
     }
 }

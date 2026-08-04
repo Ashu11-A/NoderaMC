@@ -25,6 +25,9 @@ use super::Tier;
 /// Something this machine can start.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaunchTarget {
+    /// Stable opaque selector returned through `launch_play.profile`.
+    #[serde(default)]
+    pub id: String,
     /// What the player calls it — an instance name, or a profile name.
     pub name: String,
     /// How it would be started.
@@ -47,6 +50,17 @@ pub struct LaunchTarget {
     /// Epoch millis this profile was last played, when the launcher records it. The list is sorted
     /// by it, because "the one I actually play" is the only useful default.
     pub last_used: u64,
+}
+
+fn target_id(kind: &str, parts: &[&str]) -> String {
+    let mut id = kind.to_owned();
+    for part in parts {
+        id.push(':');
+        id.push_str(&part.len().to_string());
+        id.push(':');
+        id.push_str(part);
+    }
+    id
 }
 
 /// The `launcher_profiles.json` shape, as much as launching needs.
@@ -108,19 +122,20 @@ pub fn official_profiles(root: &Path) -> Vec<LaunchTarget> {
 
     let mut out: Vec<LaunchTarget> = document
         .profiles
-        .into_values()
-        .filter(|profile| {
+        .into_iter()
+        .filter(|(_, profile)| {
             // `latest-release` and `latest-snapshot` are the launcher's own rolling entries. They
             // have no fixed version id, so this app cannot assemble a command line for them — and a
             // player using one is a player whose modded instance is somewhere else.
             profile.last_version_id.is_some() && profile.kind.as_deref() != Some("latest-snapshot")
         })
-        .map(|profile| {
+        .map(|(profile_key, profile)| {
             let game_dir = profile
                 .game_dir
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.to_path_buf());
             LaunchTarget {
+                id: target_id("official", &[&root.display().to_string(), &profile_key]),
                 name: if profile.name.trim().is_empty() {
                     profile
                         .last_version_id
@@ -190,6 +205,10 @@ pub fn instances(launcher_root: &Path, binary: &str) -> Vec<LaunchTarget> {
             .unwrap_or_else(|| dir.join(".minecraft"));
 
         out.push(LaunchTarget {
+            id: target_id(
+                "instance",
+                &[binary, &launcher_root.display().to_string(), &folder],
+            ),
             name,
             tier: Tier::Prism,
             has_mod: has_mod(&game_dir),
@@ -339,6 +358,9 @@ mod tests {
         assert_eq!(found[0].name, "Modded");
         assert_eq!(found[1].name, "Vanilla");
         assert_eq!(found[0].version_id.as_deref(), Some("neoforge-21.1.77"));
+        assert_ne!(found[0].id, found[1].id);
+        assert!(found[0].id.starts_with("official:"), "{}", found[0].id);
+        assert_eq!(serde_json::to_value(&found[0]).unwrap()["id"], found[0].id);
         // No `gameDir` means the root itself, which is what the launcher does.
         assert_eq!(found[0].game_dir, root.display().to_string());
     }
@@ -391,8 +413,18 @@ mod tests {
         // Addressed by folder: `name` is a display string the player can change at any time, and a
         // launch that referred to it would break the moment they did.
         assert_eq!(found[0].instance.as_deref(), Some("modded-1211"));
+        assert!(found[0].id.contains("modded-1211"), "{}", found[0].id);
         assert_eq!(found[0].tier, Tier::Prism);
         assert!(found[0].has_mod);
+
+        std::fs::write(
+            instance.join("instance.cfg"),
+            "name=Renamed Display\nlastLaunchTime=1700\n",
+        )
+        .unwrap();
+        let renamed = instances(&root, "prismlauncher");
+        assert_eq!(renamed[0].id, found[0].id);
+        assert_eq!(renamed[0].name, "Renamed Display");
     }
 
     #[test]

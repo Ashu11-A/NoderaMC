@@ -74,9 +74,7 @@ public final class CrashScenario implements Scenario {
             // The crash test measures disruption, not the ownership drive.
             HostWorldSupport.setHostConfig(config, "debug", "regionDrive", "false");
             players[0] = HostWorldSupport.hostedTwoPlayers(context);
-            hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180),
-                    HostWorldSupport.STALE_BAKE_GUARD,
-                    "X0: " + HostWorldSupport.STALE_BAKE_MESSAGE);
+            HostWorldSupport.awaitMemberNodes(context, hostLog, "X0");
             context.settle(Duration.ofSeconds(10));  // let the session settle so the crash hits a
                                                      // steady state
         });
@@ -86,9 +84,18 @@ public final class CrashScenario implements Scenario {
             // The per-run token is the only reliable way to tell the joiner JVM from the host JVM:
             // ModDevGradle passes each run's program arguments via an @argfile, so the command line
             // carries "<run>RunProgramArgs" rather than the quick-play flags themselves.
+            // This precondition was unsatisfiable for as long as run tokens could not be matched:
+            // `runJvmAlive` answered "dead" for every live client, so this line failed on every run
+            // and reported a healthy joiner as missing. The scenario was right and its instrument
+            // was broken — see HostWorldSupport.commandLineOf.
             context.check(HostWorldSupport.runJvmAlive(JOINER_RUN),
                     "cannot find the joiner client JVM");
             HostWorldSupport.killRunJvms(JOINER_RUN);
+            // The kill has to be shown to have landed. While `killRunJvms` matched nothing it was a
+            // no-op, and what this stage actually exercised was the graceful wrapper stop below —
+            // the one path a crash scenario exists NOT to take. A SIGKILLed JVM is gone at once; a
+            // process still alive here did not crash, whatever the stage name says.
+            HostWorldSupport.awaitRunJvmsGone(JOINER_RUN, Duration.ofSeconds(30));
             // Reap the Gradle wrapper around the dead JVM.
             players[0].joiner().stop(Duration.ofSeconds(20));
         });

@@ -99,6 +99,19 @@ public final class NoderaContinuity {
     }
 
     /** Disarm (deliberate leave, rehost done, or the player declined). */
+    /**
+     * Put the lane back the way an armed join leaves it, for a deliberate retry.
+     *
+     * <p>{@link #fail} disarms so a later disconnect is not double-handled. A player who presses
+     * Retry is asking for exactly the attempt that was disarmed, so the state has to come back —
+     * otherwise the second attempt runs with `joined` null and cannot report or clean up after
+     * itself.
+     */
+    static void rearm(JoinedWorld world) {
+        joined = world;
+        rehosting = true;
+    }
+
     static void disarm() {
         JoinedWorld leaving = joined;
         joined = null;
@@ -288,7 +301,12 @@ public final class NoderaContinuity {
                 StringBuilder reason = new StringBuilder();
                 Optional<String> fetched = CompanionLink.client().fetchArchive(
                         world.worldIdHex(), archiveFile,
-                        NoderaConfig.CONTINUITY_FETCH_TIMEOUT_SECONDS.get(), reason);
+                        NoderaConfig.CONTINUITY_FETCH_TIMEOUT_SECONDS.get(), reason,
+                        // The worker now says how far it has got, so the screen can say it too.
+                        // One unchanging line for two minutes is why this looked "endless" — the
+                        // work was happening the whole time and nothing on screen admitted it.
+                        (verified, total) -> screen.setStatus(Component.translatable(
+                                "nodera.continuity.fetching.progress", verified, total)));
                 if (screen.cancelled) {
                     return;
                 }
@@ -401,6 +419,30 @@ public final class NoderaContinuity {
                                 }
                             })
                     .bounds(this.width / 2 - 100, this.height / 2 + 40, 200, 20).build());
+
+            // And a way BACK IN. A failed rehost used to end at the title screen with the world
+            // still only on the network — one attempt per disconnect, no second chance, and the
+            // most common cause was a fetch that was simply taking longer than the budget. Asking
+            // again is the cheapest correct answer to that, and it costs a player who does not want
+            // it nothing.
+            if (failure != null) {
+                addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
+                                Component.translatable("nodera.continuity.retry"),
+                                b -> retry())
+                        .bounds(this.width / 2 - 100, this.height / 2 + 64, 200, 20).build());
+            }
+        }
+
+        /** Try the whole fetch again, from this screen, without going back to the title. */
+        private void retry() {
+            failure = null;
+            cancelled = false;
+            // `fail` disarmed the lane so a later disconnect would not be double-handled; a
+            // deliberate retry re-arms it, which is what makes the second attempt a real one.
+            rearm(world);
+            status = Component.translatable("nodera.continuity.starting");
+            rebuildWidgets();
+            begin();
         }
 
         @Override

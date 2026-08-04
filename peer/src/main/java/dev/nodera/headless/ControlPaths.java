@@ -56,6 +56,15 @@ public final class ControlPaths {
         add(permitted, archiveDir);
         add(permitted, systemProperty("java.io.tmpdir"));
         add(permitted, systemProperty("user.home"));
+        String extra = env("NODERA_ALLOWED_STORAGE_ROOTS", "");
+        if (!extra.isBlank()) {
+            for (String root : extra.split(java.util.regex.Pattern.quote(
+                    java.io.File.pathSeparator))) {
+                if (!root.isBlank()) {
+                    add(permitted, Path.of(root));
+                }
+            }
+        }
         this.roots = List.copyOf(permitted);
     }
 

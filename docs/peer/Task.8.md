@@ -9,7 +9,7 @@
 **Status:** 🚧 IN PROGRESS — every deliverable is closed; the task stays open only while its
 world-continuity rows (W-FETCH-1/2, W-REPL-1/4) wait on a live run
 **Category:** worker · **Owns:** W-DUP-1…4, W-FETCH-1, W-REPL-1 (W-REPL-2 and W-REPL-3 retired
-2026-07-28; W-DUP-1/2/4 the same day; **W-DUP-3 retired 2026-07-29**) · **Last audit:** 2026-07-29
+2026-07-28; W-DUP-1/2/4 the same day; **W-DUP-3 retired 2026-07-29**) · **Last audit:** 2026-08-01
 **Depends on:** [worker 3](Task.3.md), [minecraft 6](../minecraft/Task.6.md)
 **Consumed by:** [app 10](../app/Task.10.md), [minecraft 10](../minecraft/Task.10.md)
 
@@ -44,9 +44,10 @@ Landed so far:
 - Worker identity, registry, key and tombstone writes share
   `storage.io.AtomicFileWriter.writeOwnerOnly`: it checks the destination directory's `FileStore`,
   creates POSIX temporary files as `0600` before content, fails closed if advertised POSIX
-  permissions are rejected, and uses default creation only when the store has no POSIX view. Failed
-  writes and moves remove the secret-bearing temporary file; cleanup failures are suppressed on the
-  primary exception.
+  permissions are rejected, and uses default creation only when the store has no POSIX view. When
+  Android denies store inspection, it attempts `0600` creation directly instead. Failed writes and
+  moves remove the secret-bearing temporary file; cleanup failures are suppressed on the primary
+  exception. Physical Android 15 startup persisted the worker identity through this path.
 
 ## Dependencies
 
@@ -154,7 +155,7 @@ cryptographic.
 | `WorldHostingServiceTest#oneWorldIsOneEntryHoweverItIsSpelled` | ✅ green | deliverable 5 |
 | `HeadlessPeerMainStateTest#startupStateSurvivesANonPosixFileSystem` | ✅ green (closest production seam) | deliverable 8 mechanism — `HeadlessPeerMain.openLocalState` runs on zipfs with no POSIX `FileStore` view; identity reload and registry replacement succeed |
 | A launched `nodera-headless` on a FAT32 loop mount: boot → `NODERA-JOIN` → kill → boot | ✅ run 2026-07-29 | deliverable 8's exit — same node id and the pre-restart `worlds.dat` row recovered; a second pass wrote a `.worldkey` there too. Recorded in [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md); not automatable in CI (needs a mount) |
-| `AtomicFileWriterTest` (3) | ✅ green | owner-only POSIX result, failed-move temp deletion, cleanup error suppression |
+| `AtomicFileWriterTest` (4) | ✅ green | owner-only POSIX result including denied store inspection, failed-move temp deletion, cleanup error suppression |
 | `FetchSurvivesSupersessionTest#aNewerVersionLearnedMidFetchDoesNotEvictTheOneBeingDownloaded` | ✅ green (verified failing without the guard) | deliverable 10 |
 | `FetchSurvivesSupersessionTest#aVersionNobodyIsFetchingIsStillSuperseded` | ✅ green | deliverable 10 keeps L-55 intact |
 | A control-socket round trip of `NODERA-WORLDID` with and without the 8th argument | ⬜ not written | the verb stayed backward compatible |

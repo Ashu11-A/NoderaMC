@@ -89,6 +89,8 @@ pub struct NoderaCore {
     pub restart: Arc<RestartSignal>,
     pub network: Arc<std::sync::Mutex<android::network::NetworkState>>,
     pub pending_store: Arc<PendingStore>,
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    launch: Arc<crate::launch::LaunchCoordinator>,
     /// Resolved once, at construction. Reading the environment per call would let one process talk
     /// to two workers if something changed it mid-run, which is a bug with no symptom until it is a
     /// very confusing one.
@@ -97,6 +99,7 @@ pub struct NoderaCore {
 
 impl NoderaCore {
     pub fn new() -> Self {
+        let config_status = Arc::new(ConfigStatusHandle::new());
         Self {
             // `restored`, not `new`: the traffic totals are the node's, not this process's, and they
             // read back from disk so neither a worker restart nor closing the app sends them to zero.
@@ -104,15 +107,17 @@ impl NoderaCore {
             system: Arc::new(SystemHandle::new()),
             logs: Arc::new(LogBuffer::new()),
             settings: Arc::new(SettingsHandle::load()),
-            config_status: Arc::new(ConfigStatusHandle::new()),
+            config_status: Arc::clone(&config_status),
             pause: Arc::new(PauseHandle::new()),
-            push: Arc::new(PushSignal::default()),
+            push: Arc::new(PushSignal::new(config_status)),
             restart: Arc::new(RestartSignal::default()),
             // Deliberately not probed here: on Android the Activity has not yet bound this process's
             // `Context`, so a read would panic (caught, but noisy) and be discarded ten seconds later
             // anyway. The sampler fills it in.
             network: Arc::new(std::sync::Mutex::new(android::network::pending())),
             pending_store: Arc::new(PendingStore::default()),
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            launch: Arc::new(crate::launch::LaunchCoordinator::default()),
             control_addr: control_addr(),
         }
     }
@@ -176,7 +181,7 @@ impl NoderaCore {
     /// battery rules can also be holding on.
     pub fn toggle_pause(&self) -> bool {
         let paused = self.pause.toggle_manual();
-        self.push.request();
+        self.request_config_push();
         paused
     }
 
@@ -219,8 +224,67 @@ impl NoderaCore {
         // Kept in step with the document, because on Android this file is the only way the worker
         // ever learns about a tracker (see `stores::sync_file_body`).
         settings::write_sync_file(&self.settings.snapshot());
-        self.push.request();
+        self.request_config_push();
         Ok(())
+    }
+
+    fn update_settings(
+        &self,
+        change: impl FnOnce(&mut settings::Settings),
+    ) -> Result<settings::Settings, String> {
+        let next = self.settings.update(change)?;
+        #[cfg(target_os = "android")]
+        if let Err(reason) = daemon::write_worker_properties(&next) {
+            log::warn!("could not refresh Android worker properties: {reason}");
+        }
+        settings::write_sync_file(&next);
+        self.request_config_push();
+        Ok(next)
+    }
+
+    pub fn set_theme(&self, theme: settings::Theme) -> Result<(), String> {
+        self.update_settings(move |settings| settings.appearance.theme = theme)?;
+        Ok(())
+    }
+
+    pub fn set_network_policy(
+        &self,
+        policy: settings::NetworkPolicy,
+        max_connections: u32,
+    ) -> Result<(), String> {
+        self.update_settings(move |settings| {
+            settings.network.transfer_network = policy;
+            settings.network.max_connections = max_connections;
+        })?;
+        Ok(())
+    }
+
+    pub fn set_storage_policy(&self, budget_bytes: u64, sweep_seconds: u64) -> Result<(), String> {
+        self.update_settings(move |settings| {
+            settings.storage.replication_budget_bytes = budget_bytes;
+            settings.storage.replication_sweep_seconds = sweep_seconds;
+        })?;
+        Ok(())
+    }
+
+    pub fn set_power_rules(
+        &self,
+        only_charging: bool,
+        battery_control: bool,
+        threshold: u8,
+        during_game: bool,
+    ) -> Result<(), String> {
+        self.update_settings(move |settings| {
+            settings.behavior.only_when_charging = only_charging;
+            settings.behavior.battery_control = battery_control;
+            settings.behavior.battery_threshold_percent = threshold;
+            settings.behavior.power_rules_during_game = during_game;
+        })?;
+        Ok(())
+    }
+
+    fn request_config_push(&self) {
+        self.push.request();
     }
 
     pub fn setting_status(&self) -> Vec<settings::SettingStatus> {
@@ -241,11 +305,20 @@ impl NoderaCore {
     }
 
     pub fn complete_setup(&self, worlds_dir: String) -> Result<(), String> {
-        let mut next = self.settings.snapshot();
-        next.storage.peer_worlds_dir = worlds_dir;
-        next.setup.completed = true;
-        self.settings.save(next)?;
-        self.push.request();
+        self.update_storage_dir(worlds_dir, true)
+    }
+
+    pub fn set_storage_dir(&self, worlds_dir: String) -> Result<(), String> {
+        self.update_storage_dir(worlds_dir, false)
+    }
+
+    fn update_storage_dir(&self, worlds_dir: String, complete_setup: bool) -> Result<(), String> {
+        self.update_settings(move |settings| {
+            settings.storage.peer_worlds_dir = worlds_dir;
+            if complete_setup {
+                settings.setup.completed = true;
+            }
+        })?;
         Ok(())
     }
 
@@ -253,6 +326,13 @@ impl NoderaCore {
 
     pub fn tracker_stores(&self) -> Vec<stores::TrackerStore> {
         self.settings.snapshot().network.tracker_stores
+    }
+
+    pub fn set_direct_trackers(&self, trackers: Vec<String>) -> Result<(), String> {
+        self.update_settings(move |settings| {
+            settings.network.default_trackers = trackers;
+        })?;
+        Ok(())
     }
 
     pub fn take_pending_tracker_store(&self) -> Option<String> {
@@ -317,33 +397,36 @@ impl NoderaCore {
         let index = stores::parse_index(&body).map_err(|e| e.to_string())?;
         let store = stores::store_from(&target, index, now_millis(), false);
 
-        let mut settings = self.settings.snapshot();
         // One entry per URL. Re-adding a store is how a user refreshes one by hand, so it replaces
         // rather than duplicating — two rows for one URL would double every endpoint it contributes.
-        settings
-            .network
-            .tracker_stores
-            .retain(|held| held.url != store.url);
-        settings.network.tracker_stores.push(store.clone());
-        self.settings.save(settings)?;
-        settings::write_sync_file(&self.settings.snapshot());
-        self.push.request();
+        let added = store.clone();
+        self.update_settings(move |settings| {
+            settings
+                .network
+                .tracker_stores
+                .retain(|held| held.url != added.url);
+            settings.network.tracker_stores.push(added);
+        })?;
         Ok(store)
     }
 
     pub fn remove_tracker_store(&self, url: String) -> Result<(), String> {
-        let mut settings = self.settings.snapshot();
-        let before = settings.network.tracker_stores.len();
-        settings
+        if !self
+            .settings
+            .snapshot()
             .network
             .tracker_stores
-            .retain(|held| held.url != url);
-        if settings.network.tracker_stores.len() == before {
+            .iter()
+            .any(|held| held.url == url)
+        {
             return Err(format!("no store here is served from {url}"));
         }
-        self.settings.save(settings)?;
-        settings::write_sync_file(&self.settings.snapshot());
-        self.push.request();
+        self.update_settings(move |settings| {
+            settings
+                .network
+                .tracker_stores
+                .retain(|held| held.url != url);
+        })?;
         Ok(())
     }
 
@@ -366,11 +449,20 @@ impl NoderaCore {
                 Err(e) => store.last_error = e.to_string(),
             }
         }
-        let refreshed = settings.network.tracker_stores.clone();
-        self.settings.save(settings)?;
-        settings::write_sync_file(&self.settings.snapshot());
-        self.push.request();
-        Ok(refreshed)
+        let fetched = settings.network.tracker_stores;
+        let updated = self.update_settings(move |current| {
+            for replacement in fetched {
+                if let Some(store) = current
+                    .network
+                    .tracker_stores
+                    .iter_mut()
+                    .find(|held| held.url == replacement.url)
+                {
+                    *store = replacement;
+                }
+            }
+        })?;
+        Ok(updated.network.tracker_stores)
     }
 
     /// Re-read one store.
@@ -385,25 +477,36 @@ impl NoderaCore {
             .await
             .map_err(|e| format!("the fetch task failed: {e}"))?;
 
-        let mut settings = self.settings.snapshot();
+        let settings = self.settings.snapshot();
         let store = settings
             .network
             .tracker_stores
-            .iter_mut()
+            .iter()
             .find(|held| held.url == target)
             .ok_or_else(|| format!("no store here is served from {target}"))?;
-        match fetched.and_then(|body| stores::parse_index(&body)) {
+        let updated = match fetched.and_then(|body| stores::parse_index(&body)) {
             Ok(index) => {
                 let built_in = store.built_in;
-                *store = stores::store_from(&target, index, now_millis(), built_in);
+                stores::store_from(&target, index, now_millis(), built_in)
             }
             // Beside the services, never instead of them. See `refresh_tracker_stores`.
-            Err(e) => store.last_error = e.to_string(),
-        }
-        let updated = store.clone();
-        self.settings.save(settings)?;
-        settings::write_sync_file(&self.settings.snapshot());
-        self.push.request();
+            Err(e) => {
+                let mut failed = store.clone();
+                failed.last_error = e.to_string();
+                failed
+            }
+        };
+        let replacement = updated.clone();
+        self.update_settings(move |settings| {
+            if let Some(store) = settings
+                .network
+                .tracker_stores
+                .iter_mut()
+                .find(|held| held.url == replacement.url)
+            {
+                *store = replacement;
+            }
+        })?;
         Ok(updated)
     }
 
@@ -421,6 +524,7 @@ impl NoderaCore {
                 settings::write_sync_file(&document);
             } else {
                 let mut changed = false;
+                let original_stores = document.network.tracker_stores.clone();
                 for store in &mut document.network.tracker_stores {
                     let url = store.url.clone();
                     let fetched =
@@ -439,12 +543,27 @@ impl NoderaCore {
                         Err(e) => store.last_error = format!("the fetch task failed: {e}"),
                     }
                 }
-                if self.settings.save(document.clone()).is_ok() {
-                    settings::write_sync_file(&document);
+                let refreshed_stores = document.network.tracker_stores;
+                if let Ok(updated) = self.settings.update(move |current| {
+                    // A user may add, remove, or manually refresh a store while these network reads
+                    // are in flight. Replace only entries still equal to this loop's original view.
+                    for (original, replacement) in original_stores.into_iter().zip(refreshed_stores)
+                    {
+                        if let Some(store) = current
+                            .network
+                            .tracker_stores
+                            .iter_mut()
+                            .find(|held| held.url == original.url && **held == original)
+                        {
+                            *store = replacement;
+                        }
+                    }
+                }) {
+                    settings::write_sync_file(&updated);
                     if changed {
                         // A store that gained a tracker should reach a running worker rather than
                         // wait for a restart — `network.default_trackers` is a live key.
-                        self.push.request();
+                        self.request_config_push();
                     }
                 }
             }
@@ -492,11 +611,39 @@ impl NoderaCore {
     /// Nothing is downloaded. The worker opens a tunnel to the host and binds a loopback port; the
     /// player's own Minecraft then connects to it as though the host were on the same LAN.
     pub async fn join_world(&self, session_id: String) -> api::network::Outcome {
-        api::network::join_session(&self.control_addr, &session_id).await
+        let session_id = session_id.trim();
+        if !api::network::is_sha256_hex(session_id) {
+            return api::network::Outcome::failed(
+                "session id must be exactly 64 hexadecimal characters",
+            );
+        }
+        api::network::join_session(&self.control_addr, session_id).await
     }
 
     pub async fn leave_world(&self, session_id: String) -> api::network::Outcome {
-        api::network::leave_session(&self.control_addr, &session_id).await
+        let session_id = session_id.trim();
+        if !api::network::is_sha256_hex(session_id) {
+            return api::network::Outcome::failed(
+                "session id must be exactly 64 hexadecimal characters",
+            );
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let session = crate::launch::SessionId::parse(session_id).expect("validated above");
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        self.launch.cancel_for(&session);
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        let outcome = crate::launch::cleanup_tunnel(&self.control_addr, &session).await;
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let outcome = api::network::leave_session(&self.control_addr, session_id).await;
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if self.launch.release_if_closed(&session, &outcome).is_some() && !outcome.ok {
+            return api::network::Outcome::ok("");
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if !outcome.closed_or_absent() {
+            self.launch.cleanup_failed(&session, &outcome.error);
+        }
+        outcome
     }
 
     pub async fn world_share_link(&self, world_id: String) -> api::network::Outcome {
@@ -537,16 +684,60 @@ impl NoderaCore {
 
     /* ----------------------------------------------------------------------------------- peer */
 
-    /// This device's own peer identity and its last tracker exchange.
+    fn current_peer_query(&self) -> Result<(String, Vec<String>), String> {
+        let dashboard = self.snapshot();
+        if !matches!(
+            dashboard.link.status,
+            api::model::LinkStatus::Live | api::model::LinkStatus::Polling
+        ) || dashboard.node.node_id.is_empty()
+        {
+            return Err("the worker is not currently reporting its peer identity".to_owned());
+        }
+        let trackers = dashboard
+            .discovery
+            .trackers
+            .iter()
+            .map(|tracker| {
+                let host = if tracker.host.contains(':') && !tracker.host.starts_with('[') {
+                    format!("[{}]", tracker.host)
+                } else {
+                    tracker.host.clone()
+                };
+                if tracker.scheme.is_empty() {
+                    format!("{host}:{}", tracker.port)
+                } else {
+                    format!("{}://{host}:{}", tracker.scheme, tracker.port)
+                }
+            })
+            .collect::<Vec<_>>();
+        if trackers.is_empty() {
+            return Err("the worker is not currently reporting any tracker".to_owned());
+        }
+        Ok((dashboard.node.node_id, trackers))
+    }
+
+    /// The worker's peer identity and its current presence in the commons tracker namespace.
     ///
-    /// Runs the SAME round the peer loop runs — announce, then ask the trackers back. Announcing
-    /// only would leave "peers seen" at zero on a screen the loop later fills in, so the number would
-    /// depend on which code path last wrote it. One round, one meaning.
+    /// The worker owns peer networking on every platform. This method only queries for the identity
+    /// already reported over `NODERA-STATE`; it never creates or announces an app-owned second peer.
     pub async fn peer_status(&self) -> Result<peer::PeerStatus, String> {
-        let trackers = self.settings.snapshot().network.default_trackers;
+        let (node_id, trackers) = self.current_peer_query()?;
         tokio::task::spawn_blocking(move || {
-            let identity = peer::identity::PeerIdentity::load_or_create()?;
-            Ok(peer::announce_round(&identity, &trackers))
+            let check = peer::tracker::verify_presence(&node_id, &trackers);
+            if !check.trackers.iter().any(|tracker| tracker.reachable) {
+                return Err(check.error);
+            }
+            Ok(peer::PeerStatus {
+                node_id: node_id.clone(),
+                trackers: check.trackers,
+                announced: check.found_self,
+                known_peers: check
+                    .peers
+                    .iter()
+                    .filter(|peer| peer.as_str() != node_id)
+                    .count() as u64,
+                ..peer::PeerStatus::default()
+            })
         })
         .await
         .map_err(|e| format!("the peer task failed: {e}"))?
@@ -554,16 +745,13 @@ impl NoderaCore {
 
     /// The round trip that proves this device is on the network.
     ///
-    /// Announces, then queries the tracker back and looks for **this device's own entry**. An
-    /// accepted announce alone would only say the tracker took the bytes.
+    /// Queries the tracker and looks for the worker's reported identity. The worker owns the
+    /// announce; signing another one here would test a different peer and alter the network.
     pub async fn peer_self_test(&self) -> Result<peer::tracker::SelfTest, String> {
-        let trackers = self.settings.snapshot().network.default_trackers;
-        tokio::task::spawn_blocking(move || {
-            let identity = peer::identity::PeerIdentity::load_or_create()?;
-            Ok(peer::tracker::self_test(&identity, &trackers, Vec::new()))
-        })
-        .await
-        .map_err(|e| format!("the peer task failed: {e}"))?
+        let (node_id, trackers) = self.current_peer_query()?;
+        tokio::task::spawn_blocking(move || Ok(peer::tracker::verify_presence(&node_id, &trackers)))
+            .await
+            .map_err(|e| format!("the peer task failed: {e}"))?
     }
 
     /* -------------------------------------------------------------------- platform + about */
@@ -633,7 +821,15 @@ impl NoderaCore {
         // rather than because the app guessed when to ask. Its offline→online edge is what
         // re-pushes configuration to a worker that came back without it.
         let store = Arc::clone(&self.dashboard);
-        let reconnect = Arc::clone(&self.push.0);
+        let reconnect = Arc::new(tokio::sync::Notify::new());
+        let reconnect_push = Arc::clone(&self.push);
+        let reconnect_signal = Arc::clone(&reconnect);
+        runtime.spawn(async move {
+            loop {
+                reconnect_signal.notified().await;
+                reconnect_push.request();
+            }
+        });
         let addr = self.control_addr.clone();
         runtime.spawn(async move { crate::api::link::pump(addr, store, sink, reconnect).await });
 
@@ -687,9 +883,81 @@ impl NoderaCore {
     /// choice by doing it is one nobody can predict.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     pub async fn launch_targets(&self) -> Vec<crate::launch::discover::LaunchTarget> {
-        tokio::task::spawn_blocking(crate::launch::discover::targets)
+        let mut targets = tokio::task::spawn_blocking(crate::launch::discover::targets)
             .await
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Discovery describes how an install can be started. Expose how this build would actually
+        // start it, so a client-id-only build never advertises Direct while planning a fallback.
+        for target in &mut targets {
+            target.tier = crate::launch::plan::choose(target).tier;
+        }
+        targets
+    }
+
+    /// Last launch transition, retained by backend across frontend remounts.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub fn launch_state(&self) -> crate::launch::LaunchState {
+        self.launch.current()
+    }
+
+    /// Best-effort tunnel cleanup before desktop runtime exits.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub async fn shutdown_launch(&self) {
+        let Some(session) = self.launch.owned_session() else {
+            return;
+        };
+        self.launch.cancel_for(&session);
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(8),
+            crate::launch::cleanup_tunnel(&self.control_addr, &session),
+        )
+        .await
+        {
+            Ok(outcome) if outcome.closed_or_absent() => {
+                self.launch.release_if_closed(&session, &outcome);
+            }
+            Ok(outcome) => log::warn!("launch: shutdown tunnel cleanup failed: {}", outcome.error),
+            Err(_) => log::warn!("launch: shutdown tunnel cleanup exceeded eight seconds"),
+        }
+    }
+
+    /// Reserve launcher and start one attempt. Reservation happens before returning so two command
+    /// invocations cannot both report success and race inside detached tasks.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub fn start_play(
+        self: Arc<Self>,
+        world_id: String,
+        world_name: String,
+        preferred: Option<String>,
+        sink: Arc<dyn crate::launch::LaunchSink>,
+    ) -> Result<(), String> {
+        let world = crate::launch::WorldId::parse(world_id)?;
+        let (launch_id, state) = self.launch.begin(&world)?;
+        sink.publish(state);
+        tokio::spawn(async move {
+            self.play(launch_id, world, world_name, preferred, sink)
+                .await;
+        });
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    fn publish_launch(
+        &self,
+        launch_id: crate::launch::LaunchId,
+        state: crate::launch::LaunchState,
+        sink: &dyn crate::launch::LaunchSink,
+        finished: bool,
+    ) -> bool {
+        let accepted = if finished {
+            self.launch.finish(launch_id, state.clone())
+        } else {
+            self.launch.update(launch_id, state.clone())
+        };
+        if accepted {
+            sink.publish(state);
+        }
+        accepted
     }
 
     /// Join a world and start the game in it.
@@ -702,127 +970,345 @@ impl NoderaCore {
     /// 2. **Then the tunnel.** A game that starts and finds nothing listening is a player staring at
     ///    "connection refused" with no idea which half broke.
     /// 3. **Then prepare, then spawn.**
-    /// 4. **Close the tunnel when the game exits — and when anything after step 2 fails.** This is
-    ///    the leak the old Join screen had: it opened a tunnel and never closed it, so a session
-    ///    outlived the game and the node kept a door open to a host the player had finished with.
+    /// 4. **Close the tunnel when an owned game exits, and when anything after step 2 fails.** A
+    ///    delegated launcher does not expose game lifetime, so its tunnel remains until explicit
+    ///    leave rather than pretending launcher-process exit means Minecraft exited.
     ///
     /// Every transition is published, because a Play button that shows a spinner and no word is the
     /// same failure as a dashboard reporting `0` for "we never asked".
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub async fn play(
+    async fn play(
         self: Arc<Self>,
-        world_id: String,
+        launch_id: crate::launch::LaunchId,
+        world_id: crate::launch::WorldId,
         world_name: String,
         preferred: Option<String>,
         sink: Arc<dyn crate::launch::LaunchSink>,
     ) {
-        use crate::launch::{plan as planner, Phase, Remedy};
+        use crate::launch::{
+            delegated_observation, plan as planner, DelegatedObservation, Phase, Remedy, SessionId,
+            Tier, TunnelLease,
+        };
 
-        let mut state = crate::launch::LaunchState {
-            world_id: world_id.clone(),
-            ..crate::launch::LaunchState::idle()
-        }
-        .at(Phase::Resolving);
-        sink.publish(state.clone());
+        let mut state = self.launch.current();
 
         let targets = self.launch_targets().await;
+        if !self.launch.is_active(launch_id) {
+            return;
+        }
         let chosen = match planner::plan(&targets, preferred.as_deref()) {
             Ok(chosen) => chosen,
             Err(no) => {
-                sink.publish(state.failed(no.reason, no.remedy));
+                self.publish_launch(
+                    launch_id,
+                    state.failed(no.reason, no.remedy),
+                    sink.as_ref(),
+                    true,
+                );
                 return;
             }
         };
         state.tier = Some(chosen.tier);
+        state.target_id = Some(chosen.target.id.clone());
         state.profile = Some(chosen.target.name.clone());
         state.install_path = Some(chosen.target.game_dir.clone());
 
         state = state.at(Phase::Joining);
-        sink.publish(state.clone());
-        let joined = self.join_world(world_id.clone()).await;
+        if !self.publish_launch(launch_id, state.clone(), sink.as_ref(), false) {
+            return;
+        }
+        // Current worker directory contract identifies a live session by its world's genesis hash.
+        // Cross that alias explicitly; never pass a WorldId to a session API by accident.
+        let session_id = SessionId::for_world(&world_id);
+        // Acquired before the await: cancellation after CONNECT is sent but before its reply still
+        // owns enough information to issue DISCONNECT.
+        let tunnel = TunnelLease::new(
+            self.control_addr.clone(),
+            session_id.clone(),
+            launch_id,
+            Arc::clone(&self.launch),
+        );
+        let joined = api::network::join_session(&self.control_addr, session_id.as_str()).await;
+        if !self.launch.is_active(launch_id) {
+            // Explicit leave owns cleanup and has already obsoleted this task.
+            tunnel.dismiss();
+            return;
+        }
         if !joined.ok {
-            let reason = if joined.error.is_empty() {
+            // EOF, timeout, or an error reply does not prove CONNECT failed before opening a port.
+            state.session_id = Some(session_id.as_str().to_owned());
+            let mut reason = if joined.error.is_empty() {
                 "the worker could not open a tunnel to that world".to_owned()
             } else {
                 joined.error.clone()
             };
-            sink.publish(state.failed(reason, Remedy::Retry));
+            let cleanup = tunnel.close().await;
+            let closed = cleanup.closed_or_absent();
+            if closed {
+                state.session_id = None;
+            } else {
+                reason.push_str(&format!(
+                    "; its tunnel could not be closed: {}",
+                    cleanup.error
+                ));
+            }
+            self.publish_launch(
+                launch_id,
+                state.failed(reason, Remedy::Retry),
+                sink.as_ref(),
+                closed,
+            );
             return;
         }
-        state.session_id = Some(world_id.clone());
+        state.session_id = Some(session_id.as_str().to_owned());
         state.address = Some(joined.value.clone());
 
         state = state.at(Phase::Preparing);
-        sink.publish(state.clone());
-        let prepared = match planner::prepare(
+        if !self.publish_launch(launch_id, state.clone(), sink.as_ref(), false) {
+            tunnel.dismiss();
+            return;
+        }
+        let preparation = planner::prepare(
             &chosen,
             &joined.value,
             &world_name,
-            // Only the offline identity uses this, and only the two delegating tiers ever run today
-            // — neither of which takes a player name from us, because their launcher owns the
-            // account. A real name arrives with a real sign-in, not before.
-            "Player",
-            crate::launch::auth::client_id().as_deref(),
-        ) {
+            crate::launch::auth::account().as_ref(),
+        );
+        if !self.launch.is_active(launch_id) {
+            tunnel.dismiss();
+            return;
+        }
+        let prepared = match preparation {
             Ok(prepared) => prepared,
             Err(no) => {
-                // The tunnel is already open at this point, and nothing is going to use it.
-                self.leave_world(world_id.clone()).await;
-                state.session_id = None;
-                sink.publish(state.failed(no.reason, no.remedy));
+                let fallback = no.remedy == Remedy::CopyAddress;
+                if fallback {
+                    // Address is now the usable result. Backend retains tunnel until leave_world.
+                    tunnel.preserve();
+                } else {
+                    let cleanup = tunnel.close().await;
+                    if cleanup.closed_or_absent() {
+                        state.session_id = None;
+                    } else {
+                        state.reason = format!(
+                            "{}; its tunnel could not be closed: {}",
+                            no.reason, cleanup.error
+                        );
+                    }
+                }
+                let reason = if state.reason.is_empty() {
+                    no.reason
+                } else {
+                    state.reason.clone()
+                };
+                let finished = fallback || state.session_id.is_none();
+                self.publish_launch(
+                    launch_id,
+                    state.failed(reason, no.remedy),
+                    sink.as_ref(),
+                    !fallback && finished,
+                );
                 return;
             }
         };
+        if !self.launch.is_active(launch_id) {
+            tunnel.dismiss();
+            return;
+        }
         state.java = prepared.java.as_ref().map(|p| p.display().to_string());
 
         state = state.at(Phase::Spawning);
-        sink.publish(state.clone());
+        if !self.publish_launch(launch_id, state.clone(), sink.as_ref(), false) {
+            tunnel.dismiss();
+            return;
+        }
         let command = prepared.command.clone();
-        let spawned = tokio::task::spawn_blocking(move || {
+        // Process creation is short and synchronous. Putting it in spawn_blocking creates an
+        // uncancellable gap where the task can be aborted while the OS still starts the game.
+        let spawned = self.launch.if_active(launch_id, || {
             std::process::Command::new(&command.program)
                 .args(&command.arguments)
                 .current_dir(&command.working_dir)
                 .spawn()
-                .map_err(|e| format!("{} could not be started: {e}", command.program.display()))
-        })
-        .await;
-
-        let child = match spawned {
-            Ok(Ok(child)) => child,
-            Ok(Err(reason)) => {
-                self.leave_world(world_id.clone()).await;
-                state.session_id = None;
-                sink.publish(state.failed(reason, Remedy::PickInstall));
+        });
+        let mut child = match spawned {
+            None => {
+                tunnel.dismiss();
                 return;
             }
-            Err(e) => {
-                self.leave_world(world_id.clone()).await;
-                state.session_id = None;
-                sink.publish(state.failed(format!("the launch task failed: {e}"), Remedy::Retry));
+            Some(Ok(child)) => child,
+            Some(Err(error)) => {
+                let cleanup = tunnel.close().await;
+                let closed = cleanup.closed_or_absent();
+                if closed {
+                    state.session_id = None;
+                }
+                let mut reason = format!(
+                    "{} could not be started: {error}",
+                    command.program.display()
+                );
+                if !closed {
+                    reason.push_str(&format!(
+                        "; its tunnel could not be closed: {}",
+                        cleanup.error
+                    ));
+                }
+                self.publish_launch(
+                    launch_id,
+                    state.failed(reason, Remedy::PickInstall),
+                    sink.as_ref(),
+                    closed,
+                );
                 return;
             }
         };
 
+        if !self.launch.is_active(launch_id) {
+            let _ = child.kill();
+            let _ = child.wait();
+            tunnel.dismiss();
+            return;
+        }
+
         state.pid = Some(child.id());
-        state = state.at(Phase::Running);
-        sink.publish(state.clone());
         log::info!(
-            "launch: {} started for {world_id} on {}",
+            "launch: {} started for {} on {}",
             chosen.target.name,
+            world_id.as_str(),
             joined.value
         );
 
-        // Waited on rather than forgotten: the exit is what closes the tunnel, and it is also the
-        // only honest way to stop saying "Running".
-        let mut child = child;
+        if chosen.tier != Tier::Direct {
+            let grace = tokio::time::Instant::now() + std::time::Duration::from_millis(750);
+            let mut handed_off = false;
+            loop {
+                if !self.launch.is_active(launch_id) {
+                    if !handed_off {
+                        let _ = child.kill();
+                    }
+                    tokio::task::spawn_blocking(move || {
+                        let _ = child.wait();
+                    });
+                    tunnel.dismiss();
+                    return;
+                }
+
+                let exit = match child.try_wait() {
+                    Ok(Some(status)) => Some((status.success(), status.code())),
+                    Ok(None) => None,
+                    Err(error) => {
+                        let cleanup = tunnel.close().await;
+                        let closed = cleanup.closed_or_absent();
+                        if closed {
+                            state.session_id = None;
+                        }
+                        self.publish_launch(
+                            launch_id,
+                            state.failed(
+                                format!("launcher process could not be observed: {error}"),
+                                Remedy::Retry,
+                            ),
+                            sink.as_ref(),
+                            closed,
+                        );
+                        return;
+                    }
+                };
+                if handed_off && exit.is_some() {
+                    // After handoff, launcher lifetime says nothing about Minecraft lifetime.
+                    state.pid = None;
+                    state.exit_code = exit.and_then(|(_, code)| code);
+                    if self.publish_launch(launch_id, state, sink.as_ref(), false) {
+                        tunnel.preserve();
+                    }
+                    return;
+                }
+                match delegated_observation(exit, tokio::time::Instant::now() >= grace) {
+                    DelegatedObservation::Pending => {}
+                    DelegatedObservation::Handoff if !handed_off => {
+                        handed_off = true;
+                        state.handoff = true;
+                        state = state.at(Phase::Running);
+                        if !self.publish_launch(launch_id, state.clone(), sink.as_ref(), false) {
+                            tunnel.dismiss();
+                            return;
+                        }
+                    }
+                    DelegatedObservation::Handoff => {}
+                    DelegatedObservation::Accepted => {
+                        state.handoff = true;
+                        state.pid = None;
+                        state.exit_code = exit.and_then(|(_, code)| code);
+                        state = state.at(Phase::Running);
+                        if self.publish_launch(launch_id, state, sink.as_ref(), false) {
+                            tunnel.preserve();
+                        } else {
+                            tunnel.dismiss();
+                        }
+                        return;
+                    }
+                    DelegatedObservation::Failed => {
+                        state.exit_code = exit.and_then(|(_, code)| code);
+                        let code = state
+                            .exit_code
+                            .map(|code| format!(" with code {code}"))
+                            .unwrap_or_default();
+                        let cleanup = tunnel.close().await;
+                        let closed = cleanup.closed_or_absent();
+                        if closed {
+                            state.session_id = None;
+                        }
+                        self.publish_launch(
+                            launch_id,
+                            state.failed(
+                                format!("launcher exited before handoff{code}"),
+                                Remedy::Retry,
+                            ),
+                            sink.as_ref(),
+                            closed,
+                        );
+                        return;
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
+
+        // Direct route owns the actual game JVM, so its child lifetime is authoritative.
+        state = state.at(Phase::Running);
+        if !self.publish_launch(launch_id, state.clone(), sink.as_ref(), false) {
+            let _ = child.kill();
+            let _ = child.wait();
+            tunnel.dismiss();
+            return;
+        }
         let exited = tokio::task::spawn_blocking(move || child.wait()).await;
         state.exit_code = match exited {
             Ok(Ok(status)) => status.code(),
             _ => None,
         };
-        self.leave_world(world_id).await;
-        state.session_id = None;
-        sink.publish(state.at(Phase::Exited));
+        if !self.launch.is_active(launch_id) {
+            tunnel.dismiss();
+            return;
+        }
+        let cleanup = tunnel.close().await;
+        if cleanup.closed_or_absent() {
+            state.session_id = None;
+            self.publish_launch(launch_id, state.at(Phase::Exited), sink.as_ref(), true);
+        } else {
+            self.publish_launch(
+                launch_id,
+                state.failed(
+                    format!(
+                        "Minecraft exited, but its tunnel could not be closed: {}",
+                        cleanup.error
+                    ),
+                    Remedy::Retry,
+                ),
+                sink.as_ref(),
+                false,
+            );
+        }
     }
 }
 
@@ -835,6 +1321,17 @@ impl Default for NoderaCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[derive(Default)]
+    struct LaunchStates(std::sync::Mutex<Vec<crate::launch::LaunchState>>);
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    impl crate::launch::LaunchSink for LaunchStates {
+        fn publish(&self, state: crate::launch::LaunchState) {
+            self.0.lock().unwrap().push(state);
+        }
+    }
 
     #[test]
     fn a_pending_store_holds_one_url_and_gives_it_up_once() {
@@ -894,5 +1391,32 @@ mod tests {
 
         std::env::remove_var("NODERA_SHARE_DIR");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn join_and_leave_reject_non_sha256_ids_before_control_io() {
+        let core = NoderaCore::new();
+        let joined = core.join_world("aabb".to_owned()).await;
+        let left = core.leave_world("aabb".to_owned()).await;
+
+        assert!(!joined.ok);
+        assert!(joined.error.contains("exactly 64"), "{}", joined.error);
+        assert!(!left.ok);
+        assert!(left.error.contains("exactly 64"), "{}", left.error);
+    }
+
+    #[test]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    fn obsolete_attempt_cannot_publish_stale_event() {
+        const WORLD: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let core = NoderaCore::new();
+        let world = crate::launch::WorldId::parse(WORLD).unwrap();
+        let session = crate::launch::SessionId::for_world(&world);
+        let (id, state) = core.launch.begin(&world).unwrap();
+        core.launch.cancel_for(&session).unwrap();
+        let sink = LaunchStates::default();
+
+        assert!(!core.publish_launch(id, state.at(crate::launch::Phase::Running), &sink, false));
+        assert!(sink.0.lock().unwrap().is_empty());
     }
 }

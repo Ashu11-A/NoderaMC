@@ -24,9 +24,8 @@ publish.workspace = true
 
 [dependencies]
 nodera-codec = { workspace = true }
-# The mobile build IS the peer — there is no JVM on Android to supervise — so it signs its own
-# announces. Same curve, same canonical bytes, same tracker verification path as the Java peer.
-# `std` on top of the workspace's `alloc`: the identity file is read from a real filesystem.
+# Legacy canonical tracker-signing tests use this curve. Runtime peer identity belongs to the Java
+# worker on desktop and Android; app self-tests query for that worker rather than announcing another.
 ed25519-dalek = { workspace = true, features = ["std"] }
 # The bundled telemetry registry the disclosure falls back to when the collector is unreachable
 # (L-78). A path dependency rather than a copied JSON file: two hand-maintained copies of a privacy
@@ -52,9 +51,7 @@ base64 = "0.22"
 # System + per-process RAM/CPU sampling for the dashboard's resource tiles.
 sysinfo = "0.30"
 
-# Android has no stdout to read: anything a process prints goes nowhere unless it is written to the
-# system log. Without this the peer loop would be running correctly and completely unobservable,
-# which is indistinguishable from not running at all.
+# Android has no stdout to read: Rust diagnostics must enter the system log or they are invisible.
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.14"
 # Talking to the Android framework from Rust: reading the battery-optimisation state and opening the
@@ -67,8 +64,8 @@ ndk-context = "0.1"
 #
 # Desktop only, and deliberately so. It does not build for Android — and it should not: a phone's
 # power management belongs to the phone, an app that second-guesses it is an app the OS will kill,
-# and the mobile build has no worker to pause anyway. `power::battery` degrades to "no battery" when
-# the crate is absent, which is the same branch a desktop with no battery takes.
+# while native battery policy comes from Android APIs. `power::battery` degrades to "no battery"
+# when the crate is absent, which is the same branch a desktop with no battery takes.
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 starship-battery = "0.10"
 

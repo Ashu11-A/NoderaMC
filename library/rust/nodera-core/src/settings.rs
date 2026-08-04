@@ -770,6 +770,15 @@ pub fn set_android_data_dir(dir: PathBuf) {
     let _ = ANDROID_DATA_DIR.set(dir);
 }
 
+/// Android's application data root, before [`config_dir`] appends `nodera`.
+///
+/// Storage picker results live under `Context.filesDir`, a sibling of that config directory, so
+/// callers needing platform paths must not try to recover this root from `config_dir()`.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn android_data_dir() -> Option<PathBuf> {
+    ANDROID_DATA_DIR.get().cloned()
+}
+
 /// Config dir without pulling in a directories crate: XDG on Linux, the OS conventions elsewhere.
 fn dirs_config() -> Option<PathBuf> {
     // Checked first and on every platform: an explicitly injected directory is always right, and
@@ -922,6 +931,30 @@ impl SettingsHandle {
 
     /// Validate, store, and persist. Returns the error message on a rejected document.
     pub fn save(&self, settings: Settings) -> Result<(), String> {
+        let mut held = self.inner.lock().unwrap();
+        self.persist(&settings)?;
+        *held = settings;
+        self.loaded
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Atomically change selected fields without replacing unrelated settings from a stale UI
+    /// snapshot. Long-lived pages and the background store refresh both use this seam.
+    pub fn update(&self, change: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
+        // Complete Android's deferred load before taking the mutation lock.
+        let _ = self.snapshot();
+        let mut held = self.inner.lock().unwrap();
+        let mut next = held.clone();
+        change(&mut next);
+        self.persist(&next)?;
+        *held = next.clone();
+        self.loaded
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(next)
+    }
+
+    fn persist(&self, settings: &Settings) -> Result<(), String> {
         // Refuse to write over something we failed to read. The alternative is that one unparseable
         // byte silently costs the user every setting they ever chose.
         //
@@ -946,7 +979,7 @@ impl SettingsHandle {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let encoded = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+        let encoded = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
         // Write-then-rename: a crash mid-write leaves the previous settings intact rather than a
         // half-written file that would silently reset everything on next launch.
         //
@@ -962,9 +995,6 @@ impl SettingsHandle {
             file.sync_all().map_err(|e| e.to_string())?;
         }
         std::fs::rename(&temp, &path).map_err(|e| e.to_string())?;
-        *self.inner.lock().unwrap() = settings;
-        self.loaded
-            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 }

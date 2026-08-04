@@ -149,6 +149,9 @@ public final class WorldHostingService implements AutoCloseable {
      */
     private volatile java.util.function.Predicate<String> deleted = worldIdHex -> false;
 
+    /** Asked before refusing a SHARE of a deleted world; see {@link #reviveOnOwnerReshare}. */
+    private volatile java.util.function.Predicate<String> revive = worldIdHex -> false;
+
     /**
      * Whether this node can still <b>serve</b> each world it holds (W-DUP-1). Defaults to every
      * world being servable. A world that fails this test is <b>suppressed from the announce set</b>
@@ -280,6 +283,26 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     /**
+     * Bind what happens when the world being <b>shared</b> is one this node has a deletion for.
+     *
+     * <p>The predicate above is the right answer for every path except one: the owner sharing their
+     * own world again. A world id is derived from the save, so re-sharing after a delete produces
+     * the same id, hits the same tombstone, and is refused — permanently, by the owner's own worker.
+     * Deleting a world quietly meant "this save can never be shared again", and the only outward
+     * sign was a log line, because the pause menu had already said "shared".
+     *
+     * <p>So {@link #host} asks this hook first. It returns true only if it could mint and publish an
+     * owner-signed restore — which requires the world's private key, so a node that is not the owner
+     * still gets the refusal. Deliberately not consulted from {@link #seed}: adopting content is not
+     * an instruction from anybody, and must never resurrect a world on its own.
+     *
+     * @param revive attempts the restore and reports whether the world may now be hosted.
+     */
+    public void reviveOnOwnerReshare(java.util.function.Predicate<String> revive) {
+        this.revive = java.util.Objects.requireNonNull(revive, "revive");
+    }
+
+    /**
      * Bind the test that decides whether a world this node holds can still be <b>served</b>.
      *
      * <p>A world that fails this test (its save vanished, its content store emptied, its bytes
@@ -364,7 +387,9 @@ public final class WorldHostingService implements AutoCloseable {
             return "missing worldId";
         }
         String id = key(worldIdHex);
-        if (deleted.test(id)) {
+        if (deleted.test(id) && !revive.test(id)) {
+            // Still deleted, and this node cannot undo it — either it is not the owner, or the
+            // restore could not be signed. Either way the world stays off the network.
             return "this world was deleted by its owner";
         }
         Bytes worldId;

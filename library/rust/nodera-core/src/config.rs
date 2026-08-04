@@ -26,6 +26,7 @@
 //! automatically instead of claiming an enforcement nobody is performing.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -191,6 +192,7 @@ impl ConfigStatus {
 #[derive(Default)]
 pub struct ConfigStatusHandle {
     inner: Mutex<ConfigStatus>,
+    generation: AtomicU64,
 }
 
 impl ConfigStatusHandle {
@@ -202,8 +204,23 @@ impl ConfigStatusHandle {
         self.inner.lock().unwrap().clone()
     }
 
-    fn set(&self, status: ConfigStatus) {
-        *self.inner.lock().unwrap() = status;
+    /// Discard the previous worker verdict when settings change. An old `applied` reply is not
+    /// evidence for values the worker has not received yet.
+    pub fn mark_pending(&self) {
+        let mut held = self.inner.lock().unwrap();
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        *held = ConfigStatus::default();
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    fn set_if_current(&self, generation: u64, status: ConfigStatus) {
+        let mut held = self.inner.lock().unwrap();
+        if self.generation() == generation {
+            *held = status;
+        }
     }
 }
 
@@ -213,15 +230,25 @@ impl ConfigStatusHandle {
 ///
 /// Holds an `Arc<Notify>` rather than a `Notify` so [`crate::control::monitor`] can be handed the
 /// bare notify — the poll loop has no business knowing what configuration is.
-#[derive(Default)]
-pub struct PushSignal(pub Arc<Notify>);
+pub struct PushSignal {
+    notify: Arc<Notify>,
+    status: Arc<ConfigStatusHandle>,
+}
 
 impl PushSignal {
+    pub fn new(status: Arc<ConfigStatusHandle>) -> Self {
+        Self {
+            notify: Arc::new(Notify::new()),
+            status,
+        }
+    }
+
     /// Ask for a push. Cheap, synchronous, and safe to call from a Tauri command: `notify_one`
     /// leaves a permit when nobody is waiting, so a request raised while a push is in flight is
     /// honoured by the next loop iteration rather than lost.
     pub fn request(&self) {
-        self.0.notify_one();
+        self.status.mark_pending();
+        self.notify.notify_one();
     }
 }
 
@@ -287,10 +314,28 @@ pub struct ConfigPusher {
 
 impl ConfigPusher {
     /// Build the current configuration, push it, and cache the verdict.
+    ///
+    /// # This overwrites whatever else configured the worker
+    ///
+    /// The document is rebuilt from *this app's* settings every time, with no notion of what the
+    /// worker currently holds. Many things ask for a push — the offline→online link edge, every
+    /// settings save, the pause toggle, the tray, a network-policy edge every 10s, a battery edge
+    /// every 30s on desktop, a tracker-store refresh — so any configuration that reached the worker
+    /// from somewhere else survives until the first of those fires, which is usually seconds.
+    ///
+    /// Measured on a phone: an external `NODERA-CONFIG` setting a LAN tracker was present 3s after
+    /// it was applied and gone by 15s. It is the reason `MobileContinuityScenario` re-pushes its
+    /// tracker on every poll instead of once — that workaround is load-bearing, not superstition,
+    /// and it can go when this can tell "somebody else configured this" from "drift".
+    ///
+    /// The tracker list specifically now has a floor on the worker side (`TrackerClient::pinned`,
+    /// pinned from an explicit env var or the synced services file), so an endpoint stated by an
+    /// operator survives this. Every other key does not.
     pub async fn push(&self) -> ConfigStatus {
+        let generation = self.status.generation();
         let config = WorkerConfig::of(&self.settings.snapshot(), self.pause.paused());
         let status = push_once(&self.control_addr, &config).await;
-        self.status.set(status.clone());
+        self.status.set_if_current(generation, status.clone());
         status
     }
 }
@@ -302,12 +347,12 @@ impl ConfigPusher {
 /// [`PushSignal::request`] — no runtime handle, no task spawn on the UI's critical path.
 pub async fn debounce_loop(pusher: Arc<ConfigPusher>, signal: Arc<PushSignal>) {
     loop {
-        signal.0.notified().await;
+        signal.notify.notified().await;
         // Keep extending the window while requests keep arriving; a drag becomes one push.
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(DEBOUNCE) => break,
-                _ = signal.0.notified() => continue,
+                _ = signal.notify.notified() => continue,
             }
         }
         pusher.push().await;

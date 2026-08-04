@@ -1,17 +1,14 @@
-//! The app's **own** peer — what runs on a phone, where there is no JVM.
+//! Tracker-wire helpers retained by the app for verifying the worker's presence.
 //!
 //! # Why this exists
 //!
-//! On the desktop this app supervises `nodera-headless`, a Java process, and does no networking of
-//! its own beyond the loopback control socket. Android has no JVM to supervise: it runs ART, whose
-//! class library is not Java's, and the worker's own bytecode does not load there (see
-//! `docs/app/Task.9.md` for the measured reason). So on mobile the app *is* the peer.
+//! Desktop supervises `nodera-headless`; Android loads the same worker bytecode into ART. In both
+//! cases that worker owns peer identity and networking. App-side tracker code may query that
+//! identity for a self-test, but opening a screen must never create or announce a second peer.
 //!
-//! That is a smaller peer, deliberately. It speaks the **discovery plane** — announce yourself to
-//! the trackers, ask them who else is there, exchange a payload to prove the path works — and
-//! nothing else. No world simulation, no region committees, no content store. A phone in your
-//! pocket is a node that helps other people find each other and keeps a swarm's peer set alive;
-//! it is not a place to run a Minecraft world.
+//! Legacy signing helpers remain covered because canonical Rust/Java tracker compatibility is still
+//! useful evidence. Runtime calls use [`tracker::verify_presence`], which only queries the commons
+//! namespace for the worker id received over `NODERA-STATE`.
 //!
 //! # It is a real peer, not a mock
 //!
@@ -28,11 +25,7 @@ pub use round::announce_round;
 
 use serde::{Deserialize, Serialize};
 
-/// Whether this build should run its own peer rather than supervise a worker.
-///
-/// Compiled in rather than configured: an Android build has no worker to supervise and a desktop
-/// build has one, and making that a runtime switch would let a desktop install silently stop
-/// supervising the process the mod requires.
+/// Whether this is a mobile shell. Capability checks use this; peer ownership does not.
 pub const fn is_mobile() -> bool {
     cfg!(target_os = "android") || cfg!(target_os = "ios")
 }

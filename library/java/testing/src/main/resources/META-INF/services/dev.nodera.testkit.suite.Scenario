@@ -17,6 +17,7 @@ dev.nodera.testkit.scenario.EndpointScenario
 dev.nodera.testkit.scenario.FarlandsScenario
 dev.nodera.testkit.scenario.FoliaScenario
 dev.nodera.testkit.scenario.MeshSoakScenario
+dev.nodera.testkit.scenario.MobileContinuityScenario
 dev.nodera.testkit.scenario.MobsScenario
 dev.nodera.testkit.scenario.OwnershipFollowScenario
 dev.nodera.testkit.scenario.OwnershipScenario

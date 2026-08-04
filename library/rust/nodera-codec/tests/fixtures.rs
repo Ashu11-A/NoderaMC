@@ -11,7 +11,7 @@ use nodera_codec::messages::DiscoveryMessage;
 use nodera_codec::rendezvous::RendezvousMessage;
 use nodera_codec::service::ServiceMessage;
 use nodera_codec::tags::message_tags;
-use nodera_codec::tombstone::WorldDeletionGossip;
+use nodera_codec::tombstone::{WorldDeletionGossip, WorldRevivalGossip};
 use std::path::PathBuf;
 
 /// Decode a golden frame with whichever family owns `tag`, and re-encode it.
@@ -42,6 +42,24 @@ fn round_trip_as(tag: u16, bytes: &[u8]) -> Result<Vec<u8>, String> {
         }
         return Ok(nodera_codec::wire::encode_consensus_frame(
             message_tags::WORLD_DELETION_GOSSIP,
+            &gossip.encode(),
+            nodera_codec::frame::flags::EVENT,
+            0,
+        ));
+    }
+    if tag == message_tags::WORLD_REVIVAL_GOSSIP {
+        // The deletion's undo, handled identically: opaque strict bytes across the tolerant plane,
+        // and the verdict — not just the byte layout — has to match Java's.
+        let payload = nodera_codec::wire::consensus_payload(bytes).map_err(|e| e.to_string())?;
+        let gossip = WorldRevivalGossip::decode(payload).map_err(|e| e.to_string())?;
+        let verified = gossip
+            .verified()
+            .ok_or_else(|| "the golden restore did not verify in Rust".to_string())?;
+        if verified.world_id != gossip.world_id {
+            return Err("envelope and proof disagree about the world".into());
+        }
+        return Ok(nodera_codec::wire::encode_consensus_frame(
+            message_tags::WORLD_REVIVAL_GOSSIP,
             &gossip.encode(),
             nodera_codec::frame::flags::EVENT,
             0,

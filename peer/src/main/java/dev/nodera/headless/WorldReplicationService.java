@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.peer.archival.ArchiveObjectClass;
 import dev.nodera.peer.archival.RendezvousArchivePolicy;
+import dev.nodera.peer.discovery.CommonsPresence;
 import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.protocol.discovery.TrackerCatalogEntry;
 import dev.nodera.protocol.discovery.TrackerResponse;
@@ -89,6 +90,17 @@ public final class WorldReplicationService implements AutoCloseable {
      */
     private volatile long budgetBytes;
     private volatile int sweepSeconds;
+
+    /**
+     * worldIdHex → the display name the tracker directory last published for it.
+     *
+     * <p>A world this node only replicates has no local registry row to read a name off — the
+     * registry records what this node hosts. Without this the dashboard could only ever show a
+     * replicated world as a hex id, which is how "the phone is holding 91 of 465 pieces of Ashu's
+     * world" rendered as nothing a player could recognise. Sweep-scoped and lost on restart; the
+     * caller falls back to the id, never to a wrong name.
+     */
+    private final java.util.Map<String, String> catalogNames = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ScheduledExecutorService scheduler;
     /**
@@ -289,6 +301,10 @@ public final class WorldReplicationService implements AutoCloseable {
                     tracker.endpoints().size(), e.toString());
             return 0;
         }
+        // Commons is a peer-presence namespace carried in the world-id slot, not content. Treating
+        // it as a catalog world makes every node repeatedly try to fetch a manifest that cannot
+        // exist, wasting bandwidth and battery while showing a phantom world in diagnostics.
+        catalog = replicableCatalog(catalog);
         if (catalog.isEmpty()) {
             LOG.info("Replication sweep: {} tracker(s) list no worlds — nothing to support",
                     tracker.endpoints().size());
@@ -315,6 +331,9 @@ public final class WorldReplicationService implements AutoCloseable {
         int failed = 0;
         for (TrackerCatalogEntry entry : catalog) {
             String worldIdHex = entry.genesisHash().toHex();
+            if (!entry.worldName().isBlank()) {
+                catalogNames.put(worldIdHex, entry.worldName());
+            }
             if (holdsCompletely(worldIdHex)) {
                 // Complete is a statement about ONE VERSION, and worlds do not stop changing.
                 //
@@ -389,6 +408,26 @@ public final class WorldReplicationService implements AutoCloseable {
                 skippedBounded, failed, freed, held, budgetBytes);
         lastSweepFailures = failed;
         return adopted;
+    }
+
+    /**
+     * The name the tracker directory published for a world this node replicates.
+     *
+     * @param worldIdHex the world.
+     * @return the name, or {@code null} when no sweep has seen this world listed.
+     */
+    public String nameFor(String worldIdHex) {
+        return catalogNames.get(worldIdHex);
+    }
+
+    static boolean isReplicableWorld(Bytes worldId) {
+        return !CommonsPresence.WORLD_ID.equals(worldId);
+    }
+
+    static List<TrackerCatalogEntry> replicableCatalog(List<TrackerCatalogEntry> catalog) {
+        return catalog.stream()
+                .filter(entry -> isReplicableWorld(entry.genesisHash()))
+                .toList();
     }
 
     /**

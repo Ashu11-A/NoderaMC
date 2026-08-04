@@ -75,4 +75,4 @@ The top-5 ordered so each makes the next cheaper:
 
 | Refactor | Evidence | Completed |
 |---|---|---|
-| Promote `LocalFiles`/`PersistentIdentityStore` atomic owner-only writes | `AtomicFileWriter.writeOwnerOnly`; `AtomicFileWriterTest` (3); both former copies are wrappers only | 2026-07-28 |
+| Promote `LocalFiles`/`PersistentIdentityStore` atomic owner-only writes | `AtomicFileWriter.writeOwnerOnly`; `AtomicFileWriterTest` (4); both former copies are wrappers only | 2026-08-01 |

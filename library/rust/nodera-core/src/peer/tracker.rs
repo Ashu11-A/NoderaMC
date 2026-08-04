@@ -231,6 +231,54 @@ pub struct SelfTest {
     pub error: String,
 }
 
+/// Query the commons namespace for an already-running worker's identity.
+///
+/// The Java worker owns Android and desktop peer presence. The app must verify that identity rather
+/// than signing a second announce under its own legacy key, which would turn one installation into
+/// two peers merely because somebody opened the Peers screen.
+pub fn verify_presence(node_id: &str, endpoints: &[String]) -> SelfTest {
+    let mut result = SelfTest::default();
+    if endpoints.is_empty() {
+        result.error = "no trackers are configured".to_owned();
+        return result;
+    }
+    let mut failures = Vec::new();
+    for endpoint in endpoints {
+        let started = Instant::now();
+        let mut status = TrackerStatus {
+            endpoint: endpoint.clone(),
+            ..TrackerStatus::default()
+        };
+        match query(endpoint, &COMMONS_WORLD) {
+            Ok(peers) => {
+                status.reachable = true;
+                status.latency_ms = Some(started.elapsed().as_millis() as u64);
+                status.accepted = peers.iter().any(|peer| peer == node_id);
+                result.found_self |= status.accepted;
+                for peer in peers {
+                    if !result.peers.contains(&peer) {
+                        result.peers.push(peer);
+                    }
+                }
+            }
+            Err(reason) => {
+                status.error = reason.clone();
+                failures.push(format!("{endpoint}: {reason}"));
+            }
+        }
+        result.trackers.push(status);
+    }
+    result.passed = result.found_self;
+    if !result.passed {
+        result.error = if failures.len() == endpoints.len() {
+            failures.join("; ")
+        } else {
+            "the trackers answered but did not return this worker".to_owned()
+        };
+    }
+    result
+}
+
 /// Announce, then ask for it back.
 ///
 /// The second half is the part that matters. An accepted announce only says the tracker took the
@@ -430,6 +478,7 @@ mod tests {
             std::slice::from_ref(&endpoint),
             vec!["10.0.0.101:25620".to_owned()],
         );
+        let verified = verify_presence(identity.node_id(), std::slice::from_ref(&endpoint));
         let _ = child.kill();
         let _ = child.wait();
 
@@ -452,6 +501,9 @@ mod tests {
             result.peers, result.error
         );
         assert!(result.passed, "{}", result.error);
+
+        assert!(verified.passed, "{}", verified.error);
+        assert!(verified.found_self);
     }
 
     #[test]

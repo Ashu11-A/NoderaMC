@@ -18,6 +18,8 @@ import org.json.JSONObject
  * blocking there is a frozen frame and, past five seconds, an ANR.
  */
 object NoderaCore {
+    private const val TAG = "NoderaMC"
+
     init {
         System.loadLibrary("nodera_app_lib")
     }
@@ -29,11 +31,32 @@ object NoderaCore {
      * Start the node. Safe to call again — a configuration change recreates the Activity, and it
      * must not recreate the node.
      */
+    @Synchronized
     fun start(context: Context) {
         if (started) return
+        val app = context.applicationContext
+        migrateLegacyConfig(app)
         started = true
-        NoderaBridge.initialise(context.applicationContext)
-        nativeStart(context.applicationContext.filesDir.absolutePath)
+        NoderaBridge.initialise(app)
+        nativeStart(app.dataDir.absolutePath)
+    }
+
+    /** Preserve state written before Android's config root was corrected from filesDir to dataDir. */
+    private fun migrateLegacyConfig(context: Context) {
+        val legacy = java.io.File(context.filesDir, "nodera")
+        val current = java.io.File(context.dataDir, "nodera")
+        if (!legacy.isDirectory) return
+        legacy.walkTopDown().filter(java.io.File::isFile).forEach { source ->
+            val target = java.io.File(current, source.relativeTo(legacy).path)
+            if (target.exists()) return@forEach
+            runCatching {
+                target.parentFile?.mkdirs()
+                if (!source.renameTo(target)) {
+                    source.copyTo(target)
+                    source.delete()
+                }
+            }.onFailure { android.util.Log.w(TAG, "could not migrate ${source.name}", it) }
+        }
     }
 
     /** One verb, JSON in, JSON out. Errors arrive as `{"error": "..."}`, never as an exception. */
@@ -43,12 +66,17 @@ object NoderaCore {
     /** A verb whose answer is a JSON object, or null when the core reported an error. */
     suspend fun obj(verb: String, args: JSONObject = JSONObject()): JSONObject? {
         val raw = call(verb, args)
-        return runCatching { JSONObject(raw) }.getOrNull()?.takeIf { !it.has("error") }
+        return runCatching { JSONObject(raw) }.getOrNull()
+            ?.takeIf { !(it.length() == 1 && it.has("error")) }
     }
 
     /** The sentence behind a failed verb, or null when it worked. */
-    fun errorOf(raw: String): String? =
-        runCatching { JSONObject(raw).optString("error").ifEmpty { null } }.getOrNull()
+    fun errorOf(raw: String): String? = runCatching {
+        val value = JSONObject(raw)
+        // Bridge failures are error-only envelopes. Successful domain payloads such as SelfTest
+        // also carry an `error` field, and that sentence must stay inside the result it describes.
+        if (value.length() == 1) value.optString("error").ifEmpty { null } else null
+    }.getOrNull()
 
     private external fun nativeStart(dataDir: String)
     private external fun nativeInvoke(name: String, args: String): String

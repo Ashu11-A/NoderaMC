@@ -34,6 +34,7 @@ import dev.nodera.protocol.membership.PeerGoodbye;
 import dev.nodera.protocol.membership.PeerJoin;
 import dev.nodera.protocol.membership.SessionKeepAlive;
 import dev.nodera.protocol.membership.WorldDeletionGossip;
+import dev.nodera.protocol.membership.WorldRevivalGossip;
 import dev.nodera.protocol.membership.WorldGrantGossip;
 import dev.nodera.protocol.membership.WorldOwnershipGossip;
 import dev.nodera.protocol.rendezvous.ObservedAddress;
@@ -230,7 +231,10 @@ public final class WireRegistry {
             // These are what tags 1-4 were supposed to be and never became. ---
             new WireKind(73, "Nack", INFRASTRUCTURE, Nack.class),
             new WireKind(74, "Hello", INFRASTRUCTURE, Hello.class),
-            new WireKind(75, "HelloAck", INFRASTRUCTURE, HelloAck.class));
+            new WireKind(75, "HelloAck", INFRASTRUCTURE, HelloAck.class),
+
+            // --- undoing a deletion: same plane, same evidence rules, opposite instruction ---
+            new WireKind(76, "WorldRevivalGossip", CONSENSUS, WorldRevivalGossip.class));
 
     private static final Map<Integer, WireKind> BY_KIND;
     private static final Map<Class<?>, WireKind> BY_TYPE;

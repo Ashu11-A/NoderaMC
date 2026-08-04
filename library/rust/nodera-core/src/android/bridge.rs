@@ -78,7 +78,7 @@ impl JniSink {
         let (Ok(topic), Ok(json)) = (env.new_string(topic), env.new_string(json)) else {
             return;
         };
-        let _ = env.call_method(
+        let _ = env.call_static_method(
             &self.events,
             "onEvent",
             "(Ljava/lang/String;Ljava/lang/String;)V",
@@ -266,11 +266,70 @@ fn dispatch(name: &str, args: &str) -> String {
             },
             Err(e) => error(e),
         },
+        "set_theme" => {
+            match serde_json::from_value(value.get("theme").cloned().unwrap_or_default()) {
+                Ok(theme) => match core.set_theme(theme) {
+                    Ok(()) => ok(serde_json::json!({})),
+                    Err(reason) => error(reason),
+                },
+                Err(e) => error(e),
+            }
+        }
+        "set_network_policy" => {
+            let policy =
+                serde_json::from_value(value.get("transfer_network").cloned().unwrap_or_default());
+            let connections = value
+                .get("max_connections")
+                .and_then(|held| held.as_u64())
+                .and_then(|held| u32::try_from(held).ok());
+            match (policy, connections) {
+                (Ok(policy), Some(connections)) => {
+                    match core.set_network_policy(policy, connections) {
+                        Ok(()) => ok(serde_json::json!({})),
+                        Err(reason) => error(reason),
+                    }
+                }
+                _ => error("network policy or maximum connections is invalid"),
+            }
+        }
+        "set_storage_policy" => {
+            let budget = value.get("budget_bytes").and_then(|held| held.as_u64());
+            let sweep = value.get("sweep_seconds").and_then(|held| held.as_u64());
+            match (budget, sweep) {
+                (Some(budget), Some(sweep)) => match core.set_storage_policy(budget, sweep) {
+                    Ok(()) => ok(serde_json::json!({})),
+                    Err(reason) => error(reason),
+                },
+                _ => error("storage budget or sweep interval is invalid"),
+            }
+        }
+        "set_power_rules" => {
+            let threshold = value
+                .get("threshold")
+                .and_then(|held| held.as_u64())
+                .and_then(|held| u8::try_from(held).ok());
+            match threshold {
+                Some(threshold) => match core.set_power_rules(
+                    flag("only_charging"),
+                    flag("battery_control"),
+                    threshold,
+                    flag("during_game"),
+                ) {
+                    Ok(()) => ok(serde_json::json!({})),
+                    Err(reason) => error(reason),
+                },
+                None => error("battery threshold is invalid"),
+            }
+        }
         "settings_fault" => ok(core.settings_fault()),
         "setting_status" => ok(core.setting_status()),
         "config_status" => ok(core.config_status()),
         "setup_state" => ok(core.setup_state()),
         "complete_setup" => match core.complete_setup(string("worlds_dir")) {
+            Ok(()) => ok(serde_json::json!({})),
+            Err(reason) => error(reason),
+        },
+        "set_storage_dir" => match core.set_storage_dir(string("worlds_dir")) {
             Ok(()) => ok(serde_json::json!({})),
             Err(reason) => error(reason),
         },
@@ -297,7 +356,28 @@ fn dispatch(name: &str, args: &str) -> String {
             Ok(()) => ok(serde_json::json!({})),
             Err(reason) => error(reason),
         },
+        "storage_info" => ok(core.storage_info(
+            &crate::settings::android_data_dir().unwrap_or_else(crate::settings::config_dir),
+        )),
+        "picked_folder" => ok(core.picked_folder(
+            &crate::settings::android_data_dir().unwrap_or_else(crate::settings::config_dir),
+        )),
         "tracker_stores" => ok(core.tracker_stores()),
+        "set_direct_trackers" => {
+            match value
+                .get("trackers")
+                .cloned()
+                .ok_or_else(|| "trackers are missing".to_owned())
+                .and_then(|held| {
+                    serde_json::from_value(held).map_err(|_| "trackers are invalid".to_owned())
+                }) {
+                Ok(trackers) => match core.set_direct_trackers(trackers) {
+                    Ok(()) => ok(serde_json::json!({})),
+                    Err(reason) => error(reason),
+                },
+                Err(reason) => error(reason),
+            }
+        }
         "resolved_services" => ok(core.resolved_services()),
         "official_store_url" => ok(crate::stores::OFFICIAL_STORE_URL),
         "take_pending_tracker_store" => ok(core.take_pending_tracker_store()),

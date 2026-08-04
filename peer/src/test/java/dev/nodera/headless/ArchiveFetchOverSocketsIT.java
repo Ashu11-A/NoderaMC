@@ -200,4 +200,133 @@ final class ArchiveFetchOverSocketsIT {
             bystanderTransport.stop();
         }
     }
+
+    @Test
+    @DisplayName("a seeder that serves part of the world and then vanishes does not wedge the fetch")
+    void aSeederThatGoesSilentPartWayThroughIsRecoveredFrom() {
+        // The shape every other silence test here misses. The existing bystander holds NOTHING and
+        // is silent from the first request, so the selector rotates away from it immediately. The
+        // case observed live is the opposite: a peer that answers correctly for a long time and
+        // then stops — a fetch reported 212 of 283 pieces and never moved again. By then the
+        // selector has every reason to believe that peer is the right one to ask.
+        NodeIdentity leaving = NodeIdentity.generate();
+        NodeIdentity staying = NodeIdentity.generate();
+        NodeIdentity joiner = NodeIdentity.generate();
+
+        SocketPeerTransport leavingTransport =
+                new SocketPeerTransport(leaving, "127.0.0.1", 0, "127.0.0.1");
+        seederTransport = new SocketPeerTransport(staying, "127.0.0.1", 0, "127.0.0.1");
+        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
+        WorldArchiveService leavingService = new WorldArchiveService(leaving, leavingTransport,
+                new InMemoryContentStore(hashes), List.of());
+        seederService = new WorldArchiveService(staying, seederTransport,
+                new InMemoryContentStore(hashes), List.of());
+        joinerService = new WorldArchiveService(joiner, joinerTransport,
+                new InMemoryContentStore(hashes), List.of());
+        bridge(leavingTransport, leavingService);
+        bridge(seederTransport, seederService);
+        bridge(joinerTransport, joinerService);
+        leavingTransport.start();
+        seederTransport.start();
+        joinerTransport.start();
+        try {
+            byte[] archive = new byte[3 * 1024 * 1024];
+            new java.util.Random(97L).nextBytes(archive);
+            Bytes worldId = hashes.sha256("half-served-world".getBytes());
+            String worldIdHex = worldId.toHex();
+            // BOTH hold the whole world, so the fetch can legitimately complete from either.
+            leavingService.seedArchive(worldIdHex, archive);
+            seederService.seedArchive(worldIdHex, archive);
+
+            joinerService.learnRoute(leaving.nodeId(), leavingTransport.listenRoute());
+            joinerService.learnRoute(staying.nodeId(), seederTransport.listenRoute());
+
+            // Pull the first seeder out from under the transfer once it is under way. Whatever it
+            // had already served must count, and what it had not must come from the other peer.
+            Thread saboteur = new Thread(() -> {
+                try {
+                    Thread.sleep(150);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                leavingTransport.stop();
+            }, "seeder-departure");
+            saboteur.setDaemon(true);
+            saboteur.start();
+
+            byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex,
+                    Set.of(leaving.nodeId(), staying.nodeId()), Duration.ofSeconds(60));
+
+            assertThat(fetched)
+                    .as("a peer leaving mid-transfer costs the pieces it still owed, not the world")
+                    .isEqualTo(archive);
+        } finally {
+            leavingService.close();
+            leavingTransport.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("a peer that holds only part of the world says so, over a real socket")
+    void aPartialHolderAnswersWithItsBitmapInsteadOfSilence() {
+        // The live wedge, in miniature. `WorldArchiveService.download` credits EVERY chosen holder
+        // with EVERY piece — the tracker answers only who holds a root, and `ManifestSeeders` says
+        // the exact bitmaps arrive by ContentAvailability, a message nothing in production sent.
+        // A peer without the piece then answered with silence, which is indistinguishable from a
+        // dropped datagram, so the selector kept re-picking it. Measured live: 223 of 286 pieces,
+        // on both fetching peers at once, no error on any side.
+        NodeIdentity partial = NodeIdentity.generate();
+        NodeIdentity full = NodeIdentity.generate();
+        NodeIdentity joiner = NodeIdentity.generate();
+
+        SocketPeerTransport partialTransport =
+                new SocketPeerTransport(partial, "127.0.0.1", 0, "127.0.0.1");
+        seederTransport = new SocketPeerTransport(full, "127.0.0.1", 0, "127.0.0.1");
+        joinerTransport = new SocketPeerTransport(joiner, "127.0.0.1", 0, "127.0.0.1");
+        WorldArchiveService partialService = new WorldArchiveService(partial, partialTransport,
+                new InMemoryContentStore(hashes), List.of());
+        seederService = new WorldArchiveService(full, seederTransport,
+                new InMemoryContentStore(hashes), List.of());
+        joinerService = new WorldArchiveService(joiner, joinerTransport,
+                new InMemoryContentStore(hashes), List.of());
+        bridge(partialTransport, partialService);
+        bridge(seederTransport, seederService);
+        bridge(joinerTransport, joinerService);
+        partialTransport.start();
+        seederTransport.start();
+        joinerTransport.start();
+        try {
+            byte[] archive = new byte[3 * 1024 * 1024];
+            new java.util.Random(53L).nextBytes(archive);
+            Bytes worldId = hashes.sha256("partly-held-world".getBytes());
+            String worldIdHex = worldId.toHex();
+            dev.nodera.distribution.PieceManifest manifest =
+                    seederService.seedArchive(worldIdHex, archive);
+            assertThat(manifest.pieceCount()).isGreaterThan(4);
+
+            // The partial peer holds the first piece of that exact root and nothing else — the
+            // state a peer is in for the whole of its own replication, which is when a rehost is
+            // most likely to pick it.
+            dev.nodera.distribution.Piece first = manifest.piece(0);
+            partialService.content().seedPiece(manifest, 0,
+                    new Bytes(archive, (int) first.offset(), (int) first.length()));
+
+            joinerService.learnRoute(partial.nodeId(), partialTransport.listenRoute());
+            joinerService.learnRoute(full.nodeId(), seederTransport.listenRoute());
+
+            byte[] fetched = joinerService.fetchArchiveFrom(worldIdHex,
+                    Set.of(partial.nodeId(), full.nodeId()), Duration.ofSeconds(60));
+
+            assertThat(fetched)
+                    .as("a partial holder in the set costs nothing when it can say what it has")
+                    .isEqualTo(archive);
+            assertThat(partialService.content().availabilityRepliesSent())
+                    .as("the 'I do not have that' has to actually cross the wire and decode")
+                    .isPositive();
+        } finally {
+            partialService.close();
+            partialTransport.stop();
+        }
+    }
 }

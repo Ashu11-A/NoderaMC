@@ -1,15 +1,15 @@
-# `rust/nodera-app`
+# Nodera App
 
-<!-- AI-AGENT-INSTRUCTION: This crate is WORKSPACE-EXCLUDED — `cd rust && cargo test` does NOT cover
-     it, so never present the green workspace gate as covering the app; run `cd rust/nodera-app &&
+<!-- AI-AGENT-INSTRUCTION: This crate is WORKSPACE-EXCLUDED — root `cargo test` does NOT cover
+     it, so never present the green workspace gate as covering the shell; run `cd app &&
      cargo test`. The app is a SUPERVISOR + TRAY + RENDERER, not a peer: it holds no signing keys and
      serves nothing to the network. ATTACH SEMANTICS ARE LOAD-BEARING — never kill a worker the app
      did not spawn. Keep control.rs a strict mirror of the worker's ControlProtocol, and change all
      three mirrors in one commit. Update this file when a module or a build step changes. -->
 
-**The Nodera companion.** A [Tauri](https://tauri.app) desktop application (Rust backend, React
-frontend) that players install: it launches at login, sits in the system tray, supervises the
-always-on peer worker, and shows a live dashboard.
+**The Nodera launcher and Android node companion.** Desktop is a Tauri shell around a React game
+launcher; Android is a native Jetpack Compose Material 3 activity. Both consume
+`library/rust/nodera-core`; desktop also supervises the always-on worker and launches Minecraft.
 
 Because the mod refuses to start without the worker, this is **the thing every player actually runs**.
 It must be boring, small, and reliable.
@@ -23,24 +23,15 @@ It must be boring, small, and reliable.
 ## Architecture
 
 ```
-rust/nodera-app/
-├── Cargo.toml        tauri, autostart plugin, tokio, serde — WORKSPACE-EXCLUDED
-├── tauri.conf.json   tray, autostart, single instance, window and bundle configuration
-├── src/
-│   ├── main.rs       tray + window + single-instance + autostart + the 1 Hz metrics pump
-│   ├── daemon.rs     the supervisor: spawn the bundled worker OR attach to an external one
-│   │                 plus Android's allowlisted P2P-property handoff from persisted settings
-│   ├── control.rs    loopback control client — a strict mirror of ControlProtocol
-│   ├── metrics.rs    the Metrics struct the UI renders
-│   ├── settings.rs   the settings surface backed by the worker's CONFIG verb
-│   ├── config.rs     app configuration and the worker's spawn environment
-│   ├── power.rs      power-state policy (whether to transfer)
-│   ├── logs.rs       a bounded log ring
-│   ├── system.rs     host sampling
-│   └── android/
-│       └── worker.rs one-shot Android context + setup startup gate
-└── ui/src/           React + Vite: App, Settings, World, components, theme, ipc
-                      — Info / State / Peers / Trackers / Pieces, in VPN-client chrome
+app/
+├── src/                 thin Tauri command, tray, window and platform shell
+├── ui/src/              React desktop launcher: Play, Library, Discover, Settings
+├── android/kotlin/      native Compose activity, adaptive screens and Material You theme
+├── tauri.*.conf.json    desktop/mobile package configuration
+└── Cargo.toml           Tauri shell — separate workspace
+
+library/rust/nodera-core/
+└── src/                 shared worker link, settings, stores, telemetry and launch coordinator
 ```
 
 **Option B is locked.** The app supervises the bundled **headless Java peer worker**, reusing all of
@@ -49,7 +40,7 @@ Rust-native peer could only ever seed, relay, and route — never validate.
 
 ## Why it is shaped this way
 
-**It is not a peer, and that boundary is what keeps it cheap.** All network behaviour lives in the
+**The interface is not a peer, and that boundary is what keeps it cheap.** All network behaviour lives in the
 worker and the Rust service binaries. A UI mistake here cannot corrupt a world, and the dashboard's
 data path is already asserted **on the Java gate** through the worker's `STATE` verb — so the app's
 own test surface is parsing, not logic.
@@ -92,6 +83,11 @@ and `NODERA_P2P_PORT_RANGE`; control stays on the shared default because setting
 would disconnect this Rust client. Desktop keeps its existing environment handoff, generated from
 the same P2P settings encoder.
 
+Android settings use field-specific core mutations so a delayed store refresh, battery save, or
+network save cannot replace another screen's newer fields. First startup after the data-root
+correction migrates files from `filesDir/nodera` to `dataDir/nodera`; existing settings, telemetry
+answer, traffic totals, and app identity therefore survive upgrade.
+
 ```
 client → worker:  NODERA-PROBE <protocolVersion>
 worker → client:  NODERA-OK <protocolVersion> <workerVersion>
@@ -107,9 +103,9 @@ Prerequisites: the pinned Rust toolchain plus the Tauri v2 prerequisites for you
 the frontend, and `cargo install tauri-cli --version '^2'`.
 
 ```bash
-cd rust/nodera-app
-npm --prefix ui install       # first time
-npm --prefix ui test          # type-check + bundle + emitted-CSS contracts
+cd app
+bun --cwd ui install          # first time
+bun --cwd ui test             # type-check + bundle + emitted-CSS contracts
 cargo tauri dev               # window + tray + supervisor + control monitor
 cargo tauri build             # release bundle (autostart + tray)
 cargo test                    # REQUIRED — the workspace gate does not cover this crate
@@ -131,10 +127,9 @@ distribution copied in at bundle time (build it with the worker's `installDist` 
 
 ## Tests
 
-188 tests: 187 Rust tests covering bitmap decoding and its edge cases, additive-field tolerance,
-control-socket error surfacing and timeouts, the settings golden JSON (the cross-language key
-contract), worker-environment spawn pairs, Android-property parity/control isolation/replacement,
-both Android startup orders, a power-state truth table, the log ring, system sampling, and
-badge-enforcement invariants; plus one post-build frontend test pinning emitted tracker-store
-desktop roles, dynamic Material 3 mobile roles, and padding ownership. The frontend test runs after
-every production UI build, so a utility Tailwind silently omitted cannot satisfy it.
+`nodera-core` has 270 tests covering parsing, settings, stores, worker lifecycle, Android bridges and
+the launch coordinator. The Tauri shell has two platform tests (one intentionally ignored because it
+opens a real browser). The desktop frontend has 31 post-build tests covering emitted CSS, wide-grid
+composition, stable launcher targets, state restoration, dialogs, pagination and honesty rules.
+`scripts/android-apk.sh --debug --skip-worker` compiles the native Compose shell and verifies its
+generated-project invariants.

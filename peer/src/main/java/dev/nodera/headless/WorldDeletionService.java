@@ -67,6 +67,16 @@ public final class WorldDeletionService {
     private final Map<String, WorldTombstone> deleted = new ConcurrentHashMap<>();
 
     /**
+     * worldIdHex → the owner's later "put it back", for worlds that were deleted and restored.
+     *
+     * <p>Kept for the same reason the tombstones are: a deletion that arrives after the restore —
+     * from a peer that never heard about it, or replayed deliberately — must not win. Without this
+     * record a restored world would be re-deleted by the next stale announce of the old tombstone,
+     * repeatedly, and the owner would have no way to make the restore stick.
+     */
+    private final Map<String, dev.nodera.storage.WorldRevival> revived = new ConcurrentHashMap<>();
+
+    /**
      * @param self      this node's id (never gossiped to).
      * @param transport the peer transport a verified deletion is relayed over.
      * @param members   the session members to relay to.
@@ -129,7 +139,9 @@ public final class WorldDeletionService {
     public void attachStore(WorldTombstoneStore store) {
         this.store = store;
         if (store != null) {
-            restore(store.load(System.currentTimeMillis()));
+            long now = System.currentTimeMillis();
+            restore(store.load(now));
+            restoreRevivals(store.loadRevivals(now));
         }
     }
 
@@ -175,6 +187,38 @@ public final class WorldDeletionService {
     }
 
     /**
+     * Restore accepted revivals from disk at startup.
+     *
+     * <p>The mirror of {@link #restore(List)}: without it a restart re-reads the tombstone that the
+     * restore superseded — the deletion file is removed when a restore is saved, but a peer can send
+     * the tombstone again at any time — and the world dies a second time.
+     *
+     * @param stored previously accepted revivals.
+     */
+    public void restoreRevivals(List<dev.nodera.storage.WorldRevival> stored) {
+        for (dev.nodera.storage.WorldRevival revival : stored) {
+            if (revival == null || !revival.verify()) {
+                continue;
+            }
+            String id = key(revival.worldIdHex());
+            revived.put(id, revival);
+            WorldTombstone tombstone = deleted.get(id);
+            if (tombstone != null && revival.issuedAtEpoch() > tombstone.issuedAtEpoch()) {
+                deleted.remove(id);
+            }
+        }
+        if (!revived.isEmpty()) {
+            LOG.info("Restored {} world restore record(s)", revived.size());
+        }
+    }
+
+    /** @return the restore this node holds for a world, if its owner has undone the deletion. */
+    public Optional<dev.nodera.storage.WorldRevival> revival(String worldIdHex) {
+        return worldIdHex == null ? Optional.empty()
+                : Optional.ofNullable(revived.get(key(worldIdHex)));
+    }
+
+    /**
      * What a publish did.
      *
      * @param error         why it was refused, or null on success.
@@ -207,11 +251,43 @@ public final class WorldDeletionService {
     }
 
     /**
-     * Handle one application-lane message; ignores anything that is not a deletion.
+     * Publish this node's own restoration of a world it owns, and apply it here.
+     *
+     * <p>The owner deleted it; the owner may put it back. Everything else on this lane treats a
+     * tombstone as final, and it stays final to everyone <i>except</i> the key that wrote it — the
+     * world id is derived from the save, so without this a deletion made that save permanently
+     * unshareable, refused by the owner's own worker.
+     *
+     * @param revival the signed record.
+     * @return the outcome; {@link Outcome#error()} is null on success.
+     */
+    public Outcome publish(dev.nodera.storage.WorldRevival revival) {
+        if (revival == null || !revival.verify()) {
+            return new Outcome("the restore request does not verify", 0);
+        }
+        if (!revival.issuedBy(self)) {
+            return new Outcome("this node is not the owner of that world", 0);
+        }
+        if (!revival.supersedes(deleted.get(key(revival.worldIdHex())))) {
+            // Older than the deletion it claims to undo. Not an error worth failing the share for:
+            // the caller mints these with the current clock, so this is a clock going backwards,
+            // and the honest answer is that the world stays deleted until a later record says so.
+            return new Outcome("the restore is older than the deletion it would undo", 0);
+        }
+        apply(revival);
+        return new Outcome(null, relay(revival, null));
+    }
+
+    /**
+     * Handle one application-lane message; ignores anything that is not a deletion or a revival.
      *
      * @Thread-context runtime state thread.
      */
     public void onMessage(PeerAddress from, NoderaMessage message) {
+        if (message instanceof dev.nodera.protocol.membership.WorldRevivalGossip revivalGossip) {
+            onRevival(from, revivalGossip);
+            return;
+        }
         if (!(message instanceof WorldDeletionGossip gossip)) {
             return;
         }
@@ -237,6 +313,15 @@ public final class WorldDeletionService {
         }
         if (deleted.containsKey(key(tombstone.worldIdHex()))) {
             return; // already applied; not re-flooded, so the gossip terminates
+        }
+        dev.nodera.storage.WorldRevival restore = revived.get(key(tombstone.worldIdHex()));
+        if (restore != null && restore.issuedAtEpoch() >= tombstone.issuedAtEpoch()) {
+            // The owner deleted this world and then put it back. An older deletion still circulating
+            // is not news, and acting on it would undo the restore — on this node and, through the
+            // relay below, on every node this one can reach.
+            LOG.debug("Ignoring a deletion for world {} that the owner has since undone",
+                    shortId(tombstone.worldIdHex()));
+            return;
         }
         apply(tombstone);
         relay(tombstone, from == null ? null : from.nodeId());
@@ -281,6 +366,109 @@ public final class WorldDeletionService {
                     .with("reason", tombstone.reason())
                     .build());
         }
+    }
+
+    private void onRevival(PeerAddress from,
+                           dev.nodera.protocol.membership.WorldRevivalGossip gossip) {
+        dev.nodera.storage.WorldRevival revival;
+        try {
+            revival = dev.nodera.storage.WorldRevival.decode(
+                    new CanonicalReader(gossip.encodedRevival()));
+        } catch (RuntimeException malformed) {
+            LOG.debug("discarding malformed restore from {}: {}", from, malformed.getMessage());
+            return;
+        }
+        if (!revival.worldId().equals(gossip.worldId())) {
+            LOG.warn("Refusing a restore whose envelope names a different world than its proof");
+            return;
+        }
+        if (!revival.verify()) {
+            LOG.warn("Refusing an unverifiable restore for world {} from {}",
+                    shortId(revival.worldIdHex()), from);
+            return;
+        }
+        String id = key(revival.worldIdHex());
+        dev.nodera.storage.WorldRevival known = revived.get(id);
+        if (known != null && known.issuedAtEpoch() >= revival.issuedAtEpoch()) {
+            return; // already have this one or a later one; not re-flooded
+        }
+        if (!revival.supersedes(deleted.get(id))) {
+            // A restore older than the deletion it would undo. Refused rather than applied: this is
+            // the replay an attacker would attempt with a record captured before the world was
+            // deleted, and what a node must end up holding is the owner's LATEST word.
+            LOG.warn("Refusing a restore for world {} that predates its deletion",
+                    shortId(revival.worldIdHex()));
+            return;
+        }
+        apply(revival);
+        relay(revival, from == null ? null : from.nodeId());
+    }
+
+    /**
+     * Undo a deletion: forget the tombstone, remember the restore, and let the world be hosted again.
+     *
+     * <p>Content is not restored here and cannot be — the bytes were dropped when the world was
+     * deleted. What comes back is permission: the owner may host it again, and every peer that hears
+     * the restore may adopt it again. The bytes return through the ordinary replication lane, from
+     * the owner who still has the save on disk.
+     */
+    private void apply(dev.nodera.storage.WorldRevival revival) {
+        String worldIdHex = revival.worldIdHex();
+        String id = key(worldIdHex);
+        revived.put(id, revival);
+        deleted.remove(id);
+        WorldTombstoneStore disk = store;
+        if (disk != null) {
+            try {
+                disk.save(revival);
+            } catch (RuntimeException e) {
+                // In memory the world is restored; failing to write costs us the restore at the next
+                // restart, when the tombstone still on disk would delete it all over again.
+                LOG.warn("Applied a world restore but could not record it: {}", e.getMessage());
+            }
+        }
+        LOG.info("World {} restored at its owner's request{}", shortId(worldIdHex),
+                revival.reason().isEmpty() ? "" : " (" + revival.reason() + ")");
+        WorkerEventBus bus = events;
+        if (bus != null) {
+            bus.publish(WorkerEvent.named(WorkerEvent.WORLD_RESTORED)
+                    .with("world", worldIdHex)
+                    .with("reason", revival.reason())
+                    .build());
+        }
+    }
+
+    private int relay(dev.nodera.storage.WorldRevival revival, NodeId excluding) {
+        CanonicalWriter w = new CanonicalWriter();
+        revival.encode(w);
+        dev.nodera.protocol.membership.WorldRevivalGossip gossip =
+                new dev.nodera.protocol.membership.WorldRevivalGossip(
+                        revival.worldId(), w.toBytes());
+        byte[] frame = WireCodec.encode(gossip);
+        dev.nodera.peer.discovery.TrackerClient discovery = trackers;
+        if (discovery != null) {
+            try {
+                discovery.publishRevival(gossip);
+            } catch (RuntimeException e) {
+                // A tracker that will not take the restore goes on refusing to list the world; the
+                // peers still learn, and the next announce retries.
+                LOG.debug("could not publish the restore to trackers: {}", e.getMessage());
+            }
+        }
+        int notified = 0;
+        for (PeerEntry member : members.get()) {
+            NodeId id = member.nodeId();
+            if (id.equals(self) || id.equals(excluding)) {
+                continue;
+            }
+            try {
+                transport.send(PeerAddress.of(id, member.route()), frame);
+                notified++;
+            } catch (TransportException unreachable) {
+                LOG.debug("restore relay to {} failed: {}", id.value(), unreachable.getMessage());
+            }
+        }
+        return notified;
     }
 
     private int relay(WorldTombstone tombstone, NodeId excluding) {

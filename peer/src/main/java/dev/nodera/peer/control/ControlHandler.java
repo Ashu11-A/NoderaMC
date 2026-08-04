@@ -117,11 +117,40 @@ public interface ControlHandler {
      *
      * @param worldId        hex world id.
      * @param destPathB64    base64 of the destination file's absolute path.
-     * @param timeoutSeconds overall fetch deadline.
+     * @param timeoutSeconds the <b>no-progress</b> budget, not a wall clock.
      * @return {@code "<byteCount> <version>"} on success, or {@code null} if unsupported.
      */
     default String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
+        return fetchArchive(worldId, destPathB64, timeoutSeconds, ArchiveProgress.IGNORED);
+    }
+
+    /**
+     * As {@link #fetchArchive(String, String, long)}, reporting how far along it is as it goes.
+     *
+     * <p>The reporting is what makes the deadline mean the same thing on both ends. Without it the
+     * caller can only time the whole transfer, and a big archive that is downloading perfectly
+     * happily looks identical to one that has died — which is exactly how a player came to wait
+     * 748 seconds and then be told the fetch had failed by a worker that was still fetching.
+     *
+     * @param progress called as pieces are verified; must not block.
+     */
+    default String fetchArchive(String worldId, String destPathB64, long timeoutSeconds,
+                                ArchiveProgress progress) {
         return null;
+    }
+
+    /** How far an in-flight archive fetch has got. */
+    @FunctionalInterface
+    interface ArchiveProgress {
+
+        /** Reports progress and discards it, for callers that only want the result. */
+        ArchiveProgress IGNORED = (verified, total) -> { };
+
+        /**
+         * @param verified pieces verified so far.
+         * @param total    pieces in the archive.
+         */
+        void at(int verified, int total);
     }
 
     /**

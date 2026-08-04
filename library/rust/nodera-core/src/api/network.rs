@@ -21,6 +21,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::control::{request, PROTOCOL_VERSION};
 
+pub(crate) fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
 /// One world the trackers say is joinable.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DirectoryEntry {
@@ -68,7 +72,7 @@ pub struct Outcome {
 }
 
 impl Outcome {
-    fn ok(value: impl Into<String>) -> Self {
+    pub(crate) fn ok(value: impl Into<String>) -> Self {
         Self {
             ok: true,
             error: String::new(),
@@ -76,12 +80,18 @@ impl Outcome {
         }
     }
 
-    fn failed(error: impl Into<String>) -> Self {
+    pub(crate) fn failed(error: impl Into<String>) -> Self {
         Self {
             ok: false,
             error: error.into(),
             value: String::new(),
         }
+    }
+
+    /// Whether disconnect proved tunnel absent, including idempotent "already gone" response.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    pub(crate) fn closed_or_absent(&self) -> bool {
+        self.ok || self.error.contains("not connected to that world")
     }
 }
 
@@ -119,7 +129,12 @@ pub async fn directory(control_addr: &str, limit: u32) -> Vec<DirectoryEntry> {
         Err(_) => return Vec::new(),
     };
     serde_json::from_str::<Directory>(&line)
-        .map(|d| d.worlds)
+        .map(|d| {
+            d.worlds
+                .into_iter()
+                .filter(|entry| is_sha256_hex(&entry.session_id))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -204,7 +219,7 @@ pub fn world_id_of(uri: &str) -> Option<String> {
             let decoded = percent_decode(value);
             let id = decoded.strip_prefix("urn:nodera:")?;
             let hex = id.trim();
-            if !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            if is_sha256_hex(hex) {
                 return Some(hex.to_ascii_lowercase());
             }
             return None;
@@ -250,16 +265,19 @@ fn percent_decode(value: &str) -> String {
 mod tests {
     use super::*;
 
+    const WORLD_ID: &str = "aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd";
+
     #[test]
     fn a_world_id_is_read_out_of_a_pasted_link() {
-        let uri = "nodera:?xt=urn%3Anodera%3Aaabbccdd&dn=My+World&tr=tcp%3A%2F%2Fx%3A1";
-        assert_eq!(world_id_of(uri), Some("aabbccdd".to_owned()));
+        let uri = format!("nodera:?xt=urn%3Anodera%3A{WORLD_ID}&dn=My+World&tr=tcp%3A%2F%2Fx%3A1");
+        assert_eq!(world_id_of(&uri), Some(WORLD_ID.to_owned()));
     }
 
     #[test]
     fn the_magnet_spelling_reads_the_same() {
-        let uri = "magnet:?xt=urn%3Anodera%3AAABBCC";
-        assert_eq!(world_id_of(uri), Some("aabbcc".to_owned()));
+        let upper = WORLD_ID.to_ascii_uppercase();
+        let uri = format!("magnet:?xt=urn%3Anodera%3A{upper}");
+        assert_eq!(world_id_of(&uri), Some(WORLD_ID.to_owned()));
     }
 
     #[test]
@@ -269,6 +287,7 @@ mod tests {
         assert_eq!(world_id_of("nodera:?dn=no+id"), None);
         assert_eq!(world_id_of("magnet:?xt=urn%3Abtih%3Aaabb"), None);
         assert_eq!(world_id_of("nodera:?xt=urn%3Anodera%3Anothex"), None);
+        assert_eq!(world_id_of("nodera:?xt=urn%3Anodera%3Aaabb"), None);
     }
 
     /// The written file must still be readable by whoever receives it — one invitation URI, on its
@@ -279,12 +298,12 @@ mod tests {
     fn a_saved_invitation_is_the_uri_on_its_own_line() {
         let dir = std::env::temp_dir().join(format!("nodera-share-{}", std::process::id()));
         let file = dir.join("world.nodera");
-        let uri = "nodera:?xt=urn%3Anodera%3Aaabb&dn=Test";
+        let uri = format!("nodera:?xt=urn%3Anodera%3A{WORLD_ID}&dn=Test");
 
-        write_share_file(&file, uri).expect("write");
+        write_share_file(&file, &uri).expect("write");
         let text = std::fs::read_to_string(&file).expect("read back");
         assert_eq!(text, format!("{uri}\n"));
-        assert_eq!(world_id_of(text.trim()), Some("aabb".to_owned()));
+        assert_eq!(world_id_of(text.trim()), Some(WORLD_ID.to_owned()));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

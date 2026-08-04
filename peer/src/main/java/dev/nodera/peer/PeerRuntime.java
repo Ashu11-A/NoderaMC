@@ -956,17 +956,45 @@ public final class PeerRuntime implements DiagnosticsSource {
         }
     }
 
-    /** Prune members we have an established link with but have not heard from within the window. */
+    /**
+     * How long a member this node has never heard from is kept before it is dropped.
+     *
+     * <p>Deliberately much longer than {@link PeerRuntimeConfig#failureTimeout()}: a member learned
+     * from gossip is only a claim that somebody else could reach it, and the single-dialer rule
+     * means the first keep-alive may take a couple of beats to arrive in this direction. Four
+     * failure windows is long enough that a live peer always makes it, and short enough that a
+     * dead one does not outlive the session it belongs to.
+     */
+    private long unheardGraceNanos() {
+        return config.failureTimeout().toNanos() * 4;
+    }
+
+    /**
+     * Prune members that have gone silent — the ones with an established link past the failure
+     * timeout, <b>and</b> the ones that never said anything at all past the longer grace above.
+     *
+     * <p>The second half is not a refinement. This used to skip every member not in {@code heard},
+     * which is exactly the set learned from a gossiped {@link MembershipUpdate} — so a peer this
+     * node was merely TOLD about could never expire, whatever happened to it. Every dead worker,
+     * every restarted client that came back with a fresh {@link NodeId}, stayed in the roster for
+     * the life of the process. Observed live: a phone reporting nine peers when three were running,
+     * six of them processes that had exited, two of them the same route under two ids.
+     *
+     * <p>Worse than a wrong count: a ghost stays eligible to be gateway, so a dead node can hold
+     * the seat with nothing able to unseat it, because re-election only runs on a removal.
+     */
     private void pruneSilentMembers() {
         long now = System.nanoTime();
         long timeoutNanos = config.failureTimeout().toNanos();
+        long unheardNanos = unheardGraceNanos();
         List<NodeId> lost = new ArrayList<>();
         for (Map.Entry<NodeId, Long> e : lastSeenNanos.entrySet()) {
             NodeId id = e.getKey();
-            if (id.equals(selfId) || !heard.contains(id)) {
+            if (id.equals(selfId)) {
                 continue;
             }
-            if (now - e.getValue() > timeoutNanos) {
+            long silentFor = now - e.getValue();
+            if (silentFor > (heard.contains(id) ? timeoutNanos : unheardNanos)) {
                 lost.add(id);
             }
         }
@@ -1105,21 +1133,41 @@ public final class PeerRuntime implements DiagnosticsSource {
     }
 
     /**
-     * Single-dialer reachability: I initiate to the bootstrap (if I am a player) and to any player
-     * with a larger id; otherwise I only send once the peer has reached me (I have heard from it).
-     * This gives each pair exactly one underlying connection.
+     * Single-dialer reachability: exactly one side of every pair initiates, so a pair gets one
+     * underlying connection. A player dials the bootstrap; otherwise the numerically smaller id
+     * dials the larger; and either side may send freely once it has heard from the other.
+     *
+     * <h2>Why a joined worker dials</h2>
+     *
+     * <p>This used to answer "never" for every bootstrap-capable runtime — the session ROOT is the
+     * reachable end, so peers dial it and it replies. But an always-on worker is bootstrap-capable
+     * <b>and</b> joins other people's sessions, and in a mesh of workers that meant no pair ever had
+     * a dialer: each one dialled only the node it joined through, and every other pair sat silent in
+     * the membership plane forever. Keep-alives never crossed those edges, so the peers stayed
+     * permanently "not heard from" — invisible to failure detection, and (once the sweep started
+     * expiring unheard members) added by gossip and expired again on a loop.
+     *
+     * <p>Observed live on a phone joined to three Linux workers: the peer list cycling 1 → 4 → 1
+     * every twenty seconds, while all four nodes were up and the archive lane was happily moving
+     * megabytes between them over routes membership could not see.
+     *
+     * <p>A root that has joined nothing keeps the old rule: it has no session of somebody else's to
+     * be a member of, and the peers that dial it are the ones that might be unreachable.
      */
     private boolean canSend(PeerEntry m) {
         if (heard.contains(m.nodeId())) {
             return true;
         }
-        if (bootstrapCapable) {
-            return false; // the bootstrap never initiates; peers dial it.
+        if (!bootstrapCapable) {
+            // A player dials the bootstrap, and the larger-id half of every player pair.
+            return m.bootstrap() || selfId.value().compareTo(m.nodeId().value()) < 0;
         }
-        if (m.bootstrap()) {
-            return true; // players dial the bootstrap.
+        if (bootstrapAddress == null) {
+            return false; // a session root never initiates; peers dial it.
         }
-        return selfId.value().compareTo(m.nodeId().value()) < 0; // smaller id dials larger.
+        // A worker inside somebody else's session is a member like any other. The id comparison is
+        // symmetric, so exactly one of the two workers dials and the pair still gets one link.
+        return selfId.value().compareTo(m.nodeId().value()) < 0;
     }
 
     private void sendTo(PeerAddress to, NoderaMessage msg) {

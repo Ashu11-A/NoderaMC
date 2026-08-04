@@ -107,7 +107,7 @@ public record Topology(
     public List<String> trackerEndpoints() {
         List<String> out = new ArrayList<>();
         for (int i = 0; i < trackers; i++) {
-            out.add("127.0.0.1:" + trackerPortAt(i));
+            out.add(serviceAdvertiseAddress() + ":" + trackerPortAt(i));
         }
         return out;
     }
@@ -116,7 +116,7 @@ public record Topology(
     public List<String> rendezvousEndpoints() {
         List<String> out = new ArrayList<>();
         for (int i = 0; i < rendezvous; i++) {
-            out.add("127.0.0.1:" + rendezvousPortAt(i));
+            out.add(serviceAdvertiseAddress() + ":" + rendezvousPortAt(i));
         }
         return out;
     }
@@ -192,6 +192,56 @@ public record Topology(
             Thread.currentThread().interrupt();
             throw new HarnessException("interrupted while waiting", e);
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Where the stack listens, and what it tells everybody else
+    //
+    // A live run whose peers are all on this machine wants loopback, and that is the default here:
+    // it needs no firewall hole, it cannot be joined by accident from the network, and every
+    // scenario and CI job written before these existed behaves exactly as it did.
+    //
+    // A run with a node that is NOT this machine — a phone on the same Wi-Fi — needs two different
+    // answers to two different questions, which is why there are four variables and not two. BIND is
+    // the socket this process opens (0.0.0.0 to accept from the LAN); ADVERTISE is the address that
+    // goes into the tracker list, the client TOMLs and the peer's own announce, and a peer that
+    // advertises 0.0.0.0 or 127.0.0.1 is a peer nobody can dial back.
+    //
+    // The names are the shell launcher's names (scripts/lib/e2e-main.sh) on purpose: that launcher
+    // already supported this, the Java one did not, and AndroidMeshScenario's P1 stage skipped every
+    // run because of it. Two launchers with two spellings of the same knob is how the next reader
+    // ends up debugging a stack that is up and unreachable.
+    // ---------------------------------------------------------------------------------------
+
+    /** The address the tracker and the rendezvous bind. {@code NODERA_SERVICE_BIND_ADDR}. */
+    public static String serviceBindAddress() {
+        return address("NODERA_SERVICE_BIND_ADDR");
+    }
+
+    /** The address peers and clients are told to reach the services on. */
+    public static String serviceAdvertiseAddress() {
+        return address("NODERA_SERVICE_ADVERTISE_ADDR");
+    }
+
+    /** The address each worker binds its P2P listener to. {@code NODERA_P2P_BIND_ADDR}. */
+    public static String p2pBindAddress() {
+        return address("NODERA_P2P_BIND_ADDR");
+    }
+
+    /** The address each worker announces itself at. {@code NODERA_P2P_ADVERTISE_ADDR}. */
+    public static String p2pAdvertiseAddress() {
+        return address("NODERA_P2P_ADVERTISE_ADDR");
+    }
+
+    /** @return whether this run is bound anywhere other than loopback. */
+    public static boolean isLanBound() {
+        return !"127.0.0.1".equals(serviceBindAddress())
+                || !"127.0.0.1".equals(serviceAdvertiseAddress());
+    }
+
+    private static String address(String variable) {
+        String value = System.getenv(variable);
+        return value == null || value.isBlank() ? "127.0.0.1" : value.trim();
     }
 
     private static int multiplierFromEnvironment() {

@@ -64,36 +64,67 @@ says which one it will take before the button is pressed:
 | Address | shows `127.0.0.1:<port>` | the floor, always available |
 
 The route is chosen **before** the tunnel is asked for, so "no installation" and "no mod" cost
-nothing. The tunnel is closed when the game exits and on every failure after it opened — the old
-Join screen opened one and never closed it. Failures carry a `Remedy` enum, so the screen renders one
-button and rewording an error cannot make it vanish.
+nothing. `LaunchCoordinator` owns one correlated attempt across React remounts, rejects a concurrent
+Play, invalidates stale task events, and owns tunnel cleanup. Direct launches close with the game;
+delegated launchers cannot expose game lifetime, so their handoff stays visible with an explicit
+Close connection action. Explicit leave reports `closing` until the worker proves the tunnel absent,
+never `exited` while cleanup is still running. Stable target ids distinguish profiles whose display
+names or game folders collide. Failures carry a `Remedy` enum, so rewording an error cannot make its
+action vanish.
 
 ### The desktop, redesigned
 
-Play / Worlds / Discover, and a gear. Overview dissolved: its one irreplaceable sentence — why
+Play / Library / Discover, and a gear. Overview dissolved: its one irreplaceable sentence — why
 sharing is paused, which is the difference between a node that stopped and one that looks like it
 crashed — is a line in the hero. Worlds is a grid of generated pictures, hashed from the world id, so
 a world looks the same on every machine and the art is something you learn rather than decoration.
 CSS-only, because the CSP forbids a remote image and permits an inline custom property.
 
-The primitives that should always have existed arrived with it: one `Button` (the same class string
-was pasted into six screens), one `Modal` replacing four of which only one was announced to a screen
-reader, plus `Tabs`, `Select`, `Banner`, and a focus ring — there had been no focus token at all.
+Every screen now uses a centred 12-column canvas up to 1,680 px rather than an 860/1,100 px
+left-aligned cap. Settings becomes a 3+9 sidebar/content composition and its configuration cards form
+two-column grids on wide windows. Discover, Peers, tracker stores, and dependency inventories gain
+bounded pagination; large piece maps become truthful contiguous-range density buckets. The visual
+system is replaced rather than rearranged: bundled Space Grotesk + Inter, obsidian surfaces,
+Ender-green action roles, semantic amber/blue/red, new controls, tables, dialogs, cards, and focus
+roles. Consent and LAN prompts use the same focus-trapping `Modal`.
 
 ### Android, natively
 
-`MainActivity` is a `ComponentActivity` with a `NavigationSuiteScaffold`, and the palette comes from
-`dynamicDarkColorScheme(context)`. Tauri stays the **build system** — `cargo tauri android build`
-owns NDK cross-compilation and `jniLibs` staging — and stops being the runtime.
+`MainActivity` is a `ComponentActivity`; explicit Material 3 `NavigationBar` / `NavigationRail`
+adapt at 600 dp, while screen grids and settings list-detail layouts adapt again on tablets. The
+palette comes from `dynamicDarkColorScheme(context)`. Tauri stays the **build system** —
+`cargo tauri android build` owns NDK cross-compilation and `jniLibs` staging — and stops being the
+runtime.
 
 The bridge is two JNI calls, not fifty-two: `nativeStart` and a verb-and-JSON `nativeInvoke`. A wrong
 JNI signature is not a compile error, it is a `NoSuchMethodError` on a device, so there is one place
 to get right. Events go the other way, pushed into a `SharedFlow` — polling would have re-introduced
 the cadence this codebase spent a release removing.
 
+Physical Android 15 testing proved that push path: the dashboard moved from Connecting to Online
+after Rust called Kotlin's static event sink. It also fixed three boundaries only ART exposed:
+owner-only identity creation when `getFileStore` is denied, one shared `dataDir` contract, and Peers
+querying the worker's reported identity instead of creating an app-owned second peer.
+
 There is no Play button on the phone. There is no Java Minecraft client on Android, so the launch
 module is compiled out entirely and a Compose screen cannot call it by accident. What the phone is,
 and what its Home screen says, is a node that keeps other people's worlds alive.
+
+Network, tracker stores, Storage, Battery, Peers, Privacy, Diagnostics, About, licences, onboarding,
+and system-back navigation are native Compose surfaces. Settings values are parsed into controls;
+unknown battery/network reads never render as success, numeric values round-trip without clamping,
+and a store deep link confirms the exact URL that was previewed. Saving worker settings invalidates
+the prior enforcement verdict before the debounced push, generation-checks its reply, and refreshes
+the badge through the worker timeout. Privacy keeps pending local consent distinct from confirmed
+worker consent and allows offline withdrawal; Peers reloads and clears stale self-tests when worker
+identity or tracker state changes.
+
+Trackers and stores now share one native page: direct endpoints, subscribed publishers, effective
+tracker/rendezvous provenance, preview-before-trust, and removal impact are visible together. First
+run is four scroll-safe steps covering purpose, write-probed storage, Android background policy, and
+an explicit telemetry answer. Android saves each owned settings field atomically, preserves unsaved
+forms across recreation, restores pending deep links, migrates the former `filesDir/nodera` state to
+the corrected `dataDir/nodera` root, and gives switches row-level accessibility semantics.
 
 ## Exit tests
 
@@ -107,13 +138,23 @@ Source-text and built-CSS rules, in `app/ui/tests/`:
 - **`ux-honesty.test.mjs`** — the staleness rule is derived now rather than listing four screen names
   that drifted every time one moved: the shell exports `WORKER_FIGURE_SCREENS` and the test asserts
   every screen module touching the dashboard is in it.
-- **`scripts/android-apk.sh`** asserts what it patches — every JNI-reachable class has an R8 `-keep`
-  rule, Compose actually landed in the generated Gradle file, and `MainActivity` is `singleTask`.
+- **`launcher-review.test.mjs`** — stable target identity, Discover→Play, state restoration ordering,
+  visible close failures, accessible dialogs/search, wide world composition, bounded piece maps, and
+  light-theme contrast.
+- **`scripts/android-apk.sh`** asserts what it patches and the native review invariants — every
+  JNI-reachable class has an R8 `-keep` rule, Compose lands in generated Gradle, `MainActivity` is
+  `singleTask`, deep-link preview identity is bound, back handling exists, and numeric settings are
+  not truncated.
+- **`nodera-core` launch tests** cover strict ids, stable targets, concurrent launch refusal,
+  leave-during-launch invalidation, bounded ambiguous-CONNECT cleanup, delegated handoff, and shutdown
+  ownership. **270 tests** pass in the shared core; the frontend passes **31** tests.
 
 Human protocols for the launch lane and the Android build are in [TESTING.md](TESTING.md).
 
 ## What is not done
 
 [L-91](LIMITATIONS.md) (no Microsoft credential, so the direct route is gated), L-92 (the offline
-account is development-only), L-93 (`servers.dat` is one click, not auto-connect), L-94 (Android's
-Network and Storage screens read rather than edit).
+account is development-only), and L-93 (`servers.dat` is one click, not auto-connect). L-94 is
+RETIRING: physical startup, navigation, deep-link routing and Peers self-test are green; the unified
+tracker/store page, four-step onboarding, storage change, and battery controls are host-build green
+but still need final touch/restart evidence on the phone.

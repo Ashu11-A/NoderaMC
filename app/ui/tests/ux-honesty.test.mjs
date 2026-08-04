@@ -103,20 +103,16 @@ test("a screen showing worker figures marks them as last-known when the link is 
     );
   }
 
-  // Mobile: the same statement, in the phone shell's own words. This shell is still what a narrow
-  // desktop window gets, so it is not dead code — see `useViewport.ts`.
-  const mobile = read("../src/mobile/MobileApp.tsx");
-  const mobileMarks = (mobile.match(/isStale\(/g) ?? []).length;
-  assert.ok(
-    mobileMarks >= 2,
-    `every figure-bearing phone tab must mark stale data (found ${mobileMarks})`,
-  );
-  assert.match(mobile, /function StaleNotice\(\)/);
+  // Android is native Compose; both Home and Worlds render the shared native notice.
+  const mobile = read("../../android/kotlin/ui/Screens.kt");
+  const mobileMarks = (mobile.match(/StaleNotice\(\)/g) ?? []).length;
+  assert.ok(mobileMarks >= 2, `every figure-bearing native screen must mark stale data (found ${mobileMarks})`);
+  assert.match(mobile, /fun StaleNotice\(\)/);
 
-  // And the words are the same on both, because it is the same claim.
+  // Both shells state the same fact in platform-appropriate compact wording.
   const words = "Showing the last known picture";
   assert.ok(read("../src/components.tsx").includes(words));
-  assert.ok(mobile.includes(words));
+  assert.ok(mobile.includes("Last known state"));
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-2 */
@@ -220,7 +216,7 @@ test("no link is an anchor the webview would swallow", () => {
   // and an anchor without it navigates this window away from the application, to a page with no
   // back button because the app has no browser chrome either. Both outcomes look like a bug to the
   // person who tapped. So links go through `openExternal`, and the host decides where they open.
-  const dirs = ["../src", "../src/mobile", "../src/m3"];
+  const dirs = ["../src"];
   const offenders = [];
   for (const dir of dirs) {
     const base = new URL(`${dir}/`, import.meta.url);

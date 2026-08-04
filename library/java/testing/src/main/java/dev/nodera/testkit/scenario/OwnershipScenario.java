@@ -85,9 +85,7 @@ public final class OwnershipScenario implements Scenario {
             // the current engine refuses, so the lane never boots and this wait would burn its whole
             // timeout with no stated cause — bail out the moment the bootstrap failure appears
             // instead.
-            hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180),
-                    HostWorldSupport.STALE_BAKE_GUARD,
-                    "O1: " + HostWorldSupport.STALE_BAKE_MESSAGE);
+            HostWorldSupport.awaitMemberNodes(context, hostLog, "O1");
             joinLog.await("client validation lane active", Duration.ofSeconds(180));
         });
 

@@ -33,8 +33,15 @@ import java.util.Properties
  * The worker ships as `assets/nodera-worker.jar` — a multidex archive with its resources — and is
  * copied to internal storage on first run because `DexClassLoader` needs a real file path. It is
  * then loaded in a child class loader and its `main` is called on a background thread. In-process
- * rather than as a separate process because Android does not let an app spawn `dalvikvm`, and
- * because the app's own lifetime is exactly the lifetime the worker should have here.
+ * rather than as a separate process because Android does not let an app spawn `dalvikvm`.
+ *
+ * # Who owns its lifetime
+ *
+ * [NoderaWorkerService], not the activity and not this object. This doc used to say the app's own
+ * lifetime "is exactly the lifetime the worker should have here", and that turned out to be a
+ * description of a defect rather than a design: Android ends an app's lifetime whenever it likes,
+ * and it ended one 25 minutes into a session while the phone was holding committee seats and
+ * replicating a world. Start the node through the service (M-2).
  *
  * # What the app does with it afterwards
  *
@@ -102,6 +109,10 @@ object NoderaWorker {
             // Environment variables cannot be set for our own process from Java, so the properties
             // are what steer it — every path it derives hangs off `user.home`.
             System.setProperty("user.home", home.absolutePath)
+            System.setProperty(
+                "NODERA_ALLOWED_STORAGE_ROOTS",
+                NoderaStorage.workerRoots(context).joinToString(File.pathSeparator) { it.absolutePath },
+            )
             // Where the app keeps the service list it synchronises. This is the ONLY way the worker
             // learns about a tracker on Android: it runs inside this process, and a process cannot
             // set environment variables for itself from Java — so the desktop's

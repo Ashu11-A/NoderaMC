@@ -332,6 +332,7 @@ mod tests {
 
     fn target(root: &Path, version: &str) -> LaunchTarget {
         LaunchTarget {
+            id: format!("test:{version}"),
             name: "Modded".to_owned(),
             tier: Tier::Direct,
             game_dir: root.display().to_string(),

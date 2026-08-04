@@ -137,7 +137,7 @@ class WireSchemaGeneratorTest {
         // order to REACH other peers are tolerant, and the ones it needs to AGREE with them are
         // strict. If a future change moves a kind across, this number moves with it deliberately.
         assertThat(WireRegistry.onPlane(MessagePlane.INFRASTRUCTURE)).hasSize(50);
-        assertThat(WireRegistry.onPlane(MessagePlane.CONSENSUS)).hasSize(25);
+        assertThat(WireRegistry.onPlane(MessagePlane.CONSENSUS)).hasSize(26);
         assertThat(WireRegistry.onPlane(MessagePlane.INFRASTRUCTURE).size()
                 + WireRegistry.onPlane(MessagePlane.CONSENSUS).size())
                 .isEqualTo(WireRegistry.kinds().size());

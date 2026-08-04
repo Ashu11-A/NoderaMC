@@ -100,9 +100,7 @@ public final class ContinuityScenario implements Scenario {
             // A world baked before a FlatWorldRules.RULES_VERSION bump carries a certified genesis
             // the current engine refuses, so the lane never boots and this wait would burn its whole
             // timeout with no stated cause — bail out the moment the bootstrap failure appears.
-            hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180),
-                    HostWorldSupport.STALE_BAKE_GUARD,
-                    "S2c: " + HostWorldSupport.STALE_BAKE_MESSAGE);
+            HostWorldSupport.awaitMemberNodes(context, hostLog, "S2c");
             joinLog.await("client validation lane active", Duration.ofSeconds(180));
         });
 

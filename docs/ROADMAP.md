@@ -8,10 +8,10 @@
      disagree, the task file wins and this file is the bug. Never renumber a category's tasks to
      make this table tidier; task numbers are referenced by GitHub issues and commit messages. -->
 
-**Snapshot: 2026-07-28** · Overall system completion **90.4%** · 2,068 Java tests · 408 Rust
-workspace tests · 188 `nodera-app` tests · 0 failing (the Java and Rust-workspace figures are from a
-full green `./gradlew check` + `cargo test` on 2026-07-28; `nodera-app` is a separate workspace and
-was not re-run).
+**Snapshot: 2026-08-01** · Overall system completion **90.4%** (not recomputed) · 2,285 Java tests ·
+690 Rust workspace tests · 2 Tauri-shell tests (one browser-opening case ignored) · 31 frontend tests
+· 0 failing. `./gradlew check`, both Rust workspaces, frontend production build and signed debug APK
+and a physical Android 15 run were green on this date.
 
 The figure moved 93.1 → 85.7 → 91.3 → **90.4 %**, and every move was real. The **telemetry
 programme** ([`plans/Plan.6.md`](plans/Plan.6.md)) first added ten tasks across seven categories, then
@@ -93,11 +93,11 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | [Rendezvous](rendezvous/Task.0.md) | 6 | 4 | 1 | 1 | NAT reach: punching + relay fallback |
 | [Minecraft](minecraft/Task.0.md) | 11 | 5 | 5 | 0 | The NeoForge mod — the playable product |
 | [Worker](peer/Task.0.md) | 8 | 6 | 2 | 0 | The always-on headless peer |
-| [App](app/Task.0.md) | 10 | 6 | 3 | 1 | The Tauri companion that supervises the worker |
+| [App](app/Task.0.md) | 11 | 6 | 4 | 1 | Desktop game launcher + Tauri shell over shared app core |
 | [Mobile](mobile/Task.0.md) | 5 | 4 | 1 | 0 | The Android build — the worker itself, on a phone |
 | [Testing](testing/Task.0.md) | 1 | 1 | 0 | 0 | The test tooling: harness, scenarios, benchmarks, structural report |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
-| **Total** | **75** | **49** | **22** | **2** | |
+| **Total** | **76** | **49** | **23** | **2** | |
 
 Note (2026-07-28 doc sweep): the task totals now reflect every `Task.<n>.md` file on disk (the previous
 table undercounted tracker/rendezvous/minecraft/worker/app/mobile). The completion figure in §1's
@@ -221,6 +221,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [8](app/Task.8.md) | Screen redesign: one subject per screen | ✅ | app 6, app 7 |
 | [9](app/Task.9.md) | Tracker stores | ✅ | app 8, tracker 6, network 13 |
 | [10](app/Task.10.md) | Practical screens, honest numbers | 🚧 | app 8, app 9, worker 2 |
+| [11](app/Task.11.md) | A launcher, not a dashboard | 🚧 | app 9, app 10 |
 
 ### Mobile — [`docs/mobile/`](mobile/Task.0.md)
 
@@ -228,7 +229,7 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 |---|---|---|---|
 | [1](mobile/Task.1.md) | The Android build: toolchain, APK, dex floor | ✅ | app 1 |
 | [2](mobile/Task.2.md) | The worker on the phone | ✅ | mobile 1, worker 1 |
-| [3](mobile/Task.3.md) | Storage, foreground service, single-ABI | ✅ | mobile 2 |
+| [3](mobile/Task.3.md) | The phone in the mesh, and how it is proven | ✅ | mobile 2 |
 | [4](mobile/Task.4.md) | Settings the app can keep; worker verbs it never asks for | ✅ | mobile 2, mobile 3, app 7 |
 | [5](mobile/Task.5.md) | The phone reaches the network it was told to | 🚧 | mobile 3, app 9, worker 2 |
 

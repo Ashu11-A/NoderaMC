@@ -3,8 +3,9 @@
 // Both are node-wide facts, which is why they are here and not on a world's page: a peer is a
 // connection this node holds, and a tracker is where this node announces. They used to be tabs
 // under a selected world, where they claimed a per-world scope they never had.
+import { useEffect, useState } from "react";
 import { FiRadio, FiUsers } from "react-icons/fi";
-import { Card, Empty, MONO, Pill, Stat, STAT_GRID, Td, Th, Tr, cx } from "./components";
+import { Card, DataTable, Empty, MONO, Pagination, Pill, Stat, STAT_GRID, Td, Th, Tr, cx } from "./components";
 import {
   UNKNOWN,
   formatBytes,
@@ -21,9 +22,16 @@ export function PeersScreen(props: { d: Dashboard }) {
   const known = d.link.has_data;
   const reachableTrackers = d.discovery.trackers.filter((t) => t.reachable).length;
   const reachableRendezvous = d.discovery.rendezvous.filter((r) => r.reachable).length;
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const peers = d.peers.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    const last = Math.max(1, Math.ceil(d.peers.length / pageSize));
+    if (page > last) setPage(last);
+  }, [d.peers.length, page]);
 
   return (
-    <div className="flex max-w-[1100px] flex-col gap-4 px-[26px] pt-5 pb-10">
+    <div className="flex flex-col gap-4">
       <div className={STAT_GRID}>
         {/* `counts.peers` rather than `peers.length`: Overview reads the first and this read the
             second, so one screen could disagree with the other about the same fact. `Counts` exists
@@ -63,8 +71,8 @@ export function PeersScreen(props: { d: Dashboard }) {
         {d.peers.length === 0 ? (
           <Empty icon={<FiUsers />} title={known ? "No peers" : "Waiting for your peer"} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+          <>
+            <DataTable label="Connected peers">
               <thead>
                 <Tr>
                   <Th>Peer</Th>
@@ -78,7 +86,7 @@ export function PeersScreen(props: { d: Dashboard }) {
                 </Tr>
               </thead>
               <tbody>
-                {d.peers.map((p) => (
+                {peers.map((p) => (
                   <Tr key={`${p.node_id}:${p.route}`}>
                     <Td mono title={p.node_id}>
                       {shortId(p.node_id)}
@@ -93,8 +101,9 @@ export function PeersScreen(props: { d: Dashboard }) {
                   </Tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </DataTable>
+            <Pagination page={page} pageSize={pageSize} total={d.peers.length} onPage={setPage} />
+          </>
         )}
       </Card>
 
@@ -116,8 +125,7 @@ function EndpointCard(props: {
       {props.rows.length === 0 ? (
         <Empty icon={<FiRadio />} title={known ? "None configured" : "Waiting for your peer"} />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+        <DataTable label={props.title}>
             <thead>
               <Tr>
                 <Th>Endpoint</Th>
@@ -142,8 +150,7 @@ function EndpointCard(props: {
                 </Tr>
               ))}
             </tbody>
-          </table>
-        </div>
+        </DataTable>
       )}
     </Card>
   );

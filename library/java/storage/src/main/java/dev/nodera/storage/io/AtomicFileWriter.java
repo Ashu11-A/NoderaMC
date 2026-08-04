@@ -71,11 +71,23 @@ public final class AtomicFileWriter {
     }
 
     private static Path createTempFile(Path dir, String prefix, boolean ownerOnly) throws IOException {
+        return createTempFile(dir, prefix, ownerOnly, Files::getFileStore);
+    }
+
+    static Path createTempFile(Path dir, String prefix, boolean ownerOnly,
+            FileStoreLookup fileStores) throws IOException {
         if (!ownerOnly) {
             return Files.createTempFile(dir, prefix, ".tmp");
         }
 
-        FileStore store = Files.getFileStore(dir);
+        FileStore store;
+        try {
+            store = fileStores.get(dir);
+        } catch (SecurityException cannotInspect) {
+            // Android's UnixFileSystemProvider denies getFileStore even inside app-private storage.
+            // Try secure creation directly; only providers that reject POSIX attributes fall back.
+            return createOwnerOnlyWithoutStoreInspection(dir, prefix);
+        }
         boolean supportsPosix;
         try {
             supportsPosix = store.supportsFileAttributeView(PosixFileAttributeView.class)
@@ -96,6 +108,34 @@ public final class AtomicFileWriter {
             throw new IOException("POSIX file store rejected owner-only permissions for " + dir,
                     permissionsRejected);
         }
+    }
+
+    static Path createOwnerOnlyWithoutStoreInspection(Path dir, String prefix) throws IOException {
+        return createOwnerOnlyWithoutStoreInspection(dir, prefix,
+                (parent, stem) -> Files.createTempFile(parent, stem, ".tmp",
+                        PosixFilePermissions.asFileAttribute(Set.of(
+                                PosixFilePermission.OWNER_READ,
+                                PosixFilePermission.OWNER_WRITE))));
+    }
+
+    static Path createOwnerOnlyWithoutStoreInspection(Path dir, String prefix,
+            OwnerOnlyTempCreator creator) throws IOException {
+        try {
+            return creator.create(dir, prefix);
+        } catch (UnsupportedOperationException permissionsUnsupported) {
+            throw new IOException("cannot secure owner-only permissions for " + dir,
+                    permissionsUnsupported);
+        }
+    }
+
+    @FunctionalInterface
+    interface FileStoreLookup {
+        FileStore get(Path path) throws IOException;
+    }
+
+    @FunctionalInterface
+    interface OwnerOnlyTempCreator {
+        Path create(Path dir, String prefix) throws IOException;
     }
 
     static void deleteTempAfterFailure(Path temp, Throwable failure) {

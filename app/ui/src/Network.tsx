@@ -12,10 +12,9 @@ import {
   FiLogIn,
   FiGlobe,
   FiLink,
-  FiSearch,
   FiUsers,
 } from "react-icons/fi";
-import { AVATAR, Card, Empty, MONO, Pill, Td, Th, Tr, cx } from "./components";
+import { AVATAR, Card, DataTable, Empty, FilterBar, MONO, PageGrid, PageHeader, Pagination, Pill, Td, Th, Tr, cx } from "./components";
 import {
   browseNetwork,
   joinWorld,
@@ -30,6 +29,8 @@ interface Joined {
   sessionId: string;
   address: string;
 }
+
+const PAGE_SIZE = 12;
 
 /* ---------------------------------------------------------------------------------- sorting */
 
@@ -121,7 +122,9 @@ function SortHeader(props: {
   );
 }
 
-export function NetworkScreen() {
+export function NetworkScreen(props: {
+  onPlay?: (sessionId: string, worldName: string) => Promise<void>;
+} = {}) {
   const [worlds, setWorlds] = useState<DirectoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>({ key: "name", ascending: true });
@@ -131,6 +134,7 @@ export function NetworkScreen() {
   const [joined, setJoined] = useState<Joined[]>([]);
   const [link, setLink] = useState("");
   const [linkError, setLinkError] = useState("");
+  const [page, setPage] = useState(1);
 
   const refresh = () => {
     setLoading(true);
@@ -164,9 +168,16 @@ export function NetworkScreen() {
     // meaningless.
     return [...found].sort(comparatorFor(sort));
   }, [worlds, query, sort]);
+  const visible = matches.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => {
+    const last = Math.max(1, Math.ceil(matches.length / PAGE_SIZE));
+    if (page > last) setPage(last);
+  }, [matches.length, page]);
 
   /** Click a column to sort by it; click it again to reverse. */
-  const sortBy = (key: SortKey) =>
+  const sortBy = (key: SortKey) => {
+    setPage(1);
     setSort((current) =>
       current.key === key
         ? { key, ascending: !current.ascending }
@@ -175,10 +186,19 @@ export function NetworkScreen() {
           // most players" is the question and "which has the fewest" is not.
           { key, ascending: key === "name" },
     );
+  };
 
-  const join = (sessionId: string) => {
+  const join = (world: DirectoryEntry) => {
+    const sessionId = world.session_id;
     setBusy(sessionId);
     setError("");
+    if (props.onPlay) {
+      props
+        .onPlay(sessionId, world.name || sessionId)
+        .catch((e: unknown) => setError(String(e)))
+        .finally(() => setBusy(""));
+      return;
+    }
     joinWorld(sessionId)
       .then((outcome) => {
         if (outcome.ok) {
@@ -196,8 +216,15 @@ export function NetworkScreen() {
 
   const leave = (sessionId: string) => {
     setBusy(sessionId);
+    setError("");
     leaveWorld(sessionId)
-      .then(() => setJoined((current) => current.filter((j) => j.sessionId !== sessionId)))
+      .then((outcome) => {
+        if (outcome.ok) {
+          setJoined((current) => current.filter((j) => j.sessionId !== sessionId));
+        } else {
+          setError(outcome.error || "The worker did not close that connection.");
+        }
+      })
       .catch((e: unknown) => setError(String(e)))
       .finally(() => setBusy(""));
   };
@@ -220,7 +247,7 @@ export function NetworkScreen() {
         const match = worlds.find((w) => w.session_id === worldId);
         if (match) {
           setQuery("");
-          join(match.session_id);
+          join(match);
           return;
         }
         setLinkError(
@@ -232,7 +259,13 @@ export function NetworkScreen() {
   };
 
   return (
-    <div className="flex max-w-[1100px] flex-col gap-4 px-[26px] pt-5 pb-10">
+    <PageGrid className="gap-y-5">
+      <PageHeader
+        eyebrow="Live directory"
+        title="Discover worlds"
+        description="Browse sessions currently announced by trackers, or open a trusted invitation."
+      />
+      <div className="col-span-12 flex flex-col gap-4">
       {joined.length > 0 && (
         <Card
           title="Connect Minecraft to"
@@ -297,21 +330,19 @@ export function NetworkScreen() {
         {linkError && <p className="pb-1 text-sm text-danger">{linkError}</p>}
       </Card>
 
+      <FilterBar
+        label="Search discoverable worlds"
+        value={query}
+          onChange={(value) => {
+            setQuery(value);
+            setPage(1);
+          }}
+        placeholder="Search worlds by name or id"
+        actions={<span className="px-2 text-xs text-faint">{matches.length} found</span>}
+      />
+
       <Card
         title="On the network"
-        right={
-          <div className="flex items-center gap-2">
-            <span className="text-faint">
-              <FiSearch aria-hidden />
-            </span>
-            <input
-              className="w-[200px] rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
-              placeholder="Search by name or id"
-              value={query}
-              onChange={(e) => setQuery(e.currentTarget.value)}
-            />
-          </div>
-        }
       >
         {error && <p className="pb-2 text-sm text-danger">{error}</p>}
         {matches.length === 0 ? (
@@ -319,8 +350,8 @@ export function NetworkScreen() {
             {query.trim() ? "Try part of the name, or paste an invitation." : ""}
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
+          <>
+            <DataTable label="Discoverable worlds">
               <thead>
                 {/* Five headers for five columns. There were four, so "Kind" sat over the piece
                     count and every cell after Players was read under the wrong heading — a table
@@ -334,7 +365,7 @@ export function NetworkScreen() {
                 </Tr>
               </thead>
               <tbody>
-                {matches.map((world) => {
+                {visible.map((world) => {
                   const here = joined.find((j) => j.sessionId === world.session_id);
                   return (
                     <Tr key={world.session_id}>
@@ -373,10 +404,10 @@ export function NetworkScreen() {
                           <button
                             className={BUTTON}
                             disabled={busy === world.session_id}
-                            onClick={() => join(world.session_id)}
+                            onClick={() => join(world)}
                           >
                             <FiLogIn aria-hidden className="inline" />{" "}
-                            {busy === world.session_id ? "Connecting…" : "Join"}
+                            {busy === world.session_id ? "Starting…" : "Play"}
                           </button>
                         )}
                       </Td>
@@ -384,11 +415,13 @@ export function NetworkScreen() {
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+            </DataTable>
+            <Pagination page={page} pageSize={PAGE_SIZE} total={matches.length} onPage={setPage} />
+          </>
         )}
       </Card>
-    </div>
+      </div>
+    </PageGrid>
   );
 }
 

@@ -26,9 +26,8 @@ import { WorldsScreen } from "./Worlds";
 import { NetworkScreen } from "./Network";
 import { LanOfferModal } from "./Lan";
 import { WorldScreen } from "./World";
+import { launchPlay } from "./play";
 import { useResolvedTheme } from "./theme";
-import { useIsCompact, useIsMobileBuild } from "./useViewport";
-import { MobileApp } from "./mobile/MobileApp";
 import {
   EMPTY_DASHBOARD,
   formatAge,
@@ -51,7 +50,7 @@ import {
 } from "./ipc";
 
 type Screen =
-  | { name: "play" }
+  | { name: "play"; launchWorld?: { id: string; name: string } }
   | { name: "worlds" }
   | { name: "world"; id: string }
   | { name: "discover" }
@@ -68,7 +67,7 @@ type Screen =
  */
 const DESTINATIONS = [
   { name: "play", label: "Play", icon: <FiPlay />, showsWorkerFigures: true },
-  { name: "worlds", label: "Worlds", icon: <FiGlobe />, showsWorkerFigures: true },
+  { name: "worlds", label: "Library", icon: <FiGlobe />, showsWorkerFigures: true },
   { name: "discover", label: "Discover", icon: <FiCompass />, showsWorkerFigures: false },
 ] as const;
 
@@ -81,14 +80,6 @@ export const WORKER_FIGURE_SCREENS: readonly string[] = [
 ];
 
 /**
- * The shell, which picks a layout before it picks a screen.
- *
- * Two conditions, deliberately different. A **compact window** gets the Material 3 phone layout —
- * a desktop window dragged narrow is asking for it. The **peer-only build** gets it too, and gets
- * it regardless of width, because an Android tablet is wide and still has no Java worker to
- * supervise. Either one alone is enough; neither is a proxy for the other.
- */
-/**
  * The shell owns the settings document, and therefore the theme.
  *
  * It used to be read twice — once here to pick the layout, once inside `DesktopApp` — and each copy
@@ -99,21 +90,13 @@ export const WORKER_FIGURE_SCREENS: readonly string[] = [
  */
 export function App() {
   const d = useDashboard(EMPTY_DASHBOARD);
-  const compact = useIsCompact();
-  const mobileBuild = useIsMobileBuild();
   const [settings, setSettings] = useState<SettingsDoc | null>(null);
-  const scheme = useResolvedTheme(settings?.appearance.theme ?? "system");
+  useResolvedTheme(settings?.appearance.theme ?? "system");
 
   useEffect(() => {
     fetchSettings().then(setSettings).catch(() => {});
   }, []);
 
-  // `null` means the build question has not come back yet. One frame of nothing beats a frame of
-  // the wrong shell, which on a phone is a visible flash of a desktop rail.
-  if (mobileBuild === null) return null;
-  if (mobileBuild || compact) {
-    return <MobileApp dashboard={d} scheme={scheme} onSettings={setSettings} />;
-  }
   return <DesktopApp dashboard={d} settings={settings} onSettings={setSettings} />;
 }
 
@@ -171,13 +154,13 @@ function DesktopApp(props: {
       {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
           property of the DOM node — without a key React keeps that same node across navigation and a
           screen opened after a long scroll starts halfway down. A new key is a new node at zero. */}
-      <div
+      <main
         id={SCROLLPORT_ID}
         key={screen.name === "world" ? `world:${screen.id}` : screen.name}
         className="min-h-0 flex-1 overflow-y-auto"
       >
         {staleWorkerFigures && (
-          <div className="px-[26px] pt-3">
+          <div className="page-canvas pt-4">
             <StaleDataNotice />
           </div>
         )}
@@ -190,7 +173,12 @@ function DesktopApp(props: {
             sys={sys}
           />
         ) : screen.name === "discover" ? (
-          <NetworkScreen />
+          <NetworkScreen
+            onPlay={async (sessionId, worldName) => {
+              await launchPlay(sessionId, worldName);
+              setScreen({ name: "play", launchWorld: { id: sessionId, name: worldName } });
+            }}
+          />
         ) : selected ? (
           <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
         ) : screen.name === "worlds" ? (
@@ -198,11 +186,12 @@ function DesktopApp(props: {
         ) : (
           <PlayScreen
             d={d}
+            initialWorld={screen.name === "play" ? screen.launchWorld : undefined}
             onOpenWorld={(id) => setScreen({ name: "world", id })}
             onSettings={(section) => openSettings(section as SettingsSection)}
           />
         )}
-      </div>
+      </main>
     </div>
   );
 }
@@ -227,26 +216,28 @@ function TopNav(props: {
 
   return (
     <header
-      className="relative z-20 flex flex-none items-center gap-1 border-b border-line/60 bg-surface-3 px-4 backdrop-blur-md"
+      className="relative z-20 flex flex-none border-b border-line/70 bg-surface-3 backdrop-blur-xl"
       style={{ height: "var(--top-nav-height)" }}
     >
-      <span
-        aria-hidden
-        title="NoderaMC"
-        className="mr-3 h-[22px] w-[22px] flex-none rounded-sm bg-brand shadow-[0_0_16px_rgba(168,85,247,0.45)]"
-      />
+      <div className="page-canvas flex items-center gap-5">
+        <div className="mr-2 flex items-center gap-2.5" title="NoderaMC">
+          <span aria-hidden className="grid size-7 rotate-45 place-items-center border border-brand-2/70 bg-brand-2/10 shadow-[0_0_24px_rgba(142,219,63,0.18)]">
+            <span className="size-2 bg-brand-1" />
+          </span>
+          <span className="display-type text-sm font-semibold tracking-tight">NODERA</span>
+        </div>
 
-      <nav className="flex items-center gap-0.5">
+      <nav className="flex h-full items-center gap-1">
         {DESTINATIONS.map((entry) => (
           <button
             key={entry.name}
             aria-current={props.active === entry.name ? "page" : undefined}
             onClick={() => props.onSelect(entry.name)}
             className={cx(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm transition-colors",
+              "relative flex h-full items-center gap-2 px-3 text-sm transition-colors",
               "duration-[var(--motion-fast)] focus-visible:outline-2 focus-visible:outline-focus",
               props.active === entry.name
-                ? "bg-surface-hover font-medium text-text"
+                ? "font-medium text-text after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand-1"
                 : "text-dim hover:text-text",
             )}
           >
@@ -256,7 +247,8 @@ function TopNav(props: {
         ))}
       </nav>
 
-      <div className="ml-auto flex items-center gap-4 text-xs">
+      <div className="ml-auto flex items-center gap-2 text-xs">
+        <div className="hidden items-center gap-4 narrow:flex">
         {fault ? (
           <span className="inline-flex items-center gap-1.5 text-danger" title={d.link.last_error}>
             <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
@@ -270,7 +262,7 @@ function TopNav(props: {
           )
         )}
         {d.node.is_gateway && (
-          <span className="rounded-full border border-brand-2/55 px-[7px] py-0.5 text-[10px] tracking-[0.06em] text-brand-2">
+          <span className="rounded-full border border-brand-2/55 bg-brand-2/8 px-[7px] py-0.5 text-[10px] tracking-[0.08em] text-brand-1">
             GATEWAY
           </span>
         )}
@@ -282,6 +274,7 @@ function TopNav(props: {
             ▼ {show(d.traffic.down_bytes_per_sec, formatRate)}
           </span>
         </span>
+        </div>
         <button
           onClick={props.onSettings}
           aria-label="Settings"
@@ -290,6 +283,7 @@ function TopNav(props: {
         >
           <FiSettings />
         </button>
+      </div>
       </div>
     </header>
   );

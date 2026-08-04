@@ -141,8 +141,12 @@ public final class ProfileScenario implements Scenario {
         // ---------------------------------------------------------------------------
         ctx.stage("R1c", "the game and RCON ports are free for the Bukkit stages", () -> {
             rcon.send("stop");
-            ServerDedicatedDrive.stopClient("runClientJoin", null);
-            ServerDedicatedDrive.stopClient("runClientJoinTwo", null);
+            // The MDG RUN id, not the Gradle TASK name: the task is `runClientJoin`, the run is
+            // `clientJoin`, and the token in the JVM's command line is `<run>RunProgramArgs`.
+            // Passing the task name built `runClientJoinRunProgramArgs`, which matches no process
+            // — so this teardown had never stopped a client, and said nothing about it.
+            ServerDedicatedDrive.stopClient("clientJoin", null);
+            ServerDedicatedDrive.stopClient("clientJoinTwo", null);
             ServerDedicatedDrive.awaitPortFree(ctx.topology().gamePort(), Duration.ofSeconds(60));
             ServerDedicatedDrive.awaitPortFree(ctx.topology().rconPort(), Duration.ofSeconds(60));
         });

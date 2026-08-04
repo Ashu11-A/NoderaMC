@@ -15,14 +15,24 @@ import java.util.concurrent.TimeUnit;
 /**
  * One child process of a live run: how it was started, where its output went, and how it dies.
  *
- * <h2>Killing is the part that matters</h2>
+ * <h2>Killing is the part that matters — and this class cannot finish the job alone</h2>
  *
- * <p>Half of these processes are Gradle launchers whose interesting child is a Minecraft JVM. A
- * {@code destroy()} on the launcher leaves that JVM running, holding the game port and the run
- * directory, and the next scenario fails on a port check with no hint that the previous one is
- * still alive. {@link #stop} therefore walks {@link ProcessHandle#descendants()} first, and
- * {@link #kill} is available for the scenarios whose whole subject is an ungraceful death: a crash
- * test that stopped its target politely would be testing the wrong path.
+ * <p>Half of these processes are Gradle launchers, and a Minecraft JVM is <b>not</b> a descendant of
+ * the launcher that asked for it. Gradle hands the build to a long-lived DAEMON, and the daemon
+ * forks the game — so the game is the daemon's child, and this class's {@link ProcessHandle#descendants()}
+ * walk in {@link #stop}/{@link #kill} never reaches it. Measured directly on a live run: stopping a
+ * client's wrapper left its game JVM running and serving for minutes afterwards, while a stage that
+ * had just announced the player's departure asserted — and reported a pass — against a world that
+ * was still up.
+ *
+ * <p>This doc used to claim the opposite, that {@code destroy()} on the launcher leaves the JVM
+ * running and the descendants walk therefore handles it. Only the first half was true. Stopping a
+ * client for real needs BOTH halves: this class for the wrapper, and
+ * {@code HostWorldSupport.stopClient} for the game JVM, which addresses it by its per-run token and
+ * waits for it to be gone. Reach for that, not for this, whenever the subject is a game client.
+ *
+ * <p>{@link #kill} remains available for processes this harness really did start directly — the
+ * dedicated server, the services — where the tree walk does reach everything that matters.
  *
  * <p>Thread-context: one instance per process; {@link #stop}/{@link #kill} are idempotent.
  */

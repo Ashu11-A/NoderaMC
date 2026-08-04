@@ -7,7 +7,7 @@
 
 **Status:** ✅ COMPLETED
 **Category:** mobile · **Owns:** `scripts/android-apk.sh`, `app/android/kotlin/`
-**Last audit:** 2026-07-28
+**Last audit:** 2026-08-01
 **Depends on:** [app 1](../app/Task.1.md), [worker 1](../peer/Task.1.md)
 
 ---
@@ -24,10 +24,13 @@ Done. The pipeline below is live; `scripts/android-apk.sh` produces a signed
 `scripts/android-e2e.sh` proves the installed app is a node the tracker returns to an independent
 querier. The two pins (JDK 21, build-tools 35 for `d8`) are enforced by the script.
 
-One open build-pipeline gap is owned here as **M-9**: the generated Gradle project now compiles
-against SDK 36 (`gen/android/app/build.gradle.kts:17`) while `scripts/android-toolchain.sh:33`
-installs only platform `android-34`. A machine provisioned solely by the toolchain script is one
-license/SDK-pull away from a failed build. See [`LIMITATIONS.md`](LIMITATIONS.md) M-9.
+Physical re-audit on 2026-08-01 installed the 201 MiB debug APK on Android 15. The worker persisted
+its existing identity, bound `10.0.0.104:39957`, and passed all five E2E checks. The runner now reads
+identity and tracker state from `NODERA-STATE` instead of depending on log phrases removed from the
+worker, then asks the tracker independently for that exact worker id.
+
+The former SDK provisioning drift, **M-9**, is retired: toolchain and generated project both target
+SDK 36 and install build-tools 35 for worker dexing.
 
 ## The pipeline
 
@@ -46,7 +49,8 @@ license/SDK-pull away from a failed build. See [`LIMITATIONS.md`](LIMITATIONS.md
                           zipalign → apksigner → build/nodera-release.apk
 ```
 
-At runtime `MainActivity.onCreate` calls `NoderaWorker.start`, which stages the jar to internal
+At runtime `MainActivity.onCreate` starts the Rust core; its two-signal gate calls
+`NoderaWorker.start` after context and persisted settings are ready. Kotlin stages the jar to internal
 storage, marks it **read-only** (API 29+ refuses to load a writable dex), loads it with a
 `DexClassLoader`, and calls `main` on a background thread. The worker binds `127.0.0.1:25610` and
 the Rust side connects to it exactly as on desktop.
@@ -77,8 +81,8 @@ the Rust side connects to it exactly as on desktop.
 | `scripts/android-apk.sh` | build → dex → align → sign → install |
 | `scripts/android-toolchain.sh` | one-time SDK/NDK/target provision |
 | `app/android/kotlin/NoderaWorker.kt` | stages + loads the dex worker in-process |
-| `app/android/kotlin/MainActivity.kt` | starts the worker before the WebView |
-| `app/gen/android/app/build.gradle.kts` | generated Gradle project (compileSdk 36, minSdk 24) |
+| `app/android/kotlin/MainActivity.kt` | native Compose host that starts the shared core before drawing |
+| `app/gen/android/app/build.gradle.kts` | generated Gradle project (compileSdk 36, minSdk 26) |
 
 ## Commands
 
@@ -94,8 +98,9 @@ It exists so the APK installs, not so it can be published.
 
 ## Testing
 
-`scripts/android-e2e.sh` — five checks from both ends (install, process alive, identity in logcat,
-tracker accepted announce, independent `nodera-query` returns the phone). See
+`scripts/android-e2e.sh` — five checks from both ends (install, process alive, worker identity and
+tracker reachability from `NODERA-STATE`, independent `nodera-query` newly returns the exact phone
+UUID after a successful clean baseline). See
 [`TESTING.md`](TESTING.md) §4.1 for the last-run result.
 
 ## Limitations

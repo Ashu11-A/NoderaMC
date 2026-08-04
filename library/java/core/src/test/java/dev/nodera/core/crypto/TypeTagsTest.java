@@ -142,7 +142,9 @@ final class TypeTagsTest {
         expected.put("SERVICE_OBSERVATION", 117);
         expected.put("SERVICE_DIRECTORY_ENTRY", 118);
         expected.put("HALO_ENDORSEMENT", 119);
-        expected.put("NEXT", 119);
+        // The owner's undo of a deletion, ranked against the tombstone it supersedes.
+        expected.put("WORLD_REVIVAL", 120);
+        expected.put("NEXT", 120);
         return expected;
     }
 

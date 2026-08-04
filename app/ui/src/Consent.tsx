@@ -10,7 +10,7 @@
 //   3. The state shown is what the WORKER confirmed. The app never renders its own intent.
 import { useEffect, useState } from "react";
 import { FiShield, FiCheck, FiX, FiAlertCircle } from "react-icons/fi";
-import { Card, Toggle, StatusBadge, Disclosure, cx, MONO } from "./components";
+import { Button, Card, Toggle, StatusBadge, Disclosure, Modal, cx, MONO } from "./components";
 import {
   fetchCollectedSchema,
   fetchTelemetryStatus,
@@ -81,11 +81,30 @@ export function ConsentModal(props: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-lg border border-line bg-surface p-6 shadow-card">
-        <div className="mb-4 flex items-center gap-3">
-          <FiShield className="text-brand-2" size={22} />
-          <h2 className="text-lg font-semibold">Help improve NoderaMC?</h2>
+    <Modal
+      title="Help improve NoderaMC?"
+      width="md"
+      busy={busy}
+      footer={
+        <div className="grid w-full grid-cols-2 gap-3">
+          {/* Equal variants and dimensions: neither consent answer is visually preferred. */}
+          <Button variant="secondary" size="md" disabled={busy} onClick={() => answer(false)}>
+            <FiX /> Don't share
+          </Button>
+          <Button variant="secondary" size="md" disabled={busy} onClick={() => answer(true)}>
+            <FiCheck /> Share telemetry
+          </Button>
+        </div>
+      }
+    >
+        <div className="mb-4 flex items-center gap-3 rounded-md border border-line-soft bg-surface-2 p-3">
+          <span className="grid size-10 place-items-center rounded-md border border-brand-2/30 bg-brand-2/8">
+            <FiShield className="text-brand-1" size={20} />
+          </span>
+          <div>
+            <p className="text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">First launch</p>
+            <p className="text-sm text-dim">Anonymous, optional, and reversible in Settings.</p>
+          </div>
         </div>
 
         <p className="mb-3 text-sm text-dim">
@@ -119,27 +138,7 @@ export function ConsentModal(props: {
           </div>
         )}
 
-        {/* Both buttons carry the same weight, the same size, and the same styling. */}
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => answer(false)}
-            className="flex items-center justify-center gap-2 rounded-sm border border-line px-4 py-2.5 text-sm hover:bg-surface-hover disabled:opacity-50"
-          >
-            <FiX /> Don't share
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => answer(true)}
-            className="flex items-center justify-center gap-2 rounded-sm border border-line px-4 py-2.5 text-sm hover:bg-surface-hover disabled:opacity-50"
-          >
-            <FiCheck /> Share telemetry
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

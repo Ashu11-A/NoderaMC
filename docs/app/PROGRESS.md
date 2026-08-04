@@ -4,7 +4,7 @@
      commit touching this category: update the §1 row, append a dated §2 milestone note naming the
      EVIDENCE, then reconcile ../ROADMAP.md §2. Never rewrite an old note. -->
 
-**Category:** app · **Last audit:** 2026-07-28 · Tasks completed: **6 / 10**
+**Category:** app · **Last audit:** 2026-08-01 · Tasks completed: **6 / 11**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md).
@@ -25,10 +25,57 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 | [8](Task.8.md) | Screen redesign: one subject per screen | ✅ COMPLETED | 8 screens, each owning one subject; worker events drive the LAN prompt; generated licence manifest; 116 crate tests |
 | [9](Task.9.md) | Tracker stores | ✅ COMPLETED | Trust lists added by URL or deep link; built-in store is deletable; the services sync file is the Android worker's only channel; verified on a physical device 2026-07-27 |
 | [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS | Cumulative traffic totals, per-screen scroll, one dashboard subscription, A-UX-4's desktop/Material role repair, and the UX honesty bundle (A-UX-1/2/3/5) landed; the content pass remains |
+| [11](Task.11.md) | A launcher, not a dashboard | 🚧 IN PROGRESS | Adaptive cinematic desktop launcher + native Compose companion landed; physical Android startup/navigation/deep-link/Peers acceptance passed, while direct sign-in and full settings mutation remain |
 
 ---
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-01 — Native settings and launch cleanup survive concurrent lifecycle changes
+
+Trackers and stores now share one Compose page with effective-service provenance and explicit
+removal impact; onboarding is a four-step storage/background/privacy decision rather than one dense
+form. Typed settings mutations stop one screen from replacing another screen's newer values, the
+background store refresh replaces only entries unchanged since its fetch began, and configuration
+status invalidation is atomic. Activity recreation preserves unsaved forms and pending store links;
+upgrades migrate state from the former `filesDir` root. Explicit desktop leave now reports `closing`
+until tunnel cleanup proves absence.
+
+Evidence: 270 `nodera-core` tests, 31 frontend tests, Tauri shell test/clippy, isolated
+`./gradlew check --rerun-tasks`, and a full worker-dex `scripts/android-apk.sh --debug` build all
+pass. Physical rerun remains pending because no ADB device was connected (`10.0.0.104:5555`
+refused the documented Wi-Fi connection).
+
+### 2026-08-01 — Native Android survives physical startup and reports the worker, not a second peer
+
+Android 15 physical testing proved static JNI dashboard events, native navigation, tracker-store
+deep-link routing, truthful nullable rates, telemetry status and Peers self-test. Three live-only
+defects were fixed: Android's denied `getFileStore` no longer kills worker identity persistence;
+Peers verifies the Java worker identity instead of announcing a second Rust identity; and commons
+presence is excluded from world replication. Evidence: installed 201 MiB debug APK, Online with 2/2
+trackers, self-test passed, and `scripts/android-e2e.sh` **5/5**. L-94 remains RETIRING until Network
+and Storage edits plus store add/remove survive restart on-device.
+
+Post-audit hardening makes those settings surfaces evidence-based under races: every configuration
+push invalidates the previous worker verdict, stale in-flight replies cannot restore it, Compose
+polls through the control timeout, pending telemetry remains revocable offline, and Peers discards
+self-test results from an older identity/tracker generation.
+
+### 2026-08-01 — Every app screen is rebuilt around Play or node configuration
+
+Desktop uses Play / Library / Discover, a 12-column 1,680 px canvas, wide settings grids, paginated
+data surfaces, new bundled typography, and an obsidian/green launcher system. Discover now enters the
+same launch coordinator as Play. `LaunchCoordinator` retains correlated state, stable target ids and
+tunnel ownership outside React, rejects concurrent attempts, invalidates leave/spawn races, and says
+when a delegated launcher is only a handoff.
+
+Android is native Compose Material 3: dynamic wallpaper colour, bar/rail navigation, adaptive world
+grids and settings list-detail, native Network/tracker-store/Storage/Peers/Diagnostics/licence screens,
+and first-run onboarding. Unknown probes no longer render successful battery or network states.
+
+Evidence: `./gradlew check`; full `cargo test`; **270** `nodera-core` tests; app shell test/clippy;
+**31/31** frontend tests; `scripts/android-apk.sh --debug --skip-worker` produced and verified
+`build/nodera-debug.apk`. L-94 moves OPEN → RETIRING pending physical touch/deep-link acceptance.
 
 ### 2026-07-30 — The tracker-store deep link gets somewhere it can be linked from
 

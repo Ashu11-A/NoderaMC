@@ -248,6 +248,151 @@ impl WorldDeletionGossip {
     }
 }
 
+/// The owner putting a world back — the record that undoes a [`WorldTombstone`].
+///
+/// Byte-exact port of `storage/WorldRevival.java`. Same evidence, same two signatures, opposite
+/// instruction: a tracker that holds a deletion for 120 days has to be able to hear that its owner
+/// changed their mind, or the owner's own re-share is refused by every directory on the network.
+///
+/// Wire form: `[u16 WORLD_REVIVAL][u16 v][Bytes worldId][Bytes ownershipRecord]
+/// [u64 issuedAtEpoch][String reason][Bytes worldSignature][Bytes ownerSignature]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldRevival {
+    /// The world to restore.
+    pub world_id: Vec<u8>,
+    /// The ownership claim carried inline as the receiver's evidence.
+    pub ownership_record: Vec<u8>,
+    /// When the owner issued it, epoch millis — what ranks it against a deletion.
+    pub issued_at_epoch: i64,
+    /// The owner's own words, for a person reading a log. Never load-bearing.
+    pub reason: String,
+    /// Signature by the world key over the signed portion.
+    pub world_signature: Vec<u8>,
+    /// Signature by the owner's node key over the same bytes.
+    pub owner_signature: Vec<u8>,
+    /// The exact signed bytes, kept from the frame.
+    signed_portion: Vec<u8>,
+    /// The whole record as received — what a tracker relays onward, unaltered.
+    encoded: Vec<u8>,
+}
+
+impl WorldRevival {
+    /// Decode one revival, consuming exactly its bytes.
+    pub fn decode(r: &mut CanonicalReader<'_>) -> Result<Self> {
+        let start = r.position();
+        r.read_frame_header(type_tags::WORLD_REVIVAL, ENCODING_VERSION)?;
+        let world_id = r.read_bytes_vec()?;
+        let ownership_record = r.read_bytes_vec()?;
+        let issued_at_epoch = r.read_i64()?;
+        let reason = r.read_string()?;
+        let signed_portion = r.slice(start, r.position())?.to_vec();
+        let world_signature = r.read_bytes_vec()?;
+        let owner_signature = r.read_bytes_vec()?;
+        let encoded = r.slice(start, r.position())?.to_vec();
+        if world_id.is_empty() {
+            return Err(CodecError::Malformed("a revival must name a world".into()));
+        }
+        Ok(Self {
+            world_id,
+            ownership_record,
+            issued_at_epoch,
+            reason,
+            world_signature,
+            owner_signature,
+            signed_portion,
+            encoded,
+        })
+    }
+
+    /// Decode a standalone frame, requiring it to be consumed entirely.
+    pub fn from_bytes(frame: &[u8]) -> Result<Self> {
+        let mut r = CanonicalReader::new(frame);
+        let decoded = Self::decode(&mut r)?;
+        r.expect_end()?;
+        Ok(decoded)
+    }
+
+    /// The record exactly as it arrived — the form to relay.
+    pub fn encoded(&self) -> &[u8] {
+        &self.encoded
+    }
+
+    /// The world id, lowercase hex: the key every registry and cache uses.
+    pub fn world_id_hex(&self) -> String {
+        self.world_id.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// The embedded ownership claim, if it is both readable and genuine.
+    pub fn ownership(&self) -> Option<WorldOwnership> {
+        let claim = WorldOwnership::from_bytes(&self.ownership_record).ok()?;
+        claim.verify().then_some(claim)
+    }
+
+    /// The whole chain: is this really this world's owner asking for it back?
+    pub fn verify(&self) -> bool {
+        let Some(claim) = self.ownership() else {
+            return false;
+        };
+        if claim.world_id != self.world_id {
+            return false;
+        }
+        sig::verify(
+            &claim.world_public_key,
+            &self.signed_portion,
+            &self.world_signature,
+        )
+        .is_ok()
+            && sig::verify(
+                &claim.owner_public_key,
+                &self.signed_portion,
+                &self.owner_signature,
+            )
+            .is_ok()
+    }
+}
+
+/// A restore on its way between peers: the world it names, and the record that proves it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorldRevivalGossip {
+    /// The world named by the envelope.
+    pub world_id: Vec<u8>,
+    /// Canonical `WorldRevival` bytes.
+    pub encoded_revival: Vec<u8>,
+}
+
+impl WorldRevivalGossip {
+    /// Decode a full message frame (tag 76).
+    pub fn decode(frame: &[u8]) -> Result<Self> {
+        let mut r = CanonicalReader::new(frame);
+        r.read_frame_header(message_tags::WORLD_REVIVAL_GOSSIP, ENCODING_VERSION)?;
+        let world_id = r.read_bytes_vec()?;
+        let encoded_revival = r.read_bytes_vec()?;
+        r.expect_end()?;
+        Ok(Self {
+            world_id,
+            encoded_revival,
+        })
+    }
+
+    /// Re-encode the frame.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut w = CanonicalWriter::new();
+        w.write_frame_header(message_tags::WORLD_REVIVAL_GOSSIP, ENCODING_VERSION);
+        w.write_bytes(&self.world_id);
+        w.write_bytes(&self.encoded_revival);
+        w.into_vec()
+    }
+
+    /// The revival, but only if it verifies **and** names the world the envelope claims.
+    pub fn verified(&self) -> Option<WorldRevival> {
+        let revival = WorldRevival::from_bytes(&self.encoded_revival).ok()?;
+        if revival.world_id != self.world_id {
+            return None;
+        }
+        revival.verify().then_some(revival)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +421,59 @@ mod tests {
         assert_eq!(tombstone.world_id, gossip.world_id);
         assert!(tombstone.ownership().is_some());
         assert_eq!(gossip.encode(), golden(), "re-encoding must be byte-exact");
+    }
+
+    /// The Java-emitted golden restore, as a tracker would receive it.
+    fn golden_revival() -> Vec<u8> {
+        let path = crate::repo::wire_fixtures().join("world-revival-gossip.bin");
+        let frame =
+            std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        crate::wire::consensus_payload(&frame)
+            .expect("the golden frame carries an opaque consensus payload")
+            .to_vec()
+    }
+
+    /// The restore is the half of the pair the tracker most needs to agree about: it is the side
+    /// that remembers a deletion for 120 days, so a restore it refuses is a world its owner cannot
+    /// re-list anywhere.
+    #[test]
+    fn a_genuine_restore_from_java_verifies_here() {
+        let gossip = WorldRevivalGossip::decode(&golden_revival()).expect("decode");
+        let revival = gossip
+            .verified()
+            .expect("the Java-signed restore must verify");
+
+        assert_eq!(revival.world_id, gossip.world_id);
+        assert!(revival.ownership().is_some());
+        assert_eq!(
+            gossip.encode(),
+            golden_revival(),
+            "re-encoding must be byte-exact"
+        );
+    }
+
+    /// Same tamper sweep as the deletion's, for the same reason: the restore travels through relays
+    /// nobody vouches for.
+    #[test]
+    fn every_tampered_restore_byte_is_refused() {
+        let original = golden_revival();
+        for i in 0..original.len() {
+            let mut mutated = original.clone();
+            mutated[i] ^= 0x01;
+            let accepted = WorldRevivalGossip::decode(&mutated)
+                .ok()
+                .and_then(|g| g.verified())
+                .is_some();
+            assert!(!accepted, "a restore with byte {i} flipped was accepted");
+        }
+    }
+
+    /// The two records must stay distinguishable on the wire. Decoding one as the other has to fail
+    /// on the tag, or a deletion could be replayed into the handler that undoes deletions.
+    #[test]
+    fn a_deletion_is_not_readable_as_a_restore() {
+        assert!(WorldRevivalGossip::decode(&golden()).is_err());
+        assert!(WorldDeletionGossip::decode(&golden_revival()).is_err());
     }
 
     /// Flipping any bit of the signed prefix must break it. This is the property the whole feature

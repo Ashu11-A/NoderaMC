@@ -10,11 +10,11 @@
      an allowlisted property file, a two-signal gate starts Kotlin only after context and setup are
      ready, and AndroidPortPropertyTest observes the selected port in self_route.
      M-NET-2 stays RETIRING until that exact assertion passes on a physical phone. Deliverables 2,
-     4-7 remain OPEN: SyncedServices.load is boot-only; restart_worker has no Android consumer;
-     minSdk 24 still disagrees with --min-api 26. -->
+     4, 5 and 7 remain OPEN: SyncedServices.load is boot-only; restart_worker has no Android
+     consumer; touch acceptance is partial. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-07-28
+**Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-08-01
 **Depends on:** [mobile 3](Task.3.md), [app 9](../app/Task.9.md), [worker 2](../peer/Task.2.md)
 **Consumed by:** —
 
@@ -71,8 +71,14 @@ exit pending; deliverables 2 and 4–7 remain open. The network limitations are:
   property files, and prove either Activity/setup order starts once. The physical-phone exit has not
   run, so the row is not retired.
 * **D4 / M-NET-3** — `restart_worker`'s only consumer (`daemon::supervise`) is still `#[cfg(desktop)]`.
-* **D6 / M-NET-4** — `gen/android/app/build.gradle.kts:22` is still `minSdk = 24` while
-  `scripts/android-apk.sh:156` dexes at `--min-api 26`.
+* **D6 / M-NET-4 — RETIRED.** One `DEX_MIN_API=26` controls D8 and generated `minSdk`; the full
+  build re-read 26, produced the APK, and Android reported `minSdk=26` after installation.
+
+**2026-08-01 physical re-audit.** Core and worker now share `Context.dataDir` for settings/service
+handoff while worker-owned state remains under `filesDir/worker`. The installed worker reported both
+configured trackers, and `android-e2e.sh` returned its exact `NODERA-STATE.node_id` from the local
+tracker. Peers status/self-test now query for that worker id instead of creating a second Rust peer.
+M-NET-2 remains RETIRING because this run used random P2P port `39957`, not a selected one-port range.
 
 ## Dependencies
 
@@ -87,8 +93,8 @@ exit pending; deliverables 2 and 4–7 remain open. The network limitations are:
 | 2 | The services list is re-read without a process restart | ⬜ (M-NET-1) |
 | 3 | Android applies the app's P2P port through a system property without moving control | 🚧 headless green; physical exit pending (M-NET-2) |
 | 4 | Restart-scoped settings either apply on Android or are hidden there | ⬜ (M-NET-3) |
-| 5 | A foreground service, so the node survives the app leaving the screen | ⬜ (M-2) |
-| 6 | `minSdk` and the dex `--min-api` agree | ⬜ (M-NET-4) |
+| 5 | A foreground service, so the node survives the app leaving the screen | ✅ 2026-08-04 (M-2 retired — one hour backgrounded, screen off, same pid, worker still answering) |
+| 6 | `minSdk` and the dex `--min-api` agree | ✅ 2026-08-01 (M-NET-4 retired) |
 | 7 | The two desktop screens reused on mobile are usable by touch | ⬜ |
 
 ## Design
@@ -135,8 +141,13 @@ channel and configuring only one end would strand the app from its worker.
 
 Sockets are fine. `INTERNET` and `ACCESS_NETWORK_STATE` are present;
 `usesCleartextTraffic=false` in release governs HTTP stacks, not the hand-framed TCP the P2P lane
-uses. The real lifetime constraint is the missing foreground service (deliverable 5), which is
-tracked as M-2 and is why a phone vanishes mid-transfer when Android reclaims the app.
+uses. The lifetime constraint was the missing foreground service (deliverable 5), tracked as M-2 and
+the reason a phone vanished mid-transfer when Android reclaimed the app — observed at roughly 25
+minutes into a session, while that phone was holding committee seats. `NoderaWorkerService` now owns
+the worker, and the measurement is in: one hour backgrounded with the screen off, same pid at both
+ends, the service still foreground and the worker still answering. A foreground service extends a
+process's lifetime rather than guaranteeing it, so that is evidence and not a proof — but it is the
+evidence the row asked for.
 
 ## Files
 

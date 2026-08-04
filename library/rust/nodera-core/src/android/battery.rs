@@ -86,6 +86,12 @@ pub fn policy() -> BatteryPolicy {
 pub fn open_settings() -> Result<(), String> {
     let package = platform::package_name()?;
     let target = format!("package:{package}");
+    if is_ignoring_optimisations().unwrap_or(false) {
+        return open_intent_action(
+            "android.settings.APPLICATION_DETAILS_SETTINGS",
+            Some(&target),
+        );
+    }
     open_intent_action(
         "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
         Some(&target),

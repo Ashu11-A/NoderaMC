@@ -41,6 +41,24 @@ final class AtomicFileWriterTest {
     }
 
     @Test
+    void ownerOnlyCreationWorksWhenFileStoreInspectionIsDenied(@TempDir Path dir) throws Exception {
+        Path temp = AtomicFileWriter.createTempFile(dir, "identity.bin", true,
+                ignored -> {
+                    throw new SecurityException("denied like Android");
+                });
+
+        assertThat(Files.getPosixFilePermissions(temp)).containsExactlyInAnyOrder(
+                PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+
+        assertThatThrownBy(() -> AtomicFileWriter.createOwnerOnlyWithoutStoreInspection(
+                dir, "identity.bin", (parent, prefix) -> {
+                    throw new UnsupportedOperationException("no secure creation attributes");
+                }))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("cannot secure owner-only permissions");
+    }
+
+    @Test
     void cleanupFailureIsSuppressedOnThePrimaryFailure(@TempDir Path dir) throws Exception {
         Path nonEmptyDirectory = dir.resolve("temp");
         Files.createDirectories(nonEmptyDirectory);

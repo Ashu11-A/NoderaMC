@@ -22,20 +22,37 @@ import androidx.compose.ui.platform.LocalContext
  * Below 12 there is no wallpaper palette to read, so the scheme is seeded from the wordmark's own
  * magenta. Same colour the desktop uses; the phone is not a different product.
  */
-private val SEED = Color(0xFFFF4D8D)
+private val SEED = Color(0xFFD82B6A)
 
-private val FallbackDark = darkColorScheme(primary = SEED)
-private val FallbackLight = lightColorScheme(primary = SEED)
+private val FallbackDark = darkColorScheme(
+    primary = Color(0xFFFFB0C8),
+    onPrimary = Color(0xFF65002E),
+    primaryContainer = Color(0xFF8D1748),
+    secondary = Color(0xFFE4BDC7),
+    tertiary = Color(0xFFD4C3F1),
+)
+private val FallbackLight = lightColorScheme(
+    primary = SEED,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFFD9E2),
+    secondary = Color(0xFF765661),
+    tertiary = Color(0xFF66587A),
+)
 
 /** Whether this device can derive a palette from the wallpaper. Read by the Appearance screen. */
 val DYNAMIC_COLOUR_AVAILABLE: Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
 @Composable
 fun NoderaTheme(
-    dark: Boolean = isSystemInDarkTheme(),
+    preference: String = "system",
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
+    val dark = when (preference) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
     val scheme = when {
         DYNAMIC_COLOUR_AVAILABLE && dark -> dynamicDarkColorScheme(context)
         DYNAMIC_COLOUR_AVAILABLE -> dynamicLightColorScheme(context)

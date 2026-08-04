@@ -101,23 +101,21 @@ public final class ServerDedicatedDrive {
      * <p>The game JVM is a child of the GRADLE DAEMON, not of the wrapper the harness started, so
      * stopping the wrapper's process tree is not enough on its own.
      *
+     * <h2>One matcher, one guard</h2>
+     *
+     * <p>This used to shell out to {@code pkill -f -- "<runId>RunProgramArgs"}, which was a second,
+     * independent answer to "which process is this run's game JVM" — and the unguarded one. The
+     * Gradle daemon serves every build in a run, so its command line names EVERY client's argfile:
+     * a bare {@code pkill} on one client's token also matches the process that owns the others, and
+     * signalling it takes them all down at once. {@link HostWorldSupport} learned that the hard way
+     * and carries the daemon exclusion; delegating to it means the rule is written once and cannot
+     * drift, rather than being fixed in one copy and left wrong in the other.
+     *
      * @param runId   the MDG run id, e.g. {@code clientJoin}.
      * @param wrapper the Gradle wrapper process, if the caller has it.
      */
     public static void stopClient(String runId, ManagedProcess wrapper) {
-        if (wrapper != null) {
-            wrapper.stop(Duration.ofSeconds(20));
-        }
-        // HARNESS-GAP: ManagedProcess can stop a process tree but cannot find the game JVM MDG
-        // started under the Gradle daemon, and the harness offers no per-run-id stop. The shell's
-        // pkill is reproduced here rather than inventing a different rule.
-        run(List.of("pkill", "-f", "--", runId + "RunProgramArgs"));
-        for (int waited = 0; waited < 30; waited += 2) {
-            if (run(List.of("pgrep", "-f", "--", runId + "RunProgramArgs")) != 0) {
-                return;
-            }
-            sleep(Duration.ofSeconds(2));
-        }
+        HostWorldSupport.stopClient(wrapper, runId + "RunProgramArgs");
     }
 
     /**

@@ -6,18 +6,17 @@
      control.rs a strict mirror of the worker's ControlProtocol. Keep the task index in agreement with
      ../ROADMAP.md §2. -->
 
-**Category:** `app` · **Status:** 🚧 IN PROGRESS (6 of 10 tasks completed) ·
-**Last audit:** 2026-07-28
+**Category:** `app` · **Status:** 🚧 IN PROGRESS (6 of 11 tasks completed) ·
+**Last audit:** 2026-08-01
 
 ---
 
 ## 1. What this category is
 
-The **Nodera companion**: a small Tauri desktop application (Rust backend, React frontend) that
-players install. It launches at login, sits in the system tray, runs and supervises the bundled
-headless peer worker, and shows a live dashboard — the chunks and data this node maintains for the
-network, bytes sent and received, the peers currently exchanging data, and the worlds this node hosts
-or is connected to.
+The **Nodera launcher**: a Tauri desktop shell with a React front end and a shared Rust core. It
+launches Minecraft into a selected world, starts at login, sits in the tray, and supervises the
+bundled headless worker. Android consumes the same core through two JNI calls behind a native Compose
+Material You companion.
 
 Because the mod refuses to start without the worker, the app is **the thing every player actually
 runs**. It must therefore be boring, small, and reliable.
@@ -26,7 +25,7 @@ runs**. It must therefore be boring, small, and reliable.
 
 It is **not a peer**. All network behaviour lives in the worker (Java) and the Rust service binaries.
 The app holds no signing keys, participates in no committee, and serves nothing to the network. It
-supervises a process and renders a JSON snapshot.
+supervises a process, coordinates launch/tunnel lifetime, and renders worker state.
 
 This boundary is what keeps the app cheap to change: a UI mistake cannot corrupt a world, and the
 dashboard's data path is already testable without the app at all, because the worker's `STATE` verb is
@@ -35,17 +34,11 @@ asserted headlessly on the Java gate.
 ## 3. Architecture
 
 ```
-  ┌───────────────────────── Tauri app ─────────────────────────┐
-  │ main.rs   tray · window · single-instance · autostart       │
-  │ daemon.rs supervisor: spawn bundled JVM  |  ATTACH external │
-  │ control.rs loopback client: probe + fetch_state (mirror of  │
-  │            the worker's ControlProtocol)                    │
-  │ metrics.rs Metrics struct ──emit("nodera://metrics") 1 Hz──►│
-  │ ui/        React + Vite: Info · State · Peers · Trackers ·  │
-  │            Pieces, inside VPN-client connection chrome      │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 │ 127.0.0.1:25610
-                          worker (Java, always-on)
+desktop React launcher ─┐
+                       ├─ nodera-core: worker link · settings · stores · launch coordinator
+Android Compose + JNI ──┘                         │
+                                                 │ 127.0.0.1:25610
+Tauri shell: window · tray · autostart · supervisor ── Java worker
 ```
 
 **Attach mode matters.** The supervisor can either spawn the bundled worker or **attach** to one that
@@ -74,6 +67,7 @@ externally started worker untouched: the app must never kill a process it did no
 | [8](Task.8.md) | One subject per screen | ✅ COMPLETED |
 | [9](Task.9.md) | Tracker stores | ✅ DONE |
 | [10](Task.10.md) | Practical screens, honest numbers | 🚧 IN PROGRESS |
+| [11](Task.11.md) | A launcher, not a dashboard | 🚧 IN PROGRESS |
 
 Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md) · open gaps:
 [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps: [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md).
@@ -84,11 +78,10 @@ Status ledger: [`PROGRESS.md`](PROGRESS.md) · tests: [`TESTING.md`](TESTING.md)
 |---|---|
 | `app/Cargo.toml` | Tauri, autostart plugin, tokio, serde — **workspace-excluded** |
 | `app/tauri.conf.json` | Tray, autostart, single-instance, window and bundle config |
-| `app/src/main.rs` | Tray, window, single-instance, autostart, the metrics pump |
-| `app/src/daemon.rs` | Worker supervisor: spawn bundled JVM or attach to an external worker |
-| `app/src/control.rs` | Loopback control client — a strict mirror of `ControlProtocol` |
-| `app/src/metrics.rs` | The `Metrics` struct the UI renders |
-| `app/ui/` | React + Vite dashboard |
+| `app/src/` | Thin Tauri command, tray, window and platform shell |
+| `library/rust/nodera-core/` | Shared worker link, settings, stores, telemetry and launch coordinator |
+| `app/ui/` | React + Vite desktop launcher |
+| `app/android/kotlin/` | Native Compose Material 3 Android shell |
 
 Package architecture: [`app/README.md`](../../app/README.md).
 

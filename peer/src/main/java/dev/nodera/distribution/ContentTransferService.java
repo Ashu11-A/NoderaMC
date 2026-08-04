@@ -135,11 +135,15 @@ public final class ContentTransferService implements MessageHandler {
      *
      * <p>Its own counter rather than a share of {@link #throttledRequests}, because the two mean
      * opposite things to an operator: throttling says "ask me more slowly", this says "you are
-     * asking the wrong peer, and I have no way to tell you".
+     * asking the wrong peer" — which this node now answers rather than merely counts, via
+     * {@link #tellRequesterWhatIsHere}.
      */
     private long requestsForUnknownContent;
     private long requestedBytesThisWindow;
     private long pacedRequests;
+
+    /** How many times this peer answered a request it could not fill with what it actually holds. */
+    private long availabilityRepliesSent;
 
     /**
      * Create a service with default bounds.
@@ -292,6 +296,34 @@ public final class ContentTransferService implements MessageHandler {
         LocalContent content = local.computeIfAbsent(
                 manifest.manifestRoot(), k -> new LocalContent(manifest));
         content.blobId = stored;
+    }
+
+    /**
+     * Re-adopt content this node already has on disk, without moving its bytes.
+     *
+     * <p>For a worker coming back from a restart. {@link #publish} needs the blob in hand because
+     * it is putting it into the store; here the store already holds it and only the binding between
+     * a manifest root and those bytes was lost — that binding lived in memory. Reading an entire
+     * world archive back through the heap to re-derive something the store can confirm with a hash
+     * lookup would be a strange price to pay.
+     *
+     * <p>A manifest whose blob is NOT in the store is refused rather than half-adopted: a node that
+     * claimed to hold content it cannot serve would answer piece requests with nothing, which is
+     * worse for the swarm than not advertising it at all.
+     *
+     * @param manifest the manifest to re-adopt.
+     * @return whether the store actually had the content.
+     * @Thread-context any thread.
+     */
+    public boolean republish(PieceManifest manifest) {
+        Objects.requireNonNull(manifest, "manifest");
+        if (!contentStore.has(manifest.blob())) {
+            return false;
+        }
+        LocalContent content = local.computeIfAbsent(
+                manifest.manifestRoot(), k -> new LocalContent(manifest));
+        content.blobId = manifest.blob();
+        return true;
     }
 
     /**
@@ -582,8 +614,16 @@ public final class ContentTransferService implements MessageHandler {
             synchronized (this) {
                 requestsForUnknownContent++;
             }
+            // Say so, rather than leaving the requester to infer it from silence. Silence is
+            // indistinguishable from a lost packet, so the requester keeps this peer credited with
+            // the piece and keeps re-selecting it; with a small swarm that is a download that never
+            // finishes. An explicit empty holding for this root is the "I don't have that" the wire
+            // otherwise lacks — the requester replaces its knowledge of this peer with nothing and
+            // asks somebody else. See tellRequesterWhatIsHere.
+            tellRequesterWhatIsHere(to, request.manifestRoot());
             return;
         }
+        boolean couldNotServeSome = false;
         int answered = 0;
         for (Integer index : request.pieceIndexes()) {
             if (answered >= serveMaxInflight) {
@@ -594,6 +634,11 @@ public final class ContentTransferService implements MessageHandler {
             }
             Optional<Bytes> payload = pieceBytes(request.manifestRoot(), index);
             if (payload.isEmpty()) {
+                // A partial holder asked for a piece it does not have. Skipping quietly is what
+                // wedged a live rehost at 223 of 286: the requester had credited this peer with the
+                // whole manifest, so it re-selected the same peer for the same missing pieces every
+                // retry round, forever, with no error on either side.
+                couldNotServeSome = true;
                 continue;
             }
             Bytes bytes = payload.get();
@@ -614,6 +659,40 @@ public final class ContentTransferService implements MessageHandler {
                 break;
             }
             answered++;
+        }
+        if (couldNotServeSome) {
+            tellRequesterWhatIsHere(to, request.manifestRoot());
+        }
+    }
+
+    /**
+     * Answer "I do not have that" with what this peer actually holds of the root.
+     *
+     * <p>The protocol has no negative for a piece request: a peer that lacks the piece answers with
+     * silence, which the requester cannot tell from a dropped datagram. {@link ContentAvailability}
+     * is the message that closes it, and it had <b>no sender anywhere in production</b> — built,
+     * decoded on arrival, never emitted. Meanwhile {@code WorldArchiveService} credits every chosen
+     * holder with every piece of the manifest, because the tracker answers only <i>who</i> holds a
+     * root and {@code ManifestSeeders} says outright that the exact bitmaps come from this message.
+     * So an over-credit that nothing could correct met a silence that meant nothing, and a rehost
+     * whose holder set contained a partial peer stopped dead on exactly the pieces that peer lacked.
+     *
+     * <p>Sent only when this peer could not fully answer, so a healthy transfer adds no traffic, and
+     * at most one per request message. {@link PieceDownloader#addHolder} <b>replaces</b> its record
+     * of the sender, so one of these repairs the requester's view in full — including the empty
+     * case, which correctly credits this peer with nothing of that root.
+     */
+    private void tellRequesterWhatIsHere(PeerAddress to, Bytes manifestRoot) {
+        ContentAvailability truth = new ContentAvailability(self, List.of(
+                new ManifestHolding(manifestRoot, PieceBitmap.pack(heldPieces(manifestRoot)))));
+        try {
+            transport.send(to, WireCodec.encode(truth));
+        } catch (TransportException e) {
+            // The requester went away. It will re-select on its own; nothing here needs to retry.
+            return;
+        }
+        synchronized (this) {
+            availabilityRepliesSent++;
         }
     }
 
@@ -656,6 +735,11 @@ public final class ContentTransferService implements MessageHandler {
     }
 
     /** @return how many piece requests were withheld by the download budget (request pacing). */
+    /** @return how many "here is what I actually hold" replies this peer has sent. */
+    public synchronized long availabilityRepliesSent() {
+        return availabilityRepliesSent;
+    }
+
     public synchronized long pacedRequests() {
         return pacedRequests;
     }

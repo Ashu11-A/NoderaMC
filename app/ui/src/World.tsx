@@ -6,7 +6,7 @@
 // from here. The only thing pulled separately is the piece grid, because it is large, it is only
 // interesting for the selected world, and re-encoding every world's bitmap several times a second
 // for a tab nobody has open would be the definition of waste.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FiArrowLeft,
   FiActivity,
@@ -62,32 +62,34 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex items-center gap-3 px-[26px] pt-[18px] pb-3.5">
+      <header className="page-canvas page-grid items-center gap-y-3 pt-7 pb-4">
         <button
-          className="grid h-8 w-8 place-items-center rounded-sm border border-line bg-surface hover:bg-surface-hover"
+          className="col-span-1 grid h-8 w-8 place-items-center rounded-sm border border-line bg-surface hover:bg-surface-hover"
           onClick={props.onBack}
           aria-label="Back to the dashboard"
         >
           <FiArrowLeft />
         </button>
-        <span className={cx(AVATAR, "h-[38px] w-[38px] text-[16px]")} aria-hidden>
+        <span className={cx(AVATAR, "col-span-1 h-[38px] w-[38px] text-[16px]")} aria-hidden>
           {(world.name || "?").slice(0, 1).toUpperCase()}
         </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[18px]">{world.name || "Unnamed world"}</h1>
+        <div className="col-span-10 min-w-0 wide:col-span-6">
+          <h1 className="display-type text-2xl font-semibold">{world.name || "Unnamed world"}</h1>
           <p className="mt-px text-[12px] text-dim">
             {describeRole(world)} · v{world.version} · {formatBytes(world.total_bytes)}
           </p>
         </div>
-        {world.connected && <Pill tone="up">You are playing here</Pill>}
-        {world.administered && <Pill tone="up">You administer this</Pill>}
-        {world.discoverable === false && <Pill tone="down">On no tracker — nobody can find it</Pill>}
-        <Pill tone={joinable(world) ? "up" : "muted"}>
-          {joinable(world) ? "Joinable now" : world.game_endpoint ? "Open, but unlisted" : "Game closed"}
-        </Pill>
+        <div className="col-span-12 flex flex-wrap items-center gap-2 wide:col-span-4 wide:justify-end">
+          {world.connected && <Pill tone="up">You are playing here</Pill>}
+          {world.administered && <Pill tone="up">You administer this</Pill>}
+          {world.discoverable === false && <Pill tone="down">On no tracker — nobody can find it</Pill>}
+          <Pill tone={joinable(world) ? "up" : "muted"}>
+            {joinable(world) ? "Joinable now" : world.game_endpoint ? "Open, but unlisted" : "Game closed"}
+          </Pill>
+        </div>
       </header>
 
-      <nav className="flex gap-1 border-b border-line px-[22px]" role="tablist">
+      <nav className="page-canvas flex gap-1 border-b border-line" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -111,12 +113,16 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
       </nav>
 
       <div
-        className="flex max-w-[1100px] flex-1 flex-col gap-3.5 px-[26px] pt-[18px] pb-10"
+        className="page-canvas page-grid flex-1 gap-y-4 pt-6 pb-12"
         role="tabpanel"
       >
         {tab === "info" && <InfoTab world={world} />}
-        {tab === "content" && <PiecesTab world={world} />}
-        {tab === "sharing" && <ShareTab world={world} />}
+        {tab === "content" && (
+          <div className="col-span-12"><PiecesTab world={world} /></div>
+        )}
+        {tab === "sharing" && (
+          <div className="col-span-12"><ShareTab world={world} /></div>
+        )}
       </div>
     </div>
   );
@@ -158,7 +164,7 @@ function InfoTab(props: { world: World }) {
   const w = props.world;
   return (
     <>
-      <div className={STAT_GRID}>
+      <div className={cx(STAT_GRID, "col-span-12 grid-cols-[repeat(auto-fit,minmax(210px,1fr))]")}>
         <Stat
           label="Players online"
           value={show(w.players, String)}
@@ -178,9 +184,12 @@ function InfoTab(props: { world: World }) {
         <Stat label="Size" value={formatBytes(w.total_bytes)} sub={`v${w.version}`} />
       </div>
 
-      <ContributionCard world={w} />
+      <div className="col-span-12 wide:col-span-7">
+        <ContributionCard world={w} />
+      </div>
 
-      <Card title="World">
+      <div className="col-span-12 wide:col-span-5">
+        <Card title="World">
         <dl>
           <KeyValue label="World name" value={w.name || UNKNOWN} />
           <KeyValue label="World ID" value={w.world_id || UNKNOWN} mono />
@@ -199,7 +208,8 @@ function InfoTab(props: { world: World }) {
             mono={Boolean(w.game_endpoint)}
           />
         </dl>
-      </Card>
+        </Card>
+      </div>
 
     </>
   );
@@ -684,25 +694,84 @@ function PiecesTab(props: { world: World }) {
   return (
     <Card
       title="Pieces"
-      hint="One cell per piece. Filled = present here and hash-checked."
+      hint={
+        map.held.length <= EXACT_PIECE_LIMIT
+          ? "Exact map: one cell per piece. Filled means present here and hash-checked."
+          : "Bounded density map: each cell summarizes a contiguous numbered piece range."
+      }
       right={
         <span className="text-xs text-faint">
           {map.held_count} / {map.piece_count} · {formatBytes(map.total_bytes)}
         </span>
       }
     >
-      <div className="flex flex-wrap gap-[3px] py-2">
-        {map.held.map((held, index) => (
-          <span
-            key={index}
-            className={cx(
-              "h-[9px] w-[9px] rounded-[2px]",
-              held ? "bg-up" : "bg-surface-2 border border-line",
-            )}
-            title={`Piece ${index}: ${held ? "held" : "missing"}`}
-          />
-        ))}
-      </div>
+      <PieceCanvas held={map.held} />
     </Card>
+  );
+}
+
+const EXACT_PIECE_LIMIT = 2048;
+
+/** Exact for small manifests; bounded contiguous-range density buckets for large manifests. */
+function PieceCanvas(props: { held: boolean[] }) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const [bucketCount, setBucketCount] = useState(0);
+  const aggregated = props.held.length > EXACT_PIECE_LIMIT;
+  useEffect(() => {
+    const element = canvas.current;
+    if (!element) return;
+    const width = Math.max(240, element.clientWidth);
+    const cell = 5;
+    const columns = Math.max(1, Math.floor(width / cell));
+    const rows = aggregated
+      ? Math.min(48, Math.max(1, Math.ceil(props.held.length / columns)))
+      : Math.max(1, Math.ceil(props.held.length / columns));
+    const buckets = aggregated ? Math.min(props.held.length, columns * rows) : props.held.length;
+    setBucketCount(buckets);
+    const height = Math.max(cell, rows * cell);
+    const ratio = window.devicePixelRatio || 1;
+    element.width = width * ratio;
+    element.height = height * ratio;
+    element.style.height = `${height}px`;
+    const context = element.getContext("2d");
+    if (!context) return;
+    context.scale(ratio, ratio);
+    const styles = getComputedStyle(document.documentElement);
+    context.fillStyle = styles.getPropertyValue("--surface-2");
+    context.fillRect(0, 0, width, height);
+    const color = styles.getPropertyValue("--up").trim();
+    if (aggregated) {
+      for (let bucket = 0; bucket < buckets; bucket += 1) {
+        const start = Math.floor((bucket * props.held.length) / buckets);
+        const end = Math.max(start + 1, Math.floor(((bucket + 1) * props.held.length) / buckets));
+        let count = 0;
+        for (let index = start; index < end; index += 1) if (props.held[index]) count += 1;
+        if (count === 0) continue;
+        context.globalAlpha = Math.max(0.2, count / (end - start));
+        context.fillStyle = color;
+        context.fillRect((bucket % columns) * cell, Math.floor(bucket / columns) * cell, cell - 1, cell - 1);
+      }
+    } else {
+      props.held.forEach((held, index) => {
+        if (!held) return;
+        context.fillRect((index % columns) * cell, Math.floor(index / columns) * cell, cell - 1, cell - 1);
+      });
+    }
+    context.globalAlpha = 1;
+  }, [aggregated, props.held]);
+  return (
+    <figure className="my-2">
+      <canvas
+        ref={canvas}
+        className="w-full rounded-sm border border-line bg-surface-2"
+        role="img"
+        aria-label={`${props.held.filter(Boolean).length} of ${props.held.length} pieces held`}
+      />
+      <figcaption className="mt-2 text-xs text-faint">
+        {aggregated
+          ? `${bucketCount.toLocaleString()} cells cover contiguous ranges of up to ${Math.ceil(props.held.length / Math.max(1, bucketCount)).toLocaleString()} pieces; brighter cells have a larger held share.`
+          : `${props.held.length.toLocaleString()} exact cells in piece-number order, left to right.`}
+      </figcaption>
+    </figure>
   );
 }

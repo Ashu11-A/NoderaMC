@@ -21,8 +21,11 @@ import { Banner, Button, Select, cx, worldArt } from "./components";
 import {
   IDLE_LAUNCH,
   autoConnects,
+  fetchLaunchState,
   fetchLaunchTargets,
+  leaveWorld,
   launchPlay,
+  mergeLaunchState,
   onLaunch,
   type LaunchPhase,
   type LaunchState,
@@ -30,6 +33,7 @@ import {
   type Remedy,
 } from "./play";
 import { fetchPauseReason, togglePause } from "./ipc";
+import { useExternalLink } from "./links";
 import {
   formatBytes,
   formatRate,
@@ -54,6 +58,7 @@ const PHASE_LABEL: Record<LaunchPhase, string> = {
   preparing: "Getting things ready…",
   spawning: "Starting Minecraft…",
   running: "Playing",
+  closing: "Closing connection…",
   exited: "Play again",
   failed: "Try again",
 };
@@ -71,6 +76,7 @@ const REMEDY_LABEL: Record<Remedy, string> = {
 
 export function PlayScreen(props: {
   d: Dashboard;
+  initialWorld?: { id: string; name: string };
   onOpenWorld: (id: string) => void;
   onSettings: (section?: string) => void;
 }) {
@@ -78,11 +84,45 @@ export function PlayScreen(props: {
   const [launch, setLaunch] = useState<LaunchState>(IDLE_LAUNCH);
   const [targets, setTargets] = useState<LaunchTarget[] | null>(null);
   const [selected, setSelected] = useState<string>("");
+  const [selectedTarget, setSelectedTarget] = useState<string>("");
+  const [closeError, setCloseError] = useState("");
+  const [closing, setClosing] = useState(false);
+  const external = useExternalLink();
 
   useEffect(() => {
-    const un = onLaunch(setLaunch);
+    let alive = true;
+    let unlisten: (() => void) | undefined;
+    let eventRevision = 0;
+
+    onLaunch((incoming) => {
+      if (!alive) return;
+      eventRevision += 1;
+      setLaunch((current) => mergeLaunchState(current, incoming));
+    })
+      .then(async (stop) => {
+        if (!alive) {
+          stop();
+          return;
+        }
+        unlisten = stop;
+        // Listener is active before restore starts. Any event during fetch makes snapshot stale.
+        const revisionBeforeFetch = eventRevision;
+        const restored = await fetchLaunchState();
+        if (alive && eventRevision === revisionBeforeFetch) {
+          setLaunch((current) => mergeLaunchState(current, restored));
+        }
+      })
+      .catch(() => {
+        // If subscription itself is unavailable, one snapshot is still more honest than idle.
+        if (alive) {
+          fetchLaunchState()
+            .then((restored) => alive && setLaunch((current) => mergeLaunchState(current, restored)))
+            .catch(() => {});
+        }
+      });
     return () => {
-      un.then((f) => f()).catch(() => {});
+      alive = false;
+      unlisten?.();
     };
   }, []);
 
@@ -101,14 +141,98 @@ export function PlayScreen(props: {
     [d.worlds],
   );
 
-  const world = playable.find((w) => w.world_id === selected) ?? playable[0];
-  const busy = launch.phase !== "idle" && launch.phase !== "exited" && launch.phase !== "failed";
+  const requestedWorldId = selected || props.initialWorld?.id || launch.world_id;
+  const world = requestedWorldId
+    ? playable.find((candidate) => candidate.world_id === requestedWorldId)
+    : playable[0];
+  const externalWorld = world
+    ? undefined
+    : props.initialWorld ??
+      (launch.world_id ? { id: launch.world_id, name: "Network world" } : undefined);
+  const launchSelection = world
+    ? { id: world.world_id, name: world.name || world.world_id }
+    : externalWorld;
+  const targetChoices = useMemo(() => {
+    if (!targets) return [];
+    return targets.map((target) => ({ target, value: target.id }));
+  }, [targets]);
+  const targetChoice =
+    targetChoices.find((candidate) => candidate.value === selectedTarget) ?? targetChoices[0];
+  const target = targetChoice?.target;
+  const busy =
+    Boolean(launch.session_id) ||
+    (launch.phase !== "idle" && launch.phase !== "exited" && launch.phase !== "failed");
+
+  const startLaunch = () => {
+    if (!launchSelection) return;
+    setCloseError("");
+    setLaunch({ ...IDLE_LAUNCH, phase: "resolving", world_id: launchSelection.id });
+    launchPlay(launchSelection.id, launchSelection.name, targetChoice?.target.id).catch(
+      async (error: unknown) => {
+        try {
+          const restored = await fetchLaunchState();
+          if (restored.phase !== "idle" || restored.session_id) {
+            setLaunch((current) => mergeLaunchState(current, restored));
+            return;
+          }
+        } catch {
+          // The command error below remains the actionable answer when state restoration also fails.
+        }
+        setLaunch((held) => ({
+          ...held,
+          phase: "failed",
+          reason: String(error),
+          remedy: "retry",
+        }));
+      },
+    );
+  };
+
+  const handleRemedy = (remedy: Remedy) => {
+    if (remedy === "retry") {
+      if (launch.session_id) closeConnection();
+      else startLaunch();
+    } else if (remedy === "copy-address" && launch.address) {
+      navigator.clipboard?.writeText(launch.address).catch(() => {});
+    } else if (remedy === "install-java") {
+      void external.open("https://adoptium.net/temurin/releases/?version=21");
+    } else if (remedy === "sign-in") {
+      void external.open(
+        "https://github.com/Ashu11-A/NoderaMC/blob/main/docs/app/LIMITATIONS.md#b--staged-capabilities",
+      );
+    } else if (remedy === "install-mod" || remedy === "pick-install") {
+      props.onSettings("minecraft");
+    }
+  };
+
+  const closeConnection = () => {
+    if (!launch.session_id) return;
+    setClosing(true);
+    setCloseError("");
+    setLaunch((current) => ({ ...current, phase: "closing", cancelled: true }));
+    leaveWorld(launch.session_id)
+      .then((outcome) => {
+        if (!outcome.ok) throw new Error(outcome.error || "the worker did not close the connection");
+        return fetchLaunchState();
+      })
+      .then((restored) => setLaunch((current) => mergeLaunchState(current, restored)))
+      .catch(async (error: unknown) => {
+        setCloseError(String(error));
+        try {
+          const restored = await fetchLaunchState();
+          setLaunch((current) => mergeLaunchState(current, restored));
+        } catch {
+          // Keep the explicit closing state when even backend restoration is unavailable.
+        }
+      })
+      .finally(() => setClosing(false));
+  };
 
   return (
     <div className="flex min-h-full flex-col">
-      <Hero world={world} d={d} />
+      <Hero world={world} fallbackName={externalWorld?.name} d={d} />
 
-      <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 px-[26px] pb-10">
+      <div className="page-canvas relative z-10 flex w-full flex-col gap-4 pb-12">
         <div className="-mt-16 flex flex-wrap items-end gap-3">
           {playable.length > 1 && world && (
             <Select
@@ -123,22 +247,24 @@ export function PlayScreen(props: {
             />
           )}
 
+          {targetChoices.length > 1 && targetChoice && (
+            <Select
+              ariaLabel="Minecraft installation"
+              value={targetChoice.value}
+              onChange={setSelectedTarget}
+              className="bg-surface-3 backdrop-blur-sm"
+              options={targetChoices.map((candidate) => ({
+                value: candidate.value,
+                label: candidate.target.name,
+              }))}
+            />
+          )}
+
           <Button
             variant="primary"
             size="hero"
-            disabled={!world || busy}
-            onClick={() => {
-              if (!world) return;
-              setLaunch({ ...IDLE_LAUNCH, phase: "resolving", world_id: world.world_id });
-              launchPlay(world.world_id, world.name || world.world_id).catch((e) =>
-                setLaunch((held) => ({
-                  ...held,
-                  phase: "failed",
-                  reason: String(e),
-                  remedy: "retry",
-                })),
-              );
-            }}
+            disabled={!launchSelection || busy}
+            onClick={startLaunch}
           >
             <FiPlay aria-hidden />
             {PHASE_LABEL[launch.phase]}
@@ -151,9 +277,23 @@ export function PlayScreen(props: {
           )}
         </div>
 
-        <LaunchLine launch={launch} targets={targets} onSettings={props.onSettings} />
+        <LaunchLine
+          launch={launch}
+          target={target}
+          targetsLoaded={targets !== null}
+          onSettings={props.onSettings}
+          onRemedy={handleRemedy}
+          onCloseConnection={closeConnection}
+          closing={closing}
+        />
 
-        {!world && <NothingToPlay d={d} onSettings={props.onSettings} />}
+        {closeError && (
+          <Banner tone="danger">
+            Connection is still open: {closeError.replace(/^Error:\s*/, "")}
+          </Banner>
+        )}
+
+        {!launchSelection && <NothingToPlay d={d} onSettings={props.onSettings} />}
       </div>
     </div>
   );
@@ -166,7 +306,7 @@ export function PlayScreen(props: {
  *
  * The art is generated from the world id — deterministic, CSS-only, no network. See `worldArt`.
  */
-function Hero(props: { world?: World; d: Dashboard }) {
+function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
   const { world, d } = props;
   const fault = linkFault(d.link);
   const paused = d.node.transfers_paused;
@@ -197,9 +337,10 @@ function Hero(props: { world?: World; d: Dashboard }) {
       />
       <div aria-hidden className="hero-scrim absolute inset-0" />
 
-      <div className="relative mx-auto flex w-full max-w-[1100px] flex-col gap-1.5 px-[26px] pb-20">
-        <h1 className="text-[34px] leading-tight font-semibold">
-          {world ? world.name || "Unnamed world" : "Nodera"}
+      <div className="page-canvas relative flex w-full flex-col gap-2 pb-24">
+        <p className="text-[10px] font-semibold tracking-[0.2em] text-brand-1 uppercase">Ready to play</p>
+        <h1 className="display-type max-w-[12ch] text-[clamp(42px,5vw,72px)] leading-[0.95] font-semibold">
+          {world ? world.name || "Unnamed world" : props.fallbackName || "Nodera"}
         </h1>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-dim">
           {world ? (
@@ -208,8 +349,14 @@ function Hero(props: { world?: World; d: Dashboard }) {
               <span aria-hidden>·</span>
               <span>{players(world)}</span>
               <span aria-hidden>·</span>
-              <span>{world.seeders} peers hold it</span>
+              <span>
+                {world.seeders === 1
+                  ? "1 peer holds it"
+                  : `${world.seeders} peers hold it`}
+              </span>
             </>
+          ) : props.fallbackName ? (
+            <span>Live session selected from Discover</span>
           ) : (
             <span>Worlds you play in, run, or help share</span>
           )}
@@ -282,30 +429,35 @@ function players(w: World): string {
  */
 function LaunchLine(props: {
   launch: LaunchState;
-  targets: LaunchTarget[] | null;
+  target?: LaunchTarget;
+  targetsLoaded: boolean;
   onSettings: (section?: string) => void;
+  onRemedy: (remedy: Remedy) => void;
+  onCloseConnection: () => void;
+  closing: boolean;
 }) {
-  const { launch, targets } = props;
+  const { launch, target, targetsLoaded } = props;
 
   if (launch.phase === "failed") {
     return (
       <Banner
         tone="danger"
         action={
-          launch.remedy !== "none" && (
+          <span className="flex items-center gap-2">
+            {launch.session_id && (
+              <Button variant="ghost" disabled={props.closing} onClick={props.onCloseConnection}>
+                {props.closing ? "Closing…" : "Close connection"}
+              </Button>
+            )}
+            {launch.remedy !== "none" && !(launch.remedy === "retry" && launch.session_id) && (
             <Button
               variant="secondary"
-              onClick={() => {
-                if (launch.remedy === "copy-address" && launch.address) {
-                  navigator.clipboard?.writeText(launch.address).catch(() => {});
-                  return;
-                }
-                props.onSettings("minecraft");
-              }}
+              onClick={() => props.onRemedy(launch.remedy)}
             >
               {REMEDY_LABEL[launch.remedy]}
             </Button>
-          )
+            )}
+          </span>
         }
       >
         {launch.reason}
@@ -314,17 +466,34 @@ function LaunchLine(props: {
   }
 
   if (launch.phase === "running") {
+    const delegated = launch.handoff;
     return (
-      <p className="text-xs text-dim">
-        Minecraft is running{launch.profile ? ` from ${launch.profile}` : ""}
-        {launch.address ? ` · connected to ${launch.address}` : ""}. Nodera will close the
-        connection when you quit.
-      </p>
+      <Banner
+        tone="info"
+        action={
+          delegated && launch.session_id ? (
+            <Button variant="ghost" disabled={props.closing} onClick={props.onCloseConnection}>
+              {props.closing ? "Closing…" : "Close connection"}
+            </Button>
+          ) : undefined
+        }
+      >
+        {delegated ? "Minecraft launcher handed off" : "Minecraft started"}
+        {launch.profile ? ` from ${launch.profile}` : ""}
+        {launch.address ? ` · connected to ${launch.address}` : ""}.
+        {delegated
+          ? " Keep this connection open while playing, then close it here."
+          : " Nodera will close the connection when Minecraft quits."}
+      </Banner>
     );
   }
 
   if (launch.phase === "exited") {
-    return <p className="text-xs text-faint">Minecraft closed. The connection was closed with it.</p>;
+    return (
+      <p className="text-xs text-faint">
+        {launch.cancelled ? "Launch cancelled." : "Minecraft closed."} The connection is closed.
+      </p>
+    );
   }
 
   if (launch.phase !== "idle") {
@@ -333,9 +502,9 @@ function LaunchLine(props: {
 
   // Idle: say what pressing the button will actually do. A launcher whose choice is only revealed
   // by making it is one nobody can predict.
-  if (targets === null) return <p className="text-xs text-faint">Looking for Minecraft…</p>;
+  if (!targetsLoaded) return <p className="text-xs text-faint">Looking for Minecraft…</p>;
 
-  if (targets.length === 0) {
+  if (!target) {
     return (
       <Banner
         tone="warn"
@@ -350,8 +519,7 @@ function LaunchLine(props: {
     );
   }
 
-  const first = targets[0];
-  if (!first.has_mod) {
+  if (!target.has_mod) {
     return (
       <Banner
         tone="warn"
@@ -361,15 +529,15 @@ function LaunchLine(props: {
           </Button>
         }
       >
-        {first.name} does not have the Nodera mod, so the game would start without it.
+        {target.name} does not have the Nodera mod, so the game would start without it.
       </Banner>
     );
   }
 
   return (
     <p className="text-xs text-faint">
-      Will start <span className="text-dim">{first.name}</span>
-      {autoConnects(first.tier)
+      Will start <span className="text-dim">{target.name}</span>
+      {autoConnects(target.tier)
         ? " and take you straight into the world."
         : " and add the world to your Multiplayer list — this build cannot sign in to join for you."}
     </p>

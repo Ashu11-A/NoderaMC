@@ -88,8 +88,8 @@ correctness never depends on any single machine — and the infrastructure servi
 never trusted*: an outage degrades discovery and reachability, never correctness.
 
 Alongside the mod, an always-on headless **peer worker** keeps your world on the network with
-Minecraft closed, and a **Tauri companion app** supervises it from the desktop tray or an Android
-phone.
+Minecraft closed. A cinematic **Tauri desktop launcher** starts the game and supervises that worker;
+Android runs the same worker behind a native Material You node companion.
 
 ### Play with no mod installed
 
@@ -104,8 +104,8 @@ phone.
 
 The companion app is also how you **browse and join NoderaMC worlds with an unmodified Minecraft**.
 The host presses vanilla's own *Open to LAN*; the worker hears the multicast beacon, asks for
-consent, and publishes the session. A guest browses the directory in the app, presses **Join**, and
-the worker **binds a local port** — the stock client joins it through *Direct Connect*, and from
+consent, and publishes the session. A guest browses the directory in the app, presses **Play**, and
+the worker **binds a local port** while the launcher starts the selected Minecraft profile — from
 Minecraft's point of view it is a server on `127.0.0.1`. Nothing is installed into either game and
 **no save is ever downloaded**: the tunnel carries the game's own connection, and the host stays the
 sole authority over its world.
@@ -252,14 +252,14 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `core` | Domain types, JDK-only crypto, canonical encoding, certificates | 267 | ✅ |
 | `engine` | Deterministic engine, consensus, committees, rule-pack SDK, palette | 520 | ✅ |
 | `transport` | Append-only wire plane, socket/rendezvous carriers, authenticated handshake | 187 | ✅ |
-| `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 157 | ✅ |
+| `storage` | Event-sourced + RocksDB tiers, checkpoints, identity/permission stores | 158 | ✅ |
 | `testing` | Shared test library: loopback transport, fake regions, fixture IO, layout manifest | 32 | ✅ |
-| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 880 | 🚧 |
+| `peer` | Peer runtime, discovery, distribution, archival, control, diagnostics, and the always-on `nodera-headless` node built from them | 881 | 🚧 |
 | `endpoint` | What a Minecraft-hosting process needs to BE a node, with no Minecraft in it: the companion wire, share/join gates, world stores, lane rules, lang keys | 100 | 🚧 |
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
 | `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 76 | ✅ |
-| `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 254 | 🚧 |
+| `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 270 | 🚧 |
 | `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines, release asset naming | 66 | ✅ |
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 109 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
@@ -282,7 +282,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | [**Rendezvous**](docs/rendezvous/Task.0.md) | NAT reach: registration, hole punching, encrypted relay fallback | 6 | 🚧 4 done |
 | [**Minecraft**](docs/minecraft/Task.0.md) | The NeoForge mod: capture, live lanes, GUI, host lane, world identity | 11 | 🚧 5 done |
 | [**Peer**](docs/peer/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
-| [**App**](docs/app/Task.0.md) | The Tauri desktop companion that supervises the worker | 10 | 🚧 6 done |
+| [**App**](docs/app/Task.0.md) | Desktop game launcher + Tauri shell over the shared app core | 11 | 🚧 6 done |
 | [**Mobile**](docs/mobile/Task.0.md) | The Android build: same app, same Java worker, one process on a phone | 5 | 🚧 4 done |
 | [**Telemetry**](docs/telemetry/Task.0.md) | Consented, de-identified measurement + the Big Data plane | 3 | 🚧 1 done |
 | [**Server**](docs/server/Task.0.md) | The Paper/Folia endpoint plugin | 10 | ⬜ 0 done |

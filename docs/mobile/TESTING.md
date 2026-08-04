@@ -5,7 +5,7 @@
      invocations; (2) any claim about the worker must be evidenced by a control-socket answer FROM
      THE DEVICE, never by what the app's own UI shows. Keep §0 (the device last used) accurate. -->
 
-**Category:** mobile · **Last run:** 2026-07-28
+**Category:** mobile · **Last build:** 2026-08-01 · **Last physical run:** 2026-08-01
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
@@ -21,7 +21,8 @@ One APK containing two programs:
 
 ```text
   dev.nodera.app  (one Android process)
-  ├── libnodera_app_lib.so      the Tauri/Rust app + WebView UI
+  ├── libnodera_app_lib.so      shared Rust core reached through two JNI calls
+  ├── MainActivity + ui/*       native Jetpack Compose Material 3 interface
   └── assets/nodera-worker.jar  the REAL Java peer worker, as dex
         └── loaded by NoderaWorker.kt → HeadlessPeerMain.main()
               └── binds 127.0.0.1:25610  ← the Rust side connects here
@@ -88,10 +89,9 @@ What it does, in order — each step exists because something broke without it:
    never load, and the worker reaches `online` without them.
 4. **Copies the Kotlin** from `app/android/kotlin/` into the generated project, because
    `gen/` is disposable and Tauri regenerates it.
-5. **Patches the generated project**, idempotently: the `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
-   permission, the `androidx.documentfile` dependency, and R8 **keep rules** for the three classes
-   Rust calls over JNI — without them R8 renames `NoderaStorage.pick` and the folder picker fails
-   with `NoSuchMethodError`.
+5. **Patches the generated project**, idempotently: Compose Material 3/activity/lifecycle/browser/
+   document dependencies, permissions, Kotlin 2 Compose plugin, manifest deep-link/singleTask rules,
+   and R8 **keep rules** for JNI classes.
 6. **Builds, aligns, signs and verifies** the APK into `build/`.
 
 The signing key is a **development** key at `~/.nodera/android-release.jks`, generated on first run.
@@ -111,10 +111,14 @@ target/release/nodera-tracker          # a tracker to announce to
 
 | You Changed | Run |
 |---|---|
-| Only the React UI | `scripts/android-apk.sh --skip-worker` |
+| Only desktop React UI | `cd app/ui && bun run build` (Android runtime does not render it) |
 | Rust in `nodera-app` | `scripts/android-apk.sh --skip-worker` |
 | Any Java module | `scripts/android-apk.sh` (re-dexes; ~1 min, memory-hungry) |
 | Kotlin in `android/kotlin/` | `scripts/android-apk.sh --skip-worker` (it re-copies every run) |
+
+The 2026-08-01 host build also asserts native review invariants before Gradle: immutable reviewed
+tracker-store URL, `BackHandler`, exact numeric settings, and non-clickable status semantics. These
+are source/build guards, not substitutes for physical touch acceptance.
 
 Dexing needs real memory. A build killed with **exit 137** is out of memory: `./gradlew --stop`,
 then rebuild.
@@ -200,13 +204,17 @@ It answers the only question worth asking — *is that thing a node, or a screen
 |---|---|---|
 | 1 | The app is installed | `pm list packages` |
 | 2 | The process survives launch | `pidof dev.nodera.app` after 4 s |
-| 3 | The device has a peer identity | its own log line, out of logcat |
-| 4 | A tracker accepted its announce | the app's log line, with the tracker and the latency |
-| 5 | **The tracker returns this phone to somebody else** | `nodera-query`, run **from the laptop** |
+| 3 | The worker has a peer identity | `NODERA-STATE.node_id`, read on-device over loopback control |
+| 4 | The worker exchanged with the selected tracker | matching reachable tracker in `NODERA-STATE.trackers` |
+| 5 | **The tracker newly returns this phone to somebody else** | successful pre-launch `nodera-query` baseline does not contain the worker id; post-launch query, run **from the laptop**, returns that exact UUID token |
 | 6 (optional, M-NET-2) | Worker selected the one-port range saved in Settings after a full relaunch | `NODERA-STATE.self_route`, read on-device by `--expect-p2p-port` |
 
-Row 5 is the one the app cannot fake. Last run: **5 passed, 0 failed**, the tracker returning
-`b24dc714-…` at `10.0.0.104:48570`.
+Row 5 is the one the app cannot fake. The tracker must start without a retained entry for this
+phone; the script refuses an unreadable baseline or a cached identity rather than letting yesterday's
+announce prove today's APK. Its deadline spans two 60-second commons retries rather than racing the
+first retry, and that one deadline covers both worker-state and independent-query phases. Last run
+on 2026-08-01 (fresh tracker, `--no-install`): **5 passed, 0 failed**, the development tracker
+returning worker `a3da8287-…` at `10.0.0.104:40675`.
 
 Row 6 was added for issue #86 and has not run on a physical phone yet. Until it passes, M-NET-2 is
 RETIRING rather than RETIRED.
@@ -292,12 +300,13 @@ cd rust && cargo test --workspace             # codec, tracker, rendezvous, tele
 ./gradlew :peer:test
 ```
 
-Last app run on 2026-07-28: **188 passed**, including Android property/desktop environment parity,
-control isolation, changed-property-file replacement, and both context/setup startup orders. Java's
+Last shared-core run on 2026-08-01: **270 passed**, including Android property/desktop environment
+parity, control isolation, changed-property-file replacement, and both context/setup startup orders. Java's
 `AndroidPortPropertyTest` separately launches a real worker with a property-only P2P port and proves
 that exact port appears in `NODERA-STATE.self_route`. `scripts/android-apk.sh --debug` also built and
-verified a signed 185 MiB APK, compiling the frontend, Android-only Rust JNI path and Kotlin bridge.
-No device was connected, so the physical selected-port exit did not run.
+verified and installed a signed 201 MiB debug APK, compiling the frontend, Android-only Rust JNI path,
+Kotlin bridge, and real dex worker. Physical startup and the five-check E2E passed; the optional
+selected-port exit did not run.
 
 `ThreadsTest` is the one to watch: it asserts that a started thread **runs its body**, which is the
 property ART broke and which a construction-only test would have missed entirely.
@@ -324,6 +333,40 @@ still the dex script — but it is what caught the M-5 regression's rewrite site
 
 Driving these with `adb shell input tap` is possible but fragile: coordinates drift between builds,
 and a stray tap lands in whatever app happens to be in front. Prefer tapping the phone.
+
+### 4.8 The M-2 exit test — does the node survive an hour with the screen off?
+
+The one check no script drives, and the one that decides whether a phone is a peer other nodes can
+plan around. Before the foreground service, an app holding committee seats was killed roughly 25
+minutes into a session and every peer it served lost it in silence.
+
+```bash
+adb shell svc power stayon false          # or the screen never sleeps and nothing is tested
+adb shell am force-stop dev.nodera.app
+adb shell am start -n dev.nodera.app/.MainActivity
+sleep 25 && adb shell dumpsys activity services dev.nodera.app | grep isForeground
+adb shell input keyevent KEYCODE_HOME     # backgrounded
+adb shell input keyevent KEYCODE_SLEEP    # screen off
+# ... one hour, undisturbed ...
+adb shell pidof dev.nodera.app
+adb shell "(printf 'NODERA-PROBE 2\n'; sleep 3) | timeout 15 toybox nc 127.0.0.1 25610"
+```
+
+Pass: a pid, and `NODERA-OK`. `isForeground=true` with `types=0x00000001` (dataSync) before the
+wait says the service actually took, which is the half that is worth checking early.
+
+**Poll it as little as you can bear.** Each `adb` round trip can wake the device, and a device that
+keeps waking is not the device the test is about — checking every minute quietly replaces the
+experiment with an easier one. Two checks, at the start and at the hour, are enough.
+
+**Use the port above, 25610.** Probing the wrong port answers `nc: connect: Connection refused`,
+which reads exactly like a dead node and is the one failure here that is worth being sure about.
+`cat /proc/net/tcp` and look for state `0A` if you need to confirm what is actually listening.
+
+Run 2026-08-04 (Android 15, arm64), and the evidence that retired M-2: `pid=2605` at minute 0 and
+still `2605` at minute 60, `isForeground=true foregroundId=1 types=0x00000001`,
+`mWakefulness=Dozing` throughout, `NODERA-OK 2 0.1.0` at the hour — and `logcat` showing the worker
+doing real work the whole time, an archive seeder lookup every second.
 
 ---
 

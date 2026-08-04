@@ -36,11 +36,15 @@ pub use nodera_core::{
 mod shell;
 
 use std::collections::HashMap;
+#[cfg(desktop)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(desktop)]
 use config::PushSignal;
 use nodera_core::core::NoderaCore;
+#[cfg(desktop)]
 use power::PauseHandle;
 #[cfg(desktop)]
 use tauri::menu::{Menu, MenuItem};
@@ -48,7 +52,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::Emitter;
 #[cfg(desktop)]
-use tauri::{Manager, WindowEvent};
+use tauri::{Manager, RunEvent, WindowEvent};
 
 /// Loopback address of the WORKER's control endpoint (owned by `nodera-headless`, probed by both
 /// the mod and this app). Keep in sync with the mod's `companion.controlEndpoint` default. Override
@@ -434,7 +438,12 @@ async fn join_world(app: tauri::AppHandle, session_id: String) -> api::network::
 #[tauri::command]
 async fn leave_world(app: tauri::AppHandle, session_id: String) -> api::network::Outcome {
     let core = core_of(&app);
-    core.leave_world(session_id).await
+    let outcome = core.leave_world(session_id).await;
+    #[cfg(desktop)]
+    if outcome.ok {
+        let _ = app.emit(shell::LAUNCH_EVENT, core.launch_state());
+    }
+    outcome
 }
 
 /// Tauri command: mint the pasteable invitation for a world.
@@ -504,11 +513,20 @@ async fn launch_targets(app: tauri::AppHandle) -> Vec<nodera_core::launch::disco
     core_of(&app).launch_targets().await
 }
 
+/// Tauri command: latest backend-owned launch state, including active launch correlation id.
+#[cfg(desktop)]
+#[tauri::command]
+fn launch_state(core: tauri::State<Arc<NoderaCore>>) -> nodera_core::launch::LaunchState {
+    core.launch_state()
+}
+
 /// Tauri command: join a world and start the game in it.
 ///
 /// Returns as soon as the launch is *under way*; everything after that arrives on
 /// `nodera://launch`, because a launch is a sequence of states a player watches rather than a call
-/// that answers once. The task owns the tunnel it opened and closes it when the game exits.
+/// that answers once. Direct launches close with owned game child; delegated launches and manual
+/// fallback retain tunnel until `leave_world`, because launcher child is not game child. `profile`
+/// should be `LaunchTarget.id`; unique legacy display names remain accepted.
 #[cfg(desktop)]
 #[tauri::command]
 async fn launch_play(
@@ -520,8 +538,7 @@ async fn launch_play(
     let core = core_of(&app);
     let sink: Arc<dyn nodera_core::launch::LaunchSink> =
         Arc::new(shell::TauriLaunchSink(app.clone()));
-    tokio::spawn(async move { core.play(world_id, world_name, profile, sink).await });
-    Ok(())
+    core.start_play(world_id, world_name, profile, sink)
 }
 
 /// Tauri command: what this build is and what it is built out of.
@@ -743,13 +760,18 @@ pub fn run() {
     // holds the same struct — so there is exactly one construction of the application's state and
     // the two front ends cannot end up with different ideas of what it contains.
     let core = Arc::new(NoderaCore::new());
+    #[cfg(desktop)]
     let dashboard_store = Arc::clone(&core.dashboard);
     let system_stats = Arc::clone(&core.system);
     let worker_logs = Arc::clone(&core.logs);
     let user_settings = Arc::clone(&core.settings);
+    #[cfg(desktop)]
     let pause = Arc::clone(&core.pause);
+    #[cfg(desktop)]
     let push_signal = Arc::clone(&core.push);
     let pending_store = Arc::clone(&core.pending_store);
+    #[cfg(desktop)]
+    let shutdown_core = Arc::clone(&core);
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default();
@@ -773,7 +795,7 @@ pub fn run() {
         ));
     }
 
-    builder
+    let application = builder
         .plugin(tauri_plugin_dialog::init())
         // Opening a link outside this window. Registered for its Rust API only — the interface
         // never calls the plugin directly, it calls `open_external`, which validates the URL
@@ -804,6 +826,8 @@ pub fn run() {
             about_build,
             #[cfg(desktop)]
             launch_targets,
+            #[cfg(desktop)]
+            launch_state,
             #[cfg(desktop)]
             launch_play,
             peer_status,
@@ -1032,8 +1056,34 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running the Nodera companion app");
+        .build(tauri::generate_context!())
+        .expect("error while building the Nodera companion app");
+
+    #[cfg(desktop)]
+    {
+        let cleanup_started = Arc::new(AtomicBool::new(false));
+        let cleanup_complete = Arc::new(AtomicBool::new(false));
+        application.run(move |app, event| {
+            if let RunEvent::ExitRequested { api, code, .. } = event {
+                if cleanup_complete.load(Ordering::SeqCst) {
+                    return;
+                }
+                api.prevent_exit();
+                if !cleanup_started.swap(true, Ordering::SeqCst) {
+                    let core = Arc::clone(&shutdown_core);
+                    let app = app.clone();
+                    let cleanup_complete = Arc::clone(&cleanup_complete);
+                    tauri::async_runtime::spawn(async move {
+                        core.shutdown_launch().await;
+                        cleanup_complete.store(true, Ordering::SeqCst);
+                        app.exit(code.unwrap_or(0));
+                    });
+                }
+            }
+        });
+    }
+    #[cfg(not(desktop))]
+    application.run(|_, _| {});
 }
 
 #[cfg(desktop)]

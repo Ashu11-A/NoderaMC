@@ -906,7 +906,8 @@ public final class WorkerControlHandler implements ControlHandler {
     }
 
     @Override
-    public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
+    public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds,
+                               ArchiveProgress progress) {
         if (archive == null) {
             return null;
         }
@@ -915,7 +916,8 @@ public final class WorkerControlHandler implements ControlHandler {
             throw new IllegalArgumentException("missing worldId/destination path");
         }
         long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
-        byte[] blob = archive.fetchArchive(worldId, java.time.Duration.ofSeconds(seconds));
+        byte[] blob = archive.fetchArchive(worldId, java.time.Duration.ofSeconds(seconds),
+                progress::at);
         long version = archive.newestManifest(worldId)
                 .map(m -> m.version().value()).orElse(0L);
         try {

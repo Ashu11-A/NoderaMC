@@ -98,8 +98,13 @@ pub mod type_tags {
     /// against it (engine L-2; Java engine only).
     pub const HALO_ENDORSEMENT: u16 = 119;
 
+    /// `WorldRevival` — the owner putting back a world they deleted, carrying the same ownership
+    /// evidence as the tombstone it supersedes. Ranked against that tombstone by issue time, so
+    /// neither record can be replayed to undo the other.
+    pub const WORLD_REVIVAL: u16 = 120;
+
     /// Highest tag assigned on the Java side; new tags start at `NEXT + 1`.
-    pub const NEXT: u16 = 119;
+    pub const NEXT: u16 = 120;
 }
 
 /// Message frame kinds — re-exported from the generated schema.

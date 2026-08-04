@@ -3,12 +3,10 @@ package dev.nodera.app
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -19,6 +17,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import dev.nodera.app.ui.*
 import kotlinx.coroutines.launch
@@ -44,7 +44,10 @@ import java.lang.ref.WeakReference
  */
 class MainActivity : ComponentActivity() {
 
+    private var pendingStoreUrl by mutableStateOf<String?>(null)
+
     companion object {
+        private const val PENDING_STORE_URL = "pending-store-url"
         private var live = WeakReference<MainActivity>(null)
 
         /** The visible Activity, for the helpers that need one (the SAF picker, Custom Tabs). */
@@ -65,9 +68,25 @@ class MainActivity : ComponentActivity() {
             .onFailure { android.util.Log.e("NoderaMC", "could not start the node", it) }
         // Only an activity can start the folder picker for a result.
         NoderaStorage.attach(this)
+        pendingStoreUrl = savedInstanceState?.getString(PENDING_STORE_URL)
         offerStoreFrom(intent)
 
-        setContent { NoderaTheme { NoderaApp() } }
+        setContent {
+            var themePreference by rememberSaveable { mutableStateOf("system") }
+            LaunchedEffect(Unit) {
+                themePreference = NoderaCore.obj("settings")
+                    ?.optJSONObject("appearance")
+                    ?.optString("theme", "system") ?: "system"
+            }
+            NoderaTheme(themePreference) {
+                NoderaApp(
+                    themePreference = themePreference,
+                    onThemePreference = { themePreference = it },
+                    pendingStoreUrl = pendingStoreUrl,
+                    onStoreHandled = { pendingStoreUrl = null },
+                )
+            }
+        }
     }
 
     /**
@@ -89,7 +108,16 @@ class MainActivity : ComponentActivity() {
 
     private fun offerStoreFrom(intent: Intent?) {
         val url = intent?.data?.getQueryParameter("url") ?: return
+        // A singleTask Activity retains its Intent across recreation. Consume recognized data now
+        // so rotation cannot offer the same untrusted store a second time.
+        intent.data = null
+        pendingStoreUrl = url
         lifecycleScope.launch { NoderaCore.call("offer_tracker_store", JSONObject().put("url", url)) }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        pendingStoreUrl?.let { outState.putString(PENDING_STORE_URL, it) }
+        super.onSaveInstanceState(outState)
     }
 
     /**
@@ -135,10 +163,63 @@ private enum class Destination(val label: String, val icon: androidx.compose.ui.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoderaApp() {
+private fun NoderaApp(
+    themePreference: String,
+    onThemePreference: (String) -> Unit,
+    pendingStoreUrl: String?,
+    onStoreHandled: () -> Unit,
+) {
     var destination by rememberSaveable { mutableStateOf(Destination.Home) }
     var settingsPage by rememberSaveable { mutableStateOf(SettingsPage.Root) }
     val node by rememberNodeState()
+    var onboardingFinished by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var onboardingLoadFailed by rememberSaveable { mutableStateOf(false) }
+    var onboardingLoadAttempt by rememberSaveable { mutableIntStateOf(0) }
+
+    LaunchedEffect(onboardingLoadAttempt) {
+        val setup = NoderaCore.obj("setup_state")
+        onboardingLoadFailed = setup == null
+        onboardingFinished = setup?.optBoolean("completed")
+    }
+    LaunchedEffect(pendingStoreUrl) {
+        if (pendingStoreUrl != null) {
+            destination = Destination.Settings
+            settingsPage = SettingsPage.TrackerStores
+        }
+    }
+
+    if (onboardingFinished == false) {
+        OnboardingScreen { onboardingFinished = true }
+        return
+    }
+    if (onboardingFinished == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (onboardingLoadFailed) {
+                Column(
+                    Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("Could not read setup state")
+                    Text("The node is not ready yet. Retry without skipping setup.")
+                    Button(onClick = { onboardingLoadAttempt += 1 }) { Text("Retry") }
+                }
+            } else {
+                CircularProgressIndicator()
+            }
+        }
+        return
+    }
+
+    BackHandler(enabled = destination != Destination.Home) {
+        when {
+            destination == Destination.Settings && settingsPage == SettingsPage.Licenses ->
+                settingsPage = SettingsPage.About
+            destination == Destination.Settings && settingsPage != SettingsPage.Root ->
+                settingsPage = SettingsPage.Root
+            else -> destination = Destination.Home
+        }
+    }
 
     val open: (Destination) -> Unit = { entry ->
         destination = entry
@@ -150,11 +231,19 @@ private fun NoderaApp() {
             page = settingsPage,
             onOpen = { settingsPage = it },
             onBack = {
-                if (settingsPage == SettingsPage.Root) open(Destination.Home)
-                else settingsPage = SettingsPage.Root
+                when (settingsPage) {
+                    SettingsPage.Root -> open(Destination.Home)
+                    SettingsPage.Licenses -> settingsPage = SettingsPage.About
+                    else -> settingsPage = SettingsPage.Root
+                }
             },
             destination = destination,
             onDestination = open,
+            node = node,
+            themePreference = themePreference,
+            onThemePreference = onThemePreference,
+            offeredStoreUrl = pendingStoreUrl,
+            onStoreHandled = onStoreHandled,
         )
         return
     }
@@ -166,9 +255,9 @@ private fun NoderaApp() {
             TopAppBar(
                 title = { Text(if (destination == Destination.Home) "Nodera" else destination.label) },
                 actions = {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(if (node.fault != null) "Offline" else "Online") },
+                    StatusPill(
+                        if (!node.known) "Connecting" else if (node.stale || node.fault != null) "Offline" else "Online",
+                        if (!node.known) null else !(node.stale || node.fault != null),
                     )
                 },
             )
@@ -229,13 +318,27 @@ private fun SettingsShell(
     onBack: () -> Unit,
     destination: Destination,
     onDestination: (Destination) -> Unit,
+    node: NodeState,
+    themePreference: String,
+    onThemePreference: (String) -> Unit,
+    offeredStoreUrl: String?,
+    onStoreHandled: () -> Unit,
 ) {
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     Scaffold(bottomBar = { if (!wide) BottomBar(destination, onDestination) }) { padding ->
         Row(Modifier.fillMaxSize().padding(padding)) {
             if (wide) SideRail(destination, onDestination)
             Box(Modifier.weight(1f)) {
-                SettingsScreen(page = page, onOpen = onOpen, onBack = onBack)
+                SettingsScreen(
+                    page = page,
+                    onOpen = onOpen,
+                    onBack = onBack,
+                    node = node,
+                    themePreference = themePreference,
+                    onThemePreference = onThemePreference,
+                    offeredStoreUrl = offeredStoreUrl,
+                    onStoreHandled = onStoreHandled,
+                )
             }
         }
     }

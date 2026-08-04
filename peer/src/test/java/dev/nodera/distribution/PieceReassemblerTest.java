@@ -121,6 +121,29 @@ final class PieceReassemblerTest {
                 .hasMessageContaining("still missing");
     }
 
+    /**
+     * {@link PieceReassembler#assemble()} hands its buffer out instead of cloning it — a clone of a
+     * 123 MB world archive is what killed the replication lane on a phone, mid-download, with every
+     * piece already verified. The guarantee the clone provided has to survive the change: a chunk
+     * that arrives after assembly (a duplicate from a slow seeder, the ordinary case) must not be
+     * able to write into bytes the caller is already holding.
+     */
+    @Test
+    void aLateChunkCannotMutateAnAlreadyAssembledBlob() {
+        RegionSnapshotSplitter.Layout layout = layout();
+        PieceReassembler r = new PieceReassembler(layout.manifest());
+        for (int i = 0; i < layout.manifest().pieceCount(); i++) {
+            r.accept(new ContentChunk(layout.manifest().manifestRoot(), i, pieceBytes(layout, i)));
+        }
+        Bytes assembled = r.assemble();
+
+        assertThat(r.accept(new ContentChunk(layout.manifest().manifestRoot(), 0,
+                pieceBytes(layout, 0))))
+                .as("nothing is accepted once the buffer belongs to the caller")
+                .isFalse();
+        assertThat(assembled).isEqualTo(layout.blob());
+    }
+
     @Test
     void tracksProgressPreciselyAcrossPartialDelivery() {
         RegionSnapshotSplitter.Layout layout = layout();

@@ -17,7 +17,7 @@
 // one has a decision attached, and the rest are a report.
 import { useMemo } from "react";
 import { FiGlobe, FiKey, FiPlay, FiUploadCloud } from "react-icons/fi";
-import { Card, Empty, Pill, Stat, STAT_GRID, cx, worldArt } from "./components";
+import { Card, Empty, PageGrid, PageHeader, Pill, Stat, STAT_GRID, cx, worldArt } from "./components";
 import { LanCard } from "./Lan";
 import {
   UNKNOWN,
@@ -49,8 +49,13 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
   }, [d.worlds]);
 
   return (
-    <div className="flex max-w-[1150px] flex-col gap-4 px-[26px] pt-5 pb-10">
-      <div className={STAT_GRID}>
+    <PageGrid className="gap-y-5">
+      <PageHeader
+        eyebrow="Local collection"
+        title="World library"
+        description="Worlds you play, administer, or keep available for other players."
+      />
+      <div className={cx(STAT_GRID, "col-span-12")}>
         <Stat
           label="Playing in"
           value={known ? String(d.counts.connected_worlds) : UNKNOWN}
@@ -76,6 +81,7 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
         />
       </div>
 
+      <div className="col-span-12 wide:col-span-6">
       <WorldSection
         title="You are playing in"
         hint="Worlds a player on this machine is inside right now. Your node supports each of them for as long as you are here."
@@ -89,7 +95,9 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
           </Empty>
         }
       />
+      </div>
 
+      <div className="col-span-12 wide:col-span-6">
       <WorldSection
         title="Worlds you run"
         hint="You hold these worlds' private keys, so you are the only peer that can rename, re-key or delete them."
@@ -101,7 +109,9 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
           </Empty>
         }
       />
+      </div>
 
+      <div className="col-span-12 wide:col-span-8">
       <WorldSection
         title="Worlds you help share"
         hint="Other people's worlds this node keeps available. They stay reachable while their owner is offline because peers like this one hold their pieces."
@@ -115,9 +125,12 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
           </Empty>
         }
       />
+      </div>
 
-      <LanCard lan={d.lan} known={known} onChanged={() => undefined} />
-    </div>
+      <div className="col-span-12 wide:col-span-4">
+        <LanCard lan={d.lan} known={known} onChanged={() => undefined} />
+      </div>
+    </PageGrid>
   );
 }
 
@@ -142,7 +155,7 @@ function WorldSection(props: {
       {props.worlds.length === 0 ? (
         props.empty
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-3 py-1">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3 py-1">
           {props.worlds.map((w) => (
             <WorldCard key={w.world_id} world={w} onOpen={() => props.onOpen(w.world_id)} />
           ))}

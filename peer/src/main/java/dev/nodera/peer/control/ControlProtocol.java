@@ -96,6 +96,26 @@ public final class ControlProtocol {
     public static final String ARCHIVE = "NODERA-ARCHIVE";
 
     /**
+     * Interim progress on an in-flight {@link #ARCHIVE} fetch:
+     * {@code NODERA-PROGRESS <verified> <total>}, written by the worker on the same connection
+     * before the terminal {@link #OK}/{@link #ERR} line.
+     *
+     * <p><b>Why a fetch has to speak while it works.</b> The caller's {@code timeoutSeconds} was
+     * being spent twice, meaning two different things: the worker treats it as a <i>stall</i>
+     * budget — a transfer that keeps moving keeps going — while the client had turned it into a
+     * socket read timeout, a hard wall clock. A large archive that was progressing perfectly well
+     * therefore kept the worker happy and expired the client underneath it. Observed live: a
+     * player waited 748 seconds and was told the fetch failed, while the worker was healthy and
+     * 212 of 283 pieces into the download being waited on.
+     *
+     * <p>So the worker says how far it has got, and each line is liveness — the same reason
+     * {@link #WATCH} sends a keepalive instead of letting the reader guess what silence means. A
+     * client that does not understand this line must ignore it and keep reading, which is what
+     * makes the addition safe against an older peer on either side.
+     */
+    public static final String PROGRESS = "NODERA-PROGRESS";
+
+    /**
      * Seed one committed <b>region snapshot</b> of the validated lane (worker L-41):
      * {@code NODERA-SEED-REGION <ver> <worldId> <snapshotPathB64>} — the file holds a canonically
      * encoded {@code RegionSnapshot}, written by whichever process actually committed it, and the

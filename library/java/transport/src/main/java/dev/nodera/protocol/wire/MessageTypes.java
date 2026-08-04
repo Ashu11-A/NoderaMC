@@ -159,6 +159,10 @@ public final class MessageTypes {
                 BROADCAST);
         row(MessageCodec.TAG_WORLD_DELETION_GOSSIP, SELF_AUTHENTICATED_COURIER, null, false,
                 BROADCAST);
+        // The deletion's undo travels under the same rule: the record proves itself, so any peer
+        // may carry it and none has to be trusted with it.
+        row(MessageCodec.TAG_WORLD_REVIVAL_GOSSIP, SELF_AUTHENTICATED_COURIER, null, false,
+                BROADCAST);
 
         // --- LAN tunnel: the session id is the capability. ---
         row(MessageCodec.TAG_TUNNEL_OPEN, PUBLIC, null, true, EXCLUSIVE);

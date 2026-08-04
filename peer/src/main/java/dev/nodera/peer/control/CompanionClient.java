@@ -430,12 +430,48 @@ public final class CompanionClient implements CompanionProbe {
      */
     public Optional<String> fetchArchive(String worldId, java.nio.file.Path destPath,
                                          long timeoutSeconds, StringBuilder reason) {
+        return fetchArchive(worldId, destPath, timeoutSeconds, reason, (done, total) -> { });
+    }
+
+    /**
+     * As above, told how far along the fetch is as it runs.
+     *
+     * <h2>The budget is time WITHOUT progress</h2>
+     *
+     * <p>It used to be a wall clock: {@code setSoTimeout((seconds + 10) * 1000)} once, for the
+     * whole transfer. The worker has always read the same number as a <i>stall</i> budget — "a
+     * fetch that keeps moving keeps going" — so the two ends disagreed about what the caller had
+     * asked for, and a large archive that was downloading perfectly well expired on the client
+     * while the worker carried on into a socket nobody was reading. A player waited 748 seconds
+     * and was told it failed; the worker was 212 of 283 pieces in and healthy.
+     *
+     * <p>Now every {@code NODERA-PROGRESS} line restarts the clock, so both ends mean the same
+     * thing and a transfer only fails when it genuinely stops.
+     *
+     * @param progress called with (verified, total) as the worker reports it.
+     */
+    public Optional<String> fetchArchive(String worldId, java.nio.file.Path destPath,
+                                         long timeoutSeconds, StringBuilder reason,
+                                         ArchiveProgress progress) {
         long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
-        String reply = exchange(ControlProtocol.ARCHIVE + " " + ControlProtocol.PROTOCOL_VERSION
+        String reply = exchangeWithProgress(
+                ControlProtocol.ARCHIVE + " " + ControlProtocol.PROTOCOL_VERSION
                         + " " + worldId + " " + b64Path(destPath) + " " + seconds,
-                (int) Math.min(Integer.MAX_VALUE, (seconds + 10) * 1000));
+                (int) Math.min(Integer.MAX_VALUE, (seconds + 10) * 1000), progress);
         if (reply == null) {
-            reason.append("the peer worker did not answer");
+            // "Did not answer" is only true if it cannot answer. A fetch that is still running when
+            // the deadline passes produces exactly the same null reply as a worker that is dead,
+            // and the two ask completely different things of whoever reads the message: one says
+            // "your node is broken", the other says "this is taking longer than we allowed".
+            //
+            // Observed live: a joiner's recovery screen reported "the peer worker did not answer"
+            // while that worker was healthy, answering, and 212 of 283 pieces into the very
+            // download being waited on. Asking it costs one short round trip on a path that has
+            // already spent its whole deadline.
+            reason.append(probe().isPresent()
+                    ? "the fetch did not finish within " + seconds + "s — the peer worker is "
+                        + "running and still working on it"
+                    : "the peer worker did not answer");
             return Optional.empty();
         }
         if (!reply.startsWith(ControlProtocol.OK + " ")) {
@@ -446,6 +482,62 @@ public final class CompanionClient implements CompanionProbe {
             return Optional.empty();
         }
         return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
+    }
+
+    /** How far an in-flight archive fetch has got, as the worker reports it. */
+    @FunctionalInterface
+    public interface ArchiveProgress {
+
+        /**
+         * @param verified pieces verified so far.
+         * @param total    pieces in the archive.
+         */
+        void at(int verified, int total);
+    }
+
+    /**
+     * Send one request and read until a terminal line, treating anything else as liveness.
+     *
+     * <p>Unrecognised leading lines are skipped rather than failed on. That is what makes this
+     * safe across versions in both directions: a worker that never sends progress behaves exactly
+     * as it did before, and a worker that sends something this client does not understand yet
+     * still gets its result read.
+     *
+     * @param readTimeoutMs how long to wait for the NEXT line, restarted on every line received.
+     */
+    private String exchangeWithProgress(String requestLine, int readTimeoutMs,
+                                        ArchiveProgress progress) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
+            socket.setSoTimeout(readTimeoutMs);
+            OutputStream out = socket.getOutputStream();
+            out.write((requestLine + "\n").getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            String line;
+            while ((line = in.readLine()) != null) {
+                if (line.startsWith(ControlProtocol.OK) || line.startsWith(ControlProtocol.ERR)) {
+                    return line;
+                }
+                if (line.startsWith(ControlProtocol.PROGRESS)) {
+                    String[] parts = line.split("\\s+");
+                    if (parts.length >= 3) {
+                        try {
+                            progress.at(Integer.parseInt(parts[1]), Integer.parseInt(parts[2]));
+                        } catch (NumberFormatException malformed) {
+                            // A progress line we cannot read is still evidence the worker is alive,
+                            // which is the half that matters here.
+                        }
+                    }
+                }
+                // Every line, understood or not, restarts the budget.
+                socket.setSoTimeout(readTimeoutMs);
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String b64Path(java.nio.file.Path path) {

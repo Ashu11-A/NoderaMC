@@ -1,195 +1,267 @@
 package dev.nodera.app.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.nodera.app.NoderaCore
 import dev.nodera.app.NoderaEvents
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-/**
- * Home: is this node doing its job, and can anyone find it.
- *
- * The phone is not a game client — there is no Java Minecraft on Android — so it has no Play
- * button. What it *is* is a node that keeps other people's worlds alive while it sits in a pocket,
- * and that is what the hero says. A Play button here would be a button that cannot work.
- */
 @Composable
 fun HomeScreen(state: NodeState, onFixTrackers: () -> Unit) {
     val scope = rememberCoroutineScope()
     var pausing by remember { mutableStateOf(false) }
+    var pauseReason by remember { mutableStateOf("") }
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+    LaunchedEffect(state.paused) {
+        pauseReason = if (state.paused) {
+            NoderaCore.obj("pause_reason")?.optString("reason")?.ifEmpty { "" } ?: ""
+        } else ""
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(280.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (state.stale) StaleNotice()
-
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    if (state.paused) "Sharing is paused" else "Keeping these worlds alive",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    // `known` gates every figure below it. "We have not heard from the worker" and
-                    // "the worker says zero" are different answers and must not read the same.
-                    if (!state.known) "Waiting for this node to report"
-                    else "${state.peers} peers · ${formatBytes(state.sharedBytes)} served",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(6.dp))
-                Button(
-                    onClick = {
-                        pausing = true
-                        scope.launch {
-                            NoderaCore.call("toggle_pause")
-                            pausing = false
-                        }
-                    },
-                    enabled = !pausing,
-                ) {
+        if (state.stale) item(span = { GridItemSpan(maxLineSpan) }) { StaleNotice() }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            ElevatedCard(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                ),
+            ) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(
-                        if (state.paused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = null,
+                        if (state.paused) Icons.Default.PauseCircle else Icons.Default.CloudDone,
+                        null,
+                        Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (state.paused) "Resume sharing" else "Pause sharing")
+                    Text(
+                        if (state.paused) "Sharing is paused" else "Keeping the network available",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    if (state.paused && pauseReason.isNotEmpty()) {
+                        Text(
+                            pauseReason,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    Text(
+                        if (!state.known) "Waiting for this node to report"
+                        else "${state.peers} connected peers · ${formatBytes(state.sharedBytes)} held for others",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Button(
+                        onClick = {
+                            pausing = true
+                            scope.launch {
+                                when {
+                                    !state.paused -> NoderaCore.call("toggle_pause")
+                                    pauseReason.contains("network") || pauseReason.contains("connection") -> {
+                                        val net = NoderaCore.obj("settings")?.optJSONObject("network")
+                                        NoderaCore.call(
+                                            "set_network_policy",
+                                            org.json.JSONObject()
+                                                .put("transfer_network", "any")
+                                                .put("max_connections", net?.optLong("max_connections", 200) ?: 200),
+                                        )
+                                    }
+                                    else -> NoderaCore.call("toggle_pause")
+                                }
+                                pausing = false
+                            }
+                        },
+                        enabled = !pausing,
+                    ) {
+                        Icon(if (state.paused) Icons.Default.PlayArrow else Icons.Default.Pause, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (state.paused) "Resume sharing" else "Pause sharing")
+                    }
+                    if (state.paused && pauseReason != "paused by you") {
+                        Text(
+                            "Resume may not take effect while the pause reason is active. Check Network settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                        )
+                    }
                 }
             }
         }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Metric("Peers", if (state.known) "${state.peers}" else "—", Modifier.weight(1f))
-            Metric(
+        item { MetricCard("Peers", if (state.known) "${state.peers}" else "—", Icons.Default.Group) }
+        item {
+            MetricCard(
                 "Trackers",
                 if (state.trackers.isEmpty()) "—" else "${state.reachableTrackers}/${state.trackers.size}",
-                Modifier.weight(1f),
+                Icons.Default.TravelExplore,
             )
         }
-
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            Column {
+        item { MetricCard("Upload", rate(state.upPerSec), Icons.Default.Upload) }
+        item { MetricCard("Download", rate(state.downPerSec), Icons.Default.Download) }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
                 ListItem(
-                    headlineContent = { Text(if (state.nodeId.isEmpty()) "—" else shortId(state.nodeId, 14, 6)) },
-                    supportingContent = { Text("Node") },
+                    leadingContent = { Icon(Icons.Default.Fingerprint, null) },
+                    headlineContent = { Text(state.nodeId.ifEmpty { "Not reported" }.let { shortId(it, 14, 6) }) },
+                    supportingContent = { Text("Node identity") },
                 )
+                HorizontalDivider()
                 ListItem(
-                    headlineContent = { Text(state.address.ifEmpty { "—" }) },
-                    supportingContent = { Text("Address") },
-                )
-                ListItem(
-                    headlineContent = { Text(state.roles.joinToString(", ").ifEmpty { "—" }) },
-                    supportingContent = { Text("Roles") },
+                    leadingContent = { Icon(Icons.Default.Router, null) },
+                    headlineContent = { Text(state.address.ifEmpty { "Not reported" }) },
+                    supportingContent = { Text(state.roles.joinToString(" · ").ifEmpty { "No roles reported" }) },
                 )
             }
         }
-
-        // Not a takeover. A node with peers and traffic but no reachable tracker is not idle — it
-        // simply cannot be found by anyone new. Gated on `known`, because "the worker has not told
-        // us anything yet" is not "there are no trackers", and a cold start that said so once sent
-        // users to add a tracker they already had.
         if (state.known && state.reachableTrackers == 0) {
-            OutlinedCard(Modifier.fillMaxWidth()) {
-                ListItem(
-                    leadingContent = {
-                        Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error)
-                    },
-                    headlineContent = {
-                        Text(if (state.trackers.isEmpty()) "No trackers configured" else "No tracker is answering")
-                    },
-                    supportingContent = { Text("New players cannot find this node until one responds") },
-                    trailingContent = { TextButton(onClick = onFixTrackers) { Text("Fix") } },
-                )
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    ListItem(
+                        leadingContent = {
+                            Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error)
+                        },
+                        headlineContent = {
+                            Text(if (state.trackers.isEmpty()) "No trackers configured" else "No tracker is answering")
+                        },
+                        supportingContent = { Text("New peers cannot find this node until one responds") },
+                        trailingContent = { TextButton(onClick = onFixTrackers) { Text("Review") } },
+                    )
+                }
             }
         }
     }
 }
 
-/**
- * Worlds: the same three groups the desktop uses, in the same order and for the same reason —
- * where you are, what you run, what you carry for other people.
- *
- * Each row's supporting line is *this device's* contribution rather than the world's size, which is
- * identical on every peer and therefore tells the owner of this phone nothing.
- */
+private fun rate(bytes: Long?): String = bytes?.let { "${formatBytes(it)}/s" } ?: "—"
+
+@Composable
+private fun MetricCard(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.large,
+            ) { Icon(icon, null, Modifier.padding(10.dp)) }
+            Column {
+                Text(value, style = MaterialTheme.typography.headlineSmall)
+                Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorldsScreen(state: NodeState) {
+    var selected by remember { mutableStateOf<WorldRow?>(null) }
     if (state.worlds.isEmpty()) {
-        Empty(
-            if (state.known) "No worlds yet" else "Waiting for this node to report",
-            if (state.known) "Worlds you play in, run, or help share appear here" else "",
+        EmptyState(
+            Icons.Default.Public,
+            if (state.known) "No worlds yet" else "Waiting for this node",
+            if (state.known) "Worlds this node hosts or helps preserve appear here" else "",
         )
         return
     }
-
-    val playing = state.worlds.filter { it.connected }
-    val mine = state.worlds.filter { !it.connected && it.administered }
-    val helping = state.worlds.filter { !it.connected && !it.administered }
-
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
+    val groups = listOf(
+        "You are here" to state.worlds.filter { it.connected },
+        "Worlds you run" to state.worlds.filter { !it.connected && it.administered },
+        "Worlds you help preserve" to state.worlds.filter { !it.connected && !it.administered },
+    )
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(300.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (state.stale) item { StaleNotice() }
-        group("You are playing in", playing)
-        group("Worlds you run", mine)
-        group("Worlds you help share", helping)
+        if (state.stale) item(span = { GridItemSpan(maxLineSpan) }) { StaleNotice() }
+        groups.forEach { (title, worlds) ->
+            if (worlds.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle(title) }
+                gridItems(worlds, key = { it.id }) { world -> WorldCard(world) { selected = world } }
+            }
+        }
+    }
+    selected?.let { world ->
+        ModalBottomSheet(onDismissRequest = { selected = null }) {
+            WorldDetails(world)
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.group(title: String, worlds: List<WorldRow>) {
-    if (worlds.isEmpty()) return
-    item {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-        )
-    }
-    items(worlds, key = { it.id }) { world ->
-        ElevatedCard(Modifier.fillMaxWidth()) {
-            ListItem(
-                headlineContent = { Text(world.name.ifEmpty { shortId(world.id) }) },
-                supportingContent = {
-                    Text(
-                        if (world.pieceCount == 0) "no pieces here yet"
-                        else "${formatBytes(world.heldBytes)} held · ${world.piecesHeld}/${world.pieceCount} pieces",
-                    )
-                },
-                trailingContent = {
-                    val label = when {
-                        world.connected -> "here"
-                        world.live -> "live"
-                        else -> "idle"
-                    }
-                    AssistChip(onClick = {}, label = { Text(label) })
-                },
+@Composable
+private fun WorldCard(world: WorldRow, onClick: () -> Unit) {
+    ElevatedCard(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Public, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(world.name.ifEmpty { shortId(world.id) }, style = MaterialTheme.typography.titleMedium)
+                    Text(shortId(world.id), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                StatusPill(if (world.connected) "Here" else if (world.live) "Live" else "Stored", true)
+            }
+            world.completeness?.let {
+                LinearProgressIndicator(progress = { it / 1000f }, Modifier.fillMaxWidth())
+            }
+            Text(
+                if (world.pieceCount == 0) "No content pieces held yet"
+                else "${formatBytes(world.heldBytes)} · ${world.piecesHeld}/${world.pieceCount} pieces",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
 }
 
-/** Activity: what the node has been doing, in its own words. */
+@Composable
+private fun WorldDetails(world: WorldRow) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+        Text(world.name.ifEmpty { "World details" }, style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(8.dp))
+        KeyValue("World ID", world.id)
+        KeyValue("Players", world.players?.toString() ?: "Not reported")
+        KeyValue("Seeders", world.seeders.toString())
+        KeyValue("Regions handled here", world.regionsHeld.toString())
+        KeyValue("Content held here", formatBytes(world.heldBytes))
+    }
+}
+
 @Composable
 fun ActivityScreen() {
     val lines = remember { mutableStateListOf<String>() }
+    var query by rememberSaveable { mutableStateOf("") }
+    var eventsOnly by rememberSaveable { mutableStateOf(false) }
 
-    // Two sources on purpose. The log is what the worker wrote; the event stream is what it
-    // announced. A screen with only the first misses the moment something happened.
     LaunchedEffect(Unit) {
         NoderaCore.call("worker_logs").let { raw ->
             runCatching { org.json.JSONArray(raw) }.getOrNull()?.let { array ->
@@ -199,76 +271,77 @@ fun ActivityScreen() {
         NoderaEvents.events.collect { (topic, json) ->
             if (topic != "event") return@collect
             val event = runCatching { JSONObject(json) }.getOrNull() ?: return@collect
-            lines.add("• ${event.optString("event")}")
-            if (lines.size > 200) lines.removeRange(0, lines.size - 200)
+            lines.add("EVENT  ${event.optString("event", "Node event")}")
+            if (lines.size > 500) lines.removeRange(0, lines.size - 500)
         }
     }
-
-    if (lines.isEmpty()) {
-        Empty("Nothing yet", "The node writes here as it works")
-        return
+    val filtered = lines.filter {
+        (!eventsOnly || it.startsWith("EVENT")) && it.contains(query, ignoreCase = true)
     }
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        reverseLayout = true,
-    ) {
-        items(lines.asReversed()) { line ->
-            Text(
-                line,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+    Column(Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            leadingIcon = { Icon(Icons.Default.Search, null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { query = "" }) {
+                    Icon(Icons.Default.Close, "Clear search")
+                }
+            },
+            label = { Text("Search activity") },
+            singleLine = true,
+        )
+        FilterChip(
+            selected = eventsOnly,
+            onClick = { eventsOnly = !eventsOnly },
+            label = { Text("Node events only") },
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        if (filtered.isEmpty()) {
+            EmptyState(Icons.Default.Timeline, "Nothing to show", "Node events and worker activity appear here")
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(filtered.asReversed()) { line ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(
+                                if (line.startsWith("EVENT")) Icons.Default.Bolt else Icons.Default.Terminal,
+                                null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                line.removePrefix("EVENT  "),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = if (line.startsWith("EVENT")) null else FontFamily.Monospace,
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-/* ------------------------------------------------------------------------------------ fragments */
-
-@Composable
-private fun Metric(label: String, value: String, modifier: Modifier = Modifier) {
-    ElevatedCard(modifier) {
-        Column(Modifier.padding(16.dp)) {
-            Text(value, style = MaterialTheme.typography.headlineSmall)
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/**
- * "These figures are the last known picture, not the current one."
- *
- * The same claim the desktop makes, in the same words, for the same reason: a node showing stale
- * numbers without saying so reads as live but idle when the worker has actually stopped.
- */
 @Composable
 fun StaleNotice() {
-    Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        shape = MaterialTheme.shapes.medium,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            "Showing the last known picture — the worker link is offline.",
-            Modifier.padding(16.dp),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
+    MessageCard("Last known state", "Worker link is offline. Values below may be out of date.", error = true)
 }
 
 @Composable
-private fun Empty(title: String, body: String) {
+fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+        Icon(icon, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(16.dp))
+        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         if (body.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Text(
