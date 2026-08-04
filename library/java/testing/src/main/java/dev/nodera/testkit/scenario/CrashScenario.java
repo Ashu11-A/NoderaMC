@@ -110,11 +110,15 @@ public final class CrashScenario implements Scenario {
             context.check(HostWorldSupport.runJvmAlive(HOST_RUN),
                     "the HOST client died too — that is a disruption");
             context.check(!HostWorldSupport.containsAfter(hostLogFile, mark[0],
-                            "Nodera continuity: host connection lost"),
-                    "the survivor armed continuity recovery — the migration path ran on a live world");
+                            "the host's connection ended"),
+                    "the survivor took over from a host that had not gone anywhere");
+            // There is no migration screen to show any more — the whole flow is screen-free now —
+            // so what this asserts is the class of thing that would replace it: the survivor is a
+            // host, and a host must never take over from itself. That was seen live as a
+            // reopen/kick loop, and it is the reason `canTakeOver` refuses while hosting.
             context.check(!HostWorldSupport.containsAfterIgnoringCase(hostLogFile, mark[0],
-                            "nodera.continuity.migrating"),
-                    "the survivor showed the migration screen");
+                            "re-opening it locally"),
+                    "the survivor re-opened its own live world");
             context.check(!HostWorldSupport.containsAfter(hostLogFile, mark[0],
                             "Exception in server tick loop"),
                     "the integrated server crashed");

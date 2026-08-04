@@ -974,6 +974,48 @@ public final class NoderaHost {
         return sent;
     }
 
+    /**
+     * The ownership plan as it stands right now, computed from who is online and where they are
+     * standing.
+     *
+     * <p>The same geometry {@link #activateEntityLaneFromWorld} plans from, asked as a question
+     * rather than as a side effect. The departure path needs it <b>before</b> the departing player
+     * is removed from the registry: after the removal the plan no longer contains them, and "which
+     * regions is this player about to vacate" becomes unanswerable.
+     *
+     * @param server the hosting server.
+     * @return region → claim, or an empty map when nothing can be planned (no host context, nobody
+     *         online).
+     * @Thread-context server thread (it reads player positions).
+     */
+    public static Map<dev.nodera.core.region.RegionId, dev.nodera.core.region.RegionClaim>
+            currentOwnershipPlan(MinecraftServer server) {
+        NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
+        if (host == null || server.getPlayerList().getPlayers().isEmpty()) {
+            return Map.of();
+        }
+        NodeId local = host.identity().nodeId();
+        int viewDistance = server.getPlayerList().getViewDistance();
+        Map<NodeId, PlayerView> views = new java.util.LinkedHashMap<>();
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            PlayerNodeRegistry.PlayerNode node = PlayerNodeRegistry.nodeOf(p.getUUID());
+            NodeId memberNode = node != null ? node.nodeId() : local;
+            ServerLevel level = p.serverLevel();
+            views.putIfAbsent(memberNode, PlayerView.fromBlock(
+                    MinecraftEntityAdapters.dimension(level),
+                    p.blockPosition().getX(), p.blockPosition().getZ(), viewDistance));
+        }
+        List<NodeId> residents = new ArrayList<>();
+        for (dev.nodera.protocol.membership.PeerEntry entry : host.runtime().sessionView().members()) {
+            if (!entry.nodeId().equals(local) && !views.containsKey(entry.nodeId())
+                    && !entry.route().isEmpty() && entry.hasPublicKey()) {
+                residents.add(entry.nodeId());
+            }
+        }
+        return dev.nodera.core.region.ViewOwnershipPlanner.plan(
+                views, NoderaConstants.QUORUM_MVP_SIZE, residents);
+    }
+
     public static boolean activateEntityLaneFromWorld(MinecraftServer server) {
         NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
         if (host == null || server.getPlayerList().getPlayers().isEmpty()) {

@@ -51,8 +51,12 @@ public final class ClientBootstrap {
         // player-hosted world be profiled, which RCON cannot reach (docs/minecraft/spark/).
         dev.nodera.mod.debug.SparkProfileBridge.register(NeoForge.EVENT_BUS);
         NeoForge.EVENT_BUS.addListener(MultiplayerScreenAddon::onScreenInit);
-        NeoForge.EVENT_BUS.addListener(
-                dev.nodera.mod.client.multiplayer.NoderaContinuity::onScreenOpening); // continuity rehost
+        // Nothing is allowed to put a screen in front of a player whose world is being re-opened
+        // underneath them. The disconnect itself is caught earlier (ClientDisconnectMixin, at the
+        // head of onDisconnect, before vanilla tears the level down); this is the second half —
+        // the world-open flow's own progress screens, suppressed for the length of the takeover
+        // and left completely alone outside one.
+        NeoForge.EVENT_BUS.addListener(ClientBootstrap::onScreenOpening);
         dev.nodera.mod.common.ModNetworking.setSessionWorldListener(
                 dev.nodera.mod.client.multiplayer.NoderaContinuity::onJoining);
         // L-52: answer a host's live-join password challenge from the passwords this player typed,
@@ -163,6 +167,20 @@ public final class ClientBootstrap {
         // Being here means the gate, if there was one, let us through. Clearing the marker is what
         // keeps a later, genuine host loss from being mistaken for a password refusal.
         dev.nodera.endpoint.client.ClientJoinPasswords.passedGate();
+    }
+
+    /**
+     * Suppress the world-open flow's progress screens while a seamless takeover is running.
+     *
+     * <p>Cancelling {@code Opening} means the screen is never set, so whatever the player was
+     * looking at stays — and for the length of a takeover that is the world they are standing in.
+     * Outside a takeover this handler does nothing: a mod that hides a disconnect screen
+     * unconditionally is a mod that hides why somebody was kicked.
+     */
+    private static void onScreenOpening(net.neoforged.neoforge.client.event.ScreenEvent.Opening event) {
+        if (dev.nodera.mod.client.multiplayer.SeamlessTakeover.shouldSuppress(event.getNewScreen())) {
+            event.setCanceled(true);
+        }
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {

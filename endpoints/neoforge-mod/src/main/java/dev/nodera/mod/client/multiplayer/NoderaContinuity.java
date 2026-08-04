@@ -7,10 +7,8 @@ import dev.nodera.mod.common.NoderaConfig;
 import dev.nodera.mod.common.NoderaPeerService;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.DisconnectedScreen;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.client.event.ScreenEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,19 +97,6 @@ public final class NoderaContinuity {
     }
 
     /** Disarm (deliberate leave, rehost done, or the player declined). */
-    /**
-     * Put the lane back the way an armed join leaves it, for a deliberate retry.
-     *
-     * <p>{@link #fail} disarms so a later disconnect is not double-handled. A player who presses
-     * Retry is asking for exactly the attempt that was disarmed, so the state has to come back —
-     * otherwise the second attempt runs with `joined` null and cannot report or clean up after
-     * itself.
-     */
-    static void rearm(JoinedWorld world) {
-        joined = world;
-        rehosting = true;
-    }
-
     static void disarm() {
         JoinedWorld leaving = joined;
         joined = null;
@@ -211,52 +196,142 @@ public final class NoderaContinuity {
     }
 
     /**
-     * Screen hook (registered in {@code ClientBootstrap}): an abnormal disconnect from a
-     * Nodera-joined world swaps the terminal vanilla screen for the recovery flow.
+     * Whether this client may take over from a lost host without the player leaving the world.
+     *
+     * <p>The four conditions are the whole safety argument for cancelling vanilla's disconnect, and
+     * they are written out in {@link SeamlessTakeover}. Kept here because this is the class that
+     * knows the answers.
+     *
+     * @return whether {@link #takeOverLocally} can be called.
+     * @Thread-context any thread.
      */
-    public static void onScreenOpening(ScreenEvent.Opening event) {
+    static boolean canTakeOver() {
         JoinedWorld world = joined;
-        if (world == null || rehosting
-                || !(event.getNewScreen() instanceof DisconnectedScreen)
-                || !NoderaConfig.CONTINUITY_AUTO_REHOST.get()
-                || !CompanionLink.isPresent()
-                || NoderaPeerService.get().isHosting()) {
-            return;
+        if (world == null || rehosting || !NoderaConfig.CONTINUITY_AUTO_REHOST.get()) {
+            return false;
+        }
+        if (!CompanionLink.isPresent() || NoderaPeerService.get().isHosting()) {
+            return false;
         }
         // A refused join is not a dead host. The password gate seals the connection during
-        // configuration, which produces exactly the same DisconnectedScreen a host crash produces —
-        // and this handler runs on `Opening`, before `JoinPasswordScreen.onScreenInit` runs on
-        // `Init.Post`, so replacing the screen here ate the password prompt before the player ever
-        // saw it. What they got instead was a two-minute unescapable "Migrating world…" ending in
-        // "no seeder online?" — while the seeder was online, seeding, and the only thing missing was
-        // a password nobody had been asked for.
-        //
-        // The gate records the challenge it could not answer. That is the difference between "the
-        // host is gone" and "the host said no", and it is the whole test.
+        // configuration, which produces exactly the same disconnect a host crash produces — and
+        // swallowing it means the player is never asked for the password they are missing. What
+        // that looked like was a two-minute unescapable wait ending in "no seeder online?", while
+        // the seeder was online, seeding, and waiting to be asked.
         if (ClientJoinPasswords.pendingGateWorldId() != null) {
             LOG.info("Nodera continuity: the join to '{}' was refused at the password gate, not "
-                    + "lost — leaving the disconnect screen alone so the password can be entered",
+                    + "lost — leaving the disconnect alone so the password can be entered",
                     world.name());
-            return;
+            return false;
         }
-        rehosting = true;
-        LOG.info("Nodera continuity: host connection lost for '{}' — fetching the world archive "
-                + "from the network", world.name());
-        RehostScreen screen = new RehostScreen(world);
-        event.setNewScreen(screen);
-        screen.begin();
+        return true;
     }
 
     /**
-     * The network-first entry (no host-and-client assumption): materialize a world <i>from the
-     * peer network</i> and open it locally, becoming one of its hosts. Used by the join flow for
-     * a world whose author/host is offline — the world's files live on the Nodera network, so
-     * "no live game endpoint" is a fetch, not a dead end. The disconnect-recovery path above is
-     * this same flow triggered by a session loss.
+     * Re-open the world locally while the player stays where they are.
+     *
+     * <p>The client is already holding the chunks around the player and, thanks to the standby
+     * prefetch armed at join time, its worker is usually already holding the world's archive. So
+     * this is a fetch that mostly does not fetch, an unpack, and a world-open — with the player
+     * looking at their own ghost chunks the entire time and told what is happening in chat rather
+     * than on a screen they cannot leave.
+     *
+     * @Thread-context any thread; all heavy work is moved off the caller's.
+     */
+    static void takeOverLocally() {
+        JoinedWorld world = joined;
+        if (world == null) {
+            SeamlessTakeover.finish();
+            return;
+        }
+        rehosting = true;
+        Minecraft mc = Minecraft.getInstance();
+        SeamlessTakeover.say(Component.translatable("nodera.continuity.holding", world.name()));
+        Thread.ofPlatform().name("nodera-takeover").daemon().start(() -> {
+            try {
+                String dirName = materialize(mc, world);
+                if (dirName == null) {
+                    return;
+                }
+                disarm();
+                mc.execute(() -> mc.createWorldOpenFlows().openWorld(dirName, () -> {
+                    // The open failed after the level was already being replaced, so there is no
+                    // ghost left to hold and nothing to do but say so honestly.
+                    LOG.warn("Nodera continuity: could not open the restored world");
+                    SeamlessTakeover.finish();
+                    mc.setScreen(new TitleScreen());
+                }));
+            } catch (Exception e) {
+                LOG.warn("Nodera continuity: local takeover failed: {}", e.toString());
+                SeamlessTakeover.say(Component.translatable("nodera.continuity.holding.failed",
+                        e.toString()));
+            } finally {
+                // Cleared once the open flow has been handed the world: from here vanilla's own
+                // screens are legitimate again, and a takeover that never completes must not leave
+                // every future screen suppressed.
+                SeamlessTakeover.finish();
+            }
+        });
+    }
+
+    /**
+     * Get the world's files onto this disk under a stable name.
+     *
+     * @return the save directory name, or {@code null} if the world could not be materialised.
+     */
+    private static String materialize(Minecraft mc, JoinedWorld world) throws java.io.IOException {
+        Path fetchDir = mc.gameDirectory.toPath().resolve("nodera/fetch");
+        Files.createDirectories(fetchDir);
+        Path archiveFile = fetchDir.resolve(world.worldIdHex().substring(0, 12) + ".nar");
+        StringBuilder reason = new StringBuilder();
+        Optional<String> fetched = CompanionLink.client().fetchArchive(
+                world.worldIdHex(), archiveFile,
+                NoderaConfig.CONTINUITY_FETCH_TIMEOUT_SECONDS.get(), reason,
+                (verified, total) -> SeamlessTakeover.say(Component.translatable(
+                        "nodera.continuity.holding.progress", verified, total)));
+        if (fetched.isEmpty()) {
+            // The worker's own words, verbatim. Two guesses have been printed here and both were
+            // wrong in front of a user: "no seeder online?" while a seeder was seeding forty
+            // pieces, then "this world is password protected" for a world shared with encryption
+            // off. A cause this code cannot observe is a cause it must not name.
+            SeamlessTakeover.say(Component.translatable("nodera.continuity.holding.failed",
+                    reason.isEmpty() ? "the peer worker could not fetch it" : reason.toString()));
+            return null;
+        }
+        byte[] blob = Files.readAllBytes(archiveFile);
+        String dirName = rehostDirName(world);
+        Path saveDir = mc.gameDirectory.toPath().resolve("saves").resolve(dirName);
+        // Issue #43 freshness guard: never let a STALE network archive overwrite a newer local save
+        // of the same world. The fetch reply is "<bytes> <version>"; the local save records the
+        // version it last seeded. Older-or-equal network copy + existing local save ⇒ open the
+        // local save untouched (it is at least as fresh).
+        long fetchedVersion = parseFetchedVersion(fetched.get());
+        long localVersion = dev.nodera.mod.common.WorldArchiver.seededVersion(saveDir);
+        if (Files.isDirectory(saveDir) && localVersion >= 0 && fetchedVersion >= 0
+                && fetchedVersion <= localVersion) {
+            LOG.info("Nodera continuity: network archive v{} is not newer than local save v{} — "
+                    + "opening the local save unchanged", fetchedVersion, localVersion);
+        } else {
+            WorldArchive.unpackInto(blob, saveDir);
+        }
+        LOG.info("Nodera continuity: '{}' restored to saves/{} ({} bytes, {})",
+                world.name(), dirName, blob.length, fetched.get());
+        return dirName;
+    }
+
+    /**
+     * The network-first entry (no host-and-client assumption): materialize a world <i>from the peer
+     * network</i> and open it locally, becoming one of its hosts. Used by the join flow for a world
+     * whose author/host is offline — the world's files live on the Nodera network, so "no live game
+     * endpoint" is a fetch, not a dead end.
+     *
+     * <p>Unlike the disconnect path there is no world to stand in yet, so this one does show
+     * vanilla's ordinary world-loading progress: there are no ghost chunks to render, and a player
+     * who pressed "join" is expecting something to happen.
      *
      * @param worldIdHex the world to materialize.
      * @param worldName  its display name.
-     * @return whether the recovery flow started (worker present + id known).
+     * @return whether the flow started (worker present + id known).
      * @Thread-context render thread.
      */
     public static boolean openFromNetwork(String worldIdHex, String worldName) {
@@ -264,10 +339,27 @@ public final class NoderaContinuity {
             return false;
         }
         rehosting = true;
+        JoinedWorld world = new JoinedWorld(worldIdHex, worldName);
+        joined = world;
         LOG.info("Nodera: materializing world '{}' from the peer network", worldName);
-        RehostScreen screen = new RehostScreen(new JoinedWorld(worldIdHex, worldName));
-        Minecraft.getInstance().setScreen(screen);
-        screen.begin();
+        Minecraft mc = Minecraft.getInstance();
+        Thread.ofPlatform().name("nodera-materialize").daemon().start(() -> {
+            try {
+                String dirName = materialize(mc, world);
+                if (dirName == null) {
+                    mc.execute(() -> mc.setScreen(new TitleScreen()));
+                    return;
+                }
+                disarm();
+                mc.execute(() -> mc.createWorldOpenFlows().openWorld(dirName, () -> {
+                    LOG.warn("Nodera: could not open the materialized world");
+                    mc.setScreen(new TitleScreen());
+                }));
+            } catch (Exception e) {
+                LOG.warn("Nodera: could not materialize '{}': {}", worldName, e.toString());
+                mc.execute(() -> mc.setScreen(new TitleScreen()));
+            }
+        });
         return true;
     }
 
@@ -289,205 +381,4 @@ public final class NoderaContinuity {
         return base + " [" + suffix.toLowerCase(Locale.ROOT) + "]";
     }
 
-    /** Fetch → unpack → open. All heavy work off-thread; UI transitions on the render thread. */
-    static void rehost(JoinedWorld world, RehostScreen screen) {
-        Minecraft mc = Minecraft.getInstance();
-        Thread.ofPlatform().name("nodera-rehost").daemon().start(() -> {
-            try {
-                Path fetchDir = mc.gameDirectory.toPath().resolve("nodera/fetch");
-                Files.createDirectories(fetchDir);
-                Path archiveFile = fetchDir.resolve(world.worldIdHex().substring(0, 12) + ".nar");
-                screen.setStatus(Component.translatable("nodera.continuity.fetching"));
-                StringBuilder reason = new StringBuilder();
-                Optional<String> fetched = CompanionLink.client().fetchArchive(
-                        world.worldIdHex(), archiveFile,
-                        NoderaConfig.CONTINUITY_FETCH_TIMEOUT_SECONDS.get(), reason,
-                        // The worker now says how far it has got, so the screen can say it too.
-                        // One unchanging line for two minutes is why this looked "endless" — the
-                        // work was happening the whole time and nothing on screen admitted it.
-                        (verified, total) -> screen.setStatus(Component.translatable(
-                                "nodera.continuity.fetching.progress", verified, total)));
-                if (screen.cancelled) {
-                    return;
-                }
-                if (fetched.isEmpty()) {
-                    // The worker's own words, verbatim. Two guesses have been printed here and both
-                    // were wrong in front of a user: "no seeder online?" while a seeder was seeding
-                    // forty pieces, then "this world is password protected" for a world shared with
-                    // encryption off. A cause this code cannot observe is a cause it must not name.
-                    fail(mc, screen, reason.isEmpty() ? "the peer worker could not fetch it"
-                            : reason.toString());
-                    return;
-                }
-                screen.setStatus(Component.translatable("nodera.continuity.unpacking"));
-                byte[] blob = Files.readAllBytes(archiveFile);
-                String dirName = rehostDirName(world);
-                Path saveDir = mc.gameDirectory.toPath().resolve("saves").resolve(dirName);
-                // Issue #43 freshness guard: never let a STALE network archive overwrite a newer
-                // local save of the same world. The fetch reply is "<bytes> <version>"; the local
-                // save records the version it last seeded. Older-or-equal network copy + existing
-                // local save ⇒ open the local save untouched (it is at least as fresh).
-                long fetchedVersion = parseFetchedVersion(fetched.get());
-                long localVersion = dev.nodera.mod.common.WorldArchiver.seededVersion(saveDir);
-                if (Files.isDirectory(saveDir) && localVersion >= 0 && fetchedVersion >= 0
-                        && fetchedVersion <= localVersion) {
-                    LOG.info("Nodera continuity: network archive v{} is not newer than local save "
-                            + "v{} — opening the local save unchanged", fetchedVersion, localVersion);
-                } else {
-                    WorldArchive.unpackInto(blob, saveDir);
-                }
-                LOG.info("Nodera continuity: '{}' restored to saves/{} ({} bytes, {})",
-                        world.name(), dirName, blob.length, fetched.get());
-                if (screen.cancelled) {
-                    // The player left while this was unpacking. The save is on disk and will be
-                    // there next time; opening a world somebody walked away from is not recovery.
-                    LOG.info("Nodera continuity: '{}' was restored but the player cancelled — "
-                            + "not opening it", world.name());
-                    return;
-                }
-                disarm();
-                mc.execute(() -> {
-                    screen.setStatus(Component.translatable("nodera.continuity.opening"));
-                    // Opening the world triggers the Task 33 auto-re-share (the archive carries
-                    // nodera-world.dat with shared=true), which makes this player the next host.
-                    mc.createWorldOpenFlows().openWorld(dirName, () -> {
-                        LOG.warn("Nodera continuity: could not open the restored world");
-                        mc.setScreen(new TitleScreen());
-                    });
-                });
-            } catch (Exception e) {
-                fail(mc, screen, e.toString());
-            }
-        });
-    }
-
-    private static void fail(Minecraft mc, RehostScreen screen, String reason) {
-        LOG.warn("Nodera continuity: rehost failed: {}", reason);
-        disarm();
-        mc.execute(() -> screen.showFailure(reason));
-    }
-
-    /** Progress screen shown while the archive is fetched + the world re-opened. */
-    static final class RehostScreen extends Screen {
-        private final JoinedWorld world;
-        private volatile Component status = Component.translatable("nodera.continuity.starting");
-        private volatile Component failure;
-        /** Set when the player leaves: the fetch thread must not drag them back into the world. */
-        volatile boolean cancelled;
-
-        RehostScreen(JoinedWorld world) {
-            super(Component.translatable("nodera.continuity.title"));
-            this.world = world;
-        }
-
-        void begin() {
-            NoderaContinuity.rehost(world, this);
-        }
-
-        void setStatus(Component component) {
-            this.status = component;
-        }
-
-        /** Cancel: stop waiting on the fetch and go back. The fetch thread is left to finish. */
-        private void cancel() {
-            cancelled = true;
-            disarm();
-            onClose();
-        }
-
-        void showFailure(String reason) {
-            this.failure = Component.translatable("nodera.continuity.failed", reason);
-            rebuildWidgets();
-        }
-
-        @Override
-        protected void init() {
-            // There is always a way out. The button used to exist only once a failure had been
-            // recorded, and `shouldCloseOnEsc` agreed with it, so for the whole length of the fetch
-            // — 120 s by default, an hour at the configured ceiling — the player was held on a
-            // screen with no button, no Esc, and one unchanging line of text. "Endless" is what that
-            // is, whether or not the code would eventually have given up.
-            addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
-                            failure != null
-                                    ? net.minecraft.network.chat.CommonComponents.GUI_BACK
-                                    : net.minecraft.network.chat.CommonComponents.GUI_CANCEL,
-                            b -> {
-                                if (failure != null) {
-                                    onClose();
-                                } else {
-                                    cancel();
-                                }
-                            })
-                    .bounds(this.width / 2 - 100, this.height / 2 + 40, 200, 20).build());
-
-            // And a way BACK IN. A failed rehost used to end at the title screen with the world
-            // still only on the network — one attempt per disconnect, no second chance, and the
-            // most common cause was a fetch that was simply taking longer than the budget. Asking
-            // again is the cheapest correct answer to that, and it costs a player who does not want
-            // it nothing.
-            if (failure != null) {
-                addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
-                                Component.translatable("nodera.continuity.retry"),
-                                b -> retry())
-                        .bounds(this.width / 2 - 100, this.height / 2 + 64, 200, 20).build());
-            }
-        }
-
-        /** Try the whole fetch again, from this screen, without going back to the title. */
-        private void retry() {
-            failure = null;
-            cancelled = false;
-            // `fail` disarmed the lane so a later disconnect would not be double-handled; a
-            // deliberate retry re-arms it, which is what makes the second attempt a real one.
-            rearm(world);
-            status = Component.translatable("nodera.continuity.starting");
-            rebuildWidgets();
-            begin();
-        }
-
-        @Override
-        public void render(net.minecraft.client.gui.GuiGraphics graphics, int mouseX, int mouseY,
-                           float partialTick) {
-            // Deliberately quiet — a vanilla-style loading beat, not a banner. With the standby
-            // prefetch this screen typically lives for well under a second before the world-open.
-            super.render(graphics, mouseX, mouseY, partialTick);
-            if (failure != null) {
-                // Wrapped, and to a width that leaves a margin. A failure message is the longest
-                // string this screen ever draws and it was drawn with `drawCenteredString`, which
-                // does not wrap: a worker's explanation ran off both edges of the window with its
-                // first and last words cut off, so the one screen whose whole job is to explain
-                // something was the one screen that could not.
-                int wrapWidth = Math.max(120, this.width - 80);
-                int y = this.height / 2 - 4;
-                for (net.minecraft.util.FormattedCharSequence line
-                        : this.font.split(failure, wrapWidth)) {
-                    graphics.drawCenteredString(this.font, line, this.width / 2, y, 0xFF6666);
-                    y += this.font.lineHeight + 2;
-                }
-                return;
-            }
-            // The heading names the operation; the line under it names the STEP. `status` is moved
-            // through starting → fetching → unpacking → opening by the worker thread and, until
-            // this line existed, was written by four call sites and read by none: every phase of a
-            // multi-minute operation rendered the same five words. A screen that cannot change
-            // cannot be distinguished from a screen that has stopped.
-            graphics.drawCenteredString(this.font,
-                    net.minecraft.network.chat.Component.translatable("nodera.continuity.migrating"),
-                    this.width / 2, this.height / 2 - 14, 0xA0A0A0);
-            graphics.drawCenteredString(this.font, this.status, this.width / 2,
-                    this.height / 2 + 2, 0x808080);
-        }
-
-        @Override
-        public boolean shouldCloseOnEsc() {
-            return true;
-        }
-
-        @Override
-        public void onClose() {
-            if (this.minecraft != null) {
-                this.minecraft.setScreen(new TitleScreen());
-            }
-        }
-    }
 }

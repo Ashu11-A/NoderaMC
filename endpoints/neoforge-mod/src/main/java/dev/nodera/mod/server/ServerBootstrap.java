@@ -233,6 +233,11 @@ public final class ServerBootstrap {
             NoderaHost.refreshWorkerPresence(server, player);
             // Drop any op the bridge granted this player so it never lingers past their session.
             OperatorBridge.get().onLogout(server, player);
+            // Before anything forgets them: hand their regions over. A re-plan decides who is
+            // RESPONSIBLE for a region; it does not move the region. For ground only this player
+            // could see, the chunks stop being held the moment they leave the plan, and everything
+            // built there since the last seed goes with them. This is the step that seeds it first.
+            dev.nodera.mod.server.shadow.RegionDepartureHandoff.handOff(server, player);
             // No-host ownership: a departed player's node leaves the plan; the survivors re-plan
             // and absorb its regions (the FOV planner reassigns deterministically).
             dev.nodera.endpoint.world.PlayerNodeRegistry.forget(player.getUUID());

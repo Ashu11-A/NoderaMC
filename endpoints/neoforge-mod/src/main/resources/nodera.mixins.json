@@ -8,7 +8,9 @@
     "LevelTicksMixin",
     "ServerLevelRandomTickMixin"
   ],
-  "client": [],
+  "client": [
+    "ClientDisconnectMixin"
+  ],
   "server": [],
   "injectors": {
     "defaultRequire": 1

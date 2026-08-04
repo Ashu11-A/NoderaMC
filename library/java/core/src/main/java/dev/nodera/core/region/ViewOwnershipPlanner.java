@@ -195,6 +195,58 @@ public final class ViewOwnershipPlanner {
         return plan;
     }
 
+    /**
+     * Who takes over the regions a departing node was primary of.
+     *
+     * <h2>Why a plan is not enough on its own</h2>
+     *
+     * <p>Re-planning after a departure is deterministic and every survivor computes the same answer,
+     * so ownership is never in dispute. What re-planning does <b>not</b> do is move the region's
+     * state: the departing node was the one simulating it, and the moment it is dropped from the
+     * plan its chunks stop being held and its edits since the last seed are gone. For a region
+     * somebody else can see, the successor already has the terrain and only needs to be told it is
+     * now responsible. For a region nobody else can see, there is no successor at all, and releasing
+     * it without seeding it first is the difference between a world that outlives its host and one
+     * that quietly loses the last ten minutes of somebody's building.
+     *
+     * <p>So this answers both questions in one pass: which regions are being vacated, and for each,
+     * whether there is anybody to hand it to.
+     *
+     * @param plan    the ownership plan as it stands with the departing node still in it.
+     * @param leaving the node that is going away.
+     * @return region → successor, for every region {@code leaving} was primary of. A region with no
+     *         remaining committee member maps to {@code null}, meaning "nobody is left; this has to
+     *         go to the network before the chunks are dropped". Regions {@code leaving} did not own
+     *         are absent.
+     * @Thread-context pure function, any thread.
+     */
+    public static Map<RegionId, NodeId> successorsFor(Map<RegionId, RegionClaim> plan,
+                                                      NodeId leaving) {
+        Map<RegionId, NodeId> successors = new LinkedHashMap<>();
+        if (plan == null || leaving == null) {
+            return successors;
+        }
+        for (Map.Entry<RegionId, RegionClaim> entry : plan.entrySet()) {
+            RegionClaim claim = entry.getValue();
+            if (!leaving.equals(claim.primary())) {
+                continue;
+            }
+            NodeId successor = null;
+            for (NodeId validator : claim.validators()) {
+                if (!leaving.equals(validator)) {
+                    // The validators are already in ranked order — nearest player first, then any
+                    // resident that filled an empty seat — so the first survivor IS the next owner
+                    // the re-plan will choose. Recomputing it from the views would give the same
+                    // answer from inputs that may already have changed.
+                    successor = validator;
+                    break;
+                }
+            }
+            successors.put(entry.getKey(), successor);
+        }
+        return successors;
+    }
+
     private record Coverer(NodeId node, long distSq) {
     }
 
