@@ -169,16 +169,34 @@ that variable is for deliberately trusting somebody else's releases, not for con
 ## 7. Getting listed
 
 Once it has been up for a while, open a pull request adding it to
-[`index.json` on the `services` branch](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json). The rules and the entry
-format are in [that branch's README](https://github.com/Ashu11-A/NoderaMC/blob/services/README.md), and the pull request goes
-against `services`, not `main`. Include the `node_id` from your startup line:
+[`index.json` on the `services` branch](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json) — against `services`,
+not `main`. One entry looks like this, and `kind`, `name` and `endpoints` are the only required
+fields:
+
+```json
+{
+  "kind": "tracker",
+  "name": "example-eu",
+  "endpoints": ["tcp://tracker.example.org:6969", "udp://tracker.example.org:6969"],
+  "node_id": "17324454ccfaa3398210b81910392675",
+  "operator": "you <you@example.org>",
+  "region": "eu-central",
+  "notes": "Free text, shown to anyone who opens the entry in the app."
+}
+```
+
+`endpoints` are routes to try, best first — at most eight, each `tcp://` or `udp://` with an explicit
+port. More than one is normal and useful: a name plus a literal address survives a DNS outage, and
+an IPv4 plus an IPv6 route survives a client that has only one of them. A host running both a
+tracker and a relay publishes **two entries**; they are separate services, on separate ports, with
+separate identities. The `node_id` is optional — take it from your startup line:
 
 ```
 nodera-tracker: service identity 17324454ccfaa3398210b81910392675
 ```
 
-It is optional, and it is what turns a hijacked DNS name from something a peer accepts into
-something a peer notices.
+Publishing it turns a hijacked DNS name from something a peer accepts into something a peer
+notices.
 
 ## 8. Without Docker
 

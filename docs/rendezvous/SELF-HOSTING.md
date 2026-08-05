@@ -39,14 +39,35 @@ docker run --rm ghcr.io/ashu11-a/noderamc:rendezvous-latest \
 
 ## 2. The images, upgrading, and the update lane
 
-Identical to the tracker, with `rendezvous-` in place of `tracker-`:
-see [`../tracker/SELF-HOSTING.md` §2](../tracker/SELF-HOSTING.md), [§5](../tracker/SELF-HOSTING.md)
-and [§6](../tracker/SELF-HOSTING.md).
+```
+ghcr.io/ashu11-a/noderamc:rendezvous-latest      the newest release tag
+ghcr.io/ashu11-a/noderamc:rendezvous-canary      built from every push to main
+ghcr.io/ashu11-a/noderamc:rendezvous-sha-abc1234 one specific commit — pin this if you want a
+                                                 deployment that does not move under you
+```
 
-One difference that matters: `NODERA_RENDEZVOUS_UPDATE_CHANNEL` **requires**
-`NODERA_RENDEZVOUS_TRACKER_ENDPOINTS` to be set, and the service refuses to start otherwise. A relay
-that updates itself has to be able to tell peers where to go while it drains, and it learns about
-replacement relays from its trackers. Updating without that is a relay that vanishes mid-transfer.
+`latest` and `canary` are multi-architecture manifest lists covering `linux/amd64` and
+`linux/arm64`, so Docker picks the right one on a Raspberry Pi or an Ampere VM as well. The image is
+`alpine` with one statically linked binary in it, about 10 MB: no wrapper script, no supervisor, no
+package manager left in the runtime layer.
+
+Upgrading is `docker compose pull && docker compose up -d`. That is the intended path in a
+container: `SIGTERM` drains, the new image starts, and what is running is something you can verify
+against a tag.
+
+**Self-update is off, and empty means off.** Setting `NODERA_RENDEZVOUS_UPDATE_CHANNEL=latest` makes
+the service notice a newer published binary, verify it against the release's SHA-256 manifest,
+drain, swap and re-exec. Downloading a relay is agreement to run a relay, not agreement to let it
+replace its own executable — and inside a container it is the wrong tool anyway, because if it
+succeeds you have a container whose contents no longer match its tag.
+
+Two things about that lane are worth knowing before you enable it outside a container. The manifest
+is checked against a pinned Ed25519 key **before** any digest is read, and a missing signature is a
+refusal rather than a fallback — but **no key is pinned yet**, so until one is, the digest proves
+integrity and not provenance (L-81). And `NODERA_RENDEZVOUS_UPDATE_CHANNEL` **requires**
+`NODERA_RENDEZVOUS_TRACKER_ENDPOINTS`, refusing to start without it: a relay that updates itself has
+to tell peers where to go while it drains, and it learns about replacement relays from its trackers.
+Updating without that is a relay that vanishes mid-transfer.
 
 ## 3. Configuration
 
@@ -107,15 +128,31 @@ new with no measured availability.
 
 ## 5. Getting listed
 
-Same as the tracker: [the `services` branch's README](https://github.com/Ashu11-A/NoderaMC/blob/services/README.md). Two entries if you run both —
-they are separate services, on separate ports, with separate identities.
+Open a pull request against the `services` branch — not `main` — adding an entry to
+[`index.json`](https://github.com/Ashu11-A/NoderaMC/blob/services/index.json):
+
+```json
+{
+  "kind": "rendezvous",
+  "name": "example-eu",
+  "endpoints": ["tcp://relay.example.org:7500"],
+  "node_id": "9f2c1e40b7a34d5581cc0e77a1b93d02",
+  "operator": "you <you@example.org>",
+  "region": "eu-central"
+}
+```
+
+`kind`, `name` and `endpoints` are required; the rest is optional. `node_id` is the 32 hex
+characters from your startup line, and publishing it turns a hijacked DNS name from something a peer
+accepts into something a peer notices. If you run a tracker on the same host, that is a **second**
+entry with `"kind": "tracker"` — separate service, separate port, separate identity.
 
 Run it for a while before you open the PR. A relay that appears and disappears is worse for peers
 than one that was never listed, because they will have measured it and preferred it.
 
 ## See also
 
-- [`../tracker/SELF-HOSTING.md`](../tracker/SELF-HOSTING.md) — running a tracker; the shared sections
+- [`../tracker/SELF-HOSTING.md`](../tracker/SELF-HOSTING.md) — running a tracker
 - [`../../docker/README.md`](../../docker/README.md) — the images and how they are built
 - [`REFERENCE.md`](REFERENCE.md) — the protocol
 - [`Task.6.md`](Task.6.md) — the deployment lane
