@@ -5,23 +5,30 @@
 // live here, over the sources themselves.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
-import { readCrate } from "./layout.mjs";
+import { frontendRoots, readCrate } from "./layout.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-/** Every .ts/.tsx file under src/, joined — the whole surface that can call a command. */
+/**
+ * Every .ts/.tsx file of the desktop frontend, joined — the whole surface that can call a command.
+ *
+ * The roots come from `layout.properties` rather than from `../src`, because that surface stopped
+ * being one directory when the platform seam moved into `library/ts/nodera-ui`. A walker pointed at
+ * a directory the code has left keeps passing over an ever-smaller set: "every registered command
+ * has a caller" would go green because it stopped being able to see the callers.
+ */
 function frontendSources() {
-  const root = new URL("../src/", import.meta.url);
   const out = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const child = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+      const child = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(child);
       else if (/\.tsx?$/.test(entry.name)) out.push(readFileSync(child, "utf8"));
     }
   };
-  walk(root);
+  for (const root of frontendRoots()) walk(root);
   return out.join("\n");
 }
 
@@ -216,17 +223,17 @@ test("no link is an anchor the webview would swallow", () => {
   // and an anchor without it navigates this window away from the application, to a page with no
   // back button because the app has no browser chrome either. Both outcomes look like a bug to the
   // person who tapped. So links go through `openExternal`, and the host decides where they open.
-  const dirs = ["../src"];
+  // The roots come from the manifest for the same reason as `frontendSources()` above: a rule
+  // pointed at a directory the components have left is a rule with nothing to check.
   const offenders = [];
-  for (const dir of dirs) {
-    const base = new URL(`${dir}/`, import.meta.url);
-    for (const name of readdirSync(base)) {
+  for (const dir of frontendRoots()) {
+    for (const name of readdirSync(dir)) {
       if (!name.endsWith(".tsx")) continue;
-      const source = code(readFileSync(new URL(name, base), "utf8"));
+      const source = code(readFileSync(path.join(dir, name), "utf8"));
       // Only outbound links matter: an `href` to a data: or mailto: is not this rule's business,
       // and neither is an anchor built by the licence table for a package with no URL.
       if (/<a[\s\n][^>]*href=\{?["']?https?:/.test(source) || /<a[\s\n][^>]*target="_blank"/.test(source)) {
-        offenders.push(`${dir}/${name}`);
+        offenders.push(path.join(dir, name));
       }
     }
   }

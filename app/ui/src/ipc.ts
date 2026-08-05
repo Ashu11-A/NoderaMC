@@ -4,8 +4,8 @@
 // The dashboard itself moved to `api.ts`, which mirrors `src/api/model.rs` and lives on the pushed
 // `nodera://dashboard` event. Anything about "what is the node doing right now" belongs there; what
 // is left here is configuration and machine-local facts, which are asked for rather than announced.
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "nodera-ui";
+import { listen, type UnlistenFn } from "nodera-ui";
 
 /** One world's piece grid, pulled on demand (mirrors metrics.rs PieceMapView). */
 export interface PieceMapView {

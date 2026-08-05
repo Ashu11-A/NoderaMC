@@ -10,8 +10,8 @@
 // accepted**, not on a timer. An event therefore means "this just changed"; the absence of one
 // means the node is quiet, and `link.age_ms` is what tells the two apart.
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "nodera-ui";
+import { listen, type UnlistenFn } from "nodera-ui";
 import type { Lan } from "./play";
 
 /* --------------------------------------------------------------------------------------- model */

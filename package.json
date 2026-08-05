@@ -1,0 +1,17 @@
+{
+  "name": "noderamc",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "library/ts/nodera-ui",
+    "app/ui",
+    "web"
+  ],
+  "scripts": {
+    "build:app": "bun run --cwd app/ui build",
+    "build:site": "bun run --cwd web build",
+    "test": "bun run --cwd app/ui test && bun run --cwd web test"
+  }
+}

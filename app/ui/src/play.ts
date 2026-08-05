@@ -16,8 +16,8 @@
 // `NetworkScreen`, and failed. Nothing caught it for as long as the UI was only ever built on
 // Linux. `scripts/check-case-collisions.sh` is the guard; this name is the fix, and it is a better
 // name anyway — the file is the play-with-other-people commands, not "the network".
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "nodera-ui";
+import { listen, type UnlistenFn } from "nodera-ui";
 
 /** Mirrors `api::network::Outcome` — the worker's own words when something did not work. */
 export interface Outcome {
