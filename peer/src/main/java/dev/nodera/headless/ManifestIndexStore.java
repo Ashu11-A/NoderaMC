@@ -1,5 +1,6 @@
 package dev.nodera.headless;
 
+import dev.nodera.core.Bytes;
 import dev.nodera.core.crypto.CanonicalReader;
 import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.distribution.PieceManifest;
@@ -89,7 +90,7 @@ final class ManifestIndexStore {
             Files.createDirectories(root);
             CanonicalWriter writer = new CanonicalWriter();
             manifest.encode(writer);
-            Path target = root.resolve(fileName(worldIdHex, laneOf(manifest), manifest.version().value()));
+            Path target = root.resolve(fileName(worldIdHex, laneOf(manifest), manifest.manifestRoot()));
             Path temporary = Files.createTempFile(root, "manifest", ".tmp");
             Files.write(temporary, writer.toBytes().toArray());
             Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING,
@@ -105,7 +106,7 @@ final class ManifestIndexStore {
     void remove(String worldIdHex, PieceManifest manifest) {
         try {
             Files.deleteIfExists(
-                    root().resolve(fileName(worldIdHex, laneOf(manifest), manifest.version().value())));
+                    root().resolve(fileName(worldIdHex, laneOf(manifest), manifest.manifestRoot())));
         } catch (IOException ignored) {
             // A manifest that outlives its content is re-trimmed on the next pass.
         }
@@ -152,8 +153,23 @@ final class ManifestIndexStore {
         }
     }
 
-    private static String fileName(String worldIdHex, String lane, long version) {
-        return worldIdHex + "__" + encodeLane(lane) + "__" + version + SUFFIX;
+    /**
+     * The file a manifest is stored under.
+     *
+     * <h2>Why the name is a root and not a version</h2>
+     *
+     * <p>It used to end in the region's chain height, which named the file after a number counted on
+     * whichever machine happened to produce it. Two peers holding the same content filed it under
+     * different names, and one peer holding two different states of a region at the same height
+     * filed both under one. The manifest root is what actually identifies the content, so it is what
+     * names the file: the same bytes are the same file everywhere, always.
+     *
+     * <p>Renaming the scheme costs a cache miss and nothing else. This directory is a cache — a file
+     * that is corrupt, truncated or unrecognised costs its own manifest and no more — so an install
+     * upgrading past this simply re-learns what it holds from the content store.
+     */
+    private static String fileName(String worldIdHex, String lane, Bytes manifestRoot) {
+        return worldIdHex + "__" + encodeLane(lane) + "__" + manifestRoot.toHex() + SUFFIX;
     }
 
     /** Lane identities contain characters a file name may not; hex keeps the mapping total. */

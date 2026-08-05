@@ -184,8 +184,11 @@ public final class RegionSeedSpool {
             Files.createDirectories(dir);
             CanonicalWriter w = new CanonicalWriter();
             snapshot.encode(w);
+            // Named by the region and this push, not by a chain height: the file is a handoff that
+            // is deleted in the finally below, and naming it after a number counted on this machine
+            // meant two pushes of genuinely different content could collide on one name.
             file = dir.resolve("region-" + snapshot.region().regionX() + "_"
-                    + snapshot.region().regionZ() + "-v" + snapshot.version().value() + ".bin");
+                    + snapshot.region().regionZ() + "-" + System.nanoTime() + ".bin");
             Files.write(file, w.toBytes().toArray());
             if (pusher.push(world, file)) {
                 warnedFull = false;

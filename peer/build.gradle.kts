@@ -67,6 +67,9 @@ dependencies {
     // The structural report reads the whole tree's bytecode; ASM is how.
     testImplementation(libs.asm)
     testImplementation(libs.asm.tree)
+    // SnapshotVersionScopeTest fences the chain height out of the freshness plane. A rule is what
+    // holds that line; a comment saying "do not compare versions across peers" is what it replaced.
+    testImplementation(libs.archunit)
 
     // The benchmark source set measures the REAL classes: it compiles against this module's main
     // output (the plugin wires that) plus the deterministic engine fixtures it needs to build a
