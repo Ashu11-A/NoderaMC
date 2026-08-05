@@ -16,8 +16,8 @@
 // * **A failure offers one action.** The `remedy` enum decides which — not the prose, which can be
 //   reworded without anybody noticing a button stopped appearing.
 import { useEffect, useMemo, useState } from "react";
-import { FiAlertCircle, FiCopy, FiPlay, FiSettings, FiWifiOff } from "react-icons/fi";
-import { Banner, Button, Select, cx, worldArt } from "./components";
+import { FiAlertCircle, FiCopy, FiFileText, FiPlay, FiSettings, FiUsers, FiWifiOff } from "react-icons/fi";
+import { Banner, Button, Empty, Select, cx, worldArt } from "./components";
 import {
   IDLE_LAUNCH,
   autoConnects,
@@ -230,16 +230,47 @@ export function PlayScreen(props: {
 
   return (
     <div className="flex min-h-full flex-col">
-      <Hero world={world} fallbackName={externalWorld?.name} d={d} />
+      <Hero
+        world={world}
+        fallbackName={externalWorld?.name}
+        d={d}
+        launch={launch}
+        onSettings={props.onSettings}
+        actions={
+          <>
+            <Button
+              variant="primary"
+              size="hero"
+              shape="pill"
+              disabled={!launchSelection || busy}
+              onClick={startLaunch}
+            >
+              <FiPlay aria-hidden />
+              {PHASE_LABEL[launch.phase]}
+            </Button>
 
-      <div className="page-canvas relative z-10 flex w-full flex-col gap-4 pb-12">
-        <div className="-mt-16 flex flex-wrap items-end gap-3">
+            {world && (
+              <Button
+                variant="secondary"
+                size="md"
+                shape="pill"
+                className="border-transparent bg-surface-3 backdrop-blur-sm"
+                onClick={() => props.onOpenWorld(world.world_id)}
+              >
+                <FiSettings aria-hidden /> About this world
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      <div className="page-canvas relative z-10 flex w-full flex-col gap-4 pt-6 pb-12">
+        <div className="flex flex-wrap items-end gap-3">
           {playable.length > 1 && world && (
             <Select
               ariaLabel="World to play"
               value={world.world_id}
               onChange={setSelected}
-              className="bg-surface-3 backdrop-blur-sm"
               options={playable.map((w) => ({
                 value: w.world_id,
                 label: w.name || w.world_id.slice(0, 10),
@@ -252,28 +283,11 @@ export function PlayScreen(props: {
               ariaLabel="Minecraft installation"
               value={targetChoice.value}
               onChange={setSelectedTarget}
-              className="bg-surface-3 backdrop-blur-sm"
               options={targetChoices.map((candidate) => ({
                 value: candidate.value,
                 label: candidate.target.name,
               }))}
             />
-          )}
-
-          <Button
-            variant="primary"
-            size="hero"
-            disabled={!launchSelection || busy}
-            onClick={startLaunch}
-          >
-            <FiPlay aria-hidden />
-            {PHASE_LABEL[launch.phase]}
-          </Button>
-
-          {world && (
-            <Button variant="ghost" size="md" onClick={() => props.onOpenWorld(world.world_id)}>
-              About this world
-            </Button>
           )}
         </div>
 
@@ -306,7 +320,14 @@ export function PlayScreen(props: {
  *
  * The art is generated from the world id — deterministic, CSS-only, no network. See `worldArt`.
  */
-function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
+function Hero(props: {
+  world?: World;
+  fallbackName?: string;
+  d: Dashboard;
+  launch: LaunchState;
+  actions: React.ReactNode;
+  onSettings: (section?: string) => void;
+}) {
   const { world, d } = props;
   const fault = linkFault(d.link);
   const paused = d.node.transfers_paused;
@@ -327,8 +348,8 @@ function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
 
   return (
     <header
-      className="relative flex flex-none items-end"
-      style={{ height: "var(--hero-height)" }}
+      className="relative flex flex-none flex-col justify-end"
+      style={{ minHeight: "var(--hero-height)" }}
     >
       <div
         aria-hidden
@@ -337,9 +358,43 @@ function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
       />
       <div aria-hidden className="hero-scrim absolute inset-0" />
 
-      <div className="page-canvas relative flex w-full flex-col gap-2 pb-24">
-        <p className="text-[10px] font-semibold tracking-[0.2em] text-brand-tint uppercase">Ready to play</p>
-        <h1 className="display-type max-w-[12ch] text-[clamp(42px,5vw,72px)] leading-[0.95] font-semibold">
+      {/* Panel 03's floating strip: a glass pill for the fact you glance at, and one that only
+          exists while work is happening. Neither pushes the art down. */}
+      <div className="page-canvas relative flex w-full flex-wrap items-start gap-3 pt-5">
+        <GlassPill>
+          <FiUsers aria-hidden className="text-dim" />
+          <span className="flex flex-col leading-tight">
+            <span className="text-[10px] text-dim">Playing here</span>
+            {/* `—`, never `0`. Only a node with a game *in* the world can count players, so null is
+                the ordinary answer on a peer that merely stores it, and the title says which. */}
+            <span className="font-medium tabular-nums" title={world ? players(world) : undefined}>
+              {world ? show(world.players, String) : "—"}
+            </span>
+          </span>
+        </GlassPill>
+
+        {props.launch.phase !== "idle" &&
+          props.launch.phase !== "running" &&
+          props.launch.phase !== "exited" &&
+          props.launch.phase !== "failed" && (
+            <GlassPill>
+              <span
+                aria-hidden
+                className="size-4 flex-none animate-spin rounded-full border-2 border-brand-edge border-t-brand-1"
+              />
+              <span className="flex flex-col leading-tight">
+                <span className="font-medium text-text">{PHASE_LABEL[props.launch.phase]}</span>
+                <span className="text-[10px] text-dim">
+                  {world?.name || props.launch.world_id.slice(0, 10) || "Nodera"}
+                </span>
+              </span>
+            </GlassPill>
+          )}
+      </div>
+
+      <div className="page-canvas relative flex w-full flex-1 flex-col justify-end gap-2 pt-10 pb-6">
+        <p className="text-2xs font-medium tracking-[0.16em] text-brand-tint uppercase">Ready to play</p>
+        <h1 className="display-type max-w-[12ch] text-hero leading-[0.95] font-bold">
           {world ? world.name || "Unnamed world" : props.fallbackName || "Nodera"}
         </h1>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-dim">
@@ -382,8 +437,20 @@ function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
             </Button>
           </p>
         )}
+        <div className="mt-4 flex flex-wrap items-center gap-3">{props.actions}</div>
+      </div>
+
+      {/* Panel 03's footer strip. The reference puts a social cluster on the right; there is no
+          social plane here, so the space takes the fact the hero copy used to carry. */}
+      <div className="page-canvas relative flex w-full flex-wrap items-center justify-between gap-3 pb-6">
+        <button
+          onClick={() => props.onSettings("minecraft")}
+          className="inline-flex items-center gap-2 rounded-full bg-surface-3 px-3.5 py-2 text-xs text-dim backdrop-blur-sm transition-colors duration-[var(--motion-fast)] hover:text-text focus-visible:outline-2 focus-visible:outline-focus"
+        >
+          <FiFileText aria-hidden /> Minecraft and mod
+        </button>
         {!fault && !paused && d.link.has_data && (
-          <p className="font-mono text-xs text-faint tabular-nums">
+          <p className="rounded-full bg-surface-3 px-3.5 py-2 font-mono text-xs text-faint backdrop-blur-sm tabular-nums">
             ▲ {show(d.traffic.up_bytes_per_sec, formatRate)} ▼{" "}
             {show(d.traffic.down_bytes_per_sec, formatRate)} · {formatBytes(d.counts.shared_bytes)}{" "}
             served
@@ -391,6 +458,15 @@ function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
         )}
       </div>
     </header>
+  );
+}
+
+/** The reference's one floating surface: translucent, blurred, and only ever over art. */
+function GlassPill(props: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2.5 rounded-full border border-line-soft bg-surface-3 px-3.5 py-2 text-xs backdrop-blur-md">
+      {props.children}
+    </span>
   );
 }
 
@@ -549,22 +625,21 @@ function LaunchLine(props: {
 function NothingToPlay(props: { d: Dashboard; onSettings: (section?: string) => void }) {
   const known = props.d.link.has_data;
   return (
-    <div className="flex flex-col items-center gap-3 rounded-lg border border-line bg-surface px-6 py-12 text-center">
-      <span className="text-[28px] text-faint">
-        <FiAlertCircle aria-hidden />
-      </span>
-      <h2 className="text-base font-semibold">
-        {known ? "No world to play in yet" : "Waiting for this node to report"}
-      </h2>
-      <p className="max-w-[52ch] text-sm text-dim">
+    <div className="rounded-lg border border-line-soft bg-surface shadow-e1">
+      <Empty
+        icon={<FiAlertCircle aria-hidden />}
+        title={known ? "No world to play in yet" : "Waiting for this node to report"}
+      >
         {known
           ? "Open a world to LAN from inside Minecraft and share it, or find one on Discover."
           : "The worker has not sent a picture of this node yet. Nothing here is zero — it is unknown."}
-      </p>
+      </Empty>
       {known && (
-        <Button variant="secondary" size="md" onClick={() => props.onSettings("minecraft")}>
-          <FiSettings aria-hidden /> Set up Minecraft
-        </Button>
+        <div className="flex justify-center pb-8">
+          <Button variant="secondary" size="md" shape="pill" onClick={() => props.onSettings("minecraft")}>
+            <FiSettings aria-hidden /> Set up Minecraft
+          </Button>
+        </div>
       )}
     </div>
   );
