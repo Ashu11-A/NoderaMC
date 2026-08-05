@@ -831,7 +831,11 @@ mod tests {
         assert!(stores[0].built_in);
         // The 404 belonged to an address this build no longer dials; carrying it forward would
         // report a failure against a URL that has never been tried.
-        assert!(stores[0].last_error.is_empty(), "{:?}", stores[0].last_error);
+        assert!(
+            stores[0].last_error.is_empty(),
+            "{:?}",
+            stores[0].last_error
+        );
         assert_eq!(stores[0].last_refreshed_epoch_millis, 0);
         // ...and the row is usable straight away rather than empty until the first refresh.
         assert!(!stores[0].services.is_empty());

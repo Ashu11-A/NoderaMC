@@ -148,7 +148,10 @@ pub struct RestartSignal(pub Notify);
 const BIND_TIME_ENV: [(&str, &str); 3] = [
     ("NODERA_P2P_PORT", "network.port_range"),
     ("NODERA_P2P_PORT_RANGE", "network.port_range"),
-    ("NODERA_RENDEZVOUS_ENDPOINTS", "network.rendezvous_endpoints"),
+    (
+        "NODERA_RENDEZVOUS_ENDPOINTS",
+        "network.rendezvous_endpoints",
+    ),
 ];
 
 /// What the running worker was actually started with.
@@ -939,13 +942,19 @@ mod tests {
 
         let mut after = before.clone();
         after.network.port_range_start = 40000;
-        assert_eq!(bind_time_changes(&running, &after), vec!["network.port_range"]);
+        assert_eq!(
+            bind_time_changes(&running, &after),
+            vec!["network.port_range"]
+        );
 
         // Asking for a random port is the same decision by another control, and reports under the
         // same name — `network.port_range` is what the enforcement table calls "which port to bind".
         let mut after = before.clone();
         after.network.use_random_port = true;
-        assert_eq!(bind_time_changes(&running, &after), vec!["network.port_range"]);
+        assert_eq!(
+            bind_time_changes(&running, &after),
+            vec!["network.port_range"]
+        );
 
         let mut after = before.clone();
         after.network.rendezvous_endpoints = vec!["tcp://relay.example:25601".to_owned()];

@@ -225,7 +225,10 @@ pub fn status(resource_dir: Option<&Path>) -> ModInstallStatus {
         Ok(jar) => (false, vec![jar.display().to_string()]),
         Err(tried) => (
             false,
-            tried.iter().map(|path| path.display().to_string()).collect(),
+            tried
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
         ),
     };
     ModInstallStatus {

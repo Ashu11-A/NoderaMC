@@ -170,7 +170,10 @@ impl NoderaCore {
     /// supervisor record the automatic restart works from — two ways of deciding what is pending is
     /// two ways for the screen to disagree with what the app then does.
     pub fn worker_ownership(&self) -> daemon::WorkerOwnership {
-        daemon::ownership(self.launched.pending_restart_keys(&self.settings.snapshot()))
+        daemon::ownership(
+            self.launched
+                .pending_restart_keys(&self.settings.snapshot()),
+        )
     }
 
     /// Cycle the worker so env-shaped settings (trackers, port range, archive dir) apply.
