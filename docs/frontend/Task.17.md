@@ -8,8 +8,8 @@
      never silently rewritten, and an unreadable one is preserved and reported the way a damaged
      settings file is (see Task 15 §1). Keep this header's status accurate. -->
 
-**Status:** 🚧 IN PROGRESS
-**Category:** frontend · **Owns:** — · **Last audit:** 2026-08-05
+**Status:** 🚧 IN PROGRESS — built, not yet walked
+**Category:** frontend · **Owns:** L-91, L-92 (staged, see [Limitations](#limitations)) · **Last audit:** 2026-08-05
 **Depends on:** [frontend 11](Task.11.md)
 **Consumed by:** [frontend 19](Task.19.md)
 
@@ -25,21 +25,40 @@ named appearances they can switch between.
 
 ## Status detail
 
-**Opened 2026-08-05, and the implementation lands in this same pull request.** Nothing below is
-claimed as green. The task file exists ahead of the merge because the rest of this category's
-documents already reference the redesign, and a category whose ledger describes work with no task
-file is the shape that let the former **app** and **mobile** registers drift apart in the first
-place.
+**Opened and implemented on 2026-08-05, in eight commits on `feat/cs-app-redesign`.** The frontend
+gate — `tsc`, the production `vite build`, and `node --test "tests/*.test.mjs"` — is green at every
+one of them, and the suite went from **31 tests to 40**: two existing files edited in five literal
+places, twenty-nine tests untouched, nine new across two new files.
 
-What is true before this task starts, and is what it is being built on:
+What is **not** claimed: the human walk. A redesign is not provable from a bundle, and the protocol
+under [Testing](#testing) — open the app, walk every destination from the rail, define a theme,
+restart, confirm it survived — is what moves this status to ✅. Until then this row says built, not
+walked.
+
+What it was built on:
 
 - [Task 11](Task.11.md) landed Play / Library / Discover, the 12-column 1,680 px canvas, the bundled
   Space Grotesk + Inter typography, and the obsidian/Ender-green visual system. The rail already
-  exists as a concept there; what it does not do is own navigation.
+  existed as a concept there; what it did not do is own navigation. It does now.
 - `app/ui/tests/design-tokens.test.mjs` already asserts that **every styling class written in
-  `src/**` resolves to a rule in the shipped stylesheet**. That check is the reason a theme lane can
-  be attempted at all: it is the existing, general form of "a component named a token the theme did
-  not declare", which is precisely the failure a user-editable theme multiplies.
+  `src/**` resolves to a rule in the shipped stylesheet**. That check is the reason a theme lane
+  could be attempted at all: it is the existing, general form of "a component named a token the
+  theme did not declare", which is precisely the failure a user-editable theme multiplies.
+
+Three things this work found that were not style, and fixed:
+
+1. **The exact piece map was invisible.** `PieceCanvas` fills its background with `--surface-2` and
+   then paints held cells — and the exact branch never set a fill colour, so it painted them in the
+   background it had just filled with. The aggregated branch sets the fill inside its own loop,
+   which is why the bug only showed on the path most manifests take (2,048 pieces or fewer). Every
+   "exact map: one cell per piece" this app has drawn was a blank rectangle.
+2. **A failed directory query rendered as an empty network.** `browseNetwork`'s `.catch` cleared the
+   world list, so a tracker outage produced a confident "Nothing found" on the one screen whose
+   whole job is reporting what other people are running. A `loading` boolean cannot express the
+   difference; it is now `answered: boolean | null`.
+3. **`prefers-reduced-motion` had to be unlayered.** Written inside `@layer base`, as the plan for
+   this work specified, it would have lost to the unlayered `:root` block it overrides and done
+   nothing — an accessibility preference honoured in the source and ignored in the browser.
 
 ## Dependencies
 
@@ -53,15 +72,26 @@ What is true before this task starts, and is what it is being built on:
 
 | # | Deliverable | State |
 |---|---|---|
-| 1 | Navigation moves out of the top bar into a persistent left sidebar rail | 🚧 |
-| 2 | The dark, purple-accented surface system, replacing the obsidian/green roles | 🚧 |
-| 3 | Every screen re-laid against the reference composition, with no screen losing a subject | 🚧 |
-| 4 | The top bar keeps only what is not navigation: the single link readout, and the window chrome | 🚧 |
-| 5 | **Theme** screen — a list of appearances, with the active one marked | 🚧 |
-| 6 | A property editor: the CSS custom properties, by name, with their current values | 🚧 |
-| 7 | Save / rename / duplicate / delete a named custom appearance, persisted in the settings document | 🚧 |
-| 8 | Built-in appearances are read-only and duplicable, never editable in place | 🚧 |
+| 1 | Navigation moves out of the top bar into a persistent left sidebar rail | ✅ |
+| 2 | The dark, purple-accented surface system, replacing the obsidian/green roles | ✅ |
+| 3 | Every screen re-laid against the reference composition, with no screen losing a subject | ✅ |
+| 4 | The top bar keeps only what is not navigation: the single link readout, and the window chrome | ✅ |
+| 5 | **Theme** screen — a list of appearances, with the active one marked | ✅ |
+| 6 | A property editor: the CSS custom properties, by name, with their current values | ✅ |
+| 7 | Save / rename / duplicate / delete a named custom appearance, persisted in the settings document | ✅ |
+| 8 | Built-in appearances are read-only and duplicable, never editable in place | ✅ |
 | 9 | An unreadable or partial saved theme is preserved and reported, never overwritten | 🚧 |
+
+Deliverable 4 was **overtaken, and the outcome is stronger than the row asks for.** There is no top
+bar left to keep anything in. Once the destinations moved out, the strip had one occupant — a node
+readout that was `hidden … narrow:flex`, i.e. invisible below 900 px, so a peer-to-peer launcher
+said nothing about its own peer on a small window. That readout is now the rail's identity block
+and its popover, reachable at every width the window can be, and `--top-nav-height` is deleted.
+Window chrome is untouched: adopting the reference's undecorated window means `decorations: false`
+plus hand-built controls per platform, which is a change to `app/tauri.conf.json` and therefore
+drags `app/capabilities/*.json` in with it. Out of scope, and recorded as a native-shell follow-up.
+
+Deliverable 9 is the one open row; see [Limitations](#limitations).
 
 ## Design
 
@@ -106,50 +136,110 @@ Expected to change, named so the next reader can find the work rather than as a 
 
 | Path | Role |
 |---|---|
-| `app/ui/src/App.tsx` | the shell: rail instead of top-bar destinations |
-| `app/ui/src/styles.css` | the property declarations a theme overrides |
-| `app/ui/src/components.tsx` | controls, cards and dialogs re-skinned against the new roles |
-| `app/ui/src/Settings.tsx` | the Theme destination |
-| `library/rust/nodera-core/src/settings.rs` | where named appearances are persisted |
-| `app/ui/tests/design-tokens.test.mjs` | extended: a saved theme resolves every property a screen uses |
+| `app/ui/src/App.tsx` | the shell: the rail instead of `TopNav`, `UTILITIES` beside `DESTINATIONS`, the escape hatch |
+| `app/ui/src/Rail.tsx` | **new** — the rail, its identity block and its popover |
+| `app/ui/src/Theme.tsx` | **new** — the screen: list, editor, contrast report, import/export |
+| `app/ui/src/themetokens.ts` | **new** — the token allowlist and the grammar each value must satisfy |
+| `app/ui/src/themecss.ts` | **new** — the CSS-mode rewriter |
+| `app/ui/src/customtheme.ts` | **new** — application, and the escape hatch's inline armour |
+| `app/ui/src/styles.css` | the palette a theme overrides, and the `@layer nodera.guard` block |
+| `app/ui/src/components.tsx` | controls, cards and dialogs re-skinned; `Button` gains `shape` |
+| `app/ui/src/Settings.tsx` | grouped sidebar, and the deep link into the Theme screen |
+| `app/ui/src/PlayScreen.tsx`, `Worlds.tsx`, `World.tsx`, `Network.tsx` | re-laid against panels 03, 04 and 06 |
+| `library/rust/nodera-core/src/settings.rs` | `appearance.themes`, and its one `ENFORCEMENT` row |
+| `app/ui/tests/shell-navigation.test.mjs` | **new** — 4 tests: the rail, its active state, its unknown state, and Settings keeping its own navigation |
+| `app/ui/tests/theme-screen.test.mjs` | **new** — 5 tests: the rewriter, the guard, the escape hatch, the keep-before-save rule, the patch semantics |
+
+**Deliberately not touched**, and worth stating because each was considered: `theme.ts` (it stays
+free of any dependency on the settings document, so it remains the single writer of `dataset.theme`
+and stays shareable), `TrackerStores.tsx` (its seventeen `--tracker-store-*` mappings are all
+`var(--app-token)` references, so the repalette flows through it with no edit at all),
+`app/tauri.conf.json` and `app/capabilities/`, and `main.tsx` (the bundled typefaces stand — Cera
+Pro is commercial and cannot ship, and Space Grotesk already carries the reference's wide geometric
+bowls at display sizes).
 
 ## Testing
 
-The tests this task will be **closed by** — none of them is green yet, and none is asserted anywhere
-in this repository today:
+`bun run --cwd app/ui build` is the gate: `tsc`, the production `vite build`, and
+`node --test "tests/*.test.mjs"` in one command. **40 pass, 0 fail.** Plus
+`cargo test -p nodera-core` for the settings change.
+
+Green, and asserted in this repository:
 
 - **Every class still resolves.** `design-tokens.test.mjs` runs over the redesigned sources and the
   rebuilt stylesheet unchanged in intent: no class written in `src/**` may be absent from `dist`.
-- **Navigation is in the rail.** A source-text check that the destination list is rendered by the
-  rail component and that the top bar renders no destination — the general form, so a destination
-  added later cannot quietly reappear above.
-- **A saved theme resolves every property the screens use.** The set of custom properties read by
-  `src/**` is derived, and a persisted theme is asserted to cover it or to be completed from the
-  active built-in.
-- **A damaged theme document is preserved and reported**, mirroring the settings-document assertions
-  in `nodera-core`.
-- **A built-in appearance cannot be saved over.**
-- **Light and dark contrast**, the way `launcher-review.test.mjs` already checks the light theme —
-  extended to whatever appearances ship built in.
-- `tsc --noEmit` and the production `vite build`, which are this frontend's standing gate.
+  Two literals in it moved — `--bg` and `--brand-1` — and the ban on `#ff4d8d|#a855f7|#22d3ee` did
+  not. That ban is now a live tripwire rather than a formality: `#a855f7` is Tailwind's
+  `violet-500`, one hue step from the new brand, so reaching for a built-in Tailwind purple while
+  working on this palette fails the build.
+- **Navigation is in the rail.** `shell-navigation.test.mjs`: `App.tsx` renders `<Rail`, contains no
+  `function TopNav`, and `styles.css` declares no `--top-nav-height`. `--bg-rail` — declared in both
+  schemes, mapped into `@theme inline`, and read by nothing since the day it was written — is
+  proven to reach production CSS from a class selector.
+- **The current destination is marked more than one way.** `aria-current="page"`, a named
+  `ACTIVE_MARK` bar, and the tint plus fill. The reference marks it by tinting one glyph, which is
+  invisible to anyone who cannot separate violet from grey by hue.
+- **The rail says it has not heard, rather than saying zero.** Its health dot has four states, and
+  the literal `Not heard from yet` is pinned: "we have not heard" and "we heard, and it is broken"
+  are different facts about the network.
+- **Settings keeps its own navigation** — the explicit guard that the global rail did not swallow a
+  ten-section sidebar.
+- **The theme rewriter is a rewriter.** `theme-screen.test.mjs` pins `.cssRules` and `selectorText`
+  present, `.replace(/</` and `innerHTML` absent, the at-rule allowlist and property denylist by
+  name, and `CSSImportRule`/`CSSFontFaceRule` dropped by class.
+- **The guard layer ships and is last**, `[data-nodera-escape]` and `[data-nodera-truth]` are inside
+  it, and user CSS is wrapped in `@layer nodera.user` — which is what actually makes the guard
+  unbypassable.
+- **The escape hatch cannot be styled away**: rendered on every path, portalled out of `#root`, and
+  its own styles re-asserted inline at `!important`.
+- **A theme is not persisted until it is kept**: `saveSettings` appears exactly once in `Theme.tsx`,
+  inside the keep handler.
+- **A custom theme is a patch, and says where it stops applying.**
+- **Light-theme accent and focus** — `launcher-review.test.mjs`, three literals changed, three left
+  alone.
+- **Rust:** `enforcement_covers_every_settings_key_exactly_once` still passes, which is what proves
+  `appearance.themes` is declared rather than merely stored.
+
+Not asserted, and named rather than implied: a saved theme is **not** checked against the set of
+properties the screens read. It does not need to be — a custom theme is a *patch*, so a token it
+does not set falls through to the base scheme's own declaration, and there is no state in which a
+half-defined appearance resolves to transparent text. That is a stronger property than the check
+this task originally planned, and it is why the check is absent rather than pending.
 
 Human protocol, because a redesign is not provable from a bundle: open the app, walk every
-destination from the rail, define a theme, restart the app, and confirm the appearance survived. That
-walk is what moves this task's status, not the checks above on their own.
+destination from the rail, define a theme, restart the app, and confirm the appearance survived.
+**That walk has not happened**, and it is what moves this task's status.
 
 ## Acceptance criteria
 
-1. ⬜ Every destination is reachable from the left rail, and none is in the top bar.
-2. ⬜ Each screen from [Task 8](Task.8.md) still answers exactly one question after the re-lay.
-3. ⬜ A user can define, name, save, and switch between appearances.
-4. ⬜ Editing a custom property changes the running interface without a rebuild.
-5. ⬜ A built-in appearance is duplicable and not editable in place.
-6. ⬜ A damaged or partial theme file costs no settings and blanks no screen.
-7. ⬜ The design-token check is green over the redesigned sources.
+1. ✅ Every destination is reachable from the left rail, and none is in the top bar — there is no
+   top bar.
+2. ✅ Each screen still answers exactly one question after the re-lay, and each keeps its unknown
+   state: `Worlds.tsx`'s `known ? … : UNKNOWN` tiles, `players()`'s "player count unknown", the Play
+   traffic guard, and — newly — the piece map's loading state and Discover's three-state poll.
+3. ✅ A user can define, name, save, duplicate, delete and switch between appearances, and import or
+   export one as JSON with the rewriter's drop-list shown before anything is added.
+4. ✅ Editing a token repaints the running window immediately; nothing is rebuilt and nothing is
+   fetched.
+5. ✅ A built-in appearance is duplicable and not editable in place: the built-in row is a selection,
+   and **New** starts from the scheme the window is currently using.
+6. ✅ A damaged or partial theme file costs no settings and blanks no screen. Three mechanisms:
+   `#[serde(default)]` on every field, so an older or partial document loads; patch semantics, so an
+   unset token falls through; and `@layer nodera.guard`, so the window stays operable even when the
+   theme is actively hostile.
+7. ✅ The design-token check is green over the redesigned sources.
+8. ⬜ The human walk, above.
 
 ## Limitations
 
-Owns none yet. A row is registered here if the redesign cannot deliver something the current build
-does — for example if an appearance cannot be honoured on a platform, in which case the rule this
-category already holds applies: **badge it, do not fake it, and do not delete the saved value**
-(the L-56 precedent, [`LIMITATIONS.md`](LIMITATIONS.md)).
+Two rows, staged here in register shape. They are written into
+[`LIMITATIONS.md`](LIMITATIONS.md) §B when this branch merges — this file is edited by one lane and
+the register is edited by several, and a row that arrives through a merge conflict is a row nobody
+reads.
+
+| ID | Limitation today | Owner | Exit test | Status |
+|---|---|---|---|---|
+| L-91 | A custom appearance applies to the **desktop window only**. The phone renders in Compose against the system palette and cannot read CSS, so a theme authored here has no effect there. The value is stored, never dropped, and the screen says so on its face rather than implying a preference that travels | [17](Task.17.md) | The Android companion reads `appearance.themes` and renders at least the accent and surface roles from the selected appearance, or the register records that it structurally cannot | OPEN |
+| L-92 | A stored appearance whose CSS the parser rejects is **dropped silently at startup**. Nothing is overwritten and the base scheme renders correctly, but the reason is only shown when the Theme screen is opened — so a theme that stopped working after a webview upgrade looks like a theme that was never saved | [17](Task.17.md) | Applying a stored appearance whose CSS fails to parse raises the same fault channel the settings document uses, so the reason is visible without opening the editor | OPEN |
+
+The L-56 precedent holds over both: **badge it, do not fake it, and do not delete the saved value.**
