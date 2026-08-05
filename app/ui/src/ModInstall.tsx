@@ -39,7 +39,11 @@ export function ModInstallScreen() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    // Two cards that answer one question between them — what this build carries, and where it can
+    // go — so they sit side by side once there is room for both and stack when there is not. As one
+    // full-width column on a 1400px settings canvas, each was a band with a label at one edge and a
+    // pill at the other and a thousand pixels of nothing in between.
+    <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,440px),1fr))] [&>*]:min-w-0">
       {status === null ? (
         <Card title="Installations">
           {/* The error paragraph used to live *inside* the `status !== null` branch, so a failing

@@ -123,15 +123,20 @@ export function AboutScreen() {
         {matches.length === 0 ? (
           <Empty title="Nothing matches that" />
         ) : (
-          ECOSYSTEMS.map(({ id, label }) => {
-            const rows = byEcosystem(id);
-            if (rows.length === 0) return null;
-            return (
-              <section key={id} className="pt-1 pb-2">
-                <h3 className="pb-1 text-2xs tracking-[0.08em] text-faint uppercase">
-                  {label} · {rows.length}
-                </h3>
-                <DataTable label={`${label} packages`}>
+          // Three tables of three narrow columns. Stacked, each one stretched a package name and a
+          // licence to opposite ends of the canvas and pushed the next ecosystem below the fold;
+          // side by side they are the width their content actually is, and a wide window shows all
+          // three at once instead of one and a scrollbar.
+          <div className="grid gap-4 pt-1 pb-2 grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] [&>*]:min-w-0">
+            {ECOSYSTEMS.map(({ id, label }) => {
+              const rows = byEcosystem(id);
+              if (rows.length === 0) return null;
+              return (
+                <section key={id}>
+                  <h3 className="pb-1 text-2xs tracking-[0.08em] text-faint uppercase">
+                    {label} · {rows.length}
+                  </h3>
+                  <DataTable label={`${label} packages`}>
                     <thead>
                       <Tr>
                         <Th>Package</Th>
@@ -144,10 +149,11 @@ export function AboutScreen() {
                         <PackageRow key={`${p.ecosystem}:${p.name}`} package={p} />
                       ))}
                     </tbody>
-                </DataTable>
-              </section>
-            );
-          })
+                  </DataTable>
+                </section>
+              );
+            })}
+          </div>
         )}
         <Pagination page={page} pageSize={pageSize} total={matches.length} onPage={setPage} />
       </Card>

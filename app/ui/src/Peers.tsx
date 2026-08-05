@@ -107,8 +107,14 @@ export function PeersScreen(props: { d: Dashboard }) {
         )}
       </Card>
 
-      <EndpointCard title="Trackers" rows={d.discovery.trackers} known={known} />
-      <EndpointCard title="Rendezvous" rows={d.discovery.rendezvous} known={known} />
+      {/* Two lists of the same shape, read against each other: "are my trackers up" and "are my
+          relays up" is one question asked twice, and stacking them put a screen-height of table
+          between the two halves of the answer. The peer table above stays full width because eight
+          columns of transfer figures is what that width is for. */}
+      <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,380px),1fr))] [&>*]:min-w-0">
+        <EndpointCard title="Trackers" rows={d.discovery.trackers} known={known} />
+        <EndpointCard title="Rendezvous" rows={d.discovery.rendezvous} known={known} />
+      </div>
     </div>
   );
 }

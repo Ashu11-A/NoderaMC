@@ -377,7 +377,11 @@ export default function TrackerStores() {
           No store here matches “{filter}”.
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        // A wall of stores rather than a column of bands. Each row is a name, a summary and four
+        // icon buttons — content that is about 400px wide and was being stretched across the whole
+        // canvas, with the actions marooned an inch from the name they act on. `auto-fit` reflows,
+        // and with one store the empty tracks collapse so it does not sit in a third of the page.
+        <ul className="grid items-start gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,380px),1fr))] [&>*]:min-w-0">
           {visible.map((store) => (
             <StoreCard
               key={store.url}

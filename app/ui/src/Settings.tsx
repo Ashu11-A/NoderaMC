@@ -3,7 +3,7 @@
 // Settings save on change rather than behind an Apply button — every control here is independent,
 // so there is no half-valid intermediate state an explicit commit would be protecting. A rejected
 // document (the backend validates) surfaces inline and the previous value stays on screen.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   FiMonitor,
   FiMoon,
@@ -224,6 +224,34 @@ const TAB_BTN =
   "flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm transition-colors";
 const NESTED = "my-0.5 ml-3.5 border-l-2 border-line pl-3.5";
 
+/**
+ * The narrow tab strip's own scrollbar, 4px under the tabs.
+ *
+ * Ten sections do not fit across a 1000px window and never will, so the strip scrolls — and a strip
+ * that scrolls without saying so is indistinguishable from one that has been cut off, which is
+ * exactly how "Diagnostics" read on a square window. WebKit paints these pseudo-elements (this app's
+ * Linux webview *is* WebKit) and `overflow-x: auto` only shows them when there is something to
+ * scroll, so the bar appears precisely when the strip has more to offer than it can show.
+ */
+const TAB_SCROLLBAR =
+  "[&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent " +
+  "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line";
+
+/**
+ * A wall of setting cards that answers a wider window with more columns instead of more air.
+ *
+ * `wide:grid-cols-2` cannot: it is two columns at 1180px and still two columns at 1920px, where each
+ * card is 700px of mostly empty middle with its label pinned to one edge and its control to the
+ * other. `auto-fit` reflows — one column on a small window, two at 1280, three at 1920 — and with
+ * fewer cards than tracks the empty tracks collapse, so a two-card section still fills the row.
+ *
+ * The 440px floor is the width a settings *row* needs: a label, a hint, and a control that can be a
+ * 190px slider or a three-way segmented switch. `min(100%, …)` keeps that floor from becoming an
+ * overflow on a container narrower than it — the one way `minmax()` can push content off-screen.
+ */
+const CARD_WALL =
+  "grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,440px),1fr))] [&>*]:min-w-0";
+
 export function SettingsScreen(props: {
   settings: SettingsDoc | null;
   onChange: (next: SettingsDoc) => void;
@@ -250,6 +278,8 @@ export function SettingsScreen(props: {
   // Read from the worker, never from this app's own idea of it: the consent record lives on the
   // node, and the in-game `/nodera telemetry` command can change it while this screen is open.
   const [telemetry, setTelemetry] = useTelemetryStatus();
+  // The narrow tab strip, so the section in force can be brought back into view.
+  const strip = useRef<HTMLElement>(null);
 
   // Statuses are re-read after every save, because a push can change them: a key moves to `live`
   // only once the worker has confirmed it, so the badges settle a beat after the toggle does.
@@ -265,6 +295,16 @@ export function SettingsScreen(props: {
     const timer = window.setInterval(refreshStatus, 3000);
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
+
+  // Keep the section in force on screen in the narrow strip — on arrival as much as on a change.
+  // Something else chooses the section here: `initial` sends the user to the one control they were
+  // told to fix, and a strip that opens scrolled to the left has just hidden the reason they came.
+  // `block: "nearest"` confines this to the horizontal axis; the page must not jump.
+  useEffect(() => {
+    strip.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [section]);
 
   const s = props.settings;
   if (!s) return <div className="p-6 text-dim">Loading settings…</div>;
@@ -289,8 +329,16 @@ export function SettingsScreen(props: {
 
   return (
     <div className="flex min-h-full flex-col">
+      {/* Ten sections across a window that holds six. It scrolls — `min-w-0` is what lets it,
+          because a flex child sizes to its content until it is told it may not — and it says so
+          with a scrollbar of its own rather than letting the shell's clip eat the last two. */}
       <nav
-        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line-soft bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden"
+        ref={strip}
+        className={cx(
+          "sticky top-0 z-10 flex min-w-0 gap-1 overflow-x-auto scroll-smooth border-b border-line-soft",
+          "bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden",
+          TAB_SCROLLBAR,
+        )}
         role="tablist"
       >
         {SECTIONS.map((sec) => (
@@ -315,8 +363,16 @@ export function SettingsScreen(props: {
         ))}
       </nav>
 
-      <div className="page-canvas page-grid py-8">
-        <aside className="col-span-3 hidden pr-6 wide:block">
+      {/* A sidebar of its own width, and a content column that takes everything else.
+
+          This was three of twelve canvas columns against nine, which reads as a proportion and
+          behaves as a tax: at 1920 the nav card grew to 374px to hold ten short labels while the
+          settings it navigates were squeezed into 1170. A navigation list has a width — the width
+          of its longest label — and it does not want more of the window as the window grows. The
+          clamp gives it 196px on the narrowest window that shows it and stops at 296px, and the
+          content column gets every pixel that leaves. */}
+      <div className="page-canvas flex py-8">
+        <aside className="w-[clamp(196px,17vw,296px)] flex-none hidden pr-6 wide:block">
           <div className="sticky top-6 rounded-md border border-line-soft bg-surface p-3 shadow-e1">
             <nav className="flex flex-col gap-1" aria-label="Settings sections">
               {GROUPS.map((group) => (
@@ -350,7 +406,7 @@ export function SettingsScreen(props: {
           </div>
         </aside>
 
-      <section aria-label="Settings content" className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-9">
+      <section aria-label="Settings content" className="flex min-w-0 flex-1 flex-col gap-4">
         <PageHeader
           eyebrow="Launcher configuration"
           title={SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings"}
@@ -422,6 +478,7 @@ export function SettingsScreen(props: {
         )}
 
         {section === "appearance" && (
+          <div className={CARD_WALL}>
           <Card title="Interface">
             <Segmented<Theme>
               label="Theme"
@@ -441,15 +498,22 @@ export function SettingsScreen(props: {
               note={note("appearance.notifications")}
               onChange={(v) => update((d) => (d.appearance.notifications = v))}
             />
-            {/* A deep link, not a control. Authoring an appearance wants the whole canvas — an
-                editor, a preview and a contrast report do not fit in a settings row — and dropping
-                a block that size into this section chain is how the restart-banner exit test gets
-                broken. */}
+          </Card>
+
+          {/* Its own card, beside Interface rather than a fourth row inside it — a deep link is not
+              a preference, and a card wall with one card in it is a 1400px band with a control at
+              each end. Authoring an appearance wants the whole canvas (an editor, a preview and a
+              contrast report do not fit in a settings row), so what lives here is the door and the
+              name of what is behind it. Dropping a block that size into this section chain is how
+              the restart-banner exit test gets broken. */}
+          <Card title="Custom appearance">
             <div className="flex items-center justify-between gap-5 py-[11px] max-narrow:flex-col max-narrow:items-start max-narrow:gap-2">
               <span className="flex min-w-0 flex-col">
-                <span>Custom appearance</span>
+                <span>{customName(s) ?? "None"}</span>
                 <span className="max-w-[68ch] text-xs text-faint">
-                  {customName(s) ?? "None — this window renders the built-in scheme above."}
+                  {customName(s)
+                    ? "In force in this window, over the scheme chosen beside it."
+                    : "This window renders the built-in scheme beside it."}
                 </span>
               </span>
               {props.onOpenTheme && (
@@ -459,10 +523,11 @@ export function SettingsScreen(props: {
               )}
             </div>
           </Card>
+          </div>
         )}
 
         {section === "behavior" && (
-          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
+          <div className={CARD_WALL}>
             <Card title="Startup">
               <Toggle
                 label="Auto-start"
@@ -517,7 +582,7 @@ export function SettingsScreen(props: {
         )}
 
         {section === "network" && (
-          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
+          <div className={CARD_WALL}>
             <Card
               title="Default trackers"
               hint="Discovery services this node announces its worlds to and queries for peers. One per line — tcp://host:port; a bare host:port means TCP."
@@ -665,6 +730,9 @@ export function SettingsScreen(props: {
           </div>
         )}
 
+        {/* Two columns at most, and deliberately not the reflowing wall above: both cards here are
+            paths and budgets that read as a pair, the location card carries a row of writable-target
+            chips that wants the width, and a third column would only ever be empty. */}
         {section === "storage" && (
           <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
           <Card
