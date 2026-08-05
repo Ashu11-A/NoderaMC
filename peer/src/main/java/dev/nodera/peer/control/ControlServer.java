@@ -125,6 +125,14 @@ public final class ControlServer implements AutoCloseable {
                 watch(c, request);
                 return;
             }
+            if (request.startsWith(ControlProtocol.ARCHIVE)) {
+                // The other verb that writes before it answers. A fetch takes minutes, and a
+                // caller that hears nothing for minutes cannot tell it from a dead worker — so it
+                // reports what it has verified as it goes, and the terminal line still closes the
+                // exchange exactly as every other verb does.
+                archive(c, request);
+                return;
+            }
             String reply = dispatch(request);
             if (reply != null) {
                 OutputStream out = c.getOutputStream();
@@ -161,6 +169,42 @@ public final class ControlServer implements AutoCloseable {
      * responsible for a dashboard concern. Comparing the rendered line is one place, costs a string
      * compare at the client's own interval, and cannot miss a change that any lane makes.
      */
+    /**
+     * Serve one {@link ControlProtocol#ARCHIVE} fetch, reporting progress while it runs.
+     *
+     * <p>The read timeout is cleared for the same reason {@link #watch} clears it: this connection
+     * is the worker's to write on now, and a fetch legitimately takes minutes. The client's own
+     * budget is what bounds the wait, and every progress line resets it — so the number both ends
+     * hold means "how long without progress", which is what the worker's stall budget has always
+     * meant and what the client used to contradict.
+     */
+    private void archive(Socket c, String request) throws IOException {
+        c.setSoTimeout(0);
+        OutputStream out = c.getOutputStream();
+        String[] parts = request.split("\\s+");
+        String reply;
+        try {
+            String fetched = handler.fetchArchive(arg(parts, 2), arg(parts, 3),
+                    parseLong(arg(parts, 4)), (verified, total) -> {
+                        try {
+                            out.write((ControlProtocol.PROGRESS + " " + verified + " " + total
+                                    + "\n").getBytes(StandardCharsets.UTF_8));
+                            out.flush();
+                        } catch (IOException clientLeft) {
+                            // The caller gave up. Nothing to do about it here — the fetch is the
+                            // worker's own work and finishing it leaves the archive on disk for
+                            // whoever asks next, which is strictly better than abandoning it.
+                        }
+                    });
+            reply = fetched == null ? err("archive lane unavailable")
+                    : ControlProtocol.OK + " " + fetched;
+        } catch (RuntimeException failed) {
+            reply = err(failed.getMessage() == null ? failed.toString() : failed.getMessage());
+        }
+        out.write((reply + "\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
     private void watch(Socket c, String request) throws IOException {
         long interval = watchInterval(request);
         // No read timeout: this connection is silent by design after the request line. The client
@@ -308,13 +352,17 @@ public final class ControlServer implements AutoCloseable {
                 return seeded == null ? err("validated-lane seeding unavailable")
                         : ControlProtocol.OK + " " + seeded;
             }
-            if (ControlProtocol.ARCHIVE.equals(verb)) {
-                // NODERA-ARCHIVE <ver> <worldId> <destPathB64> <timeoutSeconds>
-                String fetched = handler.fetchArchive(arg(parts, 2), arg(parts, 3),
-                        parseLong(arg(parts, 4)));
-                return fetched == null ? err("archive lane unavailable")
+            if (ControlProtocol.FETCH_REGION.equals(verb)) {
+                // NODERA-FETCH-REGION <ver> <worldId> <dim> <rx> <rz> <destB64>
+                //                     [haveRootHex] [timeoutSeconds]
+                String fetched = handler.fetchRegion(arg(parts, 2), arg(parts, 3),
+                        arg(parts, 4), arg(parts, 5), arg(parts, 6), arg(parts, 7),
+                        arg(parts, 8));
+                return fetched == null ? err("region fetch unavailable")
                         : ControlProtocol.OK + " " + fetched;
             }
+            // NODERA-ARCHIVE is not dispatched here: it writes progress before it answers, so it
+            // is handled by #archive on the connection itself. See the branch in #handle.
             if (ControlProtocol.WORLDID.equals(verb)) {
                 // NODERA-WORLDID <ver> <genesisRootB64> <createdAt> <shared> <listed> <enc>
                 //                <manifestRefB64> [pinnedWorldIdHex]
@@ -332,6 +380,13 @@ public final class ControlServer implements AutoCloseable {
                         parseInt(arg(parts, 5), 0, Integer.MAX_VALUE),
                         parseLong(arg(parts, 6)));
                 return grant == null ? err("cannot mint grant") : ControlProtocol.OK + " " + grant;
+            }
+            if (ControlProtocol.DELEGATE.equals(verb)) {
+                // NODERA-DELEGATE <ver> <worldIdHex> <sessionPubKeyB64> <ttlSeconds>
+                String delegation = handler.delegateSession(arg(parts, 2), arg(parts, 3),
+                        parseLong(arg(parts, 4)));
+                return delegation == null ? err("cannot mint session delegation")
+                        : ControlProtocol.OK + " " + delegation;
             }
             if (ControlProtocol.REKEY.equals(verb)) {
                 // NODERA-REKEY <ver> <worldIdHex> <archivePathB64> <newPasswordB64> <currentIdentityB64>

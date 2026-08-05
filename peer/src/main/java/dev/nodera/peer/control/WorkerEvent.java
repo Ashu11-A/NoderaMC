@@ -61,6 +61,15 @@ public record WorkerEvent(String name, long epochMillis, Map<String, String> att
      */
     public static final String WORLD_DELETED = "world.deleted";
 
+    /**
+     * A world its owner had deleted is back, on that owner's signed instruction.
+     *
+     * <p>The counterpart of {@link #WORLD_DELETED}, and emitted for the same reason: a peer that
+     * dropped somebody's world has to be able to tell a player why it reappeared. Carries the world
+     * id and the owner's reason.
+     */
+    public static final String WORLD_RESTORED = "world.restored";
+
     public WorkerEvent {
         Objects.requireNonNull(name, "name");
         if (name.isBlank()) {

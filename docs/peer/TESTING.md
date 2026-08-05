@@ -5,19 +5,18 @@
      in totals. Crash tests here MUST use real OS processes and real SIGKILLs; a mocked daemon proves
      nothing about the property this category exists for. Keep counts and Last run current. -->
 
-**Category:** worker · **Last run:** 2026-07-30 · `peer` plus the peer-side lanes it drives
+**Category:** worker · **Last run:** 2026-08-03 · `peer` and its headless source set, including
 (`dev.nodera.peer.control`, `dev.nodera.peer.tunnel`) in `peer`, plus `scripts/nodera-test.sh run telemetry`
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
-The worker is now its own Gradle module (`:worker`) — it was a package inside `:peer` until
-2026-07-26, which put the worker executable inside anything depending on the peer library, the mod's
-fat jar included. The control endpoint and the tunnel lane stay in `:peer` because they are library
-code the Paper plugin uses too.
+The worker services live in `:peer` main sources; only `HeadlessPeerMain` lives in the `headless`
+source set, keeping a launchable entry point out of the mod's fat jar while making always-on services
+inseparable from a peer.
 
 **Test counts (`scripts/java-test-report.sh`, 2026-07-30):** **204** test cases in `:worker`, plus the peer-module cases named below —
-`peer/src/test/` (175 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
+`peer/src/test/` (177 in `dev.nodera.headless` + 4 in `dev.nodera.peer.control.TelemetryVerbIT`)
 plus `peer/src/test/java/dev/nodera/peer/control/` (24 across `ControlServerTest`,
 `ControlWatchStreamTest`, `WorkerEventStreamTest`). These are a SUBSET of the `:worker` + `:peer`
 module counts and must not be double-counted in totals.
@@ -67,7 +66,7 @@ printf 'NODERA-LAN 2 LIST\n' | nc 127.0.0.1 25610  # what this machine has open 
 | `WorldHostingPersistenceTest` (8) | A **second** hosting service over the same registry file finds the world the first one shared — the restart defect that made the companion app look broken. Pins the negative too: liveness is never restored, so a restored world does not advertise itself as joinable |
 | `WorldRegistryStoreTest` (12) | Durability across the process, hosting never demoted by a later seed, ownership not erased by a routine re-share, a corrupt file starting empty rather than stopping the node, owner-only permissions |
 | `HeadlessPeerMainStateTest` (1) | Closest production proof for W-DUP-3: `HeadlessPeerMain.openLocalState` starts twice on zipfs after both provider and `FileStore` report no POSIX view; identity and replaced registry survive. Not a launched worker process, so W-DUP-3 remains RETIRING |
-| `AtomicFileWriterTest` (3, `:storage`) | Shared writer creates POSIX files owner-only, deletes a secret-bearing temp after failed replacement, and suppresses cleanup failure on the primary exception |
+| `AtomicFileWriterTest` (4, `:storage`) | Shared writer creates POSIX files owner-only even when Android denies store inspection, deletes a secret-bearing temp after failed replacement, and suppresses cleanup failure on the primary exception |
 | `WorldKeyStoreTest` (9) | One key per world, stable across restarts, owner-only, a non-hex world id never becoming a path, a corrupt key file reported and never overwritten |
 | `OwnershipGossipIT` (6) | Over a real mesh: every peer independently verifies who administers a world; a later rival claim does not displace the owner; a tampered claim is refused **and not relayed**; an envelope naming a different world than its claim is dropped |
 | `WorldOwnershipVerbIT` (6) | Over the real control socket: minting a world identity mints its key and claim; `NODERA-PROVE` answers a challenge with a proof verifiable from the world's public key alone; a world this node did not create is refused |
@@ -76,7 +75,8 @@ printf 'NODERA-LAN 2 LIST\n' | nc 127.0.0.1 25610  # what this machine has open 
 | `FetchSurvivesSupersessionTest` (2) | A newer version learned mid-fetch does NOT evict the one being downloaded (the W-FETCH-1 exit test); a version nobody is fetching is still superseded, so L-55 stays intact. Verified failing with the guard disabled |
 | `HeldVersionBeatsAnUnreachableNewerOneTest` (2) | A fetch prefers the newest version a seeder is advertised for over the newest merely *known* version, and falls back to the newest complete local copy on a stall — the fix for `0/73 piece(s) after 120s` against a version nobody held |
 | `ArchiveRetentionWindowTest` (6) | The retention window keeps the newest N archive versions; trimming is bounded and idempotent |
-| `ReplicationRepairsEmptyClaimsTest` (4) | A world this node claims but holds nothing of is repaired ahead of placement and bounds (the W-REPL-1 exit test, verified failing without the fix). The sweep's `shouldAdopt(...)` is extracted so it can be driven headlessly at all |
+| `ReplicationRepairsEmptyClaimsTest` (5) | A world this node claims but holds nothing of is repaired ahead of placement and bounds (the W-REPL-1 exit test, verified failing without the fix); synthetic commons presence is never offered to archive replication |
+| `ReplicatedWorldAppearsInStateIT` (2) | A node holding archive pieces without a hosting-registry row reports one non-owned, non-connected, non-joinable world row with its piece progress; a hosted row is not duplicated |
 | `WorldDeletionVerbIT` (4) / `WorldDeletionServiceTest` (11) | Over the real control socket, a tombstone signed by the world key + node identity is applied locally and flooded; receivers re-verify the ownership claim; a non-owner cannot delete; a deleted world cannot come back through host/seed |
 | `WorkerEventStreamTest` (8) | `NODERA-EVENTS` replays from `sinceSeq`, live delivery preserves order, a slow subscriber is dropped not blocked, keepalive carries the sequence |
 | `TelemetryVerbIT` (4) | `NODERA-TELEMETRY GET` before any `SET` reports denied; `SET granted` round-trips through a **new emitter over the same directory**; an unknown argument is refused without changing state |

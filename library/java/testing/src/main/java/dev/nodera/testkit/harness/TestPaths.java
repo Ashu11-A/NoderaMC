@@ -23,6 +23,7 @@ public record TestPaths(
         Path modDir,
         Path workerDist,
         Path paperPluginJar,
+        Path companionApp,
         Path runDir,
         Path lockFile,
         Path resultsRoot) {
@@ -62,6 +63,11 @@ public record TestPaths(
                 layout.module("peer")
                         .resolve("build/install/nodera-headless/bin/nodera-headless"),
                 layout.module("paper-plugin").resolve("build/libs/nodera-paper.jar"),
+                // The companion app is its own cargo workspace (layout.properties: nodera-app is
+                // excluded from the root one), so its target directory is under the crate, not under
+                // dir.cargoTarget. Composing the file name here is the same division of labour as
+                // the jars above: the manifest says where the crate is, this says what it builds.
+                layout.crate("nodera-app").resolve("target/release/nodera-app"),
                 run,
                 run.resolve(".e2e-suite.lock"),
                 run.resolve("results"));

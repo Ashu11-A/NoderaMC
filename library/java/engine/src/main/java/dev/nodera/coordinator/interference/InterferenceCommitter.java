@@ -67,6 +67,7 @@ public final class InterferenceCommitter {
     private final NodeIdentity server;
     private final Map<RegionId, SnapshotVersion> committedVersion = new HashMap<>();
     private final Set<RegionId> held = new HashSet<>();
+    private java.util.function.Predicate<RegionId> certifiable;
 
     public InterferenceCommitter(
             InterferenceBuffer buffer, RootExtractor roots,
@@ -115,16 +116,68 @@ public final class InterferenceCommitter {
      * @return the certified deltas emitted this tick (also delivered to the sink).
      */
     public List<RegionDelta> onTickEnd(Function<RegionId, PipelineState> pipelineStates) {
+        ticks++;
         List<RegionDelta> emitted = new ArrayList<>();
+        boolean due = commitIntervalTicks <= 1 || ticks % commitIntervalTicks == 0;
         for (RegionId region : buffer.pendingRegions()) {
             if (busy(pipelineStates.apply(region))) {
                 held.add(region);
+                continue;
+            }
+            if (!due) {
+                // Held for the cadence, not for the pipeline. The mutations stay buffered and are
+                // committed on the next due tick — or immediately by flushNow if somebody proposes
+                // into this region first, which is the only ordering the contract actually needs.
                 continue;
             }
             commitRegion(region).ifPresent(emitted::add);
         }
         return emitted;
     }
+
+    /**
+     * How often a pending region may be committed, in calls to {@link #onTickEnd}.
+     *
+     * <h2>Why a cadence at all</h2>
+     *
+     * <p>A commit re-extracts the whole region and SHA-256s it, and a region is pending whenever any
+     * ghost moved — so on a busy world this ran once per tick per region, on the server thread. Two
+     * players standing in each other's regions measured 15.5 TPS for exactly this reason, with the
+     * cost doubled because overlap makes each of them a validator of the other's region.
+     *
+     * <p>Per-tick was never required. The only ordering the lane depends on is that a region's
+     * buffer is flushed before the next batch is proposed for it, and {@link #flushNow} is how a
+     * proposer guarantees that. What a cadence costs is latency on certifying ghost movement; what
+     * it buys is the tick back.
+     *
+     * @param ticks the interval; {@code <= 1} restores committing on every tick.
+     * @Thread-context call before the lane starts taking ticks.
+     */
+    public void setCommitIntervalTicks(int ticks) {
+        this.commitIntervalTicks = Math.max(1, ticks);
+    }
+
+    /**
+     * Commit one region's buffer right now, whatever the cadence says.
+     *
+     * <p>Called immediately before a batch is proposed for that region: the proposal's base is the
+     * committed root, so a buffer still holding mutations would have the proposal built on a state
+     * the region has already moved past.
+     *
+     * @param region the region about to be proposed into.
+     * @return the delta, if anything was pending.
+     * @Thread-context the caller's; same thread as {@link #onTickEnd}.
+     */
+    public Optional<RegionDelta> flushNow(RegionId region) {
+        held.remove(region);
+        return commitRegion(region);
+    }
+
+    /** Ticks seen, for the cadence. */
+    private long ticks;
+
+    /** See {@link #setCommitIntervalTicks}. */
+    private int commitIntervalTicks = 1;
 
     /**
      * Called after a pipeline decision (commit/reject/timeout) for {@code region}, before the next
@@ -151,6 +204,18 @@ public final class InterferenceCommitter {
         if (recorded.isEmpty() && entityMutations.isEmpty()) {
             return Optional.empty(); // everything coalesced back to the committed state
         }
+        if (certifiable != null && !certifiable.test(region)) {
+            // Only a region's primary may certify a foreign write against it. On any other member
+            // the sink refuses, this method restores the buffer and rethrows, the caller swallows
+            // it as a resync — and ten ticks later the identical thing happens again, forever, on
+            // the server thread.
+            //
+            // Discarding is not losing anything that was ever authoritative: a non-primary's local
+            // vanilla write into a delegated region is a prediction, and the region's real state
+            // arrives as certified deltas from the primary that overwrite it. Retrying was the bug;
+            // pretending the write was ours to commit was the older one.
+            return Optional.empty();
+        }
         try {
             SnapshotVersion base = committedVersion.get(region);
             if (base == null) {
@@ -162,6 +227,14 @@ public final class InterferenceCommitter {
                     region, next, dev.nodera.core.state.RegionSnapshot.STATE_ENCODING_VERSION);
             List<BlockMutation> mutations = new ArrayList<>(recorded.size());
             for (RecordedMutation m : recorded) {
+                // The recorded pre-write state is the guard, and it must stay that way.
+                //
+                // It is tempting to "rebase" this against the live world when a guard looks stale.
+                // It is wrong: CONVERT means the foreign write has ALREADY landed here, so the local
+                // world always holds the mutation's target, while the peers that will apply this
+                // delta hold the committed state the write started from. Reading the local world
+                // would name a guard no replica has, and — since target and live are equal — would
+                // classify every interference mutation as "already applied" and discard it.
                 mutations.add(new BlockMutation(m.pos(), m.prevStateId(), m.newStateId(), 0));
             }
             RegionDelta delta = new RegionDelta(
@@ -185,6 +258,19 @@ public final class InterferenceCommitter {
             buffer.restoreEntities(region, entityMutations);
             throw failure;
         }
+    }
+
+    /**
+     * Install the test for "may this node certify a foreign write against this region" — in
+     * practice, "is it this region's primary".
+     *
+     * <p>Optional: without one every pending region is attempted, which is the historic behaviour
+     * and is correct on a node that is primary of everything it holds.
+     *
+     * @param certifiable the test, or {@code null} to attempt every region.
+     */
+    public void certifiable(java.util.function.Predicate<RegionId> certifiable) {
+        this.certifiable = certifiable;
     }
 
     /** The committed version the committer currently tracks for {@code region} (test/diagnostic). */

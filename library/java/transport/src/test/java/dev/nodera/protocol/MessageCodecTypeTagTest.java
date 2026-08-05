@@ -115,7 +115,8 @@ final class MessageCodecTypeTagTest {
         assertThat(MessageCodec.TAG_NACK).isEqualTo(73);
         assertThat(MessageCodec.TAG_HELLO).isEqualTo(74);
         assertThat(MessageCodec.TAG_HELLO_ACK).isEqualTo(75);
-        assertThat(MessageCodec.NEXT_TAG).isEqualTo(75);
+        assertThat(MessageCodec.TAG_WORLD_REVIVAL_GOSSIP).isEqualTo(76);
+        assertThat(MessageCodec.NEXT_TAG).isEqualTo(76);
     }
 
     @Test

@@ -135,6 +135,31 @@ public final class WorkerValidationService {
         long pendingTickTo;
         volatile QuorumCertificate lastCertificate;
 
+        /**
+         * Set when this member concluded its copy of the region is wrong.
+         *
+         * <p>The three ways that happens — declining to vote on a root it did not compute, refusing
+         * a commit announce whose certificate does not match its own ballot, and failing to apply a
+         * certified delta — all used to end in a bare {@code return} or a thrown exception, with the
+         * replica left holding state it knew was stale and no record that it did. It kept answering
+         * control probes with that state indefinitely.
+         *
+         * <p>A diverged replica stops proposing and stops voting. It cannot repair itself from here
+         * — the repair is fetching the region's content, which arrives with the region-fetch lane —
+         * so what this flag buys today is that the condition is visible and cannot be mistaken for
+         * a member that simply had nothing to say.
+         */
+        volatile boolean diverged;
+
+        void diverge(String why) {
+            if (!diverged) {
+                diverged = true;
+                divergedReplicas.incrementAndGet();
+                LOG.warn("replica for {} is diverged and will not vote until it is re-seated: {}",
+                        lease.region(), why);
+            }
+        }
+
         Replica(RegionSnapshot base, RegionLease lease) {
             this.lease = lease;
             this.snapshot = base;
@@ -249,6 +274,7 @@ public final class WorkerValidationService {
      * multi-client play is the gate; a non-zero value is the divergence hunt starting.
      */
     private final AtomicLong divergences = new AtomicLong();
+    private final AtomicLong divergedReplicas = new AtomicLong();
 
     private static final org.slf4j.Logger LOG =
             org.slf4j.LoggerFactory.getLogger("NoderaWorker");
@@ -1001,6 +1027,12 @@ public final class WorkerValidationService {
         if (replica == null || !isAuthenticatedMember(from, replica.lease.primary())) {
             return; // not a replica of this region
         }
+        if (replica.diverged) {
+            // Its copy of the region is known-wrong, so anything it re-executes is wrong too. A
+            // vote from here is worse than no vote: it is a matching-shaped answer computed on a
+            // world nobody else has.
+            return;
+        }
         RegionProposal proposal = replica.pendingProposal;
         if (proposal == null
                 || !proposal.region().equals(batch.region())
@@ -1055,6 +1087,7 @@ public final class WorkerValidationService {
                     rootsAgree ? "identical roots but different deltas" : "different state roots",
                     proposal.resultingRoot().hash().toShortHex(8),
                     ballot.root().hash().toShortHex(8));
+            replica.diverge("re-executed the primary's batch and got a different result");
             return;
         }
         replica.pendingProposal = null;
@@ -1146,6 +1179,10 @@ public final class WorkerValidationService {
                 || !announce.resultingRoot().equals(cert.resultingRoot())
                 || !certificateMatches(replica, cert, replica.pendingBallot)) {
             // This member disagreed with the committed root; it must resync, not apply blindly.
+            // Applying blindly would fork it from the committee; returning quietly — which is what
+            // this did — left it holding state it knew was wrong, still answering probes with it,
+            // with nothing anywhere recording that it had stopped participating.
+            replica.diverge("the committed certificate does not match the ballot this member cast");
             return;
         }
         commitLocally(replica, cert, replica.pendingTickTo);
@@ -1166,7 +1203,7 @@ public final class WorkerValidationService {
         }
         SnapshotVersion next = replica.snapshot.version().next();
         RegionSnapshot committed = world.reExtract(replica.snapshot.region(), next, tick);
-        StateRoot extractedRoot = StateRoot.of(hashes.hash(committed));
+        StateRoot extractedRoot = world.regionRoot(replica.snapshot.region(), next, tick);
         if (!committed.equals(expected) || !extractedRoot.equals(cert.resultingRoot())) {
             throw new IllegalStateException("certified commit did not reproduce resulting root");
         }
@@ -1446,11 +1483,21 @@ public final class WorkerValidationService {
             ServerAuthorityCertificate certificate, long tick) {
         WorldMutationApplier.ApplyResult applied = applier.recoverAll(List.of(delta));
         if (!applied.committed()) {
+            // A certified delta that will not apply is not a wrong delta — it is a wrong world. The
+            // guard that failed says this node's copy of the region already differs from the one the
+            // signer had. Record that, and let the caller decide; throwing from here is how this
+            // used to reach the peer state thread as an unhandled failure.
+            replica.diverge("a certified delta would not apply: " + applied.failure());
             throw new IllegalStateException("external delta failed apply: " + applied.failure());
         }
         RegionSnapshot snapshot = world.reExtract(
                 delta.region(), delta.resultingVersion(), tick);
-        if (!StateRoot.of(hashes.hash(snapshot)).equals(certificate.resultingRoot())) {
+        // Through the view: on the primary this is the same (region, version, tick) the committer
+        // just hashed, so verifying the certified delta reproduces the certified root now costs a
+        // map lookup instead of a second full-region SHA-256. The check itself is untouched — it is
+        // what makes a peer refuse a delta that does not reproduce what was signed.
+        if (!world.regionRoot(delta.region(), delta.resultingVersion(), tick)
+                .equals(certificate.resultingRoot())) {
             throw new IllegalStateException("external delta did not reproduce certified root");
         }
         replica.snapshot = snapshot;
@@ -1807,7 +1854,80 @@ public final class WorkerValidationService {
             replicas.put(assigned.region(), adopt(existing, lease));
             return;
         }
-        activateRegion(EntityLaneBootstrap.initialSnapshot(assigned.region()), lease);
+        RegionSnapshot base = baseFor(assigned);
+        if (base == null) {
+            // Refused, not failed. Throwing would reach the peer state thread; taking the seat on
+            // a world nobody else has would be worse than either.
+            refusedSeats.incrementAndGet();
+            LOG.warn("refusing the seat on {}: its base {} could not be obtained, and validating "
+                            + "a world this node does not hold is worse than not validating",
+                    assigned.region(), assigned.baseIndexRoot().toShortHex(6));
+            return;
+        }
+        activateRegion(base, lease);
+    }
+
+    private final AtomicLong refusedSeats = new AtomicLong();
+
+    /**
+     * The state to take a seat on.
+     *
+     * <h2>Adopt what was named, or derive the shared nothing</h2>
+     *
+     * <p>A v2 assignment names its base, so this node fetches that content and activates on the
+     * world the rest of the committee is actually in. A v1 assignment names nothing — an older
+     * assigner seating a committee the old way — and the derived all-air base is exactly right
+     * there: it is the only state every member produces identically with no transfer, which is what
+     * made the first {@code prevRoot} comparison line up.
+     *
+     * <p>When a base IS named and cannot be obtained, this throws rather than falling back. Falling
+     * back would put this member on a different world from everyone else, where it disagrees with
+     * every proposal it ever sees and calls that divergence — a seat refused is a committee one
+     * member short, which the quorum handles; a seat taken on the wrong world is a validator voting
+     * confidently against reality.
+     *
+     * @return the state to activate on, or {@code null} when a named base could not be obtained.
+     */
+    private RegionSnapshot baseFor(dev.nodera.protocol.assignment.RegionAssigned assigned) {
+        if (!assigned.namesBase()) {
+            return EntityLaneBootstrap.initialSnapshot(assigned.region());
+        }
+        RegionBaseSource source = regionBases;
+        if (source == null) {
+            return null;
+        }
+        try {
+            return source.baseFor(assigned.region(), assigned.baseIndexRoot());
+        } catch (RuntimeException unavailable) {
+            LOG.debug("could not obtain the base for {}: {}",
+                    assigned.region(), unavailable.toString());
+            return null;
+        }
+    }
+
+    /** Supplies the content an assignment names, so a seat is taken on the right world. */
+    @FunctionalInterface
+    public interface RegionBaseSource {
+        /**
+         * @param region    the region being assigned.
+         * @param indexRoot the chunk-index root the assigner named.
+         * @return the state, or {@code null} when it cannot be obtained.
+         */
+        RegionSnapshot baseFor(RegionId region, dev.nodera.core.Bytes indexRoot);
+    }
+
+    private volatile RegionBaseSource regionBases;
+
+    /**
+     * Install the source that fetches the base an assignment names.
+     *
+     * <p>Without one, every v2 assignment is refused — which is the safe default for a node that
+     * has no way to obtain the world it is being asked to validate.
+     *
+     * @param source the source, or {@code null} to refuse every named base.
+     */
+    public void regionBaseSource(RegionBaseSource source) {
+        this.regionBases = source;
     }
 
     /**
@@ -2154,7 +2274,12 @@ public final class WorkerValidationService {
                 reservedBatches.remove(StateRoot.of(hashes.hash(pending)));
             }
         }
-        return new Replica(old.snapshot, lease);
+        Replica adopted = new Replica(old.snapshot, lease);
+        // A re-seat is a change of committee, not of state — and divergence is a property of the
+        // state. Carrying the snapshot forward without carrying this would put a member that knows
+        // its region is wrong straight back to voting on it.
+        adopted.diverged = old.diverged;
+        return adopted;
     }
 
     /** Real transport-backed joint approval provider used by the transfer coordinator. */
@@ -2315,16 +2440,63 @@ public final class WorkerValidationService {
         return divergences.get();
     }
 
+    /** @return whether this node holds {@code region} and knows its copy of it is wrong. */
+    public boolean isDiverged(RegionId region) {
+        Replica replica = replicas.get(region);
+        return replica != null && replica.diverged;
+    }
+
+    /**
+     * The region's content has been replaced with what the network holds — it may participate again.
+     *
+     * <p>Called after a fetched region has been written into the world, which is the only thing that
+     * can honestly clear the flag: divergence is a statement about what this node's copy contains,
+     * so nothing short of replacing that copy resolves it. The replica's own snapshot is re-derived
+     * from the world so its head matches what was just applied.
+     *
+     * @param region the region that was re-fetched and applied.
+     * @Thread-context server main thread (after the apply).
+     */
+    public void repaired(RegionId region) {
+        Replica replica = replicas.get(region);
+        if (replica == null || !replica.diverged) {
+            return;
+        }
+        replica.snapshot = world.reExtract(
+                region, replica.snapshot.version(), replica.snapshot.tick());
+        replica.headRoot = world.regionRoot(
+                region, replica.snapshot.version(), replica.snapshot.tick());
+        replica.pendingBallot = null;
+        replica.pendingBatch = null;
+        replica.pendingProposal = null;
+        replica.diverged = false;
+        divergedReplicas.decrementAndGet();
+        LOG.info("replica for {} repaired from the network — head is now {}",
+                region, replica.headRoot.hash().toShortHex(8));
+    }
+
+    /**
+     * @param region the region.
+     * @return whether this node is {@code region}'s primary — the only member allowed to propose
+     *         into it, or to certify a foreign write against it.
+     * @Thread-context any thread.
+     */
+    public boolean isPrimaryOf(RegionId region) {
+        Replica replica = replicas.get(region);
+        return replica != null && identity.nodeId().equals(replica.lease.primary())
+                && !replica.diverged;
+    }
+
     public Snapshot snapshot() {
         return new Snapshot(replicas.size(), proposalsSent.get(), votesCast.get(),
                 votesReceived.get(), committeeCommits.get(), fallbackCommits.get(),
-                divergences.get());
+                divergences.get(), divergedReplicas.get());
     }
 
     /** Immutable counter snapshot. */
     public record Snapshot(int activeRegions, long proposalsSent, long votesCast,
                            long votesReceived, long committeeCommits, long fallbackCommits,
-                           long divergences) {
+                           long divergences, long divergedReplicas) {
     }
 
     private dev.nodera.core.region.RegionEpoch replicaEpochOrInitial(RegionId region) {

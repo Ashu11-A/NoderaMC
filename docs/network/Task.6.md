@@ -7,7 +7,7 @@
      accurate. -->
 
 **Status:** ✅ COMPLETED (live churn soak → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-30
+**Category:** network · **Owns:** — · **Last audit:** 2026-08-01
 **Depends on:** [network 4](Task.4.md), [network 5](Task.5.md)
 **Consumed by:** [network 7](Task.7.md), [network 9](Task.9.md), [worker 3](../peer/Task.3.md)
 
@@ -51,6 +51,12 @@ release could destroy a replica the swarm still needs: only under budget pressur
 content, only on a real placement answer (a tracker outage yields `Placement.UNKNOWN` and keeps the
 world), and at most one world per sweep.
 
+**Correction 2026-08-01 — presence is not content.** The tracker catalog includes the synthetic
+`Nodera commons` namespace used to make world-less peers findable. A physical Android run showed the
+replication sweep treating it as a world and trying to fetch an archive that cannot exist.
+`WorldReplicationService` now removes `CommonsPresence.WORLD_ID` before placement or fetch;
+`ReplicationRepairsEmptyClaimsTest` pins the exclusion.
+
 Worth knowing before reading a live log: `forWorldArchives(standard())` derives **R = 22** from a 35%
 availability assumption and `factor` caps R at the network size, so below 22 peers every peer is an
 expected holder of every world and neither the repair nor the release path can do anything at all.
@@ -73,6 +79,7 @@ expected holder of every world and neither the repair nor the release path can d
 | 7 | `WorldReplicationService` — adopts placed worlds under a byte budget | ✅ |
 | 8 | Live churn soak on a real mesh | → [minecraft 2](../minecraft/Task.2.md) |
 | 9 | `WorldReplicationService` **releases** worlds it is no longer placed for, so the budget is not a one-time decision (`ReplicationGivesTheBudgetBackTest`, 6) | ✅ 2026-07-30 |
+| 10 | Synthetic commons presence never enters world placement or archive fetch | ✅ 2026-08-01 |
 
 ## Design
 
@@ -110,6 +117,8 @@ moment the network is least healthy.
   every peer as an expected holder rather than none.
 - `ReplicationGivesTheBudgetBackTest` — the release rule's four safety cases, including that a
   tracker outage (`Placement.UNKNOWN`) is not an eviction notice.
+- `ReplicationRepairsEmptyClaimsTest` (5) — empty hosted claims are repaired, bounds hold, and the
+  commons presence id is not a replicable world.
 - `ReplicationRepairsEmptyClaimsTest` — a claim with no content behind it is repaired ahead of
   placement and bounds.
 - `ArchiveRepairIT` — a killed ×5 manifest is re-replicated to factor with no data loss. **Over

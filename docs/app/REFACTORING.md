@@ -7,36 +7,26 @@
      limitation row. Scope: app/ excluding target/ and the android/ Kotlin/manifest
      assets (the .rs under src/android/ IS in scope). Audited 2026-07-28. -->
 
-Source: `build/jscpd/jscpd-report.json` (filtered to `app/`) + manual review of all 30
-`.rs` files. **jscpd flags zero duplicated blocks in this crate**, so the table is manual candidates
-only. Line counts from `build/loccount.txt`. Audited 2026-07-28.
+Superseding audit **2026-08-01** after the shared-core and launcher split. The prior jscpd result
+remains zero duplicated blocks; rows below track shape debt created or exposed by the new boundaries.
+Line counts are direct `wc -l` results.
 
 | File | Lines | % duplicated | Duplicated-with | Refactor plan |
 |---|---:|---|---|---|
-| `app/src/lib.rs` | 1135 | — | — | The `run()` function (≈360 lines, lines 773–1089) is the crate's god-function: plugin registration, state construction, the 50-entry `invoke_handler!`, the `setup` closure that spawns ~8 background tasks, and `build_tray`. Extract one `bootstrap` module: `register_plugins`, `build_state`, `register_commands`, and a `spawn_workers` set, each naming one task the setup closure currently inlines. Makes the task graph readable and the lifecycle unit-testable without a window. |
-| `app/src/settings.rs` | 1337 | — | — | Two unrelated responsibilities in one file: the settings **document** (`Settings`, validation, defaults) and the **enforcement resolver** (`ENFORCEMENT` table, `setting_status`, `resolve`, `WorkerReport`). Move the enforcement half into `enforcement.rs`; move `SettingsHandle`'s damaged-file / Android-race persistence into `state.rs`. The 24 tests split along the same seam. Shrinks the largest file and isolates the invariant the badges depend on. |
-| `app/src/api/model.rs` | 829 | — | — | `World::of`, `Peer::of`, `Endpoint::of` are the same shape — lift each wire row field-for-field into a view struct, mapping the handful of "unknown" sentinels. jscpd does not flag them because the field names differ, but the repetition is real. A single `From<&WireRow> for View` per type (or one small macro) removes it without hiding the sentinel rules the tests pin. |
-| `app/src/api/link.rs` | 648 | — | — | `stream_once` (≈80 lines, nested `match`) and `poll_until_gone` share the accept→publish→edge shape. Extract a `sample_and_publish(metrics, transport, first, on_reconnect)` helper so the two paths differ only in how they obtain a sample, not in how they treat one. |
-| `app/src/android/battery.rs` | 465 | — | — | Mixes three concerns: JNI platform glue (`platform` mod), the JNI bridge entry point (`Java_dev_nodera_app_NoderaBridge_initialise`), and the help-URL/policy logic the UI reads. Move the non-JNI half (`BatteryPolicy`, `help_url`, the desktop stubs) into `android/battery_policy.rs` so the readable, fully-testable-on-desktop part is not buried under `extern "system"` and `with_context`. |
+| `app/src/lib.rs` | 1121 | — | — | Shell still combines command delegates, plugin registration, tray, setup and generated handler list. Extract command modules without moving shared behavior back out of `nodera-core`. |
+| `library/rust/nodera-core/src/core.rs` | 1245 | — | — | `NoderaCore` is the shared façade but now also contains full launch orchestration. Extract launch execution into `launch/coordinator.rs` while preserving one public handle. |
+| `library/rust/nodera-core/src/launch/mod.rs` | 856 | — | — | Types, coordinator, cancellation-safe tunnel lease and tests share one file. Split types/coordinator/lease after launch ABI settles; do not split the state transitions across owners. |
+| `app/ui/src/components.tsx` | 842 | — | — | Controls, data displays, pagination, dialogs and world art are one primitive catalogue. Split by controls/data/overlays without duplicating token strings. |
+| `app/ui/src/Settings.tsx` | 793 | — | — | Settings orchestration and all basic configuration sections remain coupled. Extract one component per section while retaining a single settings document owner. |
 
 ## Sequencing
 
-1. **`lib.rs::run` extraction** — the god-function. Highest payoff: every later change to the task
-   graph currently edits a 360-line closure, and the setup order is load-bearing (the deep-link
-   handler must register before the window; the sync-file writer before the pusher; the link before
-   the sampler). Named functions make that order a comment you can read.
-2. **`settings.rs` split** — the largest file and the one with the clearest internal seam. The
-   enforcement resolver is pure and table-driven; pulling it out lets the badge logic be reasoned
-   about (and reviewed) without the file-persistence context.
-3. **`api::model` wire→view conversions** — small, mechanical, low-risk, and it removes the one
-   place a new wire field can silently fail to surface on screen (forget the mapping and the field is
-   dropped). Do it after the model is otherwise stable (Task 10's content pass).
-4. **`android/battery` split** — improves testability of the non-JNI half on desktop, where the JNI
-   half cannot run at all. Independent of the first three.
-5. **`api::link` helper** — moderate payoff, lowest risk; do last, once the link's behaviour is not
-   actively changing.
+1. **Extract Tauri command modules** while preserving setup order and thin delegates.
+2. **Split launch coordinator/types/lease** only after physical launcher acceptance freezes states.
+3. **Extract desktop Settings sections** around one shared document owner.
+4. **Split UI primitives** into controls, data and overlays without changing tokens.
+5. **Re-run jscpd and line counts** after those moves; current zero-clone result predates them.
 
-> jscpd's zero is a real result, not a misconfiguration: the crate's modules are structurally
-> distinct (each owns one verb or one data path), and the near-duplicate `::of` conversions in
-> `api::model` diverge enough per-field that the token matcher does not cluster them. The debt here
-> is shape (god-function, dual-responsibility files), not copied code.
+> Debt remains shape, not copied blocks. This register deliberately does not recommend recombining
+> native Compose and desktop React components: shared behavior belongs in `nodera-core`, not in a
+> cross-platform imitation layer.

@@ -10,7 +10,7 @@
 //   3. The state shown is what the WORKER confirmed. The app never renders its own intent.
 import { useEffect, useState } from "react";
 import { FiShield, FiCheck, FiX, FiAlertCircle } from "react-icons/fi";
-import { Card, Toggle, StatusBadge, Disclosure, cx, MONO } from "./components";
+import { Button, Card, Toggle, StatusBadge, Disclosure, Modal, cx, MONO } from "./components";
 import {
   fetchCollectedSchema,
   fetchTelemetryStatus,
@@ -81,31 +81,50 @@ export function ConsentModal(props: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-lg border border-line bg-panel p-6 shadow-xl">
-        <div className="mb-4 flex items-center gap-3">
-          <FiShield className="text-brand" size={22} />
-          <h2 className="text-lg font-semibold">Help improve NoderaMC?</h2>
+    <Modal
+      title="Help improve NoderaMC?"
+      width="md"
+      busy={busy}
+      footer={
+        <div className="grid w-full grid-cols-2 gap-3">
+          {/* Equal variants and dimensions: neither consent answer is visually preferred. */}
+          <Button variant="secondary" size="md" disabled={busy} onClick={() => answer(false)}>
+            <FiX /> Don't share
+          </Button>
+          <Button variant="secondary" size="md" disabled={busy} onClick={() => answer(true)}>
+            <FiCheck /> Share telemetry
+          </Button>
+        </div>
+      }
+    >
+        <div className="mb-4 flex items-center gap-3 rounded-md border border-line-soft bg-surface-2 p-3">
+          <span className="grid size-10 place-items-center rounded-md border border-brand-2/30 bg-brand-2/8">
+            <FiShield className="text-brand-1" size={20} />
+          </span>
+          <div>
+            <p className="text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">First launch</p>
+            <p className="text-sm text-dim">Anonymous, optional, and reversible in Settings.</p>
+          </div>
         </div>
 
-        <p className="mb-3 text-sm text-muted">
+        <p className="mb-3 text-sm text-dim">
           NoderaMC has no central server, which means nobody can see whether it actually works on
           real machines — whether peers reach each other, whether the engine stays in step, what a
           node costs to run. Sharing anonymous telemetry is how that becomes knowable.
         </p>
-        <p className="mb-4 text-sm text-muted">
+        <p className="mb-4 text-sm text-dim">
           It is off unless you turn it on, it never includes anything that identifies you or your
           worlds, and you can change your mind at any time under <b>Settings → Privacy</b>.
         </p>
 
         <Disclosure title="What exactly would be shared">
-          <ul className="mb-3 list-disc pl-5 text-sm text-muted">
+          <ul className="mb-3 list-disc pl-5 text-sm text-dim">
             {BUNDLED_SUMMARY.map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
           <div className="text-sm font-medium">Never shared</div>
-          <ul className="list-disc pl-5 text-sm text-muted">
+          <ul className="list-disc pl-5 text-sm text-dim">
             {NEVER_COLLECTED.map((line) => (
               <li key={line}>{line}</li>
             ))}
@@ -113,33 +132,13 @@ export function ConsentModal(props: {
         </Disclosure>
 
         {error && (
-          <div className="mt-3 flex items-start gap-2 text-sm text-down">
+          <div className="mt-3 flex items-start gap-2 text-sm text-danger">
             <FiAlertCircle className="mt-0.5 flex-none" />
             <span>{error}</span>
           </div>
         )}
 
-        {/* Both buttons carry the same weight, the same size, and the same styling. */}
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => answer(false)}
-            className="flex items-center justify-center gap-2 rounded-sm border border-line px-4 py-2.5 text-sm hover:bg-hover disabled:opacity-50"
-          >
-            <FiX /> Don't share
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => answer(true)}
-            className="flex items-center justify-center gap-2 rounded-sm border border-line px-4 py-2.5 text-sm hover:bg-hover disabled:opacity-50"
-          >
-            <FiCheck /> Share telemetry
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -212,7 +211,7 @@ export function PrivacyCard(props: {
         onChange={toggle}
       />
 
-      {error && <div className="mt-2 text-sm text-down">{error}</div>}
+      {error && <div className="mt-2 text-sm text-danger">{error}</div>}
 
       {/* An answer this app holds but the node has not taken. Not an error — the answer is kept and
           re-offered until a worker accepts it — but it must not be rendered as though it were in
@@ -225,7 +224,7 @@ export function PrivacyCard(props: {
       )}
 
       {status.consent === "granted" && (
-        <div className={cx("mt-3 grid gap-1 text-sm text-muted", MONO)}>
+        <div className={cx("mt-3 grid gap-1 text-sm text-dim", MONO)}>
           <div>collector: {status.endpoint || "not configured on this node"}</div>
           <div>
             queued: {status.queued} · sent: {status.sent}
@@ -251,20 +250,20 @@ export function PrivacyCard(props: {
               className={cx(
                 MONO,
                 "max-h-[320px] overflow-auto rounded-sm border border-line bg-surface-2 p-2.5",
-                "break-words whitespace-pre-wrap text-muted",
+                "break-words whitespace-pre-wrap text-dim",
               )}
             >
               {schema.text}
             </pre>
           ) : (
             <>
-              <ul className="mb-3 list-disc pl-5 text-sm text-muted">
+              <ul className="mb-3 list-disc pl-5 text-sm text-dim">
                 {BUNDLED_SUMMARY.map((line) => (
                   <li key={line}>{line}</li>
                 ))}
               </ul>
               <div className="text-sm font-medium">Never collected</div>
-              <ul className="list-disc pl-5 text-sm text-muted">
+              <ul className="list-disc pl-5 text-sm text-dim">
                 {NEVER_COLLECTED.map((line) => (
                   <li key={line}>{line}</li>
                 ))}

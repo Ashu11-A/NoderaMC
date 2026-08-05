@@ -113,15 +113,64 @@ public interface ControlHandler {
     }
 
     /**
+     * Fetch one region's committed state from the network into a local file — the mirror of
+     * {@link #seedRegion}, and the direction the content plane never had.
+     *
+     * @param worldId        hex world id.
+     * @param dimension      the region's dimension as {@code namespace:path}.
+     * @param regionX        region X.
+     * @param regionZ        region Z.
+     * @param destPathB64    base64 of the destination path for the encoded snapshot (same machine).
+     * @param haveIndexRoot  the chunk-index root the caller already holds, or the
+     *                       {@link ControlProtocol#NO_VALUE} sentinel for "whatever you have".
+     * @param timeoutSeconds the no-progress budget for the transfer.
+     * @return {@code "<byteCount> <snapshotHashHex>"} on success, or {@code null} if unsupported; a
+     *         thrown {@link RuntimeException}'s message becomes the ERR line.
+     */
+    default String fetchRegion(String worldId, String dimension, String regionX, String regionZ,
+                               String destPathB64, String haveIndexRoot, String timeoutSeconds) {
+        return null;
+    }
+
+    /**
      * Fetch a world's newest archive from the network into a local file (the joiner half).
      *
      * @param worldId        hex world id.
      * @param destPathB64    base64 of the destination file's absolute path.
-     * @param timeoutSeconds overall fetch deadline.
+     * @param timeoutSeconds the <b>no-progress</b> budget, not a wall clock.
      * @return {@code "<byteCount> <version>"} on success, or {@code null} if unsupported.
      */
     default String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
+        return fetchArchive(worldId, destPathB64, timeoutSeconds, ArchiveProgress.IGNORED);
+    }
+
+    /**
+     * As {@link #fetchArchive(String, String, long)}, reporting how far along it is as it goes.
+     *
+     * <p>The reporting is what makes the deadline mean the same thing on both ends. Without it the
+     * caller can only time the whole transfer, and a big archive that is downloading perfectly
+     * happily looks identical to one that has died — which is exactly how a player came to wait
+     * 748 seconds and then be told the fetch had failed by a worker that was still fetching.
+     *
+     * @param progress called as pieces are verified; must not block.
+     */
+    default String fetchArchive(String worldId, String destPathB64, long timeoutSeconds,
+                                ArchiveProgress progress) {
         return null;
+    }
+
+    /** How far an in-flight archive fetch has got. */
+    @FunctionalInterface
+    interface ArchiveProgress {
+
+        /** Reports progress and discards it, for callers that only want the result. */
+        ArchiveProgress IGNORED = (verified, total) -> { };
+
+        /**
+         * @param verified pieces verified so far.
+         * @param total    pieces in the archive.
+         */
+        void at(int verified, int total);
     }
 
     /**
@@ -161,6 +210,25 @@ public interface ControlHandler {
      */
     default String grantRole(String worldIdHex, String subjectNodeId, String subjectPublicKeyB64,
                              int roleOrdinal, long grantVersion) {
+        return null;
+    }
+
+    /**
+     * Sign a {@link dev.nodera.core.identity.SessionDelegation}: this worker's persistent key
+     * vouching that a game session's per-session transport key speaks in its name, in one world,
+     * until a stated instant.
+     *
+     * <p>This confers nothing by itself. It exists so that the permission evaluator, which is
+     * anchored to persistent keys, can resolve a session's announced key to the key the world
+     * actually knows — otherwise a world's own author announces a key no world has heard of and is
+     * evaluated as an ordinary member of it.
+     *
+     * @param worldIdHex        the world the delegation is scoped to (hex).
+     * @param sessionPublicKeyB64 base64 of the session's Ed25519 public key.
+     * @param ttlSeconds        requested lifetime; clamped by the worker.
+     * @return base64 of the signed delegation's canonical bytes, or {@code null} if unsupported.
+     */
+    default String delegateSession(String worldIdHex, String sessionPublicKeyB64, long ttlSeconds) {
         return null;
     }
 

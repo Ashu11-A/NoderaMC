@@ -56,6 +56,17 @@ public record NoderaLanePlanPayload(LanePlan plan) implements CustomPacketPayloa
             buf.writeUtf(r.publicKeyB64());
             buf.writeUtf(r.route());
         }
+        // Appended: a plan that names no bases writes a zero-length list, which is exactly what an
+        // older client's absent field meant. Both halves of a session ship together — this is the
+        // mod's own payload, not the peer wire — so the list is read unconditionally.
+        buf.writeVarInt(plan.bases().size());
+        for (LanePlan.RegionBase b : plan.bases()) {
+            buf.writeUtf(b.dimNamespace());
+            buf.writeUtf(b.dimPath());
+            buf.writeVarInt(b.regionX());
+            buf.writeVarInt(b.regionZ());
+            buf.writeUtf(b.indexRootHex());
+        }
     }
 
     private static NoderaLanePlanPayload read(RegistryFriendlyByteBuf buf) {
@@ -78,9 +89,15 @@ public record NoderaLanePlanPayload(LanePlan plan) implements CustomPacketPayloa
         for (int i = 0; i < residentCount; i++) {
             residents.add(new LanePlan.Resident(buf.readUtf(), buf.readUtf(), buf.readUtf()));
         }
+        int baseCount = buf.readVarInt();
+        List<LanePlan.RegionBase> bases = new ArrayList<>(baseCount);
+        for (int i = 0; i < baseCount; i++) {
+            bases.add(new LanePlan.RegionBase(buf.readUtf(), buf.readUtf(), buf.readVarInt(),
+                    buf.readVarInt(), buf.readUtf()));
+        }
         return new NoderaLanePlanPayload(new LanePlan(worldSeed, rulesVersion, registryFingerprint,
                 genesisRoot, actionSigner, gameTime, committeeSize, List.copyOf(members),
-                List.copyOf(residents)));
+                List.copyOf(residents), List.copyOf(bases)));
     }
 
     @Override

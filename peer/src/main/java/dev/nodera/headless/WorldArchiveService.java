@@ -6,6 +6,8 @@ import dev.nodera.core.crypto.CanonicalWriter;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
 import dev.nodera.core.region.RegionId;
+import dev.nodera.core.state.ChunkStampBook;
+import dev.nodera.core.state.HybridClock;
 import dev.nodera.distribution.ContentTransferService;
 import dev.nodera.distribution.PieceDownloader;
 import dev.nodera.distribution.PieceManifest;
@@ -86,6 +88,13 @@ public final class WorldArchiveService implements AutoCloseable {
     public static final int DEFAULT_RETAINED_VERSIONS = 3;
 
     private final NodeId self;
+
+    /**
+     * This node's clock for chunk stamps. One per service rather than one per region: a clock is
+     * only monotone across the readings it issues, and two clocks on one node would issue readings
+     * that tie with each other and be broken by an origin they share.
+     */
+    private final HybridClock stampClock;
     private final PeerTransport transport;
     private final ContentTransferService content;
     private final TrackerLookup tracker;
@@ -122,6 +131,11 @@ public final class WorldArchiveService implements AutoCloseable {
     private final Map<String, NavigableMap<Long, PieceManifest>> manifests =
             new ConcurrentHashMap<>();
 
+    /** World IDs this node holds manifests for — hosted and replicated alike. */
+    public Set<String> knownWorldIds() {
+        return Set.copyOf(manifests.keySet());
+    }
+
     /**
      * worldIdHex → region → snapshot version → manifest: the <b>validated-lane region pieces</b>
      * this node seeds (L-41).
@@ -140,6 +154,13 @@ public final class WorldArchiveService implements AutoCloseable {
     private final Map<NodeId, PeerAddress> routes = new ConcurrentHashMap<>();
 
     /** In-flight manifest queries: worldIdHex → future completed by the first useful answer. */
+    /**
+     * Worlds whose holder list is being resolved right now, so concurrent readers do not each
+     * start their own tracker round trip for the same world. Same shape and same reason as
+     * {@link #pendingManifests} below.
+     */
+    private final Map<String, Boolean> pendingHolders = new ConcurrentHashMap<>();
+
     private final Map<String, CompletableFuture<List<PieceManifest>>> pendingManifests =
             new ConcurrentHashMap<>();
 
@@ -211,6 +232,15 @@ public final class WorldArchiveService implements AutoCloseable {
      */
     private static final Duration REFRESH_PROBE = Duration.ofSeconds(8);
 
+    /**
+     * How long a download may make no progress before its holder set is resolved again.
+     *
+     * <p>Long enough that a transfer merely waiting behind the in-flight budget is never mistaken
+     * for one that has nobody left to ask, and short enough to be well inside the caller's stall
+     * budget — a re-resolve that only happens after the fetch has already given up is no use.
+     */
+    private static final Duration STALL_RESOLVE = Duration.ofSeconds(20);
+
     /** worldIdHex → the last holder set resolved for it, with the moment it was resolved. */
     private final Map<String, CachedHolders> holderCache = new ConcurrentHashMap<>();
 
@@ -241,6 +271,8 @@ public final class WorldArchiveService implements AutoCloseable {
      * meant to bound.
      */
     private final dev.nodera.storage.PinnableContentStore pins;
+    /** Records what this node holds so a restart does not forget it; null in memory. */
+    private final ManifestIndexStore index;
 
     /**
      * @param identity         this worker's identity (tracker queries are made with it).
@@ -299,7 +331,13 @@ public final class WorldArchiveService implements AutoCloseable {
     private WorldArchiveService(NodeIdentity identity, PeerTransport transport, ContentStore store,
                                 TrackerLookup tracker, boolean ownsTracker) {
         this.self = identity.nodeId();
+        this.stampClock = new HybridClock(this.self);
         this.pins = store instanceof dev.nodera.storage.PinnableContentStore p ? p : null;
+        // Where this node writes down what it is holding. Only a store that can say where it keeps
+        // its blobs gets one: an in-memory store has nothing to survive a restart with, and a
+        // manifest index beside blobs that vanish would describe content this node does not have.
+        this.index = store instanceof dev.nodera.storage.fs.FsContentStore fs
+                ? new ManifestIndexStore(fs::contentRoot) : null;
         this.transport = Objects.requireNonNull(transport, "transport");
         // Bulk bounds: the archive lane moves whole saves worker-to-worker, so the in-game
         // defaults (8 pieces / 1 MiB-per-window, sized to never starve a simulation thread) would
@@ -325,11 +363,126 @@ public final class WorldArchiveService implements AutoCloseable {
                 dev.nodera.core.concurrent.Recurring.survivable(this::openTransferWindows,
                         e -> LOG.warn("Transfer window tick failed: {}", e.toString())),
                 SERVE_WINDOW.toMillis(), SERVE_WINDOW.toMillis(), TimeUnit.MILLISECONDS);
+        restoreFromIndex();
+    }
+
+    /**
+     * Come back knowing what this node is holding.
+     *
+     * <p>Without this the maps start empty on every boot, and a node with a complete world on disk
+     * reports zero pieces, serves nothing and announces nothing — the blobs are all still there and
+     * nothing binds them into a world any more. {@code WorldHostingService} already restores its
+     * own rows this way, which is why the WORLDS came back after a restart while their contents
+     * appeared to have vanished.
+     */
+    private void restoreFromIndex() {
+        if (index == null) {
+            return;
+        }
+        int archives = 0;
+        int regions = 0;
+        for (ManifestIndexStore.Entry entry : index.loadAll()) {
+            PieceManifest manifest = entry.manifest();
+            // Only adopt what the store can actually still serve. A manifest whose blob was evicted
+            // — or whose archive directory was cleared out from under it — would otherwise make
+            // this node advertise content it would then fail to hand over.
+            if (!content.republish(manifest)) {
+                index.remove(entry.worldIdHex(), manifest);
+                continue;
+            }
+            // Which lane it belongs to is a property of the manifest, exactly as it is on the wire
+            // path: the archive lane files everything under the synthetic ARCHIVE_REGION.
+            if (WorldArchive.ARCHIVE_REGION.equals(manifest.region())) {
+                manifests.computeIfAbsent(entry.worldIdHex(), k -> new ConcurrentSkipListMap<>())
+                        .put(manifest.version().value(), manifest);
+                archives++;
+            } else {
+                regionManifests
+                        .computeIfAbsent(entry.worldIdHex(), k -> new ConcurrentHashMap<>())
+                        .computeIfAbsent(manifest.region(), k -> new ConcurrentSkipListMap<>())
+                        .put(manifest.version().value(), manifest);
+                regions++;
+            }
+            // Re-pin, or the next eviction pass treats content this node is seeding as spare space.
+            pin(manifest);
+        }
+        if (archives > 0 || regions > 0) {
+            LOG.info("Restored {} archive manifest(s) and {} region manifest(s) from disk — this "
+                    + "node still knows what it is holding", archives, regions);
+        }
     }
 
     private void openTransferWindows() {
         content.resetServeWindow();
         content.resetDownloadWindow();
+    }
+
+    /**
+     * Start a download from the pieces this node already has, rather than from zero.
+     *
+     * <p>{@link PieceDownloader#restoreLocal} exists for exactly this and had <b>no production
+     * caller</b>: partial content was only ever reused by accident, when the downloader for the
+     * same manifest root happened to still be registered from an earlier attempt. Any other route
+     * in — a rehost after a disconnect, a restart, a second attempt on a newer version — began by
+     * re-downloading bytes that were already on this disk.
+     *
+     * <p>That is not merely wasteful. A recovering player's fetch is racing a deadline, and the
+     * node most likely to be recovering is the one that has been replicating the world all session
+     * and therefore holds most of it. Observed live: a joiner whose own worker held the world sat
+     * for 748 seconds re-fetching it and never finished.
+     *
+     * @param held the pieces the content store reports for this root.
+     */
+    private void adoptPiecesAlreadyHere(PieceManifest manifest, PieceDownloader downloader,
+                                        BitSet held) {
+        int adopted = 0;
+        for (int index = held.nextSetBit(0); index >= 0; index = held.nextSetBit(index + 1)) {
+            Optional<Bytes> bytes = content.pieceBytes(manifest.manifestRoot(), index);
+            // restoreLocal re-verifies against the manifest, so a piece that does not check out is
+            // simply not adopted and gets fetched normally.
+            if (bytes.isPresent() && downloader.restoreLocal(index, bytes.get())) {
+                adopted++;
+            }
+        }
+        // Then the same question asked of every OTHER manifest on this disk. A world's newest
+        // version shares almost all of its bytes with the version before it — the host repacked,
+        // one region file changed — and a piece is addressed by the hash of its bytes, so a piece
+        // held under the old root IS the piece the new root is asking for. Not doing this is why a
+        // peer that already held 99% of a world still downloaded 100% of it, every time the host
+        // seeded, forever.
+        int reused = 0;
+        for (int index = 0; index < manifest.pieceCount(); index++) {
+            if (held.get(index)) {
+                continue;
+            }
+            Optional<Bytes> sameBytes = content.pieceByHash(manifest.piece(index).pieceHash());
+            if (sameBytes.isPresent() && downloader.restoreLocal(index, sameBytes.get())) {
+                reused++;
+            }
+        }
+        if (adopted > 0 || reused > 0) {
+            LOG.info("Resuming world archive {} from {} piece(s) already held here and {} "
+                            + "unchanged from an earlier version",
+                    shortId(manifest.manifestRoot().toHex()), adopted, reused);
+        }
+    }
+
+    /**
+     * Write down that this node holds a manifest, so a restart still knows it.
+     *
+     * <p>A no-op for an in-memory store, which has no disk to survive on.
+     */
+    private void record(String worldIdHex, PieceManifest manifest) {
+        if (index != null) {
+            index.put(worldIdHex, manifest);
+        }
+    }
+
+    /** The other half: an evicted version must not come back from disk on the next boot. */
+    private void forget(String worldIdHex, PieceManifest manifest) {
+        if (index != null) {
+            index.remove(worldIdHex, manifest);
+        }
     }
 
     // --- seeding (the host side) -----------------------------------------------------------
@@ -353,6 +506,7 @@ public final class WorldArchiveService implements AutoCloseable {
         content.publish(manifest, Bytes.unsafeWrap(blob));
         pin(manifest);
         versions.put(version, manifest);
+        record(worldIdHex, manifest);
         LOG.info("Seeding world archive {} v{} — {} piece(s), {} byte(s), root {}",
                 shortId(worldIdHex), version, manifest.pieceCount(), manifest.totalLength(),
                 manifest.manifestRoot().toShortHex(6));
@@ -387,6 +541,7 @@ public final class WorldArchiveService implements AutoCloseable {
         content.publish(encrypted.manifest(), encrypted.ciphertextBlob());
         pin(encrypted.manifest());
         versions.put(version, encrypted.manifest());
+        record(worldIdHex, encrypted.manifest());
         LOG.info("Seeding ENCRYPTED world archive {} v{} — {} piece(s), {} ciphertext byte(s), "
                         + "kdf {}, root {}",
                 shortId(worldIdHex), version, encrypted.manifest().pieceCount(),
@@ -455,6 +610,7 @@ public final class WorldArchiveService implements AutoCloseable {
         content.publish(manifest, Bytes.unsafeWrap(blob));
         pin(manifest);
         versions.put(version, manifest);
+        record(worldIdHex, manifest);
         LOG.info("Seeding save region {} of {} v{} — {} piece(s), {} byte(s), root {}…",
                 region, shortId(worldIdHex), version, manifest.pieceCount(),
                 manifest.totalLength(), manifest.manifestRoot().toShortHex(6));
@@ -474,17 +630,281 @@ public final class WorldArchiveService implements AutoCloseable {
         if (held != null) {
             return held;
         }
+        // Stamp the columns that actually changed since the version this node last saw, and let the
+        // rest keep the reading they already had. Change is observed rather than asserted: the
+        // process that edited the chunk is usually a game client that has already gone, so the
+        // node that publishes the region is the first place with both versions in hand.
         dev.nodera.distribution.RegionSnapshotSplitter.Layout layout =
-                dev.nodera.distribution.RegionSnapshotSplitter.split(snapshot);
+                dev.nodera.distribution.RegionSnapshotSplitter.split(snapshot,
+                        restampAgainstPrevious(snapshot, versions));
         PieceManifest manifest = layout.manifest();
         content.publish(manifest, layout.blob());
         pin(manifest);
         versions.put(version, manifest);
-        LOG.info("Seeding region {} of world {} v{} — {} piece(s), {} byte(s), root {}",
+        record(worldIdHex, manifest);
+        dev.nodera.core.state.RegionChunkIndex index = layout.chunkIndex();
+        LOG.info("Seeding region {} of world {} v{} — {} piece(s), {} byte(s), root {}, {} chunk(s)",
                 snapshot.region(), shortId(worldIdHex), version, manifest.pieceCount(),
-                manifest.totalLength(), manifest.manifestRoot().toShortHex(6));
+                manifest.totalLength(), manifest.manifestRoot().toShortHex(6),
+                index == null ? 0 : index.stamps().size());
         trimRegionToRetention(worldIdHex, snapshot.region(), versions);
         return manifest;
+    }
+
+    /**
+     * Fetch one region's content from the swarm and hand back the state it describes.
+     *
+     * <h2>The half of the content plane that was missing</h2>
+     *
+     * <p>Regions have been seeded, split, hashed and announced since the piece plane landed, and
+     * their manifests travel on {@code WorldManifestAnswer} — but nothing ever downloaded one. The
+     * only way to receive somebody else's world was the whole-save archive, which costs a world
+     * reload. This is the region-granular path: ask for the columns that differ, get bytes back,
+     * and hand a {@link dev.nodera.core.state.RegionSnapshot} to a caller that can put it in a level.
+     *
+     * <p>The piece work is the archive lane's, unchanged — including
+     * {@code adoptPiecesAlreadyHere}, which reuses any piece whose <b>hash</b> this node already
+     * holds under any other manifest. That is what makes this cheap: regions are cut one piece per
+     * chunk column, so a column nobody touched is a byte-identical piece under a new root, found
+     * locally and never requested.
+     *
+     * @param worldIdHex   the world.
+     * @param region       the region wanted.
+     * @param wantRoot     the specific chunk-index root wanted, or {@code null} for the newest
+     *                     manifest this node knows of.
+     * @param seeders      peers that might hold it.
+     * @param timeout      the no-progress budget (a stall deadline, not a wall clock).
+     * @return the region's state.
+     * @throws IllegalStateException if no manifest is known, or the fetch stalls.
+     * @Thread-context any thread; blocking.
+     */
+    public dev.nodera.core.state.RegionSnapshot fetchRegion(
+            String worldIdHex, RegionId region, Bytes wantRoot, java.time.Duration timeout) {
+        return fetchRegionFrom(worldIdHex, region, wantRoot,
+                resolveSeeders(Bytes.fromHex(worldIdHex)), timeout);
+    }
+
+    /**
+     * As {@link #fetchRegion}, from an explicit candidate-seeder set — the tracker-free path for
+     * tests and pre-resolved callers.
+     *
+     * @Thread-context any thread except the runtime state thread (blocks).
+     */
+    public dev.nodera.core.state.RegionSnapshot fetchRegionFrom(
+            String worldIdHex, RegionId region, Bytes wantRoot,
+            Set<NodeId> seeders, java.time.Duration timeout) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        Objects.requireNonNull(region, "region");
+        PieceManifest manifest = regionManifestFor(worldIdHex, region, wantRoot);
+        if (manifest == null) {
+            throw new IllegalStateException("no manifest known for region " + region
+                    + " of world " + shortId(worldIdHex)
+                    + (wantRoot == null ? "" : " at index root " + wantRoot.toShortHex(6)));
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        byte[] blob = download(worldIdHex, manifest, seeders, deadline, (verified, total) -> { });
+        // The blob must hash to the root the committee certified, or this is not the region it
+        // claims to be. The pieces were each verified on arrival; this checks that they were also
+        // the RIGHT pieces, assembled in the right order.
+        Bytes assembled = new dev.nodera.core.crypto.HashService().sha256(blob);
+        if (!assembled.equals(manifest.regionRoot().hash())) {
+            throw new IllegalStateException("fetched region " + region + " hashes to "
+                    + assembled.toShortHex(6) + ", not the certified "
+                    + manifest.regionRoot().hash().toShortHex(6));
+        }
+        dev.nodera.core.state.RegionSnapshot snapshot =
+                dev.nodera.core.state.RegionSnapshot.decode(
+                        new dev.nodera.core.crypto.CanonicalReader(Bytes.unsafeWrap(blob)));
+        // Take the provenance the columns arrived with rather than re-dating them to now: a chunk
+        // somebody edited an hour ago must not outrank one edited a minute ago merely because this
+        // node received the first one second. This is also the only place remote readings reach the
+        // local clock, which is why the clock bounds how far ahead it will follow one.
+        dev.nodera.core.state.RegionChunkIndex index = manifest.chunkIndex();
+        if (index != null) {
+            long refused = stampClock.rejectedReadings();
+            for (dev.nodera.core.state.ChunkStamp stamp : index.stamps()) {
+                stampClock.observe(stamp.stamp());
+            }
+            // The stamps themselves persist in the manifest this node now holds, so the next re-seed
+            // reads them back through restampAgainstPrevious; what has to happen here is that the
+            // local clock learns to answer "after" to what it has seen.
+            if (stampClock.rejectedReadings() > refused) {
+                LOG.warn("region {} of world {} carried {} clock reading(s) too far in the future "
+                                + "to adopt — a peer's clock is wrong, or somebody is trying it on",
+                        region, shortId(worldIdHex), stampClock.rejectedReadings() - refused);
+            }
+        }
+        LOG.info("Fetched region {} of world {} — {} column(s), root {}",
+                region, shortId(worldIdHex), snapshot.chunks().size(),
+                manifest.regionRoot().hash().toShortHex(6));
+        return mergeWithHeld(worldIdHex, region, snapshot, manifest);
+    }
+
+    /**
+     * Reconcile a freshly fetched region with a copy this node already advanced on its own.
+     *
+     * <p>The case the version counter got wrong. Both peers moved on from the same base while they
+     * could not see each other; comparing counters that were incremented independently and keeping
+     * the higher one discarded a whole copy of somebody's work. Here the two are merged, column by
+     * column and — where an ancestor is available — block by block within a column, so the only
+     * thing lost is a position both peers changed <em>differently</em>.
+     *
+     * <p>Returns the fetched snapshot unchanged when this node holds nothing of its own to weigh
+     * against it, which is the ordinary case: a peer receiving a region it has never had.
+     */
+    private dev.nodera.core.state.RegionSnapshot mergeWithHeld(
+            String worldIdHex, RegionId region,
+            dev.nodera.core.state.RegionSnapshot fetched, PieceManifest fetchedManifest) {
+        PieceManifest ours = regionManifestFor(worldIdHex, region, null);
+        if (ours == null || ours.manifestRoot().equals(fetchedManifest.manifestRoot())) {
+            return fetched;
+        }
+        dev.nodera.core.state.RegionChunkIndex ourIndex = ours.chunkIndex();
+        dev.nodera.core.state.RegionChunkIndex theirIndex = fetchedManifest.chunkIndex();
+        if (ourIndex == null || theirIndex == null
+                || ourIndex.root().equals(theirIndex.root())) {
+            // Same content, or no basis for a per-column comparison. Either way there is nothing a
+            // merge could add, and guessing without an index is how data gets lost.
+            return fetched;
+        }
+        dev.nodera.core.state.RegionSnapshot mine;
+        try {
+            mine = dev.nodera.core.state.RegionSnapshot.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(
+                            Bytes.unsafeWrap(reassembleLocal(ours))));
+        } catch (RuntimeException incomplete) {
+            // This node advertises the manifest but cannot assemble it — it holds part of it. There
+            // is nothing to merge from, and the fetched copy is complete.
+            LOG.debug("no complete local copy of {} to merge with: {}", region,
+                    incomplete.toString());
+            return fetched;
+        }
+        // The ancestor is the newest state both sides are known to have held. Without one the merge
+        // still runs; each differing column simply resolves whole, by clock.
+        dev.nodera.core.state.RegionSnapshot ancestor =
+                commonAncestor(worldIdHex, region, ourIndex, theirIndex);
+        dev.nodera.distribution.RegionMerger.Outcome outcome =
+                dev.nodera.distribution.RegionMerger.reconcile(
+                        ancestor, mine, ourIndex, fetched, theirIndex);
+        if (outcome.merged() == 0 && outcome.tookTheirs() == 0) {
+            return fetched;
+        }
+        // Publish the merged result, so this node seeds what it reconciled rather than one of the
+        // two inputs — otherwise the next peer to ask gets the same divergence handed back to it.
+        seedRegion(worldIdHex, outcome.snapshot());
+        return outcome.snapshot();
+    }
+
+    /**
+     * The newest version of a region this node holds that predates both copies' divergence.
+     *
+     * <p>Found by walking this node's own history for a version whose columns neither side has
+     * changed away from — in practice the last version before the split. There is no need for it to
+     * be exact: a too-old ancestor makes the merge more conservative (more positions look changed
+     * by both sides), never wrong.
+     *
+     * @return the ancestor state, or {@code null} when none can be assembled.
+     */
+    private dev.nodera.core.state.RegionSnapshot commonAncestor(
+            String worldIdHex, RegionId region,
+            dev.nodera.core.state.RegionChunkIndex mine,
+            dev.nodera.core.state.RegionChunkIndex theirs) {
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.get(worldIdHex);
+        if (byRegion == null) {
+            return null;
+        }
+        NavigableMap<Long, PieceManifest> versions = byRegion.get(region);
+        if (versions == null) {
+            return null;
+        }
+        PieceManifest best = null;
+        for (PieceManifest candidate : versions.descendingMap().values()) {
+            dev.nodera.core.state.RegionChunkIndex index = candidate.chunkIndex();
+            if (index == null || index.root().equals(mine.root())
+                    || index.root().equals(theirs.root())) {
+                continue;
+            }
+            best = candidate;
+            break;
+        }
+        if (best == null) {
+            return null;
+        }
+        try {
+            return dev.nodera.core.state.RegionSnapshot.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(
+                            Bytes.unsafeWrap(reassembleLocal(best))));
+        } catch (RuntimeException incomplete) {
+            return null;
+        }
+    }
+
+    /**
+     * The manifest this node knows for a region, by chunk-index root or newest-first.
+     *
+     * @return the manifest, or {@code null} when this node knows of none.
+     */
+    private PieceManifest regionManifestFor(String worldIdHex, RegionId region, Bytes wantRoot) {
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.get(worldIdHex);
+        if (byRegion == null) {
+            return null;
+        }
+        NavigableMap<Long, PieceManifest> versions = byRegion.get(region);
+        if (versions == null || versions.isEmpty()) {
+            return null;
+        }
+        if (wantRoot == null) {
+            return versions.lastEntry().getValue();
+        }
+        for (PieceManifest candidate : versions.descendingMap().values()) {
+            dev.nodera.core.state.RegionChunkIndex index = candidate.chunkIndex();
+            if (index != null && index.root().equals(wantRoot)) {
+                return candidate;
+            }
+            if (candidate.manifestRoot().equals(wantRoot)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Build the stamp book for a region about to be seeded, by comparing it with the newest version
+     * of that region this node already holds.
+     *
+     * <p>Columns whose content hash is unchanged keep the reading they arrived with, so a chunk
+     * nobody has touched in a week does not appear to have been rewritten every time its region is
+     * re-seeded — which is what would make every peer re-fetch it. Columns whose content differs are
+     * stamped now, by this node, which is a true statement: this is where the change was first
+     * observed.
+     *
+     * @param snapshot the region about to be seeded.
+     * @param versions the versions of that region held here.
+     * @return a book pre-loaded with the previous readings, or {@code null} when there is no
+     *         previous version to compare against.
+     */
+    private ChunkStampBook restampAgainstPrevious(
+            dev.nodera.core.state.RegionSnapshot snapshot,
+            NavigableMap<Long, PieceManifest> versions) {
+        Map.Entry<Long, PieceManifest> newest = versions.lastEntry();
+        dev.nodera.core.state.RegionChunkIndex previous =
+                newest == null ? null : newest.getValue().chunkIndex();
+        if (previous == null) {
+            return null;
+        }
+        ChunkStampBook book = new ChunkStampBook(stampClock);
+        for (dev.nodera.core.state.ChunkColumnState column : snapshot.chunks()) {
+            dev.nodera.core.state.ChunkStamp before =
+                    previous.stampAt(column.chunkX(), column.chunkZ());
+            dev.nodera.core.state.ChunkStamp now = dev.nodera.core.state.ChunkStamp.of(column,
+                    dev.nodera.core.state.Hlc.ZERO);
+            if (before != null && before.contentHash().equals(now.contentHash())) {
+                book.adopt(column.chunkX(), column.chunkZ(), before.stamp());
+            } else {
+                book.touch(column.chunkX(), column.chunkZ());
+            }
+        }
+        return book;
     }
 
     /**
@@ -648,6 +1068,7 @@ public final class WorldArchiveService implements AutoCloseable {
                 pins.unpin(gone.blob());
             }
             content.unpublish(gone.manifestRoot());
+            forget(worldIdHex, gone);
             evicted++;
             LOG.info("Evicted world archive {} v{} (root {}) — {}",
                     shortId(worldIdHex), version, gone.manifestRoot().toShortHex(6), why);
@@ -934,15 +1355,78 @@ public final class WorldArchiveService implements AutoCloseable {
         if (cached != null && now - cached.atNanos() < HOLDER_CACHE_TTL.toNanos()) {
             return cached.holders();
         }
+        // A stale answer now beats a fresh one in twenty seconds, because of WHO calls this: it is
+        // read while building the NODERA-STATE document, on the connection's own thread, and the
+        // whole document is written only once it is complete. A cache miss here used to dial every
+        // configured tracker in turn — twice, for the query and the routes — at five seconds to
+        // connect and ten to read apiece, so a single unreachable endpoint stalled the reply past
+        // any sane client timeout. Measured on a phone with one dead tracker configured: a
+        // one-second read returned ZERO BYTES from a completely healthy worker, and the app's own
+        // watch stream re-entered this several times a second while it happened.
+        //
+        // So: answer immediately with whatever is known, and refresh behind the scenes. The
+        // refresh is de-duplicated per world using the same CompletableFuture-keyed-by-world idiom
+        // `pendingManifests` uses a few methods down — without it, every concurrent reader that
+        // missed the cache paid the full tracker round trip independently, which is exactly the
+        // load that made the stall worse the more the app polled.
+        refreshHoldersInBackground(worldIdHex);
+        return cached == null ? Set.of() : cached.holders();
+    }
+
+    /**
+     * Resolve a world's holders <b>now</b>, on the calling thread, and cache the answer.
+     *
+     * <p>{@link #holdersFor} deliberately never blocks, because its callers are display paths that
+     * must not inherit a tracker's timeout. This is the other half: for a caller that genuinely
+     * needs the resolved answer before it continues, and for the tests that cover what resolution
+     * itself does — merging the tracker's seeder index with the routes query (L-85). Separating the
+     * two is what lets the fast path stay fast without deleting the behaviour underneath it.
+     *
+     * @param worldIdHex the world.
+     * @return the holders, excluding self; empty when no tracker answered.
+     * @Thread-context any thread EXCEPT one that must stay responsive — this dials trackers.
+     */
+    public Set<NodeId> resolveHoldersNow(String worldIdHex) {
         try {
             Set<NodeId> holders = resolveSeeders(Bytes.fromHex(worldIdHex));
             holders.remove(self);
             Set<NodeId> immutable = Set.copyOf(holders);
-            holderCache.put(worldIdHex, new CachedHolders(immutable, now));
+            holderCache.put(worldIdHex, new CachedHolders(immutable, System.nanoTime()));
             return immutable;
         } catch (RuntimeException e) {
             LOG.debug("holder resolution for {} failed: {}", shortId(worldIdHex), e.getMessage());
             return Set.of();
+        }
+    }
+
+    /**
+     * Resolve a world's holders off the caller's thread, once per world at a time.
+     *
+     * <p>Failures are cached as an empty set, not left to be retried on the next read: a world
+     * whose trackers are all down would otherwise start a fresh resolution for every state read
+     * forever, which is the same pile-up in slower motion.
+     */
+    private void refreshHoldersInBackground(String worldIdHex) {
+        if (pendingHolders.putIfAbsent(worldIdHex, Boolean.TRUE) != null) {
+            return;
+        }
+        try {
+            scheduler.execute(() -> {
+                try {
+                    Set<NodeId> holders = resolveSeeders(Bytes.fromHex(worldIdHex));
+                    holders.remove(self);
+                    holderCache.put(worldIdHex,
+                            new CachedHolders(Set.copyOf(holders), System.nanoTime()));
+                } catch (RuntimeException e) {
+                    holderCache.put(worldIdHex, new CachedHolders(Set.of(), System.nanoTime()));
+                    LOG.debug("holder resolution for {} failed: {}",
+                            shortId(worldIdHex), e.getMessage());
+                } finally {
+                    pendingHolders.remove(worldIdHex);
+                }
+            });
+        } catch (RuntimeException shuttingDown) {
+            pendingHolders.remove(worldIdHex);
         }
     }
 
@@ -1138,8 +1622,29 @@ public final class WorldArchiveService implements AutoCloseable {
      * @Thread-context any thread except the runtime state thread (blocks).
      */
     public byte[] fetchArchive(String worldIdHex, Duration timeout) {
+        return fetchArchive(worldIdHex, timeout, (verified, total) -> { });
+    }
+
+    /**
+     * As above, reporting how far along it is as pieces are verified.
+     *
+     * <p>The caller that matters here is the control lane: a fetch takes minutes, and a client that
+     * hears nothing for minutes cannot tell a working transfer from a dead worker. Saying so is
+     * what lets the {@code timeout} above mean the same thing on both ends — time WITHOUT progress,
+     * which is what this service has always enforced.
+     *
+     * @param progress called as the verified-piece count changes; must not block.
+     */
+    public byte[] fetchArchive(String worldIdHex, Duration timeout, ArchiveProgress progress) {
         Objects.requireNonNull(worldIdHex, "worldIdHex");
-        return fetchArchiveFrom(worldIdHex, resolveSeeders(Bytes.fromHex(worldIdHex)), timeout);
+        return fetchArchiveFrom(worldIdHex, resolveSeeders(Bytes.fromHex(worldIdHex)), timeout,
+                progress);
+    }
+
+    /** How far an in-flight fetch has got. */
+    @FunctionalInterface
+    public interface ArchiveProgress {
+        void at(int verified, int total);
     }
 
     /**
@@ -1150,12 +1655,57 @@ public final class WorldArchiveService implements AutoCloseable {
      * @Thread-context any thread except the runtime state thread (blocks).
      */
     public byte[] fetchArchiveFrom(String worldIdHex, Set<NodeId> seeders, Duration timeout) {
+        return fetchArchiveFrom(worldIdHex, seeders, timeout, (verified, total) -> { });
+    }
+
+    /** As above, reporting progress; see {@link #fetchArchive(String, Duration, ArchiveProgress)}. */
+    public byte[] fetchArchiveFrom(String worldIdHex, Set<NodeId> seeders, Duration timeout,
+                                   ArchiveProgress progress) {
         Objects.requireNonNull(worldIdHex, "worldIdHex");
         long deadline = System.nanoTime() + timeout.toNanos();
         Bytes worldId = Bytes.fromHex(worldIdHex);
         Optional<PieceManifest> held = newestCompleteLocally(worldIdHex);
         return download(worldIdHex,
-                chooseTarget(worldIdHex, worldId, seeders, deadline, held), seeders, deadline);
+                chooseTarget(worldIdHex, worldId, seeders, deadline, held), seeders, deadline,
+                progress);
+    }
+
+    /**
+     * The version of the bytes just handed over — not the newest version this node has heard of.
+     *
+     * <h2>Why the distinction is load-bearing</h2>
+     *
+     * <p>The fetch reply used to carry {@code newestManifest(...)}, which is "the highest version
+     * number anybody has told me about". Every path that legitimately returns older bytes — the
+     * probe timeout keeping a held copy, the stall fallback returning the newest complete local
+     * version — still reported that high number. So a v5 blob arrived labelled v9, and the client's
+     * freshness guard, whose entire job is to refuse to overwrite a newer local save with an older
+     * network one, was comparing against a number the bytes did not have.
+     *
+     * <p>Answered by content: the blob is hashed and matched against the manifests this node holds,
+     * so the version is a property of the bytes rather than of the conversation.
+     *
+     * @param worldIdHex the world.
+     * @param blob       the bytes that were returned.
+     * @return the version those bytes belong to, or {@code -1} when no held manifest describes them
+     *         — which is itself honest, and better than a confident wrong number.
+     * @Thread-context any thread.
+     */
+    public long versionOfBlob(String worldIdHex, byte[] blob) {
+        if (worldIdHex == null || blob == null || blob.length == 0) {
+            return -1L;
+        }
+        Bytes hash = new dev.nodera.core.crypto.HashService().sha256(blob);
+        NavigableMap<Long, PieceManifest> versions = manifests.get(worldIdHex);
+        if (versions == null) {
+            return -1L;
+        }
+        for (Map.Entry<Long, PieceManifest> entry : versions.descendingMap().entrySet()) {
+            if (entry.getValue().blob().hash().equals(hash)) {
+                return entry.getKey();
+            }
+        }
+        return -1L;
     }
 
     /**
@@ -1193,7 +1743,7 @@ public final class WorldArchiveService implements AutoCloseable {
         if (held.isPresent() && target.manifestRoot().equals(held.get().manifestRoot())) {
             return false; // this node is already on the newest version anybody is offering
         }
-        download(worldIdHex, target, seeders, deadline);
+        download(worldIdHex, target, seeders, deadline, (verified, total) -> { });
         // The store, not the return value, decides whether this worked: `download` answers a
         // stalled transfer with the newest complete copy already here, which is the right thing to
         // hand a player and the wrong thing to call a catch-up.
@@ -1247,7 +1797,7 @@ public final class WorldArchiveService implements AutoCloseable {
 
     /** Download one chosen version, or open the newest complete copy held here if it stalls. */
     private byte[] download(String worldIdHex, PieceManifest manifest, Set<NodeId> seeders,
-                            long deadline) {
+                            long deadline, ArchiveProgress progress) {
         BitSet alreadyHeld = content.heldPieces(manifest.manifestRoot());
         if (alreadyHeld.cardinality() == manifest.pieceCount()) {
             return reassembleLocal(manifest);
@@ -1259,6 +1809,7 @@ public final class WorldArchiveService implements AutoCloseable {
         // evict the thing being fetched — which is the exact race this guards.
         fetching.add(manifest.manifestRoot());
         PieceDownloader downloader = content.download(manifest, null);
+        adoptPiecesAlreadyHere(manifest, downloader, alreadyHeld);
         Set<Integer> all = new HashSet<>();
         for (int i = 0; i < manifest.pieceCount(); i++) {
             all.add(i);
@@ -1341,14 +1892,27 @@ public final class WorldArchiveService implements AutoCloseable {
                 if (verified != lastVerified) {
                     lastVerified = verified;
                     lastProgressAt = now;
+                    // Tell the caller the moment the count moves, not only on the 10s log tick:
+                    // this is the signal its own deadline is restarted by.
+                    progress.at(verified, manifest.pieceCount());
                 }
                 // A periodic line, because a multi-minute transfer with no output is
                 // indistinguishable from a hang — which is exactly how this lane has been read
                 // every time it went wrong.
                 if (now - lastReportAt >= TimeUnit.SECONDS.toNanos(10)) {
                     lastReportAt = now;
-                    LOG.info("Fetching world archive {} — {}/{} piece(s)", shortId(worldIdHex),
-                            verified, manifest.pieceCount());
+                    LOG.info("Fetching world archive {} — {}/{} piece(s) from {} holder(s)",
+                            shortId(worldIdHex), verified, manifest.pieceCount(), holders.size());
+                    // The holder set used to be fixed at the first request and never revisited, so a
+                    // fetch that started when the only reachable peer held part of the world could
+                    // never finish, however long it waited and whoever else turned up. A seeder that
+                    // was unroutable at the start, or that finished its own download a moment later,
+                    // is exactly who this download needs — and it is one tracker query away.
+                    // Re-asked only while the count is NOT moving, so a healthy transfer adds no
+                    // tracker traffic at all.
+                    if (now - lastProgressAt >= STALL_RESOLVE.toNanos()) {
+                        holders = withLateArrivals(worldIdHex, manifest, downloader, holders, all);
+                    }
                 }
                 if (now - lastProgressAt > stallBudgetNanos) {
                     // Before giving up: an older version held in full is a world the player can
@@ -1386,6 +1950,54 @@ public final class WorldArchiveService implements AutoCloseable {
                 trimToRetention(worldIdHex, versions);
             }
         }
+    }
+
+    /**
+     * Ask the tracker again mid-download and credit anyone new, returning the widened holder set.
+     *
+     * <p>Only ever adds. A holder already being asked keeps whatever the swarm has since told the
+     * downloader about it — re-crediting it with the whole manifest here would undo the correction
+     * {@code ContentTransferService} sends when a peer cannot fill a request, which is the other
+     * half of this fix and the thing that stops the same partial peer being re-picked forever.
+     *
+     * <p>Failure is not fatal: a tracker that is down mid-fetch leaves the download exactly as it
+     * was, still running against the holders it has, rather than killing it.
+     */
+    private List<NodeId> withLateArrivals(String worldIdHex, PieceManifest manifest,
+                                          PieceDownloader downloader, List<NodeId> holders,
+                                          Set<Integer> all) {
+        Set<NodeId> resolved;
+        try {
+            resolved = resolveSeeders(Bytes.fromHex(worldIdHex));
+        } catch (RuntimeException trackerDown) {
+            LOG.debug("Stalled fetch of {} could not re-resolve seeders: {}",
+                    shortId(worldIdHex), trackerDown.toString());
+            return holders;
+        }
+        Set<NodeId> known = rootHolders.getOrDefault(manifest.manifestRoot(), Set.of());
+        List<NodeId> widened = new ArrayList<>(holders);
+        // A set beside the list, not List.contains inside the loop: the membership test is the only
+        // thing the list was being scanned for, and a scan per candidate is quadratic in a holder
+        // set that grows exactly when a fetch is struggling and asking most often.
+        Set<NodeId> alreadyAsked = new HashSet<>(widened);
+        for (NodeId seeder : resolved) {
+            if (seeder.equals(self) || alreadyAsked.contains(seeder) || routes.get(seeder) == null) {
+                continue;
+            }
+            // Same rule as the initial selection: prefer peers the tracker names as holders of this
+            // exact root, and fall back to any reachable peer only when it names none.
+            if (!known.isEmpty() && !known.contains(seeder)) {
+                continue;
+            }
+            widened.add(seeder);
+            alreadyAsked.add(seeder);
+            downloader.addHolder(seeder, all);
+        }
+        if (widened.size() != holders.size()) {
+            LOG.info("Stalled fetch of {} picked up {} more holder(s) — now asking {}",
+                    shortId(worldIdHex), widened.size() - holders.size(), widened.size());
+        }
+        return widened;
     }
 
     /** Resolve a world's seeders + their dial routes from the tracker (and register the routes). */

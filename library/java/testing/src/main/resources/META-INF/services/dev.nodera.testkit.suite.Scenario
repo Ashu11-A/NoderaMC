@@ -1,3 +1,4 @@
+#
 # Every acceptance scenario the `nodera-test` tool knows about.
 #
 # The registry discovers scenarios through this file rather than through a list in the runner,
@@ -7,7 +8,9 @@
 # `nodera-test list` is the smoke test that it is complete.
 #
 # Order does not matter: the registry sorts headless work before live work itself.
+#
 dev.nodera.testkit.scenario.AndroidMeshScenario
+dev.nodera.testkit.scenario.ChunkContinuityScenario
 dev.nodera.testkit.scenario.ChurnScenario
 dev.nodera.testkit.scenario.CommandsScenario
 dev.nodera.testkit.scenario.ContinuityScenario
@@ -17,6 +20,7 @@ dev.nodera.testkit.scenario.EndpointScenario
 dev.nodera.testkit.scenario.FarlandsScenario
 dev.nodera.testkit.scenario.FoliaScenario
 dev.nodera.testkit.scenario.MeshSoakScenario
+dev.nodera.testkit.scenario.MobileContinuityScenario
 dev.nodera.testkit.scenario.MobsScenario
 dev.nodera.testkit.scenario.OwnershipFollowScenario
 dev.nodera.testkit.scenario.OwnershipScenario

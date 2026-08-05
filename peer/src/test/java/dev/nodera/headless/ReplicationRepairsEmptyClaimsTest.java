@@ -1,5 +1,9 @@
 package dev.nodera.headless;
 
+import dev.nodera.core.Bytes;
+import dev.nodera.core.identity.WorldHealth;
+import dev.nodera.peer.discovery.CommonsPresence;
+import dev.nodera.protocol.discovery.TrackerCatalogEntry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -54,5 +58,19 @@ final class ReplicationRepairsEmptyClaimsTest {
         assertThat(WorldReplicationService.withinBounds(0, 0L, 1_000L)).isTrue();
         assertThat(WorldReplicationService.withinBounds(0, 1_000L, 1_000L)).isFalse();
         assertThat(WorldReplicationService.withinBounds(2, 0L, 1_000L)).isFalse();
+    }
+
+    @Test
+    @DisplayName("the peer-presence namespace is never offered to world replication")
+    void commonsIsNotAReplicableWorld() {
+        TrackerCatalogEntry commons = entry(CommonsPresence.WORLD_ID, "Nodera commons");
+        TrackerCatalogEntry world = entry(Bytes.fromHex("07".repeat(32)), "A real world");
+
+        assertThat(WorldReplicationService.replicableCatalog(java.util.List.of(commons, world)))
+                .containsExactly(world);
+    }
+
+    private static TrackerCatalogEntry entry(Bytes id, String name) {
+        return new TrackerCatalogEntry(id, name, 0, 0, 10_000, WorldHealth.HEALTHY, 0);
     }
 }

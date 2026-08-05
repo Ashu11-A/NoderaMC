@@ -12,24 +12,28 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The deterministic validation lane is off for the initial release, and it is off <b>at both
- * roots</b>.
+ * The deterministic validation lane is on, and it is switched <b>at both roots</b>.
  *
- * <p>A scope decision that lives only in a comment is a decision that comes back on by accident.
- * The lane has two activation points — the session server's ownership bootstrap and every other
- * player's client lane — and gating one of them is the shape of mistake this test exists to catch:
- * the client lane is normally started by a plan the server broadcasts, so a build that gated only
- * the server would look correct in every homogeneous test and start a lane the moment an older or
- * hostile peer sent a plan.
+ * <p>A scope decision that lives only in a comment is a decision that changes by accident. The lane
+ * has two activation points — the session server's ownership bootstrap and every other player's
+ * client lane — and gating one of them is the shape of mistake this test exists to catch: the client
+ * lane is normally started by a plan the server broadcasts, so a build that gated only the server
+ * would look correct in every homogeneous test and start a lane the moment an older or hostile peer
+ * sent a plan.
+ *
+ * <p>The state asserted here is <b>on</b>, because live region seeding hangs off it: no commits
+ * means no {@code RegionSeedSpool} pushes, which means the only remaining way to move a change
+ * between peers is to move the whole world. Switching it back off is a deliberate act that has to
+ * come here first.
  */
 final class ValidationLaneRootSwitchTest {
 
     @Test
-    @DisplayName("deterministic validation is off for this release")
-    void theLaneIsOff() {
+    @DisplayName("deterministic validation is on")
+    void theLaneIsOn() {
         assertThat(ValidationLane.deterministicValidationEnabled())
-                .as("flipping this back on is a deliberate act; see ValidationLane")
-                .isFalse();
+                .as("switching this off also switches off live region seeding; see ValidationLane")
+                .isTrue();
     }
 
     @Test
@@ -47,12 +51,12 @@ final class ValidationLaneRootSwitchTest {
     }
 
     /**
-     * Nothing was deleted to switch it off. The engine, committee and capture code stay in the
-     * build with their tests, so the lane returns by flipping one constant rather than by being
-     * rebuilt from a description of how it used to work.
+     * The switch moves one constant, never the code. The engine, committee and capture classes stay
+     * in the build with their tests in either state, so the lane changes by flipping the constant
+     * rather than by being rebuilt from a description of how it used to work.
      */
     @Test
-    @DisplayName("the lane is dormant, not removed")
+    @DisplayName("the lane is a switch, not a deletion")
     void theLaneIsStillThere() {
         List<String> stillPresent = List.of(
                 "dev.nodera.peer.validation.WorkerValidationService",

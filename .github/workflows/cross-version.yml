@@ -26,6 +26,12 @@ on:
     # Weekly, so a release that ages out of compatibility is noticed before somebody reports it.
     - cron: '0 6 * * 1'
 
+# Least privilege by default. A job that needs more says so itself and overrides this block.
+# Without a default, every job inherits whatever the repository's default token scope happens to
+# be — which is not a decision this file was making deliberately.
+permissions:
+  contents: read
+
 jobs:
   matrix:
     name: mixed-release peers on one network
@@ -57,7 +63,10 @@ jobs:
           --tests '*MessageCodecTypeTagTest'
           --tests '*TypeTagsTest'
 
-      - uses: dtolnay/rust-toolchain@stable
+      # No `dtolnay/rust-toolchain@stable` here: rust-toolchain.toml pins the channel and
+      # rustup honours it automatically (see the `rust` job). Installing `stable` on top
+      # compiled nothing and put a FLOATING version into the rust-cache key, so every
+      # stable release invalidated the whole cache — one guaranteed cold build per cycle.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .

@@ -245,10 +245,35 @@ public final class NoderaConfig {
     public static final ModConfigSpec.BooleanValue ARCHIVE_SEED_ON_SHARE =
             SERVER_BUILDER.define("archive.seedOnShare", true);
     // Issue #43 continuous streaming: while a world is hosted, re-seed its archive to the worker
-    // every N server ticks (default 2400 = 2 min — autosave-like cadence) so the network copy is
-    // never more than one interval behind and a crash/exit cannot revert the world. 0 disables.
+    // every N server ticks. DEFAULT 12000 — ten minutes.
+    //
+    // It used to be 2400 (two minutes), and that one number was most of this project's bandwidth
+    // problem. Each tick of it repacks the ENTIRE save into a new archive and seeds it as a new
+    // version, so every replicating peer saw a manifest it had never seen and fetched the world
+    // again — measured at a steady 3 MB/s on an idle world where nothing was happening at all.
+    //
+    // Live change does not need it. Committed region snapshots go to the worker through
+    // RegionSeedSpool -> NODERA-SEED-REGION as they happen, which moves the chunks that changed
+    // instead of the world that contains them. The whole-world archive is now what it is good at
+    // being: a cold bootstrap, seeded when a world is shared and again on server stop, for a peer
+    // that has nothing at all.
+    //
+    // Turning it off entirely, which this briefly defaulted to, opened a worse hole than the one it
+    // closed. The whole-save archive is the ONLY artefact anything can write back into a save: the
+    // region-delta lane carries blocks and entities, carries no player state, and has no path into
+    // a `.mca` file. With the repack off, an abrupt host death left the network holding the archive
+    // packed when the world was SHARED — so every player's position, inventory and advancements
+    // rolled back to that instant, which in a long-lived world is days. Ten minutes is the bound.
+    //
+    // Ten minutes rather than two is affordable now for a reason that did not hold before: archive
+    // pieces are cut at entry boundaries and reused across versions by content hash, so re-seeding
+    // a world where one region file changed costs that region file, not the world. The repack's
+    // remaining cost is CPU on the host, which is why the interval is long rather than short.
+    //
+    // Read `archive.streamIntervalTicks` as "repack and re-seed the whole save this often";
+    // 0 disables it and accepts the rollback window above.
     public static final ModConfigSpec.IntValue ARCHIVE_STREAM_INTERVAL_TICKS =
-            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 2400, 0, 24_000 * 60);
+            SERVER_BUILDER.defineInRange("archive.streamIntervalTicks", 12_000, 0, 24_000 * 60);
     // Issue #43 bounded final flush: the server-stopped seed waits at most this long before
     // abandoning (the streaming lane already holds a copy ≤ one interval old) — a hung worker
     // can no longer wedge the "Saving World" screen.
@@ -289,6 +314,40 @@ public final class NoderaConfig {
             SERVER_BUILDER.define("companion.controlEndpoint", "127.0.0.1:25610");
     public static final ModConfigSpec.BooleanValue SERVER_COMPANION_REQUIRED =
             SERVER_BUILDER.define("companion.required", true);
+
+    /**
+     * The worker this game process should talk to, with the environment winning over the config.
+     *
+     * <h2>Why the environment has to win</h2>
+     *
+     * <p>The config default is {@code 127.0.0.1:25610} for both the client and the server spec, and
+     * the config file lives in the game directory. Two Minecraft clients launched on one machine —
+     * which is how this project is tested, and how a player runs a second account — therefore
+     * pointed at the <b>same worker</b>, and each also defaulted to the same {@code ~/.nodera} state
+     * directory. One node then wore two hats: one identity, one world registry, one set of world
+     * keys, and two players who each believed they were its author. Every ownership question after
+     * that point had a plausible-looking wrong answer.
+     *
+     * <p>{@code NODERA_CONTROL_PORT} is the same variable the worker itself reads to choose the port
+     * it listens on, and {@code NODERA_STATE_DIR} the same one it reads to choose its store, so a
+     * second instance is launched by setting the pair once and nothing has to agree about anything
+     * else. A launcher that sets neither behaves exactly as before.
+     *
+     * @param configured the endpoint from the config spec.
+     * @return the endpoint to dial.
+     * @Thread-context any thread.
+     */
+    public static String resolveControlEndpoint(String configured) {
+        String endpoint = System.getenv("NODERA_CONTROL_ENDPOINT");
+        if (endpoint != null && !endpoint.isBlank()) {
+            return endpoint.trim();
+        }
+        String port = System.getenv("NODERA_CONTROL_PORT");
+        if (port != null && !port.isBlank()) {
+            return "127.0.0.1:" + port.trim();
+        }
+        return configured;
+    }
 
     private static final ModConfigSpec SERVER_SPEC = SERVER_BUILDER.build();
     private static final ModConfigSpec CLIENT_SPEC = CLIENT_BUILDER.build();

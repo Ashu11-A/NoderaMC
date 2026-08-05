@@ -2,6 +2,7 @@ package dev.nodera.testkit.scenario;
 
 import dev.nodera.testkit.harness.ControlClient;
 import dev.nodera.testkit.harness.HarnessException;
+import dev.nodera.testkit.harness.LayoutManifest;
 import dev.nodera.testkit.harness.LiveStack;
 import dev.nodera.testkit.harness.LogWatcher;
 import dev.nodera.testkit.harness.ManagedProcess;
@@ -61,11 +62,23 @@ public final class HostWorldSupport {
      */
     public static final String STALE_BAKE_GUARD = "entity lane bootstrap failed";
 
-    /** What to tell the reader when {@link #STALE_BAKE_GUARD} fires. */
+    /** The shared world every host-client scenario plays on; baked once, reused thereafter. */
+    private static final String STAGED_WORLD = "NoderaE2E";
+
+    /**
+     * What to tell the reader when {@link #STALE_BAKE_GUARD} fires.
+     *
+     * <p>The path is resolved from the layout manifest, not written out. It used to name
+     * {@code java/neoforge-mod/...}, which stopped existing when the tree was reorganised — so the
+     * one line whose entire job is "here is how to fix it" sent the reader to a directory that is
+     * not there, on the one occasion they most need it to be right.
+     */
     public static final String STALE_BAKE_MESSAGE =
             "the staged world's certified genesis predates the current FlatWorldRules.RULES_VERSION"
-            + " — the entity lane cannot boot. Re-bake it: "
-            + "rm -rf java/neoforge-mod/run-host/saves/NoderaE2E && re-run the continuity scenario";
+            + " — the entity lane cannot boot. Re-bake it: rm -rf "
+            + LayoutManifest.load().module("neoforge-mod")
+                    .resolve("run-host/saves/" + STAGED_WORLD)
+            + " && re-run the continuity scenario";
 
     /**
      * Benign lines an abrupt client kill always produces; anything else at {@code ERROR}/
@@ -86,9 +99,6 @@ public final class HostWorldSupport {
     // harness does not control, and an unbounded greedy repetition makes `find()` re-scan the
     // same characters from every start position — quadratic in the length of the reply.
     private static final Pattern POSITION_NUMBER = Pattern.compile("(-?\\d{1,20}+(?:\\.\\d{1,20}+)?)d");
-
-    /** The shared world every host-client scenario plays on; baked once, reused thereafter. */
-    private static final String STAGED_WORLD = "NoderaE2E";
 
     private HostWorldSupport() {
     }
@@ -193,6 +203,34 @@ public final class HostWorldSupport {
         serverLog.await("entity lane live", Duration.ofSeconds(300));
     }
 
+    /**
+     * Wait for the host-client shape's lane evidence — or say, at once, that this build cannot have
+     * any.
+     *
+     * <p>The dedicated-server shape has had this since {@link #awaitEntityLane}: with
+     * {@code ValidationLane.DETERMINISTIC_VALIDATION} compiled to {@code false} there are no
+     * committees, so {@code "member node(s)"} is a line the build never prints. The host-client
+     * scenarios waited for it anyway — five of them — and each burned its full 180 s before failing
+     * with a message that reads like a product defect rather than like a feature that is switched
+     * off. A named skip is the honest outcome, and it names the constant so whoever flips it knows
+     * which scenarios come back.
+     *
+     * @param context the running scenario.
+     * @param hostLog the hosting client's log.
+     * @param stage   the stage name, for the stale-bake message.
+     */
+    public static void awaitMemberNodes(ScenarioContext context, LogWatcher hostLog, String stage) {
+        if (hostLog.contains("runs WITHOUT deterministic region validation")) {
+            context.skip("the deterministic validation lane is switched off in this build "
+                    + "(ValidationLane.DETERMINISTIC_VALIDATION = false), so no region is ever "
+                    + "assigned and 'member node(s)' is never logged. Every stage below this one "
+                    + "asserts committee behaviour that cannot run. Flip that constant to bring "
+                    + "this scenario back.");
+        }
+        hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180), STALE_BAKE_GUARD,
+                stage + ": " + STALE_BAKE_MESSAGE);
+    }
+
     private static ManagedProcess joinDedicated(ScenarioContext context, String gameDirectory,
                                                 PlayerRole role, String task, String logName,
                                                 String playerName) {
@@ -258,6 +296,11 @@ public final class HostWorldSupport {
         // every other component used the real list.
         setHostConfig(config, "tracker", "endpoints", tomlArray(topology.trackerEndpoints()));
         setHostConfig(config, "rendezvous", "endpoints", tomlArray(topology.rendezvousEndpoints()));
+        // The host's own peer address, pinned to the same value every worker in the run uses.
+        // Left at "auto" it enumerates this machine's interfaces and can advertise a container
+        // bridge or a VPN tunnel — an address the rest of the run cannot dial — and the joiners it
+        // then seats are seated at a route that goes nowhere.
+        setHostConfig(config, "p2p", "advertiseHost", "\"" + Topology.p2pAdvertiseAddress() + "\"");
         // No-host region ownership: the validated entity lane assigns every connected player's node
         // its own FOV region set.
         setHostConfig(config, "entity", "laneAutoActivate", "true");
@@ -414,11 +457,53 @@ public final class HostWorldSupport {
     public static OptionalLong findRunJvm(String runToken) {
         try (Stream<ProcessHandle> processes = ProcessHandle.allProcesses()) {
             return processes
-                    .filter(handle -> handle.info().commandLine().orElse("").contains(runToken))
+                    .filter(handle -> commandLineOf(handle).contains(runToken))
                     .mapToLong(ProcessHandle::pid)
                     .findFirst();
         }
     }
+
+    /**
+     * The FULL command line of a process.
+     *
+     * <p>Not {@code ProcessHandle.info().commandLine()}, which truncates at 4096 bytes on Linux. A
+     * ModDevGradle client JVM's command line is about 16 KB and ends with its {@code @argfile} —
+     * measured here at byte 16579 of 16608 — so the one token that identifies which run a JVM
+     * belongs to is exactly the part the JDK throws away. Every caller below therefore saw NO
+     * client JVM at all, and each failed silently in its own direction: {@link #runJvmAlive} always
+     * answered "dead" (which reported a healthy host as having died with its joiner),
+     * {@link #killRunJvms} killed nothing (so a crash scenario's SIGKILL was in fact a graceful
+     * wrapper stop, which is the one path it exists NOT to exercise), and
+     * {@link #awaitRunJvmsGone} returned at once having found nothing to wait for.
+     *
+     * <p>Reads {@code /proc} directly where it exists and falls back to the truncated view where it
+     * does not, so a non-Linux run degrades to the old behaviour rather than to an exception.
+     */
+    private static String commandLineOf(ProcessHandle handle) {
+        Path cmdline = Path.of("/proc", String.valueOf(handle.pid()), "cmdline");
+        String full;
+        if (Files.isReadable(cmdline)) {
+            try {
+                full = new String(Files.readAllBytes(cmdline), StandardCharsets.UTF_8)
+                        .replace('\0', ' ');
+            } catch (IOException exited) {
+                // The process ended between listing and reading; not the one being looked for.
+                return "";
+            }
+        } else {
+            full = handle.info().commandLine().orElse("");
+        }
+        // The Gradle DAEMON is never a match, whatever tokens it carries. It serves every build in
+        // the run, so its command line names BOTH clients' argfiles — and once the full command
+        // line became visible, "stop the joiner" started matching the process that owns the host as
+        // well. Signalling it takes down every client at once, which is precisely the failure this
+        // whole line of work exists to stop mistaking for a product defect.
+        return DAEMON.matcher(full).find() ? "" : full;
+    }
+
+    /** How a Gradle daemon identifies itself; see {@link #commandLineOf}. */
+    private static final Pattern DAEMON =
+            Pattern.compile("GradleDaemon|org\\.gradle\\.launcher\\.daemon");
 
     /** @return {@code true} while that run's JVM is alive. */
     public static boolean runJvmAlive(String runToken) {
@@ -447,26 +532,59 @@ public final class HostWorldSupport {
      * {@code RunProgramArgs} also hits the dedicated server, and the next stage then dials a game
      * port nothing is listening on.
      *
+     * <h2>It returns when the client is GONE, not when it was asked to go</h2>
+     *
+     * <p>A Minecraft client asked to exit saves its world first, and on a world of any size that
+     * takes far longer than the wait this used to allow — which then expired silently and let the
+     * caller carry on. A live run measured the consequence: a stage announced "player A's game
+     * exited", asserted that nobody else was disrupted, and passed, while player A's process was
+     * still up and still serving the world. The stage was not wrong about what it saw; it was
+     * asked too early.
+     *
      * @param wrapper  the Gradle process the harness started, or {@code null} when only the JVM is
      *                 known.
      * @param runToken the run's {@code <run>RunProgramArgs} token.
+     * @throws HarnessException if the client is still running when {@code timeout} expires.
      */
-    public static void stopClient(ManagedProcess wrapper, String runToken) {
+    public static void stopClient(ManagedProcess wrapper, String runToken, Duration timeout) {
         if (wrapper != null) {
             wrapper.stop(Duration.ofSeconds(20));
         }
         stopRunJvms(runToken);
-        awaitRunJvmsGone(runToken, Duration.ofSeconds(30));
+        awaitRunJvmsGone(runToken, timeout);
     }
+
+    /** {@link #stopClient(ManagedProcess, String, Duration)} with room for a large world's save. */
+    public static void stopClient(ManagedProcess wrapper, String runToken) {
+        stopClient(wrapper, runToken, SHUTDOWN_TIMEOUT);
+    }
+
+    /**
+     * How long a client gets to finish saving and exit.
+     *
+     * <p>Three minutes rather than thirty seconds: the old value was shorter than a real world's
+     * save, so it expired on every large world and the harness treated "still shutting down" as
+     * "gone".
+     */
+    public static final Duration SHUTDOWN_TIMEOUT = Duration.ofMinutes(3);
 
     private static void forEachRunJvm(String runToken, java.util.function.Consumer<ProcessHandle> action) {
         try (Stream<ProcessHandle> processes = ProcessHandle.allProcesses()) {
-            processes.filter(handle -> handle.info().commandLine().orElse("").contains(runToken))
+            processes.filter(handle -> commandLineOf(handle).contains(runToken))
                     .forEach(action);
         }
     }
 
-    /** Wait until no JVM of that run is left, so the next scenario's preflight sees free ports. */
+    /**
+     * Wait until no JVM of that run is left, so the next scenario's preflight sees free ports.
+     *
+     * <p>Fails rather than returning. This used to return {@code void} on expiry, so a client that
+     * had not finished shutting down was indistinguishable from one that had — and every assertion
+     * after it was made about a world that was still running. "The client would not exit" is a
+     * result a run must report, not one it may quietly absorb.
+     *
+     * @throws HarnessException naming the run and the PID still holding it.
+     */
     public static void awaitRunJvmsGone(String runToken, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {
@@ -475,7 +593,63 @@ public final class HostWorldSupport {
             }
             sleep(Duration.ofSeconds(2));
         }
+        throw new HarnessException(runToken + " was still running " + timeout.toSeconds()
+                + "s after it was asked to stop (pid "
+                + findRunJvm(runToken).stream().mapToObj(Long::toString).findFirst().orElse("?")
+                + "). Every assertion after this point would have been made about a client that "
+                + "had not actually left.");
     }
+
+    /**
+     * Wait for a game log to show the world finished saving and the server stopped.
+     *
+     * <p>The process disappearing says the JVM is gone; these lines say the WORLD was written out
+     * first. A scenario that needs the save on disk — a rehost, a re-open, an archive comparison —
+     * wants this one, and vanilla writes it on every clean shutdown.
+     *
+     * @param log     the departing client's own log.
+     * @param timeout how long a save may take.
+     * @return whether the clean-shutdown evidence appeared; {@code false} means it was killed or is
+     *         still writing, which is the caller's business to interpret rather than this method's.
+     */
+    public static boolean awaitCleanShutdown(LogWatcher log, Duration timeout) {
+        return log.pollFor(SAVE_COMPLETE, timeout, 0);
+    }
+
+    /**
+     * A thread dump of one run's game JVM, for the failures where "it is stuck" is the whole
+     * symptom.
+     *
+     * <p>A hang has no log line. The only evidence that distinguishes "slow" from "deadlocked" is
+     * what the threads are doing, and by the time a human is looking the process is usually gone —
+     * so the harness takes the dump at the moment the wait expires.
+     *
+     * @param runToken the run's {@code <run>RunProgramArgs} token.
+     * @return the dump, or an explanation of why there is none.
+     * @Thread-context any thread; runs an external command.
+     */
+    public static String threadDump(String runToken) {
+        OptionalLong pid = findRunJvm(runToken);
+        if (pid.isEmpty()) {
+            return "no JVM matched " + runToken + " — nothing to dump";
+        }
+        try {
+            Process jstack = new ProcessBuilder("jstack", Long.toString(pid.getAsLong()))
+                    .redirectErrorStream(true).start();
+            String out = new String(jstack.getInputStream().readAllBytes(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            jstack.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
+            return out;
+        } catch (java.io.IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return "jstack of pid " + pid.getAsLong() + " failed: " + e;
+        }
+    }
+
+    /** What vanilla writes once every dimension has been flushed to disk. */
+    public static final String SAVE_COMPLETE = "All dimensions are saved";
 
     /**
      * Every worker must answer its control socket.

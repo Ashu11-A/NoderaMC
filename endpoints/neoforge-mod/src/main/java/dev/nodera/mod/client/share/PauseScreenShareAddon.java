@@ -48,6 +48,14 @@ public final class PauseScreenShareAddon {
         }
 
         boolean sharing = NoderaPeerService.get().isHosting();
+        // Sharing an unshared world makes you its author; changing a shared world's settings is
+        // the author's alone. `hasSingleplayerServer()` above answers neither question — it asks
+        // whether the server is in this JVM, which is TRUE for a player who has just recovered
+        // somebody else's world onto their own machine. Those players were being handed that
+        // world's share options, password field and delete button.
+        if (!WorldOwnershipView.mayShare(sharing)) {
+            return;
+        }
         Component label = Component.translatable(
                 sharing ? "nodera.open.button.sharing" : "nodera.open.button");
 
@@ -64,17 +72,52 @@ public final class PauseScreenShareAddon {
             height = lan.getHeight();
             event.removeListener(lan);
         } else {
-            // Fallback: slot below the vanilla pause-menu button column.
+            // No LAN button to take the slot of — which is the ORDINARY case for a shared world,
+            // not an edge one: vanilla only offers "Open to LAN" while the world is unpublished, and
+            // sharing to Nodera publishes it. So this branch runs every time the button says
+            // "Sharing options…", and it used to place itself at a hardcoded
+            // `height / 4 + 128` — exactly where "Save and Quit to Title" sits. The two were drawn
+            // on top of each other.
+            //
+            // Placed under the lowest widget actually on the screen instead. That cannot collide
+            // with a layout it does not have to know about, and it survives other mods adding rows
+            // of their own — which this menu already has several of.
             width = WIDTH;
             height = 20;
             x = screen.width / 2 - width / 2;
-            y = screen.height / 4 + 128;
+            y = belowLowestButton(event, screen);
         }
 
         Button share = Button.builder(label, b -> mc.setScreen(new ShareWorldScreen(screen)))
                 .bounds(x, y, width, height)
                 .build();
         event.addListener(share);
+    }
+
+    /**
+     * A row below every button already on the screen.
+     *
+     * <p>Measured rather than assumed. The pause menu's layout is vanilla's, plus whatever other
+     * mods have added to it, and a constant offset into it is a guess that was already wrong.
+     *
+     * @param event  the init event whose listeners are the current layout.
+     * @param screen the pause screen, for the fallback when it has no buttons at all.
+     * @return the y to place the Nodera button at.
+     */
+    private static int belowLowestButton(ScreenEvent.Init.Post event, PauseScreen screen) {
+        int lowest = Integer.MIN_VALUE;
+        int height = 20;
+        for (GuiEventListener listener : event.getScreen().children()) {
+            if (listener instanceof Button button) {
+                lowest = Math.max(lowest, button.getY());
+                height = button.getHeight();
+            }
+        }
+        if (lowest == Integer.MIN_VALUE) {
+            return screen.height / 4 + 128;
+        }
+        // One row's worth of gap, the same 4px vanilla leaves between its own rows.
+        return lowest + height + 4;
     }
 
     /** Locate the vanilla "Open to LAN" button among the screen's listeners, or {@code null}. */

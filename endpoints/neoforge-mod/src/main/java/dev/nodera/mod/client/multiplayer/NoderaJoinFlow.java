@@ -137,6 +137,24 @@ public final class NoderaJoinFlow {
         }
     }
 
+    /**
+     * Reconnect to a world that has just been re-opened by another peer.
+     *
+     * <p>The continuity lane's other half: when a host leaves, exactly one peer is elected to open
+     * the world and every other survivor calls this once that peer's endpoint appears. It is the
+     * ordinary connect path with no parent screen, because the player never left — they have been
+     * standing in their own ghost chunks the whole time.
+     *
+     * @param worldName  the world's display name.
+     * @param hostPort   the successor's game endpoint.
+     * @param worldIdHex the world id, so continuity re-arms for the new host.
+     * @Thread-context client thread.
+     */
+    public static void reconnect(String worldName, String hostPort, String worldIdHex) {
+        NoderaContinuity.onJoining(worldIdHex, worldName);
+        connect(null, worldName, hostPort, worldIdHex);
+    }
+
     private static void connect(Screen parent, String worldName, String hostPort,
                                 String worldIdHex) {
         if (!ServerAddress.isValidAddress(hostPort)) {

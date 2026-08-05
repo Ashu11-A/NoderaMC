@@ -5,7 +5,7 @@
      EVIDENCE (a test, a log line, a control-socket answer), then reconcile ../ROADMAP.md §2.
      Never rewrite an old note. -->
 
-**Category:** mobile · **Last audit:** 2026-07-28 · Tasks completed: **7 / 8**
+**Category:** mobile · **Last audit:** 2026-08-01 · Tasks completed: **7 / 8**
 
 Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.md) · retired gaps:
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md) · charter: [`Task.0.md`](Task.0.md) · refactoring
@@ -19,10 +19,10 @@ register: [`REFACTORING.md`](REFACTORING.md).
 |---|---|---|---|
 | 1 | Android build pipeline | ✅ COMPLETED | `scripts/android-apk.sh` → signed `build/nodera-release.apk`, installed on a Xiaomi 2210129SG |
 | 2 | The Java worker runs on ART | ✅ COMPLETED | `NODERA-PROBE 2` → `NODERA-OK 2 0.1.0` from the device; `self_route 10.0.0.104:25620` |
-| 3 | Material You, generated not imitated | ✅ COMPLETED | `m3/theme.ts` via `@material/material-color-utilities`; changing the source re-tints the whole tree |
-| 4 | Dual desktop/mobile layouts | ✅ COMPLETED | `useIsCompact` (window) + `useIsMobileBuild` (binary), deliberately two questions |
+| 3 | Native Material You | ✅ COMPLETED | Compose Material 3 reads Android 12+ wallpaper colour; fallback scheme below 12 |
+| 4 | Adaptive native layouts | ✅ COMPLETED | `NavigationBar` under 600 dp, `NavigationRail` above; content panes choose their own split width |
 | 5 | First-run setup + storage + battery | ✅ COMPLETED | SAF picker returns `/storage/emulated/0/Documents`, write-probed; battery dialog names the vendor |
-| 6 | Native navigation | ✅ COMPLETED | System back walks the WebView history; navigation bar hides in sub-screens |
+| 6 | Native navigation | ✅ COMPLETED | Compose `BackHandler` walks Licences → About → Settings → Home |
 | 7 | The phone in the mesh, tested | ✅ COMPLETED | `scripts/e2e-android-mesh.sh` — asserts the phone's own `total_received_bytes` moves after joining the Linux mesh |
 | [8](Task.5.md) | The services list the worker actually reads | 🚧 IN PROGRESS | Service-file path aligned; tracker stores follows dynamic Material 3 roles; P2P app-property handoff headless-green and M-NET-2 RETIRING; live re-read, Android restart, foreground service, and touch acceptance remain |
 
@@ -31,6 +31,60 @@ files are [`Task.1`](Task.1.md) ✅ · [`Task.2`](Task.2.md) ✅ · [`Task.3`](T
 [`Task.4`](Task.4.md) ✅ (2026-07-28) · [`Task.5`](Task.5.md) 🚧 (owns M-NET-1 … M-NET-4).
 
 ## 2. Milestone notes (newest first)
+
+### 2026-08-01 — Four-step setup and unified services pass the full host gate and hardened E2E
+
+Native onboarding now separates purpose, verified world storage, battery optimization, and explicit
+telemetry consent. Settings unifies direct trackers and subscribed stores, preserves in-progress
+edits across Activity recreation, exposes whole-row switch semantics, and restores an offered store
+after recreation. The corrected Android data-root contract migrates legacy settings and identity
+files rather than treating an upgrade as a fresh install; worker-authorized app-private and
+app-specific external roots carry concrete storage choices.
+
+Evidence: full Rust workspace and app test/fmt/clippy gates, **270** shared-core tests, **31**
+frontend tests, isolated `./gradlew check --rerun-tasks`, and full `scripts/android-apk.sh --debug`
+with a newly dexed worker. The resulting `build/nodera-debug.apk` is 201 MiB. On-device,
+`scripts/android-e2e.sh --no-install` against a fresh tracker passed **5/5** under the single
+130-second deadline, the independent querier returning worker `a3da8287-…` at `10.0.0.104:40675`.
+
+### 2026-08-01 — Physical Android audit: worker online, one identity, five E2E checks
+
+A debug APK was installed over the existing app on Xiaomi 2210129SG (Android 15 / API 35). First
+launch exposed Android denying `Files.getFileStore` inside app-private storage; the shared atomic
+writer now attempts owner-only creation directly when store inspection is forbidden. The worker then
+persisted identity, bound `10.0.0.104`, served control on `127.0.0.1:25610`, and reported both the
+local tracker and published tracker reachable.
+
+The Peers screen also exposed a second app-owned identity. Status and self-test now query the commons
+namespace for the Java worker's `NODERA-STATE.node_id`, never signing another announce. Finally,
+replication excludes the synthetic commons id instead of trying to fetch it as a world archive.
+Evidence: `scripts/android-e2e.sh --no-install --tracker 10.0.0.101:25600` **5 passed, 0 failed**;
+independent `nodera-query` returned worker `a3da8287-…` at `10.0.0.104:39957`; post-fix log says
+`Replication sweep: 2 tracker(s) list no worlds` and carries no exception or crash.
+
+The E2E proof now takes a successful pre-launch tracker baseline and refuses a retained copy of the
+same UUID, wraps both adb and device probes in one wall-clock deadline, and matches the independent
+query's UUID token exactly. Its budget spans two 60-second commons rounds after a physical run
+showed the old 60-second edge lose the retry race. A cached tracker row can no longer make a broken
+fresh launch pass. That hardened run reached **4/5** before its former 60-second budget expired; the
+corrected single 130-second deadline has since passed **5/5** on a reconnected device.
+
+### 2026-08-01 — Android presentation becomes native Material You end to end
+
+`MainActivity` no longer hosts the application in a WebView. Native Compose Material 3 now owns
+onboarding, Home, adaptive Worlds, structured Activity, and Appearance / Network / tracker stores /
+Storage / Battery / Peers / Privacy / Diagnostics / About / licences. Phone uses a navigation bar;
+tablets use a rail plus grids or list-detail only when remaining pane width supports it. Dynamic
+colour comes from Android's wallpaper on 12+.
+
+Review hardening binds tracker-store confirmation to the immutable previewed URL, adds system-back
+hierarchy, preserves unlimited connection limits and exact sweep seconds, makes onboarding
+scroll-safe, and prevents unknown battery/network probes from painting success.
+
+Evidence: `scripts/android-apk.sh --debug --skip-worker` compiled Compose/Kotlin/Rust, aligned,
+signed and verified `build/nodera-debug.apk`; its source guards cover preview identity, back handling,
+numeric preservation and non-clickable status semantics. App L-94 is RETIRING pending physical touch
+acceptance; no device claim is made from a host build.
 
 ### 2026-07-28 — The bytecode guard catches a real regression (issue #94)
 

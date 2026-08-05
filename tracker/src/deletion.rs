@@ -18,7 +18,7 @@
 //! reappears after the window with the world's bytes still on disk will find nobody left to
 //! contradict it. The window is a judgement, not a proof.
 
-use nodera_codec::tombstone::{WorldDeletionGossip, WorldTombstone};
+use nodera_codec::tombstone::{WorldDeletionGossip, WorldRevival, WorldTombstone};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -105,6 +105,34 @@ impl DeletedWorlds {
                 issued_at_millis,
             },
         );
+        true
+    }
+
+    /// Forget a deletion because its owner has signed a later restore.
+    ///
+    /// The tracker holds deletions longer than anybody — 120 days, so that peers which were offline
+    /// still hear about them. That is exactly why it has to accept the undo: without it the owner
+    /// re-sharing their own world would be refused by every directory on the network for four
+    /// months, with the world's bytes sitting on the peers the whole time.
+    ///
+    /// The record is verified here rather than by the caller's say-so, and the restore has to be
+    /// **newer** than the deletion it undoes — a revival captured before the delete cannot be
+    /// replayed to reverse it.
+    ///
+    /// # Returns
+    /// Whether a remembered deletion was actually dropped.
+    pub fn forget(&mut self, revival: &WorldRevival) -> bool {
+        if !revival.verify() {
+            return false;
+        }
+        let Some(entry) = self.entries.get(&revival.world_id) else {
+            return false;
+        };
+        if (revival.issued_at_epoch.max(0) as u64) <= entry.issued_at_millis {
+            return false;
+        }
+        self.entries.remove(&revival.world_id);
+        self.remove_file(&revival.world_id_hex());
         true
     }
 
@@ -232,6 +260,51 @@ mod tests {
             .expect("decode")
             .verified()
             .is_some());
+    }
+
+    fn revival() -> WorldRevival {
+        let path = nodera_codec::repo::wire_fixtures().join("world-revival-gossip.bin");
+        let frame =
+            std::fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let payload = nodera_codec::wire::consensus_payload(&frame)
+            .expect("the golden frame carries an opaque consensus payload");
+        nodera_codec::tombstone::WorldRevivalGossip::decode(payload)
+            .expect("decode")
+            .verified()
+            .expect("verify")
+    }
+
+    /// The whole point of the record: the owner can undo their own deletion, and this tracker stops
+    /// answering the world's announces with a tombstone. Without it a re-shared world is refused by
+    /// every directory for 120 days while its bytes sit on the peers.
+    #[test]
+    fn the_owners_later_restore_clears_the_deletion() {
+        let mut cache = DeletedWorlds::new(None);
+        let tombstone = tombstone();
+        cache.remember(&tombstone);
+
+        assert!(cache.forget(&revival()));
+
+        assert!(!cache.is_deleted(&tombstone.world_id));
+        assert!(cache.notice_for(&tombstone.world_id).is_none());
+    }
+
+    #[test]
+    fn a_forged_or_stale_restore_leaves_the_deletion_standing() {
+        let mut cache = DeletedWorlds::new(None);
+        let tombstone = tombstone();
+        cache.remember(&tombstone);
+
+        let mut forged = revival();
+        forged.owner_signature = vec![0u8; 64];
+        assert!(!cache.forget(&forged), "an unsigned restore is not an undo");
+
+        // A replay of a restore issued before the deletion: verifies perfectly, and must still lose.
+        let mut stale = revival();
+        stale.issued_at_epoch = tombstone.issued_at_epoch - 1;
+        assert!(!cache.forget(&stale));
+
+        assert!(cache.is_deleted(&tombstone.world_id));
     }
 
     #[test]

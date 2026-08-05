@@ -21,12 +21,9 @@ import dev.nodera.transport.socket.SocketPeerTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.NetworkInterface;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
@@ -194,6 +191,21 @@ public final class PeerNode implements AutoCloseable {
         // which is precisely why the tracker list used to be a restart-required setting. Sharing one
         // client makes TrackerClient.setEndpoints reach every lane at once.
         TrackerClient tracker = new TrackerClient(trackerEndpoints, identity);
+        // An explicitly configured tracker list is the operator's, and the companion app's config
+        // push must not be able to take it away — it replaced the list outright, so attaching an app
+        // to a worker started against a LAN tracker silently moved that worker onto the app's
+        // trackers instead. Pinned only when somebody actually stated a list: a worker the app
+        // itself launched has no operator list, and the app must stay in full control of that one.
+        //
+        // Both sources count, and the second is why this is not just the env var. `NODERA_TRACKER_
+        // ENDPOINTS` is unreachable on Android — a process cannot set its own environment there, so
+        // the app hands the worker a services FILE instead. Keying the pin on the env var alone
+        // therefore meant `pinned` was empty on every phone that has ever run this worker, and the
+        // one mechanism built to stop a config push from silently rewriting a node's discovery
+        // plane did not exist on the platform where the app is the only thing that pushes.
+        if (setting("NODERA_TRACKER_ENDPOINTS") != null || synced.hasTrackers()) {
+            tracker.pinEndpoints(trackerEndpoints);
+        }
 
         // The world-archive lane (the continuity increment): this worker seeds the canonical
         // archives of the worlds it hosts and can fetch any world's archive from the swarm, so a
@@ -270,6 +282,27 @@ public final class PeerNode implements AutoCloseable {
         // members already known.
         sessionListener.bind(validation);
         sessionListener.onSessionChanged(runtime.sessionView());
+        // A seat names the state it is being taken on, and this is how the worker obtains it. Before
+        // this, every member derived an all-air base — the only state everyone could produce without
+        // a transfer — so the validated lane held air plus whatever edits it had witnessed, never
+        // the world the players were standing in. Returning null refuses the seat, which is the
+        // right answer: validating a world this node does not hold is worse than not validating.
+        validation.regionBaseSource((region, indexRoot) -> {
+            // A region names a dimension, not a world, so the world is whichever one this worker
+            // holds that knows about this region. In practice a worker is seated for one session at
+            // a time; iterating is what keeps that an observation rather than an assumption.
+            for (var world : hosting.hostedWorlds()) {
+                try {
+                    return archive.fetchRegion(world.worldIdHex(), region, indexRoot,
+                            java.time.Duration.ofSeconds(30));
+                } catch (RuntimeException unavailable) {
+                    LOG.debug("world {} could not supply the base for {}: {}",
+                            world.worldIdHex(), region, unavailable.toString());
+                }
+            }
+            LOG.warn("no hosted world could supply the base for {}", region);
+            return null;
+        });
 
         // Every region this worker commits is seeded into the content plane (L-41). The archive
         // lane keeps the hosted world's save alive after the driving game closes; this keeps the
@@ -315,6 +348,45 @@ public final class PeerNode implements AutoCloseable {
                 Path.of(env("NODERA_TOMBSTONE_DIR", stateDir.resolve("deleted").toString()))));
         deletions.attachTrackers(tracker);
         hosting.refuseDeletedWorlds(deletions::isDeleted);
+        // …and the one exception to that refusal: the owner sharing the world again. The tombstone
+        // itself carries the ownership claim, and the world's private key is on this disk if this
+        // node is the administrator, so the restore can be minted and signed from what is already
+        // here — no state had to be kept between the delete and the re-share.
+        hosting.reviveOnOwnerReshare(worldIdHex -> {
+            java.util.Optional<dev.nodera.storage.WorldTombstone> held =
+                    deletions.tombstone(worldIdHex);
+            if (held.isEmpty()) {
+                return false;
+            }
+            java.util.Optional<dev.nodera.storage.WorldOwnership> claim = held.get().ownership();
+            if (claim.isEmpty() || !claim.get().isOwner(identity.nodeId())) {
+                return false; // somebody else's world: the deletion stands
+            }
+            java.util.Optional<dev.nodera.storage.PersistedWorldKey> worldKey =
+                    worldKeys.load(worldIdHex);
+            if (worldKey.isEmpty()) {
+                LOG.warn("Cannot restore world {} — this node owns it but no longer holds its key",
+                        worldIdHex);
+                return false;
+            }
+            dev.nodera.storage.WorldRevival revival;
+            try {
+                revival = dev.nodera.storage.WorldRevival.create(identity, worldKey.get(),
+                        claim.get(), "shared again by its owner", System.currentTimeMillis());
+            } catch (RuntimeException e) {
+                LOG.warn("Cannot restore world {}: {}", worldIdHex, e.getMessage());
+                return false;
+            }
+            WorldDeletionService.Outcome outcome = deletions.publish(revival);
+            if (outcome.error() != null) {
+                LOG.warn("Restore of world {} refused: {}", worldIdHex, outcome.error());
+                return false;
+            }
+            LOG.info("World {} shared again by its owner — the deletion is withdrawn from {} peer(s)"
+                    + " and every tracker this node announces to", worldIdHex,
+                    outcome.peersNotified());
+            return true;
+        });
         // Worlds deleted while this node was down are undone here rather than left announced: the
         // registry restored them at construction, before the tombstones were read back.
         for (dev.nodera.storage.WorldTombstone tombstone : deletions.tombstones()) {
@@ -717,6 +789,17 @@ public final class PeerNode implements AutoCloseable {
             return trackers.isEmpty() ? fallback : String.join(",", trackers);
         }
 
+        /**
+         * Whether somebody actually stated a tracker list here.
+         *
+         * <p>The distinction the pin depends on: endpoints that came from this file were chosen,
+         * and endpoints that came from the compiled-in defaults were merely not overridden. Only
+         * the first kind is an authority worth protecting from a later config push.
+         */
+        boolean hasTrackers() {
+            return !trackers.isEmpty();
+        }
+
         String rendezvousOr(String fallback) {
             return rendezvous.isEmpty() ? fallback : String.join(",", rendezvous);
         }
@@ -850,30 +933,24 @@ public final class PeerNode implements AutoCloseable {
         return out;
     }
 
-    /** Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host. */
+    /**
+     * Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host.
+     *
+     * <p>Shared with the mod's own peer service through
+     * {@link dev.nodera.core.net.NetworkAddresses} — see the note there on why "the first
+     * site-local address" picks a VPN tunnel on a developer machine, and why a node that advertises
+     * one is unreachable in a way it cannot detect about itself.
+     */
     private static String resolveHost(String configured) {
-        if (configured != null && !configured.equalsIgnoreCase("auto") && !configured.isBlank()) {
-            return configured;
+        String resolved = dev.nodera.core.net.NetworkAddresses.resolveHost(configured);
+        if (dev.nodera.core.net.NetworkAddresses.LOOPBACK.equals(resolved)
+                && (configured == null || configured.isBlank()
+                    || configured.equalsIgnoreCase("auto"))) {
+            LOG.warn("no reachable LAN address was found to advertise — falling back to {}. Other"
+                    + " peers will not be able to dial this node; set NODERA_P2P_ADVERTISE if this"
+                    + " machine's real address cannot be detected.", resolved);
         }
-        try {
-            Enumeration<NetworkInterface> nics = NetworkInterface.getNetworkInterfaces();
-            while (nics != null && nics.hasMoreElements()) {
-                NetworkInterface nic = nics.nextElement();
-                if (!nic.isUp() || nic.isLoopback() || nic.isVirtual()) {
-                    continue;
-                }
-                Enumeration<InetAddress> addrs = nic.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    InetAddress a = addrs.nextElement();
-                    if (a.isSiteLocalAddress() && a.getAddress().length == 4) {
-                        return a.getHostAddress();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("advertise-host auto-detect failed, falling back to 127.0.0.1", e);
-        }
-        return "127.0.0.1";
+        return resolved;
     }
 
     /** Logs the session lifecycle so operators (and the Tauri dashboard) can watch the mesh. */

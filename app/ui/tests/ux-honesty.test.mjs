@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import { readCrate } from "./layout.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -25,8 +26,38 @@ function frontendSources() {
 }
 
 const frontend = frontendSources();
+
+/**
+ * Every desktop screen the shell can show, and the module that draws it.
+ *
+ * Spelled once, here, so the two rules below — "a screen that reads the dashboard must be marked
+ * for staleness" and "a screen must exist for every destination" — are checked against the same
+ * list rather than against two hand-maintained ones.
+ */
+const DASHBOARD_SCREENS = [
+  ["play", "PlayScreen.tsx"],
+  ["worlds", "Worlds.tsx"],
+  ["world", "World.tsx"],
+  ["discover", "Network.tsx"],
+];
+
+/** The screen names the shell declares as showing worker figures. */
+function coveredScreens(app) {
+  const start = app.indexOf("export const WORKER_FIGURE_SCREENS");
+  if (start === -1) return [];
+  const block = app.slice(start, app.indexOf("];", start));
+  const names = [...block.matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+  // The destinations are pulled from the nav table by a filter rather than written as strings, so
+  // read those too — otherwise this only ever sees the one name spelled literally.
+  const navStart = app.indexOf("const DESTINATIONS");
+  const nav = app.slice(navStart, app.indexOf("] as const", navStart));
+  for (const [, name, shows] of nav.matchAll(/name: "([a-z]+)"[\s\S]*?showsWorkerFigures: (true|false)/g)) {
+    if (shows === "true") names.push(name);
+  }
+  return names;
+}
 const lib = read("../../src/lib.rs");
-const commands = read("../../src/api/commands.rs");
+const commands = readCrate("nodera-core", "src/api/commands.rs");
 
 /* ------------------------------------------------------------------------------------ A-UX-1 */
 
@@ -42,31 +73,46 @@ test("a screen showing worker figures marks them as last-known when the link is 
   assert.match(body.slice(0, 200), /"polling"/);
 
   // Desktop: the shell renders the notice above whichever screen is showing worker-derived
-  // figures, so no such screen can be added without a decision about staleness.
+  // figures. The set used to be four screen names spelled here, which drifted every time a screen
+  // moved and said nothing about screens that were added. It is now derived: the shell exports the
+  // set, and this asserts that **every screen module which reads the dashboard is in it**.
   const app = read("../src/App.tsx");
   assert.match(app, /isStale\(d\.link\)/, "the desktop shell does not consult isStale");
   assert.match(app, /<StaleDataNotice \/>/, "the desktop shell never renders the notice");
-  for (const screen of ["overview", "worlds", "world", "peers"]) {
-    assert.match(
-      app,
-      new RegExp(`screen\\.name === "${screen}"`),
-      `the ${screen} screen is not covered by the stale-figures decision`,
+  assert.match(
+    app,
+    /export const WORKER_FIGURE_SCREENS/,
+    "the shell must declare which screens show worker figures",
+  );
+  assert.match(
+    app,
+    /WORKER_FIGURE_SCREENS\.includes\(screen\.name\)/,
+    "the declared set must be what actually gates the notice",
+  );
+
+  const declared = new Set(coveredScreens(app));
+  assert.ok(declared.size > 0, "no screen is covered by the stale-figures decision");
+  for (const [screen, module] of DASHBOARD_SCREENS) {
+    const source = read(`../src/${module}`);
+    // Reading any of these means rendering a number the worker supplied, which is exactly what has
+    // to be marked as last-known when the link is down.
+    if (!/useDashboard|d\.worlds|d\.traffic|d\.node|d\.counts/.test(source)) continue;
+    assert.ok(
+      declared.has(screen),
+      `${module} renders worker figures but ${screen} is not in WORKER_FIGURE_SCREENS`,
     );
   }
 
-  // Mobile: the same statement, in the phone shell's own words.
-  const mobile = read("../src/mobile/MobileApp.tsx");
-  assert.equal(
-    (mobile.match(/isStale\(/g) ?? []).length,
-    2,
-    "both figure-bearing phone tabs must mark stale data",
-  );
-  assert.match(mobile, /function StaleNotice\(\)/);
+  // Android is native Compose; both Home and Worlds render the shared native notice.
+  const mobile = read("../../android/kotlin/ui/Screens.kt");
+  const mobileMarks = (mobile.match(/StaleNotice\(\)/g) ?? []).length;
+  assert.ok(mobileMarks >= 2, `every figure-bearing native screen must mark stale data (found ${mobileMarks})`);
+  assert.match(mobile, /fun StaleNotice\(\)/);
 
-  // And the words are the same on both, because it is the same claim.
+  // Both shells state the same fact in platform-appropriate compact wording.
   const words = "Showing the last known picture";
   assert.ok(read("../src/components.tsx").includes(words));
-  assert.ok(mobile.includes(words));
+  assert.ok(mobile.includes("Last known state"));
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-2 */
@@ -82,7 +128,7 @@ test("the notifications toggle is badged with why it is not in force", () => {
   // The backing declaration is asserted on the Rust side
   // (`appearance_notifications_is_declared_unenforced_with_a_reason`); this half only proves the
   // screen actually shows the badge that declaration produces.
-  assert.match(read("../../src/settings.rs"), /Enforcement::Never \{\s*reason: "desktop notifications/);
+  assert.match(readCrate("nodera-core", "src/settings.rs"), /Enforcement::Never \{\s*reason: "desktop notifications/);
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-3 */
@@ -112,7 +158,9 @@ function registeredCommands() {
   return list
     .split("\n")
     .map((line) => line.replace(/\/\/.*$/, "").trim().replace(/,$/, ""))
-    .filter(Boolean)
+    // `#[cfg(...)]` gates entries in this list — the launch lane is desktop-only, because there is
+    // no Java Minecraft client on Android. An attribute is not a command name.
+    .filter((line) => line && !line.startsWith("#["))
     .map((name) => name.split("::").pop());
 }
 
@@ -135,8 +183,11 @@ test("the six A-UX-5 commands are each resolved, and stay resolved", () => {
     assert.doesNotMatch(frontend, new RegExp(`"${gone}"`), `${gone} is invoked again`);
   }
 
-  // Kept, because the answer is worth showing — so each must be shown somewhere.
-  assert.match(read("../src/Overview.tsx"), /fetchPauseReason\(\)/, "pause_reason has no caller");
+  // Kept, because the answer is worth showing — so each must be shown somewhere. `pause_reason`
+  // moved with the Overview screen that was dissolved into the launcher's hero: a node that has
+  // quietly stopped sharing looks exactly like one that crashed, and this sentence is the whole
+  // difference. It has to keep a caller wherever it lives.
+  assert.match(read("../src/PlayScreen.tsx"), /fetchPauseReason\(\)/, "pause_reason has no caller");
   assert.match(
     read("../src/Settings.tsx"),
     /fetchSettingsFault\(\)/,
@@ -165,7 +216,7 @@ test("no link is an anchor the webview would swallow", () => {
   // and an anchor without it navigates this window away from the application, to a page with no
   // back button because the app has no browser chrome either. Both outcomes look like a bug to the
   // person who tapped. So links go through `openExternal`, and the host decides where they open.
-  const dirs = ["../src", "../src/mobile", "../src/m3"];
+  const dirs = ["../src"];
   const offenders = [];
   for (const dir of dirs) {
     const base = new URL(`${dir}/`, import.meta.url);

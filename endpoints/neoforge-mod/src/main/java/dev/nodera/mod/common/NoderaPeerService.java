@@ -31,10 +31,7 @@ import dev.nodera.transport.socket.SocketPeerTransport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetAddress;
-import java.net.NetworkInterface;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
@@ -107,6 +104,20 @@ public final class NoderaPeerService {
     private volatile RendezvousPeerTransport serverRendezvous;
 
     private NodeIdentity clientIdentity;
+
+    /**
+     * Base64 of the {@code SessionDelegation} this session announces, or {@code ""}.
+     *
+     * <p>{@link #clientIdentity} is deliberately a throwaway: a fresh keypair per session, because
+     * it is a transport credential and nothing more. That leaves a gap the permission model cannot
+     * bridge on its own — a world's author and every grant it issued are anchored to the persistent
+     * key inside the player's always-on worker, so a session announcing only its own key is a
+     * stranger to every world it has ever been given anything in. This is the worker's signed
+     * statement that the two belong together, and it is what stops a world's creator from being
+     * de-opped on joining their own world.
+     */
+    private volatile String sessionDelegationB64 = "";
+
     private SocketPeerTransport clientTransport;
     private PeerTransport clientDataTransport;
     /** The joiner's rendezvous transport; see {@link #serverRendezvous}. */
@@ -698,6 +709,26 @@ public final class NoderaPeerService {
         return clientIdentity;
     }
 
+    /**
+     * @return the route this client dialled to reach the session's host, or {@code ""}. The one
+     *         thing every joiner agrees on about who is hosting, which is what the succession
+     *         election needs in order to exclude the departing host identically on every peer.
+     * @Thread-context any thread.
+     */
+    public String clientBootstrapRoute() {
+        return clientBootstrapRoute;
+    }
+
+    /**
+     * @return base64 of this session's {@code SessionDelegation}, or {@code ""} when no worker was
+     *         reachable to sign one. Blank is not an error: the session then announces exactly what
+     *         it announced before delegations existed, and is evaluated as an ordinary member.
+     * @Thread-context any thread.
+     */
+    public String sessionDelegationB64() {
+        return sessionDelegationB64;
+    }
+
     /** @return the client peer's metered transport, or {@code null} when no session is joined. */
     public synchronized PeerTransport clientDataTransport() {
         return clientDataTransport;
@@ -792,34 +823,79 @@ public final class NoderaPeerService {
     }
 
     /** Stop hosting this world (server stopping, or the "Stop sharing" action). Idempotent. */
-    public synchronized void stopHosting() {
+    public void stopHosting() {
+        // Snapshot under the monitor, then do every slow thing OUTSIDE it.
+        //
+        // This method used to hold the singleton monitor across a two-second join, a three-second
+        // companion detach and a two-second runtime stop — on the SERVER thread, which is the thread
+        // the "Saving world" screen waits for. Worse, `isHosting()` and `hostOptions()` need the
+        // same monitor, so the shutdown path queued behind anything already holding it: a
+        // `startHost` retry or an `onServerSessionInfo` dial can hold it for minutes, and the player
+        // watched "Saving world" for all of it.
+        //
+        // Nulling the fields first is what makes the wait unnecessary rather than merely shorter:
+        // `isHosting()` goes false immediately, so nothing else on the shutdown path blocks, and the
+        // teardown below runs against a private snapshot that cannot be seen half-done.
+        dev.nodera.peer.discovery.TrackerClient tracker;
+        PeerRuntime runtime;
+        java.util.concurrent.ScheduledExecutorService announces;
+        boolean announceStopped;
+        synchronized (this) {
+            announces = announceScheduler;
+            announceScheduler = null;
+            tracker = serverTrackerClient;
+            runtime = serverRuntime;
+            announceStopped = tracker != null && !tracker.endpoints().isEmpty()
+                    && serverIdentity != null && hostWorldId != null;
+            serverRuntime = null;
+            serverTrackerClient = null;
+        }
+        if (announces != null) {
+            announces.shutdownNow();
+        }
+        stopHostingOutsideTheLock(tracker, runtime, announceStopped);
+        synchronized (this) {
+            clearHostState();
+        }
+    }
+
+    /** The slow half of {@link #stopHosting}, deliberately not holding the singleton monitor. */
+    private void stopHostingOutsideTheLock(
+            dev.nodera.peer.discovery.TrackerClient tracker, PeerRuntime runtime,
+            boolean announceStopped) {
+        // Fire and forget. The tracker entry expires on its own, and a goodbye nobody waits for is
+        // worth exactly as much as one somebody waits two seconds for — which is what the previous
+        // version did, while holding the monitor the goodbye itself needed.
+        if (announceStopped) {
+            Thread.ofPlatform().name("nodera-tracker-stopped").daemon()
+                    .start(() -> sendAnnounce(AnnounceEvent.STOPPED));
+        }
+        if (runtime != null) {
+            LOG.info("Nodera host peer shutting down");
+            // Off-thread for the same reason the JOINER's detach already is: it is a control
+            // exchange with its own timeouts, and the host path never got the same treatment.
+            Thread.ofPlatform().name("nodera-companion-detach").daemon().start(() -> {
+                try {
+                    CompanionClient companion = CompanionLink.client();
+                    if (companion != null) {
+                        companion.mesh("", null);
+                    }
+                } catch (RuntimeException ignored) {
+                    // Teardown is best-effort; never let it block the shutdown path.
+                }
+            });
+            runtime.stop();
+        }
+        if (tracker != null) {
+            tracker.close();
+        }
+    }
+
+    /** The old body, kept for the fields that must be cleared under the monitor. */
+    private synchronized void clearHostState() {
         if (announceScheduler != null) {
             announceScheduler.shutdownNow();
             announceScheduler = null;
-        }
-        // Tell the tracker the world is gone (best-effort) before we tear the runtime down.
-        if (serverTrackerClient != null && !serverTrackerClient.endpoints().isEmpty()
-                && serverIdentity != null && hostWorldId != null) {
-            sendAnnounce(AnnounceEvent.STOPPED);
-        }
-        if (serverRuntime != null) {
-            LOG.info("Nodera host peer shutting down");
-            // Detach the companion from the session this runtime is about to take down, so it
-            // returns to its own session of one instead of heartbeating at a dead route.
-            try {
-                CompanionClient companion = CompanionLink.client();
-                if (companion != null) {
-                    companion.mesh("", null);
-                }
-            } catch (RuntimeException ignored) {
-                // Teardown is best-effort; never let it block the shutdown path.
-            }
-            serverRuntime.stop();
-            serverRuntime = null;
-        }
-        if (serverTrackerClient != null) {
-            serverTrackerClient.close();
-            serverTrackerClient = null;
         }
         serverCollector = null;
         serverDiagnostics = null;
@@ -863,6 +939,12 @@ public final class NoderaPeerService {
         this.sessionWorldIdHex = worldIdHex == null ? "" : worldIdHex.trim();
         this.clientBootstrapRoute = bootstrapRoute == null ? "" : bootstrapRoute.trim();
         clientIdentity = NodeIdentity.generate();
+        // Immediately ask this machine's worker to vouch for the key we just generated. The key
+        // stays throwaway — it is a transport credential — but the announce that carries it now
+        // also carries the worker's signature saying whose authority it speaks with. Without this
+        // step the announce is cryptographically perfect and semantically anonymous, which is how a
+        // world's own creator lost /op the moment they joined their own world as a client.
+        sessionDelegationB64 = mintSessionDelegation(this.sessionWorldIdHex, clientIdentity);
         String advertise = resolveHost(advertiseHost);
         // Authenticated mode (issue #41 / L-53): connections prove key possession at accept.
         clientTransport = new SocketPeerTransport(clientIdentity, "0.0.0.0", 0, advertise);
@@ -891,6 +973,41 @@ public final class NoderaPeerService {
                 .register(dev.nodera.mod.server.entity.LiveEntityControlProvider.get());
         LOG.info("Nodera client peer joining session via {} (node {}, listening {})",
                 bootstrapRoute, clientIdentity.nodeId(), clientRuntime.selfRoute());
+    }
+
+    /**
+     * Ask the local worker to sign a delegation binding this session's key to the worker's own.
+     *
+     * <p>Best-effort by construction. No worker, an older worker that does not know the verb, or a
+     * session with no world id all produce {@code ""}, and the announce then says only what the
+     * session can prove about itself. That is the pre-existing behaviour rather than a new failure
+     * mode — the player is a member of the world instead of whatever they were granted, which is
+     * wrong but survivable, and the log line says which of the two happened.
+     *
+     * @param worldIdHex the world this session belongs to.
+     * @param session    the session identity to have vouched for.
+     * @return base64 of the signed delegation, or {@code ""}.
+     */
+    private static String mintSessionDelegation(String worldIdHex, NodeIdentity session) {
+        if (worldIdHex == null || worldIdHex.isBlank() || !CompanionLink.isPresent()) {
+            return "";
+        }
+        try {
+            java.util.Optional<dev.nodera.core.Bytes> delegation =
+                    CompanionLink.client().delegateSession(worldIdHex, session.publicKeyBytes(),
+                            dev.nodera.core.identity.SessionDelegation.DEFAULT_TTL_MILLIS / 1000);
+            if (delegation.isEmpty()) {
+                LOG.info("Nodera: this machine's worker did not vouch for the session key — any "
+                        + "operator role or ownership this player holds in '{}' will not be seen "
+                        + "here", worldIdHex);
+                return "";
+            }
+            return java.util.Base64.getEncoder().encodeToString(delegation.get().toArray());
+        } catch (RuntimeException e) {
+            LOG.info("Nodera: could not obtain a session delegation ({}) — this player joins with "
+                    + "no persistent identity attached", e.toString());
+            return "";
+        }
     }
 
     /**
@@ -950,7 +1067,20 @@ public final class NoderaPeerService {
             try {
                 java.util.Optional<String> error = companion.mesh(route, worldSeed);
                 if (error.isPresent()) {
-                    LOG.warn("Nodera: this player's worker did not join the world session: {}",
+                    // Say what it COSTS, not just that it happened. This player's worker holding no
+                    // seat is the difference between a world validated by an always-on peer and one
+                    // validated only for as long as somebody's game is open, and the previous
+                    // message said neither — a run where this fired every few seconds looked
+                    // identical, in the state document, to a worker nobody had chosen.
+                    //
+                    // The refusal itself is deliberate on the worker's side: rebinding the world
+                    // seed while regions are active would strand replicas that belong to a
+                    // different world. It is retried on the next lane plan, which arrives on every
+                    // membership or region-boundary change, so this is a degraded state and not a
+                    // terminal one — but it is a degraded state that has to be visible.
+                    LOG.warn("Nodera: this player's worker did not join the world session: {}."
+                            + " It will hold no committee seats for this world and cannot keep it"
+                            + " alive once this game closes; the next lane plan retries.",
                             error.get());
                     return;
                 }
@@ -1004,32 +1134,30 @@ public final class NoderaPeerService {
         clientDataTransport = null;
         clientRendezvous = null;
         clientIdentity = null;
+        // The delegation names a key that no longer exists. Keeping it would let the next session
+        // announce a statement about a dead one.
+        sessionDelegationB64 = "";
     }
 
-    /** Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host. */
+    /**
+     * Resolve {@code "auto"} to a best-guess site-local IPv4; otherwise return the literal host.
+     *
+     * <p>Delegates to {@link dev.nodera.core.net.NetworkAddresses}, which the headless peer uses
+     * too. This method and {@code PeerNode}'s were byte-for-byte identical copies of a rule that
+     * turned out to be wrong — it treated a docker bridge and a VPN tunnel as being as good a
+     * place to be reached as the real NIC — and two copies of a wrong rule is how one of them gets
+     * fixed and the other goes on being wrong.
+     */
     public static String resolveHost(String configured) {
-        if (configured != null && !configured.equalsIgnoreCase("auto") && !configured.isBlank()) {
-            return configured;
+        String resolved = dev.nodera.core.net.NetworkAddresses.resolveHost(configured);
+        if (dev.nodera.core.net.NetworkAddresses.LOOPBACK.equals(resolved)
+                && (configured == null || configured.isBlank()
+                    || configured.equalsIgnoreCase("auto"))) {
+            LOG.warn("Nodera: no reachable LAN address was found to advertise — falling back to {}."
+                    + " Other peers will not be able to dial this node; set p2p.advertiseHost if"
+                    + " this machine's real address cannot be detected.", resolved);
         }
-        try {
-            Enumeration<NetworkInterface> nics = NetworkInterface.getNetworkInterfaces();
-            while (nics != null && nics.hasMoreElements()) {
-                NetworkInterface nic = nics.nextElement();
-                if (!nic.isUp() || nic.isLoopback() || nic.isVirtual()) {
-                    continue;
-                }
-                Enumeration<InetAddress> addrs = nic.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    InetAddress a = addrs.nextElement();
-                    if (a.isSiteLocalAddress() && a.getAddress().length == 4) {
-                        return a.getHostAddress();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("Nodera advertise-host auto-detect failed, falling back to 127.0.0.1", e);
-        }
-        return "127.0.0.1";
+        return resolved;
     }
 
     /** Logs the session lifecycle so operators can watch the mesh and gateway migration. */

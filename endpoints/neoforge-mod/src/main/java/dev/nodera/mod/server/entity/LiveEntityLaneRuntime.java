@@ -115,7 +115,127 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
      */
     private final dev.nodera.mod.common.RegionSeedSpool regionSeeds =
             dev.nodera.mod.common.RegionSeedSpool.companion();
+    /**
+     * Where a block edit's proposal is voted on, off the world thread.
+     *
+     * <p>Single-threaded and bounded: proposals for one node must keep their order, and a queue that
+     * can grow without limit turns a stalled committee into an out-of-memory error instead of a
+     * dropped edit. A full queue drops the newest proposal, which the committed state reconciles —
+     * the same contract the forward path and {@code submitMove} already work under.
+     */
+    private final java.util.concurrent.ThreadPoolExecutor proposals =
+            new java.util.concurrent.ThreadPoolExecutor(1, 1, 0L,
+                    java.util.concurrent.TimeUnit.MILLISECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(256),
+                    r -> {
+                        Thread t = new Thread(r, "nodera-block-proposals");
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    LiveEntityLaneRuntime::onProposalQueueFull);
+
+    /** Proposals dropped because the queue was full — see {@link #onProposalQueueFull}. */
+    private static final java.util.concurrent.atomic.AtomicLong DROPPED_PROPOSALS =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * What happens when the proposal queue is full.
+     *
+     * <p>Still a drop, and that is deliberate: the queue is bounded because an unbounded one turns a
+     * stalled committee into an out-of-memory error, and blocking here would put the world thread
+     * back inside the vote this executor exists to get it out of.
+     *
+     * <p>What changes is that it is no longer silent. It was a bare {@code DiscardPolicy} with no
+     * counter and no log, so a committee that could not keep up looked exactly like one that had
+     * nothing to do. The world state itself survives a drop — the block already landed in vanilla,
+     * the write guard recorded it, and the interference committer converts it into a certified
+     * external delta regardless — and the action stays unacknowledged in the handover, so a resume
+     * replays it. What is lost is the action's own journal entry, which is worth a line in the log.
+     */
+    private static void onProposalQueueFull(
+            Runnable dropped, java.util.concurrent.ThreadPoolExecutor executor) {
+        long total = DROPPED_PROPOSALS.incrementAndGet();
+        // Powers of two: the first few say it started, and a sustained stall does not drown the log.
+        if (Long.bitCount(total) == 1) {
+            LOG.warn("block proposal queue full — {} proposal(s) dropped so far; the edits "
+                    + "themselves are carried by the interference lane, but the committee is not "
+                    + "keeping up with this world", total);
+        }
+    }
+
+    private final dev.nodera.core.state.ChunkStampBook stamps;
+
+    /** Fetched regions being written into the level, a couple of columns per tick. */
+    private final dev.nodera.mod.server.shadow.RegionApplyQueue regionApplies =
+            new dev.nodera.mod.server.shadow.RegionApplyQueue();
+
+    /** Pulls a region's committed state from the worker when this node's copy is known-wrong. */
+    private final dev.nodera.mod.common.RegionFetchSpool regionFetches =
+            dev.nodera.mod.common.RegionFetchSpool.companion();
+
+    /**
+     * Queue a region fetched from the network to be written into the live level.
+     *
+     * <p>The consuming half of the content plane. Everything before this — extract, split, hash,
+     * announce, request, verify, reassemble — has existed for a long time and ended nowhere: no code
+     * anywhere could put a received region into a world, so the only way to receive one was to
+     * unpack a whole-save archive and re-open the save.
+     *
+     * @param snapshot the state that arrived.
+     * @param onDone   run on the server thread when the last column has landed, or {@code null}.
+     * @return whether it was queued; {@code false} when this node has no level bound for the region.
+     * @Thread-context any thread.
+     */
+    public boolean applyFetchedRegion(RegionSnapshot snapshot, Runnable onDone) {
+        ServerLevel level = boundLevels.get(snapshot.region());
+        if (level == null) {
+            LOG.warn("cannot apply fetched region {} — no level bound for it", snapshot.region());
+            return false;
+        }
+        regionApplies.offer(level, snapshot, onDone);
+        return true;
+    }
+
+    /** How often diverged regions are checked; a repair takes tens of seconds, so seconds will do. */
+    private static final int REPAIR_INTERVAL_TICKS = 100;
+
+    /**
+     * Ask the network for a region this node knows it has wrong, and write back what arrives.
+     *
+     * <p>The recovery that did not exist. A validator that re-executed a batch and got a different
+     * answer declined to vote — correctly — and then had no path back: its pending ballot stayed
+     * null, so every commit announce after that returned early, and it served state it knew was
+     * stale until the session ended.
+     *
+     * <p>Repair is a fetch, not a re-derivation, because the disagreement is precisely about what
+     * the region contains. Re-deriving it locally would produce the same wrong answer again.
+     */
+    private void repair(RegionId region) {
+        String haveRoot = null;
+        try {
+            haveRoot = world.chunkIndex(region, stamps).root().toHex();
+        } catch (RuntimeException notLoaded) {
+            // No local copy to diff against — ask for everything.
+            LOG.debug("no local index for {} to repair against: {}", region, notLoaded.toString());
+        }
+        regionFetches.request(region, haveRoot, snapshot -> {
+            // The apply queue is the server thread's; offering to it is not.
+            if (applyFetchedRegion(snapshot, () -> validation.repaired(region))) {
+                LOG.info("repairing diverged region {} from the network", region);
+            }
+        });
+    }
+
     private long currentTick;
+
+    /**
+     * When each of this world's columns was last written here.
+     *
+     * @return the book, for anything building or merging an index against this world.
+     */
+    public dev.nodera.core.state.ChunkStampBook stamps() {
+        return stamps;
+    }
 
     public LiveEntityLaneRuntime(
             WorkerValidationService validation,
@@ -129,12 +249,19 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         this.world = world;
         this.authority = authority;
         this.actions = actions;
-        HashService hashes = new HashService();
+        // Provenance for this world's columns: which of two differing copies of a chunk is more
+        // recent, in a form another machine can compare without either clock being right. Installed
+        // on the view so every canonical write — foreign or applied — records itself.
+        this.stamps = new dev.nodera.core.state.ChunkStampBook(authority.nodeId());
+        world.stampBook(stamps);
         this.committer = new InterferenceCommitter(
                 interference,
+                // Through the view, not around it: the view knows whether the region has changed
+                // since it last answered, and can say "the same" for free. Hashing here instead
+                // meant a full re-extract and SHA-256 of every column on every commit — and again,
+                // for the same state, when the certified delta was verified.
                 (region, version, minimumBodyVersion) ->
-                        dev.nodera.core.state.StateRoot.of(hashes.hash(
-                                world.reExtract(region, version, currentTick))),
+                        world.regionRoot(region, version, currentTick),
                 world::setSnapshotBodyVersion,
                 (delta, certificate) -> {
                     validation.commitExternal(delta, certificate, currentTick);
@@ -145,7 +272,20 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                             delta.resultingVersion().value());
                 },
                 authority);
+        // Half a second, not every tick. A commit re-extracts and hashes a whole region, and a
+        // region is pending whenever any ghost moved — so this ran up to once per tick per region
+        // on the server thread, which is what a live two-player session measured as 15.5 TPS.
+        // Ordering is preserved by flushing the region explicitly before anything proposes into it.
+        this.committer.setCommitIntervalTicks(COMMIT_INTERVAL_TICKS);
+        // Only the region's primary may certify a foreign write against it. Without this the
+        // committer attempted every pending region, the sink refused every one this node does not
+        // own, and the buffer was restored and retried on the next cadence — forever, on the world
+        // thread, reported as a resync that never resolved.
+        this.committer.certifiable(validation::isPrimaryOf);
     }
+
+    /** See {@link InterferenceCommitter#setCommitIntervalTicks}. */
+    private static final int COMMIT_INTERVAL_TICKS = 10;
 
     /** Expose event capture only after region state and durable recovery are ready. */
     public void install() {
@@ -175,7 +315,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         committer.onCommittedVersion(snapshot.region(), snapshot.version());
         regions.add(snapshot.region());
         boundLevels.put(snapshot.region(), level);
-        tickets.hold(level, snapshot.region());
+        // Simulated only where this node is the region's PRIMARY. A validator re-executes what it
+        // is given and compares roots; it needs the ground readable, not running.
+        tickets.hold(level, snapshot.region(), authority.nodeId().equals(lease.primary()));
         // Task 13: the engine is THE scheduler for this region now — vanilla scheduled
         // ticks for its chunks are cancelled at the source (LevelTicksMixin).
         dev.nodera.endpoint.lane.RedstoneSuppression.activate(
@@ -198,6 +340,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         return validation.currentSnapshot(region).stream()
                 .flatMap(snapshot -> snapshot.entities().stream())
                 .anyMatch(entity -> entity.id().equals(id) && entity.kind() == EntityKind.ITEM);
+    }
+
+    @Override
+    public boolean mayCancelVanilla(RegionId region) {
+        return VanillaCancelGate.mayCancelVanilla(validation.lease(region), authority.nodeId());
     }
 
     @Override
@@ -361,7 +508,7 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
     public boolean submitBlockAction(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
         if (delegated(region)) {
-            return submit(player, region, action);
+            return submit(player, region, action, false);
         }
         return submitAsObserver(player, region, action);
     }
@@ -446,6 +593,31 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     private boolean submit(
             ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action) {
+        return submit(player, region, action, true);
+    }
+
+    /**
+     * Capture one action.
+     *
+     * @param awaitTheCommittee whether the caller may be blocked until the committee decides.
+     *
+     *        <p><b>Only a caller whose vanilla outcome depends on the answer may pass true.</b>
+     *        {@code proposeBatch} waits on {@code round.done().await(voteTimeout + 500)} — five and a
+     *        half seconds with the current settings — and the block-capture path calls this from
+     *        {@code BlockCaptureBridge} on the <b>server main thread</b>. One edit whose committee
+     *        lacked a reachable majority froze the tick loop for that long; a few of them exceeded
+     *        the vanilla keepalive and the client was kicked, which the continuity lane then
+     *        correctly treated as a lost host and answered with a world reopen. A player reported it
+     *        as "a loading screen appears when I break a block".
+     *
+     *        <p>Drops and pickups still pass true, because their return value is what cancels
+     *        vanilla ({@code EntityCaptureBridge}) and an optimistic answer there re-opens issues
+     *        #33/#44. A block edit has already happened in the world when this is called, so
+     *        nothing is waiting on the verdict — which is the same deal {@code submitMove} took.
+     */
+    private boolean submit(
+            ServerPlayer player, RegionId region, dev.nodera.core.action.GameAction action,
+            boolean awaitTheCommittee) {
         Optional<RegionSnapshot> current = validation.currentSnapshot(region);
         if (current.isEmpty() || !playerRegion(player).equals(region)) {
             return false;
@@ -483,6 +655,31 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                 handover.acknowledge(actor, playerSequence);
                 return true;
             }
+            if (!awaitTheCommittee) {
+                // Off the tick. The proposal still happens, on the same executor the forward path
+                // uses; what changes is that the world thread does not sit through the vote.
+                // Flushed on THIS thread, before handing off: the buffer is the world thread's
+                // and must not be touched from the proposal executor.
+                committer.flushNow(region);
+                proposals.execute(() -> {
+                    try {
+                        if (validation.proposeBatch(region, tick, tick,
+                                java.util.List.of(signed)).isPresent()) {
+                            handover.acknowledge(actor, playerSequence);
+                        }
+                    } catch (RuntimeException unavailable) {
+                        // Held rather than lost: an unacknowledged action is exactly what the next
+                        // resume replays.
+                        LOG.debug("deferred proposal for {} failed: {}", region,
+                                unavailable.toString());
+                    }
+                });
+                return true;
+            }
+            // The proposal's base is the committed root, so anything still buffered for this
+            // region has to land first — otherwise the batch is built on a state the region has
+            // already moved past. This is the ordering the commit cadence trades against.
+            committer.flushNow(region);
             boolean proposed = validation.proposeBatch(
                     region, tick, tick, java.util.List.of(signed)).isPresent();
             if (proposed) {
@@ -494,6 +691,15 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         } catch (RuntimeException unavailable) {
             return false;
         }
+    }
+
+    @Override
+    public void registerVanillaEntity(RegionId region, dev.nodera.core.state.NetworkEntityId id,
+                                      net.minecraft.world.entity.Entity entity) {
+        if (!delegated(region)) {
+            return;
+        }
+        world.registerVanillaEntity(region, id, entity);
     }
 
     @Override
@@ -639,6 +845,23 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         } catch (RuntimeException requiresResync) {
             metrics.recordResync();
         }
+        // Terrain that arrived from the network, written a couple of columns at a time. Inside the
+        // applier scope, or every block of it classifies as a foreign write, lands in the
+        // interference buffer, and is proposed back to the committee as this node's own edit.
+        if (!regionApplies.isEmpty()) {
+            regionApplies.tick(writeGuard::applierScope);
+        }
+        // A replica that knows its copy of a region is wrong could not previously do anything about
+        // it: it stopped voting and stayed stale for the rest of the session. Now it asks the
+        // network for the region and writes what comes back. Throttled inside the spool, so a
+        // condition that persists until the fetch lands does not ask once per tick.
+        if (currentTick % REPAIR_INTERVAL_TICKS == 0) {
+            for (RegionId region : regions) {
+                if (validation.isDiverged(region)) {
+                    repair(region);
+                }
+            }
+        }
         // Issue #46.1: a player whose client cannot keep up must not hold its regions — and every
         // other player's border crossing into them — hostage. Sustained unanswered forwards move
         // primacy to a member that can do the work. Network failures degrade, never crash a tick.
@@ -692,6 +915,8 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     @Override
     public void close() {
+        // Stopped first, so nothing proposes into a lane that is being torn down.
+        proposals.shutdownNow();
         EntityCaptureBridge.get().uninstall(this);
         dev.nodera.mod.server.shadow.BlockCaptureBridge.get().uninstall(this);
         if (dev.nodera.mod.server.shadow.BlockWriteGuard.guard() == writeGuard) {
@@ -710,6 +935,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         boundLevels.clear();
         regions.clear();
         ghosts.clear();
+        // Anything still waiting to be written has no level to be written into once this returns.
+        regionApplies.clear();
+        regionFetches.close();
         // Waits for an in-flight push: it is writing into the spool directory, and close() runs on
         // the world-unload path that is entitled to tear that down.
         regionSeeds.close();

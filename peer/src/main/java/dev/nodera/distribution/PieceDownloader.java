@@ -177,14 +177,6 @@ public final class PieceDownloader {
     }
 
     /**
-     * @return the future that completes with the verified blob once every piece has arrived, or
-     *         completes exceptionally if assembly fails validation.
-     */
-    public CompletableFuture<Bytes> completion() {
-        return completion;
-    }
-
-    /**
      * Where a verified piece is persisted, before the download is allowed to call itself finished.
      *
      * <p>The ordering is the whole point. The store used to be written by the <i>caller</i> of

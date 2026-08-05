@@ -74,7 +74,7 @@ export function ConsoleScreen(props: { d: Dashboard; sys: SystemStats }) {
       : null;
 
   return (
-    <div className="flex min-h-full max-w-[1200px] flex-col gap-4 px-[26px] pt-5 pb-6">
+    <div className="flex min-h-[560px] flex-col gap-4">
       <div className={STAT_GRID}>
         <Stat
           label="Worker memory"

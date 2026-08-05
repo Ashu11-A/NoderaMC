@@ -68,20 +68,35 @@ public final class ShareWorldScreen extends Screen {
         addRenderableWidget(this.password);
         y += 28;
 
-        addRenderableWidget(Button.builder(delegateLabel(), b -> {
+        // The same authorship the password field already respects, applied to every OTHER mutating
+        // control on this screen. It was applied to the password box alone, so a non-author could
+        // not change the password but could still re-share the world, flip its options, and — via
+        // apply() submitting an empty password — publish a PLAINTEXT archive that supersedes an
+        // encrypted world's newest manifest. Read-only for a non-author, not hidden: they should be
+        // able to see what the world's settings are.
+        boolean mayEdit = this.canEditPassword;
+
+        Button delegateButton = Button.builder(delegateLabel(), b -> {
             this.delegate = !this.delegate;
             b.setMessage(delegateLabel());
-        }).bounds(x, y, WIDTH, 20).build());
+        }).bounds(x, y, WIDTH, 20).build();
+        delegateButton.active = mayEdit;
+        addRenderableWidget(delegateButton);
         y += 24;
 
-        addRenderableWidget(Button.builder(listedLabel(), b -> {
+        Button listedButton = Button.builder(listedLabel(), b -> {
             this.listed = !this.listed;
             b.setMessage(listedLabel());
-        }).bounds(x, y, WIDTH, 20).build());
+        }).bounds(x, y, WIDTH, 20).build();
+        listedButton.active = mayEdit;
+        addRenderableWidget(listedButton);
         y += 32;
 
         boolean sharing = NoderaPeerService.get().isHosting();
-        if (sharing) {
+        if (!mayEdit) {
+            // Nothing else on this screen is theirs to press.
+            y += 24;
+        } else if (sharing) {
             addRenderableWidget(Button.builder(
                     Component.translatable("nodera.share.update"), b -> apply(true))
                     .bounds(x, y, WIDTH, 20).build());

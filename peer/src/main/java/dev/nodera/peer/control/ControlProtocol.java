@@ -27,6 +27,20 @@ public final class ControlProtocol {
     /** Probe reply the worker sends. */
     public static final String OK = "NODERA-OK";
 
+    /**
+     * The placeholder for an optional argument a caller has nothing to put in.
+     *
+     * <p>This line protocol is split on {@code \s+}, which collapses runs of whitespace — so an
+     * argument sent as the empty string does not arrive as an empty argument, it <b>disappears</b>,
+     * and every argument after it moves one place left. That is not a theoretical hazard: a leave
+     * carried no world name, so the lease value landed in the name slot and a world called
+     * "Teste 1" was renamed to "0" the moment its owner disconnected.
+     *
+     * <p>A single character, chosen because it can never be valid base64 and can never be a world
+     * name anyone typed.
+     */
+    public static final String NO_VALUE = "-";
+
     /** Error reply prefix: {@code NODERA-ERR <message>}. */
     public static final String ERR = "NODERA-ERR";
 
@@ -96,6 +110,26 @@ public final class ControlProtocol {
     public static final String ARCHIVE = "NODERA-ARCHIVE";
 
     /**
+     * Interim progress on an in-flight {@link #ARCHIVE} fetch:
+     * {@code NODERA-PROGRESS <verified> <total>}, written by the worker on the same connection
+     * before the terminal {@link #OK}/{@link #ERR} line.
+     *
+     * <p><b>Why a fetch has to speak while it works.</b> The caller's {@code timeoutSeconds} was
+     * being spent twice, meaning two different things: the worker treats it as a <i>stall</i>
+     * budget — a transfer that keeps moving keeps going — while the client had turned it into a
+     * socket read timeout, a hard wall clock. A large archive that was progressing perfectly well
+     * therefore kept the worker happy and expired the client underneath it. Observed live: a
+     * player waited 748 seconds and was told the fetch failed, while the worker was healthy and
+     * 212 of 283 pieces into the download being waited on.
+     *
+     * <p>So the worker says how far it has got, and each line is liveness — the same reason
+     * {@link #WATCH} sends a keepalive instead of letting the reader guess what silence means. A
+     * client that does not understand this line must ignore it and keep reading, which is what
+     * makes the addition safe against an older peer on either side.
+     */
+    public static final String PROGRESS = "NODERA-PROGRESS";
+
+    /**
      * Seed one committed <b>region snapshot</b> of the validated lane (worker L-41):
      * {@code NODERA-SEED-REGION <ver> <worldId> <snapshotPathB64>} — the file holds a canonically
      * encoded {@code RegionSnapshot}, written by whichever process actually committed it, and the
@@ -118,6 +152,32 @@ public final class ControlProtocol {
     public static final String SEED_REGION = "NODERA-SEED-REGION";
 
     /**
+     * Fetch one region's committed state from the network:
+     * {@code NODERA-FETCH-REGION <ver> <worldId> <dim> <regionX> <regionZ> <destPathB64>
+     * [haveIndexRootHex] [timeoutSeconds]} — the worker downloads the region's pieces, verifies the
+     * assembled blob against the certified region root, and writes the canonical
+     * {@code RegionSnapshot} to {@code destPath}.
+     *
+     * <p>The exact mirror of {@link #SEED_REGION}, and the direction that did not exist. Regions
+     * were seeded, split, hashed and announced, and their manifests travelled — and nothing ever
+     * downloaded one, so the only way to receive somebody else's world was the whole-save archive
+     * and the world reload that comes with it.
+     *
+     * <p>{@code haveIndexRootHex} names what the caller already holds, so the worker can serve the
+     * matching version rather than whatever is newest; omit it for "whatever you have". Reuse is
+     * decided below this, by piece hash, so a caller that already holds most of the region pays for
+     * the columns that differ whether or not it names a root.
+     *
+     * <p><b>Why a file path and not the bytes.</b> Same as {@link #SEED_REGION}: this is a line
+     * protocol on loopback, and a region does not belong on a line.
+     *
+     * <p>Reply: {@code NODERA-OK <byteCount> <regionRootHex>}. Additive verb — an older worker
+     * answers {@code NODERA-ERR unknown verb}, which callers treat as "no region fetch here" and
+     * carry on without.
+     */
+    public static final String FETCH_REGION = "NODERA-FETCH-REGION";
+
+    /**
      * Mint a signed world identity (the worker is the author):
      * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted>
      * <manifestRefB64> [pinnedWorldIdHex]}; reply is {@code NODERA-OK <worldIdentityBytesB64>}.
@@ -137,6 +197,27 @@ public final class ControlProtocol {
      * older worker answers {@code NODERA-ERR unknown verb}.
      */
     public static final String GRANT = "NODERA-GRANT";
+
+    /**
+     * Sign a {@link dev.nodera.core.identity.SessionDelegation} so a game session's throwaway
+     * transport key can speak in this worker's name:
+     * {@code NODERA-DELEGATE <ver> <worldIdHex> <sessionPubKeyB64> <ttlSeconds>}; reply is
+     * {@code NODERA-OK <delegationBytesB64>}.
+     *
+     * <p><b>Why this verb has to exist.</b> Every privilege in a world is anchored to the worker's
+     * persistent key, and the game client generates a fresh keypair per session for its peer
+     * transport. So the key a player proved possession of at join time was a key no world had ever
+     * heard of, the permission evaluator answered {@code MEMBER}, and a world's own author was
+     * de-opped from their own world. The private key must not move into the game, so the statement
+     * moves instead: the worker signs that the session key speaks for it, in one world, until a
+     * stated instant.
+     *
+     * <p>The loopback (127.0.0.1) socket is the local trust boundary, the same one {@link #GRANT}
+     * and {@link #WORLDID} already rely on. Additive verb — an older worker answers
+     * {@code NODERA-ERR unknown verb}, and a client that gets no delegation announces exactly what
+     * it announced before, which is the pre-existing behaviour rather than a new failure.
+     */
+    public static final String DELEGATE = "NODERA-DELEGATE";
 
     /**
      * Re-key a world's password (issue #37 / L-51): the mod hands the worker a freshly-packed archive

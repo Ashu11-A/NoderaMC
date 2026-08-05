@@ -135,11 +135,24 @@ final class CompanionCrashSurvivalIT {
         daemon = builder.start();
         probeUntilUp(controlPort, 30_000);
 
+        // Authoring the world comes first, exactly as the mod does it: NODERA-WORLDID mints the
+        // identity AND this peer's key for it, and only the holder of that key may publish a
+        // version of the world. Seeding used to be ungated, which meant a peer that had merely
+        // recovered somebody else's world could push a new newest version of it — including a
+        // plaintext one over an encrypted world's.
+        String worldIdentityB64 = okPayload(control(controlPort, ControlProtocol.WORLDID
+                + " 2 " + Base64.getEncoder().encodeToString(
+                        "genesis".getBytes(StandardCharsets.UTF_8))
+                + " 1000 1 1 0 "));
+        dev.nodera.storage.WorldIdentity authored = dev.nodera.storage.WorldIdentity.decode(
+                new dev.nodera.core.crypto.CanonicalReader(
+                        Bytes.unsafeWrap(Base64.getDecoder().decode(worldIdentityB64))));
+        Bytes worldId = authored.worldId();
+
         // The daemon seeds a world archive — the continuous seed duty that must survive.
         byte[] blob = WorldArchive.pack(Map.of(
                 "level.dat", "level".getBytes(StandardCharsets.UTF_8),
                 "region/r.0.0.mca", "regiondata".repeat(100).getBytes(StandardCharsets.UTF_8)));
-        Bytes worldId = new HashService().sha256(blob);
         Path archiveFile = tmp.resolve("spool.nar");
         Files.write(archiveFile, blob);
         String seedReply = control(controlPort, ControlProtocol.SEED + " 2 " + worldId.toHex()
@@ -165,5 +178,11 @@ final class CompanionCrashSurvivalIT {
                 .as("the daemon's seed duty survived the game's kill -9")
                 .contains("\"maintained_pieces\":" + pieces);
         assertThat(daemon.isAlive()).isTrue();
+    }
+
+    /** Strip the {@code NODERA-OK } prefix, failing loudly on an error reply. */
+    private static String okPayload(String reply) {
+        assertThat(reply).as("expected an OK reply").startsWith(ControlProtocol.OK + " ");
+        return reply.substring(ControlProtocol.OK.length() + 1).trim();
     }
 }

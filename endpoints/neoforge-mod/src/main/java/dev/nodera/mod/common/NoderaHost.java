@@ -9,6 +9,7 @@ import dev.nodera.endpoint.lane.ValidationLane;
 import dev.nodera.endpoint.share.HostJoinGate;
 import dev.nodera.endpoint.share.ShareOptions;
 import dev.nodera.endpoint.telemetry.ModTelemetry;
+import dev.nodera.endpoint.world.AuthorshipMemo;
 import dev.nodera.endpoint.world.NoderaWorldStore;
 import dev.nodera.endpoint.world.PlayerNodeRegistry;
 import dev.nodera.protocol.wire.WireCodec;
@@ -61,7 +62,45 @@ import java.util.Optional;
 public final class NoderaHost {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaHost");
-    private static LiveEntityLaneSession entityLane;
+    private static volatile LiveEntityLaneSession entityLane;
+
+    /**
+     * Guards {@link #entityLane}, and is explicitly NOT the class monitor.
+     *
+     * <h2>Why this stopped being {@code synchronized}</h2>
+     *
+     * <p>{@code activateEntityLane} held the class monitor across
+     * {@code LiveEntityLaneSession.open}, whose catch-up does a synchronous send per (region ×
+     * committee peer) with a five-second connect and a thirty-second authentication handshake each.
+     * One unreachable peer therefore held that monitor for minutes.
+     *
+     * <p>{@code onServerStopping} wanted the same monitor, and it runs on the <b>server thread</b> —
+     * which is the thread the "Saving world" screen is waiting for. So a lane bootstrap in flight
+     * when a player quit from the pause menu parked the shutdown behind it, with no timeout and
+     * nothing in any log. That is the "stuck on Saving world" report, and no test could see it
+     * because every departure test killed the process instead of asking it to leave.
+     *
+     * <p>A lock the shutdown path can give up on is the whole point.
+     */
+    private static final java.util.concurrent.locks.ReentrantLock LANE_LOCK =
+            new java.util.concurrent.locks.ReentrantLock();
+
+    /**
+     * Set the moment shutdown begins, before anything is locked.
+     *
+     * <p>Volatile and lock-free on purpose: a lane bootstrap that is about to spend minutes dialling
+     * peers for a world that is closing should abandon the attempt, and it must be able to learn
+     * that without taking the lock the shutdown is trying to take.
+     */
+    private static volatile boolean stopping;
+
+    /**
+     * How long shutdown waits for a lane bootstrap to finish before walking away from it.
+     *
+     * <p>Long enough for an ordinary close, far shorter than a peer dial. What is given up by
+     * walking away is an orderly close of a session that is about to die with the process anyway.
+     */
+    private static final java.time.Duration LANE_CLOSE_BUDGET = java.time.Duration.ofSeconds(5);
 
     /** The hosted world's permission set (L-49): drives the mesh admission gate; grants apply here. */
     private static volatile dev.nodera.storage.WorldPermissions hostedPermissions;
@@ -93,6 +132,29 @@ public final class NoderaHost {
     /** @return the hosted world's permission set, or null when not hosting. */
     public static dev.nodera.storage.WorldPermissions hostedPermissions() {
         return hostedPermissions;
+    }
+
+    /**
+     * @return the hosted world's network id, or {@link Bytes#empty()} when this server is not
+     *         hosting a shared world. The scope a session delegation has to match.
+     */
+    public static Bytes hostedWorldId() {
+        dev.nodera.storage.WorldPermissions perms = hostedPermissions;
+        return perms == null ? Bytes.empty() : perms.worldId();
+    }
+
+    /**
+     * Forget the hosted world (server stopped).
+     *
+     * <p>These two fields were set on every share and cleared by nothing. In a single JVM that opens
+     * one world, closes it and opens another — which is what a player does every time they go back
+     * to the title screen — the second world inherited the first world's permission set and its
+     * grant file path, so a grant made in world B was written into world A's save and evaluated
+     * against world A's author key.
+     */
+    public static void forgetHostedWorld() {
+        hostedPermissions = null;
+        hostedSaveRoot = null;
     }
 
     /**
@@ -423,30 +485,46 @@ public final class NoderaHost {
      * @return whether the local worker may set/change the password.
      */
     public static boolean localWorkerIsAuthor(MinecraftServer server) {
-        Optional<WorldIdentity> existing =
-                NoderaWorldStore.read(server.getWorldPath(LevelResource.ROOT));
+        Path saveRoot = server.getWorldPath(LevelResource.ROOT);
+        Optional<WorldIdentity> existing = NoderaWorldStore.read(saveRoot);
         if (existing.isEmpty()) {
             return true; // not shared yet → this install authors it on first share
         }
         if (!CompanionLink.isPresent()) {
-            return false; // shared by someone; without our worker we cannot prove authorship
+            // No worker to ask right now. Answering `false` here treats "I cannot check" as "I am
+            // not the author", and the cost of that mistake is the author of a world losing the
+            // ability to administer it — including the ability to re-op themselves — because their
+            // companion happened to be restarting. So we answer with the last thing this save
+            // actually proved, and only a genuine, checked mismatch says no.
+            return AuthorshipMemo.lastProven(saveRoot);
         }
         Optional<String> id = CompanionLink.client().identity();
         if (id.isEmpty()) {
-            return false;
+            return AuthorshipMemo.lastProven(saveRoot);
         }
         String workerNodeId = id.get().split("\\s+")[0];
-        return existing.get().authorNodeId().value().toString().equals(workerNodeId);
+        boolean isAuthor = existing.get().authorNodeId().value().toString().equals(workerNodeId);
+        AuthorshipMemo.remember(saveRoot, isAuthor);
+        return isAuthor;
     }
 
     /**
-     * Op the world author only (issue #36 F3 fix — no longer blanket-ops every online player). The
-     * integrated-server owner is the author when {@link #localWorkerIsAuthor} holds; a dedicated
-     * server ops nobody automatically (operator authority flows through signed grants + the
-     * {@link dev.nodera.mod.server.OperatorBridge}). Anyone else's op comes from a key-checked role.
+     * Op the person whose game this is, whenever the world is shared on Nodera.
+     *
+     * <p>Deliberately <b>not</b> gated on {@link #localWorkerIsAuthor} any more. That gate reads a
+     * file and asks a separate process a question, and it answers "no" for a whole family of
+     * ordinary situations — the companion is restarting, the identity verb timed out, the save was
+     * copied from another machine. Each of those took away administration of a world from the person
+     * sitting in front of it, and {@code /op} cannot be the way back because {@code /op} is itself
+     * gated on being an operator.
+     *
+     * <p>Scoped to a shared world for a reason: an unshared save has nothing that could de-op the
+     * owner, so there is nothing to defend against and vanilla's own "allow cheats" answer stands.
+     * A dedicated server has no such person at all and ops nobody automatically — operator authority
+     * there flows through signed grants and the {@link dev.nodera.mod.server.OperatorBridge}.
      */
     private static void grantHostOperator(MinecraftServer server) {
-        if (server.isDedicatedServer() || !localWorkerIsAuthor(server)) {
+        if (server.isDedicatedServer()) {
             return;
         }
         try {
@@ -461,12 +539,12 @@ public final class NoderaHost {
     }
 
     /**
-     * Op the integrated-server owner as author on login (covers an auto-re-share that ran before the
-     * owner joined, when {@link #grantHostOperator} saw no players). Safe no-op on a dedicated server
-     * or when this install did not author the world.
+     * Op the integrated-server owner on login (covers a share that ran before the owner joined, when
+     * {@link #grantHostOperator} saw no players). Safe no-op on a dedicated server or on a world
+     * this process is not sharing.
      */
     public static void syncAuthorOnLogin(MinecraftServer server, ServerPlayer player) {
-        if (server.isDedicatedServer() || hostedPermissions == null || !localWorkerIsAuthor(server)) {
+        if (server.isDedicatedServer() || hostedPermissions == null) {
             return;
         }
         if (server.isSingleplayerOwner(player.getGameProfile())) {
@@ -574,11 +652,35 @@ public final class NoderaHost {
         if (!CompanionLink.isPresent()) {
             return;
         }
-        CompanionLink.client()
+        Optional<String> refusal = CompanionLink.client()
                 .host(worldId.toHex(), world,
-                        shareOptionsJson(opts, mcRoute, livePlayerCount(server, leaving)))
-                .ifPresent(err -> LOG.warn("Nodera worker refused HOST for '{}': {}", world, err));
+                        shareOptionsJson(opts, mcRoute, livePlayerCount(server, leaving)));
+        if (refusal.isEmpty()) {
+            lastHostRefusal.remove(world);
+            return;
+        }
+        String err = refusal.get();
+        LOG.warn("Nodera worker refused HOST for '{}': {}", world, err);
+        // And say so IN THE GAME. This refusal used to be a log line and nothing else, while the
+        // pause menu had already told the player their world was shared — so a world the worker
+        // declined (a tombstoned id is the case that produced this: "this world was deleted by its
+        // owner", refused on every refresh) looked shared, was on no tracker, and no other player
+        // could ever see it. Nothing on screen contradicted the success message.
+        //
+        // Once per distinct reason: notifyWorker runs on the presence-refresh cadence, so an
+        // unconditional message would be a chat line every few seconds for as long as the world
+        // stays open.
+        if (!err.equals(lastHostRefusal.put(world, err))) {
+            tellHost(server, "§cNodera could not share '" + world + "': " + err);
+        }
     }
+
+    /**
+     * World name → the last refusal reported for it, so a repeating refusal is said once. Cleared as
+     * soon as the worker accepts the world, so a problem that is fixed and returns is reported again.
+     */
+    private static final Map<String, String> lastHostRefusal =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Players actually connected to this world right now.
@@ -825,7 +927,8 @@ public final class NoderaHost {
     private static int assignResidentSeats(
             NoderaPeerService.HostContext host,
             List<EntityLaneBootstrap.PlannedRegion> plan,
-            Map<NodeId, dev.nodera.protocol.membership.PeerEntry> residents) {
+            Map<NodeId, dev.nodera.protocol.membership.PeerEntry> residents,
+            Map<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> bases) {
         if (residents.isEmpty()) {
             return 0;
         }
@@ -835,6 +938,13 @@ public final class NoderaHost {
         // The first failure's route and exception, carried into the summary below. Eleven identical
         // DEBUG lines nobody reads are worth less than one WARN that names the cause.
         String[] firstFailure = new String[1];
+        // Per resident, not just in aggregate. The summary below only ever fired when EVERY dispatch
+        // failed, so the shape that actually happens in the field — two residents seated normally
+        // and the third unreachable at the address it advertised — was reported nowhere at all: its
+        // worker simply showed zero regions, with no line anywhere saying why. One resident that
+        // cannot be reached is exactly as worth naming as all of them.
+        Map<NodeId, Integer> seatedPerResident = new java.util.LinkedHashMap<>();
+        Map<NodeId, Integer> failedPerResident = new java.util.LinkedHashMap<>();
         for (EntityLaneBootstrap.PlannedRegion planned : plan) {
             for (NodeId validator : planned.lease().validators()) {
                 dev.nodera.protocol.membership.PeerEntry entry = residents.get(validator);
@@ -854,10 +964,16 @@ public final class NoderaHost {
                                             planned.region(), planned.lease().epoch(),
                                             dev.nodera.core.region.RegionReplicaRole.VALIDATOR,
                                             dev.nodera.core.state.SnapshotVersion.INITIAL,
-                                            planned.lease().expiresAtTick(), committee)));
+                                            planned.lease().expiresAtTick(), committee,
+                                            // Null for a region this node does not itself hold —
+                                            // it has no base to name, and a v1 assignment says
+                                            // exactly that rather than naming one it invented.
+                                            bases.get(planned.region()))));
                     sent++;
+                    seatedPerResident.merge(entry.nodeId(), 1, Integer::sum);
                 } catch (RuntimeException unreachable) {
                     failed++;
+                    failedPerResident.merge(entry.nodeId(), 1, Integer::sum);
                     if (firstFailure[0] == null) {
                         firstFailure[0] = entry.route() + " → " + unreachable;
                     }
@@ -884,8 +1000,143 @@ public final class NoderaHost {
                                 + "was {}", failed, firstFailure[0]);
             }
         }
+        // And the partial case the summary above cannot see: a resident that was chosen for at
+        // least one committee and could not be reached for ANY of them. That node will report zero
+        // regions and look like it was never picked; this is the line that says otherwise, and
+        // names the route it was picked at so the reader can see it is unreachable.
+        for (Map.Entry<NodeId, Integer> resident : failedPerResident.entrySet()) {
+            if (seatedPerResident.getOrDefault(resident.getKey(), 0) == 0) {
+                dev.nodera.protocol.membership.PeerEntry entry = residents.get(resident.getKey());
+                LOG.warn("Nodera: resident {} was planned into {} committee(s) and could not be "
+                                + "reached at {} for any of them — it will hold NO regions, and the "
+                                + "address it advertised is the thing to check",
+                        resident.getKey(), resident.getValue(),
+                        entry == null ? "an unknown route" : entry.route());
+            }
+        }
         return sent;
     }
+
+    /**
+     * The ownership plan as it stands right now, computed from who is online and where they are
+     * standing.
+     *
+     * <p>The same geometry {@link #activateEntityLaneFromWorld} plans from, asked as a question
+     * rather than as a side effect. The departure path needs it <b>before</b> the departing player
+     * is removed from the registry: after the removal the plan no longer contains them, and "which
+     * regions is this player about to vacate" becomes unanswerable.
+     *
+     * @param server the hosting server.
+     * @return region → claim, or an empty map when nothing can be planned (no host context, nobody
+     *         online).
+     * @Thread-context server thread (it reads player positions).
+     */
+    public static Map<dev.nodera.core.region.RegionId, dev.nodera.core.region.RegionClaim>
+            currentOwnershipPlan(MinecraftServer server) {
+        NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
+        if (host == null || server.getPlayerList().getPlayers().isEmpty()) {
+            return Map.of();
+        }
+        NodeId local = host.identity().nodeId();
+        int viewDistance = server.getPlayerList().getViewDistance();
+        Map<NodeId, PlayerView> views = new java.util.LinkedHashMap<>();
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            PlayerNodeRegistry.PlayerNode node = PlayerNodeRegistry.nodeOf(p.getUUID());
+            NodeId memberNode = node != null ? node.nodeId() : local;
+            ServerLevel level = p.serverLevel();
+            views.putIfAbsent(memberNode, PlayerView.fromBlock(
+                    MinecraftEntityAdapters.dimension(level),
+                    p.blockPosition().getX(), p.blockPosition().getZ(), viewDistance));
+        }
+        List<NodeId> residents = new ArrayList<>();
+        for (dev.nodera.protocol.membership.PeerEntry entry : host.runtime().sessionView().members()) {
+            if (!entry.nodeId().equals(local) && !views.containsKey(entry.nodeId())
+                    && !entry.route().isEmpty() && entry.hasPublicKey()) {
+                residents.add(entry.nodeId());
+            }
+        }
+        return dev.nodera.core.region.ViewOwnershipPlanner.plan(
+                views, NoderaConstants.QUORUM_MVP_SIZE, residents);
+    }
+
+    /**
+     * The state a region's committee is seated on.
+     *
+     * <h2>The all-air base, and why it lasted so long</h2>
+     *
+     * <p>Every member used to derive this locally as sixty-four columns of air. That was not an
+     * oversight — it is the only base every member can produce identically with no transfer, which
+     * is what made the first {@code prevRoot} comparison line up. The price was that the validated
+     * lane's world was air plus whatever edits it had happened to witness since activation, never
+     * the world the players were standing in. A region seeded from it carried air, so the one thing
+     * the whole content plane exists to move was not in it.
+     *
+     * <p>The host is the one node with a {@link ServerLevel}, so it reads the real terrain. It runs
+     * on the server thread because {@link dev.nodera.mod.server.shadow.LiveSnapshotExtractor} reads live chunk sections, and this
+     * bootstrap runs on its own thread.
+     *
+     * <p>Answers {@code null} when the region is not fully resident, which means "name no base" —
+     * and every member then derives the same all-air one, exactly as before. That is not a silent
+     * downgrade: extraction reports non-resident chunks as air and counts them, and seating a
+     * committee on a half-read region would give every member a different base. Everyone agreeing
+     * on nothing beats disagreeing about something.
+     *
+     * @return the region's real state, or {@code null} when it cannot be read completely.
+     */
+    private static dev.nodera.core.state.RegionSnapshot baseFor(
+            MinecraftServer server, ServerLevel level, dev.nodera.core.region.RegionId region) {
+        try {
+            java.util.concurrent.CompletableFuture<dev.nodera.mod.server.shadow.LiveSnapshotExtractor.Extraction> extracted =
+                    new java.util.concurrent.CompletableFuture<>();
+            server.execute(() -> {
+                try {
+                    extracted.complete(dev.nodera.mod.server.shadow.LiveSnapshotExtractor.extract(
+                            level, region, dev.nodera.core.state.SnapshotVersion.INITIAL,
+                            level.getGameTime()));
+                } catch (RuntimeException failure) {
+                    extracted.completeExceptionally(failure);
+                }
+            });
+            dev.nodera.mod.server.shadow.LiveSnapshotExtractor.Extraction result =
+                    extracted.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (result.missingChunks() > 0) {
+                LOG.info("region {} is {} chunk(s) short of resident — no base named for it, so "
+                                + "every member derives the same one",
+                        region, result.missingChunks());
+                return null;
+            }
+            return result.snapshot();
+        } catch (Exception unavailable) {
+            LOG.warn("could not read {} to seat its committee ({}); no base named for it",
+                    region, unavailable.toString());
+            return null;
+        }
+    }
+
+    /**
+     * Publish a region's base so every member seated on it can fetch it, and record its root.
+     *
+     * <p>Order matters and is the whole point: an assignment names a base, and a member that cannot
+     * obtain the named base must refuse the seat. Naming one that was never published would make
+     * every resident refuse, which is a correct response to an incorrect instruction.
+     */
+    private static void publishBase(dev.nodera.core.region.RegionId region,
+                                    dev.nodera.core.state.RegionSnapshot base,
+                                    Map<dev.nodera.core.region.RegionId,
+                                            dev.nodera.core.Bytes> bases) {
+        dev.nodera.core.state.RegionChunkIndex index =
+                dev.nodera.distribution.RegionSnapshotSplitter.split(base).chunkIndex();
+        bases.put(region, index.root());
+        BASE_SEEDS.offer(base);
+    }
+
+    /**
+     * Pushes each region's activation base to the worker, so a member seated on it can fetch it.
+     *
+     * <p>Its own spool rather than the lane's: the lane's exists to publish COMMITTED state and
+     * throttles per region on that basis, and a base has to be out before the seats go out.
+     */
+    private static final RegionSeedSpool BASE_SEEDS = RegionSeedSpool.companion();
 
     public static boolean activateEntityLaneFromWorld(MinecraftServer server) {
         NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
@@ -959,13 +1210,26 @@ public final class NoderaHost {
                 // L-80: this node computed the plan, so it knows who owns every region — including
                 // the ones it holds no replica for. Keeping that answer is what lets a captured
                 // action reach its owner from a node that owns nothing.
-                Map<dev.nodera.core.region.RegionId, NodeId> planPrimaries =
+                // The whole committee, not only the primary. The forwarding path only ever needed
+                // the primary, but this index is also the one thing in the process that knows what
+                // EVERY node was given — and the boss bar has to answer "what is that player over
+                // there responsible for" once per online player. Reading a lane for that answered
+                // with THIS node's seats for everybody, which is why a joiner read FOREIGN on
+                // ground its own node owned.
+                Map<dev.nodera.core.region.RegionId,
+                        dev.nodera.endpoint.lane.ObserverOwnership.Seats> planSeats =
                         new java.util.LinkedHashMap<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
-                    planPrimaries.put(planned.region(), planned.lease().primary());
+                    planSeats.put(planned.region(),
+                            new dev.nodera.endpoint.lane.ObserverOwnership.Seats(
+                                    planned.lease().primary(), planned.lease().validators()));
                 }
-                dev.nodera.endpoint.lane.ObserverOwnership.publish(planPrimaries);
+                dev.nodera.endpoint.lane.ObserverOwnership.publish(planSeats);
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
+                // The base each committee is seated on, by region — read from the live world here,
+                // seeded so the other members can fetch it, and named in their assignments below.
+                Map<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> bases =
+                        new java.util.LinkedHashMap<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive
                     // proposals, validator regions re-execute + vote (the committee model — the
@@ -973,9 +1237,25 @@ public final class NoderaHost {
                     // `lease.contains` is "primary or validator" — the same predicate, and the
                     // client lane spells it the same way, which is the point: the two sides of the
                     // shared computation should not read differently.
+                    // A base is read for EVERY planned region, not only this node's seats: the host
+                    // is the only member with a ServerLevel, so it is the only one that can read the
+                    // real terrain. A region it cannot read completely gets no base, every member
+                    // falls back to deriving the same all-air one, and the old invariant holds
+                    // exactly — everyone agreeing on nothing beats disagreeing about something.
+                    dev.nodera.core.state.RegionSnapshot base =
+                            baseFor(server, level, planned.region());
+                    if (base != null) {
+                        // Seeded BEFORE anyone is seated on it. A member told to activate on a base
+                        // it cannot fetch has to refuse the seat, and the only reason it could not
+                        // fetch this one would be that the node naming it never published it.
+                        publishBase(planned.region(), base, bases);
+                    }
                     if (planned.lease().contains(local)) {
                         bindings.add(new LiveEntityLaneSession.RegionBinding(
-                                level, EntityLaneBootstrap.initialSnapshot(planned.region()),
+                                level,
+                                base == null
+                                        ? EntityLaneBootstrap.initialSnapshot(planned.region())
+                                        : base,
                                 planned.lease()));
                     }
                 }
@@ -1007,7 +1287,7 @@ public final class NoderaHost {
                 // Hand every resident its committee seats BEFORE the local lane opens: the seat is
                 // what makes an always-on peer re-execute the world, and a validator that has not
                 // activated the region drops the primary's very first proposal on the floor.
-                int seats = assignResidentSeats(host, plan, residents);
+                int seats = assignResidentSeats(host, plan, residents, bases);
                 List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
                 for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
                     peers.add(new LiveEntityLaneSession.CommitteePeer(
@@ -1086,6 +1366,15 @@ public final class NoderaHost {
                                     entry.publicKey().toArray()),
                             entry.route()));
                 }
+                List<LanePlan.RegionBase> planBases = new ArrayList<>();
+                for (Map.Entry<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> base
+                        : bases.entrySet()) {
+                    planBases.add(new LanePlan.RegionBase(
+                            base.getKey().dimension().namespace(),
+                            base.getKey().dimension().path(),
+                            base.getKey().regionX(), base.getKey().regionZ(),
+                            base.getValue().toHex()));
+                }
                 NoderaLanePlanPayload payload = new NoderaLanePlanPayload(new LanePlan(
                         manifest.worldSeed(), manifest.rulesVersion(),
                         manifest.registryFingerprint(),
@@ -1093,7 +1382,12 @@ public final class NoderaHost {
                                 manifest.genesisRoot().hash().toArray()),
                         java.util.Base64.getEncoder().encodeToString(
                                 host.identity().publicKeyBytes().toArray()),
-                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs));
+                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs,
+                        // The bases every member seats on. A plan input like the resident pool: a
+                        // member that derived leases without it would activate on different state
+                        // from everyone else, which is the same class of bug as deriving a
+                        // different committee.
+                        planBases));
                 server.execute(() -> {
                     for (ServerPlayer p : server.getPlayerList().getPlayers()) {
                         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, payload);
@@ -1211,8 +1505,15 @@ public final class NoderaHost {
             // surfaces so the panels never blink to "no delegated regions" / UNASSIGNED mid-swap.
             dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.beginSwap();
             try {
-                synchronized (NoderaHost.class) {
+                // LANE_LOCK, not the class monitor. Two locks over one field meant the
+                // shutdown's five-second budget did not apply to this path at all — a re-plan close
+                // could run concurrently with the shutdown close on the same session and double
+                // close its store.
+                LANE_LOCK.lock();
+                try {
                     closeEntityLane();
+                } finally {
+                    LANE_LOCK.unlock();
                 }
                 server.execute(() -> {
                     boolean planning = false;
@@ -1241,7 +1542,7 @@ public final class NoderaHost {
     }
 
     /** Install live entity validation once Task-5b supplies certified genesis and region bindings. */
-    public static synchronized void activateEntityLane(
+    public static void activateEntityLane(
             MinecraftServer server,
             GenesisManifest genesis,
             java.util.List<LiveEntityLaneSession.RegionBinding> regions,
@@ -1250,6 +1551,26 @@ public final class NoderaHost {
         if (host == null) {
             throw new IllegalStateException("host peer must be running before entity lane activation");
         }
+        // Checked before the lock and again after opening: this call can spend minutes dialling
+        // peers, and a world that is closing does not need a lane.
+        if (stopping) {
+            LOG.info("Nodera: the server is stopping — abandoning the entity-lane bootstrap");
+            return;
+        }
+        LANE_LOCK.lock();
+        try {
+            activateEntityLaneLocked(server, genesis, regions, peers, host);
+        } finally {
+            LANE_LOCK.unlock();
+        }
+    }
+
+    private static void activateEntityLaneLocked(
+            MinecraftServer server,
+            GenesisManifest genesis,
+            java.util.List<LiveEntityLaneSession.RegionBinding> regions,
+            java.util.List<LiveEntityLaneSession.CommitteePeer> peers,
+            NoderaPeerService.HostContext host) {
         closeEntityLane();
         entityLane = LiveEntityLaneSession.open(
                 server, genesis, regions, peers,
@@ -1276,7 +1597,7 @@ public final class NoderaHost {
     }
 
     /** Whether a live entity-lane session is currently installed. */
-    public static synchronized boolean entityLaneActive() {
+    public static boolean entityLaneActive() {
         return entityLane != null;
     }
 
@@ -1284,7 +1605,7 @@ public final class NoderaHost {
      * The live lane's per-peer relay metrics (who processes whose events, and how long), or null
      * without an active lane. Read by {@code /nodera debug relay} + the verbose console stream.
      */
-    public static synchronized dev.nodera.diagnostics.metric.RelayMetrics entityLaneRelayMetrics() {
+    public static dev.nodera.diagnostics.metric.RelayMetrics entityLaneRelayMetrics() {
         return entityLane == null ? null : entityLane.runtime().validation().relayMetrics();
     }
 
@@ -1293,25 +1614,38 @@ public final class NoderaHost {
      * need the committed state itself rather than a metric derived from it
      * ({@code /nodera debug extract} compares a live extraction against it).
      */
-    public static synchronized dev.nodera.mod.server.entity.LiveEntityLaneRuntime
+    public static dev.nodera.mod.server.entity.LiveEntityLaneRuntime
             entityLaneRuntime() {
         return entityLane == null ? null : entityLane.runtime();
     }
 
     /** Stop local validation resources without changing the world's shared flag. */
-    public static synchronized void onServerStopping(MinecraftServer server) {
+    /** A new server is up: this process is no longer shutting one down. */
+    public static void onServerStarted() {
+        stopping = false;
+    }
+
+    public static void onServerStopping(MinecraftServer server) {
+        // Announced before anything is attempted, so a bootstrap already running can give up.
+        stopping = true;
         // The game endpoint dies with the game. Tell the worker so the world stays LISTED on the
         // network (the worker keeps announcing) but stops advertising a joinable game server.
         if (NoderaPeerService.get().isHosting() && CompanionLink.isPresent()) {
             Path saveRoot = server.getWorldPath(LevelResource.ROOT);
+            String levelName = server.getWorldData().getLevelName();
+            ShareOptions opts = NoderaPeerService.get().hostOptions();
             NoderaWorldStore.read(saveRoot).ifPresent(id -> {
-                ShareOptions opts = NoderaPeerService.get().hostOptions();
-                notifyWorker(server, id.worldId(), server.getWorldData().getLevelName(),
-                        opts == null ? ShareOptions.playerDefault() : opts, null, null);
+                // Off the server thread. `CompanionClient.host` allows itself ten seconds to read a
+                // reply plus a second and a half to connect, and this runs while "Saving world" is
+                // on screen. The message is a courtesy — "my game is closed" — and the worker's own
+                // lease expires without it.
+                Thread.ofPlatform().name("nodera-worker-closing").daemon().start(() ->
+                        notifyWorker(server, id.worldId(), levelName,
+                                opts == null ? ShareOptions.playerDefault() : opts, null, null));
             });
         }
         publishedGamePort = -1;
-        closeEntityLane();
+        closeEntityLaneForShutdown();
         // The gate belongs to the hosted game, not to the process: a stale armed gate would keep
         // challenging joiners of whatever world is opened next (L-52).
         HostJoinGate.get().disarm();
@@ -1387,6 +1721,67 @@ public final class NoderaHost {
         return WorldGenesisService.read(saveRoot)
                 .map(g -> g.manifest().genesisRoot().hash())
                 .orElse(interim);
+    }
+
+    /**
+     * Close the lane if it can be reached, and walk away if it cannot.
+     *
+     * <p>This runs on the server thread with the "Saving world" screen up. A lane bootstrap holding
+     * the lock is doing blocking network I/O that can run for minutes, and waiting for it is how a
+     * player ends up staring at that screen forever. The session's resources die with the process,
+     * so the cost of not closing it tidily is a log line.
+     */
+    private static void closeEntityLaneForShutdown() {
+        boolean taken = false;
+        try {
+            taken = LANE_LOCK.tryLock(LANE_CLOSE_BUDGET.toMillis(),
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        if (!taken) {
+            LOG.warn("Nodera: the entity lane is still starting up after {}s — leaving it to die "
+                    + "with the process rather than holding the shutdown open",
+                    LANE_CLOSE_BUDGET.toSeconds());
+            return;
+        }
+        try {
+            closeEntityLaneBounded();
+        } finally {
+            LANE_LOCK.unlock();
+        }
+    }
+
+    /**
+     * Close the lane on another thread and wait a bounded time for it.
+     *
+     * <p>Taking the lock quickly is not the same as closing quickly. {@code LiveEntityLaneSession
+     * .close} persists validation state and then closes a RocksDB store, and a native RocksDB close
+     * blocks until its background flush and compaction jobs drain — with no timeout anywhere. On the
+     * server thread that is the same unbounded "Saving world" the lock contention was, arriving one
+     * statement later.
+     *
+     * <p>What is given up by walking away is an orderly close of a store that is about to be
+     * released by process exit. What is gained is that the player's quit finishes.
+     */
+    private static void closeEntityLaneBounded() {
+        LiveEntityLaneSession session = entityLane;
+        if (session == null) {
+            return;
+        }
+        entityLane = null;
+        Thread closer = Thread.ofPlatform().name("nodera-entity-lane-close").daemon()
+                .start(session::close);
+        try {
+            closer.join(LANE_CLOSE_BUDGET.toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        if (closer.isAlive()) {
+            LOG.warn("Nodera: the entity lane took longer than {}s to close — leaving it to the "
+                    + "process exit rather than holding the shutdown open",
+                    LANE_CLOSE_BUDGET.toSeconds());
+        }
     }
 
     private static void closeEntityLane() {

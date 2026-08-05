@@ -149,6 +149,9 @@ public final class WorldHostingService implements AutoCloseable {
      */
     private volatile java.util.function.Predicate<String> deleted = worldIdHex -> false;
 
+    /** Asked before refusing a SHARE of a deleted world; see {@link #reviveOnOwnerReshare}. */
+    private volatile java.util.function.Predicate<String> revive = worldIdHex -> false;
+
     /**
      * Whether this node can still <b>serve</b> each world it holds (W-DUP-1). Defaults to every
      * world being servable. A world that fails this test is <b>suppressed from the announce set</b>
@@ -280,6 +283,26 @@ public final class WorldHostingService implements AutoCloseable {
     }
 
     /**
+     * Bind what happens when the world being <b>shared</b> is one this node has a deletion for.
+     *
+     * <p>The predicate above is the right answer for every path except one: the owner sharing their
+     * own world again. A world id is derived from the save, so re-sharing after a delete produces
+     * the same id, hits the same tombstone, and is refused — permanently, by the owner's own worker.
+     * Deleting a world quietly meant "this save can never be shared again", and the only outward
+     * sign was a log line, because the pause menu had already said "shared".
+     *
+     * <p>So {@link #host} asks this hook first. It returns true only if it could mint and publish an
+     * owner-signed restore — which requires the world's private key, so a node that is not the owner
+     * still gets the refusal. Deliberately not consulted from {@link #seed}: adopting content is not
+     * an instruction from anybody, and must never resurrect a world on its own.
+     *
+     * @param revive attempts the restore and reports whether the world may now be hosted.
+     */
+    public void reviveOnOwnerReshare(java.util.function.Predicate<String> revive) {
+        this.revive = java.util.Objects.requireNonNull(revive, "revive");
+    }
+
+    /**
      * Bind the test that decides whether a world this node holds can still be <b>served</b>.
      *
      * <p>A world that fails this test (its save vanished, its content store emptied, its bytes
@@ -364,7 +387,9 @@ public final class WorldHostingService implements AutoCloseable {
             return "missing worldId";
         }
         String id = key(worldIdHex);
-        if (deleted.test(id)) {
+        if (deleted.test(id) && !revive.test(id)) {
+            // Still deleted, and this node cannot undo it — either it is not the owner, or the
+            // restore could not be signed. Either way the world stays off the network.
             return "this world was deleted by its owner";
         }
         Bytes worldId;
@@ -387,6 +412,12 @@ public final class WorldHostingService implements AutoCloseable {
         // hosting player's game is open, absent once it closes) and the live player count. The
         // next announce/heartbeat carries the change to every tracker.
         world.mcRoute = jsonStringField(optionsJson, "mc");
+        // Renewed by the same re-HOST that renews the player count. A host that stops talking stops
+        // claiming its game is reachable, which is the difference between "the host quit" and "the
+        // host was killed" no longer mattering to a joiner.
+        world.mcRouteUntilEpochMillis = world.mcRoute == null || world.mcRoute.isBlank()
+                ? 0L
+                : System.currentTimeMillis() + MC_ROUTE_LEASE_SECONDS * 1000L;
         // Through the lease, not straight onto the field: a HOST is an observation by a node that
         // has the game open, and it stops being credible when that game stops refreshing it. The
         // hosting mod re-sends this on a cadence for exactly that reason.
@@ -559,6 +590,15 @@ public final class WorldHostingService implements AutoCloseable {
      * silently stops vouching for its count within the window.
      */
     public static final long PLAYERS_LEASE_SECONDS = 90;
+
+    /**
+     * How long a published game endpoint is believed without renewal.
+     *
+     * <p>Deliberately longer than the player lease: a stale player count is cosmetic, while
+     * withdrawing a live world's endpoint too eagerly would make a healthy world briefly
+     * un-joinable. The hosting mod re-HOSTs well inside this window.
+     */
+    public static final long MC_ROUTE_LEASE_SECONDS = 180;
 
     /**
      * Record a player-count observation for a world, from a node that is <b>in</b> that world.
@@ -1028,6 +1068,16 @@ public final class WorldHostingService implements AutoCloseable {
          *  hosting player's game is closed. Updated by every re-HOST. */
         volatile String mcRoute;
         /**
+         * When {@link #mcRoute} stops being believable.
+         *
+         * <p>It was the one liveness field with no lease. A clean quit re-HOSTs with the endpoint
+         * omitted and clears it, but a killed game never gets to say anything — so the worker went
+         * on advertising a dead {@code host:port} indefinitely, and every joiner kept dialling a
+         * closed port instead of falling through to the network-open path. A lease makes silence
+         * mean what it should: the host stopped talking, so stop claiming its game is up.
+         */
+        volatile long mcRouteUntilEpochMillis;
+        /**
          * Players in-world, as last reported by a node that is actually in it.
          *
          * <p>Meaningless without {@link #playersObservedUntilEpochMillis} — see {@link #players()}.
@@ -1181,9 +1231,16 @@ public final class WorldHostingService implements AutoCloseable {
             return seeding;
         }
 
-        /** @return the game endpoint joiners connect to, or {@code null} (host's game closed). */
+        /**
+         * @return the game endpoint joiners connect to, or {@code null} when the host's game is
+         *         closed <b>or</b> has stopped renewing the claim. See
+         *         {@link #mcRouteUntilEpochMillis}.
+         */
         public String mcRoute() {
-            return mcRoute;
+            if (mcRoute == null || mcRoute.isBlank()) {
+                return mcRoute;
+            }
+            return System.currentTimeMillis() <= mcRouteUntilEpochMillis ? mcRoute : null;
         }
 
         /**

@@ -6,7 +6,7 @@
      header's status accurate. -->
 
 **Status:** ✅ COMPLETED (live forward sync + manager wiring → [minecraft 2](../minecraft/Task.2.md))
-**Category:** network · **Owns:** — · **Last audit:** 2026-07-28
+**Category:** network · **Owns:** — · **Last audit:** 2026-08-01
 **Depends on:** [network 1](Task.1.md), [engine 1](../engine/Task.1.md)
 **Consumed by:** [network 4](Task.4.md), [network 9](Task.9.md), [worker 2](../peer/Task.2.md), [minecraft 5](../minecraft/Task.5.md)
 
@@ -20,7 +20,7 @@ certified chain, and an uncertified suffix can never advance it.
 
 ## Status detail
 
-Complete. `library/java/storage` carries 157 tests. Three tiers behind one `WorldStore` seam: an in-memory
+Complete. `library/java/storage` carries 158 tests. Three tiers behind one `WorldStore` seam: an in-memory
 event-sourced implementation, a **RocksDB archival tier** with WAL-backed column families, and a
 byte-budgeted client tier. `FsContentStore` provides content-addressed blobs with atomic
 temp-and-move writes and hash-verified, corrupt-blob-rejecting reads. Per-region heads are recovered
@@ -77,7 +77,10 @@ conflict.
 **Atomic temp-and-move writes.** A partially written blob must never be readable under its final
 name; the rename is the commit point. `AtomicFileWriter.writeOwnerOnly` additionally creates POSIX
 temps as `0600` before content, fails closed on a lying provider, and deletes temps after failed
-writes/moves while preserving cleanup errors as suppressed exceptions.
+writes/moves while preserving cleanup errors as suppressed exceptions. Android may deny
+`Files.getFileStore` even in app-private storage; that case attempts `0600` creation directly and
+fails without writing when the provider rejects secure creation attributes; it never falls back to
+an unrestricted secret-bearing temp file.
 
 **Three tiers, one seam.** An archival peer wants RocksDB, a player's client wants a byte budget, and
 a test wants memory. They implement the same `WorldStore` interface so every consumer is written once
@@ -101,8 +104,8 @@ and the durability tests run against the real tier.
 - `FsContentStoreRelocationTest` (5) — every blob survives a relocation, a store **reopened** on the
   new directory finds the content, same-directory is a no-op, and an identical blob already at the
   destination is merged rather than refused.
-- `AtomicFileWriterTest` (3) — owner-only creation, temp deletion after failed replacement, and
-  suppressed cleanup failure.
+- `AtomicFileWriterTest` (4) — owner-only creation including denied store inspection, temp deletion
+  after failed replacement, and suppressed cleanup failure.
 
 ## Acceptance criteria
 

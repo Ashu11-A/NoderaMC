@@ -8,11 +8,10 @@
      discipline. When a task file contradicts this file, fix the task file. Keep every
      `<!-- AI-AGENT-INSTRUCTION: ... -->` comment intact when editing a document. -->
 
-Last documentation reorganization: **2026-07-28** (ten-agent full-sweep: every category's tasks,
-limitations, progress, testing refreshed against the tree; a new `REFACTORING.md` added per
-category) · Overall system completion: **90.4%** (figure not recomputed this sweep — its weighting
-is not raw done/total; see [`ROADMAP.md`](ROADMAP.md) §1 note) · Tests: **2,072 Java · 408 Rust
-workspace · 188 `nodera-app`** (2,668 total).
+Last documentation reorganization: **2026-08-01** (launcher + native Android audit; prior full sweep
+was 2026-07-28) · Overall system completion: **90.4%** (figure not recomputed this sweep — its
+weighting is not raw done/total; see [`ROADMAP.md`](ROADMAP.md) §1 note) · Tests: **2,285 Java ·
+690 Rust workspace · 2 Tauri-shell · 31 frontend** (3,008 total).
 
 ---
 
@@ -148,8 +147,8 @@ delivered **must** name it under `Depends on:` — the dependency graph in
 | [`rendezvous/`](rendezvous/Task.0.md) | NAT reach: signed registration/discovery, hole punching, E2E-encrypted relay fallback | `rendezvous`, `dev.nodera.transport.rendezvous` | 6 |
 | [`minecraft/`](minecraft/Task.0.md) | The NeoForge mod — capture, live lanes, GUI, host lane, world identity, companion gate | `endpoints/neoforge-mod`, `library/java/endpoint` | 11 |
 | [`peer/`](peer/Task.0.md) | The node: peer runtime plus the always-on services that make it serve, and its loopback control protocol | `peer` (`dev.nodera.headless`, `dev.nodera.peer.control`) | 8 |
-| [`app/`](app/Task.0.md) | The Tauri desktop companion that supervises the node | `app` | 10 |
-| [`mobile/`](mobile/Task.0.md) | The Android build: the same app **and the same Java worker**, in one process on a phone | `app/android`, `scripts/android-*.sh` | 5 |
+| [`app/`](app/Task.0.md) | Desktop launcher + Tauri shell over the shared app core | `app`, `library/rust/nodera-core` | 11 |
+| [`mobile/`](mobile/Task.0.md) | Native Compose Material You companion + the same Java worker, in one phone process | `app/android`, `scripts/android-*.sh` | 5 |
 | [`server/`](server/Task.0.md) | The Paper/Folia endpoint plugin — nodes that are also Minecraft servers | `endpoints/paper-plugin`, `library/java/endpoint` | 10 |
 | [`telemetry/`](telemetry/Task.0.md) | Consented, de-identified measurement: ingest service + Big Data plane | `telemetry`, `docker/telemetry` | 3 |
 | [`testing/`](testing/Task.0.md) | The test tooling itself: the live harness, the acceptance scenarios, the benchmark lanes and the structural report, behind one `nodera-test` command | `library/library/java/testing` (`dev.nodera.testkit.*`), `scripts/nodera-test.sh` | 1 |
@@ -168,7 +167,7 @@ and every package carries its own `README.md` describing its architecture
 **One top-level folder per component**, in either language, with the shared code under `library/`:
 
 ```
-app/          the Tauri companion — desktop tray, dashboard, Android host
+app/          desktop launcher/Tauri shell + native Android Compose host
 web/          the static site served at noderamc.org
 peer/         the node: peer runtime AND the always-on services (`nodera-headless`)
 endpoints/    what makes a Minecraft server a node — neoforge-mod, paper-plugin

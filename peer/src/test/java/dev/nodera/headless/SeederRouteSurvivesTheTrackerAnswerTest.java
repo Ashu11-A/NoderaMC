@@ -39,7 +39,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the {@link TrackerLookup} seam changed: each case below hands in a tracker that answers one query
  * and not the other, which is the whole shape of the defect.
  *
- * <p>{@link WorldArchiveService#holdersFor} is the public entry point that runs seeder resolution,
+ * <p>{@link WorldArchiveService#resolveHoldersNow} is the entry point that runs seeder resolution
+ * on the caller's thread. Its sibling {@code holdersFor} answers from cache and refreshes in the
+ * background, because it is read while building {@code NODERA-STATE} and must not inherit a
+ * tracker's timeout — these tests want the resolution itself, so they ask for it directly.
+ *
+ * <p>Historically this doc said {@code holdersFor} is the entry point that runs seeder resolution,
  * and {@link WorldArchiveService#routeOf} reports what the resolution learned — "known" and
  * "routable" read separately, because the bug was precisely the two disagreeing.
  *
@@ -122,7 +127,7 @@ final class SeederRouteSurvivesTheTrackerAnswerTest {
                 List.of());
         Bytes worldId = hashes.sha256("l85-world".getBytes());
 
-        var holders = serviceAgainst(tracker).holdersFor(worldId.toHex());
+        var holders = serviceAgainst(tracker).resolveHoldersNow(worldId.toHex());
 
         assertThat(holders).containsExactly(seeder);
         // Known AND routable. Before the fix this assertion was the failing one: the seeder was in
@@ -143,7 +148,7 @@ final class SeederRouteSurvivesTheTrackerAnswerTest {
                         List.of("198.51.100.4:25620"))));
         Bytes worldId = hashes.sha256("l85-supplement".getBytes());
 
-        var holders = serviceAgainst(tracker).holdersFor(worldId.toHex());
+        var holders = serviceAgainst(tracker).resolveHoldersNow(worldId.toHex());
 
         assertThat(holders).containsExactly(seeder);
         assertThat(service.routeOf(seeder).route()).isEqualTo("198.51.100.4:25620");
@@ -164,7 +169,7 @@ final class SeederRouteSurvivesTheTrackerAnswerTest {
                         List.of(WorldHostingService.MC_ROUTE_PREFIX + "203.0.113.9:25565"))));
         Bytes worldId = hashes.sha256("l85-mc-claim".getBytes());
 
-        var holders = serviceAgainst(tracker).holdersFor(worldId.toHex());
+        var holders = serviceAgainst(tracker).resolveHoldersNow(worldId.toHex());
 
         // The seeder index still names its peer as a holder — an unusable route is not a reason to
         // forget the peer exists — but neither peer becomes routable, and the one known only

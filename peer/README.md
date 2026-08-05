@@ -88,8 +88,10 @@ dev.nodera.headless           the always-on services (src/main), plus the entry 
 `LocalFiles` and `PersistentIdentityStore` both delegate to `storage.io.AtomicFileWriter
 .writeOwnerOnly`. On a POSIX `FileStore`, temporary files are created `0600` before secret bytes are
 written; a provider that advertises POSIX but rejects that attribute fails closed. A non-POSIX store
-omits the inapplicable attribute. Failed writes or moves attempt to delete the temporary file, with
-cleanup errors suppressed on the primary failure.
+omits the inapplicable attribute. Android denies `getFileStore` in app-private storage, so that case
+attempts `0600` creation directly and falls back only when the provider rejects POSIX attributes.
+Failed writes or moves attempt to delete the temporary file, with cleanup errors suppressed on the
+primary failure.
 
 `PeerNode.openLocalState` is the production startup seam for node identity, world registry and
 world-key directory; `start` consumes the returned state before transport/runtime composition.
@@ -116,7 +118,8 @@ verifies the *world*, not the *seeders*, and can accept bytes from peers it has 
 
 **Placement is computed, not negotiated.** Rendezvous hashing gives every peer the same expected-holder
 list with no coordinator. A negotiated assignment would need a leader, and a leader is the single
-point of failure this lane exists to remove.
+point of failure this lane exists to remove. `Nodera commons` is peer presence carried in a world-id
+slot, not content; replication removes that exact id before placement or archive fetch.
 
 **Repair verifies before recording, then re-audits.** Recording a repair on the strength of a
 successful request is how repair storms start. Verifying the bytes first, and re-auditing rather than

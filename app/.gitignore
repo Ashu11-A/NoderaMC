@@ -1,7 +1,17 @@
 # Tauri / Rust build output
 /target/
 /gen/
-Cargo.lock
+
+# Cargo.lock is TRACKED, deliberately. This is a binary that ships to users, and the root
+# Cargo.toml's own rule — "Dependency versions are pinned here for the whole workspace … Bumps
+# are single dedicated commits, never mixed into a feature task" — cannot hold for `app` while
+# its lockfile is ignored: the graph re-resolves on every build and nobody reviews the change.
+#
+# It also broke CI caching in a way that hid itself. The rust-cache key is hashed from
+# Cargo.TOML's caret ranges, so when an upstream crate cut a patch release cargo re-resolved,
+# the restored artifacts stopped fingerprint-matching and the 538-crate tree rebuilt — but the
+# key was unchanged, so the action logged "full match: true" and skipped saving. The six-minute
+# rebuild then repeated on every subsequent run until somebody happened to edit Cargo.toml.
 
 # Frontend build output + deps
 /ui/node_modules/

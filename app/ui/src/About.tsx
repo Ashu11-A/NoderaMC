@@ -4,8 +4,8 @@
 // reads, and embedded at compile time, so it describes this binary rather than whatever was last
 // committed. A licence that could not be read locally is shown as unknown; it is never inferred.
 import { useEffect, useMemo, useState } from "react";
-import { FiExternalLink, FiSearch } from "react-icons/fi";
-import { Card, Empty, KeyValue, MONO, Pill, Td, Th, Tr, cx } from "./components";
+import { FiExternalLink } from "react-icons/fi";
+import { Card, DataTable, Empty, FilterBar, KeyValue, MONO, Pagination, Pill, Td, Th, Tr, cx } from "./components";
 import { UNKNOWN, formatDate } from "./api";
 import { aboutBuild, type AboutBuild, type Package } from "./play";
 import { linkNote, useExternalLink } from "./links";
@@ -20,6 +20,7 @@ export function AboutScreen() {
   const [build, setBuild] = useState<AboutBuild | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
   // Opening the repository link. The host's ladder ends in a window of our own, so this always
   // shows the page — there is no clipboard consolation prize.
   const repository = useExternalLink();
@@ -39,12 +40,17 @@ export function AboutScreen() {
         p.name.toLowerCase().includes(needle) || p.licence.toLowerCase().includes(needle),
     );
   }, [build, query]);
-
-  const byEcosystem = (id: string) => matches.filter((p) => p.ecosystem === id);
+  const pageSize = 15;
+  const visible = matches.slice((page - 1) * pageSize, page * pageSize);
+  const byEcosystem = (id: string) => visible.filter((p) => p.ecosystem === id);
+  useEffect(() => {
+    const last = Math.max(1, Math.ceil(matches.length / pageSize));
+    if (page > last) setPage(last);
+  }, [matches.length, page]);
 
   if (error) {
     return (
-      <div className="px-[26px] pt-5">
+      <div>
         <Card title="About">
           <p className="py-2 text-sm text-danger">{error}</p>
         </Card>
@@ -54,7 +60,7 @@ export function AboutScreen() {
 
   if (!build) {
     return (
-      <div className="px-[26px] pt-5">
+      <div>
         <Card title="About">
           <p className="py-2 text-sm text-faint">Reading this build…</p>
         </Card>
@@ -65,7 +71,7 @@ export function AboutScreen() {
   const unknown = build.packages.filter((p) => !p.licence).length;
 
   return (
-    <div className="flex max-w-[1100px] flex-col gap-4 px-[26px] pt-5 pb-10">
+    <div className="flex flex-col gap-4">
       <Card title={build.name}>
         <dl>
           <KeyValue label="Version" value={build.version} mono />
@@ -100,21 +106,17 @@ export function AboutScreen() {
 
       <Card
         title="Third-party packages"
-        right={
-          <div className="flex items-center gap-2">
-            {unknown > 0 && <Pill tone="muted">{unknown} unknown</Pill>}
-            <span className="text-faint">
-              <FiSearch aria-hidden />
-            </span>
-            <input
-              className="w-[190px] rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
-              placeholder="Search name or licence"
-              value={query}
-              onChange={(e) => setQuery(e.currentTarget.value)}
-            />
-          </div>
-        }
+        right={unknown > 0 && <Pill tone="muted">{unknown} unknown</Pill>}
       >
+        <FilterBar
+          label="Search third-party packages"
+          value={query}
+          onChange={(value) => {
+            setQuery(value);
+            setPage(1);
+          }}
+          placeholder="Search package or licence"
+        />
         <p className="pb-2 text-xs text-faint">
           Direct dependencies · generated {formatDate(Date.parse(build.licences_generated_at))}
         </p>
@@ -129,8 +131,7 @@ export function AboutScreen() {
                 <h3 className="pb-1 text-2xs tracking-[0.08em] text-faint uppercase">
                   {label} · {rows.length}
                 </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
+                <DataTable label={`${label} packages`}>
                     <thead>
                       <Tr>
                         <Th>Package</Th>
@@ -143,12 +144,12 @@ export function AboutScreen() {
                         <PackageRow key={`${p.ecosystem}:${p.name}`} package={p} />
                       ))}
                     </tbody>
-                  </table>
-                </div>
+                </DataTable>
               </section>
             );
           })
         )}
+        <Pagination page={page} pageSize={pageSize} total={matches.length} onPage={setPage} />
       </Card>
     </div>
   );

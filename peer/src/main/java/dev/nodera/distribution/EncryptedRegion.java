@@ -73,11 +73,6 @@ public record EncryptedRegion(PieceManifest manifest, List<EncryptedPiece> piece
         pieces = copy;
     }
 
-    /** @return encrypted piece metadata at {@code index}. */
-    public EncryptedPiece piece(int index) {
-        return pieces.get(index);
-    }
-
     /** @return ciphertext bytes a keyless seeder stores and serves for {@code index}. */
     public Bytes ciphertextPiece(int index) {
         return pieces.get(index).ciphertext();

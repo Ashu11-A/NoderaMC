@@ -61,6 +61,20 @@ public final class NoderaConstants {
     /** Maximum accepted render distance (vanilla ceiling) — bounds how large one player's circle grows. */
     public static final int MAX_RENDER_DISTANCE_CHUNKS = 32;
 
+    // --- Cross-peer clock trust ---
+    /**
+     * How far ahead of local wall time a remote {@link dev.nodera.core.state.Hlc} may be and still be
+     * adopted.
+     *
+     * <p>Chunk merges resolve by "most recent wins", and a hybrid clock drags itself forward to every
+     * reading it observes. Together those make an unbounded {@code observe} a griefing primitive: one
+     * peer announcing a reading near {@code Long.MAX_VALUE} pins every clock that hears it and wins
+     * every merge it ever takes part in, permanently. Five minutes is well beyond any honest skew
+     * between machines that are both running and roughly time-synced, and far below the horizon where
+     * a forged reading is useful.
+     */
+    public static final long MAX_CLOCK_SKEW_MILLIS = 5L * 60L * 1000L;
+
     // --- Batch / execution budget (Plan §3.6) ---
     public static final int BATCH_TICKS = 2;
     public static final int BATCH_MAX_MILLIS = 100;

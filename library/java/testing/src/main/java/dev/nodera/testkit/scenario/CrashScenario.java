@@ -74,9 +74,7 @@ public final class CrashScenario implements Scenario {
             // The crash test measures disruption, not the ownership drive.
             HostWorldSupport.setHostConfig(config, "debug", "regionDrive", "false");
             players[0] = HostWorldSupport.hostedTwoPlayers(context);
-            hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180),
-                    HostWorldSupport.STALE_BAKE_GUARD,
-                    "X0: " + HostWorldSupport.STALE_BAKE_MESSAGE);
+            HostWorldSupport.awaitMemberNodes(context, hostLog, "X0");
             context.settle(Duration.ofSeconds(10));  // let the session settle so the crash hits a
                                                      // steady state
         });
@@ -86,9 +84,18 @@ public final class CrashScenario implements Scenario {
             // The per-run token is the only reliable way to tell the joiner JVM from the host JVM:
             // ModDevGradle passes each run's program arguments via an @argfile, so the command line
             // carries "<run>RunProgramArgs" rather than the quick-play flags themselves.
+            // This precondition was unsatisfiable for as long as run tokens could not be matched:
+            // `runJvmAlive` answered "dead" for every live client, so this line failed on every run
+            // and reported a healthy joiner as missing. The scenario was right and its instrument
+            // was broken — see HostWorldSupport.commandLineOf.
             context.check(HostWorldSupport.runJvmAlive(JOINER_RUN),
                     "cannot find the joiner client JVM");
             HostWorldSupport.killRunJvms(JOINER_RUN);
+            // The kill has to be shown to have landed. While `killRunJvms` matched nothing it was a
+            // no-op, and what this stage actually exercised was the graceful wrapper stop below —
+            // the one path a crash scenario exists NOT to take. A SIGKILLed JVM is gone at once; a
+            // process still alive here did not crash, whatever the stage name says.
+            HostWorldSupport.awaitRunJvmsGone(JOINER_RUN, Duration.ofSeconds(30));
             // Reap the Gradle wrapper around the dead JVM.
             players[0].joiner().stop(Duration.ofSeconds(20));
         });
@@ -103,11 +110,15 @@ public final class CrashScenario implements Scenario {
             context.check(HostWorldSupport.runJvmAlive(HOST_RUN),
                     "the HOST client died too — that is a disruption");
             context.check(!HostWorldSupport.containsAfter(hostLogFile, mark[0],
-                            "Nodera continuity: host connection lost"),
-                    "the survivor armed continuity recovery — the migration path ran on a live world");
+                            "the host's connection ended"),
+                    "the survivor took over from a host that had not gone anywhere");
+            // There is no migration screen to show any more — the whole flow is screen-free now —
+            // so what this asserts is the class of thing that would replace it: the survivor is a
+            // host, and a host must never take over from itself. That was seen live as a
+            // reopen/kick loop, and it is the reason `canTakeOver` refuses while hosting.
             context.check(!HostWorldSupport.containsAfterIgnoringCase(hostLogFile, mark[0],
-                            "nodera.continuity.migrating"),
-                    "the survivor showed the migration screen");
+                            "re-opening it locally"),
+                    "the survivor re-opened its own live world");
             context.check(!HostWorldSupport.containsAfter(hostLogFile, mark[0],
                             "Exception in server tick loop"),
                     "the integrated server crashed");

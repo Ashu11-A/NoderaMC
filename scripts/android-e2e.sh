@@ -8,8 +8,8 @@
 #
 # It is answered the only way it can be — from BOTH ends:
 #
-#   from the phone   the app's own log lines, read out of logcat, showing it
-#                    announcing and being accepted
+#   from the phone   the worker's own NODERA-STATE answer over its loopback
+#                    control endpoint, naming its identity and tracker state
 #   from the tracker a query issued by THIS machine, asking the tracker who it
 #                    knows, and finding the phone's node id in the answer
 #
@@ -35,10 +35,9 @@ APK="$NODERA_ARTIFACTS/nodera-release.apk"
 TRACKER="${NODERA_TRACKER:-10.0.0.101:25600}"
 DO_INSTALL=1
 EXPECTED_P2P_PORT="${NODERA_ANDROID_EXPECT_P2P_PORT:-}"
-# How long the phone gets to reach the tracker. It announces on mount and the
-# loop retries every 20s, so two rounds is a generous budget for a device on
-# the same Wi-Fi.
-DEADLINE_SECONDS=60
+# How long the phone gets to reach the tracker. Commons starts after five seconds and retries every
+# 60s; allow two full retries because the rendezvous-directory probe runs first on the same thread.
+DEADLINE_SECONDS=130
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -66,6 +65,7 @@ if [[ -n "$EXPECTED_P2P_PORT" ]] \
 fi
 
 command -v adb >/dev/null || die "adb is not on PATH"
+command -v python3 >/dev/null || die "python3 is not on PATH"
 [[ -n "$(adb devices | sed -n '2p')" ]] || die "no device is connected"
 
 DEVICE="$(adb shell getprop ro.product.model | tr -d '\r')"
@@ -80,6 +80,8 @@ if ! timeout 3 bash -c "</dev/tcp/$TRACKER_HOST/$TRACKER_PORT" 2>/dev/null; then
   die "nothing is listening on $TRACKER — start it with: $NODERA_RUST_TARGET/release/nodera-tracker"
 fi
 say "the tracker is accepting connections"
+QUERY="$NODERA_RUST_TARGET/release/nodera-query"
+[[ -x "$QUERY" ]] || die "build the querier first: cargo build --release -p nodera-tracker --bin nodera-query"
 
 # --- 1. install ----------------------------------------------------------
 if [[ "$DO_INSTALL" == "1" ]]; then
@@ -98,6 +100,11 @@ adb shell pm list packages | tr -d '\r' | grep -qx "package:$PACKAGE" \
 # --- 2. launch, watching the log -----------------------------------------
 adb logcat -c || true
 adb shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
+# A retained commons entry could otherwise let a broken APK pass without announcing in this run.
+# Keep the baseline and reject that ambiguity after the worker tells us which identity is its own.
+if ! BASELINE_QUERY_OUT="$(timeout 5 "$QUERY" "$TRACKER" 2>&1)"; then
+  die "the pre-launch tracker query failed; freshness cannot be proved: $BASELINE_QUERY_OUT"
+fi
 say "launching…"
 adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || adb shell monkey -p "$PACKAGE" 1 >/dev/null 2>&1
 
@@ -115,36 +122,57 @@ fi
 
 # --- 3. the phone's own account of itself --------------------------------
 NODE_ID=""
-say "waiting up to ${DEADLINE_SECONDS}s for the peer to announce…"
-for _ in $(seq 1 "$DEADLINE_SECONDS"); do
-  if [[ -z "$NODE_ID" ]]; then
-    NODE_ID="$(grep -o 'this device is [0-9a-f-]\{36\}' "$LOG" | head -1 | awk '{print $4}')"
+STATE=""
+TRACKER_REACHABLE="no"
+say "waiting up to ${DEADLINE_SECONDS}s for the worker state…"
+E2E_DEADLINE=$((SECONDS + DEADLINE_SECONDS))
+STATE_DEADLINE=$E2E_DEADLINE
+while (( SECONDS < STATE_DEADLINE )); do
+  REMAINING=$((STATE_DEADLINE - SECONDS))
+  PROBE_TIMEOUT=$((REMAINING < 8 ? REMAINING : 8))
+  STATE="$(timeout "$REMAINING" adb shell \
+    "(printf 'NODERA-STATE 2\\n'; sleep 1) | timeout $PROBE_TIMEOUT toybox nc 127.0.0.1 25610" \
+    2>/dev/null | tr -d '\r' | head -1 || true)"
+  if [[ "$STATE" == \{* ]]; then
+    read -r NODE_ID TRACKER_REACHABLE < <(printf '%s' "$STATE" | python3 -c '
+import json,re,sys
+host, port = sys.argv[1].rsplit(":", 1)
+state = json.load(sys.stdin)
+node = str(state.get("node_id", ""))
+if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", node):
+    node = ""
+trackers = state.get("trackers", [])
+reachable = any(str(t.get("host")) == host and str(t.get("port")) == port and t.get("reachable") for t in trackers)
+print(node, "yes" if reachable else "no")
+' "$TRACKER" 2>/dev/null || true) || true
   fi
-  grep -q "accepted the announce" "$LOG" && break
-  sleep 1
+  [[ -n "$NODE_ID" && "$TRACKER_REACHABLE" == "yes" ]] && break
+  if (( SECONDS < STATE_DEADLINE )); then sleep 1; fi
 done
 
 [[ -n "$NODE_ID" ]] \
-  && ok "the device created a peer identity: $NODE_ID" \
-  || bad "no peer identity appeared in the log"
+  && ok "the worker reported its peer identity: $NODE_ID" \
+  || bad "the worker state reported no peer identity"
 
-if grep -q "accepted the announce" "$LOG"; then
-  ok "a tracker accepted this device's announce: $(grep -m1 'accepted the announce' "$LOG" | sed 's/.*peer: //')"
+if [[ "$TRACKER_REACHABLE" == "yes" ]]; then
+  ok "the worker's latest state probe reports $TRACKER reachable"
 else
-  bad "no tracker accepted an announce"
-  grep 'peer:' "$LOG" | tail -5 | sed 's/^/       /'
+  bad "the worker does not report $TRACKER reachable"
 fi
 
 # Optional exact M-NET-2 exit: choose a one-port range in Settings, fully stop/relaunch the app,
 # then prove the worker selected it from the worker's own state rather than from UI text.
 if [[ -n "$EXPECTED_P2P_PORT" ]]; then
   STATE=""
-  for _ in $(seq 1 20); do
-    STATE="$(adb shell \
-      '(printf "NODERA-STATE 2\n"; sleep 1) | timeout 8 toybox nc 127.0.0.1 25610' \
+  PORT_DEADLINE=$((SECONDS + 20))
+  while (( SECONDS < PORT_DEADLINE )); do
+    REMAINING=$((PORT_DEADLINE - SECONDS))
+    PROBE_TIMEOUT=$((REMAINING < 8 ? REMAINING : 8))
+    STATE="$(timeout "$REMAINING" adb shell \
+      "(printf 'NODERA-STATE 2\\n'; sleep 1) | timeout $PROBE_TIMEOUT toybox nc 127.0.0.1 25610" \
       2>/dev/null | tr -d '\r' | head -1 || true)"
     [[ "$STATE" == \{* ]] && break
-    sleep 1
+    if (( SECONDS < PORT_DEADLINE )); then sleep 1; fi
   done
   SELF_ROUTE="$(printf '%s' "$STATE" | python3 -c \
     'import json,sys; print(json.load(sys.stdin).get("self_route", ""))' 2>/dev/null || true)"
@@ -161,12 +189,31 @@ fi
 # machine, over the same wire protocol, and either the tracker returns the
 # phone's node id or it does not.
 say "asking the tracker who it knows…"
-QUERY="$NODERA_RUST_TARGET/release/nodera-query"
-[[ -x "$QUERY" ]] || die "build the querier first: cargo build --release -p nodera-tracker --bin nodera-query"
-QUERY_OUT="$("$QUERY" "$TRACKER" 2>&1)" || true
+QUERY_OUT=""
+QUERY_FOUND="no"
+QUERY_DEADLINE=$E2E_DEADLINE
+while [[ -n "$NODE_ID" ]] && (( SECONDS < QUERY_DEADLINE )); do
+  REMAINING=$((QUERY_DEADLINE - SECONDS))
+  QUERY_TIMEOUT=$((REMAINING < 5 ? REMAINING : 5))
+  QUERY_OUT="$(timeout "$QUERY_TIMEOUT" "$QUERY" "$TRACKER" 2>&1)" || true
+  QUERY_FOUND="$(printf '%s' "$QUERY_OUT" | python3 -c '
+import sys
+node = sys.argv[1]
+print("yes" if node and any(line.split() and line.split()[0] == node for line in sys.stdin) else "no")
+' "$NODE_ID")"
+  [[ "$QUERY_FOUND" == "yes" ]] && break
+  if (( SECONDS < QUERY_DEADLINE )); then sleep 1; fi
+done
 echo "$QUERY_OUT" | sed 's/^/       /'
 
-if [[ -n "$NODE_ID" ]] && echo "$QUERY_OUT" | grep -qi "$NODE_ID"; then
+BASELINE_FOUND="$(printf '%s' "$BASELINE_QUERY_OUT" | python3 -c '
+import sys
+node = sys.argv[1]
+print("yes" if node and any(line.split() and line.split()[0] == node for line in sys.stdin) else "no")
+' "$NODE_ID")"
+if [[ "$BASELINE_FOUND" == "yes" ]]; then
+  bad "the tracker already held this phone before launch; restart it for fresh-announcement proof"
+elif [[ "$QUERY_FOUND" == "yes" ]]; then
   ok "the tracker returned this phone to an independent querier"
 else
   bad "the tracker did not return this phone's node id"

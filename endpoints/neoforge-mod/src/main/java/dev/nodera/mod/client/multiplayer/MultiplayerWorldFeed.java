@@ -77,11 +77,44 @@ public final class MultiplayerWorldFeed {
             ownWorldStatuses() {
         java.util.List<dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus> out =
                 new java.util.ArrayList<>();
+        // Only worlds this install HOSTS. Every row the worker reports was being counted, including
+        // the ones this node merely stores for other people, so the screen said "7 worlds shared to
+        // Nodera" to somebody who had shared one and was replicating six.
+        java.util.Set<String> hosted = authoritative;
         for (TorrentWorldEntry entry : ownWorlds) {
+            if (!hosted.contains(entry.worldIdHex())) {
+                continue;
+            }
             out.add(new dev.nodera.diagnostics.view.PublicWorldBadgeView.PublicWorldStatus(
                     entry.name(), true, entry.playerCount()));
         }
         return out;
+    }
+
+    /**
+     * How many players are in a world this install HOSTS, or {@code null} when it hosts no such
+     * world.
+     *
+     * <p>Keyed by world id rather than by name, unlike the badge feed next door: a row in the
+     * singleplayer list knows its save folder, and the save folder knows its world id — the display
+     * name is the one thing that can differ between the two, because a save can be renamed on disk.
+     *
+     * @param worldIdHex the world id.
+     * @return the count ({@code -1} for "nobody has reported one"), or {@code null} if not hosted.
+     * @Thread-context any thread.
+     */
+    public static Long playersInHostedWorld(String worldIdHex) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return null;
+        }
+        java.util.Set<String> hosted = authoritative;
+        for (TorrentWorldEntry entry : ownWorlds) {
+            if (worldIdHex.equalsIgnoreCase(entry.worldIdHex())
+                    && hosted.contains(entry.worldIdHex())) {
+                return entry.playerCount();
+            }
+        }
+        return null;
     }
 
     public static List<TorrentWorldEntry> snapshot() {
@@ -123,6 +156,15 @@ public final class MultiplayerWorldFeed {
             if (local == null) {
                 merged.put(key, entry);
             } else if (!hostedHere.contains(local.worldIdHex())) {
+                merged.put(key, withLocalIdentity(local, entry));
+            } else if (local.mcRoute().isBlank() && !entry.mcRoute().isBlank()) {
+                // This node hosts the world, and its own row says there is no game running — but
+                // the network says somebody is hosting it right now. The local row used to win
+                // unconditionally, so a world's OWNER, with their game closed, saw their own DEAD
+                // row shadow the live one and the Join button greyed out on their own world.
+                //
+                // Narrow on purpose: the local row still wins whenever this node has a live game of
+                // its own, which is the case that rule was written for.
                 merged.put(key, withLocalIdentity(local, entry));
             }
         }
@@ -195,7 +237,17 @@ public final class MultiplayerWorldFeed {
             if (client == null || client.endpoints().isEmpty()) {
                 return;
             }
-            networkWorlds = buildNetworkEntries(client.catalog(0));
+            List<TrackerCatalogEntry> catalog = client.catalog(0);
+            if (catalog.isEmpty() && !networkWorlds.isEmpty()) {
+                // An empty answer is not the same as "there are no worlds". `TrackerClient.catalog`
+                // returns an empty list rather than throwing when no endpoint answers, so a single
+                // failed poll used to blank every other player's world out of the tab. The worker
+                // path next door already keeps its last snapshot on failure; this one did the
+                // opposite, and the visible result was worlds flickering in and out of the list.
+                LOG.debug("tracker catalog came back empty — keeping the last known worlds");
+                return;
+            }
+            networkWorlds = buildNetworkEntries(catalog);
         } catch (RuntimeException e) {
             LOG.debug("tracker catalog refresh failed: {}", e.toString());
         }
@@ -209,18 +261,55 @@ public final class MultiplayerWorldFeed {
         }
         synchronized (MultiplayerWorldFeed.class) {
             if (tracker == null) {
-                List<TrackerClient.Endpoint> endpoints = new ArrayList<>();
-                for (String route : NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get()) {
-                    try {
-                        endpoints.add(TrackerClient.Endpoint.parse(route));
-                    } catch (IllegalArgumentException e) {
-                        LOG.warn("Ignoring malformed tracker endpoint '{}': {}", route, e.getMessage());
-                    }
-                }
-                tracker = new TrackerClient(endpoints, NodeIdentity.generate());
+                tracker = new TrackerClient(configuredEndpoints(), NodeIdentity.generate());
+            }
+            // Follow the WORKER's live tracker list, the way every other lane already does.
+            //
+            // This one read raw configuration, and when the two disagreed nothing said so: the
+            // worker announced the world to two trackers while this tab queried one, so a world was
+            // live and invisible — and a joiner who could not see it fell through to re-hosting a
+            // stale copy, which is how one world becomes two. Re-read every refresh rather than at
+            // first use, because the list is not fixed: a config reload or a push from the
+            // companion app changes it under a client that had cached one forever.
+            List<TrackerClient.Endpoint> live = workerEndpoints();
+            List<TrackerClient.Endpoint> wanted = live.isEmpty() ? configuredEndpoints() : live;
+            if (!wanted.isEmpty() && !wanted.equals(tracker.endpoints())) {
+                LOG.info("Nodera worlds: following the worker's tracker list {}", wanted);
+                tracker.setEndpoints(wanted);
             }
             return tracker;
         }
+    }
+
+    /** The tracker list from config — the fallback when the worker has no opinion. */
+    private static List<TrackerClient.Endpoint> configuredEndpoints() {
+        List<TrackerClient.Endpoint> endpoints = new ArrayList<>();
+        for (String route : NoderaConfig.CLIENT_TRACKER_ENDPOINTS.get()) {
+            try {
+                endpoints.add(TrackerClient.Endpoint.parse(route));
+            } catch (IllegalArgumentException e) {
+                LOG.warn("Ignoring malformed tracker endpoint '{}': {}", route, e.getMessage());
+            }
+        }
+        return endpoints;
+    }
+
+    /** The tracker list the local worker is actually announcing to; empty means "no opinion". */
+    private static List<TrackerClient.Endpoint> workerEndpoints() {
+        List<TrackerClient.Endpoint> endpoints = new ArrayList<>();
+        try {
+            for (String route : dev.nodera.endpoint.state.WorkerStateParser.trackerRoutes(
+                    workerState())) {
+                try {
+                    endpoints.add(TrackerClient.Endpoint.parse(route));
+                } catch (IllegalArgumentException malformed) {
+                    LOG.debug("worker offered a malformed tracker route '{}'", route);
+                }
+            }
+        } catch (RuntimeException unreadable) {
+            return List.of();
+        }
+        return endpoints;
     }
 
     /** The client-side tracker client used by the join flow too (shared instance). */
@@ -271,7 +360,14 @@ public final class MultiplayerWorldFeed {
         List<HostedWorldInfo> hosted = WorkerStateParser.connectedWorlds(workerStateJson);
         List<TorrentWorldEntry> out = new ArrayList<>(hosted.size());
         for (HostedWorldInfo world : hosted) {
-            String name = world.name().isBlank() ? world.worldId() : world.name();
+            // A world this node only STORES for somebody else is named after its own 64-character
+            // id by the worker, because a replicating peer has never been told what the world is
+            // called. Rendering that verbatim put a hex string in the list, sorted it under that
+            // string, and made the world unfindable by typing its name. Blank is the honest answer
+            // and lets the tracker row — which does know the name — supply it in `merge`.
+            String rawName = world.name();
+            String name = rawName.isBlank() || rawName.equalsIgnoreCase(world.worldId())
+                    ? "" : rawName;
             // MC-JOIN-1: readiness is a measurement, not an assumption. The worker publishes
             // `mc_route` only while a game is actually listening for this world, so its absence is
             // the one honest signal this node has that the world is seeded but not enterable —
@@ -285,7 +381,10 @@ public final class MultiplayerWorldFeed {
                     live ? 10_000 : 0,       // a world you host is fully reliable while it is up
                     live ? WorldHealth.HEALTHY : WorldHealth.DEAD,
                     -1,                      // no retention countdown for a live-hosted world
-                    owner == null ? "" : owner,
+                    // Only a world this node HOSTS is "by me". Every worker row used to be stamped
+                    // with the local player, including worlds this install merely stores for
+                    // somebody else — so another player's world read "by <me>".
+                    world.hostedHere() && owner != null ? owner : "",
                     world.worldId(),
                     world.mcRoute()));
         }

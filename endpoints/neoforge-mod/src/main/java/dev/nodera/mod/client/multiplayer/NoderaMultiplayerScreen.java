@@ -55,6 +55,14 @@ public final class NoderaMultiplayerScreen extends Screen {
     private static volatile Runnable refreshHandler = () -> {};
 
     private final Screen parent;
+
+    /**
+     * Round-trip time per world, measured by vanilla's own server pinger.
+     *
+     * <p>Per screen instance, and closed with it: the pinger holds an open connection per host until
+     * it answers, so one left behind leaks a socket per world per visit.
+     */
+    private final WorldPingFeed pings = new WorldPingFeed();
     private Tab active = Tab.WORLDS;
 
     private NoderaWorldList worldList;
@@ -162,7 +170,10 @@ public final class NoderaMultiplayerScreen extends Screen {
         int listTop = y + 24;
         worldList = new NoderaWorldList(
                 Minecraft.getInstance(), this.width, bottom - listTop, listTop);
-        worldList.setEntries(worldSupplier.get());
+        worldList.setPingSupplier(pings::pingOf);
+        java.util.List<TorrentWorldEntry> entries = worldSupplier.get();
+        worldList.setEntries(entries);
+        pings.refresh(entries);
         lastFeedPullMs = System.currentTimeMillis();
         addRenderableWidget(worldList);
     }
@@ -193,9 +204,14 @@ public final class NoderaMultiplayerScreen extends Screen {
         // Keep the list in step with the background feeds without rebuilding the whole screen.
         if (active == Tab.WORLDS && worldList != null
                 && System.currentTimeMillis() - lastFeedPullMs > 1000) {
-            worldList.setEntries(worldSupplier.get());
+            java.util.List<TorrentWorldEntry> entries = worldSupplier.get();
+            worldList.setEntries(entries);
+            pings.refresh(entries);
             lastFeedPullMs = System.currentTimeMillis();
         }
+        // Vanilla's pinger does its I/O here rather than on a thread of its own, so a screen that
+        // forgets this call measures nothing and reports every world as unknown.
+        pings.tick();
         if (joinButton != null) {
             TorrentWorldEntry selection = worldList == null ? null : worldList.selectedWorld();
             // MC-JOIN-1: Join follows readiness, not selection. Pieces follows selection — a
@@ -233,7 +249,25 @@ public final class NoderaMultiplayerScreen extends Screen {
 
     @Override
     public void onClose() {
+        pings.close();
         Minecraft mc = this.minecraft == null ? Minecraft.getInstance() : this.minecraft;
         mc.setScreen(parent != null ? parent : new net.minecraft.client.gui.screens.TitleScreen());
+    }
+
+    @Override
+    public void removed() {
+        // onClose is the button; removed() is every other way a screen goes away, including the
+        // game closing under it. The pinger's connections outlive the screen otherwise.
+        pings.close();
+        super.removed();
+    }
+
+    /**
+     * @param worldIdHex the world.
+     * @return its measured round trip in milliseconds, or {@code -1} when unmeasured.
+     * @Thread-context client thread.
+     */
+    public long pingOf(String worldIdHex) {
+        return pings.pingOf(worldIdHex);
     }
 }

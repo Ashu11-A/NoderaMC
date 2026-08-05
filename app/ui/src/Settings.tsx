@@ -15,7 +15,17 @@ import {
   FiAlertCircle,
   FiRefreshCw,
   FiShield,
+  FiTag,
+  FiUsers,
+  FiPackage,
+  FiTerminal,
+  FiInfo,
 } from "react-icons/fi";
+import TrackerStoresScreen from "./TrackerStores";
+import { PeersScreen } from "./Peers";
+import { ModInstallScreen } from "./ModInstall";
+import { ConsoleScreen } from "./Console";
+import { AboutScreen } from "./About";
 import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
   Card,
@@ -26,6 +36,7 @@ import {
   Slider,
   Disclosure,
   StatusBadge,
+  PageHeader,
   cx,
   resetScrollport,
 } from "./components";
@@ -47,18 +58,55 @@ import {
   type Theme,
   type NetworkPolicy,
 } from "./ipc";
-import { formatBytes } from "./api";
-import { fetchStorageInfo, type StorageInfo } from "./ipc";
+import { formatBytes, type Dashboard } from "./api";
+import { fetchStorageInfo, type StorageInfo, type SystemStats } from "./ipc";
 
-type Section = "appearance" | "behavior" | "network" | "storage" | "privacy";
+/**
+ * Settings is where everything that is not playing lives now.
+ *
+ * The rail used to carry nine destinations, six of which were about the machinery: tracker stores,
+ * peers, the worker console, the mod installer, an overview of counters, and About. A launcher has
+ * one front page and a settings drawer, so those became sections here — the Worlds screen in
+ * particular was carrying trackers, piece grids and store links, which is why it read as a report
+ * rather than a library.
+ */
+export type Section =
+  | "appearance"
+  | "behavior"
+  | "network"
+  | "stores"
+  | "peers"
+  | "storage"
+  | "minecraft"
+  | "diagnostics"
+  | "privacy"
+  | "about";
 
 const SECTIONS: { id: Section; label: string; icon: JSX.Element }[] = [
   { id: "appearance", label: "Appearance", icon: <FiEye /> },
   { id: "behavior", label: "Behavior", icon: <FiPower /> },
   { id: "network", label: "Network", icon: <FiWifi /> },
+  { id: "stores", label: "Tracker stores", icon: <FiTag /> },
+  { id: "peers", label: "Peers", icon: <FiUsers /> },
   { id: "storage", label: "Storage", icon: <FiHardDrive /> },
+  { id: "minecraft", label: "Minecraft", icon: <FiPackage /> },
+  { id: "diagnostics", label: "Diagnostics", icon: <FiTerminal /> },
   { id: "privacy", label: "Privacy", icon: <FiShield /> },
+  { id: "about", label: "About", icon: <FiInfo /> },
 ];
+
+const SECTION_COPY: Record<Section, string> = {
+  appearance: "Theme and desktop presentation.",
+  behavior: "Startup, battery, and background operation.",
+  network: "Discovery, reachability, and transfer limits.",
+  stores: "Published tracker and relay directories you trust.",
+  peers: "Live connections and service reachability.",
+  storage: "Archive locations and replication budgets.",
+  minecraft: "Detected installations and bundled mod management.",
+  diagnostics: "Worker health, resource use, and bounded logs.",
+  privacy: "Telemetry consent and exact collection schema.",
+  about: "Build identity and third-party packages.",
+};
 
 /** Bytes/sec presets for the speed sliders; index 0 is "unlimited". */
 const SPEEDS = [0, 64_000, 128_000, 256_000, 512_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000,
@@ -156,8 +204,13 @@ const NESTED = "my-0.5 ml-3.5 border-l-2 border-line pl-3.5";
 export function SettingsScreen(props: {
   settings: SettingsDoc | null;
   onChange: (next: SettingsDoc) => void;
+  /** Which section to open on, when something sent the user here to fix one thing. */
+  initial?: Section;
+  /** Live node figures, for the sections that report on the node rather than configure it. */
+  d: Dashboard;
+  sys: SystemStats;
 }) {
-  const [section, setSection] = useState<Section>("appearance");
+  const [section, setSection] = useState<Section>(props.initial ?? "appearance");
   const [statuses, setStatuses] = useState<SettingStatus[]>([]);
   const [config, setConfig] = useState<ConfigStatus>(EMPTY_CONFIG_STATUS);
   const [ownership, setOwnership] = useState<WorkerOwnership | null>(null);
@@ -211,11 +264,8 @@ export function SettingsScreen(props: {
 
   return (
     <div className="flex min-h-full flex-col">
-      {/* One category per tab, across the top. The categories were already separate views behind a
-          side rail; as tabs they read as what they are — five peers, all one click away — and the
-          content column gets the full width back, which is what the limits table needed. */}
       <nav
-        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line bg-bg px-[22px]"
+        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden"
         role="tablist"
       >
         {SECTIONS.map((sec) => (
@@ -240,7 +290,41 @@ export function SettingsScreen(props: {
         ))}
       </nav>
 
-      <div className="flex max-w-[860px] flex-col gap-3.5 px-[26px] pt-5 pb-10">
+      <div className="page-canvas page-grid py-8">
+        <aside className="col-span-3 hidden pr-6 wide:block">
+          <div className="sticky top-6">
+            <p className="mb-3 px-3 text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">Settings</p>
+            <nav className="flex flex-col gap-1" aria-label="Settings sections">
+              {SECTIONS.map((sec) => (
+                <button
+                  key={sec.id}
+                  aria-current={section === sec.id ? "page" : undefined}
+                  className={cx(
+                    "flex items-center gap-3 rounded-sm border px-3 py-2.5 text-left text-sm transition-colors",
+                    section === sec.id
+                      ? "border-brand-2/40 bg-brand-2/8 text-text"
+                      : "border-transparent text-dim hover:bg-surface-hover hover:text-text",
+                  )}
+                  onClick={() => {
+                    setSection(sec.id);
+                    resetScrollport();
+                  }}
+                >
+                  <span className={section === sec.id ? "text-brand-1" : "text-faint"}>{sec.icon}</span>
+                  {sec.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </aside>
+
+      <section aria-label="Settings content" className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-9">
+        <PageHeader
+          eyebrow="Launcher configuration"
+          title={SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings"}
+          description={SECTION_COPY[section]}
+          className="mb-2"
+        />
         {error && (
           <div className="flex items-center gap-2 rounded-sm border border-danger/45 bg-danger/12 px-3.5 py-2.5 text-sm text-danger">
             <FiAlertCircle aria-hidden /> {error}
@@ -306,7 +390,7 @@ export function SettingsScreen(props: {
         )}
 
         {section === "appearance" && (
-          <Card title="Appearance">
+          <Card title="Interface">
             <Segmented<Theme>
               label="Theme"
               hint="System follows your desktop's light/dark preference."
@@ -329,7 +413,7 @@ export function SettingsScreen(props: {
         )}
 
         {section === "behavior" && (
-          <>
+          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
             <Card title="Startup">
               <Toggle
                 label="Auto-start"
@@ -380,11 +464,11 @@ export function SettingsScreen(props: {
                 </div>
               )}
             </Card>
-          </>
+          </div>
         )}
 
         {section === "network" && (
-          <>
+          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
             <Card
               title="Default trackers"
               hint="Discovery services this node announces its worlds to and queries for peers. One per line — tcp://host:port; a bare host:port means TCP."
@@ -529,10 +613,11 @@ export function SettingsScreen(props: {
                 onChange={(v) => update((d) => (d.network.max_download_bytes_per_sec = v))}
               />
             </Card>
-          </>
+          </div>
         )}
 
         {section === "storage" && (
+          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
           <Card
             title="Storage"
             hint="Worlds you hold for other people — the copies that keep a world alive when its host goes offline."
@@ -560,11 +645,9 @@ export function SettingsScreen(props: {
               </p>
             </Disclosure>
           </Card>
-        )}
 
         {/* The worker has honoured both of these since the replication lane landed and the app
             never sent either, so a node's disk budget was whatever the worker decided. */}
-        {section === "storage" && (
           <Card
             title="Supporting other people's worlds"
             hint="How much of this machine goes to keeping worlds you do not own alive."
@@ -588,11 +671,26 @@ export function SettingsScreen(props: {
               onChange={(v) => update((d) => (d.storage.replication_sweep_seconds = Math.max(0, v)))}
             />
           </Card>
+          </div>
         )}
+
+        {/* The five sections below are screens that used to have their own rail entries. They are
+            not settings in the "toggle a preference" sense — they are the machinery, and the point
+            of moving them is that a launcher's front page should not be a report about a daemon. */}
+        {section === "stores" && <TrackerStoresScreen />}
+
+        {section === "peers" && <PeersScreen d={props.d} />}
+
+        {section === "minecraft" && <ModInstallScreen />}
+
+        {section === "diagnostics" && <ConsoleScreen d={props.d} sys={props.sys} />}
 
         {section === "privacy" && (
           <PrivacyCard status={telemetry} onChanged={setTelemetry} />
         )}
+
+        {section === "about" && <AboutScreen />}
+      </section>
       </div>
     </div>
   );

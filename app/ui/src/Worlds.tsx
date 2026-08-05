@@ -16,16 +16,14 @@
 // world, not reasons to re-teach the reader a layout. Worlds open to LAN keep their own card: that
 // one has a decision attached, and the rest are a report.
 import { useMemo } from "react";
-import { FiChevronRight, FiGlobe, FiKey, FiPlay, FiUploadCloud } from "react-icons/fi";
-import { AVATAR, Card, Empty, MONO, Pill, Stat, STAT_GRID, cx } from "./components";
+import { FiGlobe, FiKey, FiPlay, FiUploadCloud } from "react-icons/fi";
+import { Card, Empty, PageGrid, PageHeader, Pill, Stat, STAT_GRID, cx, worldArt } from "./components";
 import { LanCard } from "./Lan";
 import {
   UNKNOWN,
   formatBytes,
-  formatPercent,
   heldBytes,
   shortId,
-  show,
   worldRole,
   type Dashboard,
   type World,
@@ -51,8 +49,13 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
   }, [d.worlds]);
 
   return (
-    <div className="flex max-w-[1150px] flex-col gap-4 px-[26px] pt-5 pb-10">
-      <div className={STAT_GRID}>
+    <PageGrid className="gap-y-5">
+      <PageHeader
+        eyebrow="Local collection"
+        title="World library"
+        description="Worlds you play, administer, or keep available for other players."
+      />
+      <div className={cx(STAT_GRID, "col-span-12")}>
         <Stat
           label="Playing in"
           value={known ? String(d.counts.connected_worlds) : UNKNOWN}
@@ -78,6 +81,7 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
         />
       </div>
 
+      <div className="col-span-12 wide:col-span-6">
       <WorldSection
         title="You are playing in"
         hint="Worlds a player on this machine is inside right now. Your node supports each of them for as long as you are here."
@@ -91,7 +95,9 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
           </Empty>
         }
       />
+      </div>
 
+      <div className="col-span-12 wide:col-span-6">
       <WorldSection
         title="Worlds you run"
         hint="You hold these worlds' private keys, so you are the only peer that can rename, re-key or delete them."
@@ -103,7 +109,9 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
           </Empty>
         }
       />
+      </div>
 
+      <div className="col-span-12 wide:col-span-8">
       <WorldSection
         title="Worlds you help share"
         hint="Other people's worlds this node keeps available. They stay reachable while their owner is offline because peers like this one hold their pieces."
@@ -117,9 +125,12 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
           </Empty>
         }
       />
+      </div>
 
-      <LanCard lan={d.lan} known={known} onChanged={() => undefined} />
-    </div>
+      <div className="col-span-12 wide:col-span-4">
+        <LanCard lan={d.lan} known={known} onChanged={() => undefined} />
+      </div>
+    </PageGrid>
   );
 }
 
@@ -144,7 +155,7 @@ function WorldSection(props: {
       {props.worlds.length === 0 ? (
         props.empty
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-3 py-1">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3 py-1">
           {props.worlds.map((w) => (
             <WorldCard key={w.world_id} world={w} onOpen={() => props.onOpen(w.world_id)} />
           ))}
@@ -162,96 +173,59 @@ const ROLE_PILL = {
   supporting: { tone: "muted", label: "Supporting" },
 } as const;
 
+/**
+ * One world in the library: a picture, a name, and the one fact that decides what to do next.
+ *
+ * # What this card stopped saying
+ *
+ * It used to carry a completeness bar, a percentage, a three-column table of players / other
+ * holders / bytes served, and a footer sentence about tracker visibility — eleven figures for a
+ * thing the player is trying to *recognise*. All of it still exists, one click away, on the world's
+ * own screen; none of it belongs in a grid whose job is "which one is mine".
+ *
+ * The picture does that job. It is generated from the world id, so it is the same on every machine
+ * and in every session — which is what makes it something you learn rather than decoration.
+ */
 function WorldCard(props: { world: World; onOpen: () => void }) {
   const w = props.world;
-  const role = worldRole(w);
-  const pill = ROLE_PILL[role];
-  const complete = w.completeness_permille !== null && w.completeness_permille >= 1000;
+  const pill = ROLE_PILL[worldRole(w)];
 
   return (
     <button
-      className={cx(
-        "flex flex-col gap-3 rounded-lg border border-line bg-surface p-3.5 text-left",
-        "transition-[border-color,translate,box-shadow] duration-150",
-        "hover:-translate-y-0.5 hover:border-[color-mix(in_srgb,var(--brand-2)_55%,var(--line))] hover:shadow-card",
-      )}
       onClick={props.onOpen}
+      className={cx(
+        "group flex flex-col overflow-hidden rounded-lg border border-line bg-surface text-left",
+        "transition-[border-color,translate,box-shadow] duration-[var(--motion-base)]",
+        "hover:-translate-y-0.5 hover:border-brand-2/50 hover:shadow-e2",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
+      )}
     >
-      <div className="flex items-center gap-2.5">
-        <span className={cx(AVATAR, "h-[34px] w-[34px] text-[15px]")} aria-hidden>
-          {(w.name || "?").slice(0, 1).toUpperCase()}
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-semibold">{w.name || shortId(w.world_id)}</span>
-          <span className={cx(MONO, "text-faint")}>
-            v{w.version} · {formatBytes(w.total_bytes)}
-          </span>
-        </div>
-        <Pill tone={pill.tone}>{pill.label}</Pill>
-      </div>
-
-      {/* The contribution bar. A number alone ("74.0%") says how much of the world is here; the bar
-          says it at a glance and, next to it, how much of that is bytes this node can actually
-          serve to somebody else. Both are the same fact — one is readable while scrolling. */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-baseline justify-between gap-2 text-[11px]">
-          <span className="text-faint">
-            {w.completeness_permille === null
-              ? "No manifest yet"
-              : `${w.pieces_held} of ${w.piece_count} pieces held`}
-          </span>
-          <span className={cx("tabular-nums", complete ? "text-up" : "text-warn")}>
-            {show(w.completeness_permille, formatPercent)}
-          </span>
-        </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-          <div
-            className={cx("h-full rounded-full", complete ? "bg-up" : "bg-brand-2")}
-            style={{ width: `${(w.completeness_permille ?? 0) / 10}%` }}
-          />
-        </div>
-      </div>
-
-      <dl className="grid grid-cols-3 gap-2 border-t border-line-soft pt-2">
-        <Cell label="Players" value={show(w.players, String)} />
-        <Cell label="Other holders" value={String(w.seeders)} />
-        <Cell label="You serve" value={formatBytes(heldBytes(w))} />
-      </dl>
-
-      <div className="flex items-center justify-between gap-2 text-faint">
-        {/* Unlisted outranks everything else this line could say: a world no tracker carries is
-            one no peer can reach, however open its game is. */}
-        <span
-          className={cx(
-            "text-[11px]",
-            w.discoverable === false ? "text-down" : w.game_endpoint ? "text-up" : undefined,
-          )}
-        >
-          {w.discoverable === false
-            ? "On no tracker — nobody can find it"
-            : w.game_endpoint
-              ? "Joinable now"
-              : "Nobody is hosting a game"}
-        </span>
-        <FiChevronRight aria-hidden />
-      </div>
-    </button>
-  );
-}
-
-function Cell(props: { label: string; value: string; tone?: "up" | "warn" }) {
-  return (
-    <div>
-      <dt className="text-[10px] tracking-[0.05em] text-faint uppercase">{props.label}</dt>
-      <dd
-        className={cx(
-          "mt-0.5 text-[15px] tabular-nums",
-          props.tone === "up" && "text-up",
-          props.tone === "warn" && "text-warn",
-        )}
+      <span
+        aria-hidden
+        className="world-art relative h-[104px] w-full"
+        style={worldArt(w.world_id)}
       >
-        {props.value}
-      </dd>
-    </div>
+        <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-surface to-transparent" />
+      </span>
+
+      <span className="flex min-w-0 flex-col gap-1 p-3.5">
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate text-sm font-semibold">
+            {w.name || shortId(w.world_id, 10, 6)}
+          </span>
+          <Pill tone={pill.tone}>{pill.label}</Pill>
+        </span>
+        <span className="text-xs text-faint">
+          {/* Two facts, both about this node's relationship to the world — which is the only thing
+              that differs between the cards in front of you. Everything a peer could say about the
+              world itself is the same on every peer and therefore tells you nothing here. */}
+          {w.game_endpoint ? "A game is running" : "No game running"}
+          {" · "}
+          {w.piece_count === 0
+            ? "nothing stored yet"
+            : `${formatBytes(heldBytes(w))} stored here`}
+        </span>
+      </span>
+    </button>
   );
 }

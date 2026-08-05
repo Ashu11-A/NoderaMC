@@ -696,11 +696,28 @@ nodera_start_workers() {
 # Every worker must answer its control socket — a worker that died on a bound
 # port turns every later assertion into an unexplained timeout.
 nodera_probe_workers() {
-    local i name port
+    local i name port waited
     for (( i = 0; i < NODERA_WORKERS; i++ )); do
         name="${NODERA_WORKER_NAMES[$i]}"; port="${NODERA_WORKER_CONTROLS[$i]}"
-        control_verb "$port" "NODERA-PROBE 2" | grep -q NODERA-OK \
-            || fail "worker $name did not answer NODERA-PROBE on $port (see $LOG_DIR/worker-$name.log)"
+        # WAIT for it, do not race it. This was a single unretried probe fired straight after
+        # launch, so a worker that had not yet bound its control port failed the whole run — and
+        # then the cleanup killed it, truncating its log to two lines, so the report blamed a
+        # worker that was starting perfectly well and left no evidence of what it had been doing.
+        #
+        # Startup is not uniform: a worker resumes every world it administers from the registry and
+        # each one costs a rendezvous round trip, against a REMOTE endpoint that may be slow or
+        # unreachable. So the peer with more administered worlds binds later, every time, and
+        # whichever that is loses. Sixty seconds is well past that and still fails fast against a
+        # worker that is genuinely dead.
+        waited=0
+        until control_verb "$port" "NODERA-PROBE 2" 2>/dev/null | grep -q NODERA-OK; do
+            (( waited += 2 ))
+            if (( waited > 60 )); then
+                fail "worker $name did not answer NODERA-PROBE on $port within ${waited}s (see $LOG_DIR/worker-$name.log)"
+            fi
+            sleep 2
+        done
+        [[ $waited -gt 0 ]] && log "worker $name answered after ${waited}s"
     done
     log "topology up: $NODERA_PLAYERS player slot(s) · $NODERA_TRACKERS tracker(s) · $NODERA_RENDEZVOUS rendezvous · $NODERA_WORKERS peer(s) ($NODERA_SPARE_PEERS spare)"
 }

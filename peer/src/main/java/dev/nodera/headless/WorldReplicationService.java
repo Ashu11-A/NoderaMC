@@ -4,6 +4,7 @@ import dev.nodera.core.Bytes;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.peer.archival.ArchiveObjectClass;
 import dev.nodera.peer.archival.RendezvousArchivePolicy;
+import dev.nodera.peer.discovery.CommonsPresence;
 import dev.nodera.peer.discovery.TrackerClient;
 import dev.nodera.protocol.discovery.TrackerCatalogEntry;
 import dev.nodera.protocol.discovery.TrackerResponse;
@@ -73,6 +74,18 @@ public final class WorldReplicationService implements AutoCloseable {
      */
     private static final int MAX_RELEASES_PER_SWEEP = 1;
 
+    /**
+     * Worlds this node may catch up to a newer version of, per sweep.
+     *
+     * <p>Catch-up used to be unbounded, and the comment saying so called it "the same obligation,
+     * kept honestly". The obligation is real; the unboundedness was not part of it. A node holding
+     * twenty worlds whose hosts were all repacking on a timer spent every sweep re-fetching all
+     * twenty, and the 8 GiB budget — which exists precisely to stop that — did not apply because a
+     * refresh is not an adoption. Bounding it costs a stale replica one extra sweep, which is five
+     * minutes; not bounding it cost every peer its entire uplink, permanently.
+     */
+    private static final int MAX_REFRESHES_PER_SWEEP = 2;
+
     /** Per-world fetch deadline. */
     private static final Duration FETCH_TIMEOUT = Duration.ofMinutes(5);
 
@@ -89,6 +102,17 @@ public final class WorldReplicationService implements AutoCloseable {
      */
     private volatile long budgetBytes;
     private volatile int sweepSeconds;
+
+    /**
+     * worldIdHex → the display name the tracker directory last published for it.
+     *
+     * <p>A world this node only replicates has no local registry row to read a name off — the
+     * registry records what this node hosts. Without this the dashboard could only ever show a
+     * replicated world as a hex id, which is how "the phone is holding 91 of 465 pieces of Ashu's
+     * world" rendered as nothing a player could recognise. Sweep-scoped and lost on restart; the
+     * caller falls back to the id, never to a wrong name.
+     */
+    private final java.util.Map<String, String> catalogNames = new java.util.concurrent.ConcurrentHashMap<>();
 
     private ScheduledExecutorService scheduler;
     /**
@@ -289,6 +313,10 @@ public final class WorldReplicationService implements AutoCloseable {
                     tracker.endpoints().size(), e.toString());
             return 0;
         }
+        // Commons is a peer-presence namespace carried in the world-id slot, not content. Treating
+        // it as a catalog world makes every node repeatedly try to fetch a manifest that cannot
+        // exist, wasting bandwidth and battery while showing a phantom world in diagnostics.
+        catalog = replicableCatalog(catalog);
         if (catalog.isEmpty()) {
             LOG.info("Replication sweep: {} tracker(s) list no worlds — nothing to support",
                     tracker.endpoints().size());
@@ -315,6 +343,9 @@ public final class WorldReplicationService implements AutoCloseable {
         int failed = 0;
         for (TrackerCatalogEntry entry : catalog) {
             String worldIdHex = entry.genesisHash().toHex();
+            if (!entry.worldName().isBlank()) {
+                catalogNames.put(worldIdHex, entry.worldName());
+            }
             if (holdsCompletely(worldIdHex)) {
                 // Complete is a statement about ONE VERSION, and worlds do not stop changing.
                 //
@@ -330,6 +361,13 @@ public final class WorldReplicationService implements AutoCloseable {
                 // so there is nothing on the network to catch up to.
                 if (hosts(worldIdHex)) {
                     skippedComplete++;
+                    continue;
+                }
+                if (refreshed >= MAX_REFRESHES_PER_SWEEP) {
+                    // Deferred, not declined: the copy held here stays complete and servable, and
+                    // this world is first in line next sweep. What this refuses is spending an
+                    // entire sweep — and an entire uplink — catching up every world at once.
+                    skippedBounded++;
                     continue;
                 }
                 if (refresh(worldIdHex, entry.worldName())) {
@@ -392,11 +430,34 @@ public final class WorldReplicationService implements AutoCloseable {
     }
 
     /**
+     * The name the tracker directory published for a world this node replicates.
+     *
+     * @param worldIdHex the world.
+     * @return the name, or {@code null} when no sweep has seen this world listed.
+     */
+    public String nameFor(String worldIdHex) {
+        return catalogNames.get(worldIdHex);
+    }
+
+    static boolean isReplicableWorld(Bytes worldId) {
+        return !CommonsPresence.WORLD_ID.equals(worldId);
+    }
+
+    static List<TrackerCatalogEntry> replicableCatalog(List<TrackerCatalogEntry> catalog) {
+        return catalog.stream()
+                .filter(entry -> isReplicableWorld(entry.genesisHash()))
+                .toList();
+    }
+
+    /**
      * Catch a complete-but-stale copy up to the version the swarm is actually seeding.
      *
-     * <p>Never fatal and never bounded: this is content this node already committed to holding, so
-     * a newer version of it is not a new adoption to be rationed — it is the same obligation, kept
-     * honestly. A world that cannot be refreshed stays exactly as playable as it was.
+     * <p>Never fatal, and bounded per sweep by {@link #MAX_REFRESHES_PER_SWEEP}. This is content
+     * this node already committed to holding, so a newer version of it is the same obligation
+     * rather than a new one — but "the same obligation" was read as "no limit at all", and a node
+     * holding many worlds then re-fetched all of them every five minutes with the byte budget
+     * looking on. A world that cannot be refreshed, or whose turn has not come, stays exactly as
+     * playable as it was.
      *
      * @return whether this node moved to a newer version.
      */

@@ -4,48 +4,47 @@
      explaining itself in paragraphs, it has become documentation and belongs here instead. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `app/ui/src/m3/`, `app/ui/src/mobile/`
-**Last audit:** 2026-07-28
+**Category:** mobile · **Owns:** `app/android/kotlin/ui/`
+**Last audit:** 2026-08-01
 **Depends on:** [mobile 1](Task.1.md), [app 6](../app/Task.6.md)
 
 ---
 
-## Dynamic colour, generated
+## Dynamic colour, native
 
-`m3/theme.ts` derives every `--md-sys-color-*` role from one source colour using
-`@material/material-color-utilities` — Google's own reference implementation of the HCT tonal
-palettes Material You is defined by. Surfaces, containers and outlines are tones of the neutral
-palette seeded from the same colour, which is why an elevated card is tinted rather than grey.
-
-Material You normally seeds from the wallpaper. A WebView cannot read the wallpaper, so the app
-**asks** instead of pretending: five source colours, persisted. Saying "pick your colour" is honest;
-claiming to have read the wallpaper would not be.
+`MainActivity` is a native Jetpack Compose `ComponentActivity`. Android 12+ uses
+`dynamicLightColorScheme` / `dynamicDarkColorScheme`, so Material You comes from the system's real
+wallpaper palette. Android 8–11 use the declared Nodera fallback scheme. React's former WebView HCT
+emulation is no longer Android presentation code.
 
 ## Two layouts, two different questions
 
-| Hook | Question | Consequence |
+| Boundary | Question | Consequence |
 |---|---|---|
-| `useIsCompact()` | Is the **window** under 600 dp? | Density: bottom bar and cards instead of a rail and tables |
-| `useIsMobileBuild()` | Is this the **Android binary**? | Which features exist at all |
+| `< 600 dp` | Is this a phone-width window? | Material 3 bottom navigation and one-column content |
+| `≥ 600 dp` | Is there room for persistent navigation? | Navigation rail and adaptive grids |
+| content-specific width | Is there room after rail/settings panes? | World grids and peer list-detail split only when their own pane is wide enough |
 
-Keeping them apart is what stops a narrow desktop window from losing the LAN lane and the mod
-installer, which it genuinely has.
+Android remains a node companion at every width; a tablet does not grow a fake Java-Minecraft Play
+button. Compact desktop React remains desktop functionality and is a separate shell.
 
 ## Navigation is the system's
 
-The interface pushes its own levels into the WebView's history with `pushState`, and
-`MainActivity` re-enables `handleBackNavigation` (Tauri disables it), so the Android back gesture
-walks those levels. At the root there is nothing left to pop and the app closes — which is what a
-phone user expects. The navigation bar hides inside a sub-screen: one destination at a time.
+Compose state owns Home / Worlds / Activity / Settings. `BackHandler` walks Licences → About →
+Settings root → Home; only root lets Android finish the activity. Phone uses `NavigationBar`, tablet
+uses `NavigationRail`.
 
 ## Settings are a list of places, not a wall of tabs
 
-Six rows — Appearance, Storage, Network, Battery, Privacy, About — each opening its own screen, each
-with its **current value** underneath rather than a description of itself.
+Appearance, Network, Tracker stores, Storage, Battery, Peers, Privacy, Diagnostics, About and
+Licences are native destinations. `OutlinedTextField`, `Switch`, `Slider`, `FilterChip`, cards,
+dialogs and list-detail layouts call existing core verbs. Unknown battery/network reads render
+checking or unavailable, never a guessed success. Numeric settings round-trip exact seconds and the
+full connection-limit domain, including zero-as-unlimited.
 
 ## The two questions a default cannot answer
 
-First run asks them, once, and does not close until both are answered:
+Native first run asks them, once, in a scrollable layout safe for landscape and large fonts:
 
 1. **Where world data goes.** The peer stores other people's worlds; an app that picks silently is
    an app that fills your phone without asking.
@@ -55,9 +54,8 @@ A third screen appears **only if** Android is currently restricting the app: bat
 with the vendor's page on <https://dontkillmyapp.com> and a route to the system setting. Optional,
 and skippable, but not invisible — a node the OS may stop is a node other people cannot rely on.
 
-## Motion
+## Tracker-store trust boundary
 
-`m3/motion.tsx`: a fade-through between peer destinations, a push for entering a sub-screen, a
-staggered list entrance, and a dialog that grows in — M3's own easing curves and durations. All of
-it collapses to zero under `prefers-reduced-motion`, because the movement is a hint about hierarchy
-and for someone who asked their device to stop moving things it is only nausea.
+An incoming deep link records one offered URL. Preview binds the exact reviewed URL immutably;
+another link or an edit invalidates that preview before Add can run. This is the native equivalent of
+desktop's preview-before-trust rule, not a shortcut around it.

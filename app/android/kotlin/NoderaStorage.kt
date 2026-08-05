@@ -128,12 +128,24 @@ object NoderaStorage {
             )
             return
         }
-        val probe = probeWritable(path)
+        val canonical = runCatching { path.canonicalFile }.getOrNull()
+        if (canonical == null || workerRoots(activity).none { root ->
+                canonical.toPath().startsWith(root.toPath())
+            }) {
+            write(
+                activity,
+                uri = uri.toString(),
+                label = display,
+                error = "The peer cannot safely use this folder. Choose app storage, shared app storage, or an SD-card location offered by Nodera.",
+            )
+            return
+        }
+        val probe = probeWritable(canonical)
         write(
             activity,
             uri = uri.toString(),
             label = display,
-            path = path.absolutePath,
+            path = canonical.absolutePath,
             writable = probe == null,
             error = probe ?: "",
         )
@@ -148,6 +160,7 @@ object NoderaStorage {
      * no path, and this returns null rather than inventing one.
      */
     private fun filesystemPath(uri: Uri): File? {
+        if (uri.authority != "com.android.externalstorage.documents") return null
         if (!DocumentsContract.isTreeUri(uri)) return null
         val id = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
         val parts = id.split(':', limit = 2)
@@ -160,8 +173,18 @@ object NoderaStorage {
             File("/storage/$volume")
         }
         if (!root.exists()) return null
-        return if (relative.isEmpty()) root else File(root, relative)
+        val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return null
+        val candidate = runCatching {
+            (if (relative.isEmpty()) canonicalRoot else File(canonicalRoot, relative)).canonicalFile
+        }.getOrNull() ?: return null
+        return candidate.takeIf { it.toPath().startsWith(canonicalRoot.toPath()) }
     }
+
+    /** Roots the worker may accept from its loopback configuration endpoint. */
+    fun workerRoots(context: android.content.Context): List<File> =
+        (listOf(context.dataDir) + context.getExternalFilesDirs(null).filterNotNull())
+            .mapNotNull { runCatching { it.canonicalFile }.getOrNull() }
+            .distinctBy(File::getAbsolutePath)
 
     /**
      * Try to actually write there.

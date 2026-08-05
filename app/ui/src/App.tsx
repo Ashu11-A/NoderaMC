@@ -1,39 +1,33 @@
-// The Nodera companion app shell.
+// The Nodera launcher shell.
 //
-// The rail is the whole navigation: one screen per subject, each owning exactly one. The bottom
-// group is separated because About and Settings are about the *app*, and everything above them is
-// about the *node*.
+// # Three destinations, not nine
 //
-// Data path: `api::link` (Rust) → `nodera://dashboard` → `useDashboard`. There is no polling loop
-// here; the backend emits when the node changes.
+// The rail used to carry one screen per subsystem — Overview, Worlds, Join, Tracker stores, Peers,
+// Peer console, Minecraft mod, About, Settings — which is an accurate map of the software and a
+// useless one for a player. What they came to do is play; everything else is either about a world
+// (one click from the library) or about the machinery (Settings).
+//
+//   Play      the hero, the world picker, and the button
+//   Worlds    the library, as art rather than as a table
+//   Discover  what is joinable on the network right now
+//   ⚙         everything that used to have its own rail entry
+//
+// # Data path
+//
+// `api::link` (Rust) → `nodera://dashboard` → `useDashboard`. There is no polling loop here; the
+// backend emits when the node changes.
 import { useEffect, useState } from "react";
-import {
-  FiCompass,
-  FiTag,
-  FiGlobe,
-  FiHome,
-  FiInfo,
-  FiPackage,
-  FiSettings,
-  FiTerminal,
-  FiUsers,
-} from "react-icons/fi";
+import { FiCompass, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
 import { cx, MONO, SCROLLPORT_ID, StaleDataNotice } from "./components";
-import { SettingsScreen } from "./Settings";
+import { SettingsScreen, type Section as SettingsSection } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
-import { OverviewScreen } from "./Overview";
+import { PlayScreen } from "./PlayScreen";
 import { WorldsScreen } from "./Worlds";
-import TrackerStoresScreen from "./TrackerStores";
 import { NetworkScreen } from "./Network";
-import { PeersScreen } from "./Peers";
-import { ConsoleScreen } from "./Console";
-import { AboutScreen } from "./About";
-import { ModInstallScreen } from "./ModInstall";
 import { LanOfferModal } from "./Lan";
 import { WorldScreen } from "./World";
+import { launchPlay } from "./play";
 import { useResolvedTheme } from "./theme";
-import { useIsCompact, useIsMobileBuild } from "./useViewport";
-import { MobileApp } from "./mobile/MobileApp";
 import {
   EMPTY_DASHBOARD,
   formatAge,
@@ -56,36 +50,35 @@ import {
 } from "./ipc";
 
 type Screen =
-  | { name: "overview" }
+  | { name: "play"; launchWorld?: { id: string; name: string } }
   | { name: "worlds" }
   | { name: "world"; id: string }
-  | { name: "network" }
-  | { name: "stores" }
-  | { name: "peers" }
-  | { name: "console" }
-  | { name: "mod" }
-  | { name: "about" }
-  | { name: "settings" };
-
-/** The rail, in two groups. The second is pinned to the bottom and is about the app, not the node. */
-const NODE_SCREENS = [
-  { name: "overview", label: "Overview", icon: <FiHome /> },
-  { name: "worlds", label: "Worlds", icon: <FiGlobe /> },
-  { name: "network", label: "Join a world", icon: <FiCompass /> },
-  { name: "stores", label: "Tracker stores", icon: <FiTag /> },
-  { name: "peers", label: "Peers", icon: <FiUsers /> },
-  { name: "console", label: "Peer console", icon: <FiTerminal /> },
-  { name: "mod", label: "Minecraft mod", icon: <FiPackage /> },
-] as const;
+  | { name: "discover" }
+  | { name: "settings"; section?: SettingsSection };
 
 /**
- * The shell, which picks a layout before it picks a screen.
+ * The top navigation.
  *
- * Two conditions, deliberately different. A **compact window** gets the Material 3 phone layout —
- * a desktop window dragged narrow is asking for it. The **peer-only build** gets it too, and gets
- * it regardless of width, because an Android tablet is wide and still has no Java worker to
- * supervise. Either one alone is enough; neither is a proxy for the other.
+ * `showsWorkerFigures` is not decoration: it is the list A-UX-1 is enforced against. A screen that
+ * renders numbers derived from the worker must mark them as last-known when the link is down, and
+ * declaring it here — beside the destination — is what lets the exit test check the set against the
+ * screens that actually read the dashboard, rather than against a hard-coded list of four names
+ * that drifted every time a screen moved.
  */
+const DESTINATIONS = [
+  { name: "play", label: "Play", icon: <FiPlay />, showsWorkerFigures: true },
+  { name: "worlds", label: "Library", icon: <FiGlobe />, showsWorkerFigures: true },
+  { name: "discover", label: "Discover", icon: <FiCompass />, showsWorkerFigures: false },
+] as const;
+
+/** The screens whose figures come from the worker. Read by `tests/ux-honesty.test.mjs`. */
+export const WORKER_FIGURE_SCREENS: readonly string[] = [
+  ...DESTINATIONS.filter((d) => d.showsWorkerFigures).map((d) => d.name),
+  // Reached from the library rather than from the navigation, and every figure on it is the
+  // worker's.
+  "world",
+];
+
 /**
  * The shell owns the settings document, and therefore the theme.
  *
@@ -97,21 +90,13 @@ const NODE_SCREENS = [
  */
 export function App() {
   const d = useDashboard(EMPTY_DASHBOARD);
-  const compact = useIsCompact();
-  const mobileBuild = useIsMobileBuild();
   const [settings, setSettings] = useState<SettingsDoc | null>(null);
-  const scheme = useResolvedTheme(settings?.appearance.theme ?? "system");
+  useResolvedTheme(settings?.appearance.theme ?? "system");
 
   useEffect(() => {
     fetchSettings().then(setSettings).catch(() => {});
   }, []);
 
-  // `null` means the build question has not come back yet. One frame of nothing beats a frame of
-  // the wrong shell, which on a phone is a visible flash of a desktop rail.
-  if (mobileBuild === null) return null;
-  if (mobileBuild || compact) {
-    return <MobileApp dashboard={d} scheme={scheme} onSettings={setSettings} />;
-  }
   return <DesktopApp dashboard={d} settings={settings} onSettings={setSettings} />;
 }
 
@@ -127,7 +112,7 @@ function DesktopApp(props: {
   const [sys, setSys] = useState<SystemStats>(EMPTY_SYSTEM);
   const settings = props.settings;
   const setSettings = props.onSettings;
-  const [screen, setScreen] = useState<Screen>({ name: "overview" });
+  const [screen, setScreen] = useState<Screen>({ name: "play" });
   const [telemetry, setTelemetry] = useTelemetryStatus();
 
   useEffect(() => {
@@ -141,20 +126,15 @@ function DesktopApp(props: {
   const selected =
     screen.name === "world" ? d.worlds.find((w: World) => w.world_id === screen.id) : undefined;
   const onWorlds = screen.name === "worlds" || screen.name === "world";
-  // The screens that render worker-derived figures: when the link is down but a previous snapshot
-  // exists, those numbers are the last known picture and must be marked as such (A-UX-1). Screens
-  // about the app itself (Settings, About) or that query something other than the dashboard link
-  // (Join a world, the console's system stats) are excluded — marking nothing is not honesty, it is
-  // noise.
-  const showsWorkerFigures =
-    screen.name === "overview" ||
-    screen.name === "worlds" ||
-    screen.name === "world" ||
-    screen.name === "peers";
-  const staleWorkerFigures = showsWorkerFigures && isStale(d.link);
+  // A screen that renders worker-derived figures must mark them as last-known when the link is down
+  // but a previous snapshot exists (A-UX-1). The set is declared beside the navigation rather than
+  // re-listed here, so a new screen joins it by being added once.
+  const staleWorkerFigures = WORKER_FIGURE_SCREENS.includes(screen.name) && isStale(d.link);
+
+  const openSettings = (section?: SettingsSection) => setScreen({ name: "settings", section });
 
   return (
-    <div className="grid h-full grid-cols-[60px_1fr]">
+    <div className="flex h-full flex-col">
       <ConsentModal status={telemetry} onAnswered={setTelemetry} />
       {/* Raised by the worker's `lan.opened` announcement. Held back while the privacy question is
           unanswered: that one is a gate, and two stacked dialogs is where people answer the wrong. */}
@@ -164,182 +144,129 @@ function DesktopApp(props: {
         onAnswered={() => undefined}
       />
 
-      <aside className="flex flex-col items-center gap-1.5 border-r border-line bg-rail py-3">
-        <div className="mb-2.5 grid h-[34px] w-[34px] place-items-center" title="NoderaMC">
-          <span
-            className="h-[26px] w-[26px] rounded-sm bg-brand shadow-[0_0_18px_rgba(168,85,247,0.45)]"
-            aria-hidden
-          />
-        </div>
-        <nav className="flex flex-col gap-1.5">
-          {NODE_SCREENS.map((entry) => (
-            <RailButton
-              key={entry.name}
-              icon={entry.icon}
-              label={entry.label}
-              active={entry.name === "worlds" ? onWorlds : screen.name === entry.name}
-              onClick={() => setScreen({ name: entry.name } as Screen)}
-            />
-          ))}
-        </nav>
+      <TopNav
+        d={d}
+        active={onWorlds ? "worlds" : screen.name}
+        onSelect={(name) => setScreen({ name } as Screen)}
+        onSettings={() => openSettings()}
+      />
 
-        {/* Pinned to the bottom, and set apart by a rule: these two are about the application. */}
-        <div className="mt-auto flex flex-col items-center gap-1.5 border-t border-line pt-3">
-          <RailButton
-            icon={<FiInfo />}
-            label="About"
-            active={screen.name === "about"}
-            onClick={() => setScreen({ name: "about" })}
+      {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
+          property of the DOM node — without a key React keeps that same node across navigation and a
+          screen opened after a long scroll starts halfway down. A new key is a new node at zero. */}
+      <main
+        id={SCROLLPORT_ID}
+        key={screen.name === "world" ? `world:${screen.id}` : screen.name}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        {staleWorkerFigures && (
+          <div className="page-canvas pt-4">
+            <StaleDataNotice />
+          </div>
+        )}
+        {screen.name === "settings" ? (
+          <SettingsScreen
+            settings={settings}
+            onChange={setSettings}
+            initial={screen.section}
+            d={d}
+            sys={sys}
           />
-          <RailButton
-            icon={<FiSettings />}
-            label="Settings"
-            active={screen.name === "settings"}
-            onClick={() => setScreen({ name: "settings" })}
+        ) : screen.name === "discover" ? (
+          <NetworkScreen
+            onPlay={async (sessionId, worldName) => {
+              await launchPlay(sessionId, worldName);
+              setScreen({ name: "play", launchWorld: { id: sessionId, name: worldName } });
+            }}
           />
-        </div>
-      </aside>
-
-      <div className="flex min-h-0 min-w-0 flex-col">
-        <TopBar d={d} title={titleOf(screen, selected?.name)} />
-        {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
-            property of the DOM node — without a key React keeps that same node across navigation
-            and a screen opened after a long scroll starts halfway down, or looks frozen when its
-            content is shorter than the offset it inherited. A new key is a new node at zero. */}
-        <div
-          id={SCROLLPORT_ID}
-          key={screen.name === "world" ? `world:${screen.id}` : screen.name}
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
-          {staleWorkerFigures && (
-            <div className="px-[26px] pt-3">
-              <StaleDataNotice />
-            </div>
-          )}
-          {screen.name === "settings" ? (
-            <SettingsScreen settings={settings} onChange={setSettings} />
-          ) : screen.name === "about" ? (
-            <AboutScreen />
-          ) : screen.name === "network" ? (
-            <NetworkScreen />
-          ) : screen.name === "stores" ? (
-            <div className="max-w-[1100px] px-[26px] pt-5 pb-10">
-              <TrackerStoresScreen />
-            </div>
-          ) : screen.name === "peers" ? (
-            <PeersScreen d={d} />
-          ) : screen.name === "console" ? (
-            <ConsoleScreen d={d} sys={sys} />
-          ) : screen.name === "mod" ? (
-            <ModInstallScreen />
-          ) : selected ? (
-            <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
-          ) : screen.name === "worlds" ? (
-            <WorldsScreen d={d} onOpen={(id) => setScreen({ name: "world", id })} />
-          ) : (
-            <OverviewScreen d={d} sys={sys} />
-          )}
-        </div>
-      </div>
+        ) : selected ? (
+          <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
+        ) : screen.name === "worlds" ? (
+          <WorldsScreen d={d} onOpen={(id) => setScreen({ name: "world", id })} />
+        ) : (
+          <PlayScreen
+            d={d}
+            initialWorld={screen.name === "play" ? screen.launchWorld : undefined}
+            onOpenWorld={(id) => setScreen({ name: "world", id })}
+            onSettings={(section) => openSettings(section as SettingsSection)}
+          />
+        )}
+      </main>
     </div>
   );
 }
 
-function titleOf(screen: Screen, worldName?: string): string {
-  switch (screen.name) {
-    case "stores":
-      return "Tracker stores";
-    case "overview":
-      return "Overview";
-    case "worlds":
-      return "Worlds";
-    case "world":
-      return worldName || "World";
-    case "network":
-      return "Join a world";
-    case "peers":
-      return "Peers";
-    case "console":
-      return "Peer console";
-    case "mod":
-      return "Minecraft mod";
-    case "about":
-      return "About";
-    case "settings":
-      return "Settings";
-  }
-}
-
-function RailButton(props: {
-  icon: JSX.Element;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      className={cx(
-        "relative grid h-[38px] w-[38px] place-items-center rounded-sm text-[17px]",
-        "transition-colors duration-150 hover:bg-surface-hover hover:text-text",
-        props.active ? "bg-surface-hover text-text" : "text-faint",
-      )}
-      onClick={props.onClick}
-      title={props.label}
-      aria-label={props.label}
-    >
-      {props.active && (
-        <span
-          aria-hidden
-          className="absolute top-2 bottom-2 -left-3 w-[3px] rounded-r-[3px] bg-brand"
-        />
-      )}
-      {props.icon}
-    </button>
-  );
-}
-
 /**
- * The top strip: where you are, who this node is, and what it is moving.
+ * The strip across the top: where you are, and the one control that is not a destination.
  *
- * There is exactly one link readout in the app and it is here. It states facts — node id, when the
- * peer last reported — and only adds words when something is wrong. The previous version carried
- * two different vocabularies for the same link ("Connected"/"Alone" here and "Live"/"Polling" on
- * the page below), which could disagree with each other on screen.
+ * It floats over the Play screen's hero rather than pushing it down — `--surface-3` is a translucent
+ * fill for exactly this — so the art starts at the top of the window and the launcher reads as one
+ * surface rather than as a page inside a frame.
  */
-function TopBar(props: { d: Dashboard; title: string }) {
+function TopNav(props: {
+  d: Dashboard;
+  active: string;
+  onSelect: (name: string) => void;
+  onSettings: () => void;
+}) {
   const { d } = props;
   const fault = linkFault(d.link);
   const now = useNow(d.link.has_data);
   const age = d.link.last_update_ms ? Math.max(0, now - d.link.last_update_ms) : 0;
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line bg-surface px-5 py-2.5">
-      <div className="flex min-w-0 items-center gap-3">
-        <h1 className="text-[15px] font-semibold">{props.title}</h1>
-        {d.link.has_data && (
-          <span className={cx(MONO, "text-faint")} title={d.node.node_id}>
-            {shortId(d.node.node_id, 8, 4)}
+    <header
+      className="relative z-20 flex flex-none border-b border-line/70 bg-surface-3 backdrop-blur-xl"
+      style={{ height: "var(--top-nav-height)" }}
+    >
+      <div className="page-canvas flex items-center gap-5">
+        <div className="mr-2 flex items-center gap-2.5" title="NoderaMC">
+          <span aria-hidden className="grid size-7 rotate-45 place-items-center border border-brand-2/70 bg-brand-2/10 shadow-[0_0_24px_rgba(142,219,63,0.18)]">
+            <span className="size-2 bg-brand-1" />
           </span>
-        )}
-        {d.node.is_gateway && (
-          <span className="rounded-full border border-brand-2/55 px-[7px] py-0.5 text-[10px] tracking-[0.06em] text-brand-2">
-            GATEWAY
-          </span>
-        )}
-      </div>
+          <span className="display-type text-sm font-semibold tracking-tight">NODERA</span>
+        </div>
 
-      <div className="flex items-center gap-4 text-sm">
+      <nav className="flex h-full items-center gap-1">
+        {DESTINATIONS.map((entry) => (
+          <button
+            key={entry.name}
+            aria-current={props.active === entry.name ? "page" : undefined}
+            onClick={() => props.onSelect(entry.name)}
+            className={cx(
+              "relative flex h-full items-center gap-2 px-3 text-sm transition-colors",
+              "duration-[var(--motion-fast)] focus-visible:outline-2 focus-visible:outline-focus",
+              props.active === entry.name
+                ? "font-medium text-text after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand-1"
+                : "text-dim hover:text-text",
+            )}
+          >
+            {entry.icon}
+            {entry.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="ml-auto flex items-center gap-2 text-xs">
+        <div className="hidden items-center gap-4 narrow:flex">
         {fault ? (
           <span className="inline-flex items-center gap-1.5 text-danger" title={d.link.last_error}>
             <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
             {fault}
           </span>
         ) : (
-          <span className={cx(MONO, "text-faint")}>
-            {d.link.has_data ? `updated ${formatAge(age)}` : ""}
+          d.link.has_data && (
+            <span className={cx(MONO, "text-faint")} title={d.node.node_id}>
+              {shortId(d.node.node_id, 6, 4)} · updated {formatAge(age)}
+            </span>
+          )
+        )}
+        {d.node.is_gateway && (
+          <span className="rounded-full border border-brand-2/55 bg-brand-2/8 px-[7px] py-0.5 text-[10px] tracking-[0.08em] text-brand-1">
+            GATEWAY
           </span>
         )}
-        <span className="flex gap-3 font-mono tabular-nums">
+        <span className="flex gap-2.5 font-mono tabular-nums">
           <span className="text-up" title="Upload">
             ▲ {show(d.traffic.up_bytes_per_sec, formatRate)}
           </span>
@@ -347,6 +274,16 @@ function TopBar(props: { d: Dashboard; title: string }) {
             ▼ {show(d.traffic.down_bytes_per_sec, formatRate)}
           </span>
         </span>
+        </div>
+        <button
+          onClick={props.onSettings}
+          aria-label="Settings"
+          title="Settings"
+          className="grid h-[30px] w-[30px] place-items-center rounded-sm text-[16px] text-dim transition-colors duration-[var(--motion-fast)] hover:bg-surface-hover hover:text-text focus-visible:outline-2 focus-visible:outline-focus"
+        >
+          <FiSettings />
+        </button>
+      </div>
       </div>
     </header>
   );

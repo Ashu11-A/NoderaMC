@@ -3,8 +3,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 const trackerStores = readFileSync(new URL("../src/TrackerStores.tsx", import.meta.url), "utf8");
-const desktopShell = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-const mobileSettings = readFileSync(new URL("../src/mobile/Settings.tsx", import.meta.url), "utf8");
+const desktopSettings = readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8");
+const nativeSettings = readFileSync(new URL("../../android/kotlin/ui/Settings.kt", import.meta.url), "utf8");
 const assets = new URL("../dist/assets/", import.meta.url);
 const builtCss = readdirSync(assets)
   .filter((name) => name.endsWith(".css"))
@@ -24,7 +24,7 @@ function assertBuiltRule(declaration) {
   assert.match(selector, /\./, `${declaration} is not emitted by a class selector`);
 }
 
-test("built tracker-store CSS resolves desktop and mobile shell roles", () => {
+test("built tracker-store CSS resolves desktop shell roles", () => {
   const desktopRoles = {
     "on-surface": "--text",
     "on-surface-variant": "--text-dim",
@@ -42,32 +42,9 @@ test("built tracker-store CSS resolves desktop and mobile shell roles", () => {
     ok: "--up",
     "surface-hover": "--surface-hover",
     "outline-soft": "--line-soft",
-    scrim: "--color-black",
-  };
-  const mobileRoles = {
-    "on-surface": "--md-sys-color-on-surface",
-    "on-surface-variant": "--md-sys-color-on-surface-variant",
-    muted: "--md-sys-color-on-surface-variant",
-    surface: "--md-sys-color-surface-container-high",
-    "surface-container": "--md-sys-color-surface-container-highest",
-    outline: "--md-sys-color-outline-variant",
-    primary: "--md-sys-color-primary",
-    "primary-fill": "--md-sys-color-primary",
-    "on-primary": "--md-sys-color-on-primary",
-    error: "--md-sys-color-error",
-    "error-container": "--md-sys-color-error-container",
-    "on-error-container": "--md-sys-color-on-error-container",
-    warning: "--md-sys-color-error",
-    ok: "--md-sys-color-tertiary",
-    "surface-hover": "--md-sys-color-surface-container-highest",
-    "outline-soft": "--md-sys-color-outline-variant",
-    scrim: "--md-sys-color-scrim",
   };
 
   for (const [role, source] of Object.entries(desktopRoles)) {
-    assertBuiltRule(`--tracker-store-${role}:var(${source})`);
-  }
-  for (const [role, source] of Object.entries(mobileRoles)) {
     assertBuiltRule(`--tracker-store-${role}:var(${source})`);
   }
 
@@ -84,7 +61,6 @@ test("built tracker-store CSS resolves desktop and mobile shell roles", () => {
     "background-color:var(--tracker-store-surface-container)",
     "background:var(--tracker-store-primary-fill)",
     "background-color:var(--tracker-store-error-container)",
-    "background-color:var(--tracker-store-scrim)",
     "border-color:var(--tracker-store-outline)",
     // The import flow's own surfaces: the health dot, the hover target on every row action, and the
     // hairline between a store's heading and the services it carries. All three are new with the
@@ -98,17 +74,18 @@ test("built tracker-store CSS resolves desktop and mobile shell roles", () => {
     assertBuiltRule(declaration);
   }
 
+  // The store screen is a Settings section now, not a rail destination. It was one of the six
+  // subsystem screens the launcher redesign moved out of the player's way — and the point of
+  // asserting where it renders is that both shells must keep using the SAME component, so the
+  // `--tracker-store-*` roles above have exactly one consumer per shell.
   assert.match(
-    desktopShell,
-    /screen\.name === "stores"[\s\S]*?<div className="max-w-\[1100px\] px-\[26px\] pt-5 pb-10">\s*<TrackerStoresScreen \/>/,
+    desktopSettings,
+    /section === "stores" && <TrackerStoresScreen \/>/,
+    "the desktop store screen is not rendered from Settings",
   );
-  assert.match(
-    mobileSettings,
-    /className="flex-1 overflow-y-auto px-4 pb-6"[\s\S]*?page === "stores" && <TrackerStoresScreen shell="mobile" \/>/,
-  );
-  assertBuiltRule("padding-inline:26px");
-  assertBuiltRule("padding-inline:calc(var(--spacing) * 4)");
+  assertBuiltRule("padding-inline:var(--canvas-gutter)");
   assert.doesNotMatch(trackerStores, /px-\[26px\]/);
+  assert.match(nativeSettings, /TrackerStoresPage\(offeredStoreUrl, onStoreHandled\)/);
 });
 
 test("importing a store shows what the address served before anything is trusted", () => {
@@ -156,11 +133,6 @@ test("no screen reports a tracker count from the typed list alone", () => {
   // So: a count shown to a person comes from `resolvedServices`, never from `.default_trackers
   // .length`. Editing that array is still fine — the textareas own it.
   const screens = {
-    "mobile/Settings.tsx": mobileSettings,
-    "mobile/MobileApp.tsx": readFileSync(
-      new URL("../src/mobile/MobileApp.tsx", import.meta.url),
-      "utf8",
-    ),
     "Settings.tsx": readFileSync(new URL("../src/Settings.tsx", import.meta.url), "utf8"),
   };
   for (const [name, source] of Object.entries(screens)) {
@@ -180,11 +152,10 @@ test("no screen reports a tracker count from the typed list alone", () => {
     }
   }
 
-  assert.match(
-    mobileSettings,
-    /resolvedServices\(\)/,
-    "the phone's settings screen must read the effective list",
-  );
+  assert.match(nativeSettings, /NoderaCore\.(?:obj|call)\("resolved_services"\)/);
+  assert.match(nativeSettings, /"set_direct_trackers"/);
+  assert.match(nativeSettings, /Remove direct tracker/);
+  assert.match(nativeSettings, /SectionTitle\("Tracker stores"/);
   assert.match(
     screens["Settings.tsx"],
     /resolvedServices\(\)/,
@@ -196,15 +167,15 @@ test("the node screen does not report zero trackers before the worker has spoken
   // `unknown` and `zero` are different states and the screen must not collapse them. An app that
   // has never heard from its worker was telling users with a perfectly good store that they had no
   // trackers configured, and sending them to add one they already had.
-  const app = readFileSync(new URL("../src/mobile/MobileApp.tsx", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../../android/kotlin/ui/Screens.kt", import.meta.url), "utf8");
   assert.match(
     app,
-    /\{known && reachable === 0 && \(/,
+    /state\.known && state\.reachableTrackers == 0/,
     "the no-tracker card must be gated on having heard from the worker",
   );
   assert.match(
     app,
-    /\{!known \? \([\s\S]{0,400}?Waiting for the peer to report/,
+    /if \(!state\.known\) "Waiting for this node to report"/,
     "the tracker list must say it does not know yet, rather than saying there are none",
   );
 });

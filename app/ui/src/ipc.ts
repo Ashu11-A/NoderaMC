@@ -442,10 +442,10 @@ export async function fetchIsMobileBuild(): Promise<boolean> {
   return invoke<boolean>("is_mobile_build");
 }
 
-// The peer loop's own announcements, pushed as each round completes.
-export function onPeerStatus(cb: (s: PeerStatus) => void): Promise<UnlistenFn> {
-  return listen<PeerStatus>("nodera://peer", (event) => cb(event.payload));
-}
+// There is no `nodera://peer` subscription here any more. Nothing in Rust ever emitted that event,
+// so it was a listener that could not fire — and a permanently silent subscription is
+// indistinguishable from a peer that never reports. The peer screen reads `peer_status`, which is
+// a round trip that actually happens.
 
 /* ------------------------------------------------------------------------- storage & first run */
 

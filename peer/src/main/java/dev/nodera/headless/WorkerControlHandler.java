@@ -14,8 +14,10 @@ import dev.nodera.storage.WorldIdentity;
 
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Task 32/33: the worker's {@link ControlHandler} — answers the mod's / companion app's control verbs
@@ -298,7 +300,9 @@ public final class WorkerControlHandler implements ControlHandler {
         List<String> worldJson = new ArrayList<>();
         long totalPieces = 0;
         long totalHeldPieces = 0;
+        Set<String> hostedIds = new HashSet<>();
         for (WorldHostingService.HostedWorld world : hosting.hostedWorlds()) {
+            hostedIds.add(world.worldIdHex());
             String mc = world.mcRoute();
             WorldArchiveService.PieceReport report =
                     archive == null ? null : archive.pieceReport(world.worldIdHex());
@@ -367,6 +371,53 @@ public final class WorkerControlHandler implements ControlHandler {
                     + (archive == null ? 0 : archive.heldRegions(world.worldIdHex()).size())
                     + ",\"world_public_key\":\"" + base64(world.worldPublicKey()) + "\""
                     + "}");
+        }
+
+        // Archive-only worlds are replicated for the network, not hosted or joinable here.
+        if (archive != null) {
+            for (String worldIdHex : archive.knownWorldIds()) {
+                if (hostedIds.contains(worldIdHex)) {
+                    continue;
+                }
+                WorldArchiveService.PieceReport report = archive.pieceReport(worldIdHex);
+                if (report == null) {
+                    continue;
+                }
+                if (report.heldCount() == 0) {
+                    continue;
+                }
+                totalPieces += report.pieceCount();
+                totalHeldPieces += report.heldCount();
+                int holders = archive.holdersFor(worldIdHex).size();
+                worldJson.add("{\"world_id\":\"" + escape(worldIdHex) + "\",\"name\":\""
+                        + escape(worldIdHex) + "\""
+                        // -1 is the worker's "nobody in that world has reported to me", which is
+                        // always true here: a replication peer has no game in the world.
+                        + ",\"players\":-1"
+                        + ",\"mc_route\":\"\""
+                        + ",\"added_at\":0"
+                        + ",\"updated_at\":0"
+                        + ",\"total_bytes\":" + report.totalBytes()
+                        + ",\"checksum\":\"" + escape(report.manifestRoot().toHex()) + "\""
+                        + ",\"version\":" + report.version()
+                        + ",\"piece_count\":" + report.pieceCount()
+                        + ",\"pieces_held\":" + report.heldCount()
+                        + ",\"seeders\":" + holders
+                        + ",\"backup_copies\":" + backupCopies(report, holders)
+                        + ",\"backup_copies_wanted\":" + BACKUP_TARGET.replicasFor(holders + 1)
+                        + ",\"loss_risk_permille\":"
+                        + BACKUP_TARGET.lossRiskPermille(backupCopies(report, holders))
+                        // This node never announced it, so it can say nothing about whether a
+                        // tracker took an announce for it.
+                        + ",\"listed_on_trackers\":0"
+                        + ",\"announced_to_trackers\":0"
+                        + ",\"seeding\":true"
+                        + ",\"connected\":false"
+                        + ",\"owned\":false"
+                        + ",\"regions_held\":" + archive.heldRegions(worldIdHex).size()
+                        + ",\"world_public_key\":\"\""
+                        + "}");
+            }
         }
 
         // The worker's declared roles (BOOTSTRAP / FULL_ARCHIVE / REGION_VALIDATOR …).
@@ -742,7 +793,11 @@ public final class WorkerControlHandler implements ControlHandler {
         // world: a joiner had no row for it at all, so its companion app showed "Nothing is on the
         // network until you share it" to a player who was standing in the world at the time. A row
         // keyed by a 64-character id would have been only a smaller version of the same problem.
-        String error = hosting.seed(id.toHex(), decodeB64(worldNameB64));
+        // Strictly decoded. `decodeB64` falls back to returning its input "as a plain name", and
+        // that tolerance is what turned a shifted argument into a rename — the worker was handed
+        // "0", could not decode it, and adopted it as the world's name. A name that does not decode
+        // is not a name; it is a caller sending something else.
+        String error = hosting.seed(id.toHex(), decodeName(worldNameB64));
         if (error != null) {
             return error;
         }
@@ -805,6 +860,20 @@ public final class WorkerControlHandler implements ControlHandler {
         if (worldId == null || worldId.isBlank() || path.isBlank()) {
             throw new IllegalArgumentException("missing worldId/archive path");
         }
+        // Seeding publishes a NEW NEWEST VERSION of somebody's world, and that is an authorship
+        // act however innocuous the verb sounds. Without this check a peer that had merely
+        // recovered an encrypted world could press "Share" and publish a PLAINTEXT archive that
+        // superseded the ciphertext everyone else was holding — the exact supersede hazard the
+        // re-key path documents and refuses, reachable through the back door.
+        //
+        // The predicate is key possession, which is exact: the author's key is minted by
+        // `mintWorldIdentity` before the first seed ever runs, and a peer that merely recovered the
+        // world has none. Replication does not come through this verb — it seeds through
+        // `WorldHostingService` directly — so nothing legitimate is refused here.
+        if (keys != null && !keys.administers(worldId.trim().toLowerCase(java.util.Locale.ROOT))) {
+            throw new IllegalArgumentException(
+                    "this peer does not administer that world, so it cannot publish a version of it");
+        }
         java.nio.file.Path archiveFile = controlPaths.resolve(path, "archive path");
         byte[] blob;
         try {
@@ -854,8 +923,63 @@ public final class WorkerControlHandler implements ControlHandler {
                 + " " + manifest.pieceCount();
     }
 
+    /**
+     * {@code NODERA-FETCH-REGION} — pull one region's committed state from the swarm and leave it
+     * in a file for the caller to apply.
+     *
+     * <p>The worker does the piece work because the piece plane lives here; the caller writes it
+     * into a level because the server thread lives there. Nothing new crosses a module boundary.
+     *
+     * @return {@code "<byteCount> <regionRootHex>"}, or {@code null} when there is no archive lane.
+     */
+    public String fetchRegion(String worldId, String dimension, String regionX, String regionZ,
+                              String destPathB64, String haveRootHex, String timeoutSeconds) {
+        if (archive == null) {
+            return null;
+        }
+        String dest = decodeB64(destPathB64);
+        if (worldId == null || worldId.isBlank() || dimension == null || dimension.isBlank()
+                || dest.isBlank()) {
+            throw new IllegalArgumentException("missing worldId/dimension/destination path");
+        }
+        // `namespace:path`, the form DimensionKey.toString produces and every log line already uses.
+        int colon = dimension.lastIndexOf(':');
+        if (colon <= 0 || colon == dimension.length() - 1) {
+            throw new IllegalArgumentException("dimension must be namespace:path, got " + dimension);
+        }
+        dev.nodera.core.region.RegionId region = new dev.nodera.core.region.RegionId(
+                dev.nodera.core.region.DimensionKey.of(
+                        dimension.substring(0, colon), dimension.substring(colon + 1)),
+                Integer.parseInt(regionX), Integer.parseInt(regionZ));
+        dev.nodera.core.Bytes wantRoot =
+                haveRootHex == null || haveRootHex.isBlank()
+                        || dev.nodera.peer.control.ControlProtocol.NO_VALUE.equals(haveRootHex)
+                        ? null : dev.nodera.core.Bytes.fromHex(haveRootHex);
+        java.time.Duration timeout = java.time.Duration.ofSeconds(
+                timeoutSeconds == null || timeoutSeconds.isBlank()
+                        ? 60L : Long.parseLong(timeoutSeconds));
+        dev.nodera.core.state.RegionSnapshot snapshot =
+                archive.fetchRegion(worldId, region, wantRoot, timeout);
+        dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
+        snapshot.encode(w);
+        byte[] encodedSnapshot = w.toByteArray();
+        java.nio.file.Path destFile = controlPaths.resolve(dest, "region destination path");
+        try {
+            java.nio.file.Path parent = destFile.getParent();
+            if (parent != null) {
+                java.nio.file.Files.createDirectories(parent);
+            }
+            java.nio.file.Files.write(destFile, encodedSnapshot);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot write fetched region: " + e.getMessage());
+        }
+        return encodedSnapshot.length + " "
+                + new dev.nodera.core.crypto.HashService().sha256(encodedSnapshot).toHex();
+    }
+
     @Override
-    public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds) {
+    public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds,
+                               ArchiveProgress progress) {
         if (archive == null) {
             return null;
         }
@@ -864,9 +988,16 @@ public final class WorkerControlHandler implements ControlHandler {
             throw new IllegalArgumentException("missing worldId/destination path");
         }
         long seconds = timeoutSeconds <= 0 ? 60 : timeoutSeconds;
-        byte[] blob = archive.fetchArchive(worldId, java.time.Duration.ofSeconds(seconds));
-        long version = archive.newestManifest(worldId)
-                .map(m -> m.version().value()).orElse(0L);
+        byte[] blob = archive.fetchArchive(worldId, java.time.Duration.ofSeconds(seconds),
+                progress::at);
+        // The version of the BYTES, not the newest version this node has heard of. Reporting the
+        // latter meant a stale blob — returned by the probe-timeout path or the stall fallback —
+        // arrived labelled with a version it did not have, and the client's freshness guard was
+        // comparing against a number that was not about the bytes in front of it.
+        long version = archive.versionOfBlob(worldId, blob);
+        if (version < 0) {
+            version = archive.newestManifest(worldId).map(m -> m.version().value()).orElse(0L);
+        }
         try {
             java.nio.file.Path dest = controlPaths.resolve(path, "archive destination");
             if (dest.getParent() != null) {
@@ -904,7 +1035,16 @@ public final class WorkerControlHandler implements ControlHandler {
         // Doing it here rather than behind a separate verb means a node cannot be talked into
         // claiming a world it did not author: there is no code path that mints a key for a world id
         // that arrived from outside.
-        mintOwnership(id.worldId(), createdAtEpoch);
+        //
+        // Except there was: a PINNED id does arrive from outside. A world recovered from the network
+        // carries its author's id in `nodera-world.dat`, and re-sharing it passed that id in here —
+        // so this node minted a private key and published a WorldOwnership claim for a world it did
+        // not author, after which `localWorkerIsAuthor` answered true for it and the whole owner-only
+        // surface unlocked. A pin is an instruction to keep somebody's id, never a claim to it, so a
+        // key is minted only for an id this node derived.
+        if (pinned == null || keys.administers(id.worldId().toHex())) {
+            mintOwnership(id.worldId(), createdAtEpoch);
+        }
         CanonicalWriter w = new CanonicalWriter();
         id.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
@@ -1088,6 +1228,31 @@ public final class WorkerControlHandler implements ControlHandler {
         }
         CanonicalWriter w = new CanonicalWriter();
         grant.encode(w);
+        return Base64.getEncoder().encodeToString(w.toBytes().toArray());
+    }
+
+    @Override
+    public String delegateSession(String worldIdHex, String sessionPublicKeyB64, long ttlSeconds) {
+        if (worldIdHex == null || worldIdHex.isBlank()) {
+            return null;
+        }
+        Bytes sessionKey = decodeBytes(sessionPublicKeyB64);
+        if (sessionKey.isEmpty()) {
+            // Refused rather than signed. A delegation over an empty key would name no session at
+            // all, which is a credential for whoever holds the bytes.
+            throw new IllegalArgumentException("a delegation needs the session's public key");
+        }
+        Bytes worldId = Bytes.fromHex(worldIdHex.trim());
+        // The requested lifetime is a hint. A session that asks for a year gets the default, because
+        // the point of the expiry is that a delegation copied off a disk stops working.
+        long ttlMillis = ttlSeconds <= 0 ? dev.nodera.core.identity.SessionDelegation.DEFAULT_TTL_MILLIS
+                : Math.min(ttlSeconds * 1000L,
+                        dev.nodera.core.identity.SessionDelegation.DEFAULT_TTL_MILLIS);
+        dev.nodera.core.identity.SessionDelegation delegation =
+                dev.nodera.core.identity.SessionDelegation.create(identity, sessionKey, worldId,
+                        System.currentTimeMillis() + ttlMillis);
+        CanonicalWriter w = new CanonicalWriter();
+        delegation.encode(w);
         return Base64.getEncoder().encodeToString(w.toBytes().toArray());
     }
 
@@ -1893,6 +2058,27 @@ public final class WorkerControlHandler implements ControlHandler {
             return Bytes.unsafeWrap(Base64.getDecoder().decode(b64));
         } catch (IllegalArgumentException e) {
             return Bytes.empty();
+        }
+    }
+
+    /**
+     * A world name off the wire, or {@code ""} when the caller supplied none.
+     *
+     * <p>Unlike {@link #decodeB64} this does <b>not</b> fall back to the raw token. A name is the
+     * one field where guessing is destructive: {@code WorldHostingService.seed} keeps the name it
+     * already has when handed a blank one, so an honest "" preserves the world's name, while a
+     * confident wrong guess overwrites it everywhere the world is listed.
+     */
+    private static String decodeName(String b64) {
+        if (b64 == null || b64.isBlank()
+                || dev.nodera.peer.control.ControlProtocol.NO_VALUE.equals(b64.trim())) {
+            return "";
+        }
+        try {
+            return new String(Base64.getDecoder().decode(b64.trim()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException notBase64) {
+            return "";
         }
     }
 

@@ -9,20 +9,13 @@ import dev.nodera.testkit.suite.Scenario;
 import dev.nodera.testkit.suite.ScenarioContext;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * A PHONE in the mesh with the Linux peers.
@@ -57,24 +50,8 @@ import java.util.regex.Pattern;
  */
 public final class AndroidMeshScenario implements Scenario {
 
-    private static final String PACKAGE = "dev.nodera.app";
-    private static final String ACTIVITY = PACKAGE + "/.MainActivity";
-
-    /**
-     * The phone's control endpoint.
-     *
-     * <p>Same port as every other worker, but inside the device — reachable only through adb, which
-     * is the point.
-     */
-    private static final int ANDROID_CONTROL_PORT = 25610;
-
-    private static final Pattern IPV4 = Pattern.compile("^\\d+\\.\\d+\\.\\d+\\.\\d+$");
-    private static final Pattern SRC_ADDRESS = Pattern.compile("src (\\d+\\.\\d+\\.\\d+\\.\\d+)");
-    private static final Pattern GLOBAL_ADDRESS = Pattern.compile("inet (\\d+\\.\\d+\\.\\d+\\.\\d+)");
-    private static final Pattern DOCKER_RANGE =
-            Pattern.compile("^172\\.(1[7-9]|2[0-9]|3[01])\\.");
-
-    private String serial = "";
+    /** How this scenario talks to the phone; see {@link AndroidDevice}. */
+    private AndroidDevice phone = new AndroidDevice();
 
     @Override
     public String id() {
@@ -101,7 +78,7 @@ public final class AndroidMeshScenario implements Scenario {
         LiveStack stack = ctx.stack();
         // The runner may execute the same instance more than once in a queue, so nothing carries
         // over from a previous run.
-        serial = "";
+        phone = new AndroidDevice();
         String[] phoneIp = new String[1];
         String[] hostIp = new String[1];
         String[] nodeId = new String[1];
@@ -111,46 +88,48 @@ public final class AndroidMeshScenario implements Scenario {
         // P0 — the phone, over Wi-Fi
         // ---------------------------------------------------------------------------
         ctx.stage("P0", "the APK is installed on a device reachable by IP", () -> {
-            if (!hasCommand("adb")) {
+            if (!AndroidDevice.hasCommand("adb")) {
                 ctx.skip("adb is not on PATH (scripts/android-toolchain.sh)");
             }
-            serial = resolveSerial();
+            String serial = phone.resolveSerial();
             if (serial.isBlank()) {
                 ctx.skip("no wireless device. Connect one first: adb tcpip 5555 && adb connect "
                         + "<phone-ip>:5555 (docs/mobile/TESTING.md §3.2)");
             }
-            phoneIp[0] = serial.split(":")[0];
+            phoneIp[0] = phone.ip();
             // A USB-only device cannot be dialled by the Linux peers at all, so it is not a device
             // this scenario can use.
-            ctx.check(IPV4.matcher(phoneIp[0]).matches(), "the device must be connected over Wi-Fi "
+            ctx.check(phone.isWireless(), "the device must be connected over Wi-Fi "
                     + "(got '" + serial + "'); USB alone cannot be dialled by the peers");
 
-            String model = adb(List.of("shell", "getprop", "ro.product.model")).trim();
-            String release = adb(List.of("shell", "getprop", "ro.build.version.release")).trim();
+            String model = phone.adb(List.of("shell", "getprop", "ro.product.model")).trim();
+            String release =
+                    phone.adb(List.of("shell", "getprop", "ro.build.version.release")).trim();
             ctx.check(!model.isBlank(), "the device at " + serial + " is not answering");
             ctx.note("device     " + model + " (Android " + release + ") at " + phoneIp[0]);
 
-            hostIp[0] = hostLanAddress(phoneIp[0]);
+            hostIp[0] = AndroidDevice.hostLanAddress(phoneIp[0]);
             ctx.check(!hostIp[0].isBlank(), "could not determine this machine's LAN address");
             ctx.note("host       " + hostIp[0]);
 
             Path apk = stack.paths().root().resolve("build/nodera-release.apk");
-            if (!skip("NODERA_ANDROID_SKIP_APK")) {
+            if (!AndroidDevice.flag("NODERA_ANDROID_SKIP_APK")) {
                 ctx.note("building the APK (this also rebuilds the worker it embeds)");
                 int built = ServerDedicatedDrive.run(List.of(
                         stack.paths().root().resolve("scripts/android-apk.sh").toString()));
                 ctx.check(built == 0, "the APK build failed — see scripts/android-apk.sh's output");
                 ctx.check(Files.isRegularFile(apk), "no APK at " + apk);
                 ctx.note("installing");
-                ctx.check(adbExit(List.of("install", "-r", apk.toString())) == 0,
+                ctx.check(phone.adbExit(List.of("install", "-r", apk.toString())) == 0,
                         "the install failed");
             } else {
                 // "Do not build OR install": the flag used to skip only the build and then reinstall
                 // anyway, which is the one thing it exists to avoid — it silently replaced whatever
                 // build was on the device, so a run meant to test the installed APK tested a
                 // different one.
-                String installed = versionOnDevice();
-                ctx.check(!installed.isBlank(), "NODERA_ANDROID_SKIP_APK was set but " + PACKAGE
+                String installed = phone.versionOnDevice();
+                ctx.check(!installed.isBlank(), "NODERA_ANDROID_SKIP_APK was set but "
+                        + AndroidDevice.PACKAGE
                         + " is not installed on the device");
                 // Named, so a run that tested a stale build says which one rather than looking
                 // identical to a run that tested a fresh one.
@@ -162,17 +141,17 @@ public final class AndroidMeshScenario implements Scenario {
         // P1 — the Linux stack, reachable from off this box
         // ---------------------------------------------------------------------------
         ctx.stage("P1", "the discovery services are reachable from off this machine", () -> {
-            // HARNESS-GAP: the shell suite exported NODERA_SERVICE_BIND_ADDR=0.0.0.0 and
-            // NODERA_*_ADVERTISE_ADDR=<lan> BEFORE the launcher started anything. LiveStack binds
-            // the tracker, the rendezvous and every worker to 127.0.0.1 and offers no hook to
-            // change that, and by the time a scenario runs they are already listening. Loopback
-            // defaults make every step below fail in a way that looks like a phone problem, so this
-            // says so plainly instead of asserting against a stack the phone cannot reach.
-            if (!isReachable(hostIp[0], ctx.topology().trackerPort())) {
-                ctx.skip("the harness binds the discovery services to 127.0.0.1, so the tracker on "
-                        + hostIp[0] + ":" + ctx.topology().trackerPort() + " cannot be reached from "
-                        + "the phone. A LAN-bound stack is what this scenario needs "
-                        + "(NODERA_SERVICE_BIND_ADDR=0.0.0.0 in the shell launcher).");
+            // The harness binds where NODERA_SERVICE_BIND_ADDR says (Topology.serviceBindAddress),
+            // and the default is still loopback — right for a run whose peers are all on this
+            // machine, useless for one whose peer is a handset. Loopback defaults make every step
+            // below fail in a way that looks like a phone problem, so this says so plainly instead
+            // of asserting against a stack the phone cannot reach.
+            if (!AndroidDevice.isReachable(hostIp[0], ctx.topology().trackerPort())) {
+                ctx.skip("the tracker on " + hostIp[0] + ":" + ctx.topology().trackerPort()
+                        + " cannot be reached from off this machine, so the phone cannot either. "
+                        + "Export NODERA_SERVICE_BIND_ADDR=0.0.0.0 and "
+                        + "NODERA_SERVICE_ADVERTISE_ADDR=" + hostIp[0] + " (and the matching "
+                        + "NODERA_P2P_* pair) before starting the run.");
             }
             ctx.note("tracker, rendezvous and " + ctx.topology().workers()
                     + " workers are up on " + hostIp[0]);
@@ -182,7 +161,7 @@ public final class AndroidMeshScenario implements Scenario {
         // P2 — the game, which is why the peers have anything to say
         // ---------------------------------------------------------------------------
         ctx.stage("P2", "two Minecraft clients on a hosted world", () -> {
-            if (skip("NODERA_ANDROID_SKIP_GAME")) {
+            if (AndroidDevice.flag("NODERA_ANDROID_SKIP_GAME")) {
                 ctx.note("P2: skipped (NODERA_ANDROID_SKIP_GAME)");
                 return;
             }
@@ -205,16 +184,13 @@ public final class AndroidMeshScenario implements Scenario {
         // ---------------------------------------------------------------------------
         ctx.stage("P3", "the phone's worker answers its own control socket and advertises a LAN "
                 + "route", () -> {
-            adb(List.of("logcat", "-c"));
-            adb(List.of("shell", "am", "force-stop", PACKAGE));
-            ctx.check(adbExit(List.of("shell", "am", "start", "-n", ACTIVITY)) == 0,
-                    "the app would not start");
+            ctx.check(phone.restartApp() == 0, "the app would not start");
 
             // The worker stages an 11 MB dex on first run and then boots a JVM-worth of services;
             // 90 s is generous for a cold start and short enough to fail fast.
             for (int waited = 0; waited < 90 && nodeId[0] == null; waited++) {
-                if (androidVerb("NODERA-PROBE 2").startsWith("NODERA-OK")) {
-                    String id = androidStateField("node_id").orElse("");
+                if (phone.verb("NODERA-PROBE 2").startsWith("NODERA-OK")) {
+                    String id = phone.stateField("node_id").orElse("");
                     if (!id.isBlank()) {
                         nodeId[0] = id;
                         break;
@@ -223,12 +199,11 @@ public final class AndroidMeshScenario implements Scenario {
                 ServerDedicatedDrive.sleep(Duration.ofSeconds(1));
             }
             if (nodeId[0] == null) {
-                write(stack.logDir().resolve("android-logcat.log"),
-                        adb(List.of("logcat", "-d", "-s", "NoderaMC:V")));
+                write(stack.logDir().resolve("android-logcat.log"), phone.logcat());
                 ctx.fail("the phone's worker never answered its control socket — see "
                         + stack.logDir().resolve("android-logcat.log"));
             }
-            String route = androidStateField("self_route").orElse("");
+            String route = phone.stateField("self_route").orElse("");
             ctx.note("the worker is online: " + nodeId[0] + " at " + route);
             // A worker that advertises loopback cannot be dialled by anyone. This is a real failure
             // mode on a phone with Wi-Fi off, and it must not read as "no data".
@@ -245,12 +220,12 @@ public final class AndroidMeshScenario implements Scenario {
             // silently depend on a compiled-in default.
             String config = "{\"network.default_trackers\":[\"tcp://" + hostIp[0] + ":"
                     + ctx.topology().trackerPort() + "\"]}";
-            androidVerb("NODERA-CONFIG 2 " + Base64.getEncoder()
+            phone.verb("NODERA-CONFIG 2 " + Base64.getEncoder()
                     .encodeToString(config.getBytes(StandardCharsets.UTF_8)));
 
             boolean reachable = false;
             for (int waited = 0; waited < 60 && !reachable; waited++) {
-                reachable = androidStateField("trackers")
+                reachable = phone.stateField("trackers")
                         .filter(value -> value.replace(" ", "").contains("\"reachable\":true"))
                         .isPresent();
                 if (!reachable) {
@@ -266,15 +241,15 @@ public final class AndroidMeshScenario implements Scenario {
         // ---------------------------------------------------------------------------
         ctx.stage("P5", "the phone has Linux peers in its own view and its received-byte counter "
                 + "moved", () -> {
-            long before = androidStateField("total_received_bytes")
-                    .map(AndroidMeshScenario::asLong).orElse(0L);
+            long before = phone.stateField("total_received_bytes")
+                    .map(AndroidDevice::asLong).orElse(0L);
             ctx.note("the phone has received " + before + " bytes so far");
 
             // Join the phone to the mesh the Linux workers are in. The phone dials OUT, which is the
             // direction that works without forwarding a port to a handset.
             String route = hostIp[0] + ":" + ctx.topology().workerP2pPort(0);
             ctx.note("asking the phone to join the mesh at " + route);
-            String reply = androidVerb("NODERA-MESH 2 " + route);
+            String reply = phone.verb("NODERA-MESH 2 " + route);
             ctx.check(reply.startsWith("NODERA-OK"),
                     "the phone refused to join the mesh: " + (reply.isBlank() ? "no reply" : reply));
 
@@ -283,9 +258,9 @@ public final class AndroidMeshScenario implements Scenario {
             long received = 0;
             int peers = 0;
             for (int waited = 0; waited < 60; waited++) {
-                received = androidStateField("total_received_bytes")
-                        .map(AndroidMeshScenario::asLong).orElse(0L);
-                peers = androidStateField("peers")
+                received = phone.stateField("total_received_bytes")
+                        .map(AndroidDevice::asLong).orElse(0L);
+                peers = phone.stateField("peers")
                         .flatMap(ServerJson::tryParse)
                         .map(document -> document instanceof List<?> list ? list.size() : 0)
                         .orElse(0);
@@ -339,7 +314,7 @@ public final class AndroidMeshScenario implements Scenario {
                     + " for world " + world);
             boolean found = false;
             for (int waited = 0; waited < 30 && !found; waited++) {
-                found = capture(List.of(queryBinary.toString(),
+                found = AndroidDevice.capture(List.of(queryBinary.toString(),
                         hostIp[0] + ":" + ctx.topology().trackerPort(), world))
                         .toLowerCase(java.util.Locale.ROOT)
                         .contains(nodeId[0].toLowerCase(java.util.Locale.ROOT));
@@ -364,9 +339,8 @@ public final class AndroidMeshScenario implements Scenario {
         // Evidence
         // ---------------------------------------------------------------------------
         ctx.stage("P6", "the phone's logs are captured and both game logs are clean", () -> {
-            write(stack.logDir().resolve("android-logcat.log"),
-                    adb(List.of("logcat", "-d", "-s", "NoderaMC:V")));
-            write(stack.logDir().resolve("android-state.json"), androidVerb("NODERA-STATE 2"));
+            write(stack.logDir().resolve("android-logcat.log"), phone.logcat());
+            write(stack.logDir().resolve("android-state.json"), phone.state());
             ctx.note("phone logs  -> " + stack.logDir().resolve("android-logcat.log"));
             ctx.note("phone state -> " + stack.logDir().resolve("android-state.json"));
 
@@ -374,7 +348,7 @@ public final class AndroidMeshScenario implements Scenario {
             // audit with NO argument, which aborted the script after every assertion had already
             // passed — so a run that ended in a Java exception on either client still printed PASS
             // all the way down.
-            if (!skip("NODERA_ANDROID_SKIP_GAME")) {
+            if (!AndroidDevice.flag("NODERA_ANDROID_SKIP_GAME")) {
                 for (String gameLog : List.of("client-host.log", "client-join.log")) {
                     List<String> hits = ServerLogs.auditErrorsAfter(
                             stack.logDir().resolve(gameLog), 0,
@@ -389,145 +363,9 @@ public final class AndroidMeshScenario implements Scenario {
     }
 
     // ---------------------------------------------------------------------------------------
-    // adb helpers. Every one of them is bounded: a phone that stops answering must fail a step,
-    // never hang the scenario.
+    // Everything about the phone goes through AndroidDevice — see that class for why nothing here
+    // may read the app's UI.
     // ---------------------------------------------------------------------------------------
-
-    private String adb(List<String> arguments) {
-        return capture(adbCommand(arguments));
-    }
-
-    private int adbExit(List<String> arguments) {
-        return ServerDedicatedDrive.run(adbCommand(arguments));
-    }
-
-    private List<String> adbCommand(List<String> arguments) {
-        List<String> command = new ArrayList<>(List.of("adb"));
-        if (!serial.isBlank()) {
-            command.addAll(List.of("-s", serial));
-        }
-        command.addAll(arguments);
-        return command;
-    }
-
-    /** One control line to the worker ON THE PHONE, answered through adb. */
-    private String androidVerb(String verb) {
-        String piped = "(printf '%s\\n' '" + verb + "'; sleep 1) | timeout 8 toybox nc 127.0.0.1 "
-                + ANDROID_CONTROL_PORT;
-        String reply = adb(List.of("shell", piped)).replace("\r", "");
-        int newline = reply.indexOf('\n');
-        return (newline < 0 ? reply : reply.substring(0, newline)).trim();
-    }
-
-    /**
-     * One field out of the phone's {@code NODERA-STATE}.
-     *
-     * <p>Parsed, not grepped: the state is JSON and a regex over it would read {@code peers} out of
-     * a nested object.
-     */
-    private Optional<String> androidStateField(String path) {
-        return ServerJson.tryParse(androidVerb("NODERA-STATE 2"))
-                .flatMap(document -> ServerJson.text(document, path));
-    }
-
-    /**
-     * This machine's LAN address — what the phone must be told to dial.
-     *
-     * <p>Derived from the route the phone's own address is reached by, so a host with several
-     * interfaces (docker bridges, VPNs) still advertises the right one.
-     */
-    private static String hostLanAddress(String phoneIp) {
-        Matcher viaRoute = SRC_ADDRESS.matcher(
-                capture(List.of("ip", "-4", "route", "get", phoneIp)));
-        if (viaRoute.find()) {
-            return viaRoute.group(1);
-        }
-        Matcher global = GLOBAL_ADDRESS.matcher(
-                capture(List.of("ip", "-4", "addr", "show", "scope", "global")));
-        while (global.find()) {
-            String address = global.group(1);
-            if (!DOCKER_RANGE.matcher(address).find()) {
-                return address;
-            }
-        }
-        return "";
-    }
-
-    /**
-     * The device to drive.
-     *
-     * <p>Prefer a wireless entry: this scenario needs the phone reachable BY IP, and a USB-only
-     * device cannot be dialled by the Linux peers at all.
-     */
-    private static String resolveSerial() {
-        String configured = System.getenv("ANDROID_SERIAL");
-        if (configured != null && !configured.isBlank()) {
-            return configured.trim();
-        }
-        for (String line : capture(List.of("adb", "devices")).split("\n")) {
-            if (line.contains(":5555") && line.trim().endsWith("device")) {
-                return line.trim().split("\\s+")[0];
-            }
-        }
-        return "";
-    }
-
-    private String versionOnDevice() {
-        for (String line : adb(List.of("shell", "dumpsys", "package", PACKAGE)).split("\n")) {
-            int at = line.indexOf("versionName=");
-            if (at >= 0) {
-                return line.substring(at + "versionName=".length()).replace("\r", "").trim();
-            }
-        }
-        return "";
-    }
-
-    private static boolean isReachable(String host, int port) {
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), 2000);
-            return true;
-        } catch (IOException unreachable) {
-            return false;
-        }
-    }
-
-    private static boolean hasCommand(String command) {
-        return ServerDedicatedDrive.run(List.of("which", command)) == 0;
-    }
-
-    private static boolean skip(String variable) {
-        String value = System.getenv(variable);
-        return value != null && value.trim().equals("1");
-    }
-
-    private static long asLong(String value) {
-        try {
-            return (long) Double.parseDouble(value.trim());
-        } catch (NumberFormatException notANumber) {
-            return 0L;
-        }
-    }
-
-    /** Run a command with a bound of one minute and return its output. */
-    private static String capture(List<String> command) {
-        try {
-            ProcessBuilder builder = new ProcessBuilder(command);
-            builder.redirectErrorStream(true);
-            Process process = builder.start();
-            String output = new String(process.getInputStream().readAllBytes(),
-                    StandardCharsets.UTF_8);
-            if (!process.waitFor(60, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-            }
-            return output;
-        } catch (IOException notInstalled) {
-            return "";
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new HarnessException("interrupted while running "
-                    + String.join(" ", command), e);
-        }
-    }
 
     private static void write(Path file, String content) {
         try {

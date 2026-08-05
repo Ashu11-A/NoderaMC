@@ -1,9 +1,9 @@
-/* NoderaMC companion — minimalist dark-first UI with a light theme.
+/* NoderaMC desktop launcher — cinematic obsidian, with a quiet light fallback.
  *
  * Themed entirely through custom properties on :root[data-theme]. One attribute write in theme.ts
  * repaints the whole tree, so no component carries a theme prop and nothing can end up half-light.
- * Brand accent is the wordmark's gradient: magenta → violet → cyan.
- * No external assets: system fonts and CSS-only shapes keep the bundle self-contained.
+ * Ender green is the only brand accent. Amber and cool blue communicate state.
+ * Fonts are bundled by Vite; generated world art keeps imagery offline and deterministic.
  *
  * This file is *only* tokens and document-level base rules. Component styling lives on the
  * components as Tailwind utilities, so a class name in the JSX can no longer drift from a rule in
@@ -15,36 +15,76 @@
 @import "tailwindcss";
 
 :root {
-  --brand-1: #ff4d8d;
-  --brand-2: #a855f7;
-  --brand-3: #22d3ee;
-  --brand-gradient: linear-gradient(120deg, var(--brand-1), var(--brand-2) 55%, var(--brand-3));
+  --brand-1: #b8ff4a;
+  --brand-2: #8edb3f;
+  --brand-3: #8fc8ff;
+  --brand-gradient: linear-gradient(120deg, var(--brand-1), var(--brand-2));
 
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --font-ui: "Inter Variable", Inter, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
-  --up: #22c55e;
-  --down: #38bdf8;
-  --warn: #f59e0b;
-  --danger: #ef4444;
+  --up: #9ee75a;
+  --down: #73b8ef;
+  --warn: #e9ad54;
+  --danger: #ef786f;
+
+  /* --- The launcher.
+   *
+   * A hero-led screen needs three things this palette never had: a veil that keeps text legible over
+   * generated art, more than one elevation, and a fill for the one button on the page that matters.
+   * They are declared here and re-exported by reference below, so a theme switch still repaints
+   * everything from one attribute write and no component carries a theme prop. */
+  --radius-xl: 22px;
+  --top-nav-height: 64px;
+  --canvas-max: 1680px;
+  --canvas-gutter: clamp(20px, 3.2vw, 56px);
+  /* Tall enough to read as art, short enough that the world list under it is not below the fold on
+   * a 900x600 window — which is the size this app opens at. */
+  --hero-height: clamp(320px, 52vh, 560px);
+
+  /* The one button on the page that matters, and the text that sits on it. */
+  --play-fill: var(--brand-gradient);
+  --on-play: #101609;
+
+  /* Written once, read by every focusable thing. There was no focus token at all: the only styled
+   * ring in the app was hand-written on one control, so keyboard focus was invisible everywhere
+   * else. */
+  --focus-ring: var(--brand-1);
+
+  /* Durations were literals scattered across three files (`duration-150`, `duration-[180ms]`). */
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
 }
 
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #08080c;
-  --bg-rail: #0b0b11;
-  --surface: #101017;
-  --surface-2: #16161f;
-  --surface-hover: #1c1c27;
-  --line: #23232f;
-  --line-soft: #1a1a24;
-  --text: #f2f3f7;
-  --text-dim: #9aa0af;
-  --text-faint: #656b7a;
+  --bg: #080a09;
+  --bg-rail: #0b0e0c;
+  --surface: #111512;
+  --surface-2: #171c18;
+  --surface-hover: #202720;
+  --line: #2a312b;
+  --line-soft: #1c221d;
+  --text: #f1f4ef;
+  --text-dim: #a3aca3;
+  --text-faint: #707a71;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+
+  /* A glass strip over hero art, and three elevations where there used to be one. A launcher has a
+   * card that sits above the page and a control that sits above the card, and one shadow cannot
+   * say which is which. */
+  --surface-3: rgba(10, 13, 11, 0.82);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --elev-3: 0 18px 48px rgba(0, 0, 0, 0.6);
+  /* Dark art needs a dark veil; the light theme needs the opposite, which is why this is a token
+   * rather than one gradient written into the hero. */
+  --hero-scrim: linear-gradient(90deg, rgba(8, 10, 9, 0.98) 0%, rgba(8, 10, 9, 0.72) 48%, rgba(8, 10, 9, 0.18) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
 }
 
 :root[data-theme="light"] {
@@ -59,9 +99,22 @@
   --text: #14161d;
   --text-dim: #5c6373;
   --text-faint: #8b92a3;
+  --brand-1: #315f00;
+  --brand-2: #477d15;
+  --brand-3: #145f8a;
+  --focus-ring: #315f00;
+  --on-play: #ffffff;
   --shadow: 0 8px 24px rgba(20, 22, 29, 0.08);
-  --up: #16a34a;
-  --down: #0284c7;
+  --up: #4f861b;
+  --down: #2375a9;
+  --warn: #845400;
+  --danger: #b4231a;
+
+  --surface-3: rgba(255, 255, 255, 0.78);
+  --elev-1: 0 1px 2px rgba(20, 22, 29, 0.06);
+  --elev-2: 0 8px 24px rgba(20, 22, 29, 0.1);
+  --elev-3: 0 18px 48px rgba(20, 22, 29, 0.16);
+  --hero-scrim: linear-gradient(90deg, rgba(246, 247, 251, 0.98) 0%, rgba(246, 247, 251, 0.7) 48%, rgba(246, 247, 251, 0.12) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
 }
 
 /* Palette → Tailwind namespaces, by reference. */
@@ -81,22 +134,32 @@
   --color-dim: var(--text-dim);
   --color-faint: var(--text-faint);
 
+  --color-surface-3: var(--surface-3);
+  --color-focus: var(--focus-ring);
+  --color-on-play: var(--on-play);
+
   --color-up: var(--up);
   --color-down: var(--down);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
 
   --shadow-card: var(--shadow);
+  --shadow-e1: var(--elev-1);
+  --shadow-e2: var(--elev-2);
+  --shadow-e3: var(--elev-3);
 }
 
 /* Shape and type scale. The radii deliberately mirror the legacy --radius-* names above, which are
  * unlayered and therefore win over Tailwind's defaults with the identical value either way. */
 @theme {
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
 
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-sans: "Inter Variable", Inter, system-ui, sans-serif;
+  --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, sans-serif;
 
   --text-body: 13.5px;
   --text-sm: 12.5px;
@@ -106,7 +169,8 @@
   --text-2xs: 10.5px;
 
   /* The app's single media query, as the `max-narrow:` variant. */
-  --breakpoint-narrow: 820px;
+  --breakpoint-narrow: 900px;
+  --breakpoint-wide: 1180px;
 }
 
 @layer base {
@@ -117,9 +181,11 @@
   }
 
   body {
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 86% -10%, rgba(142, 219, 63, 0.08), transparent 30rem),
+      var(--bg);
     color: var(--text);
-    font: 13.5px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 13.5px/1.55 var(--font-ui);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
@@ -131,25 +197,61 @@
   }
 }
 
+@utility display-type {
+  font-family: var(--font-display);
+  letter-spacing: -0.035em;
+}
+
+@utility page-canvas {
+  width: min(100%, var(--canvas-max));
+  margin-inline: auto;
+  padding-inline: var(--canvas-gutter);
+}
+
+@utility page-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: clamp(14px, 1.5vw, 24px);
+}
+
 @utility bg-brand {
   background-image: var(--brand-gradient);
 }
 
-/* ------------------------------------------------------------------ Material 3 (mobile layout)
+/* The fill of the one button on the page that matters. */
+@utility bg-play {
+  background-image: var(--play-fill);
+}
+
+/* ------------------------------------------------------------------------------ generated art
  *
- * Only the two things the M3 components cannot express as utilities: the navigation-bar height they
- * all reserve space against, and the indeterminate progress keyframes. Every colour is a
- * `--md-sys-color-*` custom property written at runtime by `m3/theme.ts` from the user's source
- * colour — nothing here hard-codes one, which is what makes the palette actually dynamic. */
-:root {
-  --m3-nav-height: 80px;
+ * Every world gets a picture, and it is computed from its id rather than fetched. Three numbers —
+ * two hues and an angle — are hashed from the `world_id` in TypeScript and passed as inline custom
+ * properties; the layering lives here, in a class.
+ *
+ * Both halves of that split are deliberate. Inline custom properties are legal under this app's CSP
+ * (`style-src 'self' 'unsafe-inline'`) while a remote image is not, so the art costs no network and
+ * no bundle. And the declarations being in a *class* is what lets the design-token test prove they
+ * reach production CSS — a hero whose gradient silently resolved to nothing is the same class of
+ * bug as the consent modal's transparent panel.
+ *
+ * Deterministic, so a world looks the same on every machine and the picture is a way to recognise
+ * it rather than decoration. */
+@utility world-art {
+  background-color: hsl(var(--wa-h1, 105) 22% 12%);
+  background-image:
+    radial-gradient(120% 90% at 22% 18%, hsl(var(--wa-h1, 105) 48% 38% / 0.55) 0%, transparent 60%),
+    radial-gradient(100% 80% at 82% 72%, hsl(var(--wa-h2, 205) 46% 34% / 0.4) 0%, transparent 62%),
+    repeating-linear-gradient(
+      var(--wa-a, 45deg),
+      rgba(255, 255, 255, 0.045) 0px,
+      rgba(255, 255, 255, 0.045) 1px,
+      transparent 1px,
+      transparent 7px
+    );
 }
 
-@keyframes m3-indeterminate {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(300%); }
-}
-
-.m3-indeterminate {
-  animation: m3-indeterminate 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+/* The veil that keeps hero text legible over any of the above. */
+@utility hero-scrim {
+  background-image: var(--hero-scrim);
 }

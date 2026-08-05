@@ -29,7 +29,13 @@ public final class WorkerStateParser {
      *                while the hosting player's game is closed (listed but not joinable).
      */
     public record HostedWorldInfo(String worldId, String name, long players, String mcRoute,
-                                  boolean seeding) {
+                                  boolean seeding, boolean owned, long seeders) {
+
+        /** Shape before ownership and seeder count were carried. */
+        public HostedWorldInfo(String worldId, String name, long players, String mcRoute,
+                               boolean seeding) {
+            this(worldId, name, players, mcRoute, seeding, false, 0);
+        }
 
         /** Pre-join-flow shape (no game endpoint reported). */
         public HostedWorldInfo(String worldId, String name, long players) {
@@ -111,13 +117,22 @@ public final class WorkerStateParser {
             // node claiming to host a world it cannot serve is visible, while a node silently
             // overriding the network's view of somebody else's world is not.
             boolean seeding = booleanField(obj, "seeding", false);
+            // The worker has computed and sent this since world ownership existed, and this parser
+            // dropped it — so the mod had no client-readable answer to "do I own this world" at
+            // all, and gated its owner-only controls on `hasSingleplayerServer()` instead. A player
+            // who recovered somebody else's world was therefore handed that world's share settings,
+            // its password field and its delete button.
+            //
+            // Defaults to false: not knowing must never read as owning.
+            boolean owned = booleanField(obj, "owned", false);
+            long seeders = longField(obj, "seeders", 0);
             if (worldId != null || name != null) {
                 out.add(new HostedWorldInfo(
                         worldId == null ? "" : worldId,
                         name == null ? "" : name,
                         players,
                         mcRoute == null ? "" : mcRoute,
-                        seeding));
+                        seeding, owned, seeders));
             }
             i = objEnd + 1;
         }

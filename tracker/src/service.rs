@@ -18,7 +18,7 @@ use nodera_codec::service::{
     ServiceMessage,
 };
 use nodera_codec::tags::message_tags;
-use nodera_codec::tombstone::WorldDeletionGossip;
+use nodera_codec::tombstone::{WorldDeletionGossip, WorldRevivalGossip};
 use std::net::IpAddr;
 
 /// What the tracker did with a frame — the caller logs this; the peer gets the reply.
@@ -151,6 +151,9 @@ impl Tracker {
         };
         // Deletions are their own family and are handled before the discovery decode, because the
         // discovery codec does not know kind 66 and would reject the frame as unsupported.
+        if kind == message_tags::WORLD_REVIVAL_GOSSIP {
+            return self.handle_revival(frame);
+        }
         if kind == message_tags::WORLD_DELETION_GOSSIP {
             return self.handle_deletion(frame);
         }
@@ -469,6 +472,39 @@ impl Tracker {
         // this tracker's word for what happened.
         Handled::Reply(nodera_codec::wire::encode_consensus_frame(
             message_tags::WORLD_DELETION_GOSSIP,
+            &gossip.encode(),
+            nodera_codec::frame::flags::RESPONSE,
+            0,
+        ))
+    }
+
+    /// Handle a world-restore request (tag 76) — the deletion's undo.
+    ///
+    /// Same rules, opposite effect, and the same absence of authority: this tracker verifies the
+    /// owner's signatures and then stops refusing the world. It cannot restore a world whose owner
+    /// did not ask, and it cannot keep refusing one whose owner did — beyond declining to list it,
+    /// which is not a power over anyone else's copy.
+    fn handle_revival(&mut self, frame: &[u8]) -> Handled {
+        let payload = match nodera_codec::wire::consensus_payload(frame) {
+            Ok(payload) => payload,
+            Err(e) => return Handled::Unsupported(e.to_string()),
+        };
+        let gossip = match WorldRevivalGossip::decode(payload) {
+            Ok(gossip) => gossip,
+            Err(e) => return Handled::Unsupported(e.to_string()),
+        };
+        let Some(revival) = gossip.verified() else {
+            self.announces_rejected += 1;
+            return self.reject(Rejection::BadSignature);
+        };
+        self.deleted.forget(&revival);
+        // Echoed back for the same reason a deletion is: the sender may be a relay, and returning
+        // the record keeps the reply verifiable rather than asking anyone to take this tracker's
+        // word for what happened. The world is not re-listed here — it returns to the directory
+        // through its owner's next ordinary announce, which is the only thing that can say where it
+        // now lives.
+        Handled::Reply(nodera_codec::wire::encode_consensus_frame(
+            message_tags::WORLD_REVIVAL_GOSSIP,
             &gossip.encode(),
             nodera_codec::frame::flags::RESPONSE,
             0,

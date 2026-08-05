@@ -43,6 +43,12 @@ public final class PieceReassembler {
     private final HashService hashes;
     private final byte[] buffer;
     private final BitSet verified;
+    /**
+     * Set once {@link #assemble()} has handed the buffer out. From then on the array belongs to the
+     * returned {@link Bytes}, so every write path refuses rather than mutating bytes somebody else
+     * is already holding as immutable.
+     */
+    private boolean assembled;
 
     /**
      * @param manifest the manifest whose pieces are being collected.
@@ -97,6 +103,12 @@ public final class PieceReassembler {
      */
     public boolean restore(int index, Bytes payload) {
         Objects.requireNonNull(payload, "payload");
+        if (assembled) {
+            // A late chunk for a finished download. Refusing it is the same answer the caller
+            // already handles for any rejected piece, and it is what makes handing the buffer out
+            // in assemble() safe.
+            return false;
+        }
         if (index < 0 || index >= manifest.pieceCount()) {
             return false;
         }
@@ -158,7 +170,15 @@ public final class PieceReassembler {
                     "cannot assemble: " + (manifest.pieceCount() - verified.cardinality())
                             + " of " + manifest.pieceCount() + " pieces still missing");
         }
-        Bytes blob = Bytes.unsafeWrap(buffer.clone());
+        // Handed over, not copied. The defensive clone was correct in principle — nothing may hold
+        // a Bytes over a buffer that can still be written — and it doubled the peak memory of every
+        // download at the exact instant the whole blob already existed. On a phone that is fatal:
+        // a 123 MB world archive died with "Failed to allocate a 122981690 byte allocation with
+        // 12449808 free bytes" inside this line, having already downloaded and verified all of it.
+        // Ownership transfer gets the same guarantee for nothing: `assembled` closes the write path
+        // below, so the array this returns can never change again.
+        assembled = true;
+        Bytes blob = Bytes.unsafeWrap(buffer);
         if (blob.length() != manifest.totalLength()) {
             throw new IllegalStateException(
                     "assembled length " + blob.length() + " != manifest totalLength "

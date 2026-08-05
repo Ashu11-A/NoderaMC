@@ -332,7 +332,10 @@ public final class NoderaCommand {
         }
         return CommandTree.sendPanel(ctx.getSource(),
                 ViewBuilder.zonePanel(s, dev.nodera.mod.debug.Dimensions.of(player),
-                        player.blockPosition().getX(), player.blockPosition().getZ()));
+                        player.blockPosition().getX(), player.blockPosition().getZ(),
+                        // The caller's own zone, not the host's. Same fix as the boss bar: this
+                        // command runs on the host for whoever typed it.
+                        dev.nodera.mod.debug.PlayerZones.stateOf(player, s.regions())));
     }
 
     /** {@code /nodera net <type>} — the per-type breakdown filtered to one type. */
@@ -383,13 +386,19 @@ public final class NoderaCommand {
         dev.nodera.core.identity.WorldRole role = grantOp
                 ? dev.nodera.core.identity.WorldRole.OPERATOR
                 : dev.nodera.core.identity.WorldRole.MEMBER;
-        long grantVersion = perms.grant(node.nodeId())
+        // Bind the grant to the target's AUTHORITY identity — their worker's persistent key, when
+        // their session presented a delegation for it. Binding it to the session key instead
+        // produced a grant that worked until the player next launched the game and then silently
+        // stopped applying, because the key it named had been thrown away with the session that
+        // minted it. An undelegated session still binds to its own key, which is as durable as that
+        // player's identity gets.
+        long grantVersion = perms.grant(node.authorityNodeId())
                 .map(g -> g.grantVersion() + 1).orElse(1L);
         String worldIdHex = perms.worldId().toHex();
         java.util.Optional<dev.nodera.core.Bytes> signed =
                 dev.nodera.peer.control.CompanionLink.client().grantRole(worldIdHex,
-                        node.nodeId().value().toString(), node.publicKey(), role.ordinal(),
-                        grantVersion);
+                        node.authorityNodeId().value().toString(), node.authorityPublicKey(),
+                        role.ordinal(), grantVersion);
         if (signed.isEmpty()) {
             return CommandTree.fail(ctx, CommandLang.GRANT_DECLINED);
         }
@@ -416,14 +425,21 @@ public final class NoderaCommand {
         if (executor == null) {
             return true; // the server console is a trusted local operator
         }
-        if (!server.isDedicatedServer()
-                && server.isSingleplayerOwner(executor.getGameProfile())
-                && dev.nodera.mod.common.NoderaHost.localWorkerIsAuthor(server)) {
-            return true; // the integrated-server owner authoring this world
+        if (!server.isDedicatedServer() && server.isSingleplayerOwner(executor.getGameProfile())) {
+            // The person whose game this is. No longer also requiring `localWorkerIsAuthor`: that
+            // check reaches across a socket to another process, and answering "no" when it merely
+            // could not run left the owner of a world unable to administer it from their own
+            // machine, with no route back because /op is gated on being an operator. The signed
+            // grant this authorises is still verified against the world's author key by every peer
+            // that receives it, so an owner who is genuinely not the author mints something the
+            // network declines — a refusal at the right layer, rather than a refusal here based on
+            // a question that may simply have timed out.
+            return true;
         }
         dev.nodera.endpoint.world.PlayerNodeRegistry.PlayerNode node =
                 dev.nodera.endpoint.world.PlayerNodeRegistry.nodeOf(executor.getUUID());
-        return node != null && perms.isOperator(node.nodeId(), node.publicKey());
+        return node != null
+                && perms.isOperator(node.authorityNodeId(), node.authorityPublicKey());
     }
 
     private static int sampleRate(CommandContext<CommandSourceStack> ctx, Supplier<DiagnosticsService> service) {

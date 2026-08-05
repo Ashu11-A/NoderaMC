@@ -176,6 +176,7 @@ public final class LiveStack implements AutoCloseable {
 
     private void startTrackers() {
         requireExecutable(paths.trackerBinary(), "the tracker binary");
+        String bind = Topology.serviceBindAddress();
         for (int i = 0; i < topology.trackers(); i++) {
             int port = topology.trackerPortAt(i);
             started.push(ManagedProcess.start("tracker-" + i, paths.root(),
@@ -188,9 +189,9 @@ public final class LiveStack implements AutoCloseable {
                     // on a mesh with NO tracker and NO rendezvous. The symptom in the logs was never
                     // "the service is down"; it was "world 'world' is on NO tracker — 0 of 1
                     // answered", "0 seeder(s), 0 routable", and a soak that observed nothing.
-                    ManagedProcess.env("NODERA_TRACKER_BIND_ADDR", "127.0.0.1:" + port,
+                    ManagedProcess.env("NODERA_TRACKER_BIND_ADDR", bind + ":" + port,
                             "RUST_LOG", "info"),
-                    List.of(paths.trackerBinary().toString(), "--bind", "127.0.0.1:" + port)));
+                    List.of(paths.trackerBinary().toString(), "--bind", bind + ":" + port)));
             awaitListening("tracker-" + i, port);
         }
     }
@@ -218,6 +219,11 @@ public final class LiveStack implements AutoCloseable {
      */
     private void awaitListening(String name, int port) {
         Duration timeout = topology.scaled(Duration.ofSeconds(20));
+        // The address everybody ELSE was told to use, not loopback. On a loopback run the two are
+        // the same. On a LAN run they are not, and a service bound to 0.0.0.0 answers on loopback
+        // whether or not the address in every peer's tracker list is right — so probing loopback
+        // there would confirm a stack that no other machine can reach.
+        String host = probeHost();
         long deadline = System.nanoTime() + timeout.toNanos();
         while (System.nanoTime() < deadline) {
             ManagedProcess process = processNamed(name);
@@ -226,14 +232,25 @@ public final class LiveStack implements AutoCloseable {
                         + logTail(name));
             }
             try (java.net.Socket probe = new java.net.Socket()) {
-                probe.connect(new java.net.InetSocketAddress("127.0.0.1", port), 500);
+                probe.connect(new java.net.InetSocketAddress(host, port), 500);
                 return;
             } catch (IOException notYet) {
                 Topology.sleep(Duration.ofMillis(250));
             }
         }
-        throw new HarnessException(name + " never accepted a connection on port " + port
+        throw new HarnessException(name + " never accepted a connection on " + host + ":" + port
                 + " within " + timeout.toSeconds() + "s" + logTail(name));
+    }
+
+    /**
+     * The address to verify a service on.
+     *
+     * <p>{@code 0.0.0.0} is a bind address and never a destination, so an advertise address set to
+     * it (or left at loopback) falls back to loopback rather than dialling a wildcard.
+     */
+    private static String probeHost() {
+        String advertise = Topology.serviceAdvertiseAddress();
+        return advertise.isBlank() || "0.0.0.0".equals(advertise) ? "127.0.0.1" : advertise;
     }
 
     private ManagedProcess processNamed(String name) {
@@ -262,14 +279,15 @@ public final class LiveStack implements AutoCloseable {
 
     private void startRendezvous() {
         requireExecutable(paths.rendezvousBinary(), "the rendezvous binary");
+        String bind = Topology.serviceBindAddress();
         for (int i = 0; i < topology.rendezvous(); i++) {
             int port = topology.rendezvousPortAt(i);
             started.push(ManagedProcess.start("rendezvous-" + i, paths.root(),
                     logDir.resolve("rendezvous-" + i + ".log"),
                     // BIND_ADDR, not BIND — see the tracker's note above; the same refusal applied.
-                    ManagedProcess.env("NODERA_RENDEZVOUS_BIND_ADDR", "127.0.0.1:" + port,
+                    ManagedProcess.env("NODERA_RENDEZVOUS_BIND_ADDR", bind + ":" + port,
                             "RUST_LOG", "info"),
-                    List.of(paths.rendezvousBinary().toString(), "--bind", "127.0.0.1:" + port)));
+                    List.of(paths.rendezvousBinary().toString(), "--bind", bind + ":" + port)));
             awaitListening("rendezvous-" + i, port);
         }
     }
@@ -290,11 +308,15 @@ public final class LiveStack implements AutoCloseable {
             Path home = paths.runDir().resolve("worker-" + role.cliName() + "-" + i);
             recreate(home);
 
+            // The control socket stays on loopback whatever the P2P plane does. It is an
+            // administrative channel with no authentication of its own — every verb that reaches it
+            // is trusted — so "the peers must be reachable from the LAN" must never widen it. The
+            // phone's own worker is reached over adb for exactly the same reason.
             Map<String, String> env = ManagedProcess.env(
                     "NODERA_CONTROL_HOST", "127.0.0.1",
                     "NODERA_CONTROL_PORT", String.valueOf(control),
-                    "NODERA_P2P_BIND", "127.0.0.1",
-                    "NODERA_P2P_ADVERTISE", "127.0.0.1",
+                    "NODERA_P2P_BIND", Topology.p2pBindAddress(),
+                    "NODERA_P2P_ADVERTISE", Topology.p2pAdvertiseAddress(),
                     "NODERA_P2P_PORT", String.valueOf(topology.workerP2pPort(i)),
                     "NODERA_STATE_DIR", home.toString(),
                     "NODERA_IDENTITY_FILE", home.resolve("identity.bin").toString(),
@@ -333,18 +355,27 @@ public final class LiveStack implements AutoCloseable {
         Path configDir = paths.gameDir(gameDirectory).resolve("config");
         try {
             Files.createDirectories(configDir);
+            // [p2p] advertiseHost matters as much as the endpoints above. Without it the mod's own
+            // peer resolves "auto" by enumerating this machine's interfaces — and on a developer
+            // box carrying a container bridge and a VPN it can pick either, while every worker this
+            // harness starts is pinned to one address. A run whose nodes disagree about where they
+            // are reachable produces peers that are seated and then never reached, which reads as a
+            // product defect and is not one.
             Files.writeString(configDir.resolve("nodera-client.toml"), """
                     [join]
                     \tpassword = "%s"
                     [companion]
                     \tcontrolEndpoint = "127.0.0.1:%d"
                     \trequired = true
+                    [p2p]
+                    \tadvertiseHost = "%s"
                     [tracker]
                     \tendpoints = %s
                     [rendezvous]
                     \tendpoints = %s
                     """.formatted(joinPassword == null ? "" : joinPassword,
                     worker(role).port(),
+                    Topology.p2pAdvertiseAddress(),
                     tomlArray(topology.trackerEndpoints()),
                     tomlArray(topology.rendezvousEndpoints())));
         } catch (IOException e) {
@@ -389,7 +420,19 @@ public final class LiveStack implements AutoCloseable {
                     \tmobCaptureDimensions = ["minecraft:overworld"]
                     """.formatted(topology.gamePort(),
                     hostConfigOverrides.getOrDefault("sharePassword", ""),
-                    hostConfigOverrides.getOrDefault("streamIntervalTicks", "2400")));
+                    // Zero, matching the product default. The harness used to write 2400 here and
+                    // that number silently won every live run: a config FILE beats a code default,
+                    // so every scenario measured the periodic whole-save repack whatever the
+                    // product had decided. On a 76 MB save that is a 40-second pack inside the
+                    // server every two minutes, which starved a joining player's handshake and
+                    // read as "player B never joined". A scenario that wants the old cadence still
+                    // asks for it by name (RekeyScenario does).
+                    // Match the product default rather than asserting one. The harness used to
+                    // write 2400 here and that number silently won every live run, because a config
+                    // FILE beats a code default; then it wrote 0 and hid the rollback hole that
+                    // turning the repack off had opened. Whatever the product decides is what the
+                    // suites should measure.
+                    hostConfigOverrides.getOrDefault("streamIntervalTicks", "12000")));
             toml.append("[tracker]\n\tendpoints = ")
                     .append(tomlArray(topology.trackerEndpoints())).append('\n');
             toml.append("[rendezvous]\n\tendpoints = ")
@@ -422,6 +465,43 @@ public final class LiveStack implements AutoCloseable {
      */
     public ManagedProcess startClient(String task, String logName) {
         return startGradle("client-" + task, ":neoforge-mod:" + task, logName);
+    }
+
+    /**
+     * Start the desktop companion app <b>attached</b> to a worker this stack already launched.
+     *
+     * <p>Attach mode is the distinction that matters: the app normally supervises a worker of its
+     * own, and an app that spawned a second worker on a port this stack is already using would
+     * either fail to bind or — worse — quietly hand the scenario a peer nobody is asserting about.
+     * {@code NODERA_APP_ATTACH} makes it adopt the running one instead, exactly as
+     * {@code scripts/dev.sh}'s interactive stack does, and {@code NODERA_APP_MULTI} lifts the
+     * single-instance guard so a second launcher can sit next to the first.
+     *
+     * <p>A missing binary is reported as an absent process rather than a failure. Every scenario
+     * that does not ask for a launcher must keep running on a machine that has never built one, and
+     * the scenarios that do ask can say so themselves.
+     *
+     * @param workerIndex the worker to attach to; its control port is what the app is pointed at.
+     * @return the launcher process, or empty when the app has not been built.
+     */
+    public java.util.Optional<ManagedProcess> startCompanionApp(int workerIndex) {
+        if (!Files.isExecutable(paths.companionApp())) {
+            return java.util.Optional.empty();
+        }
+        PlayerRole role = topology.workerRole(workerIndex);
+        ManagedProcess process = ManagedProcess.start("app-" + role.cliName(), paths.root(),
+                logDir.resolve("app-" + role.cliName() + ".log"),
+                ManagedProcess.env(
+                        "NODERA_APP_ATTACH", "1",
+                        "NODERA_APP_MULTI", "1",
+                        "NODERA_APP_TITLE", "Nodera — " + role.cliName(),
+                        "NODERA_CONTROL_PORT",
+                        String.valueOf(topology.workerControlPort(workerIndex)),
+                        "NODERA_WORKER_LOG",
+                        logDir.resolve("worker-" + role.cliName() + ".log").toString()),
+                List.of(paths.companionApp().toString()));
+        started.push(process);
+        return java.util.Optional.of(process);
     }
 
     private ManagedProcess startGradle(String name, String task, String logName) {

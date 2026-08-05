@@ -362,8 +362,15 @@ def offline_uuid(username: str) -> str:
     `OfflinePlayer:<name>`, MD5, version 3. Deriving it rather than randomising means the same test
     player keeps the same inventory and position between runs — which matters when the thing you are
     testing is two named players meeting each other.
+
+    MD5 is not a choice here and cannot be substituted: a version-3 UUID *is* an MD5 UUID by
+    definition (RFC 4122 §4.3), and this has to produce the byte-for-byte identifier the Minecraft
+    server derives for the same name. A stronger hash would produce a different player. Hence
+    `usedforsecurity=False` — this is an identifier derivation, not a security primitive, and saying
+    so is more honest than suppressing the finding.
     """
-    digest = bytearray(hashlib.md5(f"OfflinePlayer:{username}".encode()).digest())
+    digest = bytearray(
+        hashlib.md5(f"OfflinePlayer:{username}".encode(), usedforsecurity=False).digest())
     digest[6] = (digest[6] & 0x0F) | 0x30
     digest[8] = (digest[8] & 0x3F) | 0x80
     return str(uuid.UUID(bytes=bytes(digest)))

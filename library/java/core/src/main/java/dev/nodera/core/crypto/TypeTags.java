@@ -229,6 +229,42 @@ public final class TypeTags {
      */
     public static final int HALO_ENDORSEMENT = 119;
 
+    /**
+     * {@code WorldRevival} — the owner putting back a world they deleted, carrying the same
+     * ownership evidence as the tombstone it supersedes. Without it a deleted world id could never
+     * be shared again, because the id is derived from the save and every node remembers the
+     * deletion.
+     */
+    public static final int WORLD_REVIVAL = 120;
+
+    /**
+     * {@code SessionDelegation} — a worker signing that one game session's throwaway transport key
+     * speaks in its name, for one world, until a stated instant. Without it the key a player proves
+     * possession of at join time is a key no world has ever heard of, so a world's own author reads
+     * as an ordinary member of it.
+     */
+    public static final int SESSION_DELEGATION = 121;
+
+    /**
+     * {@code Hlc} — a hybrid logical clock reading, so two peers can agree which of two versions of
+     * a chunk is newer without either of them having a correct clock.
+     */
+    public static final int HLC = 122;
+
+    /**
+     * {@code ChunkStamp} — one chunk column's content hash and the reading at which that content
+     * became its content. The unit of change the data plane was missing: without it the smallest
+     * thing that could be said to have changed was a whole region, and the smallest thing actually
+     * moved was a whole world.
+     */
+    public static final int CHUNK_STAMP = 123;
+
+    /**
+     * {@code RegionChunkIndex} — every stamp in a region under a merkle root, so peers establish
+     * "identical" in 32 bytes and, when they are not, transfer only the columns that differ.
+     */
+    public static final int REGION_CHUNK_INDEX = 124;
+
     /** Highest assigned tag; new tags start at {@code NEXT + 1}. Update when appending. */
-    public static final int NEXT = 119;
+    public static final int NEXT = 124;
 }

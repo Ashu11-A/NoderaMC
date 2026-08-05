@@ -199,6 +199,9 @@ public final class TrackerClient implements TrackerLookup {
      */
     private volatile List<Endpoint> endpoints;
 
+    /** Operator-supplied endpoints a configuration push may add to but never remove. */
+    private volatile List<Endpoint> pinned = List.of();
+
     /** Verification only; the signing key never leaves {@link #identity}. */
     private static final SignatureService SIGNATURES = new SignatureService();
 
@@ -281,12 +284,53 @@ public final class TrackerClient implements TrackerLookup {
      * <p>An empty list is legitimate and means "announce nowhere" (a LAN-only or fully-manual
      * deployment); it is not treated as a mistake.
      *
+     * <p>Endpoints {@linkplain #pinEndpoints pinned} by whoever started this worker survive the
+     * replacement: see that method for why an app must not be able to take them away.
+     *
      * @param newEndpoints the endpoints to use from now on; copied defensively.
      * @throws IllegalArgumentException if {@code newEndpoints} is null.
      * @Thread-context any thread.
      */
     public void setEndpoints(List<Endpoint> newEndpoints) {
-        this.endpoints = List.copyOf(Objects.requireNonNull(newEndpoints, "endpoints"));
+        Objects.requireNonNull(newEndpoints, "endpoints");
+        java.util.LinkedHashSet<Endpoint> merged = new java.util.LinkedHashSet<>(pinned);
+        merged.addAll(newEndpoints);
+        this.endpoints = List.copyOf(merged);
+    }
+
+    /**
+     * Endpoints this node must always announce to, whatever any later {@link #setEndpoints} says.
+     *
+     * <p>For the tracker list the companion app and the operator are two authorities, and the app
+     * used to win outright: it pushes its whole settings document on connect, {@code
+     * network.default_trackers} is applied live, and the apply REPLACED the list. So attaching an
+     * app to a worker that had been started with {@code NODERA_TRACKER_ENDPOINTS} pointing at a
+     * LAN tracker swapped that tracker for the app's own — and the operator's tracker was gone from
+     * a node that never asked to leave it.
+     *
+     * <p>What that looks like from the outside is not a settings problem. Observed on a two-player
+     * dev stack: each player's world announced to a tracker that does not answer
+     * ("world 'Ashu' is on NO tracker — 0 of 1 answered"), each player's Worlds tab listed nothing,
+     * and the one worker with no app attached — the spare — was the only node in the whole stack
+     * that could see the directory. Two players on one LAN, one tracker between them, and neither
+     * could find the other.
+     *
+     * <p>Pinned endpoints are a floor, not a lock: the app can still add trackers, and everything it
+     * adds is used. Only removal of the operator's own is refused.
+     *
+     * @param operatorEndpoints the endpoints supplied out of band (env, service file, CLI).
+     * @throws IllegalArgumentException if {@code operatorEndpoints} is null.
+     * @Thread-context any thread.
+     */
+    public void pinEndpoints(List<Endpoint> operatorEndpoints) {
+        Objects.requireNonNull(operatorEndpoints, "operatorEndpoints");
+        this.pinned = List.copyOf(operatorEndpoints);
+        setEndpoints(this.endpoints);
+    }
+
+    /** @return the endpoints no configuration push can remove. */
+    public List<Endpoint> pinnedEndpoints() {
+        return pinned;
     }
 
     /**
@@ -415,6 +459,30 @@ public final class TrackerClient implements TrackerLookup {
         int delivered = 0;
         for (Endpoint endpoint : endpoints) {
             if (exchange(endpoint, deletion).isPresent()) {
+                delivered++;
+            }
+        }
+        return delivered;
+    }
+
+    /**
+     * Tell every configured tracker that a deleted world is back, on its owner's signed instruction.
+     *
+     * <p>The trackers are the half of the network that remembers a deletion the longest — 120 days,
+     * deliberately, so that peers which were offline still hear about it. That is exactly why the
+     * restore has to reach them too: without this the owner's re-share would be refused by every
+     * directory on the network while the peers happily held the world, and the world would be
+     * unfindable rather than merely unlisted.
+     *
+     * @param revival the signed restore.
+     * @return how many trackers answered.
+     * @Thread-context any thread; never throws for a network failure.
+     */
+    public int publishRevival(dev.nodera.protocol.membership.WorldRevivalGossip revival) {
+        Objects.requireNonNull(revival, "revival");
+        int delivered = 0;
+        for (Endpoint endpoint : endpoints) {
+            if (exchange(endpoint, revival).isPresent()) {
                 delivered++;
             }
         }

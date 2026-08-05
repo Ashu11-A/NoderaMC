@@ -1,0 +1,79 @@
+# The companion app's core: everything the app *is*, minus the shell it is shown through.
+#
+# # Why this is a crate and not a module inside `app/`
+#
+# The app ships two front ends now — the Tauri webview on the desktop, and a native Jetpack Compose
+# activity on Android — and they cannot share code that depends on Tauri. A module inside `nodera-app`
+# is unreachable from the JNI bridge without dragging the whole webview stack behind it, so the split
+# has to be a crate boundary.
+#
+# It also fixes a gap nobody could see: `app/` is excluded from the root workspace (Tauri pulls
+# per-OS webview deps the headless CI toolchain does not have), which meant none of this code was
+# ever compiled or tested by `cargo test --workspace`. Being deliberately *included* here is the
+# same discipline the exclusion is, pointed the other way.
+#
+# Nothing in this crate may depend on `tauri`. That is the whole contract.
+[package]
+name = "nodera-core"
+description = "Nodera companion app core: worker control link, settings, stores, telemetry, power, launch"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nodera-codec = { workspace = true }
+# Legacy canonical tracker-signing tests use this curve. Runtime peer identity belongs to the Java
+# worker on desktop and Android; app self-tests query for that worker rather than announcing another.
+ed25519-dalek = { workspace = true, features = ["std"] }
+# The bundled telemetry registry the disclosure falls back to when the collector is unreachable
+# (L-78). A path dependency rather than a copied JSON file: two hand-maintained copies of a privacy
+# notice drift, and the stale one is the one people read.
+nodera-telemetry = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# `process` on top of the workspace set: the desktop supervisor spawns and reaps the Java worker,
+# and the launch lane spawns the game.
+tokio = { workspace = true, features = ["process"] }
+# Diagnostics that must be readable on a device with no terminal; the Android build routes this
+# into logcat, the desktop build into stderr.
+log = "0.4"
+# The tracker-store fetch, and nothing else. `default-features = false` drops gzip; `rustls` brings
+# bundled webpki roots, so certificate verification works the same on desktop and on Android with no
+# platform CA plumbing and no OpenSSL. Blocking, used from spawn_blocking — every other network path
+# in this crate is a hand-framed TCP socket, and an async HTTP stack to serve one user-initiated
+# request would be the larger dependency.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+# The worker sends a world's piece bitmap base64-encoded; the Pieces grid decodes it.
+base64 = "0.22"
+# System + per-process RAM/CPU sampling for the dashboard's resource tiles.
+sysinfo = "0.30"
+
+# Android has no stdout to read: Rust diagnostics must enter the system log or they are invisible.
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.14"
+# Talking to the Android framework from Rust: reading the battery-optimisation state and opening the
+# settings screen are both Java-only APIs, and this is how a Rust process reaches them without a
+# whole Tauri plugin for two calls.
+jni = "0.21"
+ndk-context = "0.1"
+
+# Host power state for the battery rules (`power.rs`).
+#
+# Desktop only, and deliberately so. It does not build for Android — and it should not: a phone's
+# power management belongs to the phone, an app that second-guesses it is an app the OS will kill,
+# while native battery policy comes from Android APIs. `power::battery` degrades to "no battery"
+# when the crate is absent, which is the same branch a desktop with no battery takes.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+starship-battery = "0.10"
+
+# Free-space reporting for the storage picker (statvfs). One call, no wrapper crate.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# `test-util` gives the control-socket tests a paused clock, so the read-timeout test proves the
+# timeout fires without spending five real seconds doing it.
+tokio = { workspace = true, features = ["test-util", "process"] }

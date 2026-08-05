@@ -100,9 +100,7 @@ public final class ContinuityScenario implements Scenario {
             // A world baked before a FlatWorldRules.RULES_VERSION bump carries a certified genesis
             // the current engine refuses, so the lane never boots and this wait would burn its whole
             // timeout with no stated cause — bail out the moment the bootstrap failure appears.
-            hostLog.awaitGuarded("member node(s)", Duration.ofSeconds(180),
-                    HostWorldSupport.STALE_BAKE_GUARD,
-                    "S2c: " + HostWorldSupport.STALE_BAKE_MESSAGE);
+            HostWorldSupport.awaitMemberNodes(context, hostLog, "S2c");
             joinLog.await("client validation lane active", Duration.ofSeconds(180));
         });
 
@@ -112,7 +110,7 @@ public final class ContinuityScenario implements Scenario {
                 HostWorldSupport.stopClient(players[0].host(), "clientHostRunProgramArgs"));
 
         context.stage("S5", "player B recovered the world from the network and re-hosts it", () -> {
-            joinLog.await("Nodera continuity: host connection lost", Duration.ofSeconds(120));
+            joinLog.await("Nodera: the host's connection ended", Duration.ofSeconds(120));
             joinLog.await("restored to saves/", Duration.ofSeconds(300));
             joinLog.await("Nodera: sharing world", Duration.ofSeconds(300));
             String state = context.worker(PlayerRole.PLAYER_TWO).state();

@@ -298,6 +298,8 @@ public final class MessageCodec {
     public static final int TAG_HELLO = 74;
     /** {@link dev.nodera.protocol.session.HelloAck} tag (Task 14 / Plan.7 §4.3). */
     public static final int TAG_HELLO_ACK = 75;
+    /** {@link dev.nodera.protocol.membership.WorldRevivalGossip} tag — deletion's counterpart. */
+    public static final int TAG_WORLD_REVIVAL_GOSSIP = 76;
 
     /** Highest assigned tag; new tags start at {@code NEXT_TAG + 1}. Derived from the schema. */
     public static final int NEXT_TAG = WireRegistry.NEXT_KIND;
@@ -405,6 +407,12 @@ public final class MessageCodec {
                 throw new IllegalStateException(
                         "unsupported ExternalDelta encoding version " + version);
             }
+        } else if (tag == TAG_REGION_ASSIGNED) {
+            if (version < ENCODING_VERSION
+                    || version > RegionAssigned.V2_BASE_INDEX) {
+                throw new IllegalStateException(
+                        "unsupported RegionAssigned encoding version " + version);
+            }
         } else if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported message encoding version " + version);
         }
@@ -459,13 +467,19 @@ public final class MessageCodec {
                 w.writeU32(Integer.toUnsignedLong(m.maxReplica()));
                 w.writeU64(m.heartbeatTicks());
         } else if (msg instanceof RegionAssigned m) {
-                w.writeU16(TAG_REGION_ASSIGNED).writeU16(ENCODING_VERSION);
+                // Per-message body version, retrofitted: this kind hardcoded the global one, so
+                // there was no way to append a field. The decoded version is carried on the record
+                // and written back here, which is what keeps a re-encode byte-identical.
+                w.writeU16(TAG_REGION_ASSIGNED).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.epoch().encode(w);
                 m.role().encode(w);
                 m.snapshotVersion().encode(w);
                 w.writeU64(m.leaseExpiryTick());
                 w.writeList(m.committee(), CanonicalWriter::writeEncodable);
+                if (m.bodyVersion() >= RegionAssigned.V2_BASE_INDEX) {
+                    w.writeBytes(m.baseIndexRoot());
+                }
         } else if (msg instanceof RegionRevoked m) {
                 w.writeU16(TAG_REGION_REVOKED).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
@@ -712,6 +726,10 @@ public final class MessageCodec {
                 w.writeU16(TAG_WORLD_DELETION_GOSSIP).writeU16(ENCODING_VERSION);
                 w.writeBytes(m.worldId());
                 w.writeBytes(m.encodedTombstone());
+        } else if (msg instanceof dev.nodera.protocol.membership.WorldRevivalGossip m) {
+                w.writeU16(TAG_WORLD_REVIVAL_GOSSIP).writeU16(ENCODING_VERSION);
+                w.writeBytes(m.worldId());
+                w.writeBytes(m.encodedRevival());
         } else if (msg instanceof dev.nodera.protocol.service.ServiceAnnounce m) {
                 w.writeU16(TAG_SERVICE_ANNOUNCE).writeU16(ENCODING_VERSION);
                 m.record().encode(w);
@@ -1046,8 +1064,11 @@ public final class MessageCodec {
                 long leaseExpiryTick = r.readU64();
                 java.util.List<dev.nodera.core.identity.NodeId> committee =
                         r.readList(dev.nodera.core.identity.NodeId::decode);
+                dev.nodera.core.Bytes baseIndexRoot =
+                        encodingVersion >= RegionAssigned.V2_BASE_INDEX
+                                ? r.readBytesValue() : null;
                 yield new RegionAssigned(region, epoch, role, snapshotVersion,
-                        leaseExpiryTick, committee);
+                        leaseExpiryTick, committee, baseIndexRoot, encodingVersion);
             }
             case TAG_REGION_REVOKED -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
@@ -1329,6 +1350,11 @@ public final class MessageCodec {
             case TAG_WORLD_DELETION_GOSSIP -> {
                 Bytes worldId = r.readBytesValue();
                 yield new dev.nodera.protocol.membership.WorldDeletionGossip(
+                        worldId, r.readBytesValue());
+            }
+            case TAG_WORLD_REVIVAL_GOSSIP -> {
+                Bytes worldId = r.readBytesValue();
+                yield new dev.nodera.protocol.membership.WorldRevivalGossip(
                         worldId, r.readBytesValue());
             }
             case TAG_SERVICE_ANNOUNCE -> {

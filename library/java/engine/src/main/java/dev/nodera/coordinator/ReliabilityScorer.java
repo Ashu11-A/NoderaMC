@@ -93,16 +93,6 @@ public final class ReliabilityScorer {
         return scoreBps(factors) >= assignmentFloorBps;
     }
 
-    /** @return the configured assignment floor (basis points). */
-    public int assignmentFloorBps() {
-        return assignmentFloorBps;
-    }
-
-    /** @return the config in use. */
-    public ReliabilityConfig config() {
-        return config;
-    }
-
     /**
      * Move every signal one step toward the decay target. Used when a node is observed offline.
      *

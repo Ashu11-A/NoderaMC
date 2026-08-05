@@ -219,6 +219,35 @@ final class MessageCodecGoldenTest {
         assertGolden(sampleRelayEnvelope(), RELAY_ENVELOPE_GOLDEN_HEX);
     }
 
+    @Test
+    void aV1AssignmentStillEncodesToItsFrozenBytesAfterTheV2Retrofit() {
+        // RegionAssigned hardcoded the global encoding version, so there was no way to append a
+        // field to it. Retrofitting a per-message body version has to leave v1 byte-identical, or
+        // every peer on the current release stops recognising an assignment.
+        RegionAssigned v1 = sampleRegionAssigned();
+
+        assertThat(v1.bodyVersion()).isEqualTo(RegionAssigned.V1);
+        assertThat(v1.namesBase()).isFalse();
+        assertGolden(v1, REGION_ASSIGNED_GOLDEN_HEX);
+    }
+
+    @Test
+    void aV2AssignmentCarriesTheBaseItSeatsItsCommitteeOn() {
+        RegionAssigned v2 = new RegionAssigned(
+                regionOverworld(), new RegionEpoch(3), RegionReplicaRole.PRIMARY,
+                new SnapshotVersion(10), 500L,
+                List.of(new NodeId(UUID.fromString("00000000-0000-0000-0000-0000000000aa"))),
+                Bytes.fromHex("11".repeat(32)));
+
+        assertThat(v2.bodyVersion()).isEqualTo(RegionAssigned.V2_BASE_INDEX);
+        assertThat(v2.namesBase()).isTrue();
+        // The decoded body version rides on the record, so a re-encode is byte-identical — the
+        // property a relay depends on when it forwards a frame it did not author.
+        byte[] encoded = MessageCodec.encode(v2);
+        assertThat(MessageCodec.decode(encoded)).isEqualTo(v2);
+        assertThat(MessageCodec.encode(MessageCodec.decode(encoded))).isEqualTo(encoded);
+    }
+
     /** Encode-side pin AND decode-side pin: the literal must round back to the sample. */
     private static void assertGolden(NoderaMessage sample, String goldenHex) {
         assertThat(Bytes.unsafeWrap(MessageCodec.encode(sample)).toHex())

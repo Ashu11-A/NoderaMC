@@ -39,7 +39,7 @@ export function ModInstallScreen() {
   };
 
   return (
-    <div className="flex max-w-[1000px] flex-col gap-4 px-[26px] pt-5 pb-10">
+    <div className="flex flex-col gap-4">
       {status === null ? (
         <Card title="Installations">
           {/* The error paragraph used to live *inside* the `status !== null` branch, so a failing

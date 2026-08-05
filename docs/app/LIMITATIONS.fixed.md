@@ -5,7 +5,7 @@
      capability regresses, open a bug issue and add a NEW row to LIMITATIONS.md — do not edit history
      here. -->
 
-**Category:** app · **Last audit:** 2026-07-28 · Retired rows: **7**
+**Category:** app · **Last audit:** 2026-08-01 · Retired rows: **7**
 
 | ID | Limitation | Retirement evidence | Owner | Retired |
 |---|---|---|---|---|

@@ -71,7 +71,9 @@ final class MultiplayerWorldFeedTest {
                     assertThat(e.mcRoute()).isEmpty();
                     assertThat(e.health()).isEqualTo(WorldHealth.DEAD);
                     assertThat(e.reliabilityBps()).isZero();
-                    assertThat(e.joinable()).isFalse();
+                    // Offered, because the swarm holds it and joining materialises it — but not by
+                    // connecting, because there is nothing listening.
+                    assertThat(e.joinableNow()).isFalse();
                 });
     }
 
@@ -82,19 +84,33 @@ final class MultiplayerWorldFeedTest {
                 + "\"players\":0,\"mc_route\":\"\"}]}";
         String open = "{\"connected_worlds\":[{\"world_id\":\"deadbeef\",\"name\":\"W\","
                 + "\"players\":1,\"mc_route\":\"10.0.0.4:25565\"}]}";
-        assertThat(MultiplayerWorldFeed.buildEntries(closed, "Steve").getFirst().joinable()).isFalse();
-        assertThat(MultiplayerWorldFeed.buildEntries(open, "Steve").getFirst().joinable()).isTrue();
+        assertThat(MultiplayerWorldFeed.buildEntries(closed, "Steve").getFirst().joinableNow())
+                .isFalse();
+        assertThat(MultiplayerWorldFeed.buildEntries(open, "Steve").getFirst().joinableNow())
+                .isTrue();
     }
 
-    /** A tracker row the directory itself calls DEAD is not offered either. */
+    /**
+     * A tracker row the directory calls DEAD is still offered — joining it materialises the world
+     * from the swarm rather than connecting to a host.
+     *
+     * <p>It used to be refused, which made the continuity lane's network-open path unreachable from
+     * the only screen it exists for: the world was on the network, being held by peers, and the
+     * button was grey.
+     */
     @Test
-    void aDeadTrackerWorldIsNotJoinable() {
+    void aDeadTrackerWorldIsStillOfferedBecauseTheSwarmHoldsIt() {
         var catalog = List.of(new dev.nodera.protocol.discovery.TrackerCatalogEntry(
                 dev.nodera.core.Bytes.fromHex("cafebabe"), "Gone", 0, 0, 0,
                 WorldHealth.DEAD, 0L));
         assertThat(MultiplayerWorldFeed.buildNetworkEntries(catalog))
                 .singleElement()
-                .satisfies(e -> assertThat(e.joinable()).isFalse());
+                .satisfies(e -> {
+                    assertThat(e.joinable()).isTrue();
+                    assertThat(e.joinableNow())
+                            .as("but not by connecting — there is no host to connect to")
+                            .isFalse();
+                });
     }
 
     /**
@@ -125,8 +141,11 @@ final class MultiplayerWorldFeedTest {
                     assertThat(e.health()).isEqualTo(WorldHealth.HEALTHY);
                     assertThat(e.playerCount()).isEqualTo(1);
                     assertThat(e.joinable()).as("the player can walk into it").isTrue();
-                    assertThat(e.name()).isEqualTo("Hello");
-                    assertThat(e.hostName()).as("local identity is kept").isEqualTo("Dev");
+                    assertThat(e.name()).as("local identity is kept").isEqualTo("Hello");
+                    // NOT "Dev". This node stores the world for somebody else, and every worker row
+                    // used to be stamped with the local player — so another player's world read
+                    // "by <me>". The name is local knowledge; the owner is not.
+                    assertThat(e.hostName()).isEmpty();
                 });
     }
 
@@ -150,7 +169,10 @@ final class MultiplayerWorldFeedTest {
                 .singleElement()
                 .satisfies(e -> {
                     assertThat(e.health()).isEqualTo(WorldHealth.DEAD);
-                    assertThat(e.joinable()).isFalse();
+                    assertThat(e.joinableNow())
+                            .as("this node hosts it and its game is closed; the tracker's cheerful "
+                                    + "row must not override the one node that actually knows")
+                            .isFalse();
                 });
     }
 
@@ -175,12 +197,29 @@ final class MultiplayerWorldFeedTest {
         assertThat(MultiplayerWorldFeed.buildEntries("{\"connected_worlds\":[]}", "Steve")).isEmpty();
     }
 
+    /**
+     * A world this node only stores has no name here, and says so rather than inventing one.
+     *
+     * <p>The worker names an archive-only row after its own 64-character world id, because a
+     * replicating peer has never been told what the world is called. Rendering that verbatim put a
+     * hex string in the list, sorted it under that string, and made the world impossible to find by
+     * typing its name. Blank is the honest answer, and {@code merge} then takes the name from the
+     * tracker row, which does know it.
+     */
     @Test
-    void blankNameFallsBackToWorldId() {
+    void aStoredWorldWithNoNameOfItsOwnStaysBlankForTheNetworkToFill() {
         String state = "{\"connected_worlds\":[{\"world_id\":\"abcd1234\",\"name\":\"\",\"players\":0}]}";
         assertThat(MultiplayerWorldFeed.buildEntries(state, "Alex"))
                 .singleElement()
                 .extracting(TorrentWorldEntry::name)
-                .isEqualTo("abcd1234");
+                .isEqualTo("");
+
+        // And the same when the worker echoes the id as the name, which is what it actually sends.
+        String echoed = "{\"connected_worlds\":[{\"world_id\":\"abcd1234\","
+                + "\"name\":\"abcd1234\",\"players\":0}]}";
+        assertThat(MultiplayerWorldFeed.buildEntries(echoed, "Alex"))
+                .singleElement()
+                .extracting(TorrentWorldEntry::name)
+                .isEqualTo("");
     }
 }

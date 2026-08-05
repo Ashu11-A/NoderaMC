@@ -47,6 +47,16 @@ public record Requirements(boolean needsDisplay, boolean needsPaperJar, boolean 
     }
 
     /**
+     * A scenario that needs a physical device <b>and</b> real Minecraft clients.
+     *
+     * <p>The two are not alternatives: a phone can only be shown to hold a world's content if there
+     * is a world, and a world only exists because a player opened one.
+     */
+    public static Requirements liveDevice(int freeGb) {
+        return new Requirements(true, false, true, freeGb);
+    }
+
+    /**
      * Why this machine cannot host the scenario.
      *
      * @return the reason to report as a skip, or empty when everything is available.

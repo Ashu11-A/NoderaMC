@@ -8,7 +8,7 @@
 // exactly the design that makes people click the wrong button.
 import { useEffect, useState } from "react";
 import { FiGlobe, FiRadio, FiShare2, FiX } from "react-icons/fi";
-import { Card, Empty, Pill, cx } from "./components";
+import { Button, Card, Empty, Modal, Pill, cx } from "./components";
 import {
   lanAction,
   onWorkerEvent,
@@ -118,20 +118,42 @@ export function LanOfferModal(props: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-6">
-      <section className="w-full max-w-[520px] rounded-lg border border-line bg-surface p-5 shadow-card">
-        <header className="flex items-start gap-3">
-          <span className="grid h-9 w-9 flex-none place-items-center rounded-sm bg-surface-2 text-brand-2">
+    <Modal
+      title={`Share “${session.name}” with the Nodera network?`}
+      width="md"
+      busy={busy}
+      onClose={() => setDismissed((current) => new Set(current).add(session.port))}
+      footer={
+        <>
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={() => setDismissed((current) => new Set(current).add(session.port))}
+            disabled={busy}
+          >
+            Not now
+          </Button>
+          <Button variant="secondary" size="md" onClick={() => answer("DECLINE")} disabled={busy}>
+            Don’t share this world
+          </Button>
+          <Button variant="primary" size="md" onClick={() => answer("SHARE")} disabled={busy}>
+            {busy ? "Sharing…" : "Share it"}
+          </Button>
+        </>
+      }
+    >
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 flex-none place-items-center rounded-md border border-brand-2/30 bg-brand-2/8 text-brand-1">
             <FiRadio />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[17px]">Share “{session.name}” with the Nodera network?</h2>
+            <p className="text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">LAN world detected</p>
             <p className="mt-1 text-sm text-dim">
               You just opened this world to your local network. Nodera can extend it so friends
               anywhere can join — they connect straight to your running game.
             </p>
           </div>
-        </header>
+        </div>
 
         <ul className="mt-4 flex flex-col gap-1.5 text-sm text-dim">
           <li>
@@ -150,33 +172,7 @@ export function LanOfferModal(props: {
 
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
-        <footer className="mt-5 flex flex-wrap items-center justify-end gap-2">
-          {/* Dismiss is not "no". It defers, and the card below keeps the world shareable — which
-              is what stops a modal from being a decision people make under pressure. */}
-          <button
-            className="rounded-sm px-3 py-1.5 text-sm text-dim hover:text-text"
-            onClick={() => setDismissed((d) => new Set(d).add(session.port))}
-            disabled={busy}
-          >
-            Not now
-          </button>
-          <button
-            className="rounded-sm border border-line px-3 py-1.5 text-sm hover:bg-surface-hover"
-            onClick={() => answer("DECLINE")}
-            disabled={busy}
-          >
-            Don’t share this world
-          </button>
-          <button
-            className="rounded-sm bg-brand px-3.5 py-1.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50"
-            onClick={() => answer("SHARE")}
-            disabled={busy}
-          >
-            {busy ? "Sharing…" : "Share it"}
-          </button>
-        </footer>
-      </section>
-    </div>
+    </Modal>
   );
 }
 

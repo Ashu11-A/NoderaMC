@@ -36,6 +36,12 @@ import java.util.function.Supplier;
  */
 public final class SelectWorldScreenAddon {
 
+    /** Vanilla's title baseline — this line shares it, out at the right edge. */
+    private static final int TITLE_BASELINE = 8;
+
+    /** Clearance kept from the screen edge and from the centred title. */
+    private static final int RIGHT_MARGIN = 8;
+
     private static volatile Supplier<List<PublicWorldStatus>> statusSupplier = List::of;
 
     private SelectWorldScreenAddon() {
@@ -46,12 +52,26 @@ public final class SelectWorldScreenAddon {
         statusSupplier = supplier == null ? List::of : supplier;
     }
 
+    /**
+     * Screen open: forget which saves carry which world.
+     *
+     * <p>The mapping is a file read per save, so it is cached for the life of the process — but a
+     * world can be shared, unshared or deleted between two visits to this screen, and re-reading a
+     * handful of small files when it opens costs nothing.
+     */
+    public static void onScreenInit(ScreenEvent.Init.Post event) {
+        if (event.getScreen() instanceof SelectWorldScreen) {
+            WorldRowBadges.invalidate();
+        }
+    }
+
     /** Registered on the NeoForge event bus by {@code ClientBootstrap}. */
     public static void onScreenRender(ScreenEvent.Render.Post event) {
         if (!(event.getScreen() instanceof SelectWorldScreen screen)) {
             return;
         }
-        Cell cell = PublicWorldBadgeView.summaryCell(statusSupplier.get());
+        List<PublicWorldStatus> shared = statusSupplier.get();
+        Cell cell = PublicWorldBadgeView.summaryCell(shared);
         if (cell == null) {
             return; // no shared worlds → nothing to annotate
         }
@@ -61,7 +81,39 @@ public final class SelectWorldScreenAddon {
         var font = Minecraft.getInstance().font;
         Integer colour = Palette.chat(Semantic.WORLD_HEALTHY).getColor();
         int rgb = colour == null ? 0xFFFFFF : colour;
-        int x = screen.width / 2 - font.width(summary) / 2;
-        graphics.drawString(font, summary, x, 8, rgb);
+        // BELOW the title, not on top of it. `y = 8` is where vanilla centres "Select World", so
+        // this drew one line straight through another and both became unreadable.
+        //
+        // Vanilla's title sits at y=8 with a line height of 9, so the first row that is certainly
+        // clear of it is y=20 — still in the header band, above the search box, and clear of the
+        // list below.
+        int y = TITLE_BASELINE;
+
+        // The one server-like fact this screen can state today without new plumbing: how many
+        // people are in those worlds right now. It comes from the same worker STATE the multiplayer
+        // tab reads, and it distinguishes "nobody is playing" from "nobody has told me", which the
+        // worker reports as -1 and this refuses to render as a zero.
+        // ONE line, in the top-right corner.
+        //
+        // The header band is fully spoken for: vanilla's title is centred at y=8, and the search box
+        // occupies y=22..42. Centring under the title — the first attempt at fixing the collision
+        // with the title — put this text straight through that box instead. There is no clear
+        // centred row up here at all.
+        //
+        // The right edge beside the title is free, because the title is short and centred. Skipped
+        // entirely when the screen is too narrow for both, which is the only case where this could
+        // still touch anything.
+        Cell online = PublicWorldBadgeView.onlineCell(shared);
+        Component line = online == null
+                ? summary
+                : Component.empty().append(summary)
+                        .append(Component.literal("  ")).append(ComponentRenderer.text(online));
+        int textWidth = font.width(line);
+        int titleRight = screen.width / 2 + font.width(screen.getTitle()) / 2;
+        int x = screen.width - textWidth - RIGHT_MARGIN;
+        if (x <= titleRight + RIGHT_MARGIN) {
+            return; // not enough room beside the title; saying nothing beats saying it twice
+        }
+        graphics.drawString(font, line, x, y, rgb);
     }
 }
