@@ -1,9 +1,35 @@
 # What never needs to reach the Docker daemon.
 #
 # Every image here builds from the repository root, because the Rust build needs `/VERSION` and the
-# whole `rust/` workspace. Without this file that context is several gigabytes of build output and
-# git history, which is slow locally and slower in CI — and the cargo `target/` in particular would be
-# copied in and then shadowed by the container's own target directory, so it is pure waste.
+# whole cargo workspace. Without this file that context is several gigabytes of build output, which
+# is slow locally and slower in CI — and the cargo `target/` in particular would be copied in and
+# then shadowed by the container's own target directory, so it is pure waste.
+#
+# WHAT THIS FILE EXCLUDES, AND WHAT IT DELIBERATELY NO LONGER DOES
+# ---------------------------------------------------------------
+# It excludes build output, dependency trees and runtime scratch. It does NOT try to exclude source
+# — not `docs/`, not `scripts/`, not the root markdown — and that is a correction rather than an
+# oversight.
+#
+# It used to. The rule was "everything the services do not build from", with a growing allowlist of
+# narrow `!` re-inclusions underneath it for `docker/web/Dockerfile`. That worked while
+# `scripts/build-site.sh` was a placeholder with no inputs. The real one READS THE REPOSITORY —
+# which is the entire point of the site: the roadmap table, the ten limitation registers, the
+# launcher's palette and nine mirrored documents are generated from their sources rather than
+# retyped, so a published page cannot disagree with the repository it describes.
+#
+# Against that, an allowlist cannot be finished. Reconstructing it empirically took five rounds and
+# never converged: the generators open `docs/`, `COMPATIBILITY.md`, two workspace packages, four
+# `scripts/lib` helpers and `scripts/services.py`; the mirror then resolves every relative link
+# inside those nine documents and fails closed on one that points at a file the context does not
+# have; and the site's own test suite reads `README.md` and `.github/workflows/build.yml` on top of
+# that. The set is bounded by "whatever a site generator or a site test opens", which is not a set
+# anybody can maintain by hand — and each miss is a build that fails deep inside a generator with a
+# message about a document, not about a Dockerfile.
+#
+# The exclusions it gave up are worth 3.5 MB. `docs/` is 2.5 MB, `scripts/` 344 KB, `fixtures/`
+# 604 KB, the root markdown 43 KB. That is the whole saving the allowlist was defending, and it was
+# never the reason this file exists — `target/` and `build/` are.
 
 # Build output
 target/
@@ -13,13 +39,19 @@ library/java/*/bin/
 library/java/build-logic/build/
 .gradle/
 node_modules/
-app/ui/dist/
-app/ui/node_modules/
 app/gen/
 
-# Version control and tooling
-.git/
-.github/
+# Dependency trees and build output inside the bun workspace packages. `node_modules/` above is
+# anchored at the context root, so it matches none of these. `dist/` is a build output twice over:
+# the web image produces its own inside the builder, and copying a laptop's in would only shadow it
+# for one layer.
+web/node_modules/
+web/dist/
+library/ts/nodera-ui/node_modules/
+app/ui/node_modules/
+app/ui/dist/
+
+# Tooling
 .idea/
 .vscode/
 
@@ -31,30 +63,19 @@ app/gen/
 /divergences/
 .jqwik-database
 
-# Everything the services do not build from
-docs/
-fixtures/
-scripts/
-*.md
-*.jpg
-*.png
-
-# --- what docker/web/Dockerfile needs back ------------------------------------------------------
+# --- why `.git/` is NOT excluded ----------------------------------------------------------------
 #
-# The three rules above are right for a Rust service and wrong for a website: a site is exactly the
-# markdown, the screenshots and the build script the services have no use for. Docker takes the LAST
-# matching pattern, so these are narrow re-inclusions rather than deletions — docs/, fixtures/ and
-# the rest of scripts/ stay out of every build context, including this one.
+# It was, and it is the one exclusion whose removal is load-bearing rather than incidental.
 #
-# Losing one of these is silent. The site simply builds without the file, and the image serves a
-# page with a missing image or 404s a route nobody tested.
-!web/**
-!scripts/build-site.sh
-!scripts/lib/layout.sh
-
-# …and back out again, after the re-inclusion, because `!web/**` would otherwise drag in whatever
-# the site's package manager left lying around. `node_modules/` above is anchored at the context
-# root and never matched web/node_modules. web/dist is a build output: the image produces its own
-# inside the builder, and copying a laptop's in would only shadow it for one layer.
-web/node_modules/
-web/dist/
+# The site mirrors nine documents. Eight are files on disk; the ninth is `services:README.md`, which
+# lives on the ORPHAN `services` branch and has no working-tree path at all. `mirror-docs.mjs` reads
+# it with `git show` and FAILS CLOSED when the ref is absent, because a mirror that quietly drops a
+# document is worse than one that stops. The same history dates every mirrored page from
+# `git log -1`; without it every "last updated" on the site silently becomes the day the image was
+# built. `build.yml` already established the recipe this depends on — `fetch-depth: 0` plus
+# `git fetch origin services:services badges:badges` — and `containers.yml` now carries it too.
+#
+# The cost is stated rather than hidden: ~28 MB of history, in a shared context, so the three Rust
+# images pay it as well. It is not the "several gigabytes" the header above was written against, and
+# a second web-only ignore file would be a second place to state these rules — which is the defect
+# this repository keeps finding in other shapes.
