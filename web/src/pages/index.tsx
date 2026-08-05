@@ -1,8 +1,19 @@
+import { SiteFooter, SiteHeader } from "../components/chrome";
+import { DoorStrip, FeatureGrid, Hero, HonestyBand, HowItWorks, NoModBand } from "../components/landing";
+
 export default function Page() {
   return (
-    <>
-      <h1>NoderaMC</h1>
-      <p>Minecraft without a server: the world is split into 8×8-chunk regions, and a committee of player-run machines simulates and re-checks each one.</p>
-    </>
+    <div className="min-h-screen bg-bg">
+      <SiteHeader landing />
+      <main>
+        <Hero />
+        <FeatureGrid />
+        <HowItWorks />
+        <NoModBand />
+        <HonestyBand />
+        <DoorStrip />
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
