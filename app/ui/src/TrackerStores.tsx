@@ -757,7 +757,10 @@ function StoreCard(props: {
             >
               {ago(store.last_refreshed_epoch_millis)}
             </span>{" "}
-            · <span className="break-all">{hostOf(store.url)}</span>
+            {/* `anywhere`, not `break-all`: a host only breaks when it cannot fit on a line of its
+                own, so a card in a three-column wall stops splitting `list0.nodera.example` down
+                the middle while a genuinely unbreakable address still cannot widen the card. */}
+            · <span className="[overflow-wrap:anywhere]">{hostOf(store.url)}</span>
           </p>
           {store.last_error && (
             // Beside the services, not instead of them: the list above is the last one that worked,

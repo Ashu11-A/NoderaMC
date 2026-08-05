@@ -335,7 +335,7 @@ export function SettingsScreen(props: {
       <nav
         ref={strip}
         className={cx(
-          "sticky top-0 z-10 flex min-w-0 gap-1 overflow-x-auto scroll-smooth border-b border-line-soft",
+          "sticky top-0 z-10 flex min-w-0 gap-1 overflow-x-auto border-b border-line-soft",
           "bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden",
           TAB_SCROLLBAR,
         )}
