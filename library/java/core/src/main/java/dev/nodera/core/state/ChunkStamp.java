@@ -88,8 +88,21 @@ public record ChunkStamp(int chunkX, int chunkZ, Bytes contentHash, Hlc stamp)
      * produced <i>identical</i> content are not in conflict at all, whatever their clocks say, and
      * treating them as one would churn a chunk between two versions of itself forever.
      *
+     * <h2>Why differing content with equal clocks still has to pick</h2>
+     *
+     * <p>Two columns can differ and carry clock readings that compare exactly equal — most commonly
+     * because neither has ever been written in a live process and both fell back to {@link Hlc#ZERO}.
+     * Answering "keep mine" there is order-dependent: peer A merging {@code (a, b)} would keep
+     * {@code a} while peer B merging {@code (b, a)} keeps {@code b}, and the two peers walk away
+     * holding different regions while both believing they merged.
+     *
+     * <p>So the last resort is the content hash itself, ordered lexicographically. That is arbitrary
+     * and carries no meaning — and it is <b>identical on every peer</b>, which is the only property a
+     * tie-break needs. An arbitrary rule everyone follows beats a meaningful rule two peers can
+     * disagree about.
+     *
      * @param other the competing stamp.
-     * @return the stamp to keep.
+     * @return the stamp to keep; commutative, so {@code a.merge(b).equals(b.merge(a))}.
      * @throws IllegalArgumentException if the stamps are for different columns.
      */
     public ChunkStamp merge(ChunkStamp other) {
@@ -104,7 +117,12 @@ public record ChunkStamp(int chunkX, int chunkZ, Bytes contentHash, Hlc stamp)
             // to have been rewritten by whichever peer described it most recently.
             return stamp.isAfter(other.stamp) ? other : this;
         }
-        return other.stamp.isAfter(stamp) ? other : this;
+        int byClock = stamp.compareTo(other.stamp);
+        if (byClock != 0) {
+            return byClock > 0 ? this : other;
+        }
+        return java.util.Arrays.compareUnsigned(contentHash.toArray(), other.contentHash.toArray())
+                >= 0 ? this : other;
     }
 
     @Override

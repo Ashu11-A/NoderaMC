@@ -111,7 +111,7 @@ final class PieceManifestTest {
 
         assertThatThrownBy(() -> new PieceManifest(
                 good.region(), good.version(), good.tick(), good.regionRoot(), good.blob(),
-                good.totalLength(), false, null, good.pieces(), tampered, null))
+                good.totalLength(), false, null, good.pieces(), tampered, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match the recomputed root");
     }
@@ -160,20 +160,20 @@ final class PieceManifestTest {
         // the slot round-trips today.
         PieceManifest encrypted = new PieceManifest(
                 plain.region(), plain.version(), plain.tick(), plain.regionRoot(), plain.blob(),
-                plain.totalLength(), true, key, plain.pieces(), plain.manifestRoot(), null);
+                plain.totalLength(), true, key, plain.pieces(), plain.manifestRoot(), null, null);
         CanonicalWriter w = new CanonicalWriter();
         encrypted.encode(w);
         assertThat(PieceManifest.decode(new CanonicalReader(w.toByteArray()))).isEqualTo(encrypted);
 
         assertThatThrownBy(() -> new PieceManifest(
                 plain.region(), plain.version(), plain.tick(), plain.regionRoot(), plain.blob(),
-                plain.totalLength(), true, null, plain.pieces(), plain.manifestRoot(), null))
+                plain.totalLength(), true, null, plain.pieces(), plain.manifestRoot(), null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("requires keyMaterial");
 
         assertThatThrownBy(() -> new PieceManifest(
                 plain.region(), plain.version(), plain.tick(), plain.regionRoot(), plain.blob(),
-                plain.totalLength(), false, key, plain.pieces(), plain.manifestRoot(), null))
+                plain.totalLength(), false, key, plain.pieces(), plain.manifestRoot(), null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not carry keyMaterial");
     }

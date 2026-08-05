@@ -62,11 +62,31 @@ final class ChunkDeltaTransferTest {
 
         SortedSet<Integer> needed = after.piecesChangedSince(before.chunkIndex());
 
-        assertThat(needed).hasSize(1);
-        assertThat(needed.first()).isEqualTo(after.pieceForChunk(indexOfColumn(after, 3, 0)));
-        assertThat(needed.size())
+        assertThat(needed)
+                .as("the piece carrying the edited column has to move")
+                .contains(after.pieceForChunk(indexOfColumn(after, 3, 0)));
+        // Pieces are cut per column, so the frame header and the entity record are pieces of their
+        // own that no column claims. The index cannot prove either unchanged — the header commits
+        // the version and tick, which moved — so they ride along. Three pieces out of sixty-six.
+        assertThat(needed)
                 .as("a one-column edit must not cost a whole region")
-                .isLessThan(after.manifest().pieceCount());
+                .hasSizeLessThanOrEqualTo(3);
+        assertThat(needed.size()).isLessThan(after.manifest().pieceCount());
+    }
+
+    @Test
+    void anUnchangedColumnKeepsItsPieceEvenWhenItsNeighboursGrow() {
+        // The reason a region is cut per column rather than to a byte target. Under a byte target,
+        // one column turning dense moves every later cut point, so pieces the receiver already holds
+        // get new hashes and reuse collapses — the whole-save archive's defect at region scale.
+        RegionSnapshotSplitter.Layout before = RegionSnapshotSplitter.split(snapshot(1, -1, 0));
+        RegionSnapshotSplitter.Layout after = RegionSnapshotSplitter.split(snapshot(2, 0, 4242));
+
+        SortedSet<Integer> needed = after.manifest().piecesNotHeldIn(before.manifest());
+
+        assertThat(needed)
+                .as("only the edited column's bytes and the header are new")
+                .hasSizeLessThanOrEqualTo(2);
     }
 
     @Test

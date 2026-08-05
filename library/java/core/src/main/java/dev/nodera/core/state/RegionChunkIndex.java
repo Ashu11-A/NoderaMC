@@ -40,21 +40,37 @@ import java.util.Objects;
  * lets a peer that is streaming one player's surroundings validate what it receives without first
  * fetching an index for terrain it will never look at.
  *
- * <p>Wire form: {@code [u16 REGION_CHUNK_INDEX][u16 1][RegionId][SnapshotVersion][list ChunkStamp]
- * [bytes root]}. Stamps are canonically ordered by {@code (chunkX, chunkZ)} on construction, so the
- * root is a property of the content and never of the order somebody happened to build the list in.
+ * <h2>Why there is no version number here</h2>
+ *
+ * <p>An index deliberately carries no {@link SnapshotVersion}. A version is a <b>per-region chain
+ * height</b> — how many times one committee has committed — and two peers that have been apart hold
+ * heights that were counted independently and mean nothing to each other. Comparing them was the old
+ * behaviour and the old bug: a region that happens to sit at height 900 outranked a genuinely more
+ * recent column from a peer sitting at 3, and that peer's work was discarded. Recency lives in the
+ * stamps' {@link Hlc}s, which are comparable across machines by construction; identity lives in
+ * {@link #root()}, which is comparable because it is content. Neither needs a counter.
+ *
+ * <p>Wire form: {@code [u16 REGION_CHUNK_INDEX][u16 2][RegionId][list ChunkStamp][bytes root]}.
+ * Stamps are canonically ordered by {@code (chunkX, chunkZ)} on construction, so the root is a
+ * property of the content and never of the order somebody happened to build the list in.
  *
  * @param region  the region described.
- * @param version the region snapshot version this index was taken at.
  * @param stamps  one stamp per chunk column, canonically ordered.
  * @param root    the merkle root over {@code stamps}; a derived field, re-verified on construction.
  * @Thread-context immutable record, safe for any thread.
  */
-public record RegionChunkIndex(RegionId region, SnapshotVersion version, List<ChunkStamp> stamps,
-                               Bytes root) implements Encodable {
+public record RegionChunkIndex(RegionId region, List<ChunkStamp> stamps, Bytes root)
+        implements Encodable {
 
-    /** Wire encoding version. */
-    public static final int ENCODING_VERSION = 1;
+    /**
+     * Wire encoding version.
+     *
+     * <p>Bumped to 2 when the {@link SnapshotVersion} field was removed. There is no frozen fixture
+     * for this type and no peer has ever consumed one — {@code PieceManifest} V2 is the only carrier
+     * and it had zero readers — so a hard version bump is correct here: a v1 frame means a chain
+     * height was about to be compared across peers, and failing loudly is better than honouring it.
+     */
+    public static final int ENCODING_VERSION = 2;
 
     private static final HashService HASHES = new HashService();
 
@@ -69,7 +85,6 @@ public record RegionChunkIndex(RegionId region, SnapshotVersion version, List<Ch
      */
     public RegionChunkIndex {
         Objects.requireNonNull(region, "region");
-        Objects.requireNonNull(version, "version");
         Objects.requireNonNull(stamps, "stamps");
         Objects.requireNonNull(root, "root");
         List<ChunkStamp> ordered = new ArrayList<>(stamps);
@@ -91,17 +106,15 @@ public record RegionChunkIndex(RegionId region, SnapshotVersion version, List<Ch
     /**
      * Build an index over a set of stamps.
      *
-     * @param region  the region.
-     * @param version the snapshot version.
-     * @param stamps  the stamps, in any order.
+     * @param region the region.
+     * @param stamps the stamps, in any order.
      * @return the index, with its root derived.
      * @Thread-context any thread.
      */
-    public static RegionChunkIndex of(RegionId region, SnapshotVersion version,
-                                      List<ChunkStamp> stamps) {
+    public static RegionChunkIndex of(RegionId region, List<ChunkStamp> stamps) {
         List<ChunkStamp> ordered = new ArrayList<>(stamps);
         ordered.sort(CANONICAL);
-        return new RegionChunkIndex(region, version, ordered, computeRoot(ordered));
+        return new RegionChunkIndex(region, ordered, computeRoot(ordered));
     }
 
     /**
@@ -224,8 +237,29 @@ public record RegionChunkIndex(RegionId region, SnapshotVersion version, List<Ch
         for (ChunkStamp stamp : other.stamps) {
             merged.merge(key(stamp.chunkX(), stamp.chunkZ()), stamp, ChunkStamp::merge);
         }
-        SnapshotVersion newest = version.compareTo(other.version) >= 0 ? version : other.version;
-        return of(region, newest, new ArrayList<>(merged.values()));
+        return of(region, new ArrayList<>(merged.values()));
+    }
+
+    /**
+     * The newest reading any column in this index carries.
+     *
+     * <p>The one scalar a caller can honestly derive from an index. Progress reporting and
+     * settle-detection want "has anything moved since I last looked", and the answer used to come
+     * from the region's version counter — which advanced on a commit that changed nothing anyone
+     * cares about, and did not advance at all for a peer that had received the change rather than
+     * made it. The newest stamp answers the question the caller actually meant.
+     *
+     * @return the maximum {@link Hlc} over the stamps, or {@link Hlc#ZERO} for an empty index.
+     * @Thread-context any thread.
+     */
+    public Hlc newestStamp() {
+        Hlc newest = Hlc.ZERO;
+        for (ChunkStamp stamp : stamps) {
+            if (stamp.stamp().isAfter(newest)) {
+                newest = stamp.stamp();
+            }
+        }
+        return newest;
     }
 
     private static long key(int chunkX, int chunkZ) {
@@ -236,7 +270,6 @@ public record RegionChunkIndex(RegionId region, SnapshotVersion version, List<Ch
     public void encode(CanonicalWriter w) {
         w.writeU16(TypeTags.REGION_CHUNK_INDEX).writeU16(ENCODING_VERSION);
         region.encode(w);
-        version.encode(w);
         w.writeList(stamps, CanonicalWriter::writeEncodable);
         w.writeBytes(root);
     }
@@ -256,15 +289,14 @@ public record RegionChunkIndex(RegionId region, SnapshotVersion version, List<Ch
         }
         r.readVersion(ENCODING_VERSION);
         RegionId region = RegionId.decode(r);
-        SnapshotVersion version = SnapshotVersion.decode(r);
         List<ChunkStamp> stamps = r.readList(ChunkStamp::decode);
         Bytes root = r.readBytesValue();
-        return new RegionChunkIndex(region, version, stamps, root);
+        return new RegionChunkIndex(region, stamps, root);
     }
 
     @Override
     public String toString() {
-        return "RegionChunkIndex[" + region + " v" + version.value() + " chunks=" + stamps.size()
-                + " root=" + root.toShortHex(6) + "]";
+        return "RegionChunkIndex[" + region + " chunks=" + stamps.size()
+                + " root=" + root.toShortHex(6) + " newest=" + newestStamp() + "]";
     }
 }

@@ -43,6 +43,30 @@ import java.util.Objects;
  */
 public final class RegionSnapshotSplitter {
 
+    /**
+     * Piece target meaning "cut at every boundary" — one piece per chunk column.
+     *
+     * <h2>Why a region is cut per column rather than to a byte target</h2>
+     *
+     * <p>A byte target packs several columns into one piece, and where the cuts land depends on how
+     * big the columns happen to be. A column that flips from sparse to dense — one player building —
+     * moves every later cut point, so pieces the receiver already holds get new hashes and the reuse
+     * this whole index exists to enable collapses. That is the same defect the whole-save archive has
+     * at file granularity, re-created at region granularity.
+     *
+     * <p>Cutting per column pins the boundaries to the structure instead of to the sizes. An
+     * unchanged column is a byte-identical piece however much its neighbours grew — it merely moves,
+     * and the piece plane addresses pieces by hash, so moving is free. It also makes
+     * {@code pieceOfChunk} the identity map, which turns {@link Layout#piecesChangedSince} into
+     * exactly {@link RegionChunkIndex#changedSince} and makes
+     * {@link ChunkLockMap#isChunkEditable} exact rather than conservative.
+     *
+     * <p>Cost: 64 pieces per region instead of a handful, and a sparse column is only a few hundred
+     * bytes. That is 64 piece hashes in the manifest — cheap against re-sending columns nobody
+     * touched.
+     */
+    public static final int PIECE_PER_COLUMN = 1;
+
     /** Shared hasher — {@link HashService} is thread-safe by {@link ThreadLocal} confinement. */
     private static final HashService HASHES = new HashService();
 
@@ -100,28 +124,11 @@ public final class RegionSnapshotSplitter {
          */
         public java.util.SortedSet<Integer> piecesChangedSince(
                 dev.nodera.core.state.RegionChunkIndex held) {
-            java.util.SortedSet<Integer> needed = new java.util.TreeSet<>();
-            dev.nodera.core.state.RegionChunkIndex mine = chunkIndex();
-            if (mine == null) {
-                for (int i = 0; i < manifest.pieceCount(); i++) {
-                    needed.add(i);
-                }
-                return needed;
-            }
-            // The index's stamps and the snapshot's chunks are both sorted by (chunkX, chunkZ) —
-            // RegionSnapshot canonicalises that order and RegionChunkIndex canonicalises the same
-            // one — so a stamp's position in the index IS its chunk ordinal, and `pieceOfChunk`
-            // maps it straight to the piece that carries it.
-            java.util.Set<dev.nodera.core.state.ChunkStamp> changed =
-                    new java.util.HashSet<>(mine.changedSince(held));
-            List<dev.nodera.core.state.ChunkStamp> ordered = mine.stamps();
-            for (int ordinal = 0; ordinal < ordered.size() && ordinal < pieceOfChunk.size();
-                    ordinal++) {
-                if (changed.contains(ordered.get(ordinal))) {
-                    needed.add(pieceOfChunk.get(ordinal));
-                }
-            }
-            return needed;
+            // Delegated: the manifest carries both the index and the mapping, so a peer that only
+            // ever receives a manifest computes the identical fetch set. Keeping a second copy of
+            // this logic here is how a seeder and a fetcher come to disagree about what "changed"
+            // means.
+            return manifest.piecesChangedSince(held);
         }
 
         /**
@@ -136,18 +143,18 @@ public final class RegionSnapshotSplitter {
     }
 
     /**
-     * Split {@code snapshot} at {@link PieceSplitter#DEFAULT_PIECE_TARGET_BYTES}.
+     * Split {@code snapshot} one piece per chunk column ({@link #PIECE_PER_COLUMN}).
      *
      * @param snapshot the snapshot to split.
      * @return the layout.
      * @Thread-context any thread.
      */
     public static Layout split(RegionSnapshot snapshot) {
-        return split(snapshot, PieceSplitter.DEFAULT_PIECE_TARGET_BYTES, null);
+        return split(snapshot, PIECE_PER_COLUMN, null);
     }
 
     /**
-     * Split at the default piece size, stamping columns from {@code book}.
+     * Split one piece per chunk column, stamping columns from {@code book}.
      *
      * @param snapshot the snapshot to split.
      * @param book     where this node records when each column was last written; {@code null} to
@@ -156,7 +163,7 @@ public final class RegionSnapshotSplitter {
      * @Thread-context any thread.
      */
     public static Layout split(RegionSnapshot snapshot, ChunkStampBook book) {
-        return split(snapshot, PieceSplitter.DEFAULT_PIECE_TARGET_BYTES, book);
+        return split(snapshot, PIECE_PER_COLUMN, book);
     }
 
     /**
@@ -209,7 +216,12 @@ public final class RegionSnapshotSplitter {
         w.writeU64(snapshot.tick());
         w.writeU32(chunks.size());
 
-        int entityRecordCount = snapshot.bodyVersion() >= 2 ? entities.size() : 0;
+        boolean perColumn = pieceTargetBytes == PIECE_PER_COLUMN;
+        // Per-column mode declares the entity list as ONE record rather than one per entity. Cutting
+        // per entity would give a manifest with a piece hash per mob, and — worse — would make the
+        // last column's piece move whenever an entity was added, which is the boundary drift the
+        // per-column cut exists to avoid.
+        int entityRecordCount = snapshot.bodyVersion() >= 2 ? (perColumn ? 1 : entities.size()) : 0;
         int[] recordStarts = new int[chunks.size() + entityRecordCount + 1];
         recordStarts[0] = 0;
         for (int i = 0; i < chunks.size(); i++) {
@@ -217,9 +229,14 @@ public final class RegionSnapshotSplitter {
             chunks.get(i).encode(w);
         }
         if (snapshot.bodyVersion() >= 2) {
+            if (perColumn) {
+                recordStarts[chunks.size() + 1] = w.size();
+            }
             w.writeU32(entities.size());
             for (int i = 0; i < entities.size(); i++) {
-                recordStarts[chunks.size() + i + 1] = w.size();
+                if (!perColumn) {
+                    recordStarts[chunks.size() + i + 1] = w.size();
+                }
                 entities.get(i).encode(w);
             }
         }
@@ -250,16 +267,19 @@ public final class RegionSnapshotSplitter {
         // fallback is derived from the snapshot, so a peer with no book still produces an index
         // byte-identical to every other peer's for the same snapshot — which is what lets two
         // nodes establish "we hold the same region" by comparing 32 bytes.
-        Hlc fallback = ChunkStampBook.derivedFrom(snapshot.version(), snapshot.tick());
+        Hlc fallback = ChunkStampBook.derivedFrom(snapshot.tick());
         List<ChunkStamp> stamps = new java.util.ArrayList<>(chunks.size());
         for (ChunkColumnState column : chunks) {
             Hlc stamp = book == null ? fallback
                     : book.stampFor(column.chunkX(), column.chunkZ(), fallback);
             stamps.add(ChunkStamp.of(column, stamp));
         }
-        RegionChunkIndex chunkIndex =
-                RegionChunkIndex.of(snapshot.region(), snapshot.version(), stamps);
+        RegionChunkIndex chunkIndex = RegionChunkIndex.of(snapshot.region(), stamps);
 
+        // The index canonicalises its stamps by (chunkX, chunkZ) and RegionSnapshot canonicalises its
+        // chunks the same way, so a stamp's position in the index IS its chunk ordinal — which is
+        // what makes pieceOfChunk, built here in chunk order, line up with the index the fetcher
+        // diffs against.
         PieceManifest manifest = PieceManifest.of(
                 snapshot.region(),
                 snapshot.version(),
@@ -268,7 +288,8 @@ public final class RegionSnapshotSplitter {
                 contentId,
                 blob.length,
                 pieces,
-                chunkIndex);
+                chunkIndex,
+                pieceOfChunk);
 
         return new Layout(snapshot, Bytes.unsafeWrap(blob), manifest, pieceOfChunk);
     }

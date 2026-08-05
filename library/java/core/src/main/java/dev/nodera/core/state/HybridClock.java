@@ -1,5 +1,6 @@
 package dev.nodera.core.state;
 
+import dev.nodera.core.NoderaConstants;
 import dev.nodera.core.identity.NodeId;
 
 import java.util.Objects;
@@ -29,6 +30,7 @@ public final class HybridClock {
 
     private long lastWall;
     private long lastCounter;
+    private long rejected;
 
     /**
      * @param node the issuing node — the tie-break every reading carries.
@@ -68,12 +70,31 @@ public final class HybridClock {
     /**
      * Learn about a remote reading.
      *
+     * <h2>Why this refuses some readings</h2>
+     *
+     * <p>Dragging the local clock forward is the whole point of observing, and it is also the attack.
+     * A merge resolves by "most recent wins", so a peer that announces a reading far in the future
+     * both wins every merge it takes part in and — because every clock that hears it adopts it —
+     * makes every honest peer agree that it should. One packet, and a region is owned forever.
+     *
+     * <p>So a reading more than {@link NoderaConstants#MAX_CLOCK_SKEW_MILLIS} ahead of this node's own
+     * wall clock is <b>not adopted</b>. It is counted and it is not an error: the sender may simply
+     * have a badly set clock, and refusing to move is the correct response either way. The reading
+     * still travels in the stamp it arrived on, so nothing is silently rewritten — this only governs
+     * what this node's own future readings are anchored to.
+     *
      * @param remote a reading seen from another node; {@code null} is ignored.
+     * @return whether the reading was adopted; {@code false} means it was beyond the skew bound.
      * @Thread-context any thread.
      */
-    public synchronized void observe(Hlc remote) {
+    public synchronized boolean observe(Hlc remote) {
         if (remote == null) {
-            return;
+            return false;
+        }
+        long horizon = wallClock.getAsLong() + NoderaConstants.MAX_CLOCK_SKEW_MILLIS;
+        if (remote.wallMillis() > horizon) {
+            rejected++;
+            return false;
         }
         if (remote.wallMillis() > lastWall) {
             lastWall = remote.wallMillis();
@@ -81,6 +102,15 @@ public final class HybridClock {
         } else if (remote.wallMillis() == lastWall && remote.counter() > lastCounter) {
             lastCounter = remote.counter();
         }
+        return true;
+    }
+
+    /**
+     * @return how many observed readings were refused for being beyond the skew bound — a
+     *         non-zero count means either a peer's clock is wrong or somebody is trying it on.
+     */
+    public synchronized long rejectedReadings() {
+        return rejected;
     }
 
     /** @return the node every reading from this clock is attributed to. */

@@ -51,16 +51,53 @@ final class HybridClockTest {
 
     @Test
     void observingARemoteReadingDragsThisClockForward() {
-        HybridClock slow = new HybridClock(node(), () -> 1_000L);
-        Hlc fromTheFuture = new Hlc(9_000_000L, 3, node().value());
+        long wall = 1_000_000L;
+        HybridClock slow = new HybridClock(node(), () -> wall);
+        // Ahead, but within honest skew: a peer whose clock is a couple of minutes fast.
+        Hlc ahead = new Hlc(wall + 2 * 60_000L, 3, node().value());
 
-        slow.observe(fromTheFuture);
+        assertThat(slow.observe(ahead)).isTrue();
         Hlc next = slow.now();
 
-        assertThat(next.isAfter(fromTheFuture))
+        assertThat(next.isAfter(ahead))
                 .as("a node that cannot answer 'after' to what it has seen will insist its own "
                         + "stale edits are the freshest")
                 .isTrue();
+    }
+
+    @Test
+    void aReadingFromTooFarInTheFutureIsRefused() {
+        // Merges resolve by "most recent wins" and every clock adopts what it observes, so an
+        // unbounded observe is a one-packet takeover: announce a reading near Long.MAX_VALUE and
+        // every peer that hears it agrees, forever, that you hold the newest copy of everything.
+        long wall = 1_000_000L;
+        HybridClock clock = new HybridClock(node(), () -> wall);
+        Hlc before = clock.now();
+        Hlc forged = new Hlc(Long.MAX_VALUE - 1, 0, node().value());
+
+        assertThat(clock.observe(forged)).isFalse();
+        assertThat(clock.rejectedReadings()).isEqualTo(1);
+
+        Hlc next = clock.now();
+        assertThat(next.isAfter(before)).isTrue();
+        assertThat(next.wallMillis())
+                .as("the forged reading must not have moved this clock at all")
+                .isEqualTo(before.wallMillis());
+        assertThat(forged.isAfter(next))
+                .as("the reading still sorts newer where it travels; it simply is not adopted")
+                .isTrue();
+    }
+
+    @Test
+    void aReadingExactlyAtTheSkewBoundIsStillAdopted() {
+        long wall = 1_000_000L;
+        HybridClock clock = new HybridClock(node(), () -> wall);
+        Hlc atTheBound =
+                new Hlc(wall + dev.nodera.core.NoderaConstants.MAX_CLOCK_SKEW_MILLIS, 0,
+                        node().value());
+
+        assertThat(clock.observe(atTheBound)).isTrue();
+        assertThat(clock.rejectedReadings()).isZero();
     }
 
     @Test

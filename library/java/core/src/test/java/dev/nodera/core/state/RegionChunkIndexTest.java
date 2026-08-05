@@ -22,8 +22,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 final class RegionChunkIndexTest {
 
     private static final RegionId REGION = new RegionId(DimensionKey.of("minecraft", "overworld"), 0, 0);
-    private static final SnapshotVersion V1 = new SnapshotVersion(1);
-    private static final SnapshotVersion V2 = new SnapshotVersion(2);
 
     private static ChunkColumnState column(int x, int z, int block) {
         return new ChunkColumnState(x, z, new int[]{block, block}, -64, 2, List.of());
@@ -33,8 +31,8 @@ final class RegionChunkIndexTest {
         return new Hlc(millis, 0, NodeId.random().value());
     }
 
-    private static RegionChunkIndex index(SnapshotVersion version, List<ChunkStamp> stamps) {
-        return RegionChunkIndex.of(REGION, version, stamps);
+    private static RegionChunkIndex index(List<ChunkStamp> stamps) {
+        return RegionChunkIndex.of(REGION, stamps);
     }
 
     @Test
@@ -52,7 +50,7 @@ final class RegionChunkIndexTest {
             }
         }
 
-        assertThat(index(V1, mine).root()).isEqualTo(index(V1, theirs).root());
+        assertThat(index(mine).root()).isEqualTo(index(theirs).root());
     }
 
     @Test
@@ -64,8 +62,8 @@ final class RegionChunkIndexTest {
         List<ChunkStamp> after = new ArrayList<>(before);
         after.set(2, ChunkStamp.of(column(2, 0, 99), at(2000)));
 
-        RegionChunkIndex held = index(V1, before);
-        RegionChunkIndex fresh = index(V2, after);
+        RegionChunkIndex held = index(before);
+        RegionChunkIndex fresh = index(after);
 
         assertThat(fresh.root()).isNotEqualTo(held.root());
         assertThat(fresh.changedSince(held))
@@ -81,13 +79,13 @@ final class RegionChunkIndexTest {
         List<ChunkStamp> early = List.of(ChunkStamp.of(column(0, 0, 5), at(1000)));
         List<ChunkStamp> late = List.of(ChunkStamp.of(column(0, 0, 5), at(9999)));
 
-        assertThat(index(V2, late).changedSince(index(V1, early))).isEmpty();
+        assertThat(index(late).changedSince(index(early))).isEmpty();
     }
 
     @Test
     void aColumnTheOtherSideHasNeverSeenCountsAsChanged() {
-        RegionChunkIndex held = index(V1, List.of(ChunkStamp.of(column(0, 0, 1), at(1000))));
-        RegionChunkIndex fresh = index(V2, List.of(
+        RegionChunkIndex held = index(List.of(ChunkStamp.of(column(0, 0, 1), at(1000))));
+        RegionChunkIndex fresh = index(List.of(
                 ChunkStamp.of(column(0, 0, 1), at(1000)),
                 ChunkStamp.of(column(0, 1, 1), at(1000))));
 
@@ -96,7 +94,7 @@ final class RegionChunkIndexTest {
 
     @Test
     void withNothingHeldEverythingIsChanged() {
-        RegionChunkIndex fresh = index(V1, List.of(
+        RegionChunkIndex fresh = index(List.of(
                 ChunkStamp.of(column(0, 0, 1), at(1000)),
                 ChunkStamp.of(column(0, 1, 2), at(1000))));
 
@@ -104,13 +102,13 @@ final class RegionChunkIndexTest {
     }
 
     @Test
-    void mergingTakesTheNewerVersionOfEachColumnSeparately() {
+    void mergingTakesTheMoreRecentVersionOfEachColumnSeparately() {
         // Two owners edited different corners while they could not see each other. A region-level
         // "newest wins" would discard one of them wholesale; per-column merging keeps both.
-        RegionChunkIndex ours = index(V2, List.of(
+        RegionChunkIndex ours = index(List.of(
                 ChunkStamp.of(column(0, 0, 10), at(5000)),
                 ChunkStamp.of(column(1, 0, 1), at(1000))));
-        RegionChunkIndex theirs = index(V2, List.of(
+        RegionChunkIndex theirs = index(List.of(
                 ChunkStamp.of(column(0, 0, 1), at(1000)),
                 ChunkStamp.of(column(1, 0, 20), at(6000))));
 
@@ -123,8 +121,34 @@ final class RegionChunkIndexTest {
     }
 
     @Test
+    void twoPeersMergingTheSamePairReachTheSameRegion() {
+        // The tie the old code resolved as "keep mine". Two columns that differ in content and carry
+        // clock readings that compare exactly equal — the ordinary case for terrain neither side has
+        // written in a live process, where both fall back to the same derived reading. Answering
+        // "mine" leaves A holding one column and B holding the other, both convinced they merged.
+        Hlc tied = Hlc.ZERO;
+        RegionChunkIndex a = index(List.of(ChunkStamp.of(column(0, 0, 11), tied)));
+        RegionChunkIndex b = index(List.of(ChunkStamp.of(column(0, 0, 22), tied)));
+
+        assertThat(a.mergeWith(b).root())
+                .as("a merge both peers perform must land both peers in the same place")
+                .isEqualTo(b.mergeWith(a).root());
+    }
+
+    @Test
+    void theNewestStampIsTheOneScalarAnIndexCanHonestlyReport() {
+        RegionChunkIndex index = index(List.of(
+                ChunkStamp.of(column(0, 0, 1), at(1000)),
+                ChunkStamp.of(column(1, 0, 2), at(9000)),
+                ChunkStamp.of(column(2, 0, 3), at(4000))));
+
+        assertThat(index.newestStamp().wallMillis()).isEqualTo(9000);
+        assertThat(index(List.of()).newestStamp()).isEqualTo(Hlc.ZERO);
+    }
+
+    @Test
     void itRoundTripsThroughItsCanonicalEncoding() {
-        RegionChunkIndex original = index(V2, List.of(
+        RegionChunkIndex original = index(List.of(
                 ChunkStamp.of(column(0, 0, 1), at(1000)),
                 ChunkStamp.of(column(3, 7, 2), at(2000))));
 
@@ -139,7 +163,7 @@ final class RegionChunkIndexTest {
     void aRootThatDoesNotMatchTheStampsIsRefused() {
         List<ChunkStamp> stamps = List.of(ChunkStamp.of(column(0, 0, 1), at(1000)));
 
-        assertThatThrownBy(() -> new RegionChunkIndex(REGION, V1, stamps,
+        assertThatThrownBy(() -> new RegionChunkIndex(REGION, stamps,
                 Bytes.unsafeWrap(new byte[32])))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("root");
@@ -151,7 +175,7 @@ final class RegionChunkIndexTest {
                 ChunkStamp.of(column(0, 0, 1), at(1000)),
                 ChunkStamp.of(column(0, 0, 2), at(2000)));
 
-        assertThatThrownBy(() -> RegionChunkIndex.of(REGION, V1, stamps))
+        assertThatThrownBy(() -> RegionChunkIndex.of(REGION, stamps))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("one stamp per column");
     }
