@@ -80,7 +80,7 @@ public final class TrackerClient implements TrackerLookup {
     /**
      * How a tracker endpoint is reached. Both surfaces carry the same frozen message family; they
      * differ only in framing and in what a service is willing to answer (see
-     * {@code docs/tracker/REFERENCE.md} §12–§13).
+     * {@code docs/tracker/REFERENCE.md}, "Surfaces").
      */
     public enum Transport {
         /**

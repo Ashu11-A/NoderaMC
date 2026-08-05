@@ -4,7 +4,7 @@
 //! Framing on TCP is `nodera-codec`'s (`u32` length + body, 16 MiB protocol cap) so peers reach the
 //! tracker with the same reader/writer they already use for `SocketPeerTransport`. On UDP the
 //! datagram *is* the frame — no length prefix, because the datagram boundary already carries it
-//! (`docs/tracker/REFERENCE.md` §13). No HTTP: one frozen encoding for the whole network is what
+//! (`docs/tracker/REFERENCE.md`, "Surfaces"). No HTTP: one frozen encoding for the whole network is what
 //! makes the cross-language conformance tests meaningful.
 //!
 //! Both surfaces decode into the same `Tracker::handle_frame`, so a world announced over one is
@@ -120,7 +120,7 @@ pub async fn serve_connection(
 /// * replies larger than `udp_max_reply_bytes` are **not sent** (a truncated canonical frame is
 ///   undecodable, so silence is the honest answer — the peer retries over TCP);
 /// * replies more than `udp_max_amplification`× the request are not sent, so the service cannot be
-///   pointed at a victim as a reflector (`TRACKERS.md` §13.2, §26).
+///   pointed at a victim as a reflector (`docs/tracker/REFERENCE.md`, "Surfaces").
 ///
 /// Unsupported frames are dropped silently rather than answered, for the same reason: an error
 /// reply to a spoofed source is still traffic an attacker chose to aim.
