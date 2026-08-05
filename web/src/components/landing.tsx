@@ -14,9 +14,10 @@ import { HeroFigure } from "./diagrams";
  * Two properties of this file are load-bearing and neither is cosmetic.
  *
  * **It fits a screen.** The section carries `min-h-[calc(100svh-4rem)]` — the viewport less the
- * 64px header — and centres its content in it, so the footer is the only thing under the fold at
- * 1920×1080, 1440×900, 1280×800 and 1000×1000. That is a budget, and every line of copy here is
- * spent against it.
+ * `h-16` header `chrome.tsx` puts above it — and centres its content in it, so the footer is the
+ * only thing under the fold at 1920×1080, 1440×900, 1280×800 and 1000×1000. The shortest of those
+ * leaves 736px, which is the budget every line of copy on this page is spent against: the reason
+ * the card bodies are `text-sm` and the caveat is one line is that they are the last 60px.
  *
  * **The honesty did not leave with the honesty band.** The hero's caveat carries the generated
  * count of open limitations, straight out of the registers the build reads; `/status` is one click
