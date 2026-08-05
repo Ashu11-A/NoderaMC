@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { VERSION } from "./data";
+import { SearchButton, SearchDialog, useSearch } from "./search";
 import { useMounted, usePrefersReducedMotion, useResolvedTheme, useScrollLock } from "./use-theme";
 
 /**
@@ -112,6 +113,9 @@ export function SiteHeader(props: { landing?: boolean; current?: string }) {
   const reduced = usePrefersReducedMotion();
   const [atTop, setAtTop] = useState(false);
   const [menu, setMenu] = useState(false);
+  // One owner for the dialog and its shortcut. The header is the only place both the button and the
+  // dialog are rendered, so a context provider would be ceremony around a boolean.
+  const search = useSearch();
 
   useEffect(() => {
     if (!props.landing || reduced) return;
@@ -144,8 +148,17 @@ export function SiteHeader(props: { landing?: boolean; current?: string }) {
           </span>
           <span className="display-type text-body font-bold">NoderaMC</span>
         </a>
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
           <NavMenu current={props.current} />
+          {/* Two renderings of one control, not two controls: the labelled button where there is
+              room for a label, the icon where there is not. Both open the same dialog, and the
+              shortcut works whichever is on screen. */}
+          <span className="hidden md:block">
+            <SearchButton onOpen={search.onOpen} />
+          </span>
+          <span className="md:hidden">
+            <SearchButton onOpen={search.onOpen} compact />
+          </span>
           <a
             href={REPO}
             rel="noopener noreferrer"
@@ -170,6 +183,7 @@ export function SiteHeader(props: { landing?: boolean; current?: string }) {
         </div>
       </div>
       <MobileNavOverlay open={menu} onClose={() => setMenu(false)} />
+      <SearchDialog open={search.open} onClose={search.onClose} />
     </header>
   );
 }

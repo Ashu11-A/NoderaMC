@@ -11,6 +11,10 @@
       "types": "./src/store-link.d.mts",
       "default": "./src/store-link.mjs"
     },
+    "./search": {
+      "types": "./src/search.d.mts",
+      "default": "./src/search.mjs"
+    },
     "./vite": "./vite/preset.mjs",
     "./layout": "./layout.mjs",
     "./token-audit": "./tests/token-audit.mjs"

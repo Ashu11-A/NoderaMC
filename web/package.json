@@ -6,7 +6,7 @@
   "scripts": {
     "generate": "node scripts/fetch-release.mjs && node scripts/build-services.mjs && node scripts/build-status.mjs && node scripts/build-tokens.mjs && node scripts/mirror-docs.mjs",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build && vite build --ssr main.tsx && node scripts/prerender.mjs",
+    "build": "tsc --noEmit && vite build && vite build --ssr main.tsx && node scripts/prerender.mjs && node scripts/build-search-index.mjs",
     "sitemap": "node scripts/sitemap.mjs",
     "test": "node --test \"tests/*.test.mjs\"",
     "dev": "vite"
