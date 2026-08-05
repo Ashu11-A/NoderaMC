@@ -48,6 +48,8 @@ public final class ClientValidationLane {
     private static WorkerValidationService service;
     private static dev.nodera.peer.view.LocalReplicaView replicaView;
     private static dev.nodera.mod.common.RegionSeedSpool regionSeedSpool;
+    /** Pulls the content the host named for a region, off the client main thread. */
+    private static dev.nodera.mod.common.RegionFetchSpool regionFetches;
     private static int activeRegions;
 
     private ClientValidationLane() {
@@ -128,7 +130,9 @@ public final class ClientValidationLane {
             }
         }
 
+        regionFetches = dev.nodera.mod.common.RegionFetchSpool.companion();
         int mine = 0;
+        int deferred = 0;
         for (EntityLaneBootstrap.PlannedRegion planned : EntityLaneBootstrap.plan(
                 views, identity.nodeId(), plan.gameTime(), plan.committeeSize(), residents)) {
             // `lease.contains` is "primary or validator", which is exactly this test — and unlike
@@ -142,17 +146,21 @@ public final class ClientValidationLane {
                         planned.region().dimension().namespace(),
                         planned.region().dimension().path(),
                         planned.region().regionX(), planned.region().regionZ());
-                dev.nodera.core.state.RegionSnapshot base = named == null
-                        ? EntityLaneBootstrap.initialSnapshot(planned.region())
-                        : fetchBase(planned.region(), named);
-                if (base == null) {
-                    LOG.warn("Nodera: not validating {} — the base the host named could not be "
-                            + "fetched, and validating a world this client does not hold is worse "
-                            + "than not validating", planned.region());
+                if (named == null) {
+                    // The host could not read this region completely, so nobody has a base for it
+                    // and every member derives the same one — the historic behaviour, unchanged.
+                    lane.activateRegion(
+                            EntityLaneBootstrap.initialSnapshot(planned.region()), planned.lease());
+                    mine++;
                     continue;
                 }
-                lane.activateRegion(base, planned.lease());
-                mine++;
+                // NEVER on this thread. `apply` runs on the client main thread, and a region fetch
+                // is a network transfer with a budget measured in tens of seconds: waiting for one
+                // here froze the game for 45 seconds per region and then failed anyway. The region
+                // is activated when its content arrives; until then this client simply does not
+                // validate it, which costs a committee seat and costs nobody a frame.
+                deferred++;
+                fetchBaseAsync(planned.region(), named, lane, planned.lease());
             }
         }
         // L-16: the prediction/rollback overlay — every commit the lane applies reconciles the
@@ -179,7 +187,9 @@ public final class ClientValidationLane {
         dev.nodera.endpoint.lane.LiveRegionOwnershipProvider.activate(lane, identity.nodeId());
         LOG.info("client validation lane active on {} region(s) — this player re-executes and "
                         + "votes for its own region set ({} member node(s) + {} resident peer(s) "
-                        + "in the plan)", mine, views.size(), residents.size());
+                        + "in the plan){}", mine, views.size(), residents.size(),
+                deferred == 0 ? "" : ", " + deferred
+                        + " more waiting on the content the host named for them");
     }
 
     /**
@@ -254,40 +264,56 @@ public final class ClientValidationLane {
                 regionSeedSpool.close();
                 regionSeedSpool = null;
             }
+            if (regionFetches != null) {
+                // In-flight fetches are for a plan that no longer exists; their callbacks check the
+                // lane identity anyway, but there is no reason to keep the transfers running.
+                regionFetches.close();
+                regionFetches = null;
+            }
             activeRegions = 0;
         }
     }
 
     /**
-     * Fetch the state the host named for a region, through this player's own worker.
+     * Fetch the state the host named for a region, and activate it when it arrives.
      *
-     * <p>Blocking, and on the lane-apply path deliberately: a client that starts validating before
-     * it holds the region is a client that disagrees with every proposal it sees. The transfer is a
-     * few columns for a region this node mostly holds already — the piece plane reuses anything
-     * whose hash it has under any other root — and the alternative is a validator voting confidently
-     * against reality.
+     * <h2>Why this cannot be synchronous</h2>
      *
-     * @return the state, or {@code null} when it could not be obtained.
+     * <p>{@code apply} runs on the client main thread. A region fetch is a network transfer whose
+     * budget is measured in tens of seconds, and waiting for one here froze the game for
+     * three quarters of a minute per region — the exact stall that expires the vanilla keepalive
+     * and gets the client kicked. The first live run of this code did precisely that, twice, and
+     * then failed anyway.
+     *
+     * <p>So the lane starts without the region and gains it when the content lands. A region this
+     * client is not yet validating costs a committee seat, which the quorum already handles; a
+     * frozen client costs the session.
      */
-    private static dev.nodera.core.state.RegionSnapshot fetchBase(
-            dev.nodera.core.region.RegionId region, String indexRootHex) {
-        java.util.concurrent.CompletableFuture<dev.nodera.core.state.RegionSnapshot> arrived =
-                new java.util.concurrent.CompletableFuture<>();
-        dev.nodera.mod.common.RegionFetchSpool spool =
-                dev.nodera.mod.common.RegionFetchSpool.companion();
-        try {
-            if (!spool.request(region, indexRootHex, arrived::complete)) {
-                return null;
-            }
-            return arrived.get(45, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            return null;
-        } catch (Exception unavailable) {
-            LOG.debug("could not fetch the base for {}: {}", region, unavailable.toString());
-            return null;
-        } finally {
-            spool.close();
+    private static void fetchBaseAsync(dev.nodera.core.region.RegionId region, String indexRootHex,
+                                       WorkerValidationService lane,
+                                       dev.nodera.core.region.RegionLease lease) {
+        dev.nodera.mod.common.RegionFetchSpool spool = regionFetches;
+        if (spool == null) {
+            return;
         }
+        spool.request(region, indexRootHex, snapshot -> {
+            try {
+                // The lane this fetch was started for may have been replaced by a newer plan while
+                // the transfer ran. Activating into a stale lane would seat this client on a
+                // committee nobody else believes it is on.
+                synchronized (ClientValidationLane.class) {
+                    if (service != lane) {
+                        LOG.debug("dropping the fetched base for {} — the plan moved on", region);
+                        return;
+                    }
+                    lane.activateRegion(snapshot, lease);
+                    activeRegions++;
+                }
+                LOG.info("Nodera: now validating {} — its content arrived from the network", region);
+            } catch (RuntimeException refused) {
+                LOG.warn("Nodera: could not activate {} on the fetched base: {}",
+                        region, refused.toString());
+            }
+        });
     }
 }
