@@ -78,7 +78,7 @@ test("the escape hatch cannot be styled away", () => {
 });
 
 test("a theme is not persisted until it is kept", () => {
-  const screen = read("Theme.tsx");
+  const screen = read("ThemeScreen.tsx");
 
   assert.match(screen, /Keep this theme/, "nothing asks for confirmation");
   assert.match(screen, /Reverting in/, "an unconfirmed theme is never taken back");
@@ -100,7 +100,7 @@ test("a theme is not persisted until it is kept", () => {
 test("a custom theme is a patch on a base scheme, and it says where it does not apply", () => {
   const custom = read("customtheme.ts");
   const rewriter = read("themecss.ts");
-  const screen = read("Theme.tsx");
+  const screen = read("ThemeScreen.tsx");
 
   assert.match(custom, /dataset\.customTheme/, "the custom theme writes no scoping attribute");
   // `dataset.theme` keeps exactly one writer, and it is `theme.ts`. Two writers of that attribute is

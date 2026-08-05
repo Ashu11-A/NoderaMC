@@ -296,11 +296,25 @@ test("R17 the page is self-contained: no external CSS, font, script or image", (
   }
   assert.equal(context.document.querySelectorAll("script[src]").length, 0);
   assert.equal(context.document.querySelectorAll("link[rel=stylesheet]").length, 0);
-  // Comments stripped first. The page's own header comment lists what it refuses to load — "no
-  // external CSS, no fonts, no analytics, no requests of any kind" — so without this the sentence
-  // stating the rule fails the rule. `app/ui/tests/ux-honesty.test.mjs` learned the same lesson.
+  // Comments are removed by the parser that already read this page, never by a regex over its
+  // source. The page's own header comment lists what it refuses to load — "no external CSS, no
+  // fonts, no analytics, no requests of any kind" — so without removing them the sentence stating
+  // the rule would fail the rule. `app/ui/tests/ux-honesty.test.mjs` learned the same lesson.
+  //
+  // One pass of `/<!--[\s\S]*?-->/g` looks equivalent and is not: it decides where a comment ends
+  // by looking at the text, while the browser decides by parsing. The two disagree on exactly the
+  // inputs that matter, so a string the parser never treated as a comment can be deleted anyway —
+  // and the assertion then passes over markup that is really there. It is also the shape CodeQL
+  // rejects as incomplete multi-character sanitization, and it is right to.
+  const comments = [];
+  const walker = context.document.createTreeWalker(
+    context.document,
+    context.window.NodeFilter.SHOW_COMMENT,
+  );
+  while (walker.nextNode()) comments.push(walker.currentNode);
+  for (const comment of comments) comment.remove();
   assert.doesNotMatch(
-    html.replace(/<!--[\s\S]*?-->/g, ""),
+    context.document.documentElement.outerHTML,
     /@import|fonts\.googleapis|analytics|gtag|googletagmanager/,
   );
 });

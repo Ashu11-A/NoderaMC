@@ -32,7 +32,7 @@ import { createPortal } from "react-dom";
 import { FiCompass, FiDroplet, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
 import { SCROLLPORT_ID, StaleDataNotice } from "./components";
 import { Rail } from "./Rail";
-import { ThemeScreen } from "./Theme";
+import { ThemeScreen } from "./ThemeScreen";
 import { ESCAPE_ID, applyCustomTheme, useCustomTheme } from "./customtheme";
 import { SettingsScreen, type Section as SettingsSection } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
