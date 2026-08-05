@@ -90,7 +90,8 @@ final class ManifestIndexStore {
             Files.createDirectories(root);
             CanonicalWriter writer = new CanonicalWriter();
             manifest.encode(writer);
-            Path target = root.resolve(fileName(worldIdHex, laneOf(manifest), manifest.manifestRoot()));
+            Path target = inside(root, fileName(worldIdHex, laneOf(manifest),
+                    manifest.manifestRoot()));
             Path temporary = Files.createTempFile(root, "manifest", ".tmp");
             Files.write(temporary, writer.toBytes().toArray());
             Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING,
@@ -105,11 +106,41 @@ final class ManifestIndexStore {
     /** Forget one manifest, when retention trims it. */
     void remove(String worldIdHex, PieceManifest manifest) {
         try {
-            Files.deleteIfExists(
-                    root().resolve(fileName(worldIdHex, laneOf(manifest), manifest.manifestRoot())));
+            Path root = root();
+            Files.deleteIfExists(inside(root, fileName(worldIdHex, laneOf(manifest),
+                    manifest.manifestRoot())));
         } catch (IOException ignored) {
             // A manifest that outlives its content is re-trimmed on the next pass.
         }
+    }
+
+    /**
+     * Resolve {@code name} under {@code root} and prove the result is still under {@code root}.
+     *
+     * <h2>Why the containment check and not only the shape check</h2>
+     *
+     * <p>{@link #requireHex} already refuses a world id that is not hexadecimal, which is the right
+     * thing to state and the right thing to fail on. It is not, on its own, the right thing to
+     * <b>rely</b> on: it is a guard on one of three components, sitting a call away from the
+     * resolution it protects, and the next person to add a fourth component gets no warning at all.
+     *
+     * <p>This asks the question the file system will actually answer — after normalising, is the
+     * path still inside the directory it was supposed to be inside? That holds whatever the input
+     * was, whoever adds a component later, and however clever the traversal is.
+     *
+     * @param root the directory the file must live in.
+     * @param name the file name.
+     * @return the resolved path.
+     * @throws IllegalArgumentException if resolving {@code name} escapes {@code root}.
+     */
+    private static Path inside(Path root, String name) {
+        Path base = root.toAbsolutePath().normalize();
+        Path resolved = base.resolve(name).normalize();
+        if (!resolved.startsWith(base)) {
+            throw new IllegalArgumentException(
+                    "a manifest file name resolved outside the manifest store");
+        }
+        return resolved;
     }
 
     /** Which map a manifest belongs in: the archive lane files under a synthetic region. */
