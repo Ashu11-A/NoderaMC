@@ -12,7 +12,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { storeOfferHref } from "nodera-ui/store-link";
 import { dir, layoutValue, repositoryDirectory } from "nodera-ui/layout";
 
 const OUT = path.join(dir("web"), "src/generated/services.json");
@@ -41,9 +40,13 @@ if (!Array.isArray(index.services)) die(`${resolved} has no services array`);
 
 // Every row on `/services/` offers the list it came from, not itself: `/add-store` hands the app a
 // service *index*, and a person adding a store is trusting a publisher rather than one endpoint.
-// The URL is composed by the shared kit so the site and the README cannot spell it differently —
-// `web/tests/add-store.test.mjs` holds the README badge to this same value.
-const storeUrl = storeOfferHref(layoutValue("services.rawUrl"));
+//
+// This is the PUBLISHER'S URL, not a link. It used to be a finished `/add-store?url=…` href, and the
+// service table then composed that href a second time — which double-encoded the address and shipped
+// a button the deep-link page refused with "The address in this link is not a valid URL". The
+// contract is now unambiguous in both directions: this file emits data (an address), the view
+// composes the link, and `storeOfferHref` throws if it is ever handed its own output.
+const storeIndexUrl = layoutValue("services.rawUrl");
 
 const services = index.services.map((entry) => {
   for (const required of ["kind", "name", "endpoints"]) {
@@ -60,7 +63,7 @@ const services = index.services.map((entry) => {
     // and hiding the one a person has to paste.
     endpoints: [...entry.endpoints],
     operator: entry.operator ?? null,
-    storeUrl,
+    storeIndexUrl,
   };
 });
 

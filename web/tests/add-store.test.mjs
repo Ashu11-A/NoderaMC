@@ -345,3 +345,106 @@ test("the README badge still points here, at the list layout.properties declares
   // `services.rawUrl` in either direction without one of them failing.
   assert.equal(badge[1], storeOfferHref(layoutValue("services.rawUrl")));
 });
+
+/* ===========================================================================================
+ * THE SENDING END — the buttons that press this page
+ *
+ * Everything above is the receiving end: given a `?url=`, does the page do the right seventeen
+ * things. Nothing above asks where that `?url=` comes from, and that is exactly where the site
+ * shipped broken.
+ *
+ * `/services/` rendered every "Add to NoderaMC" button as
+ *
+ *   /add-store?url=%2Fadd-store%3Furl%3Dhttps%253A%252F%252Fraw…
+ *
+ * because the generator wrote a finished href into the data and the component composed a second one
+ * on top of it. Every rule above still passed — the page was handed a string that is not a URL, and
+ * it refused it, in its own words, which is R4 working perfectly. The two halves were each correct
+ * and the contract between them was written down nowhere a build could read.
+ *
+ * So these tests join the two halves: take the href the site actually emitted, feed it to the page
+ * the way a browser would, PRESS THE BUTTON, and decode what the app would receive. A grep for
+ * `%253A` would have caught this one instance; pressing the button catches the class.
+ * ========================================================================================= */
+
+/** What the app receives from a press: the `url` the `nodera://` intent carries, decoded. */
+function pressAndDecode(offerHref) {
+  assert.ok(offerHref.startsWith("/add-store?"), `${offerHref} is not an offer href`);
+  const context = open(offerHref.slice(offerHref.indexOf("?")));
+  assert.ok(
+    !visible(context, "bad"),
+    `the page refused the site's own button: "${refusal(context)}" (href was ${offerHref})`,
+  );
+  assert.ok(visible(context, "ok"), `${offerHref} reached neither the offer nor a refusal`);
+  context.document.getElementById("open").click();
+  assert.equal(context.navigations.length, 1, "one press must invoke the scheme exactly once");
+  // Decoded with `URLSearchParams`, which is what the page itself reads the inbound `?url=` with —
+  // so a round trip that survives here is one that survives the real hop rather than one that
+  // survives this test's idea of decoding.
+  return {
+    shown: shown(context),
+    received: new URL(context.navigations[0]).searchParams.get("url"),
+  };
+}
+
+test("every Add-to-NoderaMC button on /services/ delivers the publisher's URL unchanged", () => {
+  const built = path.join(distDirectory, "services", "index.html");
+  assert.ok(existsSync(built), "scripts/build-site.sh did not emit /services/");
+  const { document } = new JSDOM(readFileSync(built, "utf8")).window;
+  const offers = [...document.querySelectorAll('a[href^="/add-store"]')].map((node) =>
+    node.getAttribute("href"),
+  );
+
+  // The count is what separates "every button is correct" from "there are no buttons". The
+  // generated list is the authority on how many rows that page has.
+  const published = JSON.parse(
+    readFileSync(path.join(siteDirectory, "src/generated/services.json"), "utf8"),
+  );
+  assert.ok(published.services.length > 0, "the generated service list is empty");
+  assert.equal(
+    offers.length,
+    published.services.length,
+    "one offer button per published service, and no more",
+  );
+
+  for (const [i, href] of offers.entries()) {
+    const publisher = published.services[i].storeIndexUrl;
+    const { received, shown: displayed } = pressAndDecode(href);
+    // Not "a valid URL", not "starts with https" — the publisher's string, character for character.
+    // A page that repairs an address has taken the decision away from the person making it.
+    assert.equal(
+      received,
+      publisher,
+      `the app would receive a different address from row ${i + 1} than the one published`,
+    );
+    assert.equal(displayed, publisher, `row ${i + 1} showed a different address than it offers`);
+  }
+});
+
+test("the offer survives a publisher URL full of characters that encode badly", () => {
+  // The generated list holds one plain raw.githubusercontent.com URL, so the rows above cannot fail
+  // on encoding alone. These are the inputs that separate "encoded once" from "encoded twice" and
+  // from "not encoded at all": a `%2F` that must not become `%252F`, a `+` that must not arrive as
+  // a space, an `&` that must not split the query, and a `#` that must not truncate it.
+  for (const publisher of [
+    "https://lists.example.org/a%2Fb/index.json",
+    "https://lists.example.org/index.json?v=1&kind=tracker",
+    "https://lists.example.org/list+of+lists.json",
+    "https://lists.example.org/index.json#anchor",
+    "https://lists.example.org:8443/index.json",
+  ]) {
+    const { received, shown: displayed } = pressAndDecode(storeOfferHref(publisher));
+    assert.equal(received, publisher, `${publisher} did not survive the hop`);
+    assert.equal(displayed, publisher, `${publisher} was not shown as published`);
+  }
+});
+
+test("storeOfferHref refuses its own output — the shape of the defect, as a throw", () => {
+  // The composition is idempotent-looking and is not: calling it twice produces a string that is
+  // still a plausible href and is no longer a URL. There is no second caller today, and this is what
+  // stops the third one from being written.
+  const once = storeOfferHref(layoutValue("services.rawUrl"));
+  assert.throws(() => storeOfferHref(once), /already an offer href/);
+  assert.throws(() => storeOfferHref("/services/"), /not an absolute URL/);
+  assert.throws(() => storeOfferHref(""), /expected a published index URL/);
+});

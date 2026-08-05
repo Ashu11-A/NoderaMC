@@ -52,8 +52,16 @@ export interface ServiceEntry {
   kind: "tracker" | "rendezvous";
   endpoints: string[];
   operator: string | null;
-  /** `/add-store?url=…` for the list this service came from. Built by `storeOfferHref`. */
-  storeUrl: string;
+  /**
+   * The published index this service was read from, as an ABSOLUTE URL, exactly as its publisher
+   * spells it. It is data, not a link: `storeOfferHref` turns it into one, once, at the render site.
+   *
+   * It was called `storeUrl` and held a finished `/add-store?url=…` href, while the service table
+   * composed that href a second time — so every "Add to NoderaMC" button shipped double-encoded and
+   * the deep-link page refused it as malformed. The name now says which of the two things it is, and
+   * `storeOfferHref` throws when handed its own output, so the pair cannot be confused again quietly.
+   */
+  storeIndexUrl: string;
 }
 
 export interface ServicesData {

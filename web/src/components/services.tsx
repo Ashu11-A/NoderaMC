@@ -19,14 +19,21 @@ import { Badge } from "./primitives";
  * `nodera://` href in a README is silently deleted. `/add-store` is the https hop that turns a click
  * into the scheme, and it fires nothing on load — the scheme is only ever reached from a press.
  *
+ * `indexUrl` is the PUBLISHER'S address, and the prop is named for that rather than `url` on
+ * purpose. It used to be `url`, and the generated data used to arrive already composed, so the href
+ * was built twice and every button on this page shipped as
+ * `/add-store?url=%2Fadd-store%3Furl%3D…` — which the deep-link page refused, correctly, as an
+ * address that is not a URL. Two nouns, one of which is a link, is what made that invisible.
+ *
  * The href is composed by the shared kit rather than here, because the encoding of that query
  * parameter is a contract with the app's deep-link handler and two implementations of it would
- * eventually encode a `+` differently.
+ * eventually encode a `+` differently. That function now throws on a value it produced itself, so
+ * the same mistake is a build failure rather than a dead button.
  */
-export function AddToNoderaButton(props: { url: string; label?: string }) {
+export function AddToNoderaButton(props: { indexUrl: string; label?: string }) {
   return (
     <a
-      href={storeOfferHref(props.url)}
+      href={storeOfferHref(props.indexUrl)}
       className="inline-flex h-8 shrink-0 items-center rounded-full border border-brand-1 px-4 text-sm font-medium text-brand-1 hover:bg-surface-hover"
     >
       {props.label ?? "Add to NoderaMC"}
@@ -46,7 +53,7 @@ function Row(props: { entry: ServiceEntry }) {
         <p className="mt-1 font-mono text-sm break-all text-faint">{entry.endpoints.join("  ·  ")}</p>
         {entry.operator ? <p className="mt-1 text-sm text-dim">Run by {entry.operator}</p> : null}
       </div>
-      <AddToNoderaButton url={entry.storeUrl} />
+      <AddToNoderaButton indexUrl={entry.storeIndexUrl} />
     </li>
   );
 }
