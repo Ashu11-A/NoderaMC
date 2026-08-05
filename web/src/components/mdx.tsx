@@ -31,10 +31,15 @@ export function Ui(props: { to: string }) {
   );
 }
 
-/** An in-game command: `<Cmd to="nodera-selftest" />` → `/nodera selftest`. */
+/**
+ * An in-game command: `<Cmd to="nodera-selftest" />` → `/nodera selftest`.
+ *
+ * `break-words`, like every other code span on this site: a command is one unbroken word and one of
+ * them in a paragraph sets the min-content width of whatever column that paragraph is in.
+ */
 export function Cmd(props: { to: string }) {
   return (
-    <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-sm text-text">
+    <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-sm break-words text-text">
       {command(props.to)}
     </code>
   );
@@ -42,7 +47,7 @@ export function Cmd(props: { to: string }) {
 
 /** A literal from the system — a wire tag, a config key, a status word the app actually prints. */
 export function Tag(props: { children: string }) {
-  return <code className="font-mono text-sm text-brand-3">{props.children}</code>;
+  return <code className="font-mono text-sm break-words text-brand-3">{props.children}</code>;
 }
 
 /**

@@ -1,6 +1,7 @@
+import type { CSSProperties } from "react";
 import type { LimitationRow } from "../generated/types";
 import { status } from "./data";
-import { Badge } from "./primitives";
+import { Badge, Scroller } from "./primitives";
 
 /**
  * The status page's tables.
@@ -13,8 +14,8 @@ import { Badge } from "./primitives";
 
 function Table(props: { head: string[]; children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
+    <Scroller>
+      <table className="w-full max-w-full border-collapse text-sm">
         <thead>
           <tr>
             {props.head.map((cell) => (
@@ -26,7 +27,7 @@ function Table(props: { head: string[]; children: React.ReactNode }) {
         </thead>
         <tbody>{props.children}</tbody>
       </table>
-    </div>
+    </Scroller>
   );
 }
 
@@ -125,12 +126,17 @@ function StateBadge(props: { state: LimitationRow["state"] }) {
 export function LimitationTable(props: { rows: readonly LimitationRow[]; emptyNote: string }) {
   if (props.rows.length === 0) return <p className="mt-6 text-body text-dim">{props.emptyNote}</p>;
   return (
-    <div className="mt-6 flex flex-col gap-3">
+    // A card wall, not a document: it fills the canvas and turns width into columns. One column of
+    // 1312px-wide cards on a 1920 display is a paragraph measure nobody would choose, and capping
+    // the wall at the reading measure instead would leave the other 560px of the canvas empty. The
+    // 30rem minimum is the width below which one of these cards stops being readable, so a 1000px
+    // window gets one column and a 1440 gets two.
+    <div className="card-grid mt-6 items-start gap-3" style={{ "--card-min": "30rem" } as CSSProperties}>
       {props.rows.map((row) => {
         const { head, rest } = firstSentence(row.status);
         return (
-          <article key={`${row.register}-${row.id}`} className="rounded-md border border-line-soft bg-surface p-5">
-            <div className="flex flex-wrap items-center gap-3">
+          <article key={`${row.register}-${row.id}`} className="min-w-0 rounded-md border border-line-soft bg-surface p-5">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
               <span className="font-mono text-sm text-brand-1">{row.id}</span>
               <StateBadge state={row.state} />
               <span className="text-2xs tracking-wide text-faint uppercase">{row.register}</span>
@@ -146,16 +152,18 @@ export function LimitationTable(props: { rows: readonly LimitationRow[]; emptyNo
                 <span className="ml-auto text-sm text-faint">{row.owner}</span>
               )}
             </div>
-            <p className="mt-3 text-body leading-7 text-text">{row.gap}</p>
-            <p className="mt-3 text-sm leading-6 text-dim">
+            {/* `break-words` throughout: a register row cites class names, gradle task paths and
+                wire tags, and one of those is routinely longer than a card is wide. */}
+            <p className="mt-3 text-body leading-7 break-words text-text">{row.gap}</p>
+            <p className="mt-3 text-sm leading-6 break-words text-dim">
               <span className="text-faint">Closes when: </span>
               {row.exitTest}
             </p>
-            <p className="mt-3 text-sm leading-6 text-dim">{head}</p>
+            <p className="mt-3 text-sm leading-6 break-words text-dim">{head}</p>
             {rest ? (
               <details className="mt-2">
                 <summary className="cursor-pointer text-sm text-faint hover:text-dim">The rest of this row</summary>
-                <p className="mt-2 text-sm leading-6 text-dim">{rest}</p>
+                <p className="mt-2 text-sm leading-6 break-words text-dim">{rest}</p>
               </details>
             ) : null}
           </article>

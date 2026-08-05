@@ -1,6 +1,7 @@
 import mirror from "../generated/mirror.json";
 import type { MirrorData, MirrorEntry } from "../generated/types";
 import { DocLayout } from "./docs";
+import { SCROLLER_CLASS } from "./primitives";
 
 /**
  * A page that is a file in this repository, rendered.
@@ -33,6 +34,30 @@ export function mirrored(route: string): MirrorEntry {
   return page;
 }
 
+/**
+ * Every `<table>` in a mirrored document, in a scroller of its own.
+ *
+ * These are the widest things on the site by a wide margin — the wire protocol's tag table needs
+ * 1518px and the reading column is 752 — and without this they push the whole document sideways:
+ * measured, `/docs/develop/wire-protocol` scrolled to **2002px inside a 1920 viewport**, and the
+ * same page needed 1846px at 1000. Twenty-seven of the site's tables are in these nine files.
+ *
+ * It is a string rewrite because a mirrored page is HTML, not elements: the mirror is a build step
+ * that reads files in `docs/` and this component injects what it produced. The equivalent for prose
+ * written as MDX is the component map in `docs.tsx`, and both write the same class list because
+ * `SCROLLER_CLASS` is one constant — a second copy would be a second answer to how wide content
+ * behaves, in the two places a reader would compare.
+ *
+ * `<table>` does not nest in the output of a markdown pipeline, so pairing opens with closes by
+ * count is exact rather than a parse that happens to work. `<table` is matched with its delimiter so
+ * a future `<tablefoo>` element cannot be caught by the prefix.
+ */
+export function withScrollingTables(html: string): string {
+  return html
+    .replace(/<table(?=[\s/>])/g, `<div class="${SCROLLER_CLASS}"><table`)
+    .replace(/<\/table>/g, "</table></div>");
+}
+
 export function Mirrored(props: { route: string }) {
   const page = mirrored(props.route);
   return (
@@ -43,7 +68,7 @@ export function Mirrored(props: { route: string }) {
       sourceEditUrl={page.editUrl}
       sourceIso={page.updatedAt}
     >
-      <div dangerouslySetInnerHTML={{ __html: page.html }} />
+      <div className="min-w-0" dangerouslySetInnerHTML={{ __html: withScrollingTables(page.html) }} />
     </DocLayout>
   );
 }

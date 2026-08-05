@@ -49,7 +49,7 @@ export function DownloadPill(props: { name: string; asset: ReleaseAsset; primary
   return (
     <a
       href={props.asset.url}
-      className={`inline-flex h-10 items-center gap-2 rounded-full px-5 text-sm font-medium ${
+      className={`inline-flex h-10 min-w-0 items-center gap-2 rounded-full px-5 text-sm font-medium ${
         props.primary ? "bg-brand text-on-play" : "border border-line text-text hover:border-brand-1"
       }`}
     >
@@ -74,7 +74,11 @@ export function PlatformPicker() {
   const installers = groupedAssets().installers;
   return (
     <div className="mt-8">
-      <div className="flex flex-wrap gap-3">
+      {/* `card-grid` rather than `flex flex-wrap`: with three platforms, wrapping leaves the last row
+          stretching two cards across the full width while the row above holds three, which reads as a
+          layout accident. `auto-fit` gives every card the same track and collapses to two, then one,
+          without a breakpoint. */}
+      <div className="card-grid gap-3">
         {PLATFORMS.map((platform) => {
           const matches = installers.filter(([name]) => platform.match.test(name));
           if (matches.length === 0) {
@@ -85,9 +89,9 @@ export function PlatformPicker() {
           }
           const active = detected === platform.id;
           return (
-            <div key={platform.id} className="min-w-[220px] flex-1">
+            <div key={platform.id} className="min-w-0">
               <p className="mb-2 text-sm font-medium text-text">{platform.label}</p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex min-w-0 flex-wrap gap-2">
                 {matches.map(([name, asset]) => (
                   <DownloadPill key={name} name={name.replace(/^nodera-app-\w+-/, "")} asset={asset} primary={active} />
                 ))}
@@ -143,7 +147,7 @@ function CopyDigest(props: { digest: string | null }) {
 
 export function AssetRow(props: { name: string; asset: ReleaseAsset }) {
   return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line-soft px-4 py-3 last:border-b-0">
+    <li className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line-soft px-4 py-3 last:border-b-0">
       <a href={props.asset.url} className="min-w-0 flex-1 font-mono text-sm break-all text-brand-1 hover:text-text">
         {props.name}
       </a>
@@ -180,7 +184,7 @@ export function AssetTable() {
     <div className="mt-8 flex flex-col gap-3">
       {(Object.keys(GROUP_TITLES) as AssetGroup[]).map((group) => (
         <details key={group} className="rounded-lg border border-line-soft bg-surface" open={group === "installers"}>
-          <summary className="flex cursor-pointer items-center gap-3 px-4 py-3 text-body text-text">
+          <summary className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 px-4 py-3 text-body text-text">
             <span>{GROUP_TITLES[group]}</span>
             <Badge>{groups[group].length}</Badge>
             <span className="hidden text-sm text-faint sm:inline">{GROUP_NOTES[group]}</span>
@@ -207,7 +211,7 @@ export function AssetTable() {
 export function ChecksumBlock() {
   return (
     <div className="mt-6">
-      <pre className="overflow-x-auto rounded-md border border-line-soft bg-surface p-4 font-mono text-sm text-dim">
+      <pre className="w-full min-w-0 overflow-x-auto rounded-md border border-line-soft bg-surface p-4 font-mono text-sm text-dim">
         {`sha256sum -c SHA256SUMS`}
       </pre>
       {release.hasSignature ? (

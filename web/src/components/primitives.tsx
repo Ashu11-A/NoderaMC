@@ -10,6 +10,29 @@ import type { ReactNode } from "react";
  * not exist.
  */
 
+/**
+ * The box irreducibly wide content lives in.
+ *
+ * A table of wire tags, a signed endpoint, a `docker run` line — some content has a minimum width
+ * and no amount of layout makes it smaller. There are exactly two things to do with it: let it push
+ * the whole document sideways, or give it a scroller of its own. This is the second, and it is
+ * written once so the answer is the same in the mirrored documents, in the status registers and in
+ * anything either of the other two lanes adds.
+ *
+ * `min-w-0` is on it because the scroller is itself usually a grid or flex child, and a scroll
+ * container whose own min-width is `auto` still reports its content's width to its parent — which
+ * moves the overflow up one level instead of ending it.
+ *
+ * Exported as a string as well as a component: the mirrored pages arrive as HTML rather than as
+ * elements, so `mirrored.tsx` has to write the same class list into a string. One constant, so the
+ * two cannot drift, and Tailwind sees the literal either way.
+ */
+export const SCROLLER_CLASS = "my-6 w-full min-w-0 overflow-x-auto [&>table]:my-0";
+
+export function Scroller(props: { children: ReactNode }) {
+  return <div className={SCROLLER_CLASS}>{props.children}</div>;
+}
+
 type Tone = "note" | "tip" | "warning" | "danger" | "details";
 
 const TONE: Record<Tone, { border: string; label: string; text: string }> = {
@@ -152,16 +175,22 @@ export function Figure(props: { caption: ReactNode; children: ReactNode }) {
 /** A directory listing, monospaced, for the handful of places the prose names real paths. */
 export function FileTree(props: { children: string }) {
   return (
-    <pre className="my-6 overflow-x-auto rounded-md border border-line-soft bg-surface px-5 py-4 font-mono text-sm text-dim">
+    <pre className="my-6 w-full min-w-0 overflow-x-auto rounded-md border border-line-soft bg-surface px-5 py-4 font-mono text-sm text-dim">
       {props.children}
     </pre>
   );
 }
 
-/** A short inline code span. Written out so the prose never reaches for a colour of its own. */
+/**
+ * A short inline code span. Written out so the prose never reaches for a colour of its own.
+ *
+ * `break-words` because most of what goes in one of these is a path, a flag or an endpoint, and a
+ * word with no spaces in it is the thing that decides a paragraph's min-content width. Without it a
+ * single `nodera-rendezvous-arm64-latest` sets the floor for the whole column it sits in.
+ */
 export function Code(props: { children: ReactNode }) {
   return (
-    <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-sm text-text">
+    <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-sm break-words text-text">
       {props.children}
     </code>
   );

@@ -43,14 +43,31 @@
    * These two are the app's tokens, restated with reading-page values. They are SHADOWED rather
    * than renamed on purpose: the app's `page-canvas` utility is written as
    * `width: min(100%, var(--canvas-max))`, so restating the variable is how the site reuses that
-   * utility at a prose width instead of declaring a second one. `--canvas-max: 1680px` stays the
+   * utility at a page width instead of declaring a second one. `--canvas-max: 1680px` stays the
    * app's window contract — pinned by its own `design-tokens.test.mjs` — and is untouched where it
    * is declared.
    *
    * `web/tests/design-tokens.test.mjs` holds this list to exactly these two names. Any OTHER app
    * token this stylesheet shadows fails the build, because a shadow is invisible: the value simply
-   * changes, on every screen, with nothing to read that says it was deliberate. */
-  --canvas-max: 1152px;
+   * changes, on every screen, with nothing to read that says it was deliberate.
+   *
+   * # Why 1440 and not the 1152 this started at
+   *
+   * 1152 was the reference site's *document* measure, and using it as the whole page's canvas made
+   * every page on this site as narrow as its narrowest column should be. It is measurable: with the
+   * canvas at 1152 the documentation's reading column — declared `--prose-measure: 752px` — actually
+   * rendered at **488px in a 1920 viewport**, because the canvas has to hold the 240px sidebar, the
+   * 200px table of contents and two 48px gaps before the article gets anything.
+   *
+   * So the canvas is now sized by what it has to contain rather than by a measure it is not:
+   *
+   *     240 (sidebar) + 48 + 752 (measure) + 48 + 200 (contents) = 1288
+   *     1288 + 2 x 64 (gutter) = 1416  ->  1440, the site's own 2xl breakpoint
+   *
+   * The reading cap did not move and did not need to: prose is capped by `--prose-measure` on the
+   * element that holds prose. A card wall is not prose and is no longer capped as though it were —
+   * `card-grid` below turns the extra width into more columns rather than more emptiness. */
+  --canvas-max: 1440px;
   --canvas-gutter: clamp(24px, 4vw, 64px);
 
   /* ------------------------------------------------------------------------- site-only tokens
@@ -80,19 +97,47 @@
    * with the launcher's, so the two cannot be reached for interchangeably, and it says where the
    * value is used rather than restating the accent it is already derived from. */
   --prose-measure: 752px;
+  --card-min: 17rem;
   --brand-dimm: var(--brand-soft, color-mix(in oklab, var(--brand-1) 8%, transparent));
   --hero-bloom: linear-gradient(-45deg, var(--brand-1) 25%, var(--brand-3) 75%);
 }
 
 @layer base {
-  /* The app pins `html`, `body` and `#root` to 100% and hides body overflow, because it is a window.
-   * A website scrolls. The app also sets `font: 13.5px/1.55 …` as a shorthand, which resets every
-   * other font longhand it does not mention — so both halves are re-declared here rather than only
-   * the size. */
+  /* ------------------------------------------------------------------------ the window posture
+   *
+   * The app pins `html`, `body` and `#root` to 100%, hides body overflow, and — in its
+   * `nodera.guard` layer, with `!important` — makes `#root` a **flex container**. All three are
+   * correct for a 900x600 window and all three are wrong for a document, and the third one is the
+   * reason this site's pages looked as though they had been laid out for a square screen.
+   *
+   * A flex container's child is a flex item, and a flex item is `width: auto`, which for a flex item
+   * means SHRINK-TO-FIT. So the site's shell never looked at the viewport: it sized itself to its
+   * own content. Measured, before this block existed, with the canvas at 1152:
+   *
+   *     1920 viewport -> shell 880px on /privacy, 1088px on /services, 1416px on /docs/*
+   *     1440 viewport -> shell 867px on /privacy, 1075px on /services
+   *
+   * — a page stranded in a column with the rest of the display empty beside it. The same property
+   * has a second face going the other way: a flex item also defaults to `min-width: auto`, so below
+   * its own min-content width it refuses to shrink and pushes its right edge off the screen instead.
+   *
+   * The site's earlier attempt at this reset the HEIGHT half and left the width half alone, and even
+   * the height half did not land: `height: auto` cannot beat `height: 100% !important`. Layer order
+   * is what makes these win. For IMPORTANT declarations the cascade reverses layer order, so an
+   * `!important` in `base` — the third layer — beats one in `nodera.guard`, which is the last. That
+   * is the whole mechanism, and it is why these three carry `!important` and the rest do not.
+   *
+   * The app also sets `font: 13.5px/1.55 …` as a shorthand, which resets every other font longhand
+   * it does not mention — so both halves are re-declared here rather than only the size. */
   html,
   body,
   #root {
-    height: auto;
+    height: auto !important;
+  }
+
+  #root {
+    display: block !important;
+    width: 100%;
   }
 
   body {
@@ -101,4 +146,36 @@
     font-size: 16px;
     line-height: 1.6;
   }
+
+  /* ------------------------------------------------------- the other half of the same default
+   *
+   * `min-width: auto` on a flex or grid item is the single most common cause of a page that scrolls
+   * sideways: one long endpoint string, one wide table, one unbreakable filename, and the item
+   * refuses to be narrower than its content and takes the document with it. Every component here
+   * that holds text, a grid or a table therefore also writes `min-w-0` in its own markup — but a
+   * component nobody has written yet, or one of the generated pages, would still be able to do it.
+   *
+   * `:where()` has zero specificity, so this loses to every `min-w-*` utility on purpose: it is the
+   * default, not the decision. `min-w-[220px]` on a card still means 220px.
+   *
+   * It does not make anything unreadable: content that genuinely cannot be narrower goes in an
+   * `overflow-x: auto` box of its own — the tables in the mirrored documents, every `pre`, the
+   * status registers — so it scrolls where it is instead of dragging the page with it. */
+  :where(body *) {
+    min-width: 0;
+  }
+}
+
+/* -------------------------------------------------------------------------------- the card wall
+ *
+ * A wide viewport should get more columns, not more emptiness. `auto-fit` collapses the tracks it
+ * cannot fill, so one declaration covers three cards at 1920 and one at 380 with no breakpoint.
+ *
+ * `min(100%, …)` around the minimum is not decoration. `minmax(17rem, 1fr)` in a container narrower
+ * than 17rem produces a track WIDER than the container, which is a grid that overflows exactly on
+ * the screens the grid was written to rescue. Call sites that want a different minimum set
+ * `--card-min` on the element rather than reaching for a second utility. */
+@utility card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--card-min)), 1fr));
 }

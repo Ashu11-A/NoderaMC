@@ -55,15 +55,19 @@ export default function Page() {
           written to be read in order.
         </p>
 
-        <div className="mt-14 grid gap-10 md:grid-cols-3">
+        {/* Three doors in tracks that fill, rather than three fixed columns. `md:grid-cols-3` went
+            from three columns to one in a single step at 768px, so a 900px window — a laptop with a
+            window beside it — read this hub as a stack of full-width cards. `card-grid` gives it
+            two, and a 1920 display three that are actually the width of the canvas. */}
+        <div className="card-grid mt-14 gap-10">
           {PATHS.map((path) => (
-            <section key={path.title}>
+            <section key={path.title} className="min-w-0">
               <h2 className="display-type text-xl font-bold text-text">{path.title}</h2>
               <p className="mt-2 text-sm leading-6 text-dim">{path.lede}</p>
               <ul className="mt-5 flex flex-col gap-4">
                 {path.links.map((link) => (
-                  <li key={link.to}>
-                    <a href={link.to} className="text-body font-medium text-brand-1 hover:text-text">
+                  <li key={link.to} className="min-w-0">
+                    <a href={link.to} className="text-body font-medium break-words text-brand-1 hover:text-text">
                       {link.label}
                     </a>
                     <p className="mt-0.5 text-sm leading-6 text-faint">{link.note}</p>

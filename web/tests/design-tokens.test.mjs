@@ -112,6 +112,61 @@ test("no site token is a reordering of a launcher token", () => {
   assert.deepEqual(collisions, [], `near-anagram token names:\n  ${collisions.join("\n  ")}`);
 });
 
+/* ---------------------------------------------------------------------- the window/document seam */
+
+test("the site takes the launcher's `#root` out of its window posture", () => {
+  // The defect this is the detector for was reported as "the pages aren't sized correctly for
+  // different screen sizes; the components appear as if the screen has a 1:1 aspect ratio", and it
+  // was one property.
+  //
+  // The launcher's `nodera.guard` layer declares `#root { display: flex !important }` — right for a
+  // 900x600 window, and fatal for a document. It makes the shell a FLEX ITEM, and a flex item is
+  // `width: auto`, which for a flex item means shrink-to-fit: the page sizes itself to its own
+  // widest card and never looks at the viewport. Measured on the built site before the reset:
+  // /privacy was 880px wide inside a 1920 viewport. The same default has a second face — a flex
+  // item is also `min-width: auto`, so below its own content width it pushes off the right edge
+  // instead of shrinking.
+  //
+  // `!important` is not emphasis here, it is the mechanism. For important declarations the cascade
+  // REVERSES layer order, so an important declaration in `base` — Tailwind's third layer — outranks
+  // one in `nodera.guard`, which is the last. Without it, `display: block` loses to
+  // `display: flex !important` and the reset is a comment. The site's first attempt at this reset
+  // only the height half, wrote it without `!important`, and it never took effect.
+  const css = readFileSync(path.join(SRC, "styles.css"), "utf8");
+  assert.match(
+    css,
+    /#root\s*\{[^}]*display:\s*block\s*!important/,
+    "web/src/styles.css no longer resets #root to a block; the shell is a shrink-to-fit flex item again",
+  );
+  assert.match(
+    css,
+    /#root\s*\{[^}]*height:\s*auto\s*!important|html,\s*body,\s*#root\s*\{[^}]*height:\s*auto\s*!important/,
+    "the height half of the window posture is back",
+  );
+  // And it survived the build. A rule that only exists in the source is a rule the browser never
+  // reads, and this file's whole subject is a stylesheet that crosses a package boundary.
+  assert.match(audit.css, /#root\s*\{[^}]*display:\s*block\s*!important/);
+});
+
+test("the page canvas is not capped at a reading measure", () => {
+  // `--canvas-max` was 1152px, the reference site's DOCUMENT measure, used as the whole page's
+  // canvas. The documentation layout has to fit a 240px sidebar, a 200px table of contents and two
+  // 48px gaps inside it before the article gets anything, so the reading column — declared 752px —
+  // actually rendered at 488px on a 1920 display. Prose is capped by `--prose-measure` on the
+  // element that holds prose; the canvas is sized by what it has to contain.
+  const css = readFileSync(path.join(SRC, "styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const canvas = /--canvas-max:\s*(\d+)px/.exec(css);
+  const measure = /--prose-measure:\s*(\d+)px/.exec(css);
+  assert.ok(canvas && measure, "the site no longer declares both --canvas-max and --prose-measure");
+  const gutter = 64 * 2;
+  const rails = 240 + 200 + 48 * 2;
+  assert.ok(
+    Number(canvas[1]) >= Number(measure[1]) + rails + gutter,
+    `--canvas-max is ${canvas[1]}px, which cannot hold a ${measure[1]}px reading column plus both ` +
+      `documentation rails (${rails}px) and two gutters (${gutter}px)`,
+  );
+});
+
 test("the site's tinted fill defers to the launcher's, once the launcher has one", () => {
   // `--brand-dimm` is declared as `var(--brand-soft, <derivation>)`. The redesign introduces
   // `--brand-soft` as the same idea at a different percentage; the fallback form means the day it
