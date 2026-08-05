@@ -42,3 +42,21 @@ export declare function prefixRange(terms: readonly string[], prefix: string): [
 
 /** Cosine similarity between the query and every document, ranked, capped at eight. */
 export declare function rank(index: SearchIndex, query: string): SearchResult[];
+
+/** What a caller may do about the published index. See `search.mjs` for why `peek` exists. */
+export interface SearchIndexLoader {
+  /** The index, downloaded at most once however many times this is called. */
+  load(): Promise<SearchIndex>;
+  /** The index if it is already in memory, synchronously — for the first paint, not for fetching. */
+  peek(): SearchIndex | null;
+}
+
+/**
+ * A loader for the published index: one download, memoised, shared by concurrent callers, retryable
+ * after a failure, and refusing an index whose version or shape this reader does not know.
+ */
+export declare function searchIndexLoader(options: {
+  fetch: (url: string) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+  url: string;
+  version: number;
+}): SearchIndexLoader;

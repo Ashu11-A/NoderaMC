@@ -270,3 +270,77 @@ export function rank(index, query) {
   results.sort((a, b) => b.score - a.score || a.doc.p.localeCompare(b.doc.p));
   return results.slice(0, MAX_RESULTS);
 }
+
+/* ============================================================ fetching the index, exactly once */
+
+/**
+ * A loader for the published index: fetches it once, remembers it, and dedupes concurrent callers.
+ *
+ * # Why this is not four lines inside a `useEffect`
+ *
+ * Because it was, and it deadlocked. The effect read `state.status`, set it to `loading`, and had
+ * `state.status` in its dependency list — so the state it had just written re-ran the effect, whose
+ * CLEANUP cancelled the fetch the first run had started. The request completed; its `setState` was
+ * skipped as stale; the dialog said "Loading the index…" forever, with no error in the console and a
+ * 200 in the network panel. Every assertion about the index and the ranking passed the whole time,
+ * because none of them mounted the component.
+ *
+ * A factory rather than a module-level singleton so a test can make its own with its own `fetch`,
+ * and so this file holds no process-wide state.
+ *
+ * # What `load` being idempotent buys the caller
+ *
+ * The whole reason the effect could write its own dependency is that it was guarding a side effect
+ * that must not happen twice. It does not have to guard this one: calling `load` a second time
+ * returns the first answer, or the first request, and never starts a second download. So the effect
+ * that calls it needs no `status` to look at, and the cycle has nowhere to form.
+ *
+ * `peek` is the same fact read synchronously, for the one thing a promise cannot do: decide what to
+ * render on the FIRST paint. Without it, reopening the dialog shows "Loading the index…" for a frame
+ * over an index that is already in memory.
+ *
+ * @param {object} options
+ * @param {(url: string) => Promise<{ ok: boolean, status: number, json: () => Promise<unknown> }>} options.fetch
+ *   Called as a plain function. Pass a closure, not a bare `window.fetch` — detached from its
+ *   receiver that throws "Illegal invocation" in a browser and nowhere else.
+ * @param {string} options.url
+ * @param {number} options.version the only shape the caller knows how to score
+ * @returns {{ load: () => Promise<SearchIndex>, peek: () => SearchIndex | null }}
+ */
+export function searchIndexLoader({ fetch, url, version }) {
+  /** @type {SearchIndex | null} */
+  let held = null;
+  /** @type {Promise<SearchIndex> | null} */
+  let inFlight = null;
+
+  function load() {
+    if (held) return Promise.resolve(held);
+    if (inFlight) return inFlight;
+    inFlight = fetch(url)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`the server answered ${response.status}`);
+        const index = await response.json();
+        // A page held in a cache while the index moved on. Refusing is the honest read: scoring
+        // against fields that have changed shape produces confident nonsense, and a search box that
+        // confidently returns the wrong page is worse than one that says it could not load.
+        if (index.version !== version) {
+          throw new Error(`this page expects index version ${version}, not ${index.version}`);
+        }
+        if (!Array.isArray(index.terms) || !Array.isArray(index.docs)) {
+          throw new Error("the index is not an index");
+        }
+        held = index;
+        inFlight = null;
+        return index;
+      })
+      .catch((error) => {
+        // Cleared, so a reader who opens the dialog again after their connection comes back gets a
+        // second attempt rather than the first failure for the rest of the session.
+        inFlight = null;
+        throw error;
+      });
+    return inFlight;
+  }
+
+  return { load, peek: () => held };
+}

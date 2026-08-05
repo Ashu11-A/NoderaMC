@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { rank } from "nodera-ui/search";
-import type { SearchIndex, SearchResult } from "nodera-ui/search";
+import { rank, searchIndexLoader } from "nodera-ui/search";
+import type { SearchIndex, SearchIndexLoader, SearchResult } from "nodera-ui/search";
 import { useMounted, useScrollLock } from "./use-theme";
 
 /**
@@ -31,6 +31,21 @@ import { useMounted, useScrollLock } from "./use-theme";
  * failed to load, and only one of those is the reader's fault. So every state is named: loading,
  * failed with the reason, no matches for this query, or results. It never renders an empty list
  * silently.
+ *
+ * # Why this file does not own the download
+ *
+ * It did, and the dialog never left "Loading the index…". The effect read `state.status`, wrote
+ * `loading`, and listed `state.status` as a dependency — so its own write re-ran it, and the re-run's
+ * CLEANUP cancelled the fetch the first run had started. The response arrived to a `cancelled` flag,
+ * nothing was rendered, and the console was clean with a 200 in the network panel.
+ *
+ * The fix is not a better guard. It is that `searchIndexLoader` in `nodera-ui/search` is idempotent:
+ * calling it twice returns the first answer or the first request. An effect over something that
+ * cannot happen twice does not need to read state to decide whether to run, so it does not depend on
+ * state, so it cannot re-run itself. The loader is also where the failure modes are TESTED —
+ * `web/tests/search-loader.test.mjs` drives it directly, and `web/tests/search-dialog.test.mjs`
+ * mounts this dialog over a stub fetch, because every existing assertion about the index and the
+ * ranking passed for the whole time the dialog was broken. None of them mounted it.
  */
 
 /* -------------------------------------------------------------------------------- the index */
@@ -47,42 +62,59 @@ type IndexState =
   | { status: "ready"; index: SearchIndex }
   | { status: "failed"; why: string };
 
-/** Fetched once per page load, then held. A second press must not re-download 64 kB. */
-let cached: SearchIndex | null = null;
+/**
+ * The site's one loader, holding the site's one copy of the index.
+ *
+ * Module scope because there is one index and one page: a per-component loader would download it
+ * again every time the header remounted. `fetch` is passed as a CLOSURE — handing over the bare
+ * global detaches it from `window`, which throws `Illegal invocation` in a browser and works
+ * perfectly in every test that ever runs in node.
+ */
+const published: SearchIndexLoader = searchIndexLoader({
+  fetch: (url) => fetch(url),
+  url: INDEX_URL,
+  version: SUPPORTED_VERSION,
+});
 
-function useSearchIndex(wanted: boolean): IndexState {
-  const [state, setState] = useState<IndexState>(() =>
-    cached ? { status: "ready", index: cached } : { status: "idle" },
-  );
+function useSearchIndex(wanted: boolean, loader: SearchIndexLoader): IndexState {
+  // Seeded from what is already in memory, so reopening the dialog does not flash "Loading" over an
+  // index it already has. On the server this is always `null`, which is `idle` — the same thing the
+  // markup would have said anyway, since a closed dialog renders nothing.
+  const [state, setState] = useState<IndexState>(() => {
+    const held = loader.peek();
+    return held ? { status: "ready", index: held } : { status: "idle" };
+  });
 
   useEffect(() => {
-    if (!wanted || state.status !== "idle") return;
-    let cancelled = false;
+    if (!wanted) return;
+    // Nothing here reads `state`. That is the whole point: `load()` is idempotent, so this effect
+    // has no reason to ask whether it has already run, and therefore no reason to depend on a value
+    // it writes. The previous version did, and cancelled its own request.
+    let live = true;
+    const held = loader.peek();
+    if (held) {
+      setState({ status: "ready", index: held });
+      return;
+    }
     setState({ status: "loading" });
-    fetch(INDEX_URL)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`the server answered ${response.status}`);
-        const index = (await response.json()) as SearchIndex;
-        if (index.version !== SUPPORTED_VERSION) {
-          // A page held in a cache while the index moved on. Refusing is the honest read: scoring
-          // against fields that have changed shape produces confident nonsense.
-          throw new Error(`this page expects index version ${SUPPORTED_VERSION}, not ${index.version}`);
-        }
-        if (!Array.isArray(index.terms) || !Array.isArray(index.docs)) {
-          throw new Error("the index is not an index");
-        }
-        cached = index;
-        if (!cancelled) setState({ status: "ready", index });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
+    loader.load().then(
+      (index) => {
+        if (live) setState({ status: "ready", index });
+      },
+      (error: unknown) => {
+        if (live) {
           setState({ status: "failed", why: error instanceof Error ? error.message : String(error) });
         }
-      });
+      },
+    );
+    // Closing the dialog mid-flight drops THIS subscription, not the request. Reopening calls
+    // `load()` again, gets the same promise back, and subscribes afresh — so a reader who pressed
+    // Escape while it was loading does not come back to a dialog waiting on an answer nobody is
+    // listening for.
     return () => {
-      cancelled = true;
+      live = false;
     };
-  }, [wanted, state.status]);
+  }, [wanted, loader]);
 
   return state;
 }
@@ -105,7 +137,7 @@ function Results(props: {
 
   if (state.status === "failed") {
     return (
-      <p className="px-5 py-8 text-body text-warn">
+      <p className="px-5 py-8 text-body text-warn" data-search-state="failed">
         The search index could not be loaded — {state.why}. Nothing is wrong with your search; this
         page could not read the thing it searches.{" "}
         <a href="/docs/" className="underline">
@@ -116,25 +148,38 @@ function Results(props: {
     );
   }
   if (state.status !== "ready") {
-    return <p className="px-5 py-8 text-body text-faint">Loading the index…</p>;
+    // `idle` for the one paint between mounting and the effect, `loading` until the index arrives.
+    // Both are the same sentence to a reader; the distinction only matters to the test that proves
+    // this branch is something the dialog LEAVES.
+    return (
+      <p className="px-5 py-8 text-body text-faint" data-search-state={state.status}>
+        Loading the index…
+      </p>
+    );
   }
   if (query.trim().length === 0) {
     return (
-      <p className="px-5 py-8 text-body text-faint">
+      <p className="px-5 py-8 text-body text-faint" data-search-state="ready">
         Type to search {state.index.docs.length} pages. Arrow keys move, Enter opens, Escape closes.
       </p>
     );
   }
   if (results.length === 0) {
     return (
-      <p className="px-5 py-8 text-body text-dim">
+      <p className="px-5 py-8 text-body text-dim" data-search-state="ready">
         Nothing on this site matches “{query}”. That is {state.index.docs.length} pages searched and
         none of them about it — not a search that failed.
       </p>
     );
   }
   return (
-    <ul id="site-search-results" role="listbox" aria-label="Search results" className="min-w-0 py-2">
+    <ul
+      id="site-search-results"
+      role="listbox"
+      aria-label="Search results"
+      data-search-state="ready"
+      className="min-w-0 py-2"
+    >
       {results.map((result, i) => (
         <li
           key={result.doc.p}
@@ -162,12 +207,24 @@ function Results(props: {
   );
 }
 
-export function SearchDialog(props: { open: boolean; onClose: () => void }) {
+/**
+ * The dialog.
+ *
+ * `loader` is injected rather than reached for. The site never passes it — there is one index and
+ * `published` is it — but a test that cannot substitute the download can only assert against the
+ * real network, which means it asserts nothing and runs nowhere. That absence is exactly how this
+ * component shipped never having been mounted.
+ */
+export function SearchDialog(props: {
+  open: boolean;
+  onClose: () => void;
+  loader?: SearchIndexLoader;
+}) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const dismiss = useRef<HTMLButtonElement>(null);
-  const state = useSearchIndex(props.open);
+  const state = useSearchIndex(props.open, props.loader ?? published);
   useScrollLock(props.open);
 
   const results = useMemo(
