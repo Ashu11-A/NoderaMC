@@ -272,6 +272,25 @@ class InterferenceCommitterTest {
         assertThat(world.reExtract(region, SnapshotVersion.INITIAL.next(), 0).bodyVersion()).isEqualTo(2);
     }
 
+    @Test
+    void aRegionThisNodeIsNotPrimaryOfIsNotRetriedForever() {
+        // The sink refuses a foreign write on any member but the primary, which restored the buffer
+        // and rethrew — so the identical failure repeated every commit cadence, on the world thread,
+        // reported as a resync that never resolved. Discarding loses nothing authoritative: a
+        // non-primary's local write is a prediction the primary's certified deltas overwrite.
+        committer.certifiable(r -> false);
+        buffer.record(region, new dev.nodera.coordinator.interference.RecordedMutation(
+                new NBlockPos(5, 70, 5), 0, 7,
+                dev.nodera.coordinator.interference.MutationSource.UNKNOWN));
+
+        assertThat(committer.onTickEnd(r -> PipelineState.ACTIVE)).isEmpty();
+        assertThat(committer.foreignRegionWritesDropped()).isEqualTo(1);
+        assertThat(sinkDeltas).as("nothing was ever offered to the sink").isEmpty();
+        assertThat(buffer.isEmpty(region))
+                .as("and it is not left behind to be attempted again next cadence")
+                .isTrue();
+    }
+
     /** The shared extraction convention for this test: canonical snapshot at (version, tick 0). */
     private static StateRoot rootOf(InMemoryWorldView view, RegionId region, SnapshotVersion version) {
         return StateRoot.of(CoordFixtures.hashes().hash(view.reExtract(region, version, 0L)));

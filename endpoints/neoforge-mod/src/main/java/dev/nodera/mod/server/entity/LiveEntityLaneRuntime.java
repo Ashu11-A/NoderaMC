@@ -132,7 +132,41 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                         t.setDaemon(true);
                         return t;
                     },
-                    new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
+                    LiveEntityLaneRuntime::onProposalQueueFull);
+
+    /** Proposals dropped because the queue was full — see {@link #onProposalQueueFull}. */
+    private static final java.util.concurrent.atomic.AtomicLong DROPPED_PROPOSALS =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * What happens when the proposal queue is full.
+     *
+     * <p>Still a drop, and that is deliberate: the queue is bounded because an unbounded one turns a
+     * stalled committee into an out-of-memory error, and blocking here would put the world thread
+     * back inside the vote this executor exists to get it out of.
+     *
+     * <p>What changes is that it is no longer silent. It was a bare {@code DiscardPolicy} with no
+     * counter and no log, so a committee that could not keep up looked exactly like one that had
+     * nothing to do. The world state itself survives a drop — the block already landed in vanilla,
+     * the write guard recorded it, and the interference committer converts it into a certified
+     * external delta regardless — and the action stays unacknowledged in the handover, so a resume
+     * replays it. What is lost is the action's own journal entry, which is worth a line in the log.
+     */
+    private static void onProposalQueueFull(
+            Runnable dropped, java.util.concurrent.ThreadPoolExecutor executor) {
+        long total = DROPPED_PROPOSALS.incrementAndGet();
+        // Powers of two: the first few say it started, and a sustained stall does not drown the log.
+        if (Long.bitCount(total) == 1) {
+            LOG.warn("block proposal queue full — {} proposal(s) dropped so far; the edits "
+                    + "themselves are carried by the interference lane, but the committee is not "
+                    + "keeping up with this world", total);
+        }
+    }
+
+    /** How many block proposals have been dropped for a full queue since this JVM started. */
+    public static long droppedProposals() {
+        return DROPPED_PROPOSALS.get();
+    }
 
     private final dev.nodera.core.state.ChunkStampBook stamps;
 
@@ -187,6 +221,11 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         // on the server thread, which is what a live two-player session measured as 15.5 TPS.
         // Ordering is preserved by flushing the region explicitly before anything proposes into it.
         this.committer.setCommitIntervalTicks(COMMIT_INTERVAL_TICKS);
+        // Only the region's primary may certify a foreign write against it. Without this the
+        // committer attempted every pending region, the sink refused every one this node does not
+        // own, and the buffer was restored and retried on the next cadence — forever, on the world
+        // thread, reported as a resync that never resolved.
+        this.committer.certifiable(validation::isPrimaryOf);
     }
 
     /** See {@link InterferenceCommitter#setCommitIntervalTicks}. */

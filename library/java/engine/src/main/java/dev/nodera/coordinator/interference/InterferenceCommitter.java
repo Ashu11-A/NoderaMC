@@ -67,6 +67,8 @@ public final class InterferenceCommitter {
     private final NodeIdentity server;
     private final Map<RegionId, SnapshotVersion> committedVersion = new HashMap<>();
     private final Set<RegionId> held = new HashSet<>();
+    private java.util.function.Predicate<RegionId> certifiable;
+    private long foreignRegionWritesDropped;
 
     public InterferenceCommitter(
             InterferenceBuffer buffer, RootExtractor roots,
@@ -203,6 +205,19 @@ public final class InterferenceCommitter {
         if (recorded.isEmpty() && entityMutations.isEmpty()) {
             return Optional.empty(); // everything coalesced back to the committed state
         }
+        if (certifiable != null && !certifiable.test(region)) {
+            // Only a region's primary may certify a foreign write against it. On any other member
+            // the sink refuses, this method restores the buffer and rethrows, the caller swallows
+            // it as a resync — and ten ticks later the identical thing happens again, forever, on
+            // the server thread.
+            //
+            // Discarding is not losing anything that was ever authoritative: a non-primary's local
+            // vanilla write into a delegated region is a prediction, and the region's real state
+            // arrives as certified deltas from the primary that overwrite it. Retrying was the bug;
+            // pretending the write was ours to commit was the older one.
+            foreignRegionWritesDropped += recorded.size() + entityMutations.size();
+            return Optional.empty();
+        }
         try {
             SnapshotVersion base = committedVersion.get(region);
             if (base == null) {
@@ -214,6 +229,14 @@ public final class InterferenceCommitter {
                     region, next, dev.nodera.core.state.RegionSnapshot.STATE_ENCODING_VERSION);
             List<BlockMutation> mutations = new ArrayList<>(recorded.size());
             for (RecordedMutation m : recorded) {
+                // The recorded pre-write state is the guard, and it must stay that way.
+                //
+                // It is tempting to "rebase" this against the live world when a guard looks stale.
+                // It is wrong: CONVERT means the foreign write has ALREADY landed here, so the local
+                // world always holds the mutation's target, while the peers that will apply this
+                // delta hold the committed state the write started from. Reading the local world
+                // would name a guard no replica has, and — since target and live are equal — would
+                // classify every interference mutation as "already applied" and discard it.
                 mutations.add(new BlockMutation(m.pos(), m.prevStateId(), m.newStateId(), 0));
             }
             RegionDelta delta = new RegionDelta(
@@ -237,6 +260,24 @@ public final class InterferenceCommitter {
             buffer.restoreEntities(region, entityMutations);
             throw failure;
         }
+    }
+
+    /**
+     * Install the test for "may this node certify a foreign write against this region" — in
+     * practice, "is it this region's primary".
+     *
+     * <p>Optional: without one every pending region is attempted, which is the historic behaviour
+     * and is correct on a node that is primary of everything it holds.
+     *
+     * @param certifiable the test, or {@code null} to attempt every region.
+     */
+    public void certifiable(java.util.function.Predicate<RegionId> certifiable) {
+        this.certifiable = certifiable;
+    }
+
+    /** Buffered foreign writes discarded because this node is not the region's primary. */
+    public long foreignRegionWritesDropped() {
+        return foreignRegionWritesDropped;
     }
 
     /** The committed version the committer currently tracks for {@code region} (test/diagnostic). */
