@@ -20,17 +20,11 @@
     "note": "Engine task 5 is complete headless. The card deliberately does not say 'every action in Minecraft': the live lane is minecraft task 2 and is not finished."
   },
   {
-    "claim": "no save is ever downloaded",
-    "page": "src/components/landing.tsx",
-    "source": "README.md",
-    "must_match": "no save is ever downloaded",
-    "note": "One of two claims the README marks as never to be softened."
-  },
-  {
     "claim": "**No save is ever downloaded.**",
     "page": "content/docs/start/play-without-the-mod.mdx",
     "source": "README.md",
-    "must_match": "no save is ever downloaded"
+    "must_match": "no save is ever downloaded",
+    "note": "One of two claims the README marks as never to be softened. The landing page made it too until the LAN band moved into this page; a claim is registered where the copy is, and nowhere else."
   },
   {
     "claim": "**A guest names a session, never an address.**",
@@ -84,9 +78,10 @@
   },
   {
     "claim": "The engine, the network stack and both services are proven Minecraft-free. Wiring them to",
-    "page": "src/components/landing.tsx",
+    "page": "content/docs/start/what-noderamc-is.mdx",
     "source": "docs/ROADMAP.md",
-    "must_match": "proven Minecraft-free"
+    "must_match": "proven Minecraft-free",
+    "note": "The landing page's honesty band said this until the landing page became one screen. The sentence moved into the page a reader is sent to for the explanation; the hero still carries the alpha caveat and the generated count of open limitations."
   },
   {
     "claim": "is built and tested and is waiting on a key that does not exist yet — tracker limitation{\" \"}",
