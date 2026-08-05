@@ -40,6 +40,7 @@
 import { useMemo, useState } from "react";
 import { FiGlobe, FiKey, FiPlay, FiSearch, FiUploadCloud, FiUsers } from "react-icons/fi";
 import {
+  Button,
   CARD_GRID,
   Empty,
   FilterBar,
@@ -151,9 +152,16 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
     return out;
   }, [buckets, query]);
 
-  const narrowed = query.trim().length > 0 || group !== "all";
+  const searching = query.trim().length > 0;
+  const narrowed = searching || group !== "all";
   const shown = GROUPS.filter((g) => group === "all" || g.id === group);
   const found = shown.reduce((total, g) => total + filtered[g.id].length, 0);
+  // A query that matched nothing anywhere is one fact, and the three bands would each state it
+  // separately — the same sentence three times, under three headings, none of which is the answer.
+  // A group filter that comes up empty is *not* this: that group's own empty state is a true thing
+  // about the node ("not sharing for anyone yet"), and replacing it with "nothing matches" would
+  // throw away the only screen that says so.
+  const blank = searching && found === 0;
   // The bar is navigation for a library that has something in it. Before the worker has spoken
   // there is no library to navigate, and a search box over an unknown set implies an empty one.
   const searchable = known && d.worlds.length > 0;
@@ -223,32 +231,45 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
         </div>
       )}
 
-      {shown.map((g) => (
-        <WorldSection
-          key={g.id}
-          group={g}
-          worlds={filtered[g.id]}
-          onOpen={props.onOpen}
-          // A search that matched nothing in this group is not the same fact as an empty group, and
-          // the section says which rather than repeating "share a world from the pause menu" at
-          // somebody who has thirty of them and mistyped one.
-          empty={
-            narrowed && buckets[g.id].length > 0 ? (
-              <Empty icon={<FiSearch />} title="No match in this group">
-                {buckets[g.id].length === 1
-                  ? "The one world here does not match what you typed."
-                  : `None of the ${buckets[g.id].length} worlds here match what you typed.`}
-              </Empty>
-            ) : (
-              <Empty icon={g.icon} title={known ? g.emptyTitle : "Waiting for your peer"}>
-                {known ? g.emptyHint : undefined}
-              </Empty>
-            )
-          }
-        />
-      ))}
+      {blank ? (
+        <div className="col-span-12 rounded-lg border border-line-soft bg-surface">
+          <Empty icon={<FiSearch />} title="Nothing matches">
+            No world in your library has “{query.trim()}” in its name or its id.
+          </Empty>
+          <div className="flex justify-center pb-8">
+            <Button variant="secondary" size="md" shape="pill" onClick={() => setQuery("")}>
+              Clear the search
+            </Button>
+          </div>
+        </div>
+      ) : (
+        shown.map((g) => (
+          <WorldSection
+            key={g.id}
+            group={g}
+            worlds={filtered[g.id]}
+            onOpen={props.onOpen}
+            // A search that matched nothing *in this group* while matching elsewhere is not the
+            // same fact as an empty group, and the band says which rather than repeating "share a
+            // world from the pause menu" at somebody who has thirty of them and mistyped one.
+            empty={
+              searching && buckets[g.id].length > 0 ? (
+                <Empty icon={<FiSearch />} title="No match in this group">
+                  {buckets[g.id].length === 1
+                    ? "The one world here does not match what you typed."
+                    : `None of the ${buckets[g.id].length} worlds here match what you typed.`}
+                </Empty>
+              ) : (
+                <Empty icon={g.icon} title={known ? g.emptyTitle : "Waiting for your peer"}>
+                  {known ? g.emptyHint : undefined}
+                </Empty>
+              )
+            }
+          />
+        ))
+      )}
 
-      {searchable && narrowed && (
+      {searchable && narrowed && !blank && (
         <p className="col-span-12 text-xs text-faint">
           {found === d.worlds.length
             ? `Showing all ${d.worlds.length} worlds.`

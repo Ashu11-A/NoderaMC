@@ -533,7 +533,7 @@ function Hero(props: {
               />
               <span className="flex flex-col leading-tight">
                 <span className="font-medium text-text">{PHASE_LABEL[props.launch.phase]}</span>
-                <span className="text-[10px] text-dim">
+                <span className="max-w-[22ch] truncate text-[10px] text-dim">
                   {world?.name || props.launch.world_id.slice(0, 10) || "Nodera"}
                 </span>
               </span>
@@ -543,7 +543,11 @@ function Hero(props: {
 
       <div className="page-canvas relative flex w-full flex-1 flex-col justify-end gap-2 pt-10 pb-6">
         <p className="text-2xs font-medium tracking-[0.16em] text-brand-tint uppercase">Ready to play</p>
-        <h1 className="display-type max-w-[12ch] text-hero leading-[0.95] font-bold">
+        {/* `12ch` is a measure, and a measure only wraps text that has somewhere to wrap. A world
+            named in one unbroken 30-character token is ~850px at this size, which walks straight
+            out of the canvas and gives the page the horizontal scrollbar it is not allowed to
+            have. `anywhere` is the only overflow-wrap value that will break inside a word. */}
+        <h1 className="display-type max-w-[12ch] text-hero leading-[0.95] font-bold [overflow-wrap:anywhere]">
           {world ? world.name || "Unnamed world" : props.fallbackName || "Nodera"}
         </h1>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-dim">
