@@ -103,7 +103,11 @@ public final class OwnershipScenario implements Scenario {
 
         context.stage("O3", "player B kept the world and now hosts it", () -> {
             HostWorldSupport.stopClient(players[0].host(), HOST_RUN);
-            joinLog.await("Nodera continuity: host connection lost", Duration.ofSeconds(120));
+            // The prefix, not the whole sentence: the takeover has two endings — this peer was
+            // elected, or another one was — and both prove the thing this stage is about. Waiting
+            // on the full line is how this assertion went stale in the first place, against a
+            // message the succession rework reworded and no production code has emitted since.
+            joinLog.await("Nodera: the host's connection ended", Duration.ofSeconds(120));
             joinLog.await("Nodera: sharing world", Duration.ofSeconds(420));
             joinLog.await("game server open for joiners on port " + context.topology().gamePort(),
                     Duration.ofSeconds(180));

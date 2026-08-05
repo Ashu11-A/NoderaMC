@@ -55,7 +55,7 @@ import java.util.Set;
  * <p>The pass bar this scenario was written to is <b>zero interruption</b>: when player A's game
  * exits, player B must not lose its connection. Player B's connection terminates at player A's
  * integrated server, and when that process ends there is nothing on the other end of the socket —
- * {@code NoderaContinuity} then logs {@code host connection lost}, fetches the archive and re-hosts.
+ * {@code NoderaContinuity} then logs {@code the host's connection ended}, fetches the archive and re-hosts.
  * So the bar is expected to fail on today's build, and M6 measures the outage rather than only
  * naming it: how long B was out, whether it recovered, and whether the rest of the network noticed.
  *
@@ -654,7 +654,7 @@ public final class MobileContinuityScenario implements Scenario {
             // The recovery path, recorded whether or not it is wanted: how long B was out, and
             // whether it came back at all. This is the size of the gap the assertion below reports.
             boolean lost = HostWorldSupport.containsAfter(joinerLogFile[0], mark,
-                    "Nodera continuity: host connection lost");
+                    "Nodera: the host's connection ended");
             if (lost) {
                 boolean restored = joinerLog[0].pollFor("restored to saves/",
                         Duration.ofSeconds(300), mark);

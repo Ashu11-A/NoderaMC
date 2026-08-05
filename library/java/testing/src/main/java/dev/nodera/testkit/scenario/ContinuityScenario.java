@@ -110,7 +110,7 @@ public final class ContinuityScenario implements Scenario {
                 HostWorldSupport.stopClient(players[0].host(), "clientHostRunProgramArgs"));
 
         context.stage("S5", "player B recovered the world from the network and re-hosts it", () -> {
-            joinLog.await("Nodera continuity: host connection lost", Duration.ofSeconds(120));
+            joinLog.await("Nodera: the host's connection ended", Duration.ofSeconds(120));
             joinLog.await("restored to saves/", Duration.ofSeconds(300));
             joinLog.await("Nodera: sharing world", Duration.ofSeconds(300));
             String state = context.worker(PlayerRole.PLAYER_TWO).state();
