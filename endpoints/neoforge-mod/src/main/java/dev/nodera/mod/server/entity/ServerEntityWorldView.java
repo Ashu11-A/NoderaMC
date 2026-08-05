@@ -130,6 +130,27 @@ public final class ServerEntityWorldView implements MutableWorldView {
         return canonical.reExtract(region, version, tick);
     }
 
+    // Both of these MUST delegate rather than inherit the interface default. Canonical state lives
+    // in `canonical`, and so does the bookkeeping that makes them cheap; taking the default would
+    // silently put the uncached path back on the server thread, which is the thing being fixed.
+
+    @Override
+    public dev.nodera.core.state.StateRoot regionRoot(
+            RegionId region, SnapshotVersion version, long tick) {
+        return canonical.regionRoot(region, version, tick);
+    }
+
+    @Override
+    public dev.nodera.core.state.RegionChunkIndex chunkIndex(
+            RegionId region, dev.nodera.core.state.ChunkStampBook book) {
+        return canonical.chunkIndex(region, book);
+    }
+
+    /** See {@link dev.nodera.coordinator.InMemoryWorldView#stampBook}. */
+    public void stampBook(dev.nodera.core.state.ChunkStampBook book) {
+        canonical.stampBook(book);
+    }
+
     @Override
     public void setSnapshotBodyVersion(RegionId region, int bodyVersion) {
         canonical.setSnapshotBodyVersion(region, bodyVersion);

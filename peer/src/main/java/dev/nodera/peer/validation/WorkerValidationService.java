@@ -1166,7 +1166,7 @@ public final class WorkerValidationService {
         }
         SnapshotVersion next = replica.snapshot.version().next();
         RegionSnapshot committed = world.reExtract(replica.snapshot.region(), next, tick);
-        StateRoot extractedRoot = StateRoot.of(hashes.hash(committed));
+        StateRoot extractedRoot = world.regionRoot(replica.snapshot.region(), next, tick);
         if (!committed.equals(expected) || !extractedRoot.equals(cert.resultingRoot())) {
             throw new IllegalStateException("certified commit did not reproduce resulting root");
         }
@@ -1450,7 +1450,12 @@ public final class WorkerValidationService {
         }
         RegionSnapshot snapshot = world.reExtract(
                 delta.region(), delta.resultingVersion(), tick);
-        if (!StateRoot.of(hashes.hash(snapshot)).equals(certificate.resultingRoot())) {
+        // Through the view: on the primary this is the same (region, version, tick) the committer
+        // just hashed, so verifying the certified delta reproduces the certified root now costs a
+        // map lookup instead of a second full-region SHA-256. The check itself is untouched — it is
+        // what makes a peer refuse a delta that does not reproduce what was signed.
+        if (!world.regionRoot(delta.region(), delta.resultingVersion(), tick)
+                .equals(certificate.resultingRoot())) {
             throw new IllegalStateException("external delta did not reproduce certified root");
         }
         replica.snapshot = snapshot;

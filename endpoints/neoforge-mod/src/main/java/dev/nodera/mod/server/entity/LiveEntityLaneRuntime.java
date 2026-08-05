@@ -134,7 +134,18 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
                     },
                     new java.util.concurrent.ThreadPoolExecutor.DiscardPolicy());
 
+    private final dev.nodera.core.state.ChunkStampBook stamps;
+
     private long currentTick;
+
+    /**
+     * When each of this world's columns was last written here.
+     *
+     * @return the book, for anything building or merging an index against this world.
+     */
+    public dev.nodera.core.state.ChunkStampBook stamps() {
+        return stamps;
+    }
 
     public LiveEntityLaneRuntime(
             WorkerValidationService validation,
@@ -148,12 +159,19 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         this.world = world;
         this.authority = authority;
         this.actions = actions;
-        HashService hashes = new HashService();
+        // Provenance for this world's columns: which of two differing copies of a chunk is more
+        // recent, in a form another machine can compare without either clock being right. Installed
+        // on the view so every canonical write — foreign or applied — records itself.
+        this.stamps = new dev.nodera.core.state.ChunkStampBook(authority.nodeId());
+        world.stampBook(stamps);
         this.committer = new InterferenceCommitter(
                 interference,
+                // Through the view, not around it: the view knows whether the region has changed
+                // since it last answered, and can say "the same" for free. Hashing here instead
+                // meant a full re-extract and SHA-256 of every column on every commit — and again,
+                // for the same state, when the certified delta was verified.
                 (region, version, minimumBodyVersion) ->
-                        dev.nodera.core.state.StateRoot.of(hashes.hash(
-                                world.reExtract(region, version, currentTick))),
+                        world.regionRoot(region, version, currentTick),
                 world::setSnapshotBodyVersion,
                 (delta, certificate) -> {
                     validation.commitExternal(delta, certificate, currentTick);
