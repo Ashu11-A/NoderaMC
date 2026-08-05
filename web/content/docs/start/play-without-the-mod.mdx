@@ -1,0 +1,100 @@
+---
+title: Play with no mod installed
+description: Browse and join NoderaMC worlds from an unmodified Minecraft, over a tunnel to your own machine.
+---
+
+import { Callout, Figure } from "../../../src/components/primitives";
+import { NoModTunnel } from "../../../src/components/diagrams";
+import { Tag, Ui } from "../../../src/components/mdx";
+
+## What this is
+
+Everything else on this site assumes both players have the mod.
+This does not.
+
+A host with the mod can share an ordinary **Open to LAN** world, and anyone with the companion app can join it from a completely unmodified Minecraft — no mod, no NeoForge, no launcher of ours, no profile changes.
+The guest still needs the app, because the app is what carries the connection.
+The game does not need to know anything at all.
+
+<Figure caption="The guest's Minecraft connects to a port on the guest's own machine. Everything past that port is the app's problem.">
+  <NoModTunnel />
+</Figure>
+
+## How it works
+
+The host opens a world and presses vanilla's own **Open to LAN**.
+
+Minecraft announces LAN games by shouting on the local network, and the worker on the host's machine hears that.
+It then **asks the host** whether to publish the session.
+Hearing a beacon is not consent, and nothing leaves the machine until the host says yes — this is the one place in the whole feature where a decision is made, and it is made by the person whose world it is.
+
+Once published, the session appears in other people's apps.
+A guest picks it and presses Play.
+The worker binds a port on the guest's own machine and starts the guest's normal Minecraft profile; the guest joins `127.0.0.1` like any other server.
+Everything past that local port is a circuit between the two apps, encrypted end to end.
+
+## The two things this is careful about
+
+**No save is ever downloaded.**
+
+The tunnel carries the game's own connection — the same TCP traffic vanilla LAN play would carry, over a longer path.
+The host's world file stays on the host's machine and the host stays the sole authority over it.
+Nothing is copied, nothing is cached, and nothing about the guest's Minecraft installation is modified.
+
+**A guest names a session, never an address.**
+
+You pick a published session out of a list by its name.
+You cannot hand the worker a host and a port and ask it to connect you there.
+
+That restriction is the entire security model of the feature.
+A worker that accepted an arbitrary address would be an open proxy into its own machine's loopback interface — point it at `127.0.0.1` and something else on the host's machine and it would happily bridge that instead.
+Sessions are the only thing addressable, and a session only exists because its host published it.
+
+## What the guest gives up
+
+This is a tunnel, not membership.
+
+The guest is not a peer.
+Their machine validates nothing, stores nothing, holds no piece of the world, and has no vote.
+When the host closes the world, it is gone — there is no committee behind it and nothing to re-host, because an *Open to LAN* world was never on the network in the first place.
+
+That is the trade, stated plainly: it is the easiest possible way to play with someone, and it gives up every property that makes the rest of NoderaMC interesting.
+It is the right answer for an evening with a friend who is not going to install anything.
+It is the wrong answer for a world you want to still exist next month.
+
+<Callout type="warning" title="A LAN world is only up while the host is in it">
+  Open to LAN stops the moment the host quits to the title screen.
+  If you want the world to outlive the session, share it to the network with
+  <strong> Open to Nodera</strong> instead — that is
+  <a href="/docs/start/share-and-join"> the other page</a>, and it needs the mod on both ends.
+</Callout>
+
+## Doing it
+
+**As the host**, with the mod and the app: open your world, press Escape, press **Open to LAN**, and approve the prompt the app raises.
+The prompt names the world and asks once.
+
+**As the guest**, with only the app: open <Ui to="lan-sessions" />, find the session, press Play.
+Point the app at your existing Minecraft installation the first time — it starts your own profile, so whatever you normally play with is what launches.
+
+## What can go wrong
+
+**The session never appears in anyone's app.**
+The host's worker did not hear the beacon, or the host never approved the prompt.
+LAN announcements do not leave the local network; the host publishing the session is what carries it further, so an unapproved session is invisible by design.
+
+**The guest's game says it cannot reach the server.**
+The tunnel is up but the port the game was pointed at is not the port the worker bound, which usually means a second Minecraft instance is already on it.
+Close the other one.
+
+**It connects and then drops.**
+The circuit between the two apps went away — the host closed the world, or a relay in the middle was drained.
+The host's world is unaffected; only the tunnel ended.
+
+<Callout type="note" title="On accuracy">
+  Both halves of this feature — the tunnel and the app's session directory — are finished and have
+  been verified on real machines rather than only in tests.
+  What that does <em>not</em> mean is that it has been proven across the open internet at scale;
+  <a href="/status"> the register</a> is explicit about which live proofs have been run and which
+  have not.
+</Callout>

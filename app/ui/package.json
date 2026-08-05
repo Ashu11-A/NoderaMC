@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "exports": {
+    "./styles.css": "./src/styles.css"
+  },
   "scripts": {
     "dev": "vite",
     "test": "tsc && vite build && node --test \"tests/*.test.mjs\"",
@@ -12,7 +15,7 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/space-grotesk": "^5.3.0",
-    "@tauri-apps/api": "^2",
+    "nodera-ui": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-icons": "^5.7.0"
