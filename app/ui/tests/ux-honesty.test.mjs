@@ -155,6 +155,39 @@ test("the restart banner restarts the worker, or says why it cannot", () => {
   assert.match(banner, /Restart it where you started it\./);
 });
 
+/* ------------------------------------------------------------- the strip may not hide a section */
+
+test("the narrow section strip scrolls rather than losing its last sections", () => {
+  // Comments stripped first, and not as tidiness: the prose above the strip explains what `min-w-0`
+  // buys, so a version of this test that read the raw source passed with the class deleted. `code()`
+  // is declared below and hoisted; it exists for exactly this.
+  const settings = code(read("../src/Settings.tsx"));
+  const strip = settings.slice(settings.indexOf('role="tablist"') - 500, settings.indexOf('role="tablist"'));
+
+  // Ten sections do not fit across a 1000px window, and there are exactly three things a strip can
+  // do about that: wrap, scroll, or lie. It was doing the third — `min-w-0` was absent, so the strip
+  // sized itself to its own content, the shell it sits in was pushed past the window's right edge,
+  // and `body { overflow: hidden }` took Diagnostics, Privacy and About off the screen with no way
+  // to reach them. Both halves are load-bearing: the minimum is what lets the strip be narrower than
+  // its tabs, and the overflow is what turns that into a scroll instead of a clip.
+  assert.match(strip, /min-w-0/, "the strip cannot be narrower than its tabs, so it clips them");
+  assert.match(strip, /overflow-x-auto/, "the strip does not scroll");
+
+  // And it says so. A scrollport with no visible scrollbar is indistinguishable from a cut-off one,
+  // which is exactly how this was reported; `overflow-x: auto` paints these only when there is
+  // something to scroll, so the bar appears precisely when there is more than the window can show.
+  assert.match(settings, /::-webkit-scrollbar-thumb\]:bg-line/, "the strip scrolls in silence");
+
+  // Reachability is not the same as visibility. Something else picks the section — `initial` sends
+  // a user to the one control they were told to fix — and a strip that opens scrolled to the left
+  // has hidden the reason they came.
+  assert.match(
+    settings,
+    /aria-selected="true"[\s\S]{0,120}scrollIntoView/,
+    "the section in force is never scrolled back into view",
+  );
+});
+
 /* ------------------------------------------------------------------------------------ A-UX-5 */
 
 /** The command names inside `tauri::generate_handler![...]`, in registration order. */
