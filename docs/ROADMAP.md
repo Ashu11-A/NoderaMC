@@ -75,7 +75,7 @@ Four tasks open with it: [frontend 17](frontend/Task.17.md) (the launcher redesi
 screen), [18](frontend/Task.18.md) (the website), [19](frontend/Task.19.md) (one tree building the
 desktop app, the site and — through the Rust core and the worker rather than through React — the
 Android app), and [20](frontend/Task.20.md) (the site published as a container image the VPS pulls,
-replacing an SSH push). The task total goes 76 → 80 and none of the four is finished, so the
+replacing an SSH push). The task total goes 78 → 82 and none of the four is finished, so the
 completion figure above is again **not** recomputed rather than being quietly improved.
 
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
@@ -110,14 +110,22 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | [Frontend](frontend/Task.0.md) | 20 | 10 | 9 | 1 | Every user-facing surface: desktop launcher, Android companion, website |
 | [Testing](testing/Task.0.md) | 1 | 1 | 0 | 0 | The test tooling: harness, scenarios, benchmarks, structural report |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
-| **Total** | **80** | **49** | **27** | **2** | |
+| **Total** | **82** | **51** | **27** | **2** | |
 
 Note (2026-07-28 doc sweep): the task totals now reflect every `Task.<n>.md` file on disk (the previous
 table undercounted tracker/rendezvous/minecraft/worker/app/mobile — the last two are now one
 `frontend` category). The completion figure in §1's
 header is **not** recomputed here — its weighting is not derivable from this table, and a raw
-done/total (49/75) would mix not-started tasks into the denominator in a way the historical figure
+done/total (51/82) would mix not-started tasks into the denominator in a way the historical figure
 never did.
+
+Note (2026-08-05, frontend merge): the **Total** row is a transcription of the rows above it, and it
+had gone stale by two tasks — it read 49/80 against rows summing to 51/82. The drift entered in
+`f4ad09e`, which raised Network 14 → 15 (one more task, one more done) and added the Testing row
+(1/1) without touching the total; the frontend merge then added its four on top of an already-wrong
+base. Every category row here was re-checked against the `Task.<n>.md` files on disk and all nine
+are correct, so the total was the only wrong number. `web/scripts/build-status.mjs` publishes the
+**sum** rather than this row and prints a warning when the two disagree, which is what surfaced it.
 
 The `server` category ([`server/Task.0.md`](server/Task.0.md), 10 tasks, 0 done) is scoped in
 [`plans/Plan.5.md`](plans/Plan.5.md) and is **excluded from this table and from the completion

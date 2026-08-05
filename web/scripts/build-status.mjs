@@ -171,11 +171,14 @@ if (!total) die("docs/ROADMAP.md §1 has no Total row");
 // actually say, and each of those rows is checked against its own category's task files by the doc
 // sweep. The Total row is a transcription of it, and a transcription is the thing that goes stale.
 //
-// It is stale today — the rows sum to 51/82 and the Total row says 49/80, two tasks behind the
-// frontend merge that added four of them. That is a defect in `docs/ROADMAP.md` and it is not this
-// build's to fix, so it is reported rather than swallowed and rather than fatal: a website that
-// cannot build until somebody edits a documentation file is a coupling nobody asked for, and a
-// disagreement nothing prints is how the transcription got stale in the first place.
+// It was stale when this was written — the rows summed to 51/82 and the Total row said 49/80. The
+// drift entered in `f4ad09e`, which raised Network 14 → 15 and added the Testing row without
+// touching the total; it went unnoticed for two merges because nothing printed the disagreement.
+// `docs/ROADMAP.md` has since been corrected and carries the story.
+//
+// The warning stays, and stays non-fatal. A website that cannot build until somebody edits a
+// documentation file is a coupling nobody asked for; a disagreement nothing prints is how the
+// transcription got stale in the first place. Publishing the sum means the page is right either way.
 const summed = categories.reduce(
   (acc, row) => ({ tasks: acc.tasks + row.tasks, done: acc.done + row.done }),
   { tasks: 0, done: 0 },

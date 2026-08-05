@@ -31,6 +31,20 @@
 > `Seeder lookup … 1 seeder(s), 1 routable` — the first live discovery plane the Java harness has
 > ever had. **Live evidence recorded before 2026-07-30 should be re-read with this in mind.**
 
+## §B — Staged capabilities (the burn-down list)
+
+<!-- This heading was missing until 2026-08-05, and its absence was not cosmetic. Nine of the ten
+     registers under docs/ split into `## §A` (envelope constraints, which never burn down) and
+     `## §B` (staged capabilities, which do). This one had neither, so any reader — human or
+     tool — that located staged rows by their `## §B` heading read this register as EMPTY and
+     silently dropped all six rows below. `web/scripts/build-status.mjs` did exactly that until it
+     grew a fallback to the first table under the H1, and a register that reports zero open rows
+     while holding six is the most expensive shape of wrong a limitations register has.
+
+     The rows are unchanged: same ids, same statuses, same owning tasks, same exit tests. Only the
+     heading they live under is new. There is no `## §A` because this register declares no envelope
+     constraints — an absent section is honest; an empty one would not be. -->
+
 | Row | Status | What is missing | Owning task | Exit test |
 |---|---|---|---|---|
 | T-5 | RETIRING | The harness launched services and never checked they were alive, so a service that refused its own configuration produced a stack that looked started (see the audit note above). `awaitListening` closes it for the tracker and the rendezvous. What is not closed: the same class starts a dedicated server and two Minecraft clients, and their readiness is asserted by scenario-specific log-watching rather than by one harness rule — so the *shape* of defect can still recur one process type over. | [testing 1](Task.1.md) | every process `LiveStack` starts is proven answering by the harness before a scenario's first stage runs, with the failure naming the process and its log tail |
