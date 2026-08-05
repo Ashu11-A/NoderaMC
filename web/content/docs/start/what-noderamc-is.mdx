@@ -3,98 +3,88 @@ title: What NoderaMC is
 description: Regions, committees, and why there is no server — and, just as usefully, what NoderaMC is not.
 ---
 
-import { Callout, Figure } from "../../../src/components/primitives";
+import { Callout, Figure, Scroller } from "../../../src/components/primitives";
 import { Step1Share, Step2Find, Step3Committee } from "../../../src/components/diagrams";
 import { Tag } from "../../../src/components/mdx";
 
-## Start with what a server actually does
+A Minecraft server does two jobs: it **decides what happened**, and it **stays switched on**.
+NoderaMC splits them. Deciding is done by the machines that are playing, collectively and
+checkably. Staying switched on is done by a small background process on those same machines, which
+keeps running with Minecraft closed.
 
-A Minecraft server does two jobs that have nothing to do with each other.
+Nobody rents anything, nobody is an administrator by virtue of owning the hardware, and the world
+does not end when the person who started it quits.
 
-It **decides what happened** — that the arrow hit, that the piston fired, that the ore is now in your inventory.
-And it **stays switched on**, so the world is there when someone wants it.
+## The four parts
 
-Almost everything annoying about running a world with friends comes from the second job.
-Somebody pays for a machine, somebody has to keep it patched, and when that person loses interest the world goes with them.
-The first job is the one you actually need, and it does not require a machine that belongs to anyone in particular.
+<Scroller>
 
-NoderaMC splits the two.
-The deciding is done by whoever is playing, collectively and checkably.
-The staying-switched-on is done by a small background process on the machines of people who care about that world, and it does not need Minecraft to be open.
+| Part | What it is | Runs where |
+| --- | --- | --- |
+| **The mod** | The NeoForge mod, on Minecraft 1.21.1. Adds *Open to Nodera*, replaces the multiplayer screen, and drives the validated lane. | Inside the game |
+| **The worker** | A headless always-on process — your node. Holds your identity, keeps your worlds announced, serves their pieces, validates regions. | Beside the game, supervised by the companion app |
+| **A tracker** | Answers one question: who is on this world. | Somebody's server, or yours |
+| **A rendezvous relay** | Introduces two machines that are both behind a NAT, and carries an encrypted circuit when there is no direct path. | Somebody's server, or yours |
 
-## How it works
+</Scroller>
 
-Four steps. The rest of this page is each of them in full.
-
-1. **You share a world.**
-   Press **Open to Nodera** in the pause menu — vanilla's *Open to LAN*, one slot over.
-   Your machine announces the world to whichever trackers you have configured, and offers its pieces to whoever asks for them.
-
-2. **Other players find it.**
-   A tracker answers the question "who is on this world".
-   A relay introduces two machines that are both behind a NAT, and bridges an end-to-end-encrypted circuit when there is no direct path.
-   Neither can forge a world, an identity or a vote: everything they say is checked against signatures the peers already hold.
-
-3. **Regions get committees.**
-   The world is a grid of 8×8-chunk regions.
-   One committee member simulates a region; the others re-execute the same inputs and compare the resulting <Tag>StateRoot</Tag>.
-   A batch commits with a quorum, or it does not commit.
-
-4. **Nobody has to stay.**
-   Every peer that has played holds pieces of the world.
-   When the machine that started it goes away, <a href="/docs/using/when-the-host-leaves">a peer that holds the pieces can re-host it</a>.
+Neither service is trusted with anything. See [below](#trackers-and-relays-hold-no-authority).
 
 <Figure caption="Sharing a world announces it to the trackers you have configured and starts offering its pieces to whoever asks. Neither a tracker nor a relay is asked to hold any authority over what happens in it.">
   <Step1Share />
 </Figure>
 
-That is the design.
-<a href="/status">Where the build actually stands</a> says which parts of Minecraft have made it into the validated lane so far.
-
 ## Regions
 
 The world is cut into a fixed grid of **8×8-chunk regions** — 128 blocks square.
 
-A region is the unit of everything: it is what gets simulated, what gets validated, what gets stored, and what gets handed from one machine to another.
-The grid is fixed rather than dynamic on purpose, because two machines that disagree about where the boundaries are cannot agree about anything else either.
+A region is the unit of everything: what gets simulated, what gets validated, what gets stored,
+what gets handed from one machine to another. The grid is fixed rather than dynamic because two
+machines that disagree about where the boundaries are cannot agree about anything else either.
 
-Which regions your machine is responsible for follows you.
-Your render distance describes a disc around you; the regions that disc touches are the ones you activate.
-Walk far enough and the disc moves, so the set is recomputed, and the region behind you is picked up by whoever is still near it.
+Which regions your machine is responsible for follows you. Your render distance describes a disc
+around you, and the regions that disc touches are the ones you activate. Walk far enough and the
+set is recomputed; the region behind you is picked up by whoever is still near it.
 
 ## Committees
 
-Each active region has a small **committee** of peers, and one of them is the primary.
+Each active region has a small **committee** of peers, one of which is the primary.
 
-The primary simulates the region: it takes the inputs for a tick batch and produces a result.
-The others in the committee re-execute *the same inputs* and compute the result independently.
-Then all of them compare a short fingerprint of the resulting world state — a <Tag>StateRoot</Tag> — and the batch commits only if a quorum of them got the same one.
+The primary simulates the region for a batch of ticks. The others re-execute *the same inputs*
+independently, and all of them compare a short fingerprint of the resulting world state — a
+<Tag>StateRoot</Tag>. The batch commits only if a quorum agrees on that fingerprint, and does not
+commit otherwise.
 
-If they disagree, the batch does not commit.
-That is the whole mechanism, and it is why no single machine — including the one that created the world — is trusted to say what happened in it.
+The default committee wants **three validators** (<Tag>committee.requiredValidators</Tag>). That is
+why no single machine — including the one that created the world — is trusted to say what happened
+in it, and why a world with too few peers present reports itself as running with fewer validators
+than it wants rather than pretending.
 
 <Figure caption="One region, three peers, one fingerprint. The primary simulates and the rest re-execute the same inputs; a batch commits with a quorum, or it does not commit.">
   <Step3Committee />
 </Figure>
 
 <Callout type="note" title="This is why determinism is the project's central bet">
-  Re-execution is only a check if two honest machines running the same inputs get bit-for-bit the same answer.
-  Minecraft is not written that way, so the parts of the game that have been brought into this lane were rewritten to be.
-  That work is not finished, and <a href="/status">the list of what is still outside it</a> is public.
-  A region holding something not yet in the validated lane falls back to ordinary vanilla behaviour rather than being validated — it keeps working, it is just not being re-checked.
+  Re-execution is only a check if two honest machines running the same inputs get bit-for-bit the
+  same answer. Minecraft is not written that way, so the parts of the game brought into this lane
+  were rewritten to be. That work is not finished. A region holding something not yet in the
+  validated lane falls back to ordinary vanilla behaviour rather than being validated — it keeps
+  working, it is just not being re-checked. <a href="/status">Where the build stands</a> lists what
+  is still outside the lane.
 </Callout>
 
 ## Trackers and relays hold no authority
 
-Two machines still have to find each other, and most home connections cannot be dialled directly.
+Two machines have to find each other, and most home connections cannot be dialled directly. A
+tracker answers "who is on this world"; a relay bridges two machines behind NATs.
 
-A **tracker** answers "who is on this world".
-A **rendezvous relay** introduces two machines that are both behind a NAT and carries an encrypted circuit between them when there is no direct route.
+Neither is trusted. Every service proves its own identity before a peer will talk to it, and
+everything a service says about a world, an identity or a vote is checked against signatures the
+peers already hold. The most a hostile or broken service can do is hide a peer from you, or point
+you at one that is not reachable.
 
-Neither is trusted.
-Every service proves its own identity before a peer will talk to it, and everything a service says about a world, an identity or a vote is checked against signatures the peers already hold.
-The most a hostile or broken service can do is hide a peer from you, or point you at one that is not reachable.
-That is an availability problem, never a correctness one — which is exactly why the app will take a list of services from anyone, and why the bundled list is deletable like any other.
+That is an availability problem, never a correctness one — which is exactly why the app will take a
+list of services from anyone, and why the bundled list is deletable like any other.
 
 <Figure caption="Two players, both behind a NAT. The tracker says who is on the world and the relay carries a circuit when there is no direct path; every answer either of them gives is checked against signatures the peers already hold.">
   <Step2Find />
@@ -102,35 +92,46 @@ That is an availability problem, never a correctness one — which is exactly wh
 
 ## The worker, and why the mod refuses to start without it
 
-Alongside the mod there is a headless **peer worker**: a small always-on process that is your node on the network.
+The worker runs whether or not Minecraft is open, which is the entire reason your world does not
+vanish when you quit. It is also where your identity lives, so the same node is recognisable across
+sessions.
 
-It holds your identity, keeps your worlds announced, serves pieces of them to peers who ask, and keeps validating regions for worlds you help host.
-It runs whether or not Minecraft is open, which is the entire reason your world does not vanish when you quit.
+The mod **requires** it. If nothing answers on <Tag>127.0.0.1:25610</Tag> when the game starts, the
+mod aborts with an install prompt rather than pretending to work. The companion app is what
+supervises the worker, which is why <a href="/docs/start/install">the app is installed first</a>.
 
-The mod **requires** it.
-If nothing answers on <Tag>127.0.0.1:25610</Tag> when the game starts, the mod aborts with an install prompt rather than pretending to work.
-The companion app is what supervises the worker, which is why <a href="/docs/start/install">the app is installed first</a>.
+## Nobody has to stay
+
+A world is stored as content-addressed pieces, and every peer that has played in it holds some of
+them. When the machine that started it goes away, the remaining players elect one of themselves,
+and that peer opens the world and announces that it is now serving it. Everyone else is reconnected
+to it. <a href="/docs/using/when-the-host-leaves">When the host leaves</a> is that mechanism in
+full, including what it does not promise.
 
 ## What NoderaMC is not
 
-**It is not a way to play with people who have not installed it.**
-Every player in a NoderaMC world runs the mod and joins as a peer.
-There is no vanilla-client lane and no second-class participant; the handshake enforces it.
-There *is* a separate feature for playing with an unmodified Minecraft — <a href="/docs/start/play-without-the-mod">a tunnel to a host's own LAN world</a> — but that is a different thing wearing a similar hat, and it does not make the guest a peer.
+**It is not a way to play with people who have not installed it.** Every player in a NoderaMC world
+runs the mod and joins as a peer. The mod makes that visible: it takes vanilla's *Realms* slot on
+the title screen for a **Nodera Network** button, and replaces the multiplayer screen entirely, so
+there is no Direct Connect and no server list to fall back to. There *is* a separate feature for
+playing with an unmodified Minecraft — <a href="/docs/start/play-without-the-mod">a tunnel to a
+host's own LAN world</a> — but it makes the guest a guest, not a peer.
 
-**It is not a hosting service, and there is nothing to sign up for.**
-No account, no login, no company holding your world.
+**It is not a hosting service, and there is nothing to sign up for.** No account, no login, no
+company holding your world.
 
-**It is not finished.**
-The engine, the network stack and both services are proven Minecraft-free. Wiring them to a real <Tag>ServerLevel</Tag> — the live validation lane — is the largest piece still open, and redstone, fluids, weather, mobs and lighting are not all in that lane yet.
-There is no macOS build, and <a href="/download#no-macos">the reason is written down</a>.
-The project keeps a register per component, every row naming the task that owns it and the exact test that retires it, and <a href="/status">all of them are on this site</a>.
+**It is not finished.** The engine, the network stack and both services are proven Minecraft-free.
+Wiring them to a real <Tag>ServerLevel</Tag> — the live validation lane — is the largest piece still
+open, and redstone, fluids, weather, mobs and lighting are not all in that lane yet. There is no
+macOS build, and <a href="/download#no-macos">the reason is written down</a>. Every component keeps
+a register of its own limitations, each row naming the task that owns it and the exact test that
+retires it, and <a href="/status">all of them are on this site</a>.
 
-**It is not a claim that your world can never go down.**
-It is a claim that the world does not depend on one particular machine.
-Nobody has to stay, but somebody has to be around: a world whose every peer is offline is a world nobody is holding.
+**It is not a claim that your world can never go down.** It is a claim that the world does not
+depend on one particular machine. Nobody has to stay, but somebody has to be around: a world whose
+every peer is offline is a world nobody is holding.
 
 ## Next
 
-<a href="/docs/start/install">Install the app and the mod</a>, in that order.
-Then <a href="/docs/start/share-and-join">share a world and join one</a>.
+<a href="/docs/start/install">Install the app and the mod</a>, in that order. Then
+<a href="/docs/start/share-and-join"> share a world and join one</a>.
