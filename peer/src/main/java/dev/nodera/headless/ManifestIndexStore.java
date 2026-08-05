@@ -169,7 +169,45 @@ final class ManifestIndexStore {
      * upgrading past this simply re-learns what it holds from the content store.
      */
     private static String fileName(String worldIdHex, String lane, Bytes manifestRoot) {
-        return worldIdHex + "__" + encodeLane(lane) + "__" + manifestRoot.toHex() + SUFFIX;
+        return requireHex(worldIdHex) + "__" + encodeLane(lane) + "__"
+                + manifestRoot.toHex() + SUFFIX;
+    }
+
+    /**
+     * A world id that is safe to put in a file name.
+     *
+     * <h2>Why this is not paranoia</h2>
+     *
+     * <p>Every other component of the name is machine-made: the lane is hex-encoded by
+     * {@link #encodeLane} precisely because a region's identity contains characters a file name may
+     * not, and the manifest root is a hash. The world id was the one part passed through as it
+     * arrived — and it arrives from the control socket, as an argument to
+     * {@code NODERA-SEED}/{@code NODERA-SEED-REGION}. A caller that sends {@code ../../something}
+     * writes outside the manifests directory, because {@link Path#resolve} follows it.
+     *
+     * <p>Rejecting rather than escaping, because a world id has exactly one legitimate shape and
+     * anything else is a bug or an attack: it is the hex of a {@code Bytes} world id everywhere it
+     * is produced. An id that is not hex could never have matched a real world anyway, so refusing
+     * it loses nothing and turns a silent traversal into a stated failure.
+     *
+     * @param worldIdHex the id as received.
+     * @return the same string, once it is known to be hexadecimal.
+     * @throws IllegalArgumentException if it is not.
+     */
+    private static String requireHex(String worldIdHex) {
+        if (worldIdHex == null || worldIdHex.isEmpty()) {
+            throw new IllegalArgumentException("a world id is required to file a manifest");
+        }
+        for (int i = 0; i < worldIdHex.length(); i++) {
+            char c = worldIdHex.charAt(i);
+            boolean hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!hex) {
+                throw new IllegalArgumentException(
+                        "a world id must be hexadecimal to name a file; got one containing '"
+                                + c + "'");
+            }
+        }
+        return worldIdHex;
     }
 
     /** Lane identities contain characters a file name may not; hex keeps the mapping total. */

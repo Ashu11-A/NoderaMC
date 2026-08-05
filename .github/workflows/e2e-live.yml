@@ -28,6 +28,12 @@ on:
   schedule:
     - cron: '17 3 * * *'   # nightly, off-peak
 
+# Least privilege by default. A job that needs more says so itself and overrides this block.
+# Without a default, every job inherits whatever the repository's default token scope happens to
+# be — which is not a decision this file was making deliberately.
+permissions:
+  contents: read
+
 jobs:
   plan:
     name: plan
@@ -91,7 +97,10 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # No `dtolnay/rust-toolchain@stable` here: rust-toolchain.toml pins the channel and
+      # rustup honours it automatically (see the `rust` job). Installing `stable` on top
+      # compiled nothing and put a FLOATING version into the rust-cache key, so every
+      # stable release invalidated the whole cache — one guaranteed cold build per cycle.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .

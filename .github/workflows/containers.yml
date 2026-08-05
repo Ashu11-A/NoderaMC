@@ -61,6 +61,12 @@ on:
 env:
   IMAGE: ghcr.io/ashu11-a/noderamc
 
+# Least privilege by default. A job that needs more says so itself and overrides this block.
+# Without a default, every job inherits whatever the repository's default token scope happens to
+# be — which is not a decision this file was making deliberately.
+permissions:
+  contents: read
+
 jobs:
   # The platform list is computed rather than written into the matrix because a matrix `exclude`
   # cannot depend on the event, and a pull request only needs one architecture to prove the
