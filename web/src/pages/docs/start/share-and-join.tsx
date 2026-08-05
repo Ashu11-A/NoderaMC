@@ -1,8 +1,10 @@
+import Content, { toc } from "../../../../content/docs/start/share-and-join.mdx";
+import { DocLayout } from "../../../components/docs";
+
 export default function Page() {
   return (
-    <>
-      <h1>Share a world, and join one</h1>
-      <p>Open to Nodera from the pause menu, what the other side does, and what the words on the Worlds screen mean.</p>
-    </>
+    <DocLayout path="/docs/start/share-and-join" toc={toc}>
+      <Content />
+    </DocLayout>
   );
 }

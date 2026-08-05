@@ -1,18 +1,16 @@
 import { useEffect, useState } from "react";
-import rawVersion from "../../../VERSION?raw";
+import { VERSION } from "./data";
 import { useMounted, usePrefersReducedMotion, useResolvedTheme, useScrollLock } from "./use-theme";
 
 /**
  * The header, the footer, and the theme control.
  *
- * The version in the header is **prerendered**, not patched in after mount. It is read at build
- * time from the repository's one `VERSION` file — the same file Gradle, the Rust build script and
- * the Android manifest read — so there is no way for the site to display a version the build does
- * not have. A launcher that ships the literal string `Get v{version}` in its HTML and rewrites it
- * on load is a launcher whose static page is wrong; there is no data split here forcing that.
+ * The version in the header is **prerendered**, not patched in after mount. It comes out of the
+ * generated release data, which took it from the repository's one `VERSION` file — so there is no
+ * way for the site to display a version the build does not have. Shipping the literal string
+ * `Get v{version}` in the static HTML and rewriting it on load is the other option, and there is no
+ * data split here forcing it.
  */
-export const VERSION = rawVersion.trim();
-
 const REPO = "https://github.com/Ashu11-A/NoderaMC";
 
 const NAV = [

@@ -1,0 +1,97 @@
+---
+title: What NoderaMC is
+description: Regions, committees, and why there is no server — and, just as usefully, what NoderaMC is not.
+---
+
+import { Callout } from "../../../src/components/primitives";
+import { Tag } from "../../../src/components/mdx";
+
+## Start with what a server actually does
+
+A Minecraft server does two jobs that have nothing to do with each other.
+
+It **decides what happened** — that the arrow hit, that the piston fired, that the ore is now in your inventory.
+And it **stays switched on**, so the world is there when someone wants it.
+
+Almost everything annoying about running a world with friends comes from the second job.
+Somebody pays for a machine, somebody has to keep it patched, and when that person loses interest the world goes with them.
+The first job is the one you actually need, and it does not require a machine that belongs to anyone in particular.
+
+NoderaMC splits the two.
+The deciding is done by whoever is playing, collectively and checkably.
+The staying-switched-on is done by a small background process on the machines of people who care about that world, and it does not need Minecraft to be open.
+
+## Regions
+
+The world is cut into a fixed grid of **8×8-chunk regions** — 128 blocks square.
+
+A region is the unit of everything: it is what gets simulated, what gets validated, what gets stored, and what gets handed from one machine to another.
+The grid is fixed rather than dynamic on purpose, because two machines that disagree about where the boundaries are cannot agree about anything else either.
+
+Which regions your machine is responsible for follows you.
+Your render distance describes a disc around you; the regions that disc touches are the ones you activate.
+Walk far enough and the disc moves, so the set is recomputed, and the region behind you is picked up by whoever is still near it.
+
+## Committees
+
+Each active region has a small **committee** of peers, and one of them is the primary.
+
+The primary simulates the region: it takes the inputs for a tick batch and produces a result.
+The others in the committee re-execute *the same inputs* and compute the result independently.
+Then all of them compare a short fingerprint of the resulting world state — a <Tag>StateRoot</Tag> — and the batch commits only if a quorum of them got the same one.
+
+If they disagree, the batch does not commit.
+That is the whole mechanism, and it is why no single machine — including the one that created the world — is trusted to say what happened in it.
+
+<Callout type="note" title="This is why determinism is the project's central bet">
+  Re-execution is only a check if two honest machines running the same inputs get bit-for-bit the same answer.
+  Minecraft is not written that way, so the parts of the game that have been brought into this lane were rewritten to be.
+  That work is not finished, and <a href="/status">the list of what is still outside it</a> is public.
+  A region holding something not yet in the validated lane falls back to ordinary vanilla behaviour rather than being validated — it keeps working, it is just not being re-checked.
+</Callout>
+
+## Trackers and relays hold no authority
+
+Two machines still have to find each other, and most home connections cannot be dialled directly.
+
+A **tracker** answers "who is on this world".
+A **rendezvous relay** introduces two machines that are both behind a NAT and carries an encrypted circuit between them when there is no direct route.
+
+Neither is trusted.
+Every service proves its own identity before a peer will talk to it, and everything a service says about a world, an identity or a vote is checked against signatures the peers already hold.
+The most a hostile or broken service can do is hide a peer from you, or point you at one that is not reachable.
+That is an availability problem, never a correctness one — which is exactly why the app will take a list of services from anyone, and why the bundled list is deletable like any other.
+
+## The worker, and why the mod refuses to start without it
+
+Alongside the mod there is a headless **peer worker**: a small always-on process that is your node on the network.
+
+It holds your identity, keeps your worlds announced, serves pieces of them to peers who ask, and keeps validating regions for worlds you help host.
+It runs whether or not Minecraft is open, which is the entire reason your world does not vanish when you quit.
+
+The mod **requires** it.
+If nothing answers on <Tag>127.0.0.1:25610</Tag> when the game starts, the mod aborts with an install prompt rather than pretending to work.
+The companion app is what supervises the worker, which is why <a href="/docs/start/install">the app is installed first</a>.
+
+## What NoderaMC is not
+
+**It is not a way to play with people who have not installed it.**
+Every player in a NoderaMC world runs the mod and joins as a peer.
+There is no vanilla-client lane and no second-class participant; the handshake enforces it.
+There *is* a separate feature for playing with an unmodified Minecraft — <a href="/docs/start/play-without-the-mod">a tunnel to a host's own LAN world</a> — but that is a different thing wearing a similar hat, and it does not make the guest a peer.
+
+**It is not a hosting service, and there is nothing to sign up for.**
+No account, no login, no company holding your world.
+
+**It is not finished.**
+The engine, the networking and both services are proven without Minecraft attached; wiring them to a live game world is the largest piece still open, and several parts of Minecraft — redstone, fluids, weather, mobs, lighting — are not all in the validated lane yet.
+The project keeps a register per component, every row naming the task that owns it and the test that closes it, and <a href="/status">all of them are on this site</a>.
+
+**It is not a claim that your world can never go down.**
+It is a claim that the world does not depend on one particular machine.
+Nobody has to stay, but somebody has to be around: a world whose every peer is offline is a world nobody is holding.
+
+## Next
+
+<a href="/docs/start/install">Install the app and the mod</a>, in that order.
+Then <a href="/docs/start/share-and-join">share a world and join one</a>.

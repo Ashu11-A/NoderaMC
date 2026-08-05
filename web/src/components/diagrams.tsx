@@ -88,15 +88,15 @@ export function Step1Share() {
       <text x="58" y="126" textAnchor="middle" className="fill-faint" fontSize="9">
         your world, in regions
       </text>
-      <Machine x="30" y="146" label="your machine" />
+      <Machine x={30} y={146} label="your machine" />
       <g className="text-brand-1">
         <Arrow d="M 104 60 C 150 48, 170 44, 208 42" className="stroke-brand-1" />
       </g>
       <g className="text-brand-3">
         <Arrow d="M 104 78 C 150 92, 170 100, 208 106" className="stroke-brand-3" />
       </g>
-      <Service x="212" y="32" label="tracker" />
-      <Service x="212" y="96" label="relay" cool />
+      <Service x={212} y={32} label="tracker" />
+      <Service x={212} y={96} label="relay" cool />
       <text x="238" y="140" textAnchor="middle" className="fill-faint" fontSize="9">
         hints, not authority
       </text>
@@ -117,10 +117,10 @@ export function Step2Find() {
       <text x="267" y="46" textAnchor="middle" className="fill-faint" fontSize="9">
         NAT
       </text>
-      <Machine x="30" y="60" label="a player" />
-      <Machine x="244" y="60" label="another player" />
-      <Service x="134" y="26" label="tracker" />
-      <Service x="134" y="112" label="relay" cool />
+      <Machine x={30} y={60} label="a player" />
+      <Machine x={244} y={60} label="another player" />
+      <Service x={134} y={26} label="tracker" />
+      <Service x={134} y={112} label="relay" cool />
       <g className="text-line">
         <Arrow d="M 82 62 C 110 48, 118 42, 130 39" />
         <Arrow d="M 238 62 C 210 48, 202 42, 190 39" />
@@ -192,7 +192,7 @@ export function Step4Rehost() {
     <svg viewBox="0 0 320 200" className={FRAME} aria-hidden="true">
       <Defs />
       <g opacity="0.4">
-        <Machine x="14" y="76" dim label="the machine that started it" />
+        <Machine x={14} y={76} dim label="the machine that started it" />
       </g>
       <path d="M 20 78 L 66 112 M 66 78 L 20 112" className="stroke-danger" strokeWidth="1.5" strokeLinecap="round" />
       {[40, 90, 140].map((y, i) => (

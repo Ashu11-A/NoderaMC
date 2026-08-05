@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { VERSION } from "./chrome";
-import { openLimitations, status } from "./data";
+import { VERSION, openLimitations, status } from "./data";
 import { HeroFigure, NoModTunnel, Step1Share, Step2Find, Step3Committee, Step4Rehost } from "./diagrams";
 
 /**

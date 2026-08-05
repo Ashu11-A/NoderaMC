@@ -5,13 +5,7 @@ import { ServiceTable } from "../../components/services";
 export default function Page() {
   return (
     <PageLayout path="/services/">
-      <div className="page-canvas py-14">
-        <h1 className="display-type text-4xl font-bold text-text">Trackers and relays</h1>
-        <p className="mt-4 text-lg leading-8 text-dim" style={{ maxWidth: "var(--prose-measure)" }}>
-          The official service list, what each entry does, and how to add it — or somebody else's — to
-          your app.
-        </p>
-
+      <>
         <div style={{ maxWidth: "var(--prose-measure)" }}>
           <p className="mt-8 text-body leading-7 text-dim">
             A <strong className="font-medium text-text">tracker</strong> answers the question "who is
@@ -49,7 +43,7 @@ export default function Page() {
             .
           </p>
         </div>
-      </div>
+      </>
     </PageLayout>
   );
 }

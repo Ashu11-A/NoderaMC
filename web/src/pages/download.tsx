@@ -5,8 +5,7 @@ import { release } from "../components/data";
 export default function Page() {
   return (
     <PageLayout path="/download">
-      <div className="page-canvas py-14">
-        <h1 className="display-type text-4xl font-bold text-text">Download NoderaMC</h1>
+      <>
         <ReleaseHeading />
 
         <PlatformPicker />
@@ -81,7 +80,7 @@ export default function Page() {
             be scheduled, or a decision to cross-build — the packaging path is known to work.
           </p>
         </section>
-      </div>
+      </>
     </PageLayout>
   );
 }

@@ -29,12 +29,20 @@ const TONE: Record<Tone, { border: string; label: string; text: string }> = {
  * else it stops meaning anything, and the one place it needs to be believed is the place it will
  * not be.
  */
-export function Callout(props: { type?: Tone; title?: string; children: ReactNode }) {
-  const tone = TONE[props.type ?? "note"];
+export function Callout(props: {
+  /** What the `:::note` directive syntax passes. The prose in `web/content/**` may use either. */
+  kind?: Tone;
+  type?: Tone;
+  title?: string;
+  marker?: string;
+  children: ReactNode;
+}) {
+  const tone = TONE[props.kind ?? props.type ?? "note"];
   return (
     <aside
       className={`my-6 rounded-md border-l-2 bg-surface px-5 py-4 text-body ${tone.border}`}
       role="note"
+      data-unwritten={props.marker}
     >
       <p className={`mb-1 font-medium ${tone.text}`}>{props.title ?? tone.label}</p>
       <div className="text-dim [&>p]:mb-2 [&>p:last-child]:mb-0">{props.children}</div>

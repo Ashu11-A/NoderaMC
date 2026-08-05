@@ -1,8 +1,10 @@
+import Content, { toc } from "../../../../content/docs/develop/index.mdx";
+import { DocLayout } from "../../../components/docs";
+
 export default function Page() {
   return (
-    <>
-      <h1>Building on NoderaMC</h1>
-      <p>Where the code is, what the gate is, and what to read first.</p>
-    </>
+    <DocLayout path="/docs/develop/" toc={toc}>
+      <Content />
+    </DocLayout>
   );
 }

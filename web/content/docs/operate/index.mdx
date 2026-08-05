@@ -1,0 +1,65 @@
+---
+title: Running a service
+description: What a tracker is, what a relay is, and why running one is a low-stakes thing to do.
+---
+
+import { Callout } from "../../../src/components/primitives";
+
+## Two services, neither of them in charge
+
+A **tracker** answers one question: who is on this world.
+Peers announce themselves to it and query it, and that is the whole of its job.
+
+A **rendezvous relay** does the other half.
+Most home connections cannot be dialled from outside, so two peers that both sit behind a NAT need something with a public address to introduce them.
+When a direct path can be opened, the relay steps out of the way.
+When it cannot, the relay carries an encrypted circuit between the two — and it carries it without being able to read it.
+
+## Why running one is a small decision
+
+Neither service is authority, and that is not a policy — it is enforced by the peers.
+
+Every service proves its own identity before a peer will dial it.
+Everything a service says about a world, an identity, a membership or a vote is checked against signatures the peers already hold.
+A hostile tracker cannot invent a world, forge a peer, or change what happened in a region.
+
+The most a broken or malicious service can do is **omit**: hide a peer from you, or hand you one that is not reachable.
+That degrades discovery.
+It cannot corrupt a world, and it cannot make one machine's account of a region beat the committee's.
+
+<Callout type="note" title="Which is why the app takes lists from anyone">
+  Because a service cannot lie about anything that matters, there is no need for a curated registry
+  and no privileged list.
+  The list this project publishes is one store among however many you add, and it is deletable like
+  any other.
+  <a href="/services/"> The official list</a> is on this site, and
+  <a href="/docs/operate/publish-a-service-list"> publishing your own</a> is a JSON file against a
+  schema.
+</Callout>
+
+## What it costs you
+
+Both are single static binaries with no database behind them.
+
+They hold soft state — who announced what, recently — and they are designed to be restarted, replaced and drained without anyone noticing.
+Peers discover services through the lists they have and migrate off one that is draining, so taking yours down is an operation rather than an incident.
+
+There are published container images for both, and the two self-hosting guides on this site are the repository's own — mirrored rather than rewritten, so they cannot drift from what the binaries actually do.
+
+## Start here
+
+<a href="/docs/operate/tracker">Run a tracker</a> is the shorter of the two and the more useful one to add to the network.
+
+<a href="/docs/operate/rendezvous">Run a relay</a> costs more bandwidth, because a relayed circuit's traffic goes through you.
+
+The two reference pages — <a href="/docs/operate/tracker-reference">tracker</a> and
+<a href="/docs/operate/rendezvous-reference">rendezvous</a> — are the complete settings and endpoint
+lists, for when you are past the first hour.
+
+<Callout type="warning" title="One honest caveat">
+  Relay fallback across the open internet has not yet been proven at scale by this project.
+  It works, it is tested, and the live cross-internet soak is
+  <a href="/status"> a task that has not been run</a>.
+  Running a relay is genuinely useful to that; it is not a settled, boring piece of infrastructure
+  yet.
+</Callout>

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReleaseAsset } from "../generated/types";
-import { VERSION } from "./chrome";
-import { type AssetGroup, formatBytes, groupedAssets, release } from "./data";
+import { type AssetGroup, VERSION, formatBytes, groupedAssets, release } from "./data";
 import { Badge } from "./primitives";
 
 /**

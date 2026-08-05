@@ -1,4 +1,4 @@
-import { storeOfferHref } from "@nodera/ui";
+import { storeOfferHref } from "nodera-ui";
 import type { ServiceEntry } from "../generated/types";
 import { services } from "./data";
 import { Badge } from "./primitives";

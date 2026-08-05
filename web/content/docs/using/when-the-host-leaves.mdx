@@ -1,0 +1,66 @@
+---
+title: When the host leaves
+description: Why a world outlives the machine that made it, and what happens in the seconds after that machine goes away.
+---
+
+import { Callout, Figure } from "../../../src/components/primitives";
+import { Step4Rehost } from "../../../src/components/diagrams";
+
+## The claim, stated exactly
+
+A NoderaMC world does not belong to the machine that created it.
+
+In a live test, a world whose host process was killed was re-hosted by another peer from the network in about three seconds, and play continued.
+That is a report of something that was observed, and it is deliberately narrower than "your world always stays up" — the difference between those two sentences is the subject of the last section of this page.
+
+<Figure caption="Every peer that has played holds pieces of the world, so the machine that started it is not the only one that can serve it.">
+  <Step4Rehost />
+</Figure>
+
+## Why it can work at all
+
+Three things have to be true before anyone can take a world over, and all three are consequences of how the system already works rather than features bolted on for this.
+
+**The world is content, not a process.**
+It is stored as pieces — the same content-addressed pieces peers exchange while playing — and every peer that has played in the world holds some of them.
+A peer that holds enough can reconstruct it.
+
+**The world's identity is not the host's identity.**
+A world carries its own signed identity, so "this is that world" is a claim anyone can check without asking the machine that made it.
+A new host does not become the owner by hosting.
+
+**Authority was never in one place.**
+Regions are committed by committee quorum, so the host machine was not the thing deciding what happened in the world.
+Losing it loses a participant, not the referee.
+
+## What actually happens
+
+The other peers notice the host is gone — not by guessing from a timeout on one message, but because membership is a keep-alive: a node that stops saying it is present stops being counted.
+
+The remaining peers then run an election, and the winner takes the world over.
+The election runs over the **players** the world's own lane plan names, not over everything on the mesh, and that distinction is load-bearing: a headless worker can hold and serve a world's pieces, but it cannot run the game, so electing one would elect a host that cannot host.
+
+The elected peer fetches whatever pieces it is missing, opens the world, and announces that it is now serving it.
+Clients follow it there.
+
+## What this does not promise
+
+**Somebody has to be around.**
+"Nobody has to stay" is not "nobody has to be there".
+A world whose every peer is offline is a world nobody is holding, and it comes back when a peer that holds it comes back — not before.
+
+**The handover has a visible seam.**
+There is a real seam here, and the project tracks it rather than papering over it: the work that makes delegation and seeding a property of the node rather than of a fortunate overlap in timing is <a href="/status">an open task</a>, not a finished one.
+What has been demonstrated is that the takeover happens and is fast.
+What has not been demonstrated is that it is invisible.
+
+**It is not a backup.**
+Peers hold pieces because they played, and they stop holding them when they stop being members.
+If a world matters to you, the machine you control being one of its peers is the arrangement that keeps it — not the hope that somebody else's is.
+
+<Callout type="note" title="Where the numbers on this page come from">
+  The three-second figure is from the project's own live acceptance run and is recorded in the
+  roadmap.
+  This site does not restate performance figures that were not measured, and it does not turn a
+  measured one into a general claim.
+</Callout>

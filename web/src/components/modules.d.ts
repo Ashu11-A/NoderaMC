@@ -1,16 +1,11 @@
 /**
- * The two module shapes the site imports that TypeScript cannot infer on its own.
+ * The one module shape the site imports that TypeScript cannot infer on its own.
  *
- * They are declared here rather than in `web/tsconfig.json` because this is the half of the site
- * that consumes them, and a declaration living next to its consumers is one that gets deleted when
- * the consumers do.
+ * It is declared here rather than in `web/tsconfig.json` because this is the half of the site that
+ * consumes it, and a declaration living next to its consumers is one that gets deleted when the
+ * consumers do. (`*?raw` and `import.meta.env` come from `vite/client`, which the tsconfig already
+ * pulls in; a second declaration of either would be a conflict rather than a belt and braces.)
  */
-
-/** A file imported for its bytes — `import version from "../../../VERSION?raw"`. */
-declare module "*?raw" {
-  const contents: string;
-  export default contents;
-}
 
 /**
  * An authored prose page.

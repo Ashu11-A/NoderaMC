@@ -6,13 +6,7 @@ export default function Page() {
   const open = openLimitations();
   return (
     <PageLayout path="/status">
-      <div className="page-canvas py-14">
-        <h1 className="display-type text-4xl font-bold text-text">Where the build actually stands</h1>
-        <p className="mt-4 text-lg leading-8 text-dim" style={{ maxWidth: "var(--prose-measure)" }}>
-          Task counts, measured test totals and every open limitation, read out of the repository
-          rather than typed here.
-        </p>
-
+      <>
         <section className="mt-12" style={{ maxWidth: "var(--prose-measure)" }}>
           <p className="text-body leading-7 text-dim">
             This page exists because the honest version of "how far along is it" is not a percentage
@@ -71,7 +65,7 @@ export default function Page() {
             emptyNote="No category declares an envelope constraint at the moment."
           />
         </section>
-      </div>
+      </>
     </PageLayout>
   );
 }

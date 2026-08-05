@@ -1,39 +1,33 @@
 import mirror from "../generated/mirror.json";
-import type { MirrorEntry } from "../generated/types";
-import { DocLayout, type TocEntry } from "./docs";
+import type { MirrorData, MirrorEntry } from "../generated/types";
+import { DocLayout } from "./docs";
 
 /**
  * A page that is a file in this repository, rendered.
  *
- * Nine pages on this site are not written for the site at all — they are the operator guides, the
- * two service references, the wire protocol, the engine SDK, the compatibility contract and the
- * roadmap, which were already written for outsiders and already have to be correct. Mirroring them
- * is the only arrangement in which the site cannot drift from them, and the page says plainly that
- * it is a mirror so a reader who spots a mistake goes to the file rather than to a web form.
+ * Nine pages on this site are not written for the site at all — the two operator guides, the two
+ * service references, the wire protocol, the engine SDK, the compatibility contract, the
+ * service-list format and the roadmap. They were already written for outsiders and they already have
+ * to be correct. Mirroring them is the only arrangement in which this site cannot drift from them,
+ * and each page says plainly that it is a mirror, so a reader who spots a mistake goes to the file
+ * rather than to a web form.
  *
- * The manifest of what is mirrored is editorial (`web/content/mirror.json`); the mirroring itself
- * is a build step. The build step is a reader: it strips the agent-instruction comments from its
- * *output*, and a test asserts every source file's digest is byte-identical before and after a full
- * build. A link in a mirrored file that does not resolve on disk fails the build rather than
- * rendering as a dead URL, which is the same rule `scripts/check-docs.sh` already enforces.
+ * Which files are mirrored is editorial and lives in `web/content/mirror.json`; the mirroring is a
+ * build step. That build step is a reader: it strips the agent-instruction comments from its
+ * *output* only, and the suite asserts every source file's digest is byte-identical before and after
+ * a full build. A link in a mirrored file to a path that does not resolve on disk fails the build
+ * rather than rendering as a dead URL — the same rule `scripts/check-docs.sh` already enforces.
  */
-export interface MirroredPage extends MirrorEntry {
-  /** The rendered body. Sanitised at build time; the sources are files in this repository. */
-  readonly html: string;
-  /** ISO timestamp from `git log -1` over the source. Null when the clone has no history for it. */
-  readonly updatedAt: string | null;
-  readonly toc: TocEntry[];
-}
 
-const pages = mirror as unknown as Record<string, MirroredPage>;
+const entries = (mirror as unknown as MirrorData).entries;
 
-/** Throws, naming the route, when the mirror did not produce the page this module needs. */
-export function mirrored(route: string): MirroredPage {
-  const page = pages[route];
+/** The mirrored page for a route. Throws during prerender, naming the route, rather than blank. */
+export function mirrored(route: string): MirrorEntry {
+  const page = entries.find((entry) => entry.route === route);
   if (!page) {
     throw new Error(
-      `mirror: no mirrored page for "${route}". Every route rendered by <Mirrored> must have an ` +
-        `entry in web/content/mirror.json, and every entry must have produced output.`,
+      `mirror: nothing was mirrored for "${route}". Every route rendered by <Mirrored> needs an ` +
+        `entry in web/content/mirror.json, and every entry has to have produced output.`,
     );
   }
   return page;
@@ -44,11 +38,10 @@ export function Mirrored(props: { route: string }) {
   return (
     <DocLayout
       path={props.route}
-      title={page.title}
-      lede={page.description}
       toc={page.toc}
       source={page.source}
-      sourceIso={page.updatedAt ?? undefined}
+      sourceEditUrl={page.editUrl}
+      sourceIso={page.updatedAt}
     >
       <div dangerouslySetInnerHTML={{ __html: page.html }} />
     </DocLayout>

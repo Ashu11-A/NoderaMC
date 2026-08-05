@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!--
+      `data-theme="dark"` is on the tag rather than written by an inline boot script, and that is a
+      decision with a cost: a visitor whose system prefers light sees one frame of dark before
+      `useResolvedTheme` corrects it after mount. Never the reverse — a light flash on a dark page is
+      the one that hurts.
+
+      What it buys is that this site emits **zero inline `<script>`**, in every page, forever. That
+      is a property `web/tests/site-csp.test.mjs` can assert over the whole of `dist/`, and it is far
+      stronger than "no third-party origin appears": it means the deployment lane's
+      `script-src 'self'` needs no hash, so nothing outside this repository has to read a build
+      artefact to write a Content-Security-Policy.
+    -->
+    <!--app-head-->
+  </head>
+  <body>
+    <div id="root"><!--app-html--></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

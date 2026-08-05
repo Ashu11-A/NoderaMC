@@ -21,6 +21,17 @@ export const release = rawRelease as unknown as ReleaseData;
 export const services = rawServices as unknown as ServicesData;
 export const status = rawStatus as unknown as StatusData;
 
+/**
+ * The product version, as the repository's one `VERSION` file spells it.
+ *
+ * It arrives through the release generator rather than by reading the file here, so the version in
+ * the header and the version on the download page are the same string from the same build. They are
+ * not the same thing as the release *tag*: the rolling prerelease is tagged `latest` and republished
+ * on every push while `VERSION` stays put, which is why the asset names carry one and the nav shows
+ * the other.
+ */
+export const VERSION = release.version;
+
 /** The four groups the twelve release assets are presented in, and the rule for each. */
 export type AssetGroup = "installers" | "jars" | "services" | "integrity";
 

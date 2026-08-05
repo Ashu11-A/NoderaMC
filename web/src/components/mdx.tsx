@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { breadcrumb, command } from "../destinations";
 import { Callout } from "./primitives";
 
@@ -56,9 +57,9 @@ export function Tag(props: { children: string }) {
  * and an invented issue number is precisely the kind of unbacked reference the rest of this
  * repository refuses to ship.
  */
-export function Unwritten(props: { task: string; taskPath: string; children?: React.ReactNode }) {
+export function Unwritten(props: { task: string; taskPath: string; route: string; children?: ReactNode }) {
   return (
-    <Callout type="warning" title="This page is not written yet">
+    <Callout type="warning" title="This page is not written yet" marker={props.route}>
       <p>
         The behaviour this page would describe is owned by <strong>{props.task}</strong>, and it is
         still in progress. Writing the page now would mean writing it twice, and writing it

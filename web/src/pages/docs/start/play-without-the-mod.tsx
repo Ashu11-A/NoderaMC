@@ -1,8 +1,10 @@
+import Content, { toc } from "../../../../content/docs/start/play-without-the-mod.mdx";
+import { DocLayout } from "../../../components/docs";
+
 export default function Page() {
   return (
-    <>
-      <h1>Play with no mod installed</h1>
-      <p>Browse and join NoderaMC worlds from an unmodified Minecraft, over a tunnel to your own machine.</p>
-    </>
+    <DocLayout path="/docs/start/play-without-the-mod" toc={toc}>
+      <Content />
+    </DocLayout>
   );
 }

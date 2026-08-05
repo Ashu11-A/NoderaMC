@@ -1,0 +1,94 @@
+---
+title: Share a world, and join one
+description: Open to Nodera from the pause menu, what the other side does, and what the words on the Worlds screen mean.
+---
+
+import { Callout } from "../../../src/components/primitives";
+import { Cmd, Tag, Ui } from "../../../src/components/mdx";
+
+## Sharing
+
+Open any single-player world, press Escape, and press **Open to Nodera**.
+
+It sits where vanilla's *Open to LAN* button sits, and that placement is deliberate rather than convenient.
+Taking the slot says what the model is: this is how you play with other people here, not a second way bolted on beside the normal one.
+
+Nothing about your save changes.
+The world you were playing is the world that is now shared — there is no import step, no conversion, and no copy.
+Your machine announces it to whichever trackers you have configured and starts offering its pieces to peers that ask for them.
+
+<Callout type="note" title="You can also do it from chat">
+  <Cmd to="nodera-share" /> does the same thing from inside the game.
+</Callout>
+
+### What "shared" means, precisely
+
+Sharing a world publishes three things: that the world exists, what its identity is, and that your node is currently holding it.
+
+It does **not** publish your save to a public index for anyone to download.
+Content is encrypted per world, so a peer that holds pieces of a world it is not a member of holds bytes it cannot read.
+And it does not publish your address to the world at large — reachability goes through the relay when there is no direct path, which is a circuit between two peers rather than a listing.
+
+## Joining
+
+On the other machine, open Minecraft's multiplayer screen.
+
+NoderaMC replaces it with its own, in three tabs: **Worlds**, **Trackers** and **Rendezvous**.
+Worlds is the one you want.
+It shows worlds your own node is already involved with, plus everything the trackers you have configured are willing to tell you about.
+
+Pick a row and connect.
+The client resolves that row to a live endpoint and joins.
+If the world has peers holding its pieces but no live game endpoint at that moment, it is materialised out of the peer network instead of being refused — which is the same mechanism <a href="/docs/using/when-the-host-leaves">that keeps a world alive when its host leaves</a>, arriving from the other direction.
+
+An error here is meant to tell you which of those steps failed.
+"No route" and "no peer holds this" are different problems with different fixes, and a screen that says only "could not connect" has taken that away from you.
+
+<Callout type="warning" title="The other player needs the mod">
+  Every player in a NoderaMC world runs it.
+  If the person you are trying to play with has an unmodified Minecraft, the thing you want is
+  <a href="/docs/start/play-without-the-mod"> the LAN tunnel</a>, and it works completely differently.
+</Callout>
+
+## The three words on your library
+
+The companion app's <Ui to="library" /> screen groups worlds three ways, and the difference between them is worth ten seconds.
+
+**Worlds you run.**
+Worlds whose identity you hold — you created them, or ownership was transferred to you.
+You are the one whose key signs administrative changes to them.
+
+**Worlds you help share.**
+Worlds you have played in.
+Your node holds pieces of them and validates regions for them, and it keeps doing that with Minecraft closed.
+This is the group that makes the network work, and you join it by playing rather than by opting in.
+
+**You are playing in.**
+Exactly what it says, and it is separate because "the world I am in right now" and "the worlds my machine is responsible for" are different questions that used to be answered by the same list.
+
+## Being a member is a lease, not a badge
+
+A world you joined stays in your library because your node keeps telling the world's other peers that it is still here.
+
+Stop doing that — the machine is off, the app is closed for a week — and the membership expires.
+This is the correct behaviour and it is what keeps a world's committee made of machines that actually exist, rather than of every machine that ever visited.
+It also means the honest answer to "how many peers does this world have" changes over time, and the app is meant to show you the current one rather than the high-water mark.
+
+## When a world says it is degraded
+
+A world needs enough peers present to form a quorum on its regions.
+
+Below that, it does not stop — it says so.
+A degraded world is one that is running with fewer validators than it wants, and the fix is more peers: someone else opening the game, or a node that had gone quiet coming back.
+
+## What you can hand to someone else
+
+You can give another player operator rights on a world you own, from chat: <Cmd to="nodera-op" />, and <Cmd to="nodera-deop" /> to take them back.
+
+The rules around ownership, transfer, passwords and deletion are being worked on right now, and this site does not have a page on them yet rather than a page that guesses.
+<a href="/status">The register</a> names the tasks that own that work.
+
+## If something looks wrong
+
+<Cmd to="nodera-selftest" /> runs the client's own diagnostic pass and prints what it found.
+It is the first thing to run before reporting anything, and it is much more useful in a bug report than a description of what the screen looked like.

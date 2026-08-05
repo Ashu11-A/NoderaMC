@@ -1,0 +1,78 @@
+/* The site's stylesheet. It takes the launcher's palette and refuses its window.
+ *
+ * The palette is imported, never copied: there is exactly one declaration of `--brand-1` in this
+ * repository and it is in `app/ui/src/styles.css`. That is why a repalette — the MISTY violet ramp
+ * the launcher redesign is landing in a sibling worktree — moves this site with it and needs no edit
+ * here. The import direction is the temporary part: it reverses when the design system moves into
+ * `library/ts/nodera-ui`, and nothing else about this file changes when it does.
+ *
+ * The one rule that makes that true: **no colour literal appears below this line.** Every site-only
+ * value is derived from a palette token with `color-mix`, so it follows the palette rather than
+ * dating from the day it was written. `web/tests/design-tokens.test.mjs` fails the build on a hex,
+ * `rgb(`, `hsl(` or `oklch(` anywhere under `web/src/**`. */
+@import "nodera-app-ui/styles.css";
+
+/* Tailwind v4 detects its sources relative to the file that imports it — which, because of the line
+ * above, is `app/ui/src/styles.css`. Without these two directives the site builds, succeeds, and
+ * emits a stylesheet in which every class written in `web/src` resolves to nothing: a page that a
+ * screenshot reviewer reads as "plain" rather than as broken. `design-tokens.test.mjs` is the
+ * automated detector for exactly that, and these are what it is detecting the absence of.
+ *
+ * Both paths are relative to this file, so neither is a component directory spelled outside
+ * `layout.properties`. */
+@source "./";
+@source "../content/";
+
+/* The app's `@theme` sets `--text-body: 13.5px` and breaks at 900px. Those are window measurements
+ * for a launcher that opens at 900x600. A reading page is 16px and breaks where reading pages break.
+ * Same at-rule, later source order, so these win. */
+@theme {
+  --text-body: 16px;
+  --text-sm: 14px;
+  --text-xs: 12.5px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 960px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1440px;
+}
+
+:root {
+  /* The app's canvas is a 1680px window; a page of prose is not. `--canvas-max` and
+   * `--canvas-gutter` are the app's window contract (pinned by its own `design-tokens.test.mjs`),
+   * so the site restates them rather than changing them where they are declared. */
+  --canvas-max: 1152px;
+  --canvas-gutter: clamp(24px, 4vw, 64px);
+  --prose-measure: 752px;
+
+  /* Site-only, and derived so a palette change still moves them. The app has no callouts and no
+   * prose column, so these three do not belong in the shared layer — but they must follow the same
+   * accent, which is why they are `color-mix` of a palette token rather than values.
+   *
+   * NOTE for whoever merges the launcher redesign: that work introduces `--brand-soft` (the same
+   * idea at 12%) and `--glow-brand` (a bloom, NOT a gradient — a near-anagram of the name below,
+   * and the two are different things). When the design system moves into the shared kit, `-dimm`
+   * should fold into `--brand-soft` and this one should be renamed away from `--glow-brand`'s
+   * neighbourhood. Both names are load-bearing across the W1/W2 split today and cannot move here. */
+  --brand-dimm: color-mix(in oklab, var(--brand-1) 8%, transparent);
+  --brand-glow: linear-gradient(-45deg, var(--brand-1) 25%, var(--brand-3) 75%);
+}
+
+@layer base {
+  /* The app pins `html`, `body` and `#root` to 100% and hides body overflow, because it is a window.
+   * A website scrolls. The app also sets `font: 13.5px/1.55 …` as a shorthand, which resets every
+   * other font longhand it does not mention — so both halves are re-declared here rather than only
+   * the size. */
+  html,
+  body,
+  #root {
+    height: auto;
+  }
+
+  body {
+    overflow: visible;
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+}
