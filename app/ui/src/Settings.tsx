@@ -20,6 +20,7 @@ import {
   FiPackage,
   FiTerminal,
   FiInfo,
+  FiDroplet,
 } from "react-icons/fi";
 import TrackerStoresScreen from "./TrackerStores";
 import { PeersScreen } from "./Peers";
@@ -28,6 +29,7 @@ import { ConsoleScreen } from "./Console";
 import { AboutScreen } from "./About";
 import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
+  Button,
   Card,
   Toggle,
   Segmented,
@@ -109,6 +111,12 @@ const SECTIONS: { id: Section; label: string; icon: JSX.Element; group: Group }[
 ];
 
 const GROUPS: readonly Group[] = ["YOUR NODE", "THIS COMPUTER", "TRUST"];
+
+/** The name of the custom appearance in force, or `undefined` when the built-in scheme is alone. */
+function customName(settings: SettingsDoc): string | undefined {
+  const themes = settings.appearance.themes;
+  return themes?.custom.find((t) => t.id === themes.selected)?.name || undefined;
+}
 
 const SECTION_COPY: Record<Section, string> = {
   appearance: "Theme and desktop presentation.",
@@ -224,6 +232,8 @@ export function SettingsScreen(props: {
   /** Live node figures, for the sections that report on the node rather than configure it. */
   d: Dashboard;
   sys: SystemStats;
+  /** Opens the Theme screen. Absent on a surface that has no screen to open. */
+  onOpenTheme?: () => void;
 }) {
   const [section, setSection] = useState<Section>(props.initial ?? "appearance");
   const [statuses, setStatuses] = useState<SettingStatus[]>([]);
@@ -431,6 +441,23 @@ export function SettingsScreen(props: {
               note={note("appearance.notifications")}
               onChange={(v) => update((d) => (d.appearance.notifications = v))}
             />
+            {/* A deep link, not a control. Authoring an appearance wants the whole canvas — an
+                editor, a preview and a contrast report do not fit in a settings row — and dropping
+                a block that size into this section chain is how the restart-banner exit test gets
+                broken. */}
+            <div className="flex items-center justify-between gap-5 py-[11px] max-narrow:flex-col max-narrow:items-start max-narrow:gap-2">
+              <span className="flex min-w-0 flex-col">
+                <span>Custom appearance</span>
+                <span className="max-w-[68ch] text-xs text-faint">
+                  {customName(s) ?? "None — this window renders the built-in scheme above."}
+                </span>
+              </span>
+              {props.onOpenTheme && (
+                <Button shape="pill" onClick={props.onOpenTheme}>
+                  <FiDroplet aria-hidden /> {customName(s) ? "Edit" : "Create"}
+                </Button>
+              )}
+            </div>
           </Card>
         )}
 

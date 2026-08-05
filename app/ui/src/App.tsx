@@ -28,9 +28,12 @@
 // `api::link` (Rust) → `nodera://dashboard` → `useDashboard`. There is no polling loop here; the
 // backend emits when the node changes.
 import { useEffect, useState } from "react";
-import { FiCompass, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
+import { createPortal } from "react-dom";
+import { FiCompass, FiDroplet, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
 import { SCROLLPORT_ID, StaleDataNotice } from "./components";
 import { Rail } from "./Rail";
+import { ThemeScreen } from "./Theme";
+import { ESCAPE_ID, applyCustomTheme, useCustomTheme } from "./customtheme";
 import { SettingsScreen, type Section as SettingsSection } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
 import { PlayScreen } from "./PlayScreen";
@@ -45,6 +48,7 @@ import {
   fetchSystemStats,
   onSystemStats,
   fetchSettings,
+  saveSettings,
   EMPTY_SYSTEM,
   type SystemStats,
   type Settings as SettingsDoc,
@@ -55,6 +59,7 @@ type Screen =
   | { name: "worlds" }
   | { name: "world"; id: string }
   | { name: "discover" }
+  | { name: "theme" }
   | { name: "settings"; section?: SettingsSection };
 
 /**
@@ -80,7 +85,10 @@ const DESTINATIONS = [
  * exit test — so the set that gates the stale banner stays exactly the set of screens that show the
  * worker's numbers, with nothing in it that is not one.
  */
-const UTILITIES = [{ name: "settings", label: "Settings", icon: <FiSettings /> }] as const;
+const UTILITIES = [
+  { name: "theme", label: "Theme", icon: <FiDroplet /> },
+  { name: "settings", label: "Settings", icon: <FiSettings /> },
+] as const;
 
 /** The screens whose figures come from the worker. Read by `tests/ux-honesty.test.mjs`. */
 export const WORKER_FIGURE_SCREENS: readonly string[] = [
@@ -102,19 +110,79 @@ export const WORKER_FIGURE_SCREENS: readonly string[] = [
 export function App() {
   const d = useDashboard(EMPTY_DASHBOARD);
   const [settings, setSettings] = useState<SettingsDoc | null>(null);
-  useResolvedTheme(settings?.appearance.theme ?? "system");
+  // A custom appearance is a *patch on a base scheme*, so it decides which scheme is underneath it
+  // and `theme.ts` is still the only thing that writes `dataset.theme`. A missing or stale
+  // `selected` id resolves to undefined and the app behaves exactly as it did before this existed.
+  const themes = settings?.appearance.themes;
+  const custom = themes?.custom.find((t) => t.id === themes.selected);
+  const resolved = useResolvedTheme(custom ? custom.base : (settings?.appearance.theme ?? "system"));
+  useCustomTheme(custom);
 
   useEffect(() => {
     fetchSettings().then(setSettings).catch(() => {});
   }, []);
 
-  return <DesktopApp dashboard={d} settings={settings} onSettings={setSettings} />;
+  return (
+    <>
+      <DesktopApp
+        dashboard={d}
+        settings={settings}
+        onSettings={setSettings}
+        resolved={resolved}
+      />
+      <EscapeHatch active={Boolean(custom)} settings={settings} onSettings={setSettings} />
+    </>
+  );
+}
+
+/**
+ * The way out of an appearance that made the window unusable.
+ *
+ * Rendered on every path, into `document.body` rather than into `#root` — a sibling of the app, so
+ * no selector rooted at `#root` can reach it, and `position: fixed` escapes any ancestor overflow
+ * (its only possible containing blocks are `html` and `body`, whose `transform` the guard pins to
+ * `none`).
+ *
+ * It carries `data-nodera-escape` only while a custom appearance is in force, which is the only
+ * time there is anything to escape from — and that decision is React state, not a stylesheet, so
+ * nothing a theme can write reaches it. `customtheme.ts` then re-asserts every one of its styles
+ * inline at `!important`, which outranks every important author rule in every layer and is what
+ * survives an engine that does not implement `@layer` at all.
+ *
+ * Pressing it also *persists* the reset, because a kept theme that locked the window out has to
+ * stay gone across a restart.
+ */
+function EscapeHatch(props: {
+  active: boolean;
+  settings: SettingsDoc | null;
+  onSettings: (next: SettingsDoc) => void;
+}) {
+  return createPortal(
+    <button
+      id={ESCAPE_ID}
+      type="button"
+      data-nodera-escape={props.active ? "" : undefined}
+      hidden={!props.active}
+      onClick={() => {
+        applyCustomTheme(undefined);
+        const settings = props.settings;
+        if (!settings) return;
+        const next: SettingsDoc = JSON.parse(JSON.stringify(settings));
+        next.appearance.themes.selected = "";
+        saveSettings(next).then(() => props.onSettings(next)).catch(() => {});
+      }}
+    >
+      Reset appearance
+    </button>,
+    document.body,
+  );
 }
 
 function DesktopApp(props: {
   dashboard: Dashboard;
   settings: SettingsDoc | null;
   onSettings: (next: SettingsDoc) => void;
+  resolved: "dark" | "light";
 }) {
   // Passed in, never re-subscribed. A second `useDashboard` here meant two `nodera://dashboard`
   // listeners and two initial fetches, and every worker push — four a second — re-rendered both
@@ -183,7 +251,10 @@ function DesktopApp(props: {
             initial={screen.section}
             d={d}
             sys={sys}
+            onOpenTheme={() => setScreen({ name: "theme" })}
           />
+        ) : screen.name === "theme" ? (
+          <ThemeScreen settings={settings} onChange={setSettings} resolved={props.resolved} />
         ) : screen.name === "discover" ? (
           <NetworkScreen
             onPlay={async (sessionId, worldName) => {

@@ -20,6 +20,19 @@
  * resolve to nothing while every test still passed. */
 @import "tailwindcss";
 
+/* The layer order a custom appearance lives inside.
+ *
+ * Tailwind's own layers are declared by the import above and come first. `nodera.user` is where
+ * everything a person authors on the Theme screen is written — `themecss.ts` wraps its whole output
+ * in it — and `nodera.guard` is declared **last**, so it outranks every normal and important
+ * declaration in an earlier layer, and outranks animations too.
+ *
+ * The wrapper is what makes the guard unbypassable, not the at-rule allowlist. Anything a user
+ * writes inside `nodera.user` — including an `@layer nodera.guard` of their own — becomes a
+ * sub-layer of it and still precedes the real guard, and nothing they write can reach the unlayered
+ * author origin, which would otherwise beat every layer here. */
+@layer nodera.base, nodera.user, nodera.guard;
+
 :root {
   /* The single accent. Style guide, "Primary / 7D67CB".
    * 3.99:1 on --bg, so it clears the 3:1 non-text floor for fills, bars, borders and the focus
@@ -334,4 +347,70 @@
 /* The veil that keeps hero text legible over any of the above. */
 @utility hero-scrim {
   background-image: var(--hero-scrim);
+}
+
+/* --------------------------------------------------------------------------------- the guard
+ *
+ * The floor under a custom appearance: what stays true no matter what a user's CSS says.
+ *
+ * A theme cannot be trusted not to lock the window out — `* { display: none }`, a fixed overlay, a
+ * `pointer-events: none`, a 10000px border. Any of those costs somebody their install if there is
+ * no way back, so there are four independent ways back and this is the first (see
+ * `customtheme.ts` for the other three, one of which is what survives an engine that does not
+ * implement `@layer` at all — an unknown at-rule is dropped whole, so this block would fail *open*).
+ *
+ * `[data-nodera-truth]` marks the handful of elements that render a signed or proven fact: the node
+ * id, a world's owner, an admin proof, a delete confirmation. A theme that could put a `content:`
+ * on their pseudo-elements could forge one, so the rewriter drops any rule naming the attribute and
+ * this denies the pseudo-elements outright. Two independent defences, because the app's whole trust
+ * model is about who can prove what. */
+@layer nodera.guard {
+  html,
+  body,
+  #root {
+    height: 100% !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    pointer-events: auto !important;
+  }
+
+  #root {
+    display: flex !important;
+  }
+
+  [data-nodera-escape] {
+    position: fixed !important;
+    inset: auto 16px 16px auto !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    clip-path: none !important;
+    filter: none !important;
+    pointer-events: auto !important;
+    z-index: 2147483647 !important;
+    background: #16171b !important;
+    color: #ffffff !important;
+    border: 1px solid #ffffff !important;
+    font: 500 13px/1.4 system-ui, sans-serif !important;
+  }
+
+  [role="dialog"] {
+    position: relative !important;
+    z-index: 2147483000 !important;
+    display: flex !important;
+    visibility: visible !important;
+  }
+
+  [data-nodera-truth] {
+    display: revert-layer !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  [data-nodera-truth]::before,
+  [data-nodera-truth]::after {
+    content: none !important;
+  }
 }
