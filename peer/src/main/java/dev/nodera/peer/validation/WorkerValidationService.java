@@ -1867,11 +1867,6 @@ public final class WorkerValidationService {
         activateRegion(base, lease);
     }
 
-    /** @return seats declined because the base the assigner named could not be obtained. */
-    public long refusedSeats() {
-        return refusedSeats.get();
-    }
-
     private final AtomicLong refusedSeats = new AtomicLong();
 
     /**
@@ -2443,15 +2438,6 @@ public final class WorkerValidationService {
     /** @return how many disagreeing re-executions this node has observed (issue #5). */
     public long divergences() {
         return divergences.get();
-    }
-
-    /**
-     * @return how many of this node's replicas have concluded their own copy is wrong and stopped
-     *         participating. A non-zero value that never returns to zero is a node serving stale
-     *         state, which used to be entirely invisible.
-     */
-    public long divergedReplicas() {
-        return divergedReplicas.get();
     }
 
     /** @return whether this node holds {@code region} and knows its copy of it is wrong. */

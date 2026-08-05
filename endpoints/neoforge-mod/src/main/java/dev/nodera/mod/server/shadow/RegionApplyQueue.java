@@ -65,11 +65,6 @@ public final class RegionApplyQueue {
         }
     }
 
-    /** How many columns to write per tick; floored at one. */
-    public void columnsPerTick(int columns) {
-        this.columnsPerTick = Math.max(1, columns);
-    }
-
     /**
      * Queue a fetched region for application.
      *
@@ -143,23 +138,6 @@ public final class RegionApplyQueue {
         synchronized (queue) {
             return queue.isEmpty();
         }
-    }
-
-    /** @return regions still waiting, in whole or in part. */
-    public int pendingRegions() {
-        synchronized (queue) {
-            return queue.size();
-        }
-    }
-
-    /** @return columns written since this queue was created. */
-    public long columnsApplied() {
-        return columnsApplied.get();
-    }
-
-    /** @return regions fully written since this queue was created. */
-    public long regionsApplied() {
-        return regionsApplied.get();
     }
 
     /** Drop everything pending (world closing). */

@@ -191,9 +191,4 @@ public final class MutationGuard {
     public long convertedWrites() {
         return convertedWrites;
     }
-
-    /** The configured mode. */
-    public Mode mode() {
-        return mode;
-    }
 }

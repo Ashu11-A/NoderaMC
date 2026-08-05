@@ -112,9 +112,4 @@ public final class HybridClock {
     public synchronized long rejectedReadings() {
         return rejected;
     }
-
-    /** @return the node every reading from this clock is attributed to. */
-    public NodeId node() {
-        return node;
-    }
 }

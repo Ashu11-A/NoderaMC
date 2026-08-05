@@ -284,7 +284,6 @@ class InterferenceCommitterTest {
                 dev.nodera.coordinator.interference.MutationSource.UNKNOWN));
 
         assertThat(committer.onTickEnd(r -> PipelineState.ACTIVE)).isEmpty();
-        assertThat(committer.foreignRegionWritesDropped()).isEqualTo(1);
         assertThat(sinkDeltas).as("nothing was ever offered to the sink").isEmpty();
         assertThat(buffer.isEmpty(region))
                 .as("and it is not left behind to be attempted again next cadence")

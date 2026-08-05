@@ -71,11 +71,6 @@ public record ChunkStamp(int chunkX, int chunkZ, Bytes contentHash, Hlc stamp)
                 stamp);
     }
 
-    /** @return whether {@code other} covers the same column with different content. */
-    public boolean differsFrom(ChunkStamp other) {
-        return other != null && sameColumn(other) && !contentHash.equals(other.contentHash);
-    }
-
     /** @return whether {@code other} describes the same column, whatever it holds. */
     public boolean sameColumn(ChunkStamp other) {
         return other != null && chunkX == other.chunkX && chunkZ == other.chunkZ;

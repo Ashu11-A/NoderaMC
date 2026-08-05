@@ -67,17 +67,6 @@ public record Hlc(long wallMillis, long counter, UUID origin)
     }
 
     /**
-     * @param node the issuing node.
-     * @param wallMillis the wall-clock reading.
-     * @param counter the intra-millisecond counter.
-     * @return a reading issued by {@code node}.
-     * @Thread-context any thread.
-     */
-    public static Hlc of(NodeId node, long wallMillis, long counter) {
-        return new Hlc(wallMillis, counter, node.value());
-    }
-
-    /**
      * Total order over readings: wall time, then counter, then origin.
      *
      * <p>Total rather than partial on purpose. A partial order would leave concurrent edits

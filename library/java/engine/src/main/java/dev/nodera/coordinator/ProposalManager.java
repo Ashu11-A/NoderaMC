@@ -25,23 +25,8 @@ public final class ProposalManager {
         pending.put(proposal.key(), proposal);
     }
 
-    /** @return {@code true} if a proposal is pending for {@code key}. */
-    public boolean has(ProposalKey key) {
-        return pending.containsKey(key);
-    }
-
     /** @return and remove the pending proposal for {@code key}, or {@code null} if none. */
     public ClientProposal take(ProposalKey key) {
         return pending.remove(key);
-    }
-
-    /** Drop any pending proposal for {@code key} (e.g. after a lease revoke). */
-    public void discard(ProposalKey key) {
-        pending.remove(key);
-    }
-
-    /** @return the number of pending proposals. */
-    public int size() {
-        return pending.size();
     }
 }

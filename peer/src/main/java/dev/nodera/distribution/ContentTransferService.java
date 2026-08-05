@@ -488,16 +488,6 @@ public final class ContentTransferService implements MessageHandler {
         return new ContentAvailability(self, holdings);
     }
 
-    /**
-     * @param manifestRoot the manifest root.
-     * @return the locally known manifest for that root, or {@code null}.
-     * @Thread-context any thread.
-     */
-    public PieceManifest manifestOf(Bytes manifestRoot) {
-        LocalContent content = local.get(manifestRoot);
-        return content == null ? null : content.manifest;
-    }
-
     // --- fetching --------------------------------------------------------------------------
 
     /**

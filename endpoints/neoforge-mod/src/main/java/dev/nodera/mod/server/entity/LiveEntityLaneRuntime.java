@@ -163,11 +163,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         }
     }
 
-    /** How many block proposals have been dropped for a full queue since this JVM started. */
-    public static long droppedProposals() {
-        return DROPPED_PROPOSALS.get();
-    }
-
     private final dev.nodera.core.state.ChunkStampBook stamps;
 
     /** Fetched regions being written into the level, a couple of columns per tick. */
@@ -199,11 +194,6 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         }
         regionApplies.offer(level, snapshot, onDone);
         return true;
-    }
-
-    /** @return the apply queue, for diagnostics and tests. */
-    public dev.nodera.mod.server.shadow.RegionApplyQueue regionApplies() {
-        return regionApplies;
     }
 
     /** How often diverged regions are checked; a repair takes tens of seconds, so seconds will do. */

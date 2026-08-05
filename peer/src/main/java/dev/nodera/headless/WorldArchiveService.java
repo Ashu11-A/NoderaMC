@@ -868,13 +868,6 @@ public final class WorldArchiveService implements AutoCloseable {
         return null;
     }
 
-    /** What this node currently holds for a region, so a fetcher can be told what to send. */
-    public Optional<dev.nodera.core.state.RegionChunkIndex> regionIndex(
-            String worldIdHex, RegionId region) {
-        PieceManifest manifest = regionManifestFor(worldIdHex, region, null);
-        return manifest == null ? Optional.empty() : Optional.ofNullable(manifest.chunkIndex());
-    }
-
     /**
      * Build the stamp book for a region about to be seeded, by comparing it with the newest version
      * of that region this node already holds.
@@ -1983,8 +1976,12 @@ public final class WorldArchiveService implements AutoCloseable {
         }
         Set<NodeId> known = rootHolders.getOrDefault(manifest.manifestRoot(), Set.of());
         List<NodeId> widened = new ArrayList<>(holders);
+        // A set beside the list, not List.contains inside the loop: the membership test is the only
+        // thing the list was being scanned for, and a scan per candidate is quadratic in a holder
+        // set that grows exactly when a fetch is struggling and asking most often.
+        Set<NodeId> alreadyAsked = new HashSet<>(widened);
         for (NodeId seeder : resolved) {
-            if (seeder.equals(self) || widened.contains(seeder) || routes.get(seeder) == null) {
+            if (seeder.equals(self) || alreadyAsked.contains(seeder) || routes.get(seeder) == null) {
                 continue;
             }
             // Same rule as the initial selection: prefer peers the tracker names as holders of this
@@ -1993,6 +1990,7 @@ public final class WorldArchiveService implements AutoCloseable {
                 continue;
             }
             widened.add(seeder);
+            alreadyAsked.add(seeder);
             downloader.addHolder(seeder, all);
         }
         if (widened.size() != holders.size()) {

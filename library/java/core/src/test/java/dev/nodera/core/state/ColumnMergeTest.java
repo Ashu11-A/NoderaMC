@@ -44,7 +44,6 @@ final class ColumnMergeTest {
         assertThat(merge.tookMine()).isEqualTo(1);
         assertThat(merge.tookTheirs()).isEqualTo(1);
         assertThat(merge.contested()).isZero();
-        assertThat(merge.hadConflicts()).isFalse();
     }
 
     @Test

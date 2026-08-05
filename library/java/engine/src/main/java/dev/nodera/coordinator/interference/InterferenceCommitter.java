@@ -68,7 +68,6 @@ public final class InterferenceCommitter {
     private final Map<RegionId, SnapshotVersion> committedVersion = new HashMap<>();
     private final Set<RegionId> held = new HashSet<>();
     private java.util.function.Predicate<RegionId> certifiable;
-    private long foreignRegionWritesDropped;
 
     public InterferenceCommitter(
             InterferenceBuffer buffer, RootExtractor roots,
@@ -215,7 +214,6 @@ public final class InterferenceCommitter {
             // vanilla write into a delegated region is a prediction, and the region's real state
             // arrives as certified deltas from the primary that overwrite it. Retrying was the bug;
             // pretending the write was ours to commit was the older one.
-            foreignRegionWritesDropped += recorded.size() + entityMutations.size();
             return Optional.empty();
         }
         try {
@@ -273,11 +271,6 @@ public final class InterferenceCommitter {
      */
     public void certifiable(java.util.function.Predicate<RegionId> certifiable) {
         this.certifiable = certifiable;
-    }
-
-    /** Buffered foreign writes discarded because this node is not the region's primary. */
-    public long foreignRegionWritesDropped() {
-        return foreignRegionWritesDropped;
     }
 
     /** The committed version the committer currently tracks for {@code region} (test/diagnostic). */

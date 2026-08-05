@@ -123,19 +123,9 @@ public final class ChunkStampBook {
         return new Hlc(Math.max(tick, 0), 0, Hlc.ZERO.origin());
     }
 
-    /** @return the clock every reading in this book comes from. */
-    public HybridClock clock() {
-        return clock;
-    }
-
     /** @return how many columns this book has a reading for. */
     public int size() {
         return stamps.size();
-    }
-
-    /** Forget everything (world closed). */
-    public void clear() {
-        stamps.clear();
     }
 
     private static long key(int chunkX, int chunkZ) {

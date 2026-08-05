@@ -60,11 +60,6 @@ public record ColumnMerge(ChunkColumnState result, int tookMine, int tookTheirs,
         Objects.requireNonNull(result, "result");
     }
 
-    /** @return whether anything had to be resolved by the clock rather than by the ancestor. */
-    public boolean hadConflicts() {
-        return contested > 0;
-    }
-
     /** @return positions where the two sides genuinely differed, contested or not. */
     public int changedPositions() {
         return tookMine + tookTheirs + agreed + contested;
