@@ -44,8 +44,11 @@ export const destinations: Readonly<Record<string, Destination>> = {
   "worlds-you-run": { label: "Worlds you run", dependsOn: "library" },
   "worlds-you-help-share": { label: "Worlds you help share", dependsOn: "library" },
 
-  // --- The LAN lane. A panel on Discover, not a screen of its own.
-  "lan-sessions": { label: "Worlds open to LAN", dependsOn: "discover" },
+  // --- The LAN lane. A card on **Library**, not a screen of its own, and not on Discover: `LanCard`
+  // is rendered by `WorldsScreen`, and what it carries is the HOST's decision about a world this
+  // machine can see being opened to LAN. A guest joining a published session browses the directory
+  // on Discover instead — a different screen doing a different job, and the two were conflated here.
+  "lan-sessions": { label: "Worlds open to LAN", dependsOn: "library" },
 
   // --- Settings and its sections.
   settings: { label: "Settings" },
@@ -62,6 +65,11 @@ export const destinations: Readonly<Record<string, Destination>> = {
 
   // --- Commands, typed in the game's chat.
   "nodera-share": { label: "share a world", command: "/nodera share" },
+  "nodera-share-password": {
+    label: "change a world's password",
+    command: "/nodera share password",
+  },
+  "nodera-worlds": { label: "list worlds on the network", command: "/nodera worlds" },
   "nodera-selftest": { label: "run the self test", command: "/nodera selftest" },
   "nodera-op": { label: "grant an operator", command: "/nodera op" },
   "nodera-deop": { label: "revoke an operator", command: "/nodera deop" },
