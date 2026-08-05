@@ -3,7 +3,8 @@
   "bundle": {
     "resources": {
       "../build/nodera-headless/bin/*": "resources/nodera-headless/bin",
-      "../build/nodera-headless/lib/*": "resources/nodera-headless/lib"
+      "../build/nodera-headless/lib/*": "resources/nodera-headless/lib",
+      "../build/nodera-neoforge.jar": "resources/mod/nodera-neoforge.jar"
     }
   }
 }

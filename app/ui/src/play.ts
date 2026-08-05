@@ -146,6 +146,14 @@ export interface ModInstallStatus {
   bundled_version: string;
   /** false ⇒ this build of the app carries no mod jar; the buttons must say so, not fail on press. */
   bundled_available: boolean;
+  /**
+   * Every path the jar was looked for in, when it was not found; empty when it was.
+   *
+   * The screen said only "this build carries no mod jar" — which was true of every build that ever
+   * shipped, because no per-OS bundle declared the jar as a resource. A person cannot act on that
+   * sentence; the list tells them whether the installation is broken or the checkout is unstaged.
+   */
+  bundled_looked_in: string[];
   installs: MinecraftInstall[];
 }
 

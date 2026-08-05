@@ -188,17 +188,54 @@ stage_services() {
 # `resources/nodera-headless/bin/nodera-headless` and finds nothing, which is a runtime failure in a
 # shipped installer with no build-time symptom at all. It was only visible once the release lane
 # started producing real bundles.
+#
+# The app ALSO bundles the NeoForge mod jar, at `resources/mod/nodera-neoforge.jar`, because the
+# app's whole reason for finding a Minecraft installation is to put the mod in it. It did not, in
+# any build that ever shipped: no per-OS config declared the jar, so `api::modinstall::status()`
+# answered `bundled_available: false` forever and the install screen said "this build carries no mod
+# jar, so there is nothing to install" — a permanent, polite, unactionable message where the feature
+# should have been. The jar is a release asset as well; that is for people who install mods by hand
+# and is not a substitute for the app being able to do the thing it offers.
+#
+# Its map entry is a PLAIN PATH, not a glob, and that distinction is the same load-bearing one as
+# above read from the other side: `tauri_utils::resources` gives a glob's matches the target as a
+# directory and a plain path the target as a file — and a plain path that does not exist is a
+# `ResourcePathNotFound` that fails the bundle. So a build with no jar is now red at bundle time
+# rather than an installer that cannot install anything. `require_app_resources` below says the same
+# thing earlier and in words, because a bundler backtrace is not a diagnosis.
+#
+# Android does not carry the jar: there is no Java Minecraft on a handset to install it into, and
+# `tauri.android.conf.json` is a separate config that Tauri does not merge the Linux one into.
 app_bundle_format() { release_app_extension "$HOST_SYSTEM"; }
+
+# Every file `app/tauri.<system>.conf.json` declares as a resource, checked before the bundler runs.
+#
+# The bundler would fail on each of these anyway. It fails with a path and no history; this fails
+# with the command that produces the file, which is the difference between a one-minute fix and a
+# bisect. Keep it in step with those configs — a resource nothing checks here is one whose absence is
+# only ever discovered by whoever tries the shipped installer.
+require_app_resources() {
+    [[ -x "$NODERA_ARTIFACTS/nodera-headless/bin/nodera-headless" ]] \
+        || die "the app's headless node is missing from $NODERA_ARTIFACTS/nodera-headless — run ./gradlew :peer:installDist"
+    [[ -f "$NODERA_ARTIFACTS/nodera-neoforge.jar" ]] \
+        || die "the app's mod jar is missing from $NODERA_ARTIFACTS/nodera-neoforge.jar — run ./gradlew :neoforge-mod:jar"
+}
 
 build_app() {
     command -v cargo >/dev/null 2>&1 || die "cargo not found."
     command -v bun   >/dev/null 2>&1 || die "bun not found (the companion UI is a bun project)."
 
-    log "Gradle: :peer:installDist (the app's bundled headless node)"
-    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist )
+    log "Gradle: :peer:installDist :neoforge-mod:jar (the app's bundled node and mod)"
+    ( cd "$NODERA_ROOT" && ./gradlew :peer:installDist :neoforge-mod:jar )
     rm -rf "$NODERA_ARTIFACTS/nodera-headless"
     mkdir -p "$NODERA_ARTIFACTS"
     cp -r "$NODERA_PEER_MODULE/build/install/nodera-headless" "$NODERA_ARTIFACTS/nodera-headless"
+    # The same collected name `scripts/dev.sh` stages and `api::modinstall` looks for in a checkout.
+    # `install` rather than `cp` so a rerun replaces rather than half-copies.
+    local mod_jar="$NODERA_MOD_DIR/build/libs/nodera-neoforge.jar"
+    [[ -f "$mod_jar" ]] || die "':neoforge-mod:jar' produced no $mod_jar — the app cannot bundle a mod it does not have"
+    install -m 0644 "$mod_jar" "$NODERA_ARTIFACTS/nodera-neoforge.jar"
+    require_app_resources
 
     log "UI: bun install + bun run build"
     ( cd "$NODERA_APP_DIR/ui" && bun install --frozen-lockfile && bun run build )
