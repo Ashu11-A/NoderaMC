@@ -90,7 +90,16 @@ COPY . .
 # The cache mount makes a dependency install cheap across rebuilds, and — like the cargo mounts in
 # the service builders — it is not part of the layer, so everything the next stage needs has to be
 # on disk under /src when this RUN ends. `build-site.sh` writes web/dist, which is.
+#
+# The token is a SECRET mount rather than a build argument, because an ARG is recorded in the
+# image's history and would hand a credential to anyone who pulls it. It is optional: a build with
+# no token still works against GitHub's anonymous budget, which is sixty requests an hour shared by
+# everything leaving the address — enough on a workstation, and not enough on a CI runner, where
+# this failed once with nothing about the site changed. `fetch-release.mjs` fails closed and names
+# this line rather than rendering a download page with no downloads on it.
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
+    --mount=type=secret,id=github_token \
+    GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" \
     bash scripts/build-site.sh
 
 FROM caddy:2.10.2-alpine

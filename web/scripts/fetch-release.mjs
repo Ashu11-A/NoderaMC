@@ -61,16 +61,56 @@ function manifestFor(tag) {
   return names;
 }
 
-async function json(url) {
+/**
+ * A GitHub API call, told apart from a GitHub API *outage*.
+ *
+ * The two failures look identical to `response.ok` and could not be less alike. "This release is
+ * one asset short" is a fact about the release and must stop the build. "Sixty anonymous requests
+ * an hour, shared with everything else leaving this address" is a fact about the weather — and it
+ * stopped the build once already: the container image built at one commit and failed at the next
+ * with nothing about the site changed in between.
+ *
+ * So a transient answer is retried briefly, and a rate limit with no credentials says the one thing
+ * that fixes it. It is deliberately NOT degraded into an empty download page: the standing rule
+ * here is that an interface may not render "nothing" when the truth is "we could not ask", and a
+ * download page quietly claiming there are no builds is the worst version of that.
+ */
+async function json(url, attempt = 1) {
+  const authorized = Boolean(process.env.GITHUB_TOKEN);
   const response = await fetch(url, {
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "noderamc-site-build",
-      ...(process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
+      ...(authorized ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}),
     },
   });
-  if (!response.ok) die(`${url} answered ${response.status} ${response.statusText}`);
-  return response.json();
+  if (response.ok) return response.json();
+
+  // 403 with the budget at zero is the rate limit. A 403 for any other reason is a real refusal and
+  // retrying it just fails slower.
+  const exhausted = response.headers.get("x-ratelimit-remaining") === "0";
+  const rateLimited = (response.status === 403 && exhausted) || response.status === 429;
+  const transient = rateLimited || response.status >= 500;
+
+  if (transient && attempt < 3) {
+    // `Retry-After` when the API names a delay, otherwise 3s then 6s. The rate-limit *reset* is
+    // deliberately not waited for: it can be the better part of an hour, and a build that hangs
+    // that long has failed in a way nobody will sit and read.
+    const after = Number(response.headers.get("retry-after"));
+    const delay = Number.isFinite(after) && after > 0 ? Math.min(after, 10) * 1000 : attempt * 3000;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return json(url, attempt + 1);
+  }
+
+  if (rateLimited && !authorized) {
+    die(
+      `${url} answered ${response.status} rate limit exceeded, and this build sent no credentials.\n` +
+        "  Anonymous GitHub API calls share sixty requests an hour per address, which a shared CI\n" +
+        "  runner exhausts without any help from us. Set GITHUB_TOKEN: in Actions it is already in\n" +
+        "  scope, and docker/web/Dockerfile takes it as a build secret.",
+    );
+  }
+  die(`${url} answered ${response.status} ${response.statusText}`);
 }
 
 /**

@@ -195,6 +195,13 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.platform.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.platform.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          # The site build asks GitHub which release is current. Anonymously that is sixty requests
+          # an hour for the whole runner, and it ran out: `web` built at one commit and failed at
+          # the next with nothing about the site changed. A secret, not a build-arg — an ARG is
+          # recorded in the image history. The other services never call the API and are handed an
+          # empty string, which the Dockerfile's `cat … || true` reads as absent.
+          secrets: |
+            github_token=${{ matrix.service == 'web' && secrets.GITHUB_TOKEN || '' }}
 
       - name: Record the digest
         if: github.event_name != 'pull_request'
