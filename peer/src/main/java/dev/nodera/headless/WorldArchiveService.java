@@ -737,7 +737,106 @@ public final class WorldArchiveService implements AutoCloseable {
         LOG.info("Fetched region {} of world {} — {} column(s), root {}",
                 region, shortId(worldIdHex), snapshot.chunks().size(),
                 manifest.regionRoot().hash().toShortHex(6));
-        return snapshot;
+        return mergeWithHeld(worldIdHex, region, snapshot, manifest);
+    }
+
+    /**
+     * Reconcile a freshly fetched region with a copy this node already advanced on its own.
+     *
+     * <p>The case the version counter got wrong. Both peers moved on from the same base while they
+     * could not see each other; comparing counters that were incremented independently and keeping
+     * the higher one discarded a whole copy of somebody's work. Here the two are merged, column by
+     * column and — where an ancestor is available — block by block within a column, so the only
+     * thing lost is a position both peers changed <em>differently</em>.
+     *
+     * <p>Returns the fetched snapshot unchanged when this node holds nothing of its own to weigh
+     * against it, which is the ordinary case: a peer receiving a region it has never had.
+     */
+    private dev.nodera.core.state.RegionSnapshot mergeWithHeld(
+            String worldIdHex, RegionId region,
+            dev.nodera.core.state.RegionSnapshot fetched, PieceManifest fetchedManifest) {
+        PieceManifest ours = regionManifestFor(worldIdHex, region, null);
+        if (ours == null || ours.manifestRoot().equals(fetchedManifest.manifestRoot())) {
+            return fetched;
+        }
+        dev.nodera.core.state.RegionChunkIndex ourIndex = ours.chunkIndex();
+        dev.nodera.core.state.RegionChunkIndex theirIndex = fetchedManifest.chunkIndex();
+        if (ourIndex == null || theirIndex == null
+                || ourIndex.root().equals(theirIndex.root())) {
+            // Same content, or no basis for a per-column comparison. Either way there is nothing a
+            // merge could add, and guessing without an index is how data gets lost.
+            return fetched;
+        }
+        dev.nodera.core.state.RegionSnapshot mine;
+        try {
+            mine = dev.nodera.core.state.RegionSnapshot.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(
+                            Bytes.unsafeWrap(reassembleLocal(ours))));
+        } catch (RuntimeException incomplete) {
+            // This node advertises the manifest but cannot assemble it — it holds part of it. There
+            // is nothing to merge from, and the fetched copy is complete.
+            LOG.debug("no complete local copy of {} to merge with: {}", region,
+                    incomplete.toString());
+            return fetched;
+        }
+        // The ancestor is the newest state both sides are known to have held. Without one the merge
+        // still runs; each differing column simply resolves whole, by clock.
+        dev.nodera.core.state.RegionSnapshot ancestor =
+                commonAncestor(worldIdHex, region, ourIndex, theirIndex);
+        dev.nodera.distribution.RegionMerger.Outcome outcome =
+                dev.nodera.distribution.RegionMerger.reconcile(
+                        ancestor, mine, ourIndex, fetched, theirIndex);
+        if (outcome.merged() == 0 && outcome.tookTheirs() == 0) {
+            return fetched;
+        }
+        // Publish the merged result, so this node seeds what it reconciled rather than one of the
+        // two inputs — otherwise the next peer to ask gets the same divergence handed back to it.
+        seedRegion(worldIdHex, outcome.snapshot());
+        return outcome.snapshot();
+    }
+
+    /**
+     * The newest version of a region this node holds that predates both copies' divergence.
+     *
+     * <p>Found by walking this node's own history for a version whose columns neither side has
+     * changed away from — in practice the last version before the split. There is no need for it to
+     * be exact: a too-old ancestor makes the merge more conservative (more positions look changed
+     * by both sides), never wrong.
+     *
+     * @return the ancestor state, or {@code null} when none can be assembled.
+     */
+    private dev.nodera.core.state.RegionSnapshot commonAncestor(
+            String worldIdHex, RegionId region,
+            dev.nodera.core.state.RegionChunkIndex mine,
+            dev.nodera.core.state.RegionChunkIndex theirs) {
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.get(worldIdHex);
+        if (byRegion == null) {
+            return null;
+        }
+        NavigableMap<Long, PieceManifest> versions = byRegion.get(region);
+        if (versions == null) {
+            return null;
+        }
+        PieceManifest best = null;
+        for (PieceManifest candidate : versions.descendingMap().values()) {
+            dev.nodera.core.state.RegionChunkIndex index = candidate.chunkIndex();
+            if (index == null || index.root().equals(mine.root())
+                    || index.root().equals(theirs.root())) {
+                continue;
+            }
+            best = candidate;
+            break;
+        }
+        if (best == null) {
+            return null;
+        }
+        try {
+            return dev.nodera.core.state.RegionSnapshot.decode(
+                    new dev.nodera.core.crypto.CanonicalReader(
+                            Bytes.unsafeWrap(reassembleLocal(best))));
+        } catch (RuntimeException incomplete) {
+            return null;
+        }
     }
 
     /**

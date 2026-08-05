@@ -196,23 +196,40 @@ final class PieceManifestTest {
     }
 
     @Test
-    void freshnessOrdersByVersionButOnlyWithinTheSameRegion() {
+    void differenceIsAboutContentAndNotAboutVersionNumbers() {
+        // What replaced isSupersededBy. That asked "is theirs at a higher version", which has no
+        // honest answer between peers: a version is a chain height each machine counts on its own,
+        // so two copies that both advanced from one base each hold a number the other's means
+        // nothing to. Answering it anyway is what discarded a whole copy of somebody's work.
         byte[] data = blob(300);
         List<Piece> pieces = PieceSplitter.splitFixed(data, 100);
         Bytes hash = DistFixtures.hashes().sha256(data);
         ContentId id = new ContentId(hash, data.length, Compression.NONE);
 
+        byte[] other = blob(400);
+        List<Piece> otherPieces = PieceSplitter.splitFixed(other, 100);
+        Bytes otherHash = DistFixtures.hashes().sha256(other);
+
         PieceManifest v1 = PieceManifest.of(REGION, new SnapshotVersion(1L), 10L,
                 StateRoot.of(hash), id, data.length, pieces);
-        PieceManifest v2 = PieceManifest.of(REGION, new SnapshotVersion(2L), 20L,
+        PieceManifest v9SameContent = PieceManifest.of(REGION, new SnapshotVersion(9L), 90L,
                 StateRoot.of(hash), id, data.length, pieces);
+        PieceManifest v2Different = PieceManifest.of(REGION, new SnapshotVersion(2L), 20L,
+                StateRoot.of(otherHash),
+                new ContentId(otherHash, other.length, Compression.NONE), other.length,
+                otherPieces);
         PieceManifest otherRegion = PieceManifest.of(DistFixtures.region(9, 9),
-                new SnapshotVersion(5L), 50L, StateRoot.of(hash), id, data.length, pieces);
+                new SnapshotVersion(5L), 50L, StateRoot.of(otherHash),
+                new ContentId(otherHash, other.length, Compression.NONE), other.length,
+                otherPieces);
 
-        assertThat(v1.isSupersededBy(v2)).isTrue();
-        assertThat(v2.isSupersededBy(v1)).isFalse();
-        assertThat(v1.isSupersededBy(v1)).isFalse();
-        // A higher version for a DIFFERENT region is not freshness — it is a different world slice.
-        assertThat(v1.isSupersededBy(otherRegion)).isFalse();
+        assertThat(v1.differsFrom(v9SameContent))
+                .as("eight versions apart and byte-identical: nothing to do")
+                .isFalse();
+        assertThat(v1.differsFrom(v2Different)).isTrue();
+        assertThat(v1.differsFrom(v1)).isFalse();
+        // Different content for a DIFFERENT region is not a difference to reconcile — it is a
+        // different slice of the world.
+        assertThat(v1.differsFrom(otherRegion)).isFalse();
     }
 }

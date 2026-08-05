@@ -481,17 +481,27 @@ public record PieceManifest(
     }
 
     /**
-     * Whether {@code other} describes a strictly fresher state of the same region. Version alone is
-     * NOT authority (see the class Javadoc): callers must additionally require that the fresher
-     * manifest's root is certified before acting on it.
+     * Whether {@code other} describes a different state of the same region.
+     *
+     * <h2>Why this no longer says "superseded"</h2>
+     *
+     * <p>It used to answer "is {@code other} at a higher version", and that question has no honest
+     * answer between peers: a version is a per-region chain height, counted independently on each
+     * machine, so two copies that both advanced from one base each have a number the other's means
+     * nothing to. Answering it anyway is what made reconciliation a comparison, with everything in
+     * the lower-numbered copy discarded.
+     *
+     * <p>What a manifest can say is whether the two hold the same content — that is what the roots
+     * are for. "Which is newer" is a per-column question answered by the stamps, and "what do I do
+     * about it" is {@code RegionMerger}, which keeps both sides' work rather than picking one.
      *
      * @param other the candidate manifest.
-     * @return {@code true} if {@code other} covers the same region at a higher snapshot version.
+     * @return {@code true} if {@code other} covers the same region with different content.
      * @Thread-context any thread.
      */
-    public boolean isSupersededBy(PieceManifest other) {
+    public boolean differsFrom(PieceManifest other) {
         Objects.requireNonNull(other, "other");
-        return region.equals(other.region) && other.version.compareTo(version) > 0;
+        return region.equals(other.region) && !manifestRoot.equals(other.manifestRoot);
     }
 
     @Override

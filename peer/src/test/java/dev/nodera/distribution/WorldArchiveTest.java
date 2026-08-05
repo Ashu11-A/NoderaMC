@@ -107,7 +107,9 @@ final class WorldArchiveTest {
 
         assertThat(v1.pieceCount()).isEqualTo(2);
         assertThat(v1.region()).isEqualTo(WorldArchive.ARCHIVE_REGION);
-        assertThat(v1.isSupersededBy(v2)).isTrue();
+        // The archive lane keeps its version ladder: a whole-save .nar has no chunk index, so
+        // "which of these two is newer" cannot be answered from content the way a region's can.
+        assertThat(v1.version().value()).isLessThan(v2.version().value());
         for (int i = 0; i < v1.pieceCount(); i++) {
             Piece p = v1.piece(i);
             Bytes payload = new Bytes(blob, (int) p.offset(), (int) p.length());
