@@ -181,8 +181,18 @@ say "rendezvous answers its own protocol"
 
 if [[ -x "$NODERA_ROOT/build/nodera-tracker" ]]; then
     say "checking the public path from this machine"
-    "$NODERA_ROOT/build/nodera-tracker" --healthcheck "$VPS_HOST:6969" \
-        || die "the tracker is healthy on the host but unreachable from here — check the firewall"
+    # "Check the firewall" is the wrong first guess and it cost a debugging session. A blocked port
+    # REFUSES or times out; a service that accepts the connection and closes it without answering
+    # has read a frame it did not understand. That is wire drift — a local build newer than the
+    # deployed one — and the fix is to deploy a matching image, not to open a port that is open.
+    if ! "$NODERA_ROOT/build/nodera-tracker" --healthcheck "$VPS_HOST:6969"; then
+        if timeout 8 bash -c "exec 3<>/dev/tcp/$VPS_HOST/6969" 2>/dev/null; then
+            die "the tracker accepts connections from here but will not answer this build — that is \
+wire drift, not a firewall. The deployed image is older than this working tree; deploy an image \
+built from it (scripts/deploy-vps.sh --tag sha-\$(git rev-parse --short HEAD))."
+        fi
+        die "the tracker is healthy on the host but the port is unreachable from here — firewall"
+    fi
     "$NODERA_ROOT/build/nodera-rendezvous" --healthcheck "$VPS_HOST:7500" \
         || die "the relay is healthy on the host but unreachable from here — check the firewall"
 else

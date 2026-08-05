@@ -25,7 +25,13 @@ name: containers
 
 on:
   push:
-    branches: [main, 'feature/**']
+    # `feat/**` as well as `feature/**`: the branches this repo actually uses are named `feat/…`
+    # (matching the commit-type vocabulary), so the `feature/**` glob has never matched one. The
+    # consequence is silent and expensive — a branch can rewrite the tracker and the relay, as
+    # `feat/launcher-redesign` did across fifty Rust files, and no image is ever built for it. The
+    # deployment then has nothing to deploy, and the first symptom is a live tracker accepting
+    # connections and closing them without answering, which reads like a firewall and is not one.
+    branches: [main, 'feature/**', 'feat/**']
     tags: ['v*']
     paths:
       - 'library/rust/**'
