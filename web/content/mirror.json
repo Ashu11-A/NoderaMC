@@ -25,8 +25,7 @@
   },
   {
     "route": "/docs/operate/publish-a-service-list",
-    "source": "README.md",
-    "refKey": "services.branch",
+    "source": "services:README.md",
     "title": "Publish a service list",
     "description": "The service-list format, the schema it is validated against, and how to get a tracker or relay listed."
   },
