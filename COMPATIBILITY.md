@@ -1,8 +1,8 @@
-# COMPATIBILITY.md — the mod-compatibility contract (Task 11)
+# The mod-compatibility contract
 
-This file is **normative**: it fixes what other mods (and modpacks) can rely on when running
-alongside NoderaMC, and what they must not do. Referenced from `docs/Plan.md`; owned by Task 11.
-The enforcement mechanism is the interference guard (`MutationGuard` — the single
+This file is **normative**: it fixes what other mods and modpacks can rely on when running alongside
+NoderaMC, and what they must not do. It is owned by
+[engine task 7](docs/engine/Task.7.md). The enforcement mechanism is the interference guard (`MutationGuard` — the single
 `setBlockState` choke point on delegated chunks) plus the delegability policy. The choke point is
 live: `LevelChunkMixin` routes every block write in the game through `BlockWriteGuard`, which is
 inert (one field read) on any server that is not validating a region. Two further mixins suppress
@@ -70,9 +70,9 @@ no nearby session player are vanilla lane by policy: the guard does not touch th
    even in vanilla; the guard converts main-thread writes only. Async writes into delegated
    chunks are logged as errors and are outside every compatibility guarantee.
 2. **Depend on same-tick visibility of block changes in delegated regions.** Committed effects
-   appear 1–2 ticks after their cause (batch + quorum latency — normative, see
-   `docs/LIMITATIONS.md` L-16). A mod that reads a delegated block the same tick it caused a
-   change may see the pre-commit state.
+   appear 1–2 ticks after their cause — batch plus quorum latency, which is normative rather than
+   a defect ([engine L-16](docs/engine/LIMITATIONS.md)). A mod that reads a delegated block the
+   same tick it caused a change may see the pre-commit state.
 
 ## 7. What other mods CAN rely on
 
