@@ -1,0 +1,118 @@
+# Measures whether the published services are answering, and publishes the reading as data.
+#
+# <!-- AI-AGENT-INSTRUCTION: This workflow WRITES to the orphan branch `probes` and nothing else. It
+#      must never be given `contents: write` on any other ref, and it must never push to `services` —
+#      that branch is the published service list, edited by pull request and fetched at runtime by
+#      every shipped client, and a robot committing to it twice an hour would put machine output in
+#      the path humans review. The branch name is not written here: `probe-services.mjs` owns it and
+#      prints it, so this file and that file cannot name two different branches. -->
+#
+# WHY A WORKFLOW AND NOT THE BROWSER
+# ----------------------------------
+# `/services/` has to answer "is it up, and how fast". The services are `tcp://…:6969` and `:7500`.
+# A page cannot open a TCP socket, and the deployed CSP is `connect-src 'self'`, so it cannot ask a
+# third party to open one either. The measurement has to happen off the visitor's machine.
+#
+# WHY NOT AT IMAGE-BUILD TIME
+# ---------------------------
+# It can be — `NODERA_SITE_PROBE=1` does exactly that — but a single probe from a single build
+# machine at a single instant is a poor measurement. A PR runner behind a restrictive egress policy
+# would record "unreachable" about a service that is perfectly well, and the site would publish that
+# with a straight face. A scheduled probe from a stable vantage point, three connects per endpoint,
+# is a reading worth showing.
+#
+# THE FRESHNESS BOUNDARY, STATED RATHER THAN DISCOVERED
+# -----------------------------------------------------
+# This branch is read at SITE BUILD TIME. A push here does not rebuild the site image — the paths
+# filter in `containers.yml` watches source, and a probe result is not source — so the reading a
+# visitor sees is as old as the deployment, not as old as the last run of this workflow.
+#
+# That is not hidden anywhere. The record carries `measuredAt`, the site ships it as an absolute
+# timestamp, and the page computes the age against the READER's clock and says it in words: "checked
+# 4 minutes ago", or "checked 6 days ago" with the reading visibly stale. A green light that means
+# "we did not check" is the defect the launcher's `StaleDataNotice` exists to prevent, and a status
+# page is the last place to reintroduce it.
+#
+# Making it fresher means one of two things, neither of which is free: rebuilding and redeploying the
+# site image on every probe, or serving the record from a path the deployment can refresh without a
+# rebuild (`/.well-known/*` is already pinned to disk in `web/noderamc.caddy` for that shape of
+# reason). Do the second one if this ever needs to be minutes-fresh. Do not do the first.
+
+name: service probe
+
+on:
+  schedule:
+    # Every half hour. GitHub delays scheduled runs under load and drops them on an inactive
+    # repository; both are survivable here, because the page renders the age of what it has rather
+    # than assuming it is current.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+# Least privilege by default; the one job that pushes says so itself.
+permissions:
+  contents: read
+
+# One probe at a time. Two overlapping runs would both force-push the orphan branch and the later
+# reading could land first.
+concurrency:
+  group: service-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The list to probe lives on the orphan `services` branch, and `scripts/services.py --resolve`
+      # tries the local ref first. Without this the resolver falls through to the raw URL, which
+      # works — and would silently measure a different list from the one this checkout describes.
+      - name: Fetch the published service list
+        run: git fetch --depth=1 origin services:services
+
+      - uses: oven-sh/setup-bun@v2
+      # `nodera-ui/layout` is a workspace package: the prober reads the repository layout through it
+      # rather than spelling a path, so the install is not optional.
+      - run: bun install --frozen-lockfile
+
+      - name: Dial every published endpoint
+        run: node web/scripts/probe-services.mjs --write "$RUNNER_TEMP"
+
+      - name: Publish the reading
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="$(node web/scripts/probe-services.mjs --print-branch)"
+          file="$(node web/scripts/probe-services.mjs --print-file)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # A fresh orphan every run, force-pushed. The branch is a one-file publishing surface, not
+          # a history worth keeping, and an append-only machine-written branch probed every half hour
+          # grows seventeen thousand commits a year for no reader.
+          git switch --orphan "$branch"
+          # `switch --orphan` clears the index and every TRACKED file and leaves untracked ones —
+          # including node_modules, whose .gitignore entry has just been removed along with the file
+          # that contained it. Without this clean, `git add -A` publishes the whole dependency tree.
+          git clean -ffdxq
+          cp "$RUNNER_TEMP/$file" .
+          cat > README.md <<'EOF'
+          # probes
+
+          Generated. Do not edit, do not branch from this.
+
+          One document: a dated reading of whether each service on the published list accepted a TCP
+          connection, and how long that took. Written by `.github/workflows/service-probe.yml` from
+          `web/scripts/probe-services.mjs`, read at site build time by `web/scripts/build-services.mjs`,
+          and rendered on https://noderamc.org/services/ together with its own age.
+
+          A connect is not a protocol handshake. `reachable` means the port accepted; it does not
+          mean the service answered, which is why `peerClosed` is recorded separately and the page
+          says so in those words. This branch is an orphan and is force-pushed on every run; it
+          carries no source.
+          EOF
+          git add -A
+          git commit -q -m "service probe at $(date -u +%FT%TZ)"
+          git push -f origin "$branch"

@@ -47,6 +47,47 @@ export interface ReleaseData {
   hasSignature: boolean;
 }
 
+/**
+ * What one connect to one published address measured.
+ *
+ * Every field is a fact about an attempt that was made, and the three states are exhaustive on
+ * purpose:
+ *
+ *   * `reachable`   — a TCP connection was established. NOT "the service is healthy": this project
+ *                     has already run a live tracker that accepted connections and closed them
+ *                     without answering, which read like a firewall and was not one. `peerClosed`
+ *                     is that symptom, recorded rather than smoothed over.
+ *   * `unreachable` — the address was dialled and did not answer. `error` carries the errno.
+ *   * `unknown`     — nobody has measured it, or the published address is not one we know how to
+ *                     dial. Unknown is not down, and a page that renders it as down is inventing a
+ *                     failure. This is the same rule the launcher's `StaleDataNotice` exists for.
+ */
+export interface EndpointStatus {
+  /** The published address, as its operator spells it. The key the reading is joined on. */
+  endpoint: string;
+  state?: "reachable" | "unreachable" | "unknown";
+  /** The median of the successful connects, in milliseconds. `null` when none succeeded. */
+  rttMs?: number | null;
+  attempts?: number;
+  succeeded?: number;
+  /** The peer closed the connection without being asked anything. Recorded, never hidden. */
+  peerClosed?: boolean;
+  /** An errno (`ECONNREFUSED`, `ETIMEDOUT`) or a sentence about an address that cannot be dialled. */
+  error?: string | null;
+}
+
+/** When and where reachability was measured. `null` means never — which is not `0` and not "down". */
+export interface ProbeStamp {
+  /** ISO 8601, written by the machine that dialled. The page ages it against the READER's clock. */
+  measuredAt: string;
+  /** In its own words: `GitHub Actions`, `a workstation`, `this build`. */
+  measuredBy: string;
+  /** Connects per endpoint behind each reading. */
+  attempts: number | null;
+  /** `probes:service-probe.json`, or `build` when this build did the dialling itself. */
+  source: string;
+}
+
 export interface ServiceEntry {
   name: string;
   kind: "tracker" | "rendezvous";
@@ -62,12 +103,16 @@ export interface ServiceEntry {
    * `storeOfferHref` throws when handed its own output, so the pair cannot be confused again quietly.
    */
   storeIndexUrl: string;
+  /** One reading per published endpoint, in `endpoints` order. Keyed by address, never by name. */
+  endpointStatus: EndpointStatus[];
 }
 
 export interface ServicesData {
   /** Which of `services.py`'s five resolution steps answered, in its own words. */
   source: string;
   fetchedAt: string;
+  /** When reachability was last measured, and by what. `null` when it never has been. */
+  probe: ProbeStamp | null;
   services: ServiceEntry[];
 }
 

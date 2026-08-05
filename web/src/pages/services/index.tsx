@@ -2,47 +2,41 @@ import { services } from "../../components/data";
 import { PageLayout } from "../../components/docs";
 import { ServiceTable } from "../../components/services";
 
+/**
+ * `/services/` — the published list, and what each address was last measured doing.
+ *
+ * The prose here is deliberately three sentences. It used to be four paragraphs explaining what a
+ * tracker is, what a relay is, why neither is an authority, what pressing the button does and what
+ * it does not — an essay in front of the two rows somebody came to read. Each of those explanations
+ * still exists on the page whose subject it is, and this one links to them instead of restating
+ * them.
+ *
+ * What replaced the paragraphs is not more copy. It is the thing the page was missing: whether the
+ * services are answering, how quickly, and when that was last checked.
+ */
 export default function Page() {
   return (
     <PageLayout path="/services/">
       <>
-        <div style={{ maxWidth: "var(--prose-measure)" }}>
-          <p className="mt-8 text-body leading-7 text-dim">
-            A <strong className="font-medium text-text">tracker</strong> answers the question "who is
-            on this world". A <strong className="font-medium text-text">relay</strong> introduces two
-            machines that are both behind a NAT and carries an encrypted circuit between them when
-            there is no direct path. Neither one is authority: every service proves its own identity
-            before a peer will dial it, and everything a service says is checked against signatures
-            the peers already hold. The most either can do is hide a peer from you or point you at one
-            that is not reachable.
-          </p>
-          <p className="mt-4 text-body leading-7 text-dim">
-            That is why the app takes lists of services from anyone. The list below is the one this
-            project publishes; it is one store among however many you add, and it is deletable like
-            any other. Pressing <strong className="font-medium text-text">Add to NoderaMC</strong> only{" "}
-            <em>records</em> the address — the app shows you what it fetched and what is in it before
-            anything is added.
-          </p>
-        </div>
+        <p className="mt-8 text-body leading-7 text-dim" style={{ maxWidth: "var(--prose-measure)" }}>
+          A <strong className="font-medium text-text">tracker</strong> answers "who is on this
+          world"; a <strong className="font-medium text-text">relay</strong> carries an encrypted
+          circuit between two machines that cannot reach each other directly. Neither is an
+          authority — the most either can do is hide a peer, or point you at one that is not there.
+        </p>
 
         <ServiceTable />
 
-        <div style={{ maxWidth: "var(--prose-measure)" }}>
-          <p className="mt-8 text-sm text-faint">
-            Read from {services.source} at build time.
-          </p>
-          <p className="mt-6 text-body leading-7 text-dim">
-            Running one is cheap, and the project wants more of them than it runs itself —{" "}
-            <a href="/docs/operate/" className="text-brand-1 hover:text-text">
-              here is what is involved
-            </a>
-            . Publishing your own list is a JSON file against a schema:{" "}
-            <a href="/docs/operate/publish-a-service-list" className="text-brand-1 hover:text-text">
-              the format and how to get listed
-            </a>
-            .
-          </p>
-        </div>
+        <p className="mt-8 text-sm text-faint" style={{ maxWidth: "var(--prose-measure)" }}>
+          List read from {services.source} at build time.{" "}
+          <a href="/docs/operate/" className="text-brand-1 hover:text-text">
+            Run a service
+          </a>{" "}
+          ·{" "}
+          <a href="/docs/operate/publish-a-service-list" className="text-brand-1 hover:text-text">
+            Publish a list of your own
+          </a>
+        </p>
       </>
     </PageLayout>
   );
