@@ -67,16 +67,21 @@
    * stops existing — without an edit here, and without the site's callouts sitting at a different
    * tint from the app's selected rows.
    *
-   * `--brand-glow` cannot do the same, and the reason is worth writing down: B1 also introduces
-   * `--glow-brand` — a near-anagram, and a DIFFERENT TYPE. That one is a box-shadow bloom
-   * (`0 0 34px …`); this one is a background gradient. Aliasing them would put a shadow value into
-   * a `background-image`, which resolves to nothing and renders as a missing hero glow with no
-   * error anywhere. So they stay separate, and `design-tokens.test.mjs` fails the build if the
-   * imported stylesheet ever declares a token whose name is a reordering of one of ours — which
-   * turns "somebody will spot this at merge time" into a gate that fires on the merge commit. */
+   * `--hero-bloom` could not do the same, and the reason it carries that name is worth writing
+   * down. It was `--brand-glow` until the launcher redesign landed `--glow-brand` — a near-anagram
+   * with a DIFFERENT TYPE. That one is a box-shadow bloom (`0 0 34px …`); this one is a background
+   * gradient. Aliasing them would put a shadow value into a `background-image`, which resolves to
+   * nothing and renders as a missing hero glow with no error anywhere; so would a reader reaching
+   * for the wrong one of two names that differ only in word order.
+   *
+   * `design-tokens.test.mjs` fails the build when the imported stylesheet declares a token whose
+   * name is a reordering of one of ours, which turned "somebody will spot this at merge time" into
+   * a gate that fired on the merge commit — and did. The resolution is this name: it shares no word
+   * with the launcher's, so the two cannot be reached for interchangeably, and it says where the
+   * value is used rather than restating the accent it is already derived from. */
   --prose-measure: 752px;
   --brand-dimm: var(--brand-soft, color-mix(in oklab, var(--brand-1) 8%, transparent));
-  --brand-glow: linear-gradient(-45deg, var(--brand-1) 25%, var(--brand-3) 75%);
+  --hero-bloom: linear-gradient(-45deg, var(--brand-1) 25%, var(--brand-3) 75%);
 }
 
 @layer base {

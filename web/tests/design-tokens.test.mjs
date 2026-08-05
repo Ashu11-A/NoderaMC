@@ -89,14 +89,19 @@ test("the site shadows exactly the two launcher tokens it says it does", () => {
 });
 
 test("no site token is a reordering of a launcher token", () => {
-  // A gate that fires on a merge commit rather than a note somebody has to remember.
+  // A gate that fires on a merge commit rather than a note somebody has to remember. It has fired
+  // once, and this is the case it fired on.
   //
-  // The launcher redesign introduces `--glow-brand`, a box-shadow bloom. This site declares
-  // `--brand-glow`, a background gradient. They are near-anagrams with different TYPES, so a
-  // confusion between them puts a shadow value into a `background-image`, which resolves to nothing
-  // and renders as a missing hero glow with no error anywhere. When that token lands in the imported
-  // stylesheet this test fails, which is the intent: one of the two names has to move, and the merge
-  // is the moment to decide which.
+  // The launcher redesign landed `--glow-brand`, a box-shadow bloom. The site declared
+  // `--brand-glow`, a background gradient. Near-anagrams with different TYPES, so a confusion
+  // between them puts a shadow value into a `background-image`, which resolves to nothing and
+  // renders as a missing hero glow with no error anywhere. The merge commit was the moment to
+  // decide which name moved: the site's did, to `--hero-bloom`, which shares no word with the
+  // launcher's and so cannot be reached for by mistake.
+  //
+  // The gate stays because the collision it catches is not specific to those two names. Both sides
+  // grow tokens independently, and the next pair to converge gets caught on the commit that
+  // converges them rather than by whoever eventually notices a bloom is missing.
   const key = (token) => token.replace(/^--/, "").split("-").sort().join("-");
   const app = new Map([...declaredByApp()].map((token) => [key(token), token]));
   const collisions = [];

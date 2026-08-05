@@ -36,7 +36,7 @@ export function HeroGlow() {
     <div
       aria-hidden="true"
       className="pointer-events-none absolute top-1/2 left-1/2 -z-10 h-48 w-48 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[40px] sm:h-64 sm:w-64 sm:blur-[56px] lg:h-80 lg:w-80 lg:blur-[72px]"
-      style={{ backgroundImage: "var(--brand-glow)", opacity: 0.35 }}
+      style={{ backgroundImage: "var(--hero-bloom)", opacity: 0.35 }}
     />
   );
 }
