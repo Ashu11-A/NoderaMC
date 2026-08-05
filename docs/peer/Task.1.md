@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED
 **Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 2](../network/Task.2.md), [network 5](../network/Task.5.md)
-**Consumed by:** [worker 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md), [app 1](../app/Task.1.md)
+**Consumed by:** [worker 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md), [frontend 1](../frontend/Task.1.md)
 
 ---
 
@@ -87,4 +87,4 @@ can classify skew as "update the app" or "update the mod" rather than failing wi
 ## Limitations
 
 None owned. **L-47** (installer and cross-machine acceptance) is owned by
-[`app/LIMITATIONS.md`](../app/LIMITATIONS.md).
+[`frontend/LIMITATIONS.md`](../frontend/LIMITATIONS.md).

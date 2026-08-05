@@ -125,7 +125,7 @@ The receiver had no senders when this category opened. It has six now: the emitt
 ([network 12](../network/Task.12.md)), the worker that owns the consent record
 ([worker 5](../peer/Task.5.md)), the game-side façade ([minecraft 8](../minecraft/Task.8.md)),
 both service reporters ([tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md)),
-and the companion's first-run question ([app 5](../app/Task.5.md)).
+and the companion's first-run question ([frontend 5](../frontend/Task.5.md)).
 
 `scripts/e2e-telemetry.sh` is what makes that a claim rather than an assertion: it builds the real
 collector and the real worker distribution, and drives them. Six steps, and the two that decide

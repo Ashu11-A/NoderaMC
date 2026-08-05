@@ -1,4 +1,4 @@
-# App Task 2 — Live Metrics Dashboard
+# Frontend Task 2 — Live Metrics Dashboard
 
 <!-- AI-AGENT-INSTRUCTION: The dashboard RENDERS; it does not compute. Parsing must tolerate unknown
      fields (serde defaults) because worker STATE fields are additive — a newer worker must degrade to
@@ -6,7 +6,7 @@
      be asserted headlessly. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 2](../peer/Task.2.md)
 **Consumed by:** players
 

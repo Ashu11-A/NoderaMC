@@ -8,7 +8,7 @@
 **Status:** ✅ COMPLETED
 **Category:** minecraft · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** —
-**Consumed by:** every other task in this category, and the live acceptance of [engine](../engine/Task.0.md), [network](../network/Task.0.md), [rendezvous 3](../rendezvous/Task.3.md), [app 4](../app/Task.4.md)
+**Consumed by:** every other task in this category, and the live acceptance of [engine](../engine/Task.0.md), [network](../network/Task.0.md), [rendezvous 3](../rendezvous/Task.3.md), [frontend 4](../frontend/Task.4.md)
 
 ---
 

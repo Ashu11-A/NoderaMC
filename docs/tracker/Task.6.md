@@ -10,7 +10,7 @@
 **Status:** ✅ COMPLETED
 **Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [tracker 5](Task.5.md)
-**Consumed by:** [rendezvous 6](../rendezvous/Task.6.md), [app 9](../app/Task.9.md),
+**Consumed by:** [rendezvous 6](../rendezvous/Task.6.md), [frontend 9](../frontend/Task.9.md),
 [network 13](../network/Task.13.md)
 
 ---

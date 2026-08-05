@@ -1,4 +1,4 @@
-# App Task 9 — Tracker stores
+# Frontend Task 9 — Tracker stores
 
 <!-- AI-AGENT-INSTRUCTION: The rule this task exists to preserve: a deep link must NEVER add a store.
      It records the URL, the app shows it, the user decides. Any change that makes a link act by
@@ -6,9 +6,9 @@
      APPENDED after the user's own and never reorder them. Keep this header's status accurate. -->
 
 **Status:** ✅ DONE
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 8](Task.8.md), [tracker 6](../tracker/Task.6.md), [network 13](../network/Task.13.md)
-**Consumed by:** [mobile 5](../mobile/Task.5.md)
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
+**Depends on:** [frontend 8](Task.8.md), [tracker 6](../tracker/Task.6.md), [network 13](../network/Task.13.md)
+**Consumed by:** [frontend 16](Task.16.md), [frontend 18](Task.18.md)
 
 ---
 

@@ -1,4 +1,4 @@
-# Mobile Task 1 — The Android build, and the worker inside it
+# Frontend Task 12 — The Android build, and the worker inside it
 
 <!-- AI-AGENT-INSTRUCTION: This file records HOW the APK is produced and why each pin exists. If a
      pin moves, the reason must move with it — the two version pins here were each the direct cause
@@ -6,9 +6,10 @@
      script and in scripts/android-toolchain.sh; a drift between the two is limitation M-9. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `scripts/android-apk.sh`, `app/android/kotlin/`
+**Category:** frontend · **Owns:** `scripts/android-apk.sh`, `app/android/kotlin/`
 **Last audit:** 2026-08-01
-**Depends on:** [app 1](../app/Task.1.md), [worker 1](../peer/Task.1.md)
+**Depends on:** [frontend 1](Task.1.md), [worker 1](../peer/Task.1.md)
+**Consumed by:** [frontend 13](Task.13.md), [frontend 14](Task.14.md), [frontend 16](Task.16.md)
 
 ---
 

@@ -1,4 +1,4 @@
-# App Task 5 — Telemetry Consent: The First-Run Modal and the Privacy Screen
+# Frontend Task 5 — Telemetry Consent: The First-Run Modal and the Privacy Screen
 
 <!-- AI-AGENT-INSTRUCTION: This task owns the only place a person is ASKED. Three rules, and a change
      that breaks any of them must be refused: (1) neither button is pre-selected, styled as
@@ -7,8 +7,8 @@
      ../plans/Plan.6.md. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** — (L-78 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
-**Depends on:** [worker 5](../peer/Task.5.md), [app 2](Task.2.md)
+**Category:** frontend · **Owns:** — (L-78 RETIRED 2026-07-26) · **Last audit:** 2026-07-28
+**Depends on:** [worker 5](../peer/Task.5.md), [frontend 2](Task.2.md)
 **Consumed by:** every player; [telemetry 3](../telemetry/Task.3.md)
 
 ---
@@ -37,7 +37,7 @@ live pass of the modal in a packaged build.
 ## Dependencies
 
 - [worker 5](../peer/Task.5.md) — the verb the decision is written to.
-- [app 2](Task.2.md) — the dashboard and settings surfaces this extends.
+- [frontend 2](Task.2.md) — the dashboard and settings surfaces this extends.
 
 ## Deliverables
 
@@ -73,7 +73,7 @@ maintained separately from the enforcement drifts from it, and the drift is alwa
 uncomfortable direction.
 
 **The badge shows what the worker confirmed.** The same discipline the config lane already
-established (`docs/app/PROGRESS.md`, 2026-07-25): a setting the node has not acknowledged is not
+established (`docs/frontend/PROGRESS.md`, 2026-07-25): a setting the node has not acknowledged is not
 badged as live. A consent toggle that says "on" while the worker never received it would be the
 worst possible version of this bug.
 

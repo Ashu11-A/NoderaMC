@@ -26,7 +26,7 @@ with [telemetry 2](Task.2.md) as the working skeleton; everything below is this 
 
 The receiver is finished and the emitters have landed in their own categories
 ([network 12](../network/Task.12.md), [worker 5](../peer/Task.5.md), [minecraft 8](../minecraft/Task.8.md),
-[tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [app 5](../app/Task.5.md)).
+[tracker 4](../tracker/Task.4.md), [rendezvous 4](../rendezvous/Task.4.md), [frontend 5](../frontend/Task.5.md)).
 What is missing is not mechanism but a **population that has opted in** — which is why **L-75** stays
 OPEN and this task stays ⬜ until a deployment has real reports to analyse.
 

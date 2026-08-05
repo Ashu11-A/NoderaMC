@@ -16,7 +16,7 @@ It must be boring, small, and reliable.
 
 - **Depends on:** the worker's loopback control endpoint (`java/peer`, `dev.nodera.headless`).
 - **Depended on by:** players; the mod's presence gate assumes it keeps the worker alive.
-- **Docs:** [`docs/app/`](../../docs/app/Task.0.md)
+- **Docs:** [`docs/frontend/`](../docs/frontend/Task.0.md)
 
 ---
 

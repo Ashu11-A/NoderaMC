@@ -1,12 +1,13 @@
-# Mobile Task 2 — The interface: Material You, and what a phone may be asked
+# Frontend Task 13 — The interface: Material You, and what a phone may be asked
 
 <!-- AI-AGENT-INSTRUCTION: The rules here are about honesty on a small screen. If a screen starts
      explaining itself in paragraphs, it has become documentation and belongs here instead. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `app/android/kotlin/ui/`
+**Category:** frontend · **Owns:** `app/android/kotlin/ui/`
 **Last audit:** 2026-08-01
-**Depends on:** [mobile 1](Task.1.md), [app 6](../app/Task.6.md)
+**Depends on:** [frontend 12](Task.12.md), [frontend 6](Task.6.md)
+**Consumed by:** [frontend 15](Task.15.md)
 
 ---
 

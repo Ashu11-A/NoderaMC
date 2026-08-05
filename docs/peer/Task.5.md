@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED
 **Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 12](../network/Task.12.md), [worker 2](Task.2.md), [telemetry 1](../telemetry/Task.1.md)
-**Consumed by:** [app 5](../app/Task.5.md), [minecraft 8](../minecraft/Task.8.md), [telemetry 3](../telemetry/Task.3.md)
+**Consumed by:** [frontend 5](../frontend/Task.5.md), [minecraft 8](../minecraft/Task.8.md), [telemetry 3](../telemetry/Task.3.md)
 
 ---
 

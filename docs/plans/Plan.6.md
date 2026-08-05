@@ -189,13 +189,13 @@ reader can audit the privacy claims in an afternoon. The file is the buffer; Vec
 | 3 | [`telemetry 3`](../telemetry/Task.3.md) | telemetry | Analysis, dashboards, alerting, and the public transparency report |
 | 4 | [`network 12`](../network/Task.12.md) | network | ✅ Minecraft-free emitter core: event model, bucketing, consent gate, bounded spool, sender |
 | 5 | [`worker 5`](../peer/Task.5.md) | worker | ✅ The node's single emitter + `NODERA-TELEMETRY` control verb |
-| 6 | [`app 5`](../app/Task.5.md) | app | 🚧 First-run consent modal + Privacy settings landed; a component test remains |
+| 6 | [`frontend 5`](../frontend/Task.5.md) | frontend | 🚧 First-run consent modal + Privacy settings landed; a component test remains |
 | 7 | [`minecraft 8`](../minecraft/Task.8.md) | minecraft | ✅ (headless) In-game consent mirror + gameplay events handed to the worker |
 | 8 | [`tracker 4`](../tracker/Task.4.md) | tracker | ✅ Service-side reporter, operator opt-in |
 | 9 | [`rendezvous 4`](../rendezvous/Task.4.md) | rendezvous | ✅ Service-side reporter, NAT-pair punch statistics |
 | 10 | [`server 10`](../server/Task.10.md) | server | ⬜ Endpoint reporter with the tenant-privacy boundary (the `server` category has not started) |
 
-Dependency order: telemetry 1 → network 12 → worker 5 → {app 5, minecraft 8} and telemetry 1 →
+Dependency order: telemetry 1 → network 12 → worker 5 → {frontend 5, minecraft 8} and telemetry 1 →
 {tracker 4, rendezvous 4, server 10}; telemetry 2 → telemetry 3.
 
 ---

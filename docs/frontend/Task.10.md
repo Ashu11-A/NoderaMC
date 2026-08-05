@@ -1,4 +1,4 @@
-# App Task 10 — Practical screens, honest numbers
+# Frontend Task 10 — Practical screens, honest numbers
 
 <!-- AI-AGENT-INSTRUCTION: Two rules this task exists to preserve. (1) A control that claims to be
      in force must have a read site; a setting with no consumer is declared unenforced, never
@@ -7,9 +7,9 @@
      defects listed below. Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** A-UX-1 … A-UX-5 · **Last audit:** 2026-07-28
-**Depends on:** [app 8](Task.8.md), [app 9](Task.9.md), [worker 2](../peer/Task.2.md)
-**Consumed by:** [mobile 5](../mobile/Task.5.md)
+**Category:** frontend · **Owns:** A-UX-1 … A-UX-5 · **Last audit:** 2026-07-28
+**Depends on:** [frontend 8](Task.8.md), [frontend 9](Task.9.md), [worker 2](../peer/Task.2.md)
+**Consumed by:** [frontend 16](Task.16.md)
 
 ---
 
@@ -50,7 +50,7 @@ Remaining: the content pass (deliverables 5–6) and the settings-honesty pass (
 ## Dependencies
 
 - [worker 2](../peer/Task.2.md) owns the `NODERA-CONFIG` key list and which keys apply live.
-- [app 9](Task.9.md) owns the tracker-stores screen this task restyles.
+- [frontend 9](Task.9.md) owns the tracker-stores screen this task restyles.
 
 ## Deliverables
 

@@ -1,13 +1,14 @@
-# Mobile Task 3 — The phone in the mesh, and how it is proven
+# Frontend Task 14 — The phone in the mesh, and how it is proven
 
 <!-- AI-AGENT-INSTRUCTION: The assertion in §Exit is the reason this task exists. If it is ever
      weakened — to "connected", to "the tracker saw it", to anything the app itself reports — this
      file must say so, because those were the claims that were true while no data moved. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `scripts/e2e-android-mesh.sh`
+**Category:** frontend · **Owns:** `scripts/e2e-android-mesh.sh`
 **Last audit:** 2026-07-28
-**Depends on:** [mobile 1](Task.1.md), [worker 3](../peer/Task.3.md), [tracker 2](../tracker/Task.2.md)
+**Depends on:** [frontend 12](Task.12.md), [worker 3](../peer/Task.3.md), [tracker 2](../tracker/Task.2.md)
+**Consumed by:** [frontend 15](Task.15.md), [frontend 16](Task.16.md)
 
 ---
 

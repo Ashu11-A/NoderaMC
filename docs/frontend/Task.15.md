@@ -1,4 +1,4 @@
-# Mobile Task 4 — The settings the app can actually keep, and the worker verbs it never asks for
+# Frontend Task 15 — The settings the app can actually keep, and the worker verbs it never asks for
 
 <!-- AI-AGENT-INSTRUCTION: §3 is a census, not a wish list. Every row names a verb that EXISTS in
      `ControlProtocol.java` and is dispatched by `ControlServer.java` today. Before moving a row to
@@ -7,9 +7,10 @@
      exist yet; that belongs in the owning category's task file, not here. -->
 
 **Status:** ✅ COMPLETED
-**Category:** mobile · **Owns:** `app/src/android/network.rs`, the settings document
+**Category:** frontend · **Owns:** `app/src/android/network.rs`, the settings document
 **Last audit:** 2026-07-28
-**Depends on:** [mobile 2](Task.2.md), [mobile 3](Task.3.md), [app 7](../app/Task.7.md)
+**Depends on:** [frontend 13](Task.13.md), [frontend 14](Task.14.md), [frontend 7](Task.7.md)
+**Consumed by:** —
 
 ---
 

@@ -198,7 +198,7 @@ export function PlayScreen(props: {
       void external.open("https://adoptium.net/temurin/releases/?version=21");
     } else if (remedy === "sign-in") {
       void external.open(
-        "https://github.com/Ashu11-A/NoderaMC/blob/main/docs/app/LIMITATIONS.md#b--staged-capabilities",
+        "https://github.com/Ashu11-A/NoderaMC/blob/main/docs/frontend/LIMITATIONS.md#b--staged-capabilities",
       );
     } else if (remedy === "install-mod" || remedy === "pick-install") {
       props.onSettings("minecraft");

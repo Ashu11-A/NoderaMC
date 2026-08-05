@@ -1,4 +1,4 @@
-# App Task 4 — End-to-End Acceptance + Cross-Machine Continuity
+# Frontend Task 4 — End-to-End Acceptance + Cross-Machine Continuity
 
 <!-- AI-AGENT-INSTRUCTION: This task's value is that it tests the CLAIM PLAYERS ARE MADE — install,
      gate both ways, host, close Minecraft, still joinable from elsewhere. A test that runs both sides
@@ -6,7 +6,7 @@
      Keep this header's status accurate. -->
 
 **Status:** ⏳ BLOCKED (needs the worker's own announce timer and the joining-client harness)
-**Category:** app · **Owns:** L-47 (shared) · **Last audit:** 2026-07-28
+**Category:** frontend · **Owns:** L-47 (shared) · **Last audit:** 2026-07-28
 **Depends on:** [worker 3](../peer/Task.3.md), [minecraft 1](../minecraft/Task.1.md)
 **Consumed by:** the project's product claim
 

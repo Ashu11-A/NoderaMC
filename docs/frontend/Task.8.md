@@ -1,4 +1,4 @@
-# App Task 8 — One Subject Per Screen
+# Frontend Task 8 — One Subject Per Screen
 
 <!-- AI-AGENT-INSTRUCTION: Three rules this task exists to hold. (1) A screen owns ONE subject —
      node-wide facts never appear under a per-world heading, and per-world facts never appear on a
@@ -8,9 +8,9 @@
      a status pill. Keep this header accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 6](Task.6.md), [app 7](Task.7.md)
-**Consumed by:** [app 3](Task.3.md)
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
+**Depends on:** [frontend 6](Task.6.md), [frontend 7](Task.7.md)
+**Consumed by:** [frontend 3](Task.3.md)
 
 ---
 
@@ -83,7 +83,7 @@ disagreeing on screen.
 than reworded. Where a real field existed but was unused — the tracker's `health`, the collector's
 schema text, every `SystemStats` field — it is now rendered.
 
-**Unknown stays unknown.** Carried forward from [app 6](Task.6.md) and extended to the licence list:
+**Unknown stays unknown.** Carried forward from [frontend 6](Task.6.md) and extended to the licence list:
 a package whose licence could not be read locally shows as `—`, never inferred from a sibling or
 defaulted to the common one. A wrong attribution is worse than a missing one.
 

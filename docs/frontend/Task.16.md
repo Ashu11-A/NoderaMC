@@ -1,4 +1,4 @@
-# Mobile Task 5 — The phone reaches the network it was told to
+# Frontend Task 16 — The phone reaches the network it was told to
 
 <!-- AI-AGENT-INSTRUCTION: The rule this task exists to preserve: on Android, `Context.filesDir` is
      NOT `app_data_dir()`. filesDir is `/data/user/0/<pkg>/files`; Tauri's app_data_dir() is
@@ -14,8 +14,8 @@
      consumer; touch acceptance is partial. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** mobile · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-08-01
-**Depends on:** [mobile 3](Task.3.md), [app 9](../app/Task.9.md), [worker 2](../peer/Task.2.md)
+**Category:** frontend · **Owns:** M-NET-1 … M-NET-4 · **Last audit:** 2026-08-01
+**Depends on:** [frontend 14](Task.14.md), [frontend 9](Task.9.md), [worker 2](../peer/Task.2.md)
 **Consumed by:** —
 
 ---
@@ -82,7 +82,7 @@ M-NET-2 remains RETIRING because this run used random P2P port `39957`, not a se
 
 ## Dependencies
 
-- [app 9](../app/Task.9.md) owns the tracker stores that populate the services list.
+- [frontend 9](Task.9.md) owns the tracker stores that populate the services list.
 - [worker 2](../peer/Task.2.md) owns which config keys apply live vs at spawn.
 
 ## Deliverables

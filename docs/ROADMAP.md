@@ -64,6 +64,20 @@ of dropped in silence; and the worker's replication sweep gives its byte budget 
 filled up no longer refuses every world the placement policy expects of it for the rest of its life.
 The completion figure is again left as it stands, for the same reason.
 
+**Reorganisation 2026-08-05, and it moves the denominator.** The `app` and `mobile` categories are
+one category, [`frontend`](frontend/Task.0.md), covering every user-facing surface: the desktop
+launcher, the Android companion, and the public website. Mobile's five tasks are renumbered +11
+(mobile 1…5 → frontend 12…16); the app's eleven kept their numbers. **No status moved in that
+commit** — not a task, not a limitation, not a test count — because a merge that also retires rows
+makes it impossible to tell which change the evidence belonged to.
+
+Four tasks open with it: [frontend 17](frontend/Task.17.md) (the launcher redesigned, with a Theme
+screen), [18](frontend/Task.18.md) (the website), [19](frontend/Task.19.md) (one tree building the
+desktop app, the site and — through the Rust core and the worker rather than through React — the
+Android app), and [20](frontend/Task.20.md) (the site published as a container image the VPS pulls,
+replacing an SSH push). The task total goes 76 → 80 and none of the four is finished, so the
+completion figure above is again **not** recomputed rather than being quietly improved.
+
 Documentation format, conventions, and the maintenance discipline: [`README.md`](README.md).
 
 ---
@@ -93,14 +107,14 @@ ownership with forwarded actions and quorum commits; validated pickup delivered 
 | [Rendezvous](rendezvous/Task.0.md) | 6 | 4 | 1 | 1 | NAT reach: punching + relay fallback |
 | [Minecraft](minecraft/Task.0.md) | 11 | 5 | 5 | 0 | The NeoForge mod — the playable product |
 | [Worker](peer/Task.0.md) | 8 | 6 | 2 | 0 | The always-on headless peer |
-| [App](app/Task.0.md) | 11 | 6 | 4 | 1 | Desktop game launcher + Tauri shell over shared app core |
-| [Mobile](mobile/Task.0.md) | 5 | 4 | 1 | 0 | The Android build — the worker itself, on a phone |
+| [Frontend](frontend/Task.0.md) | 20 | 10 | 9 | 1 | Every user-facing surface: desktop launcher, Android companion, website |
 | [Testing](testing/Task.0.md) | 1 | 1 | 0 | 0 | The test tooling: harness, scenarios, benchmarks, structural report |
 | [Telemetry](telemetry/Task.0.md) | 3 | 1 | 1 | 0 | Consented measurement: ingest + Big Data plane |
-| **Total** | **76** | **49** | **23** | **2** | |
+| **Total** | **80** | **49** | **27** | **2** | |
 
 Note (2026-07-28 doc sweep): the task totals now reflect every `Task.<n>.md` file on disk (the previous
-table undercounted tracker/rendezvous/minecraft/worker/app/mobile). The completion figure in §1's
+table undercounted tracker/rendezvous/minecraft/worker/app/mobile — the last two are now one
+`frontend` category). The completion figure in §1's
 header is **not** recomputed here — its weighting is not derivable from this table, and a raw
 done/total (49/75) would mix not-started tasks into the denominator in a way the historical figure
 never did.
@@ -207,31 +221,34 @@ Programme plan (task 14): [`plans/Plan.7.md`](plans/Plan.7.md).
 | [7](peer/Task.7.md) | The LAN lane — playing without a mod | ✅ | worker 2, worker 6, tracker 2 |
 | [8](peer/Task.8.md) | One world, one identity | 🚧 all 11 deliverables closed; open on live rows | worker 3, minecraft 6 |
 
-### App — [`docs/app/`](app/Task.0.md)
+### Frontend — [`docs/frontend/`](frontend/Task.0.md)
+
+The `app` and `mobile` categories merged into this one on 2026-08-05. The app tasks kept their
+numbers; the mobile tasks shifted by eleven — **mobile 1…5 are frontend 12…16**. A "mobile 3" in an
+older issue or commit message is [frontend 14](frontend/Task.14.md).
 
 | Task | Title | Status | Depends on |
 |---|---|---|---|
-| [1](app/Task.1.md) | Tauri scaffold + worker supervisor | ✅ | worker 1 |
-| [2](app/Task.2.md) | Live metrics dashboard | ✅ | worker 2 |
-| [3](app/Task.3.md) | Per-OS packaging + CI | 🚧 | app 1 |
-| [4](app/Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ | worker 3, minecraft 1 |
-| [5](app/Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 | worker 5, app 2 |
-| [6](app/Task.6.md) | Dashboard API + live worker link | ✅ | app 2, worker 2, worker 6 |
-| [7](app/Task.7.md) | The client becomes the way in | ✅ | app 6, worker 7 |
-| [8](app/Task.8.md) | Screen redesign: one subject per screen | ✅ | app 6, app 7 |
-| [9](app/Task.9.md) | Tracker stores | ✅ | app 8, tracker 6, network 13 |
-| [10](app/Task.10.md) | Practical screens, honest numbers | 🚧 | app 8, app 9, worker 2 |
-| [11](app/Task.11.md) | A launcher, not a dashboard | 🚧 | app 9, app 10 |
-
-### Mobile — [`docs/mobile/`](mobile/Task.0.md)
-
-| Task | Title | Status | Depends on |
-|---|---|---|---|
-| [1](mobile/Task.1.md) | The Android build: toolchain, APK, dex floor | ✅ | app 1 |
-| [2](mobile/Task.2.md) | The worker on the phone | ✅ | mobile 1, worker 1 |
-| [3](mobile/Task.3.md) | The phone in the mesh, and how it is proven | ✅ | mobile 2 |
-| [4](mobile/Task.4.md) | Settings the app can keep; worker verbs it never asks for | ✅ | mobile 2, mobile 3, app 7 |
-| [5](mobile/Task.5.md) | The phone reaches the network it was told to | 🚧 | mobile 3, app 9, worker 2 |
+| [1](frontend/Task.1.md) | Tauri scaffold + worker supervisor | ✅ | worker 1 |
+| [2](frontend/Task.2.md) | Live metrics dashboard | ✅ | worker 2 |
+| [3](frontend/Task.3.md) | Per-OS packaging + CI | 🚧 | frontend 1 |
+| [4](frontend/Task.4.md) | End-to-end acceptance + cross-machine continuity | ⏳ | worker 3, minecraft 1 |
+| [5](frontend/Task.5.md) | Telemetry consent: first-run modal + Privacy screen | 🚧 | worker 5, frontend 2 |
+| [6](frontend/Task.6.md) | Dashboard API + live worker link | ✅ | frontend 2, worker 2, worker 6 |
+| [7](frontend/Task.7.md) | The client becomes the way in | ✅ | frontend 6, worker 7 |
+| [8](frontend/Task.8.md) | Screen redesign: one subject per screen | ✅ | frontend 6, frontend 7 |
+| [9](frontend/Task.9.md) | Tracker stores | ✅ | frontend 8, tracker 6, network 13 |
+| [10](frontend/Task.10.md) | Practical screens, honest numbers | 🚧 | frontend 8, frontend 9, worker 2 |
+| [11](frontend/Task.11.md) | A launcher, not a dashboard | 🚧 | frontend 9, frontend 10 |
+| [12](frontend/Task.12.md) | The Android build: toolchain, APK, dex floor | ✅ | frontend 1, worker 1 |
+| [13](frontend/Task.13.md) | The interface: Material You, and what a phone may be asked | ✅ | frontend 12, frontend 6 |
+| [14](frontend/Task.14.md) | The phone in the mesh, and how it is proven | ✅ | frontend 12, worker 3, tracker 2 |
+| [15](frontend/Task.15.md) | Settings the app can keep; worker verbs it never asks for | ✅ | frontend 13, frontend 14, frontend 7 |
+| [16](frontend/Task.16.md) | The phone reaches the network it was told to | 🚧 | frontend 14, frontend 9, worker 2 |
+| [17](frontend/Task.17.md) | A launcher, redesigned | 🚧 | frontend 11 |
+| [18](frontend/Task.18.md) | The website | 🚧 | frontend 9 |
+| [19](frontend/Task.19.md) | One codebase, three exports | 🚧 | frontend 17, frontend 18 |
+| [20](frontend/Task.20.md) | Shipping it | 🚧 | frontend 18, frontend 19 |
 
 ### Testing — [`docs/testing/`](testing/Task.0.md)
 
@@ -257,19 +274,19 @@ Waves are sequential; items inside a wave are parallelizable.
 
 ```
 engine ──► network ──►┬─► tracker ──┐
-                      ├─► rendezvous┼─► minecraft ◄── worker ◄── app
+                      ├─► rendezvous┼─► minecraft ◄── worker ◄── frontend
                       └─────────────┘
         (minecraft delivers the LIVE halves of engine and network;
-         worker runs network's peer runtime out-of-game; app supervises worker)
+         worker runs network's peer runtime out-of-game; frontend supervises worker)
 ```
 
 | Wave | Work | Why here |
 |---|---|---|
-| **0 — now, parallel** | [minecraft 1](minecraft/Task.1.md) Xvfb `runClient` harness in CI · [tracker 3](tracker/Task.3.md) ops hardening · [app 3](app/Task.3.md) packaging + CI | Each is small, independent, and unblocks a batch of acceptance evidence downstream |
+| **0 — now, parallel** | [minecraft 1](minecraft/Task.1.md) Xvfb `runClient` harness in CI · [tracker 3](tracker/Task.3.md) ops hardening · [frontend 3](frontend/Task.3.md) packaging + CI | Each is small, independent, and unblocks a batch of acceptance evidence downstream |
 | **1 — the live gate** | [minecraft 2](minecraft/Task.2.md) live validation lane | The single biggest remaining lane; capture mixins, `ServerLevel` applier, chunk tickets, live shadow → coordinator → committee → fallback wiring. Almost every ⏳ elsewhere waits on it |
 | **2 — GUI-deferred pool** | [minecraft 3](minecraft/Task.3.md) surface pass · [minecraft 4](minecraft/Task.4.md) live feeds + join flow · [minecraft 5](minecraft/Task.5.md) re-manifest + live encryption · [minecraft 6](minecraft/Task.6.md) world-list mixin + grant enforcement | One GUI environment unlocks all four at once — do them as one batch, not four visits |
-| **3 — network completion** | [network 2](network/Task.2.md) gateway migration end-to-end · [rendezvous 3](rendezvous/Task.3.md) cross-internet soak · [worker 3](peer/Task.3.md) seeding/announce delegation · [app 4](app/Task.4.md) cross-machine continuity | All four need a live/NAT environment; they share the same harness wave 1 produces |
-| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](peer/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [app 5](app/Task.5.md) all but a component test | Done in one pass, proven end to end by the `telemetry` scenario (`scripts/nodera-test.sh run telemetry`). What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
+| **3 — network completion** | [network 2](network/Task.2.md) gateway migration end-to-end · [rendezvous 3](rendezvous/Task.3.md) cross-internet soak · [worker 3](peer/Task.3.md) seeding/announce delegation · [frontend 4](frontend/Task.4.md) cross-machine continuity | All four need a live/NAT environment; they share the same harness wave 1 produces |
+| **3.5 — telemetry emitters** ✅ | [network 12](network/Task.12.md) · [worker 5](peer/Task.5.md) · [minecraft 8](minecraft/Task.8.md) · [tracker 4](tracker/Task.4.md) · [rendezvous 4](rendezvous/Task.4.md) landed; [frontend 5](frontend/Task.5.md) all but a component test | Done in one pass, proven end to end by the `telemetry` scenario (`scripts/nodera-test.sh run telemetry`). What remains is not code: [telemetry 3](telemetry/Task.3.md) needs a **population** that has opted in before a dashboard can answer anything |
 | **4 — parity program** | [engine 8](engine/Task.8.md) → [engine 9](engine/Task.9.md) → [engine 10](engine/Task.10.md) → [engine 11](engine/Task.11.md) → [engine 12](engine/Task.12.md) | Burns every category's `LIMITATIONS.md` to empty; engine 12 closes the ledger |
 
 **Biggest schedule lever:** wave 1. Nine tasks across five categories carry a "live evidence
@@ -290,7 +307,7 @@ Importance = how much it unblocks × how directly it proves the central bet × p
 | 5 | [network 2](network/Task.2.md) — gateway migration | Session continuity under churn on direct, punched, and relayed paths |
 | 6 | [minecraft 4](minecraft/Task.4.md) — multiplayer GUI live feeds | The feature players actually see: worlds, health, piece map, join |
 | 7 | [engine 9](engine/Task.9.md) — validated redstone | High player value; palette v4 landed, contraption migration remains |
-| 8 | [app 3](app/Task.3.md)/[app 4](app/Task.4.md) — packaging + continuity CI | The app is what every player installs; unpackaged is unshipped |
+| 8 | [frontend 3](frontend/Task.3.md)/[frontend 4](frontend/Task.4.md) — packaging + continuity CI | The app is what every player installs; unpackaged is unshipped |
 | 9 | [engine 10](engine/Task.10.md) — environment lane | Living worlds in delegated regions (grass, fluids, fire, light) |
 | 10 | [engine 11](engine/Task.11.md) — deterministic mobs | Retires the ghost lane species by species |
 | 11 | [rendezvous 3](rendezvous/Task.3.md) — cross-internet numbers | Confirms NAT reach at real-world scale |
@@ -313,7 +330,7 @@ Difficulty = technical risk × breadth × novelty.
 | 6 | [engine 8](engine/Task.8.md) | Entity state in roots, ghost lanes, cross-region transfer with no dupes and no loss |
 | 7 | [network 2](network/Task.2.md) | Migration UX under failure: freeze, reconnect, exactly-once resubmit across three transport paths |
 | 8 | [worker 3](peer/Task.3.md) | Splitting "player session" from "node session" without a window where a world is announced but unserved |
-| 9 | [app 4](app/Task.4.md) | Cross-machine acceptance in CI: two machines, an installer, a gate, and a timing-sensitive continuity assertion |
+| 9 | [frontend 4](frontend/Task.4.md) | Cross-machine acceptance in CI: two machines, an installer, a gate, and a timing-sensitive continuity assertion |
 | 10 | [minecraft 1](minecraft/Task.1.md) | Headless-display Minecraft in CI is fiddly, not deep |
 
 ---
@@ -330,8 +347,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
 | Worker | [`peer/LIMITATIONS.md`](peer/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
-| App | [`app/LIMITATIONS.md`](app/LIMITATIONS.md) | L-47, L-56, A-9, A-UX-1…5 |
-| Mobile | [`mobile/LIMITATIONS.md`](mobile/LIMITATIONS.md) | OPEN: M-1…M-5, M-9, M-NET-1, M-NET-3…4 · RETIRING: M-NET-2 (headless property/self-route proof green; physical phone pending) |
+| Frontend | [`frontend/LIMITATIONS.md`](frontend/LIMITATIONS.md) | OPEN: L-47, L-56, L-91, L-92, L-93, M-1, M-3, M-4 · RETIRING: L-94, M-NET-2 · envelope: A-9 |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-73, L-74, L-75 (L-72 retired → [`LIMITATIONS.fixed.md`](telemetry/LIMITATIONS.fixed.md)) |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players
@@ -347,7 +363,7 @@ they are satisfied when their hiding mechanism ships.
   lives in its GitHub issue and in [`../AGENTS.md`](../AGENTS.md).
 - **Three-lane staffing.** Lane A (Minecraft-facing): minecraft 1 → 2 → 4/5/6. Lane B (pure Java):
   engine 8 → 9 → 10 → 11 → 12. Lane C (Rust services + worker + app): tracker 3, rendezvous 3,
-  worker 3, app 3/4. Lanes A and C join at wave 3; lane B joins when the live lane can host it.
+  worker 3, frontend 3/4. Lanes A and C join at wave 3; lane B joins when the live lane can host it.
 - **Issue lookup.** Category task numbers are **not** GitHub issue numbers, and never were. Find an
   issue by title. Each task file names the issue it belongs to where one exists.
 - **Prior art.** The engine's regionised-ticking and ownership-takeover designs draw on Folia and

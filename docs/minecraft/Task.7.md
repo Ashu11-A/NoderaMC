@@ -71,7 +71,7 @@ deliberate local choice, not a fallback the product ships in.
 - `CompanionGateTest` — against a **real** loopback server socket: present ⇒ the gate passes; absent
   ⇒ an actionable abort; a skewed version ⇒ the correct classification.
 - CI: the companion job runs the gate **both ways** as part of the app's acceptance
-  ([`app/Task.4.md`](../app/Task.4.md)).
+  ([`frontend/Task.4.md`](../frontend/Task.4.md)).
 
 ## Acceptance criteria
 
@@ -84,4 +84,4 @@ deliberate local choice, not a fallback the product ships in.
 ## Limitations
 
 None owned. The shared installer-and-continuity acceptance is **L-47** in
-[`app/LIMITATIONS.md`](../app/LIMITATIONS.md).
+[`frontend/LIMITATIONS.md`](../frontend/LIMITATIONS.md).

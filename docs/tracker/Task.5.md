@@ -11,7 +11,7 @@
 **Category:** tracker · **Owns:** L-81 · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [tracker 2](Task.2.md), [network 1](../network/Task.1.md)
 **Consumed by:** [rendezvous 5](../rendezvous/Task.5.md), [network 13](../network/Task.13.md),
-[worker 3](../peer/Task.3.md), [app 2](../app/Task.2.md)
+[worker 3](../peer/Task.3.md), [frontend 2](../frontend/Task.2.md)
 
 ---
 

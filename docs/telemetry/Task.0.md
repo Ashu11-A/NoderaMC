@@ -31,7 +31,7 @@ Two components:
 
 The **emitters** are not in this category. They belong to the components that measure themselves:
 [`network 12`](../network/Task.12.md), [`worker 5`](../peer/Task.5.md),
-[`app 5`](../app/Task.5.md), [`minecraft 8`](../minecraft/Task.8.md),
+[`frontend 5`](../frontend/Task.5.md), [`minecraft 8`](../minecraft/Task.8.md),
 [`tracker 4`](../tracker/Task.4.md), [`rendezvous 4`](../rendezvous/Task.4.md),
 [`server 10`](../server/Task.10.md).
 
