@@ -4,7 +4,7 @@
 // protocol, and removes only a jar it recognises as ours.
 import { useCallback, useEffect, useState } from "react";
 import { FiAlertTriangle, FiCheck, FiFolder, FiPackage, FiTrash2 } from "react-icons/fi";
-import { Card, Empty, MONO, Pill, cx } from "./components";
+import { CARD_GRID, Card, Empty, MONO, Pill, cx } from "./components";
 import { installMod, modInstallStatus, uninstallMod, type ModInstallStatus } from "./play";
 
 export function ModInstallScreen() {
@@ -43,7 +43,7 @@ export function ModInstallScreen() {
     // go — so they sit side by side once there is room for both and stack when there is not. As one
     // full-width column on a 1400px settings canvas, each was a band with a label at one edge and a
     // pill at the other and a thousand pixels of nothing in between.
-    <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,440px),1fr))] [&>*]:min-w-0">
+    <div className={`${CARD_GRID} items-start`}>
       {status === null ? (
         <Card title="Installations">
           {/* The error paragraph used to live *inside* the `status !== null` branch, so a failing

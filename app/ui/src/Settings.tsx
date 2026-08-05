@@ -242,12 +242,15 @@ const TAB_SCROLLBAR =
  *
  * `wide:grid-cols-2` cannot: it is two columns at 1180px and still two columns at 1920px, where each
  * card is 700px of mostly empty middle with its label pinned to one edge and its control to the
- * other. `auto-fit` reflows — one column on a small window, two at 1280, three at 1920 — and with
- * fewer cards than tracks the empty tracks collapse, so a two-card section still fills the row.
+ * other. `auto-fit` reflows, and with fewer cards than tracks the empty tracks collapse, so a
+ * two-card section still fills its row rather than sitting in the left half of one.
  *
- * The 440px floor is the width a settings *row* needs: a label, a hint, and a control that can be a
- * 190px slider or a three-way segmented switch. `min(100%, …)` keeps that floor from becoming an
- * overflow on a container narrower than it — the one way `minmax()` can push content off-screen.
+ * **Why not `card-grid`.** The shared wall's floor is a *card* — a tile with a picture and a name,
+ * which reads fine at 340px. A setting is a row: a label, a hint, and a control that may be a 190px
+ * slider plus its readout, or a three-way segmented switch. Below about 440px the control wins and
+ * the label wraps to three words a line, so this wall carries its own floor and says why. `min(100%,
+ * …)` keeps that floor from becoming an overflow in a container narrower than it — the one way
+ * `minmax()` can push content off the screen.
  */
 const CARD_WALL =
   "grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,440px),1fr))] [&>*]:min-w-0";

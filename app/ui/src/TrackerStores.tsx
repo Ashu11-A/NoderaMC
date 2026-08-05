@@ -56,7 +56,7 @@ import {
   type TrackerStore,
 } from "./ipc";
 import { linkNote, useExternalLink } from "./links";
-import { Modal, Pagination } from "./components";
+import { CARD_GRID, Modal, Pagination } from "./components";
 
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
@@ -378,10 +378,13 @@ export default function TrackerStores() {
         </p>
       ) : (
         // A wall of stores rather than a column of bands. Each row is a name, a summary and four
-        // icon buttons — content that is about 400px wide and was being stretched across the whole
-        // canvas, with the actions marooned an inch from the name they act on. `auto-fit` reflows,
-        // and with one store the empty tracks collapse so it does not sit in a third of the page.
-        <ul className="grid items-start gap-3 grid-cols-[repeat(auto-fit,minmax(min(100%,380px),1fr))] [&>*]:min-w-0">
+        // icon buttons — content about 400px wide that was being stretched across the whole canvas,
+        // with the actions marooned an inch from the name they act on. The shared wall reflows, and
+        // with one store its empty tracks collapse so that store does not sit in a third of a page.
+        //
+        // `items-start` because these are not equal: a store whose last refresh failed says so, and
+        // stretching its neighbours to match would give each of them an inch of empty card.
+        <ul className={`${CARD_GRID} items-start`}>
           {visible.map((store) => (
             <StoreCard
               key={store.url}
