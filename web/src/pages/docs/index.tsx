@@ -79,20 +79,19 @@ export default function Page() {
         </div>
 
         <div className="mt-16 border-t border-line-soft pt-8" style={{ maxWidth: "var(--prose-measure)" }}>
-          <h2 className="display-type text-xl font-bold text-text">What is not on this site</h2>
+          <h2 className="display-type text-xl font-bold text-text">Two things to know about these pages</h2>
           <p className="mt-3 text-body leading-7 text-dim">
-            The repository's own documentation is a specification tree: one folder per component, a
-            task file per deliverable, and a register of limitations with an exit test on every row.
-            It is written for whoever is doing the work, and it is the thing this site's claims are
-            checked against — but it is not a manual. Where a document in it is genuinely written for
-            outsiders, it is mirrored here rather than summarised, because a summary is a second copy
-            that starts being wrong immediately.
+            Pages marked <em>mirrored</em> are the repository's own documents, served here verbatim
+            rather than summarised — a summary is a second copy that starts being wrong immediately.
+            Everything else is written for this site and its capability claims are checked against
+            the repository by the build.
           </p>
           <p className="mt-4 text-body leading-7 text-dim">
             <a href="/status" className="text-brand-1 hover:text-text">
               Where the build stands
             </a>{" "}
-            is the honest index of what does not work yet.
+            is the index of what does not work yet: every open limitation, the task that owns it and
+            the test that retires it.
           </p>
         </div>
       </>

@@ -5,9 +5,18 @@ export default function Page() {
   return (
     <DocLayout path="/docs/faq/network-and-performance">
       <p>
-        A world reads as degraded when fewer peers are present than its regions want for a quorum. It
-        keeps running and says so, which is the honest arrangement; the fix is more peers rather than
-        a setting.
+        Two shapes of traffic, and they are worth telling apart. A world's{" "}
+        <strong>whole archive</strong> is a cold bootstrap for a peer that has nothing at all: it is
+        seeded when the world is shared, again when the server stops, and otherwise on a slow
+        cadence. <strong>Live change</strong> does not ride it — committed region snapshots go to the
+        worker as they happen, which moves the chunks that changed rather than the world that
+        contains them.
+      </p>
+      <p>
+        Copies are whole rather than fragmented, and{" "}
+        <a href="/docs/using/when-the-host-leaves#how-many-copies-exist">how many the network keeps</a>{" "}
+        is arithmetic over how often a home machine is switched on, capped by the number of peers
+        that exist.
       </p>
       <Unwritten
         route="/docs/faq/network-and-performance"
