@@ -86,6 +86,102 @@ test("piece map and wide world layout state their real composition", () => {
   assert.match(world, /wide:col-span-5/);
 });
 
+/* ------------------------------------------------------------------- the library and the picker */
+
+/**
+ * The screens that draw a wall of worlds, and the module each lives in.
+ *
+ * Two of them now: the library, and the Play screen's picker. They were one grid and one `<select>`
+ * before, which is why they could disagree — the rules below are written against the pair so a fix
+ * applied to one cannot silently leave the other behind.
+ */
+const WORLD_WALLS = ["Worlds.tsx", "PlayScreen.tsx"];
+
+test("a wall of worlds reflows instead of being pinned to a fraction of the canvas", () => {
+  for (const name of WORLD_WALLS) {
+    const source = read(name);
+    // The floor lives in `styles.css` as `@utility card-grid`, so two screens of cards cannot end
+    // up at different densities on the same window.
+    assert.match(source, /className=\{CARD_GRID\}/, `${name} does not use the shared card wall`);
+    assert.doesNotMatch(
+      source,
+      /grid-cols-\[repeat\(auto-/,
+      `${name} rolls its own wall instead of consuming the shared one`,
+    );
+    // A wall in six of twelve columns is two cards across at 1180px and still two at 1920px, which
+    // is the "content does not fill the display" report: the window got wider and the grid did not.
+    assert.doesNotMatch(
+      source,
+      /wide:col-span-/,
+      `${name} pins a reflowing wall to a fixed fraction of the canvas`,
+    );
+  }
+});
+
+test("the library can be searched, and claims nothing about a library it has not heard of", () => {
+  const worlds = read("Worlds.tsx");
+  // Thirty worlds with no search is the composition failure this screen was rebuilt for.
+  assert.match(worlds, /label="Search your world library"/, "the library has no named search");
+  assert.match(worlds, /<FilterBar/);
+  // Gated on the worker having reported. A search box over a set nobody has described asserts an
+  // empty one, which is the em-dash rule wearing a different hat.
+  assert.match(worlds, /const searchable = known && d\.worlds\.length > 0/);
+  // A group a query missed is a different fact from a group with nothing in it, and saying "share a
+  // world from the pause menu" to somebody who has thirty and mistyped one is the wrong answer.
+  assert.match(worlds, /No match in this group/);
+});
+
+test("the library's four tiles still separate zero from not-yet-known", () => {
+  const worlds = read("Worlds.tsx");
+  for (const count of ["connected_worlds", "administered_worlds", "shared_for_others"]) {
+    assert.match(
+      worlds,
+      new RegExp(String.raw`known \? String\(d\.counts\.${count}\) : UNKNOWN`),
+      `${count} would render 0 before the worker has spoken`,
+    );
+  }
+  assert.match(worlds, /known \? formatBytes\(d\.counts\.shared_bytes\) : UNKNOWN/);
+  // The group chips count the same way: they are the size of a set, and before the first snapshot
+  // there is no set — which is why the bar they live in does not render at all.
+  assert.match(worlds, /const known = d\.link\.has_data/);
+});
+
+test("no card ever renders a confident player count", () => {
+  // A denser card is worth nothing if it reports `0 players` where the truth is "no node that is in
+  // the world has told us". Only `show` turns null into the em dash, and only the null branch may
+  // carry the sentence explaining it — a title on a real figure would explain a number that needs
+  // no explaining, and would be wrong.
+  for (const name of [...WORLD_WALLS, "World.tsx"]) {
+    const source = read(name);
+    assert.match(
+      source,
+      /show\(w\.players, String\)/,
+      `${name} renders a player count without passing it through show()`,
+    );
+    const claims = [...source.matchAll(/^.*"player count unknown".*$/gm)].map((m) => m[0]);
+    assert.ok(claims.length > 0 || name === "World.tsx", `${name} stopped explaining its em dash`);
+    for (const line of claims) {
+      assert.match(
+        line,
+        /w\.players === null \|\| w\.players === undefined/,
+        `${name} attaches "player count unknown" to something other than the unknown branch`,
+      );
+    }
+  }
+});
+
+test("the Play screen reports traffic only when it has traffic to report", () => {
+  const play = read("PlayScreen.tsx");
+  // Three conditions, and each removes a different lie: a broken link would publish the last rates
+  // as current, a paused node would publish rates it is deliberately not producing, and a node that
+  // has never answered would publish zeroes as measurements.
+  assert.match(
+    play,
+    /!fault && !paused && d\.link\.has_data/,
+    "the hero's traffic readout lost one of its three guards",
+  );
+});
+
 test("settings has one main landmark and every shared search has a name", () => {
   const settings = read("Settings.tsx");
   const components = read("components.tsx");
