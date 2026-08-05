@@ -3,43 +3,87 @@ title: Building on NoderaMC
 description: Where the code is, what the gate is, and what to read first.
 ---
 
-import { Callout } from "../../../src/components/primitives";
+import { Callout, Scroller } from "../../../src/components/primitives";
+import { Tag } from "../../../src/components/mdx";
 
-## The three normative documents
+## The four normative documents
 
-Everything under this section is mirrored from the repository rather than rewritten for the site, because these are documents that already have to be correct and a second copy of them would start being wrong immediately.
+Everything else under this section is mirrored from the repository rather than rewritten for the
+site, because these are documents that already have to be correct and a second copy would start
+being wrong immediately.
 
-<a href="/docs/develop/wire-protocol">**The wire protocol**</a> is the frame, its message families, and the rules under which two builds from different releases negotiate what they can say to each other.
-Read it before you touch anything that puts bytes on a socket.
+<Scroller>
 
-<a href="/docs/develop/engine-sdk">**The engine SDK**</a> is the deterministic region engine's public surface, and the rules a caller has to keep to in order to stay deterministic.
-Determinism is the project's central bet: if two honest peers cannot reproduce the same result from the same inputs, nothing downstream works.
+| Document | Answers |
+| --- | --- |
+| <a href="/docs/develop/wire-protocol">Wire protocol</a> | The frame, its message families, and how two builds from different releases negotiate what they can say to each other. Read it before you put bytes on a socket. |
+| <a href="/docs/develop/engine-sdk">Engine SDK</a> | The deterministic region engine's public surface, and the rules a caller keeps to in order to stay deterministic. |
+| <a href="/docs/develop/mod-compatibility">Mod compatibility</a> | What another mod may and may not do inside a validated region. Written for mod and modpack authors: it is the answer to "will my pack work". |
+| <a href="/docs/develop/roadmap">Roadmap</a> | Every task in every category, its status and what it depends on. |
 
-<a href="/docs/develop/mod-compatibility">**Mod compatibility**</a> is what another mod may and may not do inside a validated region.
-It is written for mod and modpack authors rather than for contributors, and it is the answer to "will my pack work".
+</Scroller>
 
-<a href="/docs/develop/roadmap">**The roadmap**</a> is the derived index of every task in every category, with its status and what it depends on.
+Determinism is the project's central bet, which is why the SDK is a normative document and not a
+convenience: if two honest peers cannot reproduce the same result from the same inputs, nothing
+downstream of that works.
 
-## The shape of the repository
+## Where the code is
 
-One tree holds the deterministic engine and the network stack in Java, the tracker and relay services and the shared core in Rust, the NeoForge mod, the headless peer worker, the desktop and Android companions, and this website.
+One tree, four toolchains. Nothing may hardcode a directory: the root
+<Tag>layout.properties</Tag> is the one table, every build and script reads it, and
+`LayoutManifestTest` fails the build when the file and the tree disagree. A relocation is an edit
+there plus a `git mv`.
 
-Which directory holds which component is not something to memorise or to hard-code: there is a single manifest at the root that names them, and everything that needs a path — the build, the scripts, the tests, the tooling — reads it.
-Spelling a directory anywhere else is the mistake the manifest exists to prevent.
+<Scroller>
+
+| Directory | What it is |
+| --- | --- |
+| `library/java/core` | Pure Java, Minecraft-free, depends on nothing but the JDK. |
+| `library/java/engine` | The deterministic engine and the validation API. |
+| `library/java/transport` | The wire protocol and its transports. |
+| `library/java/storage` | Event-sourced and on-disk world storage. |
+| `library/java/endpoint` | What a Minecraft-hosting process needs in order to *be* a node, with no Minecraft in it. |
+| `library/java/testing` | The shared test library and the live harness. |
+| `peer` | The peer API, and the always-on headless node (`nodera-headless`) the companion app supervises. |
+| `endpoints/neoforge-mod` | The only place Minecraft types may appear. |
+| `endpoints/paper-plugin` | The Paper/Folia endpoint plugin. |
+| `library/rust/nodera-{codec,core,service}` | The shared Rust crates: wire codec, app core, service runtime. |
+| `tracker`, `rendezvous`, `telemetry` | The three services. |
+| `app`, `app/ui`, `library/ts/nodera-ui` | The Tauri companion, its interface, and the kit both frontends share. |
+| `web` | This site. |
+
+</Scroller>
 
 ## The gate
 
-Two test suites, both required, neither optional: the Java gate and the Rust workspaces.
-The Android and desktop companions are held to the same standard.
-
 A change lands green or it does not land.
-The repository has a specific, unusually strict rule about this that is worth knowing before you open a pull request: **the interfaces may not claim capabilities the system does not have.**
-That is enforced by tests, not by review — including on this website, where every capability claim on the landing page and in these docs has a row naming the repository file that backs it, and the build fails when either side moves.
+
+```bash
+./gradlew check          # compile + every Java unit test
+cargo test               # the Rust workspace: unit + cross-language conformance
+cd app && cargo test     # the companion is a SEPARATE cargo workspace, held to the same standard
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
+scripts/build-site.sh    # this website, including its own suite
+```
+
+<Callout type="warning" title="`cargo test` at the root does not build the app">
+  `app` is excluded from the cargo workspace, because Tauri pulls in native GUI dependencies the
+  services must not build. So the root workspace can be entirely green while the companion does not
+  compile. Both commands, every time.
+</Callout>
+
+## The rule that surprises people
+
+**The interfaces may not claim a capability the system does not have**, and that is enforced by
+tests rather than by review. It applies to this website too: every capability claim on the landing
+page and in these docs has a row naming the repository file that backs it and the string that must
+be found there, and the build fails when either side moves.
+
+The practical consequence for a contributor is that softening a statement is a code change, and so
+is strengthening one. If a page says a thing works, something in the tree has to say so too.
 
 <Callout type="note" title="Where to actually start">
-  The repository's README has the build and test commands, and there is no reason for a third copy of
-  them to exist on this site.
-  <a href="/status"> Where the build stands</a> is the useful entry point for finding work: every open
-  limitation names the task that owns it and the exact test that closes it, which makes it a better
-  issue list than the issue list.
+  <a href="/status">Where the build stands</a> is a better issue list than the issue list: every
+  open limitation names the task that owns it and the exact test that retires it, so picking work
+  is picking a row and making its exit test pass.
 </Callout>

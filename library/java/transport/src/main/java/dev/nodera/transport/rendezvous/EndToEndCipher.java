@@ -28,7 +28,7 @@ import java.util.Optional;
 import javax.crypto.KeyAgreement;
 
 /**
- * End-to-end authenticated encryption for a relayed leg (Task 29; RENDEZVOUS.md §8.2).
+ * End-to-end authenticated encryption for a relayed leg (Task 29; docs/rendezvous/REFERENCE.md).
  *
  * <p>Encrypting only the individual relay legs would let the relay read the traffic. This runs an
  * additional end-to-end session <i>through</i> the relay: an ephemeral X25519 ECDH handshake, each
@@ -36,7 +36,7 @@ import javax.crypto.KeyAgreement;
  * the relay never sees. Direct legs may skip encryption (messages are signed) but reuse this same
  * session-establishment code path.
  *
- * <h2>Identity binding (RENDEZVOUS.md §4.4)</h2>
+ * <h2>Identity binding (docs/rendezvous/REFERENCE.md)</h2>
  *
  * <p>The address obtained from rendezvous is never proof of identity. The handshake verifies that
  * the remote presents the exact X.509 identity key from the discovered record (the {@code

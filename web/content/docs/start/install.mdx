@@ -3,25 +3,28 @@ title: Install NoderaMC
 description: The companion app and the mod, per platform, in the order they have to be installed.
 ---
 
-import { Callout, Tabs } from "../../../src/components/primitives";
-import { Tag } from "../../../src/components/mdx";
+import { Callout, Scroller, Tabs } from "../../../src/components/primitives";
+import { Tag, Ui } from "../../../src/components/mdx";
 
-## The order matters
+Install the **companion app first**, then the mod. The mod does not work on its own: it talks to a
+headless worker process on your own machine, and the app is what installs and supervises that
+worker.
 
-Install the **companion app first**, then the mod.
+## What you need
 
-The mod does not work on its own.
-It talks to a headless worker process on your own machine, and the app is what installs and supervises that worker.
-If you drop the jar in `mods/` and start the game with nothing running, the mod aborts startup and shows you an install prompt — which is the correct behaviour, but it is a worse first five minutes than doing it in this order.
+| | |
+| --- | --- |
+| Minecraft | **1.21.1** |
+| Loader | **NeoForge 21.1.238** |
+| Java | **21** |
 
-<Callout type="note" title="What you need before starting">
-  Minecraft **1.21.1**, **NeoForge 21.1.238**, and **Java 21**.
-  These are pinned rather than "or later": the mod reaches into the game's internals to run regions deterministically, and a different Minecraft or NeoForge build is a different set of internals.
-</Callout>
+These are pinned rather than "or later". The mod reaches into the game's internals to run regions
+deterministically, and a different Minecraft or NeoForge build is a different set of internals.
 
 ## 1. Install the companion app
 
-Take the installer for your platform from <a href="/download">the download page</a>.
+Take the installer for your platform from <a href="/download">the download page</a>. The file names
+are fixed: `nodera-app-<system>-<arch>.<ext>`.
 
 <Tabs
   name="install-app"
@@ -31,9 +34,8 @@ Take the installer for your platform from <a href="/download">the download page<
       label: "Windows",
       body: (
         <>
-          Run the <code>.msi</code>.
-          Pick the x64 installer unless you know your machine is arm64 — a Windows-on-ARM device will
-          tell you so under System &rarr; About.
+          Run <code>nodera-app-windows-x64.msi</code>. Pick the arm64 installer only if you know the
+          machine is a Windows-on-ARM device — it will say so under System &rarr; About.
         </>
       ),
     },
@@ -42,10 +44,11 @@ Take the installer for your platform from <a href="/download">the download page<
       label: "Linux",
       body: (
         <>
-          The <code>.deb</code> installs on Debian and Ubuntu derivatives with
-          <code> sudo apt install ./nodera-app-linux-x64.deb</code>.
-          On other distributions, build from source — the repository's README has the commands, and
-          there is nothing exotic in the build.
+          <code>sudo apt install ./nodera-app-linux-x64.deb</code> on Debian and Ubuntu
+          derivatives. A <code>.deb</code> is the only Linux installer published, so on other
+          distributions build one: with a JDK, <code>cargo</code> and <code>bun</code> present, run{" "}
+          <code>scripts/release.sh --component app</code> in a checkout and the installer is staged
+          into <code>build/release/</code>.
         </>
       ),
     },
@@ -54,76 +57,86 @@ Take the installer for your platform from <a href="/download">the download page<
       label: "Android",
       body: (
         <>
-          One APK carries every ABI, and it is sideloaded: there is no store listing.
-          The phone runs the same worker the desktop does, so it is a real peer and not a remote
-          control. What it is <em>not</em> yet is a settled story about battery and metered data.
+          One APK — <code>nodera-app-android-universal.apk</code> — carries every ABI, and it is
+          sideloaded: there is no store listing. The phone runs the same worker the desktop does, so
+          it is a real peer rather than a remote control.
         </>
       ),
     },
   ]}
 />
 
-Start the app once after installing.
-It unpacks the worker, generates this install's identity, and starts listening on <Tag>127.0.0.1:25610</Tag>.
-Nothing is announced to any network until you share a world.
+Start the app once after installing. It unpacks and starts the worker, which generates this
+install's identity and listens on <Tag>127.0.0.1:25610</Tag>. Nothing is announced to any network
+until you share a world.
 
 ## 2. Install the mod
 
 Put `nodera-neoforge-<version>.jar` into your NeoForge 1.21.1 profile's `mods/` folder.
 
-That is the whole installation.
-There is no separate library jar and no config to write before the first launch.
+That is the whole installation. There is no separate library jar and no config to write before the
+first launch — the mod writes `config/nodera-client.toml` itself on first run.
+
+<Callout type="note" title="Finding the right folder">
+  <Ui to="minecraft" /> lists every Minecraft installation the app found, the `mods/` folder inside
+  each, and whether a Nodera jar is already there. Use it to check you dropped the jar in the
+  profile you actually play.
+</Callout>
 
 <Callout type="warning" title="Everyone in the world needs it">
-  Every player in a NoderaMC world runs the mod and joins as a peer.
-  There is no vanilla lane, and the handshake enforces that rather than merely recommending it.
-  If you want to play with someone who will not install anything, the feature you want is
+  Every player in a NoderaMC world runs the mod and joins as a peer. There is no vanilla lane, and
+  the handshake enforces that rather than merely recommending it. If you want to play with someone
+  who will not install anything, the feature you want is
   <a href="/docs/start/play-without-the-mod"> the LAN tunnel</a>, which is a different mechanism.
 </Callout>
 
 ## 3. Start the game
 
-Launch Minecraft with the app running.
-
-The quickest check that the two halves found each other is the multiplayer screen: NoderaMC replaces it with its own, and a Nodera screen you can open is a worker the mod reached.
+Launch Minecraft with the app running. Two things on the title screen tell you the halves found
+each other: vanilla's *Realms* button has become **Nodera Network**, and **Multiplayer** opens
+NoderaMC's own screen instead of the server list.
 
 ## If the game closes on startup
 
-The message will name the reason, and one reason accounts for most of them.
+The crash message names the reason, and one reason accounts for most of them.
 
 **"Nothing answered on `127.0.0.1:25610`."**
-The worker is not running.
-Open the companion app and leave it running, then start the game again.
-If the app is running and the game still cannot reach it, something on your machine is holding that port or blocking loopback traffic — a local firewall or a security suite with a "block all local servers" setting is the usual culprit, not the app.
+The worker is not running. Open the companion app, leave it running, and start the game again. If
+the app *is* running and the game still cannot reach it, something on your machine is holding that
+port or blocking loopback traffic — a local firewall or a security suite with a "block all local
+servers" setting is the usual culprit, not the app.
 
-You can turn the requirement off by setting `companion.required = false` in `config/nodera-client.toml`, and it is worth knowing what that actually buys you: the game will start, and every NoderaMC feature will be inert, because there is no node.
-It is a way to load a profile that has the jar in it, not a way to play without the worker.
+Two ways out, in the order you should try them:
 
-## Updating
+<Scroller>
 
-The app can update itself, and it is worth knowing exactly what that check proves.
+| | |
+| --- | --- |
+| Two games on one machine | Both default to the same worker and the same `~/.nodera`, so one node ends up wearing two hats — one identity, one world registry, two players who each believe they are its author. Set <Tag>NODERA_CONTROL_PORT</Tag> and <Tag>NODERA_STATE_DIR</Tag> for the second one. |
+| Load the profile without a node | Set <Tag>companion.required = false</Tag> in `config/nodera-client.toml`. The game starts and every NoderaMC feature is inert, because there is no node. It is a way to load a profile that has the jar in it, not a way to play. |
 
-It downloads the release's checksum list, verifies the digest of what it fetched, and refuses to install anything that does not match.
-That proves the file you are about to run is the file the release published.
-It does **not** prove who published the release, because releases are not signed yet: the signature check is built and tested, and it is waiting on a key that does not exist.
-The update channel is empty by default, which is what keeps that gap confined to a lane you have to switch on — and it is written down rather than glossed over, as <a href="/status">tracker limitation L-81</a>.
-
-Updating the mod is a file copy.
-Replace the jar in `mods/` with the new one; there is no migration step and no state in the jar.
+</Scroller>
 
 ## What is installed where
 
-<Callout type="details" title="For the curious, or for uninstalling">
-  The app installs itself the way any application on your platform does, and it unpacks the worker
-  alongside itself.
-  Per-install state — your node's identity, the worlds you host, the pieces you hold for other
-  people's worlds — lives in a `~/.nodera` directory rather than inside the game.
-  Your Minecraft saves are untouched: NoderaMC reads and writes a world through the game, never
-  behind its back.
-</Callout>
+The app installs itself the way any application on your platform does, and unpacks the worker
+alongside itself. Per-install state — your node's identity, the worlds you host, the pieces you
+hold for other people's worlds — lives in `~/.nodera`, outside the game. Your Minecraft saves are
+untouched: NoderaMC reads and writes a world through the game, never behind its back.
+
+## Updating
+
+Neither half updates itself. Both are file replacements:
+
+- **The app** — run the newer installer over the old one.
+- **The mod** — replace the jar in `mods/`. There is no migration step and no state in the jar.
+
+Keep the two in step. The mod and the worker speak a versioned control protocol and the mod checks
+it at startup, so a mismatch is an error naming which half is behind — "update the companion app"
+or "update the mod" — rather than something you discover an hour later.
 
 ## Next
 
-<a href="/docs/start/share-and-join">Share a world, and join one</a>.
-Or, if you are setting this up for someone who is not going to install a mod, read
+<a href="/docs/start/share-and-join">Share a world, and join one</a>. Or, if you are setting this up
+for someone who is not going to install a mod, read
 <a href="/docs/start/play-without-the-mod"> playing with no mod installed</a> first.

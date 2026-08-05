@@ -20,10 +20,10 @@ import java.util.UUID;
  * output, so a discovering peer verifies the <b>same bytes</b> the registering peer signed — whether
  * the record arrives inside a {@code RendezvousRegister} (the relay verifies) or a
  * {@code RendezvousPeers} page (a discovering peer verifies). The relay carries records; peers
- * authenticate them end-to-end (RENDEZVOUS.md §8.1). The service is never authority: a lying relay
+ * authenticate them end-to-end (docs/rendezvous/REFERENCE.md). The service is never authority: a lying relay
  * can hide or invent peers but cannot forge a record.
  *
- * <p>Namespace = {@code (networkId, genesisHash)} (RENDEZVOUS.md §3.1 / Task 29 Context): peers
+ * <p>Namespace = {@code (networkId, genesisHash)} (docs/rendezvous/REFERENCE.md / Task 29 Context): peers
  * register under a network + world so discovery returns swarm-relevant peers.
  *
  * <p>Thread-context: immutable record, safe for any thread.

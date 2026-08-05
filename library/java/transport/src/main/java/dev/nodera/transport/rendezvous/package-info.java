@@ -7,7 +7,7 @@
  * placeholder (see {@code docs/rendezvous/Task.0.md}); {@code SocketPeerTransport} stays the LAN/direct-TCP
  * path this transport composes around, never replaces.
  *
- * <h2>Planes (RENDEZVOUS.md §3)</h2>
+ * <h2>Planes (docs/rendezvous/REFERENCE.md)</h2>
  * <ul>
  *   <li><b>Discovery</b> — {@link dev.nodera.transport.rendezvous.RendezvousClient} registers a
  *       signed {@code SignedPeerRecord} under a {@code (network, world)} namespace and discovers

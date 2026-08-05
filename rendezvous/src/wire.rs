@@ -4,8 +4,8 @@
 //! same reader/writer they already use for `SocketPeerTransport`. Registration/discovery/reservation
 //! are cheap request/reply. A reservation turns the connection into a **control channel**: it waits
 //! for an inbound circuit, and when one arrives it delivers `RelayIncoming` and then splices the two
-//! sockets, metering bytes/duration/idle against the reservation (RENDEZVOUS.md §4.5/§8.4). Frames on
-//! the bridged legs are opaque, end-to-end-encrypted bytes — the relay never sees plaintext (§8.2).
+//! sockets, metering bytes/duration/idle against the reservation (docs/rendezvous/REFERENCE.md). Frames on
+//! the bridged legs are opaque, end-to-end-encrypted bytes — the relay never sees plaintext.
 
 use crate::circuit::{CircuitLimits, CircuitMeter, TeardownReason};
 use crate::registry::Namespace;
@@ -231,7 +231,7 @@ async fn route_connect(
         }
         None => {
             // No reservation for the target: the connecting peer sees a closed socket and falls
-            // back (RENDEZVOUS.md §8.4 — no reservation, no relaying).
+            // back (docs/rendezvous/REFERENCE.md — no reservation, no relaying).
             eprintln!("nodera-rendezvous: {remote} CONNECT to an unreserved target refused");
         }
     }

@@ -3,15 +3,16 @@ title: When the host leaves
 description: Why a world outlives the machine that made it, and what happens in the seconds after that machine goes away.
 ---
 
-import { Callout, Figure } from "../../../src/components/primitives";
+import { Callout, Figure, Scroller } from "../../../src/components/primitives";
 import { Step4Rehost } from "../../../src/components/diagrams";
-
-## The claim, stated exactly
+import { Tag } from "../../../src/components/mdx";
 
 A NoderaMC world does not belong to the machine that created it.
 
-In a live test, a world whose host process was killed was re-hosted by another peer from the network in about three seconds, and play continued.
-That is a report of something that was observed, and it is deliberately narrower than "your world always stays up" — the difference between those two sentences is the subject of the last section of this page.
+In a live test, a world whose host process was killed was re-hosted by another peer from the
+network in about three seconds, and play continued. That is a report of something observed, and it
+is deliberately narrower than "your world always stays up" — the last section is the difference
+between those two sentences.
 
 <Figure caption="Every peer that has played holds pieces of the world, so the machine that started it is not the only one that can serve it.">
   <Step4Rehost />
@@ -19,48 +20,91 @@ That is a report of something that was observed, and it is deliberately narrower
 
 ## Why it can work at all
 
-Three things have to be true before anyone can take a world over, and all three are consequences of how the system already works rather than features bolted on for this.
+Three things are true before anybody has to do anything, and all three are consequences of how the
+system already works rather than features bolted on for this.
 
-**The world is content, not a process.**
-It is stored as pieces — the same content-addressed pieces peers exchange while playing — and every peer that has played in the world holds some of them.
-A peer that holds enough can reconstruct it.
+**The world is content, not a process.** It is stored as content-addressed pieces — the same ones
+peers exchange while playing — and every peer that has played holds some of them. A peer that holds
+enough can reconstruct it.
 
-**The world's identity is not the host's identity.**
-A world carries its own signed identity, so "this is that world" is a claim anyone can check without asking the machine that made it.
-A new host does not become the owner by hosting.
+**The world's identity is not the host's identity.** A world carries its own signed identity, so
+"this is that world" is a claim anyone can check without asking the machine that made it. A new
+host does not become the owner by hosting.
 
-**Authority was never in one place.**
-Regions are committed by committee quorum, so the host machine was not the thing deciding what happened in the world.
-Losing it loses a participant, not the referee.
+**Authority was never in one place.** Regions are committed by committee quorum, so the host
+machine was not the thing deciding what happened in the world. Losing it loses a participant, not
+the referee.
+
+There is also a fourth thing, and it is why the handover is fast rather than merely possible: when
+you join a world, your client quietly pulls its archive **while the session is healthy**. By the
+time a host is lost, your worker usually already holds every piece, and recovery collapses to
+opening a world that is on your disk.
 
 ## What actually happens
 
-The other peers notice the host is gone — not by guessing from a timeout on one message, but because membership is a keep-alive: a node that stops saying it is present stops being counted.
+<Scroller>
 
-The remaining peers then run an election, and the winner takes the world over.
-The election runs over the **players** the world's own lane plan names, not over everything on the mesh, and that distinction is load-bearing: a headless worker can hold and serve a world's pieces, but it cannot run the game, so electing one would elect a host that cannot host.
+| | |
+| --- | --- |
+| **1. The loss is noticed** | Membership is a keep-alive: a node that stops saying it is present stops being counted. Only an *abnormal* disconnect arms recovery — quitting through the pause menu never triggers it. |
+| **2. One peer is elected** | Every surviving peer runs the same election over the same inputs and reaches the same answer with no round trip. Candidates are the **players** in the world's lane plan, never the whole mesh, and a peer nobody can dial is excluded. |
+| **3. Nobody is thrown out** | The client cancels the disconnect before Minecraft acts on it. The level is never torn down; you keep looking at the chunks you already had while being told in chat what is happening. |
+| **4. The winner opens the world** | It waits for the departing host's final save to land, fetches whatever it is missing, opens the world and announces that it is serving it. |
+| **5. Everyone else follows** | Each remaining peer asks its own worker every three seconds whether the world has an endpoint again, for up to three minutes, and reconnects when it does. |
 
-The elected peer fetches whatever pieces it is missing, opens the world, and announces that it is now serving it.
-Clients follow it there.
+</Scroller>
+
+Two of those numbers have a reason worth knowing.
+
+**The wait for the final save** is up to thirty seconds, and ends as soon as the world's newest
+known version has stopped changing for four. A host quitting through the pause menu saves and
+*then* publishes, which is after its connection has already dropped. Without the wait, a live run
+restored a copy from one second too early — 7 MB against the 23 MB being published as it read — and
+put every player back where the older copy said they were.
+
+**The three-minute limit** on waiting is generous on purpose. A player who waits and then
+reconnects has lost nothing; a player who gives up early lands on a title screen with their world
+still alive. When it does expire, you are told the world is still on the network and can be joined
+again from the Worlds list.
+
+Recovery is a client-side switch, <Tag>continuity.autoRehost</Tag>, on by default.
 
 ## What this does not promise
 
-**Somebody has to be around.**
-"Nobody has to stay" is not "nobody has to be there".
-A world whose every peer is offline is a world nobody is holding, and it comes back when a peer that holds it comes back — not before.
+**Somebody has to be around.** "Nobody has to stay" is not "nobody has to be there". A world whose
+every peer is offline is a world nobody is holding, and it comes back when a peer that holds it
+comes back — not before.
 
-**The handover has a visible seam.**
-There is a real seam here, and the project tracks it rather than papering over it: the work that makes delegation and seeding a property of the node rather than of a fortunate overlap in timing is <a href="/status">an open task</a>, not a finished one.
-What has been demonstrated is that the takeover happens and is fast.
-What has not been demonstrated is that it is invisible.
+**There is still a reconnect.** The elected successor's players never leave the world. Everyone
+else does briefly reconnect, because the endpoint they were talking to has genuinely changed. What
+has been demonstrated is that the takeover happens and is fast; what has not been demonstrated is
+that nobody notices.
 
-**It is not a backup.**
-Peers hold pieces because they played, and they stop holding them when they stop being members.
-If a world matters to you, the machine you control being one of its peers is the arrangement that keeps it — not the hope that somebody else's is.
+**It is not a backup.** Peers hold pieces because they played, and they stop holding them when they
+stop being members.
 
-<Callout type="note" title="Where the numbers on this page come from">
-  The three-second figure is from the project's own live acceptance run and is recorded in the
-  roadmap.
-  This site does not restate performance figures that were not measured, and it does not turn a
-  measured one into a general claim.
+## How many copies exist
+
+Not a taste question — arithmetic. Model each peer as independently reachable with probability `p`;
+a world with `R` whole copies is unreachable only when all `R` are down at once, so for a durability
+target `D`:
+
+```
+R ≥ ln(1 − D) / ln(1 − p)
+```
+
+The defaults assume home machines that are up about a third of the time (`p = 0.35`) and a
+durability target of `0.9999`, which is **22 copies**. Ten copies of such a world is a 1.3% chance
+of being unreachable at any moment; three copies is 27%.
+
+That target is capped by the number of peers that exist, so a network smaller than 22 has every
+peer holding every world — the only configuration a network that small has. Read the other way: the
+per-peer cost falls as the network grows and the durability does not, which is the point of
+replicating to a target rather than to a fraction.
+
+<Callout type="note" title="What the model deliberately leaves out">
+  Correlated failure. Peers on one ISP, in one country, or all running the same auto-update go down
+  together, and independence is the assumption that breaks first. The figure above is a floor for
+  independent loss, not a guarantee against a shared cause — which is the practical argument for a
+  machine you control being one of the peers, rather than the hope that somebody else's is.
 </Callout>

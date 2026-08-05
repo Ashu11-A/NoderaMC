@@ -7,7 +7,7 @@
 //!
 //! Announcing to several trackers is not optional in effect: a rendezvous announced to one tracker is
 //! invisible to every peer that asks a different one, which is the tracker-partition problem
-//! (`docs/tracker/REFERENCE.md` §16) applied one level up.
+//! (`docs/tracker/REFERENCE.md`, "What this service deliberately does not do") applied one level up.
 
 use std::io;
 use std::time::Duration;

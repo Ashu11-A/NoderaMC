@@ -924,7 +924,7 @@ public final class NoderaPeerService {
     /**
      * As {@link #onServerSessionInfo(String, String)}, additionally joining the world's rendezvous
      * namespace so this joiner is discoverable and can fall back to a relay circuit when the direct
-     * socket cannot be established (Task 29 / RENDEZVOUS.md §10.2).
+     * socket cannot be established (Task 29 / docs/rendezvous/REFERENCE.md).
      *
      * @param worldIdHex the world being joined, or {@code null}/blank for a socket-only join.
      */

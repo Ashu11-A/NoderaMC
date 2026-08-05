@@ -37,7 +37,7 @@ import java.util.Objects;
  * <p>{@link #routes()} are the peer's own claim about where it is reachable, exactly like
  * {@code SocketPeerTransport}'s hello. The tracker may append the observed source address as a
  * low-priority hint but never treats an address as proof of identity
- * ({@code docs/tracker/REFERENCE.md} §5).
+ * ({@code docs/tracker/REFERENCE.md}, "Records, sampling and expiry").
  *
  * @param genesisHash        the world being announced to (the swarm id — the {@code info_hash}
  *                           analog).

@@ -1,9 +1,9 @@
-//! Hole-punch coordination (RENDEZVOUS.md §4.6, DCUtR-style).
+//! Hole-punch coordination (docs/rendezvous/REFERENCE.md, DCUtR-style).
 //!
 //! Over an established circuit the two peers exchange observed addresses and agree a shared
 //! T-minus; each then attempts a TCP simultaneous-open. The service only *relays* the exchange and
 //! stamps a single synchronized go-signal so both sides fire together — it never dials. Failure is
-//! not an error: `RELAYED` is a legal steady state (§7), so nothing here can break a working
+//! not an error: `RELAYED` is a legal steady state, so nothing here can break a working
 //! circuit.
 
 use nodera_codec::rendezvous::PunchSync;

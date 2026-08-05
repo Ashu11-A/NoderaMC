@@ -1,6 +1,6 @@
 //! Assembling a `RendezvousPeers` page from the registry.
 //!
-//! Discovery is paged and bounded (RENDEZVOUS.md §8.5): a single query never enumerates a whole
+//! Discovery is paged and bounded (docs/rendezvous/REFERENCE.md): a single query never enumerates a whole
 //! namespace. The order is deterministic (by node id) so a cursor is stable across queries and a
 //! retry does not reshuffle.
 

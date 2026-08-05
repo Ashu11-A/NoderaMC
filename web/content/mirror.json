@@ -3,25 +3,25 @@
     "route": "/docs/operate/tracker",
     "source": "docs/tracker/SELF-HOSTING.md",
     "title": "Run a tracker",
-    "description": "Self-hosting guide for the nodera-tracker service: the image, the configuration, and what to watch."
+    "description": "Install, configure and watch a nodera-tracker: the images, the settings that matter, and the four things that will bite you."
   },
   {
     "route": "/docs/operate/rendezvous",
     "source": "docs/rendezvous/SELF-HOSTING.md",
     "title": "Run a rendezvous relay",
-    "description": "Self-hosting guide for the nodera-rendezvous service: the image, the configuration, and what to watch."
+    "description": "Install, configure and watch a nodera-rendezvous: the images, the settings that matter, and why announcing to a tracker is not optional."
   },
   {
     "route": "/docs/operate/tracker-reference",
     "source": "docs/tracker/REFERENCE.md",
     "title": "Tracker reference",
-    "description": "Every tracker setting, endpoint and metric, in one table."
+    "description": "The tracker's contract: surfaces, verbs, admission and refusal codes, expiry, health, every setting and every metric."
   },
   {
     "route": "/docs/operate/rendezvous-reference",
     "source": "docs/rendezvous/REFERENCE.md",
     "title": "Rendezvous reference",
-    "description": "Every relay setting, endpoint and metric, in one table."
+    "description": "The relay's contract: namespaces, verbs, reservations and circuit limits, draining, every setting and every metric."
   },
   {
     "route": "/docs/operate/publish-a-service-list",
@@ -33,7 +33,7 @@
     "route": "/docs/develop/wire-protocol",
     "source": "docs/network/REFERENCE.md",
     "title": "Wire protocol",
-    "description": "The NDR2 frame, its two planes, its message families and the rules two different builds negotiate under."
+    "description": "The NDR2 frame, its two planes and message families, the handshake two builds negotiate under, and how a world is announced and joined."
   },
   {
     "route": "/docs/develop/engine-sdk",
