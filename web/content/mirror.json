@@ -1,0 +1,57 @@
+[
+  {
+    "route": "/docs/operate/tracker",
+    "source": "docs/tracker/SELF-HOSTING.md",
+    "title": "Run a tracker",
+    "description": "Self-hosting guide for the nodera-tracker service: the image, the configuration, and what to watch."
+  },
+  {
+    "route": "/docs/operate/rendezvous",
+    "source": "docs/rendezvous/SELF-HOSTING.md",
+    "title": "Run a rendezvous relay",
+    "description": "Self-hosting guide for the nodera-rendezvous service: the image, the configuration, and what to watch."
+  },
+  {
+    "route": "/docs/operate/tracker-reference",
+    "source": "docs/tracker/REFERENCE.md",
+    "title": "Tracker reference",
+    "description": "Every tracker setting, endpoint and metric, in one table."
+  },
+  {
+    "route": "/docs/operate/rendezvous-reference",
+    "source": "docs/rendezvous/REFERENCE.md",
+    "title": "Rendezvous reference",
+    "description": "Every relay setting, endpoint and metric, in one table."
+  },
+  {
+    "route": "/docs/operate/publish-a-service-list",
+    "source": "README.md",
+    "refKey": "services.branch",
+    "title": "Publish a service list",
+    "description": "The service-list format, the schema it is validated against, and how to get a tracker or relay listed."
+  },
+  {
+    "route": "/docs/develop/wire-protocol",
+    "source": "docs/network/REFERENCE.md",
+    "title": "Wire protocol",
+    "description": "The NDR2 frame, its two planes, its message families and the rules two different builds negotiate under."
+  },
+  {
+    "route": "/docs/develop/engine-sdk",
+    "source": "docs/engine/SDK.md",
+    "title": "Engine SDK",
+    "description": "The deterministic region engine's public surface, and the rules a caller has to keep to stay deterministic."
+  },
+  {
+    "route": "/docs/develop/mod-compatibility",
+    "source": "COMPATIBILITY.md",
+    "title": "Mod compatibility",
+    "description": "What another mod may and may not do inside a validated region, written for modpack and mod authors."
+  },
+  {
+    "route": "/docs/develop/roadmap",
+    "source": "docs/ROADMAP.md",
+    "title": "Roadmap",
+    "description": "Every category's task status in one derived table, with the note about why the headline figure is not recomputed."
+  }
+]
