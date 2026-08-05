@@ -72,15 +72,22 @@ until you share a world.
 
 ## 2. Install the mod
 
-Put `nodera-neoforge-<version>.jar` into your NeoForge 1.21.1 profile's `mods/` folder.
+<Ui to="minecraft" /> lists every Minecraft installation the app found, the `mods/` folder inside
+each, and whether a Nodera jar is already there. Press **Install** on the profile you play, and the
+app copies the jar it shipped with into that folder.
 
 That is the whole installation. There is no separate library jar and no config to write before the
 first launch — the mod writes `config/nodera-client.toml` itself on first run.
 
-<Callout type="note" title="Finding the right folder">
-  <Ui to="minecraft" /> lists every Minecraft installation the app found, the `mods/` folder inside
-  each, and whether a Nodera jar is already there. Use it to check you dropped the jar in the
-  profile you actually play.
+The app installs **only the jar in its own bundle**, never a downloaded one, so the mod and the
+worker are always the same build and cannot disagree about the wire. The same screen offers
+**Update** when the installed jar is older, and **Uninstall**, which removes only a jar this app put
+there.
+
+<Callout type="note" title="If you would rather do it by hand">
+  Put `nodera-neoforge-<version>.jar` from the download page into your NeoForge 1.21.1 profile's
+  `mods/` folder. It is the same file. Use the screen above afterwards to check it landed in the
+  profile your launcher actually starts.
 </Callout>
 
 <Callout type="warning" title="Everyone in the world needs it">
