@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { openLimitations, status } from "../components/data";
 import { PageLayout } from "../components/docs";
 import { LimitationTable, StatusTables, TaskTotals, TestTotals } from "../components/status";
@@ -19,10 +20,14 @@ export default function Page() {
 
         <section className="mt-12">
           <h2 className="display-type text-2xl font-bold text-text">Tasks, by category</h2>
-          <div className="mt-6" style={{ maxWidth: "var(--prose-measure)" }}>
+          {/* The table and the caveat that belongs with it are data, not prose, so neither is bound
+              by the reading measure — they are bound to each other. Side by side on a wide display
+              the count and the sentence about why there is no percentage are read together; in one
+              752px column the sentence sits below the table on the screen with the most room. */}
+          {/* No top margin of its own: both children already carry one, and grid item margins do
+              not collapse, so `mt-6` here would read as 48px under the heading. */}
+          <div className="card-grid items-start gap-6" style={{ "--card-min": "26rem" } as CSSProperties}>
             <StatusTables />
-          </div>
-          <div style={{ maxWidth: "var(--prose-measure)" }}>
             <TaskTotals />
           </div>
         </section>
