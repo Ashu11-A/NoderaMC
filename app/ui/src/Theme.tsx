@@ -142,7 +142,17 @@ export function ThemeScreen(props: {
     propose({ selected: theme.id, custom: [...effective.custom, theme] });
   };
 
-  const report = useMemo(() => contrastReport(), [pending, effective.selected, draft?.tokens]);
+  // Measured **after** the paint, not during it.
+  //
+  // `contrastReport` reads `getComputedStyle`, and the `<style>` element carrying this appearance is
+  // written by an effect — so a report computed during render reflects the *previous* edit. That is
+  // a report that says a theme passes when the change that broke it is already on screen, which is
+  // the one failure mode a contrast report exists to prevent. In an effect it reads what the window
+  // is actually rendering.
+  const [report, setReport] = useState<ContrastRow[]>([]);
+  useEffect(() => {
+    setReport(contrastReport());
+  }, [pending, effective.selected, draft?.tokens, draft?.css, draft?.base]);
   const rewritten = useMemo(
     () => (draft ? sanitise(draft.css, draft.id, draft.base) : null),
     [draft?.css, draft?.id, draft?.base],
