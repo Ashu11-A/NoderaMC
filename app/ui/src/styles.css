@@ -1,8 +1,9 @@
-/* NoderaMC desktop launcher — cinematic obsidian, with a quiet light fallback.
+/* NoderaMC desktop launcher — a violet-accented obsidian, with a quiet light fallback.
  *
  * Themed entirely through custom properties on :root[data-theme]. One attribute write in theme.ts
  * repaints the whole tree, so no component carries a theme prop and nothing can end up half-light.
- * Ender green is the only brand accent. Amber and cool blue communicate state.
+ * Violet is the only brand accent. Amber, cool blue and green communicate state — and now that the
+ * brand is no longer a lime, `--up` finally means *up* and only *up*.
  * Fonts are bundled by Vite; generated world art keeps imagery offline and deterministic.
  *
  * This file is *only* tokens and document-level base rules. Component styling lives on the
@@ -11,18 +12,52 @@
  *
  * `@theme inline` re-exports the palette **by reference**: `bg-surface` compiles to
  * `var(--surface)`, so the existing [data-theme] attribute keeps repainting everything and no
- * `dark:` variant is ever written. */
+ * `dark:` variant is ever written.
+ *
+ * Every new colour token below is an `rgba()` literal with its source hex in the comment, never a
+ * `color-mix()`. `color-mix()` needs WebKitGTK 2.40+, this app's Linux webview floor is pinned
+ * nowhere, and an unsupported `color-mix()` invalidates the whole declaration — so the token would
+ * resolve to nothing while every test still passed. */
 @import "tailwindcss";
 
-:root {
-  --brand-1: #b8ff4a;
-  --brand-2: #8edb3f;
-  --brand-3: #8fc8ff;
-  --brand-gradient: linear-gradient(120deg, var(--brand-1), var(--brand-2));
+/* The layer order a custom appearance lives inside.
+ *
+ * Tailwind's own layers are declared by the import above and come first. `nodera.user` is where
+ * everything a person authors on the Theme screen is written — `themecss.ts` wraps its whole output
+ * in it — and `nodera.guard` is declared **last**, so it outranks every normal and important
+ * declaration in an earlier layer, and outranks animations too.
+ *
+ * The wrapper is what makes the guard unbypassable, not the at-rule allowlist. Anything a user
+ * writes inside `nodera.user` — including an `@layer nodera.guard` of their own — becomes a
+ * sub-layer of it and still precedes the real guard, and nothing they write can reach the unlayered
+ * author origin, which would otherwise beat every layer here. */
+@layer nodera.base, nodera.user, nodera.guard;
 
-  --radius-sm: 6px;
-  --radius: 10px;
+:root {
+  /* The single accent. Style guide, "Primary / 7D67CB".
+   * 3.99:1 on --bg, so it clears the 3:1 non-text floor for fills, bars, borders and the focus
+   * ring — and is **never** a text colour on dark. That is what --brand-tint is for. */
+  --brand-1: #7d67cb;
+  /* The deep partner: the fill under a white label. White on it is 5.89:1. */
+  --brand-2: #6a53bb;
+  /* Cool informational — peer and download figures. The reference has no second hue and does not
+   * contradict this one, so it stands. */
+  --brand-3: #8fc8ff;
+  /* Brand-coloured *text* and glyphs on dark: 5.43:1 on --bg, 4.94:1 on --surface, 5.72:1 on
+   * --bg-rail, 4.79:1 on --brand-soft. The reference's own rendered accent measures #8776ce; this
+   * is one step up so it clears AA everywhere it is written. */
+  --brand-tint: #9182d6;
+  /* The 145% far stop keeps the lightest *visible* colour at ~#7761c6, which is 4.87:1 with white.
+   * One line, and it fixes the Play fill, the avatar tile and the tracker-store primary fill —
+   * white text sits on all three, and a plain two-stop ramp to --brand-1 lands at 4.49:1. */
+  --brand-gradient: linear-gradient(120deg, var(--brand-2) 0%, var(--brand-1) 145%);
+
+  --radius-sm: 8px;
+  --radius: 12px;
   --radius-lg: 16px;
+  /* Declared for the Theme screen's generated CSS to name. Deliberately no `rounded-pill` utility:
+   * `rounded-full` already exists and a duplicate is token drift waiting to happen. */
+  --radius-pill: 999px;
   --font-ui: "Inter Variable", Inter, system-ui, sans-serif;
   --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -39,16 +74,21 @@
    * They are declared here and re-exported by reference below, so a theme switch still repaints
    * everything from one attribute write and no component carries a theme prop. */
   --radius-xl: 22px;
-  --top-nav-height: 64px;
   --canvas-max: 1680px;
   --canvas-gutter: clamp(20px, 3.2vw, 56px);
   /* Tall enough to read as art, short enough that the world list under it is not below the fold on
    * a 900x600 window — which is the size this app opens at. */
   --hero-height: clamp(320px, 52vh, 560px);
 
+  /* The navigation rail. Fixed, not proportional: the reference's 7.6% of a 1188px window is 55px
+   * at this app's 720px floor, which cannot hold a 44px target plus air. */
+  --rail-w: 72px;
+  --rail-w-wide: 232px;
+  --rail-item: 44px;
+
   /* The one button on the page that matters, and the text that sits on it. */
   --play-fill: var(--brand-gradient);
-  --on-play: #101609;
+  --on-play: #ffffff;
 
   /* Written once, read by every focusable thing. There was no focus token at all: the only styled
    * ring in the app was hand-written on one control, so keyboard focus was invisible everywhere
@@ -58,33 +98,55 @@
   /* Durations were literals scattered across three files (`duration-150`, `duration-[180ms]`). */
   --motion-fast: 140ms;
   --motion-base: 220ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #080a09;
-  --bg-rail: #0b0e0c;
-  --surface: #111512;
-  --surface-2: #171c18;
-  --surface-hover: #202720;
-  --line: #2a312b;
-  --line-soft: #1c221d;
-  --text: #f1f4ef;
-  --text-dim: #a3aca3;
-  --text-faint: #707a71;
+  /* Style guide, "Primary / 16171B". */
+  --bg: #16171b;
+  /* Sampled #0F1112, re-hued onto --bg's cool-neutral axis. One step *below* the page: the chrome
+   * recedes and the data comes forward. */
+  --bg-rail: #101116;
+  --surface: #1e2026;
+  --surface-2: #24262d;
+  --surface-hover: #2a2d35;
+  /* Sampled hairline #262930, lifted five points — at 1.05:1 the original is invisible. */
+  --line: #2b2e36;
+  --line-soft: #1f2229;
+  /* Style guide, "Secondary / FFFFFF" and "Secondary / 8B8C8F". 17.9:1 and 5.33:1 on --bg. */
+  --text: #ffffff;
+  --text-dim: #8b8c8f;
+  /* 3.71:1 on --bg, 3.37:1 on --surface. It clears the 3:1 non-text floor everywhere and never
+   * clears 4.5:1, so the rule that comes with it is load-bearing: **--text-faint may never be the
+   * sole carrier of meaning.** Subtitles, table headings and "updated Ns ago" qualify. A figure
+   * never does. (The reference's own faint tier, #474A4F, is 2.0:1 and unusable.) */
+  --text-faint: #6f7277;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
 
   /* A glass strip over hero art, and three elevations where there used to be one. A launcher has a
    * card that sits above the page and a control that sits above the card, and one shadow cannot
-   * say which is which. */
-  --surface-3: rgba(10, 13, 11, 0.82);
-  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --elev-2: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --elev-3: 0 18px 48px rgba(0, 0, 0, 0.6);
+   * say which is which. The sheet separates by lightness rather than blur, so elev-3 gains a brand
+   * hairline instead of more shadow. */
+  --surface-3: rgba(22, 23, 27, 0.78);
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --elev-2: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --elev-3: 0 24px 64px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(125, 103, 203, 0.1);
+
+  /* The fill behind anything selected, active or armed, and its border partner. Both were written
+   * inline before this — `bg-brand-2/8` in five places drifting between /8 and /10, and
+   * `border-brand-2/30|40|50|55|70`, six different values for one idea. #7d67cb at 12% and 42%. */
+  --brand-soft: rgba(125, 103, 203, 0.12);
+  --brand-edge: rgba(125, 103, 203, 0.42);
+  /* The sheet's signature: an accent bloom with no shadow under it. #7d67cb at 26%. */
+  --glow-brand: 0 0 34px rgba(125, 103, 203, 0.26);
+  /* Panel 07 measures the blurred screen behind a dialog at #060706, i.e. ~78% black. */
+  --scrim: rgba(0, 0, 0, 0.78);
+
   /* Dark art needs a dark veil; the light theme needs the opposite, which is why this is a token
    * rather than one gradient written into the hero. */
-  --hero-scrim: linear-gradient(90deg, rgba(8, 10, 9, 0.98) 0%, rgba(8, 10, 9, 0.72) 48%, rgba(8, 10, 9, 0.18) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
+  --hero-scrim: linear-gradient(90deg, rgba(22, 23, 27, 0.98) 0%, rgba(22, 23, 27, 0.72) 48%, rgba(22, 23, 27, 0.18) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
 }
 
 :root[data-theme="light"] {
@@ -99,10 +161,13 @@
   --text: #14161d;
   --text-dim: #5c6373;
   --text-faint: #8b92a3;
-  --brand-1: #315f00;
-  --brand-2: #477d15;
+  /* #7d67cb darkened until it clears on white: 8.30:1 on --bg and 6.62:1 respectively. On light,
+   * the legible brand *is* the darkest brand, so --brand-tint is --brand-1. */
+  --brand-1: #4b3d8f;
+  --brand-2: #5f4fa8;
   --brand-3: #145f8a;
-  --focus-ring: #315f00;
+  --brand-tint: #4b3d8f;
+  --focus-ring: #4b3d8f;
   --on-play: #ffffff;
   --shadow: 0 8px 24px rgba(20, 22, 29, 0.08);
   --up: #4f861b;
@@ -112,9 +177,25 @@
 
   --surface-3: rgba(255, 255, 255, 0.78);
   --elev-1: 0 1px 2px rgba(20, 22, 29, 0.06);
-  --elev-2: 0 8px 24px rgba(20, 22, 29, 0.1);
-  --elev-3: 0 18px 48px rgba(20, 22, 29, 0.16);
+  --elev-2: 0 10px 30px rgba(20, 22, 29, 0.1);
+  --elev-3: 0 24px 64px rgba(20, 22, 29, 0.16), 0 0 0 1px rgba(75, 61, 143, 0.1);
+  --brand-soft: rgba(75, 61, 143, 0.1);
+  --brand-edge: rgba(75, 61, 143, 0.35);
+  --glow-brand: 0 0 34px rgba(75, 61, 143, 0.18);
+  --scrim: rgba(20, 22, 29, 0.42);
   --hero-scrim: linear-gradient(90deg, rgba(246, 247, 251, 0.98) 0%, rgba(246, 247, 251, 0.7) 48%, rgba(246, 247, 251, 0.12) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
+}
+
+/* Deliberately **unlayered**, and immediately after the declarations it overrides.
+ *
+ * An unlayered author declaration outranks every layered one, so the same override written inside
+ * `@layer base` would lose to the `:root` block above and quietly do nothing — a reduced-motion
+ * preference that is honoured in the source and ignored in the browser. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+  }
 }
 
 /* Palette → Tailwind namespaces, by reference. */
@@ -122,6 +203,9 @@
   --color-brand-1: var(--brand-1);
   --color-brand-2: var(--brand-2);
   --color-brand-3: var(--brand-3);
+  --color-brand-tint: var(--brand-tint);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-edge: var(--brand-edge);
 
   --color-bg: var(--bg);
   --color-rail: var(--bg-rail);
@@ -135,6 +219,7 @@
   --color-faint: var(--text-faint);
 
   --color-surface-3: var(--surface-3);
+  --color-scrim: var(--scrim);
   --color-focus: var(--focus-ring);
   --color-on-play: var(--on-play);
 
@@ -147,13 +232,14 @@
   --shadow-e1: var(--elev-1);
   --shadow-e2: var(--elev-2);
   --shadow-e3: var(--elev-3);
+  --shadow-glow: var(--glow-brand);
 }
 
 /* Shape and type scale. The radii deliberately mirror the legacy --radius-* names above, which are
  * unlayered and therefore win over Tailwind's defaults with the identical value either way. */
 @theme {
-  --radius-sm: 6px;
-  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 22px;
 
@@ -167,6 +253,13 @@
   --text-xs: 11.5px;
   --text-xs--line-height: 1.55;
   --text-2xs: 10.5px;
+
+  /* The reference's gapped display scale — 70 / 27 / 17 at mockup scale, with nothing between.
+   * These were one-off arbitrary values (`text-[clamp(42px,5vw,72px)]`, `text-2xl`) in three
+   * files. */
+  --text-hero: clamp(42px, 5vw, 76px);
+  --text-title: 26px;
+  --text-lead: 17px;
 
   /* The app's single media query, as the `max-narrow:` variant. */
   --breakpoint-narrow: 900px;
@@ -182,7 +275,7 @@
 
   body {
     background:
-      radial-gradient(circle at 86% -10%, rgba(142, 219, 63, 0.08), transparent 30rem),
+      radial-gradient(circle at 86% -10%, rgba(125, 103, 203, 0.1), transparent 30rem),
       var(--bg);
     color: var(--text);
     font: 13.5px/1.55 var(--font-ui);
@@ -254,4 +347,70 @@
 /* The veil that keeps hero text legible over any of the above. */
 @utility hero-scrim {
   background-image: var(--hero-scrim);
+}
+
+/* --------------------------------------------------------------------------------- the guard
+ *
+ * The floor under a custom appearance: what stays true no matter what a user's CSS says.
+ *
+ * A theme cannot be trusted not to lock the window out — `* { display: none }`, a fixed overlay, a
+ * `pointer-events: none`, a 10000px border. Any of those costs somebody their install if there is
+ * no way back, so there are four independent ways back and this is the first (see
+ * `customtheme.ts` for the other three, one of which is what survives an engine that does not
+ * implement `@layer` at all — an unknown at-rule is dropped whole, so this block would fail *open*).
+ *
+ * `[data-nodera-truth]` marks the handful of elements that render a signed or proven fact: the node
+ * id, a world's owner, an admin proof, a delete confirmation. A theme that could put a `content:`
+ * on their pseudo-elements could forge one, so the rewriter drops any rule naming the attribute and
+ * this denies the pseudo-elements outright. Two independent defences, because the app's whole trust
+ * model is about who can prove what. */
+@layer nodera.guard {
+  html,
+  body,
+  #root {
+    height: 100% !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    pointer-events: auto !important;
+  }
+
+  #root {
+    display: flex !important;
+  }
+
+  [data-nodera-escape] {
+    position: fixed !important;
+    inset: auto 16px 16px auto !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    transform: none !important;
+    clip-path: none !important;
+    filter: none !important;
+    pointer-events: auto !important;
+    z-index: 2147483647 !important;
+    background: #16171b !important;
+    color: #ffffff !important;
+    border: 1px solid #ffffff !important;
+    font: 500 13px/1.4 system-ui, sans-serif !important;
+  }
+
+  [role="dialog"] {
+    position: relative !important;
+    z-index: 2147483000 !important;
+    display: flex !important;
+    visibility: visible !important;
+  }
+
+  [data-nodera-truth] {
+    display: revert-layer !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  [data-nodera-truth]::before,
+  [data-nodera-truth]::after {
+    content: none !important;
+  }
 }

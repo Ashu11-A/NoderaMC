@@ -143,11 +143,11 @@ export function LanOfferModal(props: {
       }
     >
         <div className="flex items-start gap-3">
-          <span className="grid h-10 w-10 flex-none place-items-center rounded-md border border-brand-2/30 bg-brand-2/8 text-brand-1">
+          <span className="grid h-10 w-10 flex-none place-items-center rounded-md border border-brand-edge bg-brand-soft text-brand-tint">
             <FiRadio />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">LAN world detected</p>
+            <p className="text-2xs font-medium tracking-[0.16em] text-faint uppercase">LAN world detected</p>
             <p className="mt-1 text-sm text-dim">
               You just opened this world to your local network. Nodera can extend it so friends
               anywhere can join — they connect straight to your running game.

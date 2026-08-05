@@ -104,6 +104,32 @@ export type Theme = "system" | "dark" | "light";
 export interface Appearance {
   theme: Theme;
   notifications: boolean;
+  themes: Themes;
+}
+
+/**
+ * Custom appearances authored on this computer, and which one is in force.
+ *
+ * One field on the settings document rather than several: `Settings::keys()` derives the key set
+ * from the serialised document and every key must be covered by exactly one `ENFORCEMENT` row, so
+ * the whole feature rides on a single key, `appearance.themes`.
+ */
+export interface Themes {
+  /** The custom theme in force, by id. Empty means none. */
+  selected: string;
+  custom: CustomTheme[];
+}
+
+/** A patch on a base scheme, never a replacement. Tokens it does not set fall through. */
+export interface CustomTheme {
+  /** Minted by the app, never user-supplied — it becomes a selector fragment. */
+  id: string;
+  name: string;
+  /** The built-in scheme this theme sits on top of. `system` cannot be patched. */
+  base: "dark" | "light";
+  tokens: Record<string, string>;
+  css: string;
+  updated_at: number;
 }
 
 export interface Behavior {

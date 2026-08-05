@@ -189,8 +189,8 @@ test("desktop screens share the wide twelve-column obsidian canvas", () => {
 
   assert.match(css, /--canvas-max:\s*1680px/);
   assert.match(css, /grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\)/);
-  assert.match(css, /--bg:\s*#080a09/);
-  assert.match(css, /--brand-1:\s*#b8ff4a/);
+  assert.match(css, /--bg:\s*#16171b/);
+  assert.match(css, /--brand-1:\s*#7d67cb/);
   assert.doesNotMatch(css, /#ff4d8d|#a855f7|#22d3ee/i);
   assert.match(settings, /wide:hidden/);
   assert.match(settings, /hidden pr-6 wide:block/);

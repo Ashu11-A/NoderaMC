@@ -98,11 +98,11 @@ export function ConsentModal(props: {
       }
     >
         <div className="mb-4 flex items-center gap-3 rounded-md border border-line-soft bg-surface-2 p-3">
-          <span className="grid size-10 place-items-center rounded-md border border-brand-2/30 bg-brand-2/8">
-            <FiShield className="text-brand-1" size={20} />
+          <span className="grid size-10 place-items-center rounded-md border border-brand-edge bg-brand-soft">
+            <FiShield className="text-brand-tint" size={20} />
           </span>
           <div>
-            <p className="text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">First launch</p>
+            <p className="text-2xs font-medium tracking-[0.16em] text-faint uppercase">First launch</p>
             <p className="text-sm text-dim">Anonymous, optional, and reversible in Settings.</p>
           </div>
         </div>

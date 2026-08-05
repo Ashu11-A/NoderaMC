@@ -16,13 +16,14 @@
 // world, not reasons to re-teach the reader a layout. Worlds open to LAN keep their own card: that
 // one has a decision attached, and the rest are a report.
 import { useMemo } from "react";
-import { FiGlobe, FiKey, FiPlay, FiUploadCloud } from "react-icons/fi";
-import { Card, Empty, PageGrid, PageHeader, Pill, Stat, STAT_GRID, cx, worldArt } from "./components";
+import { FiGlobe, FiKey, FiPlay, FiUploadCloud, FiUsers } from "react-icons/fi";
+import { Card, Empty, PageGrid, PageHeader, Stat, STAT_GRID, cx, worldArt } from "./components";
 import { LanCard } from "./Lan";
 import {
   UNKNOWN,
   formatBytes,
   heldBytes,
+  show,
   shortId,
   worldRole,
   type Dashboard,
@@ -165,12 +166,18 @@ function WorldSection(props: {
   );
 }
 
-/** The badge in a card's top-right: what this node is to this world, said in two or three words. */
-const ROLE_PILL = {
-  playing: { tone: "up", label: "You are here" },
-  administered: { tone: "up", label: "You run this" },
-  hosting: { tone: "warn", label: "Hosting for a peer" },
-  supporting: { tone: "muted", label: "Supporting" },
+/**
+ * What this node is to this world, as panel 04's category glyph plus a word.
+ *
+ * The reference gives each card a filled brand glyph in its top-left and no badge at all; the glyph
+ * is the category. Here the category *is* the relationship, so the glyph carries it and the word
+ * beside it says which — a glyph alone would be four shapes nobody has been taught.
+ */
+const ROLE_MARK = {
+  playing: { icon: <FiPlay />, label: "You are here" },
+  administered: { icon: <FiKey />, label: "You run this" },
+  hosting: { icon: <FiUploadCloud />, label: "Hosting for a peer" },
+  supporting: { icon: <FiGlobe />, label: "Supporting" },
 } as const;
 
 /**
@@ -188,42 +195,71 @@ const ROLE_PILL = {
  */
 function WorldCard(props: { world: World; onOpen: () => void }) {
   const w = props.world;
-  const pill = ROLE_PILL[worldRole(w)];
+  const mark = ROLE_MARK[worldRole(w)];
+  const chips = [
+    mark.label,
+    w.game_endpoint ? "A game is running" : "No game running",
+    w.piece_count === 0 ? "Nothing stored yet" : `${formatBytes(heldBytes(w))} stored here`,
+  ];
 
   return (
     <button
       onClick={props.onOpen}
       className={cx(
-        "group flex flex-col overflow-hidden rounded-lg border border-line bg-surface text-left",
-        "transition-[border-color,translate,box-shadow] duration-[var(--motion-base)]",
-        "hover:-translate-y-0.5 hover:border-brand-2/50 hover:shadow-e2",
+        "group relative flex flex-col overflow-hidden rounded-lg border border-line-soft bg-surface p-5 text-left",
+        "transition-[border-color,translate,box-shadow] duration-[var(--motion-base)] ease-[var(--ease-out)]",
+        "hover:-translate-y-0.5 hover:border-brand-edge hover:shadow-e2",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
       )}
     >
+      {/* The reference's card has a flat fill and separates by lightness alone. This one keeps the
+          generated art, because the art is how a player recognises their own world in a grid — but
+          at 10% it is a tint on the surface rather than a picture competing with the name. */}
       <span
         aria-hidden
-        className="world-art relative h-[104px] w-full"
+        className="world-art absolute inset-0 opacity-10"
         style={worldArt(w.world_id)}
-      >
-        <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-surface to-transparent" />
+      />
+
+      <span className="relative flex min-w-0 items-center gap-2.5">
+        <span aria-hidden className="text-[22px] text-brand-1">{mark.icon}</span>
+        <span className="display-type truncate text-[19px] font-bold uppercase">
+          {w.name || shortId(w.world_id, 10, 6)}
+        </span>
       </span>
 
-      <span className="flex min-w-0 flex-col gap-1 p-3.5">
-        <span className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-semibold">
-            {w.name || shortId(w.world_id, 10, 6)}
+      {/* Panel 04's metadata chips: outline pills at a low tier, meant to be skimmed past. The
+          reference sets them at 1.3:1, which is decorative to the point of being unreadable — these
+          are `--text-dim`, which is the same idea at a contrast a person can act on. */}
+      <span className="relative mt-3 flex flex-wrap gap-2">
+        {chips.map((chip) => (
+          <span
+            key={chip}
+            className="rounded-full border border-line px-2.5 py-0.5 text-xs whitespace-nowrap text-dim"
+          >
+            {chip}
           </span>
-          <Pill tone={pill.tone}>{pill.label}</Pill>
+        ))}
+      </span>
+
+      <span className="relative mt-5 flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-dim">
+          <FiUsers aria-hidden />
+          {/* `—`, never `0`: only a node with a game in the world can count its players, so null
+              is the ordinary answer on a peer that merely stores it. The title says which of the
+              two a dash means, and is never attached to a real figure. */}
+          <span
+            className="text-body font-medium tabular-nums text-text"
+            title={w.players === null || w.players === undefined ? "player count unknown" : undefined}
+          >
+            {show(w.players, String)}
+          </span>
         </span>
-        <span className="text-xs text-faint">
-          {/* Two facts, both about this node's relationship to the world — which is the only thing
-              that differs between the cards in front of you. Everything a peer could say about the
-              world itself is the same on every peer and therefore tells you nothing here. */}
-          {w.game_endpoint ? "A game is running" : "No game running"}
-          {" · "}
-          {w.piece_count === 0
-            ? "nothing stored yet"
-            : `${formatBytes(heldBytes(w))} stored here`}
+        {/* Panel 04's enter affordance: a rule that grows into a triangle. It is the only
+            hover-suggesting element on the card, and the reference is right that it is enough. */}
+        <span aria-hidden className="flex items-center gap-1 text-faint transition-colors duration-[var(--motion-base)] group-hover:text-brand-1">
+          <span className="block h-px w-8 bg-current transition-[width] duration-[var(--motion-base)] ease-[var(--ease-out)] group-hover:w-14" />
+          <span className="block border-y-[5px] border-l-[8px] border-y-transparent border-l-current" />
         </span>
       </span>
     </button>

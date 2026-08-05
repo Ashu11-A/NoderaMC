@@ -28,6 +28,43 @@ pub enum Theme {
     Light,
 }
 
+/// One appearance authored on this computer.
+///
+/// A **patch on a base scheme**, never a replacement: `base` names the built-in scheme this theme
+/// sits on top of, and every token it does not set falls through to that scheme's block in the
+/// stylesheet. A theme that sets three tokens therefore leaves the other forty working, and
+/// deselecting it is a complete uninstall — nothing was overwritten to begin with.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomTheme {
+    /// Minted by the app, never taken from user input: it becomes a selector fragment.
+    pub id: String,
+    pub name: String,
+    /// Dark or Light. `System` is refused by the editor — a patch has to know what it is patching.
+    pub base: Theme,
+    /// Token name → value, over the app's own allowlist. Cannot express a selector or an at-rule.
+    pub tokens: BTreeMap<String, String>,
+    /// Free-form CSS, rewritten by the app's parser before it is ever applied.
+    pub css: String,
+    pub updated_at: u64,
+}
+
+/// The custom appearances this computer holds, and which one is in force.
+///
+/// One field on [`Appearance`] rather than several, deliberately: [`Settings::keys`] derives the
+/// key set from the serialised document, so every new field is a new key that [`ENFORCEMENT`] must
+/// cover exactly once. Folding the whole feature into one key keeps that surface to a single row.
+///
+/// Desktop only. Android renders in Compose against Material You and cannot read CSS, which is why
+/// the enforcement row says "this window" rather than "this app".
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Themes {
+    /// The custom theme in force, by id. Empty means none — the base scheme renders alone.
+    pub selected: String,
+    pub custom: Vec<CustomTheme>,
+}
+
 /// Appearance settings.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -35,6 +72,9 @@ pub struct Appearance {
     pub theme: Theme,
     /// Desktop notifications for node events (peer joined, world recovered, worker lost).
     pub notifications: bool,
+    /// Custom appearances authored on this computer. See [`Themes`].
+    #[serde(default)]
+    pub themes: Themes,
 }
 
 impl Default for Appearance {
@@ -42,6 +82,7 @@ impl Default for Appearance {
         Self {
             theme: Theme::System,
             notifications: true,
+            themes: Themes::default(),
         }
     }
 }
@@ -438,6 +479,14 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
         Enforcement::Never {
             reason: "desktop notifications are not wired up in this build; the toggle is saved \
                      but no notification is raised",
+        },
+    ),
+    // `Local`, and honestly so: the window that renders this document is the thing that applies a
+    // custom theme, immediately, with no worker involved. It is never pushed over NODERA-CONFIG.
+    (
+        "appearance.themes",
+        Enforcement::Local {
+            how: "stored on this computer and applied by this window as it renders",
         },
     ),
     (

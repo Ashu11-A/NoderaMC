@@ -14,7 +14,7 @@ import {
   FiLink,
   FiUsers,
 } from "react-icons/fi";
-import { AVATAR, Card, DataTable, Empty, FilterBar, MONO, PageGrid, PageHeader, Pagination, Pill, Td, Th, Tr, cx } from "./components";
+import { AVATAR, Banner, Card, DataTable, Empty, FilterBar, MONO, PageGrid, PageHeader, Pagination, Pill, Td, Th, Tr, cx } from "./components";
 import {
   browseNetwork,
   joinWorld,
@@ -128,7 +128,11 @@ export function NetworkScreen(props: {
   const [worlds, setWorlds] = useState<DirectoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>({ key: "name", ascending: true });
-  const [loading, setLoading] = useState(true);
+  // `null` until a poll has come back at all: "we have not asked yet" is not "nothing is there",
+  // and this screen used to have no way to say the difference. It replaces a plain `loading` flag,
+  // which could only distinguish "asking" from "not asking" and therefore had to render a failed
+  // query and an empty network identically.
+  const [answered, setAnswered] = useState<boolean | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [joined, setJoined] = useState<Joined[]>([]);
@@ -137,11 +141,15 @@ export function NetworkScreen(props: {
   const [page, setPage] = useState(1);
 
   const refresh = () => {
-    setLoading(true);
     browseNetwork(100)
-      .then(setWorlds)
-      .catch(() => setWorlds([]))
-      .finally(() => setLoading(false));
+      .then((found) => {
+        setWorlds(found);
+        setAnswered(true);
+      })
+      // A failed query used to clear the list, so a tracker outage rendered as a confident
+      // "Nothing found" — the same defect as a dashboard of zeros, on the one screen whose whole
+      // job is reporting what other people are running. The last answer is kept and marked.
+      .catch(() => setAnswered(false));
   };
 
   useEffect(() => {
@@ -315,7 +323,7 @@ export function NetworkScreen(props: {
             <FiLink aria-hidden />
           </span>
           <input
-            className="min-w-0 flex-1 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-2 focus:outline-none"
+            className="min-w-0 flex-1 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-1 focus:outline-none"
             placeholder="nodera:?xt=urn:nodera:…"
             value={link}
             onChange={(e) => setLink(e.currentTarget.value)}
@@ -345,9 +353,26 @@ export function NetworkScreen(props: {
         title="On the network"
       >
         {error && <p className="pb-2 text-sm text-danger">{error}</p>}
+        {answered === false && (
+          <div className="pb-3">
+            <Banner tone="warn">
+              No tracker answered the last query.{" "}
+              {worlds.length > 0
+                ? "This is what they said before that."
+                : "Nothing below is a claim that the network is empty."}
+            </Banner>
+          </div>
+        )}
         {matches.length === 0 ? (
-          <Empty icon={<FiGlobe />} title={loading ? "Looking…" : "Nothing found"}>
-            {query.trim() ? "Try part of the name, or paste an invitation." : ""}
+          <Empty
+            icon={<FiGlobe />}
+            title={answered === null ? "Asking trackers…" : answered ? "Nothing found" : "No answer yet"}
+          >
+            {query.trim()
+              ? "Try part of the name, or paste an invitation."
+              : answered
+                ? "No world is advertising itself right now."
+                : ""}
           </Empty>
         ) : (
           <>

@@ -20,6 +20,7 @@ import {
   FiPackage,
   FiTerminal,
   FiInfo,
+  FiDroplet,
 } from "react-icons/fi";
 import TrackerStoresScreen from "./TrackerStores";
 import { PeersScreen } from "./Peers";
@@ -28,6 +29,7 @@ import { ConsoleScreen } from "./Console";
 import { AboutScreen } from "./About";
 import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
+  Button,
   Card,
   Toggle,
   Segmented,
@@ -82,18 +84,39 @@ export type Section =
   | "privacy"
   | "about";
 
-const SECTIONS: { id: Section; label: string; icon: JSX.Element }[] = [
-  { id: "appearance", label: "Appearance", icon: <FiEye /> },
-  { id: "behavior", label: "Behavior", icon: <FiPower /> },
-  { id: "network", label: "Network", icon: <FiWifi /> },
-  { id: "stores", label: "Tracker stores", icon: <FiTag /> },
-  { id: "peers", label: "Peers", icon: <FiUsers /> },
-  { id: "storage", label: "Storage", icon: <FiHardDrive /> },
-  { id: "minecraft", label: "Minecraft", icon: <FiPackage /> },
-  { id: "diagnostics", label: "Diagnostics", icon: <FiTerminal /> },
-  { id: "privacy", label: "Privacy", icon: <FiShield /> },
-  { id: "about", label: "About", icon: <FiInfo /> },
+/**
+ * Ten sections, three groups, in the order the questions get asked.
+ *
+ * A flat list of ten is a list you read from the top every time. Panel 06's nav card groups its
+ * entries under quiet uppercase headings, and this screen has wanted that since it absorbed six
+ * former destinations — the three groups answer *what is this about*: your node on the network,
+ * this computer, or who you trust.
+ *
+ * The `group` is only read by the wide sidebar. The narrow tab strip stays flat, because a
+ * horizontal strip has nowhere to put a heading.
+ */
+type Group = "YOUR NODE" | "THIS COMPUTER" | "TRUST";
+
+const SECTIONS: { id: Section; label: string; icon: JSX.Element; group: Group }[] = [
+  { id: "appearance", label: "Appearance", icon: <FiEye />, group: "THIS COMPUTER" },
+  { id: "behavior", label: "Behavior", icon: <FiPower />, group: "YOUR NODE" },
+  { id: "network", label: "Network", icon: <FiWifi />, group: "YOUR NODE" },
+  { id: "stores", label: "Tracker stores", icon: <FiTag />, group: "TRUST" },
+  { id: "peers", label: "Peers", icon: <FiUsers />, group: "YOUR NODE" },
+  { id: "storage", label: "Storage", icon: <FiHardDrive />, group: "YOUR NODE" },
+  { id: "minecraft", label: "Minecraft", icon: <FiPackage />, group: "THIS COMPUTER" },
+  { id: "diagnostics", label: "Diagnostics", icon: <FiTerminal />, group: "THIS COMPUTER" },
+  { id: "privacy", label: "Privacy", icon: <FiShield />, group: "TRUST" },
+  { id: "about", label: "About", icon: <FiInfo />, group: "TRUST" },
 ];
+
+const GROUPS: readonly Group[] = ["YOUR NODE", "THIS COMPUTER", "TRUST"];
+
+/** The name of the custom appearance in force, or `undefined` when the built-in scheme is alone. */
+function customName(settings: SettingsDoc): string | undefined {
+  const themes = settings.appearance.themes;
+  return themes?.custom.find((t) => t.id === themes.selected)?.name || undefined;
+}
 
 const SECTION_COPY: Record<Section, string> = {
   appearance: "Theme and desktop presentation.",
@@ -209,6 +232,8 @@ export function SettingsScreen(props: {
   /** Live node figures, for the sections that report on the node rather than configure it. */
   d: Dashboard;
   sys: SystemStats;
+  /** Opens the Theme screen. Absent on a surface that has no screen to open. */
+  onOpenTheme?: () => void;
 }) {
   const [section, setSection] = useState<Section>(props.initial ?? "appearance");
   const [statuses, setStatuses] = useState<SettingStatus[]>([]);
@@ -265,7 +290,7 @@ export function SettingsScreen(props: {
   return (
     <div className="flex min-h-full flex-col">
       <nav
-        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden"
+        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line-soft bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden"
         role="tablist"
       >
         {SECTIONS.map((sec) => (
@@ -276,7 +301,7 @@ export function SettingsScreen(props: {
             className={cx(
               TAB_BTN,
               section === sec.id
-                ? "border-b-brand-2 font-semibold text-text"
+                ? "border-b-brand-1 font-medium text-text"
                 : "border-b-transparent text-dim hover:text-text",
             )}
             onClick={() => {
@@ -292,27 +317,34 @@ export function SettingsScreen(props: {
 
       <div className="page-canvas page-grid py-8">
         <aside className="col-span-3 hidden pr-6 wide:block">
-          <div className="sticky top-6">
-            <p className="mb-3 px-3 text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">Settings</p>
+          <div className="sticky top-6 rounded-md border border-line-soft bg-surface p-3 shadow-e1">
             <nav className="flex flex-col gap-1" aria-label="Settings sections">
-              {SECTIONS.map((sec) => (
-                <button
-                  key={sec.id}
-                  aria-current={section === sec.id ? "page" : undefined}
-                  className={cx(
-                    "flex items-center gap-3 rounded-sm border px-3 py-2.5 text-left text-sm transition-colors",
-                    section === sec.id
-                      ? "border-brand-2/40 bg-brand-2/8 text-text"
-                      : "border-transparent text-dim hover:bg-surface-hover hover:text-text",
-                  )}
-                  onClick={() => {
-                    setSection(sec.id);
-                    resetScrollport();
-                  }}
-                >
-                  <span className={section === sec.id ? "text-brand-1" : "text-faint"}>{sec.icon}</span>
-                  {sec.label}
-                </button>
+              {GROUPS.map((group) => (
+                <div key={group} className="mb-2 flex flex-col gap-1 last:mb-0">
+                  <p className="mt-2 mb-1 px-3 text-2xs font-medium tracking-[0.16em] text-faint uppercase">
+                    {group}
+                  </p>
+                  {SECTIONS.filter((sec) => sec.group === group).map((sec) => (
+                    <button
+                      key={sec.id}
+                      aria-current={section === sec.id ? "page" : undefined}
+                      className={cx(
+                        "flex items-center gap-3 rounded-sm border px-3 py-2 text-left text-sm transition-colors duration-[var(--motion-fast)]",
+                        "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus",
+                        section === sec.id
+                          ? "border-brand-edge bg-brand-soft font-medium text-text"
+                          : "border-transparent text-dim hover:bg-surface-hover hover:text-text",
+                      )}
+                      onClick={() => {
+                        setSection(sec.id);
+                        resetScrollport();
+                      }}
+                    >
+                      <span className={section === sec.id ? "text-brand-tint" : "text-faint"}>{sec.icon}</span>
+                      {sec.label}
+                    </button>
+                  ))}
+                </div>
               ))}
             </nav>
           </div>
@@ -409,6 +441,23 @@ export function SettingsScreen(props: {
               note={note("appearance.notifications")}
               onChange={(v) => update((d) => (d.appearance.notifications = v))}
             />
+            {/* A deep link, not a control. Authoring an appearance wants the whole canvas — an
+                editor, a preview and a contrast report do not fit in a settings row — and dropping
+                a block that size into this section chain is how the restart-banner exit test gets
+                broken. */}
+            <div className="flex items-center justify-between gap-5 py-[11px] max-narrow:flex-col max-narrow:items-start max-narrow:gap-2">
+              <span className="flex min-w-0 flex-col">
+                <span>Custom appearance</span>
+                <span className="max-w-[68ch] text-xs text-faint">
+                  {customName(s) ?? "None — this window renders the built-in scheme above."}
+                </span>
+              </span>
+              {props.onOpenTheme && (
+                <Button shape="pill" onClick={props.onOpenTheme}>
+                  <FiDroplet aria-hidden /> {customName(s) ? "Edit" : "Create"}
+                </Button>
+              )}
+            </div>
           </Card>
         )}
 
@@ -475,7 +524,7 @@ export function SettingsScreen(props: {
               right={note("network.default_trackers")}
             >
               <textarea
-                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-2 focus:outline-none"
+                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
                 rows={4}
                 value={s.network.default_trackers.join("\n")}
                 onChange={(e) =>
@@ -496,7 +545,7 @@ export function SettingsScreen(props: {
               right={note("network.rendezvous_endpoints")}
             >
               <textarea
-                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-2 focus:outline-none"
+                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
                 rows={3}
                 value={s.network.rendezvous_endpoints.join("\n")}
                 onChange={(e) =>
