@@ -61,7 +61,6 @@
    * They are declared here and re-exported by reference below, so a theme switch still repaints
    * everything from one attribute write and no component carries a theme prop. */
   --radius-xl: 22px;
-  --top-nav-height: 64px;
   --canvas-max: 1680px;
   --canvas-gutter: clamp(20px, 3.2vw, 56px);
   /* Tall enough to read as art, short enough that the world list under it is not below the fold on
