@@ -231,7 +231,11 @@ export function SiteFooter() {
   return (
     <footer className="mt-24 border-t border-line-soft bg-rail">
       <div className="page-canvas py-12">
-        <div className="grid gap-8 md:grid-cols-3">
+        {/* `card-grid` rather than `md:grid-cols-3`, which stepped three columns straight to one at
+            768px and left a 900px window reading a single stack with the rest of the row empty. A
+            14rem floor is narrower than the utility's default because these are short link lists,
+            not cards: three columns hold from about 700px up, two below that. */}
+        <div className="card-grid gap-8 [--card-min:14rem]">
           {FOOTER.map((column) => (
             <div key={column.title}>
               <p className="mb-3 text-2xs font-medium tracking-wide text-faint uppercase">{column.title}</p>
