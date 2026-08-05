@@ -213,7 +213,22 @@ function DesktopApp(props: {
   const openSettings = (section?: SettingsSection) => setScreen({ name: "settings", section });
 
   return (
-    <div className="flex h-full flex-row">
+    // `w-full min-w-0` is load-bearing, not tidiness. The guard layer makes `#root` a flex
+    // container (`display: flex !important` — a theme must never be able to un-display the app),
+    // which makes this div a **flex item**, and a flex item with `width: auto` is shrink-to-fit:
+    // it sized itself to its own content and ignored the window. That is one bug wearing two
+    // faces. On a wide window the shell stopped at the width of the widest card and left the rest
+    // of the display empty; on a narrow or square one the shell's min-content — a settings tab
+    // strip that does not wrap — was *wider* than the window, and `body { overflow: hidden }`
+    // silently cut the right-hand edge off every card, badge and tab.
+    //
+    // `w-full` pins the shell to the window. `min-w-0` lets it shrink below its own min-content, so
+    // anything irreducibly wide overflows *inside* a container that can scroll it (the tab strip,
+    // `DataTable`) instead of pushing the whole app sideways under a clip.
+    //
+    // Deliberately no `overflow-hidden` here: the rail's identity popover is absolutely positioned
+    // and wider than the collapsed rail, and clipping at this level would eat it.
+    <div className="flex h-full w-full min-w-0 flex-row">
       <ConsentModal status={telemetry} onAnswered={setTelemetry} />
       {/* Raised by the worker's `lan.opened` announcement. Held back while the privacy question is
           unanswered: that one is a gate, and two stacked dialogs is where people answer the wrong. */}
@@ -233,11 +248,19 @@ function DesktopApp(props: {
 
       {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
           property of the DOM node — without a key React keeps that same node across navigation and a
-          screen opened after a long scroll starts halfway down. A new key is a new node at zero. */}
+          screen opened after a long scroll starts halfway down. A new key is a new node at zero.
+
+          It scrolls in **one** axis. `overflow-y: auto` alone is not that: the spec computes an
+          `overflow-x: visible` to `auto` the moment the other axis is not visible, so the scrollport
+          would answer a too-wide child by growing a horizontal scrollbar under the whole app — the
+          page sliding sideways past the rail. Naming `overflow-x: hidden` puts the horizontal
+          boundary here and forces the decision downwards: content that genuinely cannot get
+          narrower carries its own `overflow-x-auto` (the settings tab strip, `DataTable`, `Tabs`)
+          and scrolls inside itself. */}
       <main
         id={SCROLLPORT_ID}
         key={screen.name === "world" ? `world:${screen.id}` : screen.name}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+        className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
       >
         {staleWorkerFigures && (
           <div className="page-canvas pt-4">

@@ -46,6 +46,49 @@ test("the navigation is a rail, and the rail is the first thing that uses --bg-r
   assertBuiltRule("background-color:var(--bg-rail)");
 });
 
+test("the shell fills the window, and only ever scrolls downwards", () => {
+  const app = read("App.tsx");
+  const css = read("styles.css");
+
+  // The defect this pins is invisible to every other check in this folder, because nothing here
+  // was wrong on its own. The guard layer makes `#root` a flex container so a theme cannot
+  // un-display the app; that quietly turned the shell into a **flex item**, and a flex item with
+  // `width: auto` is shrink-to-fit. The shell therefore sized itself to its own content — narrower
+  // than the window on a large display (a column of cards stranded in an empty page), and *wider*
+  // than the window whenever its min-content was, at which point `body { overflow: hidden }` cut
+  // the right-hand edge off the cards, the badges and the last settings tab with no scrollbar to
+  // say anything had been lost.
+  const shell = app.slice(app.indexOf("<div className=\"flex h-full"));
+  assert.match(
+    shell.slice(0, 200),
+    /w-full/,
+    "the shell does not claim the window's width, so it shrink-wraps onto its own content",
+  );
+  assert.match(
+    shell.slice(0, 200),
+    /min-w-0/,
+    "the shell cannot go below its own min-content, so a wide child pushes the app off-screen",
+  );
+
+  // One axis. `overflow-y: auto` on its own is not one axis: the other axis computes from
+  // `visible` to `auto`, and the scrollport answers a too-wide child by scrolling the whole page
+  // sideways under the rail. Wide content that cannot get narrower scrolls inside itself instead.
+  const scrollport = app.slice(app.indexOf("id={SCROLLPORT_ID}"));
+  assert.match(scrollport.slice(0, 400), /overflow-y-auto/, "the scrollport does not scroll");
+  assert.match(
+    scrollport.slice(0, 400),
+    /overflow-x-hidden/,
+    "the page is allowed to scroll sideways",
+  );
+  assert.match(scrollport.slice(0, 400), /min-w-0/, "the scrollport inherits its content's minimum");
+
+  // The other half of the same chain. `#root` is where `height` was already asserted and `width`
+  // was not — and a theme that shrink-wraps the app locks the window out exactly as thoroughly as
+  // one that hides it, with every way back inside the app it just made unreachable.
+  const guard = css.slice(css.indexOf("@layer nodera.guard"));
+  assert.match(guard, /width:\s*100%\s*!important/, "the guard pins no width on the app's root");
+});
+
 test("the current destination is announced and marked more than one way", () => {
   const rail = read("Rail.tsx");
 
@@ -81,7 +124,7 @@ test("Settings keeps its own navigation", () => {
   // they wonder whether the global rail swallowed the Settings sidebar. It did not — ten sections
   // do not belong in a rail beside three destinations.
   assert.match(settings, /wide:hidden/);
-  assert.match(settings, /hidden pr-6 wide:block/);
+  assert.match(settings, /hidden[^"]*wide:block/);
   assert.doesNotMatch(settings, /from "\.\/Rail"/, "Settings imports the shell's rail");
   assert.doesNotMatch(settings, /<Rail/, "Settings renders the shell's rail");
 });

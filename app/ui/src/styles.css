@@ -74,6 +74,14 @@
    * They are declared here and re-exported by reference below, so a theme switch still repaints
    * everything from one attribute write and no component carries a theme prop. */
   --radius-xl: 22px;
+  /* The ceiling on the content column, and it stays 1680.
+   *
+   * On the 1920px display this redesign was reported against, the rail takes 232px and the canvas
+   * takes all 1680 of what is left — so the cap is not what was leaving the window empty, and
+   * lowering it would only re-create the complaint on purpose. It is also the right *place* to cap:
+   * this app's pages are card walls, which read fine at 1568px of content, and the one thing that
+   * does not — prose — is capped by measure where it is written (`72ch` on a page description,
+   * `70ch` on a card hint, `68ch` on a row hint) rather than by starving every card of width. */
   --canvas-max: 1680px;
   --canvas-gutter: clamp(20px, 3.2vw, 56px);
   /* Tall enough to read as art, short enough that the world list under it is not below the fold on
@@ -271,6 +279,10 @@
   body,
   #root {
     height: 100%;
+    /* Stated rather than inherited from "a block box fills its parent", because `#root` is a flex
+     * container whose child is a flex item: the shell's width comes from this chain, and an
+     * `auto` anywhere along it shrink-wraps the app onto its own content. */
+    width: 100%;
   }
 
   body {
@@ -295,16 +307,58 @@
   letter-spacing: -0.035em;
 }
 
+/* The centred content column.
+ *
+ * A **maximum**, never a width. `min(100%, var(--canvas-max))` computed to the same number here,
+ * but only while every ancestor had a definite width to take 100% of: under intrinsic sizing a
+ * percentage is indefinite and behaves as `auto`, so the canvas collapsed onto its own content and
+ * the page read as a narrow column stranded in a wide window. `max-width` says the same thing in a
+ * form that survives being measured.
+ *
+ * `min-width: 0` because this is usually a flex or grid child, and their automatic minimum size is
+ * `min-content` — which is what lets one unbreakable row inside a card push the canvas wider than
+ * the window that contains it. */
 @utility page-canvas {
-  width: min(100%, var(--canvas-max));
+  width: 100%;
+  max-width: var(--canvas-max);
+  min-width: 0;
   margin-inline: auto;
   padding-inline: var(--canvas-gutter);
 }
 
+/* Twelve equal columns, and children that are allowed to be narrower than their contents.
+ *
+ * `minmax(0, 1fr)` already stops a wide child from stretching the *track*; it does nothing about
+ * the child itself, which as a grid item still carries `min-width: auto` and overflows the track it
+ * was given. Every direct child of this grid holds text, a nested grid or a table, so the rule from
+ * the layout contract — `min-width: 0` on every flex and grid child that holds one of those — is
+ * written once here rather than remembered on each `col-span-12` in eight screens. */
 @utility page-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: clamp(14px, 1.5vw, 24px);
+
+  & > * {
+    min-width: 0;
+  }
+}
+
+/* A wall of cards that answers a wider window with more columns instead of more emptiness.
+ *
+ * Panels 03, 04 and 06 of the reference all spend horizontal space this way: three cards across a
+ * ~1090px content column, reflowing rather than stretching. A fixed `wide:col-span-6` cannot do
+ * that — it is two columns at 1180px and still two columns at 1920px, each nearly 800px wide.
+ *
+ * `auto-fit` rather than `auto-fill`: with fewer cards than tracks, `auto-fill` keeps the empty
+ * tracks and leaves a ragged gap at the right, which is the under-fill this exists to end. */
+@utility card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(260px, 22vw, 340px), 1fr));
+  gap: clamp(14px, 1.5vw, 24px);
+
+  & > * {
+    min-width: 0;
+  }
 }
 
 @utility bg-brand {
@@ -369,12 +423,19 @@
   body,
   #root {
     height: 100% !important;
+    /* The partner of `height`, and it was missing. A theme that shrink-wraps the app —
+     * `#root { width: 120px }` — locks the window out exactly as thoroughly as `display: none`,
+     * and every other way back is inside the app it just made unreachable. */
+    width: 100% !important;
     visibility: visible !important;
     opacity: 1 !important;
     transform: none !important;
     pointer-events: auto !important;
   }
 
+  /* `#root` is a flex container so the shell it holds can be `h-full` without a second height
+   * chain. That makes the shell a flex *item*, which is why the shell declares `w-full min-w-0`:
+   * a flex item that says neither is shrink-to-fit and ignores the window it is in. */
   #root {
     display: flex !important;
   }

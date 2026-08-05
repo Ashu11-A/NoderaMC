@@ -98,9 +98,49 @@ test("desktop screens share the wide twelve-column obsidian canvas", () => {
   assert.match(css, /--brand-1:\s*#7d67cb/);
   assert.doesNotMatch(css, /#ff4d8d|#a855f7|#22d3ee/i);
   assert.match(settings, /wide:hidden/);
-  assert.match(settings, /hidden pr-6 wide:block/);
-  assert.match(settings, /wide:grid-cols-2/);
+  // The rule is "a sidebar that only exists at the wide breakpoint", and that is all this pins.
+  // It used to read `hidden pr-6 wide:block` — an exact class string including the padding, which
+  // makes a spacing tweak in a file this test does not own look like the navigation collapsing.
+  assert.match(settings, /hidden[^"]*wide:block/);
+  // Settings lays its cards out in more than one column once there is room. Either mechanism
+  // satisfies that: the fixed two-up it was written with, or the reflowing `card-grid` wall, which
+  // answers a 1920px window with more columns rather than two very wide ones.
+  assert.match(settings, /wide:grid-cols-2|card-grid/);
   assert.match(worlds, /<PageGrid/);
+});
+
+test("the canvas is a ceiling, and nothing inside it may be wider than the window", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  // `min(100%, var(--canvas-max))` and `max-width: var(--canvas-max)` compute to the same number
+  // right up until something measures the canvas intrinsically — and then the percentage is
+  // indefinite, behaves as `auto`, and the canvas collapses onto its own content. That is the
+  // "content sits in a narrow column while the window is wide" half of the report, and it is a
+  // one-word difference in the source. A maximum is a maximum.
+  const canvas = css.slice(css.indexOf("@utility page-canvas"));
+  assert.match(canvas.slice(0, 260), /max-width:\s*var\(--canvas-max\)/);
+  assert.doesNotMatch(
+    canvas.slice(0, 260),
+    /width:\s*min\(/,
+    "the canvas is back to a computed width instead of a ceiling",
+  );
+
+  // The automatic minimum size, in the shipped CSS rather than in the source. `minmax(0, 1fr)`
+  // stops a wide child stretching its *track*; it says nothing about the child, which is still a
+  // grid item with `min-width: auto` and still overflows the track it was handed. Both grids have
+  // to hand their children a zero minimum or a table, a tab strip or an unbreakable id pushes the
+  // page out past the window's right edge, where `body { overflow: hidden }` eats it in silence.
+  for (const grid of ["page-grid", "card-grid"]) {
+    assert.match(
+      builtCss,
+      new RegExp(String.raw`\.${grid}\s*>\s*\*\s*\{[^}]*min-width:\s*0`),
+      `production CSS lets a ${grid} child refuse to be narrower than its contents`,
+    );
+  }
+
+  // A wide window has to answer with more columns, not more emptiness — the reference spends
+  // horizontal space on card walls three and four across, never on one stretched column.
+  assert.match(builtCss, /\.card-grid\{[^}]*repeat\(auto-fit,\s*minmax\(/);
 });
 
 test("desktop typefaces are bundled and separated by role", () => {
