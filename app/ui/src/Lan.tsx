@@ -143,7 +143,7 @@ export function LanOfferModal(props: {
       }
     >
         <div className="flex items-start gap-3">
-          <span className="grid h-10 w-10 flex-none place-items-center rounded-md border border-brand-2/30 bg-brand-2/8 text-brand-1">
+          <span className="grid h-10 w-10 flex-none place-items-center rounded-md border border-brand-2/30 bg-brand-2/8 text-brand-tint">
             <FiRadio />
           </span>
           <div className="min-w-0 flex-1">

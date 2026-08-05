@@ -221,7 +221,7 @@ function TopNav(props: {
     >
       <div className="page-canvas flex items-center gap-5">
         <div className="mr-2 flex items-center gap-2.5" title="NoderaMC">
-          <span aria-hidden className="grid size-7 rotate-45 place-items-center border border-brand-2/70 bg-brand-2/10 shadow-[0_0_24px_rgba(142,219,63,0.18)]">
+          <span aria-hidden className="grid size-7 rotate-45 place-items-center border border-brand-2/70 bg-brand-2/10 shadow-glow">
             <span className="size-2 bg-brand-1" />
           </span>
           <span className="display-type text-sm font-semibold tracking-tight">NODERA</span>
@@ -262,7 +262,7 @@ function TopNav(props: {
           )
         )}
         {d.node.is_gateway && (
-          <span className="rounded-full border border-brand-2/55 bg-brand-2/8 px-[7px] py-0.5 text-[10px] tracking-[0.08em] text-brand-1">
+          <span className="rounded-full border border-brand-2/55 bg-brand-2/8 px-[7px] py-0.5 text-[10px] tracking-[0.08em] text-brand-tint">
             GATEWAY
           </span>
         )}

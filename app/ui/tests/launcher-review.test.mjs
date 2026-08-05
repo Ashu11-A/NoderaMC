@@ -99,10 +99,10 @@ test("settings has one main landmark and every shared search has a name", () => 
 test("light theme uses dark, visible accent and focus roles", () => {
   const css = read("styles.css");
   const light = css.slice(css.indexOf(':root[data-theme="light"]'));
-  assert.match(light, /--brand-1:\s*#315f00/);
-  assert.match(light, /--brand-2:\s*#477d15/);
+  assert.match(light, /--brand-1:\s*#4b3d8f/);
+  assert.match(light, /--brand-2:\s*#5f4fa8/);
   assert.match(light, /--brand-3:\s*#145f8a/);
-  assert.match(light, /--focus-ring:\s*#315f00/);
+  assert.match(light, /--focus-ring:\s*#4b3d8f/);
   assert.match(light, /--warn:\s*#845400/);
   assert.match(light, /--danger:\s*#b4231a/);
 });

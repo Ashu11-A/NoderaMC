@@ -338,7 +338,7 @@ function Hero(props: { world?: World; fallbackName?: string; d: Dashboard }) {
       <div aria-hidden className="hero-scrim absolute inset-0" />
 
       <div className="page-canvas relative flex w-full flex-col gap-2 pb-24">
-        <p className="text-[10px] font-semibold tracking-[0.2em] text-brand-1 uppercase">Ready to play</p>
+        <p className="text-[10px] font-semibold tracking-[0.2em] text-brand-tint uppercase">Ready to play</p>
         <h1 className="display-type max-w-[12ch] text-[clamp(42px,5vw,72px)] leading-[0.95] font-semibold">
           {world ? world.name || "Unnamed world" : props.fallbackName || "Nodera"}
         </h1>

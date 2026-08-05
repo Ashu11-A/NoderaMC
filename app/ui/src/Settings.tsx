@@ -310,7 +310,7 @@ export function SettingsScreen(props: {
                     resetScrollport();
                   }}
                 >
-                  <span className={section === sec.id ? "text-brand-1" : "text-faint"}>{sec.icon}</span>
+                  <span className={section === sec.id ? "text-brand-tint" : "text-faint"}>{sec.icon}</span>
                   {sec.label}
                 </button>
               ))}

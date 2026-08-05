@@ -59,7 +59,7 @@ export function PageHeader(props: {
     <header className={cx("col-span-12 mb-2 flex items-end justify-between gap-6", props.className)}>
       <div className="min-w-0">
         {props.eyebrow && (
-          <p className="mb-2 text-[10px] font-semibold tracking-[0.2em] text-brand-2 uppercase">
+          <p className="mb-2 text-[10px] font-semibold tracking-[0.2em] text-brand-tint uppercase">
             {props.eyebrow}
           </p>
         )}
@@ -392,7 +392,7 @@ export function Stat(props: {
   return (
     <div className="flex gap-3 rounded-md border border-line bg-surface px-4 py-3.5">
       {props.icon && (
-        <span className="grid h-8 w-8 flex-none place-items-center rounded-sm bg-surface-2 text-[15px] text-brand-2">
+        <span className="grid h-8 w-8 flex-none place-items-center rounded-sm bg-surface-2 text-[15px] text-brand-tint">
           {props.icon}
         </span>
       )}
@@ -691,7 +691,7 @@ export function Modal(props: {
         tabIndex={-1}
         disabled={!dismissable}
         onClick={() => props.onClose?.()}
-        className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm disabled:cursor-default"
+        className="absolute inset-0 cursor-default bg-scrim backdrop-blur-sm disabled:cursor-default"
       />
       <div
         ref={panel}
