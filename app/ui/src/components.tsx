@@ -745,7 +745,7 @@ export function Modal(props: {
  * different active colours, and — in one of them — no `role="tab"` at all.
  */
 export function Tabs<T extends string>(props: {
-  tabs: readonly { id: T; label: string }[];
+  tabs: readonly { id: T; label: string; icon?: ReactNode }[];
   active: T;
   onSelect: (id: T) => void;
   className?: string;
@@ -766,6 +766,7 @@ export function Tabs<T extends string>(props: {
               : "border-transparent text-dim hover:text-text",
           )}
         >
+          {tab.icon && <span aria-hidden className="mr-2 flex">{tab.icon}</span>}
           {tab.label}
         </button>
       ))}

@@ -29,6 +29,7 @@ import {
   Pill,
   Stat,
   STAT_GRID,
+  Tabs,
   cx,
   resetScrollport,
 } from "./components";
@@ -74,7 +75,7 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
           {(world.name || "?").slice(0, 1).toUpperCase()}
         </span>
         <div className="col-span-10 min-w-0 wide:col-span-6">
-          <h1 className="display-type text-2xl font-semibold">{world.name || "Unnamed world"}</h1>
+          <h1 className="display-type text-title font-bold">{world.name || "Unnamed world"}</h1>
           <p className="mt-px text-[12px] text-dim">
             {describeRole(world)} · v{world.version} · {formatBytes(world.total_bytes)}
           </p>
@@ -89,28 +90,19 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
         </div>
       </header>
 
-      <nav className="page-canvas flex gap-1 border-b border-line" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={cx(
-              "flex items-center gap-1.5 border-b-2 px-3.5 py-[9px] text-sm",
-              tab === t.id
-                ? "border-b-brand-2 text-text"
-                : "border-b-transparent text-dim hover:text-text",
-            )}
-            onClick={() => {
-              setTab(t.id);
-              resetScrollport();
-            }}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {/* The shared strip, which was dead code while this screen and Settings each rolled their
+          own — with different padding, different active colours, and in one of them no
+          `role="tab"` at all. Settings keeps its own: its two chromes are a responsive pair, not a
+          tab strip. */}
+      <Tabs
+        className="page-canvas"
+        tabs={TABS}
+        active={tab}
+        onSelect={(id) => {
+          setTab(id);
+          resetScrollport();
+        }}
+      />
 
       <div
         className="page-canvas page-grid flex-1 gap-y-4 pt-6 pb-12"
@@ -405,7 +397,7 @@ function ShareTab(props: { world: World }) {
               className={cx(
                 MONO,
                 "mt-1 h-[76px] w-full resize-none rounded-sm border border-line bg-surface-2 p-2.5",
-                "break-all focus:border-brand-2 focus:outline-none",
+                "break-all focus:border-brand-1 focus:outline-none",
               )}
               readOnly
               value={uri}
@@ -608,14 +600,14 @@ function DeleteCard(props: { world: World }) {
       </p>
       <div className="flex flex-col gap-2 py-1">
         <input
-          className="rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
+          className="rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-1 focus:outline-none"
           placeholder={`Type ${expected} to confirm`}
           value={confirmation}
           disabled={outcome?.done}
           onChange={(e) => setConfirmation(e.currentTarget.value)}
         />
         <input
-          className="rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
+          className="rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-1 focus:outline-none"
           placeholder="Reason (optional, shown to other players)"
           maxLength={200}
           value={reason}
@@ -685,7 +677,20 @@ function PiecesTab(props: { world: World }) {
     };
   }, [props.world.world_id]);
 
-  if (loaded && map.piece_count === 0) {
+  // Before the first `get_piece_map` returns there is nothing to draw, and drawing the empty
+  // manifest anyway would render a full grid of unheld cells — a picture that says "you hold none
+  // of this world" when the truth is that nobody has been asked yet. Same defect as a stat tile
+  // showing `0`, in the one place on this screen where it would be a whole screenful of it.
+  if (!loaded) {
+    return (
+      <Card title="Pieces" hint="Asking your peer which pieces this node holds.">
+        <div className="my-2 h-[120px] animate-pulse rounded-sm border border-line-soft bg-surface-2" />
+        <p className="pb-1 text-xs text-faint">Loading piece map…</p>
+      </Card>
+    );
+  }
+
+  if (map.piece_count === 0) {
     return (
       <Empty icon={<FiGrid />} title="No content pieces on this node" />
     );
@@ -739,7 +744,7 @@ function PieceCanvas(props: { held: boolean[] }) {
     const styles = getComputedStyle(document.documentElement);
     context.fillStyle = styles.getPropertyValue("--surface-2");
     context.fillRect(0, 0, width, height);
-    const color = styles.getPropertyValue("--up").trim();
+    const color = styles.getPropertyValue("--brand-1").trim();
     if (aggregated) {
       for (let bucket = 0; bucket < buckets; bucket += 1) {
         const start = Math.floor((bucket * props.held.length) / buckets);
@@ -752,6 +757,11 @@ function PieceCanvas(props: { held: boolean[] }) {
         context.fillRect((bucket % columns) * cell, Math.floor(bucket / columns) * cell, cell - 1, cell - 1);
       }
     } else {
+      // The exact branch never set a fill, so every held cell was painted in the background colour
+      // this function had just filled the canvas with — an "exact map" that was uniformly blank for
+      // every manifest of 2048 pieces or fewer, which is most of them. The aggregated branch sets
+      // it inside its own loop, which is why the bug only ever showed on the common path.
+      context.fillStyle = color;
       props.held.forEach((held, index) => {
         if (!held) return;
         context.fillRect((index % columns) * cell, Math.floor(index / columns) * cell, cell - 1, cell - 1);
@@ -763,7 +773,7 @@ function PieceCanvas(props: { held: boolean[] }) {
     <figure className="my-2">
       <canvas
         ref={canvas}
-        className="w-full rounded-sm border border-line bg-surface-2"
+        className="w-full rounded-sm border border-line-soft bg-surface-2"
         role="img"
         aria-label={`${props.held.filter(Boolean).length} of ${props.held.length} pieces held`}
       />
