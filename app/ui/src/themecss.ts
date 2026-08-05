@@ -17,8 +17,15 @@
 //
 // Not the at-rule allowlist — the `@layer nodera.user { … }` wrapper. Because everything the user
 // wrote is inside a named layer, any `@layer` they write of their own becomes a *sub*-layer of
-// `nodera.user` and therefore still precedes `nodera.guard`, and nothing they write can reach the
-// unlayered author origin, which would otherwise outrank every layer including the guard.
+// `nodera.user` and stays where `nodera.user` is: **after** `nodera.guard`, which for important
+// declarations is the losing end. `styles.css` carries the full note on why the order reads
+// backwards; the short version is that the layer order is inverted for important declarations, and
+// that is why the guard is declared first.
+//
+// The wrapper also keeps user CSS out of the unlayered author origin, which beats every layer for
+// normal declarations. That origin is where this app's own palette used to sit, and it is why the
+// accent a person picked on the Theme screen changed nothing while every other part of the feature
+// measured correct.
 //
 // # What is refused, in full
 //

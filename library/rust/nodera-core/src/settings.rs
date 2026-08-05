@@ -927,7 +927,21 @@ impl SettingsHandle {
     /// Apply a read result to this handle.
     fn absorb(&self, stored: Stored) {
         match stored {
-            Stored::Document(settings) => {
+            Stored::Document(mut settings) => {
+                // The one thing in a stored document that is not the user's: the built-in store is
+                // a constant that happens to be cached here, and it had drifted — every install
+                // that predates the services branch was still dialling the URL it was first saved
+                // with, getting a 404, and showing an address that is nowhere in this source tree.
+                // Reconciled on the way in, so nothing downstream ever sees the stale copy; the
+                // corrected row reaches disk with the next save, and until then the app is at least
+                // reading the right list. See `stores::reconcile_built_in` for what it will not do.
+                if crate::stores::reconcile_built_in(&mut settings.network.tracker_stores) {
+                    log::info!(
+                        "settings: the built-in tracker store had drifted from this build's URL and \
+                         has been reset to {}",
+                        crate::stores::OFFICIAL_STORE_URL
+                    );
+                }
                 *self.inner.lock().unwrap() = settings;
                 *self.damaged.lock().unwrap() = None;
                 self.loaded
@@ -1279,6 +1293,54 @@ mod tests {
                 "the handle kept serving defaults and would have overwritten the file"
             );
             assert!(handle.fault().is_empty());
+        });
+    }
+
+    /// The shipped bug, end to end: a settings document written before the published list moved to
+    /// its own branch names `…/main/services/official.json`, and every read of it went on dialling
+    /// that URL — a 404 — forever. The store screen showed the failure against an address that is
+    /// nowhere in this source tree, and pressing Refresh could only fail again.
+    ///
+    /// This is the test that would have caught it. `reconcile_built_in` having unit tests is not
+    /// the same claim: what was missing was anybody *calling* it on the way in from disk.
+    #[test]
+    fn a_stored_built_in_store_from_before_the_move_loads_as_this_builds_url() {
+        let stale = r#"{"network":{"tracker_stores":[{
+            "url":"https://raw.githubusercontent.com/Ashu11-A/NoderaMC/main/services/official.json",
+            "name":"Nodera official",
+            "last_error":"could not fetch the store: http status: 404",
+            "built_in":true
+        }]}}"#;
+        with_settings_file(Some(stale), |_| {
+            let stores = SettingsHandle::load().snapshot().network.tracker_stores;
+            assert_eq!(stores.len(), 1);
+            assert_eq!(
+                stores[0].url,
+                crate::stores::OFFICIAL_STORE_URL,
+                "the app went on reading the URL the document was saved with"
+            );
+            assert!(stores[0].last_error.is_empty());
+        });
+    }
+
+    /// The same document read through the Android path, where the first read happens before the
+    /// settings directory is knowable and the real one arrives at the next `snapshot()`. A fix that
+    /// only ran on the startup read would leave every handset on the dead URL.
+    #[test]
+    fn the_late_read_reconciles_the_built_in_store_too() {
+        with_settings_file(Some("{ not readable yet"), |path| {
+            let handle = SettingsHandle::load();
+            assert!(!handle.fault().is_empty());
+            std::fs::write(
+                path,
+                r#"{"network":{"tracker_stores":[{
+                    "url":"https://raw.githubusercontent.com/Ashu11-A/NoderaMC/main/services/official.json",
+                    "name":"Nodera official","built_in":true}]}}"#,
+            )
+            .unwrap();
+
+            let stores = handle.snapshot().network.tracker_stores;
+            assert_eq!(stores[0].url, crate::stores::OFFICIAL_STORE_URL);
         });
     }
 

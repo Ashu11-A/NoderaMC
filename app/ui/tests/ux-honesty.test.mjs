@@ -140,19 +140,118 @@ test("the notifications toggle is badged with why it is not in force", () => {
 
 /* ------------------------------------------------------------------------------------ A-UX-3 */
 
-test("the restart banner restarts the worker, or says why it cannot", () => {
+test("the restart banner only appears for a change that has actually happened", () => {
   const settings = read("../src/Settings.tsx");
+
+  // The shipped bug: the banner read `config.restart_required`, which is the WORKER naming every
+  // bind-time key it was pushed — a description of the key's scope, not of a change. The app pushes
+  // `network.port_range` and `network.rendezvous_endpoints` on every save, so the list was never
+  // empty, "some changes apply when the peer worker restarts" was permanently true, and restarting
+  // could not clear it because it was never about a restart.
+  assert.doesNotMatch(
+    code(settings),
+    /const restartNeeded =[^\n]*config\.restart_required/,
+    "the banner is back on the worker's scope list, which is true from first launch to uninstall",
+  );
+  assert.match(
+    code(settings),
+    /const pendingKeys = ownership\?\.pending_known \?/,
+    "the banner must read the app's own comparison against the running worker's environment",
+  );
+
   const banner = settings.slice(
     settings.indexOf("{restartNeeded && ("),
     settings.indexOf("{section === \"appearance\""),
   );
   assert.ok(banner.length > 0, "the restart banner is gone");
-  // Owned worker: the app started it, so the app can restart it — one button, no instructions.
-  assert.match(banner, /ownership\?\.can_restart \?/);
-  assert.match(banner, /restartWorker\(\)/);
-  // Attach mode: the process belongs to whoever started it, and the banner says so instead of
-  // telling the user to do something the app could have done itself.
-  assert.match(banner, /Restart it where you started it\./);
+  // It names what it is about. "Some changes" told the reader neither which nor whether it mattered.
+  assert.match(banner, /pendingKeys\.join/, "the banner does not name the settings it is about");
+  assert.match(banner, /restartNow/, "the banner cannot skip the settle window");
+});
+
+test("the peer worker can be restarted at any time, and a refusal is explained", () => {
+  const settings = read("../src/Settings.tsx");
+  const card = settings.slice(settings.indexOf("function WorkerCard("));
+  assert.ok(card.length > 0, "the always-available Restart control is gone");
+
+  // Reachable from the Network section itself, not only from a banner. It used to live inside the
+  // banner, so it existed only while the app believed a setting was pending — and a player whose
+  // node has gone quiet wants to restart it whether or not a setting changed.
+  assert.match(
+    code(settings),
+    /<WorkerCard[\s\S]{0,200}onRestart=\{restartNow\}/,
+    "the Network section does not mount the Peer worker card",
+  );
+  assert.match(card, /restarting \? "Restarting…" : "Restart peer worker"/);
+
+  // A refusal is the BACKEND's sentence, printed. The screen used to hide the button and assemble
+  // its own from `attached`, which is a second copy of a decision `restart_unavailable` makes — and
+  // it disagreed with it on Android, where "restart it where you started it" meant nothing
+  // (M-NET-3). It may never simply vanish with no explanation.
+  assert.match(card, /own\.unavailable_reason/, "a refusal is not explained on screen");
+  assert.doesNotMatch(card, /Restart it where you started it/, "the reason is being re-derived here");
+  assert.match(
+    readCrate("nodera-core", "src/daemon.rs"),
+    /pub unavailable_reason: String/,
+    "the backend must carry its own refusal to the UI",
+  );
+
+  // A-UX-1 again, on a different unknown: where this app did not spawn the worker it cannot know
+  // what that worker is running, and an empty pending list must not be drawn as "nothing pending".
+  assert.match(card, /!own\.pending_known/, "an unknowable pending set is rendered as empty");
+  assert.match(card, /cannot tell which settings it is running/);
+});
+
+test("a bind-time setting applies by itself, without waiting to be noticed", () => {
+  // The user asked for restart-requiring settings to take effect immediately. A banner is not
+  // immediate — it is a chore with a notification attached. The app watches its own spawn record
+  // and cycles the worker once the edit settles.
+  const daemon = readCrate("nodera-core", "src/daemon.rs");
+  assert.match(daemon, /pub async fn apply_bind_time_changes\(/);
+  assert.match(daemon, /const SETTLE_INTERVAL: Duration/);
+  // And it is actually started. This whole lane is dead code without the spawn, which is this
+  // repository's most common defect shape.
+  assert.match(
+    lib,
+    /daemon::apply_bind_time_changes\(/,
+    "nothing spawns the task, so bind-time settings apply only when something else restarts the worker",
+  );
+  // The supervisor has to record what it spawned with, or the comparison has nothing to compare to.
+  assert.match(daemon, /launched\.record\(&env\)/);
+  assert.match(daemon, /launched\.forget\(\)/);
+});
+
+/* ------------------------------------------------------------- the strip may not hide a section */
+
+test("the narrow section strip scrolls rather than losing its last sections", () => {
+  // Comments stripped first, and not as tidiness: the prose above the strip explains what `min-w-0`
+  // buys, so a version of this test that read the raw source passed with the class deleted. `code()`
+  // is declared below and hoisted; it exists for exactly this.
+  const settings = code(read("../src/Settings.tsx"));
+  const strip = settings.slice(settings.indexOf('role="tablist"') - 500, settings.indexOf('role="tablist"'));
+
+  // Ten sections do not fit across a 1000px window, and there are exactly three things a strip can
+  // do about that: wrap, scroll, or lie. It was doing the third — `min-w-0` was absent, so the strip
+  // sized itself to its own content, the shell it sits in was pushed past the window's right edge,
+  // and `body { overflow: hidden }` took Diagnostics, Privacy and About off the screen with no way
+  // to reach them. Both halves are load-bearing: the minimum is what lets the strip be narrower than
+  // its tabs, and the overflow is what turns that into a scroll instead of a clip.
+  assert.match(strip, /min-w-0/, "the strip cannot be narrower than its tabs, so it clips them");
+  assert.match(strip, /overflow-x-auto/, "the strip does not scroll");
+
+  // And it says so. A scrollport with no visible scrollbar is indistinguishable from a cut-off one,
+  // which is exactly how this was reported; `overflow-x: auto` paints these only when there is
+  // something to scroll, so the bar appears precisely when there is more than the window can show.
+  assert.match(settings, /::-webkit-scrollbar-thumb\]:bg-line/, "the strip scrolls in silence");
+
+  // Reachability is not the same as visibility. Something else picks the section — `initial` sends
+  // a user to the one control they were told to fix — and a strip that opens scrolled to the left
+  // has hidden the reason they came.
+  assert.match(
+    settings,
+    /aria-selected="true"[\s\S]{0,120}scrollIntoView/,
+    "the section in force is never scrolled back into view",
+  );
 });
 
 /* ------------------------------------------------------------------------------------ A-UX-5 */

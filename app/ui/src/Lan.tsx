@@ -8,7 +8,7 @@
 // exactly the design that makes people click the wrong button.
 import { useEffect, useState } from "react";
 import { FiGlobe, FiRadio, FiShare2, FiX } from "react-icons/fi";
-import { Button, Card, Empty, Modal, Pill, cx } from "./components";
+import { Button, Card, Empty, Modal, Pill } from "./components";
 import {
   lanAction,
   onWorkerEvent,
@@ -265,21 +265,20 @@ export function LanCard(props: {
                     : "Waiting for you"}
               </Pill>
               {session.state === "shared" ? (
-                <button
-                  className={cx(BUTTON, "text-warn")}
+                <Button
+                  className="text-warn"
                   disabled={busy === session.port}
                   onClick={() => act("STOP", session.port)}
                 >
                   Stop sharing
-                </button>
+                </Button>
               ) : (
-                <button
-                  className={BUTTON}
+                <Button
                   disabled={busy === session.port}
                   onClick={() => act("SHARE", session.port)}
                 >
-                  <FiShare2 aria-hidden className="inline" /> Share
-                </button>
+                  <FiShare2 aria-hidden /> Share
+                </Button>
               )}
             </div>
           ))}
@@ -289,6 +288,3 @@ export function LanCard(props: {
     </Card>
   );
 }
-
-const BUTTON =
-  "rounded-sm border border-line bg-surface-2 px-2.5 py-1 text-xs hover:bg-surface-hover disabled:opacity-50";

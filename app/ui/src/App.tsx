@@ -23,6 +23,13 @@
 // the bottom of the rail — a preference is not a destination, it shows no worker figures, and
 // keeping it out of `DESTINATIONS` keeps that table's shape exactly as the exit test parses it.
 //
+// # The window is the app's too
+//
+// The desktop window is undecorated (`tauri.conf.json`), so the minimise / maximise / close buttons
+// are drawn here rather than by the window manager — they were the last part of the interface still
+// wearing the operating system's design instead of this one. `TitleBar.tsx` has the reasoning and
+// the eight resize grips an undecorated window has to grow for itself.
+//
 // # Data path
 //
 // `api::link` (Rust) → `nodera://dashboard` → `useDashboard`. There is no polling loop here; the
@@ -32,6 +39,7 @@ import { createPortal } from "react-dom";
 import { FiCompass, FiDroplet, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
 import { SCROLLPORT_ID, StaleDataNotice } from "./components";
 import { Rail } from "./Rail";
+import { TitleBar } from "./TitleBar";
 import { ThemeScreen } from "./ThemeScreen";
 import { ESCAPE_ID, applyCustomTheme, useCustomTheme } from "./customtheme";
 import { SettingsScreen, type Section as SettingsSection } from "./Settings";
@@ -213,7 +221,22 @@ function DesktopApp(props: {
   const openSettings = (section?: SettingsSection) => setScreen({ name: "settings", section });
 
   return (
-    <div className="flex h-full flex-row">
+    // `w-full min-w-0` is load-bearing, not tidiness. The guard layer makes `#root` a flex
+    // container (`display: flex !important` — a theme must never be able to un-display the app),
+    // which makes this div a **flex item**, and a flex item with `width: auto` is shrink-to-fit:
+    // it sized itself to its own content and ignored the window. That is one bug wearing two
+    // faces. On a wide window the shell stopped at the width of the widest card and left the rest
+    // of the display empty; on a narrow or square one the shell's min-content — a settings tab
+    // strip that does not wrap — was *wider* than the window, and `body { overflow: hidden }`
+    // silently cut the right-hand edge off every card, badge and tab.
+    //
+    // `w-full` pins the shell to the window. `min-w-0` lets it shrink below its own min-content, so
+    // anything irreducibly wide overflows *inside* a container that can scroll it (the tab strip,
+    // `DataTable`) instead of pushing the whole app sideways under a clip.
+    //
+    // Deliberately no `overflow-hidden` here: the rail's identity popover is absolutely positioned
+    // and wider than the collapsed rail, and clipping at this level would eat it.
+    <div className="flex h-full w-full min-w-0 flex-row">
       <ConsentModal status={telemetry} onAnswered={setTelemetry} />
       {/* Raised by the worker's `lan.opened` announcement. Held back while the privacy question is
           unanswered: that one is a gate, and two stacked dialogs is where people answer the wrong. */}
@@ -231,50 +254,70 @@ function DesktopApp(props: {
         onSelect={(name) => (name === "settings" ? openSettings() : setScreen({ name } as Screen))}
       />
 
-      {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
+      {/* The content column, and the reason it exists is the bar at the top of it.
+          The window has no decorations — `tauri.conf.json` says so — which means the minimise,
+          maximise and close buttons are the app's to draw. They belong *beside* the rail rather
+          than above it: the rail runs to the top edge of the window carrying the wordmark, exactly
+          as the reference panels do, and the caption strip sits over the page in the same corner
+          the reference puts its own window controls. A bar spanning the whole window would push
+          the rail down and leave a band of page background above it, which is the arrangement that
+          made the buttons read as somebody else's frame in the first place. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <TitleBar />
+
+        {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
           property of the DOM node — without a key React keeps that same node across navigation and a
-          screen opened after a long scroll starts halfway down. A new key is a new node at zero. */}
-      <main
-        id={SCROLLPORT_ID}
-        key={screen.name === "world" ? `world:${screen.id}` : screen.name}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto"
-      >
-        {staleWorkerFigures && (
-          <div className="page-canvas pt-4">
-            <StaleDataNotice />
-          </div>
-        )}
-        {screen.name === "settings" ? (
-          <SettingsScreen
-            settings={settings}
-            onChange={setSettings}
-            initial={screen.section}
-            d={d}
-            sys={sys}
-            onOpenTheme={() => setScreen({ name: "theme" })}
-          />
-        ) : screen.name === "theme" ? (
-          <ThemeScreen settings={settings} onChange={setSettings} resolved={props.resolved} />
-        ) : screen.name === "discover" ? (
-          <NetworkScreen
-            onPlay={async (sessionId, worldName) => {
-              await launchPlay(sessionId, worldName);
-              setScreen({ name: "play", launchWorld: { id: sessionId, name: worldName } });
-            }}
-          />
-        ) : selected ? (
-          <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
-        ) : screen.name === "worlds" ? (
-          <WorldsScreen d={d} onOpen={(id) => setScreen({ name: "world", id })} />
-        ) : (
-          <PlayScreen
-            d={d}
-            initialWorld={screen.name === "play" ? screen.launchWorld : undefined}
-            onOpenWorld={(id) => setScreen({ name: "world", id })}
-            onSettings={(section) => openSettings(section as SettingsSection)}
-          />
-        )}
-      </main>
+          screen opened after a long scroll starts halfway down. A new key is a new node at zero.
+
+          It scrolls in **one** axis. `overflow-y: auto` alone is not that: the spec computes an
+          `overflow-x: visible` to `auto` the moment the other axis is not visible, so the scrollport
+          would answer a too-wide child by growing a horizontal scrollbar under the whole app — the
+          page sliding sideways past the rail. Naming `overflow-x: hidden` puts the horizontal
+          boundary here and forces the decision downwards: content that genuinely cannot get
+          narrower carries its own `overflow-x-auto` (the settings tab strip, `DataTable`, `Tabs`)
+          and scrolls inside itself. */}
+        <main
+          id={SCROLLPORT_ID}
+          key={screen.name === "world" ? `world:${screen.id}` : screen.name}
+          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+        >
+          {staleWorkerFigures && (
+            <div className="page-canvas pt-4">
+              <StaleDataNotice />
+            </div>
+          )}
+          {screen.name === "settings" ? (
+            <SettingsScreen
+              settings={settings}
+              onChange={setSettings}
+              initial={screen.section}
+              d={d}
+              sys={sys}
+              onOpenTheme={() => setScreen({ name: "theme" })}
+            />
+          ) : screen.name === "theme" ? (
+            <ThemeScreen settings={settings} onChange={setSettings} resolved={props.resolved} />
+          ) : screen.name === "discover" ? (
+            <NetworkScreen
+              onPlay={async (sessionId, worldName) => {
+                await launchPlay(sessionId, worldName);
+                setScreen({ name: "play", launchWorld: { id: sessionId, name: worldName } });
+              }}
+            />
+          ) : selected ? (
+            <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
+          ) : screen.name === "worlds" ? (
+            <WorldsScreen d={d} onOpen={(id) => setScreen({ name: "world", id })} />
+          ) : (
+            <PlayScreen
+              d={d}
+              initialWorld={screen.name === "play" ? screen.launchWorld : undefined}
+              onOpenWorld={(id) => setScreen({ name: "world", id })}
+              onSettings={(section) => openSettings(section as SettingsSection)}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
 }

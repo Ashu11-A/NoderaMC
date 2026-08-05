@@ -35,8 +35,26 @@ export function resetScrollport(): void {
 /** The world's initial in a gradient tile — the app's only avatar. Size is the caller's. */
 export const AVATAR = "grid flex-none place-items-center rounded-sm bg-brand font-bold text-white";
 
-/** Auto-filling tile grid shared by Home and the world State tab. */
-export const STAT_GRID = "grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3";
+/**
+ * Auto-fitting tile grid shared by Home and the world State tab.
+ *
+ * `auto-fit`, not `auto-fill`. The difference only shows on a wide window and it is the whole
+ * complaint: with four stats in a 1568px canvas, `auto-fill` lays out eight 190px tracks, fills
+ * four and leaves the right half of the row visibly empty. `auto-fit` collapses the tracks nobody
+ * is standing in and the four tiles share the width. The floor moves 190px → 210px to match the
+ * one the world screen had already hand-written over this constant.
+ */
+export const STAT_GRID = "grid min-w-0 grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3";
+
+/**
+ * A wall of cards, as many across as the window has room for.
+ *
+ * The counterpart to `STAT_GRID` for things bigger than a figure. Screens that lay cards out with a
+ * fixed `wide:col-span-6` get two columns at 1180px and the same two at 1920px; this one reflows,
+ * which is how panels 03/04/06 of the reference spend horizontal space. The rule lives in
+ * `styles.css` as `@utility card-grid` so the column floor is one edit.
+ */
+export const CARD_GRID = "card-grid";
 
 /** Centered desktop canvas backed by twelve equal columns. */
 export function PageGrid(props: { children: ReactNode; className?: string }) {
@@ -94,7 +112,10 @@ export function Card(props: { title?: string; hint?: string; right?: ReactNode; 
     <section className="overflow-hidden rounded-md border border-line-soft bg-surface shadow-e1">
       {(props.title || props.right) && (
         <header className="flex items-start justify-between gap-3 border-b border-line-soft px-5 py-4">
-          <div>
+          {/* `min-w-0` on the text, `flex-none` around the badge. Without the first the title block
+              refuses to go below its own min-content and pushes the badge past the card's right
+              edge — which is the sliced "not bundled" pill in the 1000px screenshot. */}
+          <div className="min-w-0">
             {/* Panel 06's card title: an 11px uppercase micro-label, not a heading competing with
                 the page's own. The subtitle under it is `--text-faint`, which is why it is only
                 ever an elaboration — that tier may never be the sole carrier of meaning. */}
@@ -103,7 +124,7 @@ export function Card(props: { title?: string; hint?: string; right?: ReactNode; 
             )}
             {props.hint && <p className="mt-1.5 max-w-[70ch] text-xs text-faint">{props.hint}</p>}
           </div>
-          {props.right}
+          {props.right && <div className="flex flex-none items-center gap-2">{props.right}</div>}
         </header>
       )}
       <div className="px-5 pt-2 pb-3.5">{props.children}</div>
@@ -395,7 +416,7 @@ export function Stat(props: {
   tone?: "up" | "down" | "warn";
 }) {
   return (
-    <div className="flex gap-3 rounded-md border border-line-soft bg-surface px-4 py-3.5 shadow-e1">
+    <div className="flex min-w-0 gap-3 rounded-md border border-line-soft bg-surface px-4 py-3.5 shadow-e1">
       {props.icon && (
         <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-brand-soft text-[15px] text-brand-tint">
           {props.icon}
@@ -548,7 +569,7 @@ export function Pagination(props: {
   if (pages <= 1) return null;
   const page = Math.min(props.page, pages);
   return (
-    <nav aria-label="Pagination" className="flex items-center justify-between border-t border-line-soft pt-3 text-xs text-faint">
+    <nav aria-label="Pagination" className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft pt-3 text-xs text-faint">
       <span>
         {(page - 1) * props.pageSize + 1}-{Math.min(page * props.pageSize, props.total)} of {props.total}
       </span>
@@ -743,6 +764,13 @@ export function Modal(props: {
  *
  * The world detail screen and the settings screen each rolled their own, with different padding,
  * different active colours, and — in one of them — no `role="tab"` at all.
+ *
+ * A strip of tabs is the app's canonical piece of *irreducibly wide* content: eight labels that
+ * cannot wrap and must not be abbreviated. So it carries the horizontal boundary itself —
+ * `min-w-0` so it is allowed to be narrower than its own contents, `overflow-x-auto` so what is
+ * left over is scrolled here rather than pushed through the page — and each tab is `shrink-0` so
+ * the strip crowds instead of squeezing every label into two lines. Without the pair, the last tab
+ * is simply gone: the 1000px screenshot has no "Diagnostics" in it.
  */
 export function Tabs<T extends string>(props: {
   tabs: readonly { id: T; label: string; icon?: ReactNode }[];
@@ -751,7 +779,10 @@ export function Tabs<T extends string>(props: {
   className?: string;
 }) {
   return (
-    <div role="tablist" className={cx("flex gap-1 border-b border-line-soft", props.className)}>
+    <div
+      role="tablist"
+      className={cx("flex min-w-0 gap-1 overflow-x-auto border-b border-line-soft", props.className)}
+    >
       {props.tabs.map((tab) => (
         <button
           key={tab.id}
@@ -759,7 +790,8 @@ export function Tabs<T extends string>(props: {
           aria-selected={tab.id === props.active}
           onClick={() => props.onSelect(tab.id)}
           className={cx(
-            "-mb-px flex h-9 items-center border-b-2 px-3.5 text-body transition-colors duration-[var(--motion-fast)]",
+            "-mb-px flex h-9 shrink-0 items-center border-b-2 px-3.5 text-body whitespace-nowrap",
+            "transition-colors duration-[var(--motion-fast)]",
             "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus",
             tab.id === props.active
               ? "border-brand-1 font-medium text-text"
@@ -826,11 +858,14 @@ export function Banner(props: {
         props.tone === "info" && "border-brand-3/35 bg-brand-3/10 text-brand-3",
       )}
     >
-      <span className="flex items-center gap-2">
+      {/* `min-w-0` on the sentence, `flex-none` on the action: the restart banner's "Restart worker"
+          button is what fell off the right edge of the 1600px and 1000px screenshots, because the
+          sentence beside it would not agree to be narrower than itself. */}
+      <span className="flex min-w-0 items-center gap-2">
         <FiInfo aria-hidden className="flex-none" />
         {props.children}
       </span>
-      {props.action}
+      {props.action && <span className="flex flex-none items-center gap-2">{props.action}</span>}
     </div>
   );
 }

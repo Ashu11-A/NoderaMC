@@ -47,6 +47,14 @@ pub struct ModInstallStatus {
     pub bundled_version: String,
     /// Whether the bundled jar is actually present — a dev build may not carry it.
     pub bundled_available: bool,
+    /// Every path that was looked in, when it is not.
+    ///
+    /// Empty when the jar was found. "There is nothing to install" is not an answer anybody can act
+    /// on — it was the whole of what this screen said for every build that ever shipped — so when
+    /// the jar is missing the screen shows where it was expected to be, which is the difference
+    /// between a broken installation and a development build somebody has not staged yet.
+    #[serde(default)]
+    pub bundled_looked_in: Vec<String>,
     /// Every Minecraft installation found. Empty is a normal answer, not an error.
     pub installs: Vec<MinecraftInstall>,
 }
@@ -66,20 +74,72 @@ fn is_nodera_jar(name: &str) -> bool {
     lower.ends_with(".jar") && (lower.starts_with("noderamc") || lower.starts_with("nodera-"))
 }
 
-/// Where the bundled mod jar lives.
+/// The jar's path inside the bundle, relative to the resource directory.
 ///
-/// `NODERA_MOD_JAR` overrides it, which is how a development build points at
-/// `endpoints/neoforge-mod/build/libs/nodera-neoforge.jar` without a packaging step.
+/// Contract with `app/tauri.<system>.conf.json`, which maps `build/nodera-neoforge.jar` to exactly
+/// this target. A **plain file** key, not a glob: `tauri_utils::resources` gives a glob's matches
+/// the map's target as a *directory* and a plain path the target as a *file*, and the glob form is
+/// what once flattened the headless distribution into one folder (`scripts/release.sh`, `build_app`).
+/// A plain key also makes a missing jar a `ResourcePathNotFound` at bundle time, which is the loud
+/// failure this constant is half of.
+const BUNDLED_JAR: &str = "resources/mod/nodera-neoforge.jar";
+
+/// Every place the bundled mod jar can legitimately be, in the order they are tried.
 ///
-/// The default is a bundled Tauri resource. No release bundle declares it yet — the mod jar is
-/// published as its own release asset instead — so in a shipped app `status()` reports
-/// `bundled_available: false` and `install()` says which path it looked in. That is the honest
-/// answer for a build that does not carry it, and it is why the check exists rather than the
-/// install failing at the copy.
-fn bundled_jar() -> PathBuf {
-    std::env::var("NODERA_MOD_JAR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("resources/mod/nodera-neoforge.jar"))
+/// # Why this is a list and not a path
+///
+/// It used to be the bare relative path `resources/mod/nodera-neoforge.jar`, which a process
+/// resolves against its CURRENT WORKING DIRECTORY — the user's home directory when the app is
+/// launched from a desktop menu. That is the identical defect [`crate::daemon::launcher_candidates`]
+/// exists to document for the worker launcher, and it was live here at the same time: no per-OS
+/// config declared the jar as a resource at all, so `bundled_available` was `false` in **every build
+/// that has ever shipped** and the install screen said "this build carries no mod jar" permanently.
+/// Both halves are fixed together, because fixing only the packaging would have left the app looking
+/// for a bundled file in whatever directory it happened to be started from.
+///
+/// `resource_dir` is what Tauri resolves for the running bundle; `None` on a build with no bundle
+/// (`cargo run`), which is exactly when the working-directory candidates are the right answer.
+fn jar_candidates(resource_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(dir) = resource_dir {
+        candidates.push(dir.join(BUNDLED_JAR));
+        // Tauri has moved what `resource_dir()` points at between versions — at `<prefix>/lib/<app>`
+        // the `resources/` segment is ours, elsewhere it is already included.
+        candidates.push(dir.join("mod/nodera-neoforge.jar"));
+    }
+    // Beside the executable: a portable/extracted build, an AppImage, a zip drop.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join(BUNDLED_JAR));
+        }
+    }
+    // The working directory, last, so a stale `resources/` beside wherever the app was launched
+    // from can never shadow the one that shipped with it.
+    candidates.push(PathBuf::from(BUNDLED_JAR));
+    // The repository's own staging directory, so a checkout finds the jar `scripts/dev.sh` stages
+    // and `scripts/release.sh` bundles. Same file, same name, one place.
+    candidates.push(PathBuf::from("build/nodera-neoforge.jar"));
+    candidates
+}
+
+/// Locate the bundled jar: `NODERA_MOD_JAR`, else the first candidate that exists.
+///
+/// `NODERA_MOD_JAR` is how a development build points at
+/// `endpoints/neoforge-mod/build/libs/nodera-neoforge.jar` without a packaging step. It is honoured
+/// even when it does not exist: the operator asked for that exact path, and quietly searching
+/// elsewhere would hide their typo.
+///
+/// Returns `Err(every path tried)` rather than one plausible-looking path, so the screen and the
+/// error message can both say where it actually looked.
+fn bundled_jar(resource_dir: Option<&Path>) -> Result<PathBuf, Vec<PathBuf>> {
+    if let Ok(explicit) = std::env::var("NODERA_MOD_JAR") {
+        return Ok(PathBuf::from(explicit));
+    }
+    let candidates = jar_candidates(resource_dir);
+    match candidates.iter().find(|path| path.is_file()) {
+        Some(found) => Ok(found.clone()),
+        None => Err(candidates),
+    }
 }
 
 /// The product version, stamped at build time from the repository `VERSION`.
@@ -152,11 +212,25 @@ fn inspect(path: &Path, version: &str) -> MinecraftInstall {
 }
 
 /// What the install screen renders.
-pub fn status() -> ModInstallStatus {
+///
+/// `resource_dir` is the running bundle's resource directory, resolved by the shell — the only
+/// place that holds a Tauri `AppHandle`. `None` means "this build has no bundle", not "look in the
+/// current directory"; see [`jar_candidates`].
+pub fn status(resource_dir: Option<&Path>) -> ModInstallStatus {
     let version = bundled_version();
-    let jar = bundled_jar();
+    let (available, looked_in) = match bundled_jar(resource_dir) {
+        // An explicit `NODERA_MOD_JAR` that does not exist lands here too, and reports the one path
+        // it was told to use rather than claiming a jar it cannot open.
+        Ok(jar) if jar.is_file() => (true, Vec::new()),
+        Ok(jar) => (false, vec![jar.display().to_string()]),
+        Err(tried) => (
+            false,
+            tried.iter().map(|path| path.display().to_string()).collect(),
+        ),
+    };
     ModInstallStatus {
-        bundled_available: jar.is_file(),
+        bundled_available: available,
+        bundled_looked_in: looked_in,
         installs: candidate_game_dirs()
             .iter()
             .map(|path| inspect(path, &version))
@@ -169,8 +243,14 @@ pub fn status() -> ModInstallStatus {
 ///
 /// Returns the path written. Creates the folder if it is missing — a player who has installed
 /// NeoForge but never a mod has no `mods` folder, and refusing them would be pedantry.
-pub fn install(game_dir: &str) -> Result<String, String> {
-    let jar = bundled_jar();
+pub fn install(game_dir: &str, resource_dir: Option<&Path>) -> Result<String, String> {
+    let jar = bundled_jar(resource_dir).map_err(|tried| {
+        let list = tried
+            .iter()
+            .map(|path| format!("\n  {}", path.display()))
+            .collect::<String>();
+        format!("this build of the app does not carry the mod jar. Looked in:{list}")
+    })?;
     if !jar.is_file() {
         return Err(format!(
             "this build of the app does not carry the mod jar (looked in {})",
@@ -273,17 +353,93 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Both no-jar cases in ONE test, deliberately.
+    ///
+    /// `NODERA_MOD_JAR` is process-global and `cargo test` runs these threads concurrently, so two
+    /// tests that disagree about whether the override is set are two tests that pass alone and fail
+    /// together — which is exactly what happened when this was written as a pair.
     #[test]
-    fn installing_without_a_bundled_jar_says_so_rather_than_failing_obscurely() {
+    fn installing_without_a_bundled_jar_says_where_it_looked() {
         let dir = std::env::temp_dir().join(format!("nodera-nojar-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::env::set_var("NODERA_MOD_JAR", dir.join("does-not-exist.jar"));
 
-        let error = install(&dir.display().to_string()).expect_err("no jar to install");
+        // With an override: the one path the operator named, so a typo is visible as a typo rather
+        // than buried in a list of places nobody asked for.
+        let named = dir.join("does-not-exist.jar");
+        std::env::set_var("NODERA_MOD_JAR", &named);
+        let error = install(&dir.display().to_string(), None).expect_err("no jar to install");
         assert!(error.contains("does not carry the mod jar"), "{error}");
-
+        assert!(error.contains(&named.display().to_string()), "{error}");
+        assert!(!status(None).bundled_available);
+        assert_eq!(
+            status(None).bundled_looked_in,
+            vec![named.display().to_string()]
+        );
         std::env::remove_var("NODERA_MOD_JAR");
+
+        // Without one: every candidate, in the message and on the screen. "This build carries no mod
+        // jar, so there is nothing to install." was the whole of what a user was told, and it was
+        // true of every build that ever shipped — nobody could act on it.
+        let tried = bundled_jar(Some(&dir)).expect_err("nothing to find");
+        assert!(tried.len() >= 3, "{tried:?}");
+        let error = install(&dir.display().to_string(), Some(&dir)).expect_err("no jar");
+        for path in &tried {
+            assert!(
+                error.contains(&path.display().to_string()),
+                "every path tried must be in the message: {error}"
+            );
+        }
+        let reported = status(Some(&dir));
+        assert!(!reported.bundled_available);
+        assert_eq!(
+            reported.bundled_looked_in,
+            tried
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+            "the screen shows the same list the error does"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bundled_jar_is_looked_for_under_the_running_bundle_not_the_working_directory() {
+        // The defect this closes: `bundled_jar` was the bare relative path
+        // `resources/mod/nodera-neoforge.jar`, resolved against the process's working directory —
+        // the user's home when the app is launched from a desktop menu. The worker launcher had the
+        // identical bug and it took a shipped installer to find it.
+        let bundle = std::env::temp_dir().join(format!("nodera-bundle-{}", std::process::id()));
+        let resources = bundle.join("resources/mod");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::write(resources.join("nodera-neoforge.jar"), b"jar").unwrap();
+
+        let candidates = jar_candidates(Some(&bundle));
+        assert_eq!(
+            candidates.first(),
+            Some(&bundle.join(BUNDLED_JAR)),
+            "the running bundle is tried first, before anything relative to the process"
+        );
+        assert!(
+            candidates.contains(&PathBuf::from("build/nodera-neoforge.jar")),
+            "a checkout must still find the jar `scripts/dev.sh` stages"
+        );
+        assert!(
+            candidates
+                .iter()
+                .position(|path| path == Path::new(BUNDLED_JAR))
+                > candidates.iter().position(|path| path.starts_with(&bundle)),
+            "a stale `resources/` in the launch directory must never shadow the shipped one"
+        );
+
+        // The selection itself, without going through `bundled_jar` — that reads the process-global
+        // `NODERA_MOD_JAR`, and the test that owns it runs on another thread.
+        assert_eq!(
+            candidates.iter().find(|path| path.is_file()),
+            Some(&bundle.join(BUNDLED_JAR))
+        );
+
+        let _ = std::fs::remove_dir_all(&bundle);
     }
 
     #[test]

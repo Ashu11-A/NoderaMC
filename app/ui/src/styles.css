@@ -20,177 +20,212 @@
  * resolve to nothing while every test still passed. */
 @import "tailwindcss";
 
-/* The layer order a custom appearance lives inside.
+/* The layer order a custom appearance lives inside, and it is written backwards on purpose.
  *
- * Tailwind's own layers are declared by the import above and come first. `nodera.user` is where
- * everything a person authors on the Theme screen is written — `themecss.ts` wraps its whole output
- * in it — and `nodera.guard` is declared **last**, so it outranks every normal and important
- * declaration in an earlier layer, and outranks animations too.
+ * Tailwind's own layers are declared by the import above and come first. Then:
  *
- * The wrapper is what makes the guard unbypassable, not the at-rule allowlist. Anything a user
- * writes inside `nodera.user` — including an `@layer nodera.guard` of their own — becomes a
- * sub-layer of it and still precedes the real guard, and nothing they write can reach the unlayered
- * author origin, which would otherwise beat every layer here. */
-@layer nodera.base, nodera.user, nodera.guard;
+ *   `nodera.guard`  the floor under a custom appearance, and **every declaration in it is
+ *                   `!important`** — see the block at the end of this file;
+ *   `nodera.base`   this app's palette, immediately below;
+ *   `nodera.user`   everything a person authors on the Theme screen — `themecss.ts` wraps its whole
+ *                   output in it, and `customtheme.ts` writes the token block into it.
+ *
+ * **The order of layers is inverted for important declarations.** For normal declarations a later
+ * layer wins, so `nodera.user` sits above `nodera.base` and a theme repaints the palette. For
+ * important declarations the *earlier* layer wins — so declaring the guard **first** is what makes
+ * it outrank an important declaration in a theme. It was declared last, which put it at the bottom
+ * of the important order: a theme writing `#root { display: none !important }` beat it, and the
+ * measured test in `theme-screen.test.mjs` is what now holds this the right way round.
+ *
+ * The consequence of being first is that the guard has no useful *normal* declarations — a normal
+ * declaration in it would lose to `nodera.base`. That is why every line in the guard block ends in
+ * `!important`, and why the test asserts it.
+ *
+ * The `nodera.user` wrapper is what makes the guard unbypassable, not the at-rule allowlist.
+ * Anything a user writes inside it — including an `@layer nodera.guard` of their own — becomes a
+ * sub-layer of `nodera.user` and stays below the real guard, and nothing they write can reach the
+ * unlayered author origin. */
+@layer nodera.guard, nodera.base, nodera.user;
 
-:root {
-  /* The single accent. Style guide, "Primary / 7D67CB".
-   * 3.99:1 on --bg, so it clears the 3:1 non-text floor for fills, bars, borders and the focus
-   * ring — and is **never** a text colour on dark. That is what --brand-tint is for. */
-  --brand-1: #7d67cb;
-  /* The deep partner: the fill under a white label. White on it is 5.89:1. */
-  --brand-2: #6a53bb;
-  /* Cool informational — peer and download figures. The reference has no second hue and does not
-   * contradict this one, so it stands. */
-  --brand-3: #8fc8ff;
-  /* Brand-coloured *text* and glyphs on dark: 5.43:1 on --bg, 4.94:1 on --surface, 5.72:1 on
-   * --bg-rail, 4.79:1 on --brand-soft. The reference's own rendered accent measures #8776ce; this
-   * is one step up so it clears AA everywhere it is written. */
-  --brand-tint: #9182d6;
-  /* The 145% far stop keeps the lightest *visible* colour at ~#7761c6, which is 4.87:1 with white.
-   * One line, and it fixes the Play fill, the avatar tile and the tracker-store primary fill —
-   * white text sits on all three, and a plain two-stop ramp to --brand-1 lands at 4.49:1. */
-  --brand-gradient: linear-gradient(120deg, var(--brand-2) 0%, var(--brand-1) 145%);
+/* The app's own palette, in the layer a custom appearance is allowed to sit on top of.
+ *
+ * These declarations used to be unlayered, and that is why the Theme screen could not change a
+ * single colour. An unlayered author declaration outranks every layered one whatever its
+ * specificity, so `@layer nodera.user`'s `--brand-1` lost to this block every time — the sheet
+ * mounted, the scope attribute was written, free-form rules painted, and the tokens silently did
+ * nothing. A layer is not decoration here: it is what makes the palette overridable at all. */
+@layer nodera.base {
+  :root {
+    /* The single accent. Style guide, "Primary / 7D67CB".
+     * 3.99:1 on --bg, so it clears the 3:1 non-text floor for fills, bars, borders and the focus
+     * ring — and is **never** a text colour on dark. That is what --brand-tint is for. */
+    --brand-1: #7d67cb;
+    /* The deep partner: the fill under a white label. White on it is 5.89:1. */
+    --brand-2: #6a53bb;
+    /* Cool informational — peer and download figures. The reference has no second hue and does not
+     * contradict this one, so it stands. */
+    --brand-3: #8fc8ff;
+    /* Brand-coloured *text* and glyphs on dark: 5.43:1 on --bg, 4.94:1 on --surface, 5.72:1 on
+     * --bg-rail, 4.79:1 on --brand-soft. The reference's own rendered accent measures #8776ce; this
+     * is one step up so it clears AA everywhere it is written. */
+    --brand-tint: #9182d6;
+    /* The 145% far stop keeps the lightest *visible* colour at ~#7761c6, which is 4.87:1 with white.
+     * One line, and it fixes the Play fill, the avatar tile and the tracker-store primary fill —
+     * white text sits on all three, and a plain two-stop ramp to --brand-1 lands at 4.49:1. */
+    --brand-gradient: linear-gradient(120deg, var(--brand-2) 0%, var(--brand-1) 145%);
 
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 16px;
-  /* Declared for the Theme screen's generated CSS to name. Deliberately no `rounded-pill` utility:
-   * `rounded-full` already exists and a duplicate is token drift waiting to happen. */
-  --radius-pill: 999px;
-  --font-ui: "Inter Variable", Inter, system-ui, sans-serif;
-  --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, sans-serif;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --radius-sm: 8px;
+    --radius: 12px;
+    --radius-lg: 16px;
+    /* Declared for the Theme screen's generated CSS to name. Deliberately no `rounded-pill` utility:
+     * `rounded-full` already exists and a duplicate is token drift waiting to happen. */
+    --radius-pill: 999px;
+    --font-ui: "Inter Variable", Inter, system-ui, sans-serif;
+    --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
-  --up: #9ee75a;
-  --down: #73b8ef;
-  --warn: #e9ad54;
-  --danger: #ef786f;
+    --up: #9ee75a;
+    --down: #73b8ef;
+    --warn: #e9ad54;
+    --danger: #ef786f;
 
-  /* --- The launcher.
-   *
-   * A hero-led screen needs three things this palette never had: a veil that keeps text legible over
-   * generated art, more than one elevation, and a fill for the one button on the page that matters.
-   * They are declared here and re-exported by reference below, so a theme switch still repaints
-   * everything from one attribute write and no component carries a theme prop. */
-  --radius-xl: 22px;
-  --canvas-max: 1680px;
-  --canvas-gutter: clamp(20px, 3.2vw, 56px);
-  /* Tall enough to read as art, short enough that the world list under it is not below the fold on
-   * a 900x600 window — which is the size this app opens at. */
-  --hero-height: clamp(320px, 52vh, 560px);
+    /* --- The launcher.
+     *
+     * A hero-led screen needs three things this palette never had: a veil that keeps text legible over
+     * generated art, more than one elevation, and a fill for the one button on the page that matters.
+     * They are declared here and re-exported by reference below, so a theme switch still repaints
+     * everything from one attribute write and no component carries a theme prop. */
+    --radius-xl: 22px;
+    /* The ceiling on the content column, and it stays 1680.
+     *
+     * On the 1920px display this redesign was reported against, the rail takes 232px and the canvas
+     * takes all 1680 of what is left — so the cap is not what was leaving the window empty, and
+     * lowering it would only re-create the complaint on purpose. It is also the right *place* to cap:
+     * this app's pages are card walls, which read fine at 1568px of content, and the one thing that
+     * does not — prose — is capped by measure where it is written (`72ch` on a page description,
+     * `70ch` on a card hint, `68ch` on a row hint) rather than by starving every card of width. */
+    --canvas-max: 1680px;
+    --canvas-gutter: clamp(20px, 3.2vw, 56px);
+    /* Tall enough to read as art, short enough that the world list under it is not below the fold on
+     * a 900x600 window — which is the size this app opens at. */
+    --hero-height: clamp(320px, 52vh, 560px);
 
-  /* The navigation rail. Fixed, not proportional: the reference's 7.6% of a 1188px window is 55px
-   * at this app's 720px floor, which cannot hold a 44px target plus air. */
-  --rail-w: 72px;
-  --rail-w-wide: 232px;
-  --rail-item: 44px;
+    /* The navigation rail. Fixed, not proportional: the reference's 7.6% of a 1188px window is 55px
+     * at this app's 720px floor, which cannot hold a 44px target plus air. */
+    --rail-w: 72px;
+    --rail-w-wide: 232px;
+    --rail-item: 44px;
 
-  /* The one button on the page that matters, and the text that sits on it. */
-  --play-fill: var(--brand-gradient);
-  --on-play: #ffffff;
+    /* The one button on the page that matters, and the text that sits on it. */
+    --play-fill: var(--brand-gradient);
+    --on-play: #ffffff;
 
-  /* Written once, read by every focusable thing. There was no focus token at all: the only styled
-   * ring in the app was hand-written on one control, so keyboard focus was invisible everywhere
-   * else. */
-  --focus-ring: var(--brand-1);
+    /* Written once, read by every focusable thing. There was no focus token at all: the only styled
+     * ring in the app was hand-written on one control, so keyboard focus was invisible everywhere
+     * else. */
+    --focus-ring: var(--brand-1);
 
-  /* Durations were literals scattered across three files (`duration-150`, `duration-[180ms]`). */
-  --motion-fast: 140ms;
-  --motion-base: 220ms;
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-}
+    /* Durations were literals scattered across three files (`duration-150`, `duration-[180ms]`). */
+    --motion-fast: 140ms;
+    --motion-base: 220ms;
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
 
-:root,
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  /* Style guide, "Primary / 16171B". */
-  --bg: #16171b;
-  /* Sampled #0F1112, re-hued onto --bg's cool-neutral axis. One step *below* the page: the chrome
-   * recedes and the data comes forward. */
-  --bg-rail: #101116;
-  --surface: #1e2026;
-  --surface-2: #24262d;
-  --surface-hover: #2a2d35;
-  /* Sampled hairline #262930, lifted five points — at 1.05:1 the original is invisible. */
-  --line: #2b2e36;
-  --line-soft: #1f2229;
-  /* Style guide, "Secondary / FFFFFF" and "Secondary / 8B8C8F". 17.9:1 and 5.33:1 on --bg. */
-  --text: #ffffff;
-  --text-dim: #8b8c8f;
-  /* 3.71:1 on --bg, 3.37:1 on --surface. It clears the 3:1 non-text floor everywhere and never
-   * clears 4.5:1, so the rule that comes with it is load-bearing: **--text-faint may never be the
-   * sole carrier of meaning.** Subtitles, table headings and "updated Ns ago" qualify. A figure
-   * never does. (The reference's own faint tier, #474A4F, is 2.0:1 and unusable.) */
-  --text-faint: #6f7277;
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+  :root,
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    /* Style guide, "Primary / 16171B". */
+    --bg: #16171b;
+    /* Sampled #0F1112, re-hued onto --bg's cool-neutral axis. One step *below* the page: the chrome
+     * recedes and the data comes forward. */
+    --bg-rail: #101116;
+    --surface: #1e2026;
+    --surface-2: #24262d;
+    --surface-hover: #2a2d35;
+    /* Sampled hairline #262930, lifted five points — at 1.05:1 the original is invisible. */
+    --line: #2b2e36;
+    --line-soft: #1f2229;
+    /* Style guide, "Secondary / FFFFFF" and "Secondary / 8B8C8F". 17.9:1 and 5.33:1 on --bg. */
+    --text: #ffffff;
+    --text-dim: #8b8c8f;
+    /* 3.71:1 on --bg, 3.37:1 on --surface. It clears the 3:1 non-text floor everywhere and never
+     * clears 4.5:1, so the rule that comes with it is load-bearing: **--text-faint may never be the
+     * sole carrier of meaning.** Subtitles, table headings and "updated Ns ago" qualify. A figure
+     * never does. (The reference's own faint tier, #474A4F, is 2.0:1 and unusable.) */
+    --text-faint: #6f7277;
+    --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
 
-  /* A glass strip over hero art, and three elevations where there used to be one. A launcher has a
-   * card that sits above the page and a control that sits above the card, and one shadow cannot
-   * say which is which. The sheet separates by lightness rather than blur, so elev-3 gains a brand
-   * hairline instead of more shadow. */
-  --surface-3: rgba(22, 23, 27, 0.78);
-  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --elev-2: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --elev-3: 0 24px 64px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(125, 103, 203, 0.1);
+    /* A glass strip over hero art, and three elevations where there used to be one. A launcher has a
+     * card that sits above the page and a control that sits above the card, and one shadow cannot
+     * say which is which. The sheet separates by lightness rather than blur, so elev-3 gains a brand
+     * hairline instead of more shadow. */
+    --surface-3: rgba(22, 23, 27, 0.78);
+    --elev-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --elev-2: 0 10px 30px rgba(0, 0, 0, 0.45);
+    --elev-3: 0 24px 64px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(125, 103, 203, 0.1);
 
-  /* The fill behind anything selected, active or armed, and its border partner. Both were written
-   * inline before this — `bg-brand-2/8` in five places drifting between /8 and /10, and
-   * `border-brand-2/30|40|50|55|70`, six different values for one idea. #7d67cb at 12% and 42%. */
-  --brand-soft: rgba(125, 103, 203, 0.12);
-  --brand-edge: rgba(125, 103, 203, 0.42);
-  /* The sheet's signature: an accent bloom with no shadow under it. #7d67cb at 26%. */
-  --glow-brand: 0 0 34px rgba(125, 103, 203, 0.26);
-  /* Panel 07 measures the blurred screen behind a dialog at #060706, i.e. ~78% black. */
-  --scrim: rgba(0, 0, 0, 0.78);
+    /* The fill behind anything selected, active or armed, and its border partner. Both were written
+     * inline before this — `bg-brand-2/8` in five places drifting between /8 and /10, and
+     * `border-brand-2/30|40|50|55|70`, six different values for one idea. #7d67cb at 12% and 42%. */
+    --brand-soft: rgba(125, 103, 203, 0.12);
+    --brand-edge: rgba(125, 103, 203, 0.42);
+    /* The sheet's signature: an accent bloom with no shadow under it. #7d67cb at 26%. */
+    --glow-brand: 0 0 34px rgba(125, 103, 203, 0.26);
+    /* Panel 07 measures the blurred screen behind a dialog at #060706, i.e. ~78% black. */
+    --scrim: rgba(0, 0, 0, 0.78);
 
-  /* Dark art needs a dark veil; the light theme needs the opposite, which is why this is a token
-   * rather than one gradient written into the hero. */
-  --hero-scrim: linear-gradient(90deg, rgba(22, 23, 27, 0.98) 0%, rgba(22, 23, 27, 0.72) 48%, rgba(22, 23, 27, 0.18) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
-}
+    /* Dark art needs a dark veil; the light theme needs the opposite, which is why this is a token
+     * rather than one gradient written into the hero. */
+    --hero-scrim: linear-gradient(90deg, rgba(22, 23, 27, 0.98) 0%, rgba(22, 23, 27, 0.72) 48%, rgba(22, 23, 27, 0.18) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
+  }
 
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f6f7fb;
-  --bg-rail: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #f9fafc;
-  --surface-hover: #eef0f6;
-  --line: #e2e5ee;
-  --line-soft: #edeff5;
-  --text: #14161d;
-  --text-dim: #5c6373;
-  --text-faint: #8b92a3;
-  /* #7d67cb darkened until it clears on white: 8.30:1 on --bg and 6.62:1 respectively. On light,
-   * the legible brand *is* the darkest brand, so --brand-tint is --brand-1. */
-  --brand-1: #4b3d8f;
-  --brand-2: #5f4fa8;
-  --brand-3: #145f8a;
-  --brand-tint: #4b3d8f;
-  --focus-ring: #4b3d8f;
-  --on-play: #ffffff;
-  --shadow: 0 8px 24px rgba(20, 22, 29, 0.08);
-  --up: #4f861b;
-  --down: #2375a9;
-  --warn: #845400;
-  --danger: #b4231a;
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f6f7fb;
+    --bg-rail: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f9fafc;
+    --surface-hover: #eef0f6;
+    --line: #e2e5ee;
+    --line-soft: #edeff5;
+    --text: #14161d;
+    --text-dim: #5c6373;
+    --text-faint: #8b92a3;
+    /* #7d67cb darkened until it clears on white: 8.30:1 on --bg and 6.62:1 respectively. On light,
+     * the legible brand *is* the darkest brand, so --brand-tint is --brand-1. */
+    --brand-1: #4b3d8f;
+    --brand-2: #5f4fa8;
+    --brand-3: #145f8a;
+    --brand-tint: #4b3d8f;
+    --focus-ring: #4b3d8f;
+    --on-play: #ffffff;
+    --shadow: 0 8px 24px rgba(20, 22, 29, 0.08);
+    --up: #4f861b;
+    --down: #2375a9;
+    --warn: #845400;
+    --danger: #b4231a;
 
-  --surface-3: rgba(255, 255, 255, 0.78);
-  --elev-1: 0 1px 2px rgba(20, 22, 29, 0.06);
-  --elev-2: 0 10px 30px rgba(20, 22, 29, 0.1);
-  --elev-3: 0 24px 64px rgba(20, 22, 29, 0.16), 0 0 0 1px rgba(75, 61, 143, 0.1);
-  --brand-soft: rgba(75, 61, 143, 0.1);
-  --brand-edge: rgba(75, 61, 143, 0.35);
-  --glow-brand: 0 0 34px rgba(75, 61, 143, 0.18);
-  --scrim: rgba(20, 22, 29, 0.42);
-  --hero-scrim: linear-gradient(90deg, rgba(246, 247, 251, 0.98) 0%, rgba(246, 247, 251, 0.7) 48%, rgba(246, 247, 251, 0.12) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
+    --surface-3: rgba(255, 255, 255, 0.78);
+    --elev-1: 0 1px 2px rgba(20, 22, 29, 0.06);
+    --elev-2: 0 10px 30px rgba(20, 22, 29, 0.1);
+    --elev-3: 0 24px 64px rgba(20, 22, 29, 0.16), 0 0 0 1px rgba(75, 61, 143, 0.1);
+    --brand-soft: rgba(75, 61, 143, 0.1);
+    --brand-edge: rgba(75, 61, 143, 0.35);
+    --glow-brand: 0 0 34px rgba(75, 61, 143, 0.18);
+    --scrim: rgba(20, 22, 29, 0.42);
+    --hero-scrim: linear-gradient(90deg, rgba(246, 247, 251, 0.98) 0%, rgba(246, 247, 251, 0.7) 48%, rgba(246, 247, 251, 0.12) 78%), linear-gradient(0deg, var(--bg) 0%, transparent 42%);
+  }
 }
 
 /* Deliberately **unlayered**, and immediately after the declarations it overrides.
  *
  * An unlayered author declaration outranks every layered one, so the same override written inside
- * `@layer base` would lose to the `:root` block above and quietly do nothing — a reduced-motion
- * preference that is honoured in the source and ignored in the browser. */
+ * a layer would lose to the block above and quietly do nothing — a reduced-motion preference that
+ * is honoured in the source and ignored in the browser.
+ *
+ * Being unlayered now also puts it above `nodera.user`, which is the behaviour that was wanted
+ * anyway: an accessibility preference is not a thing a downloaded appearance gets to overrule. It
+ * is the only unlayered declaration in this file, and the only one that should be. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;
@@ -235,8 +270,10 @@
   --shadow-glow: var(--glow-brand);
 }
 
-/* Shape and type scale. The radii deliberately mirror the legacy --radius-* names above, which are
- * unlayered and therefore win over Tailwind's defaults with the identical value either way. */
+/* Shape and type scale. The radii deliberately mirror the legacy --radius-* names above, which sit
+ * in `nodera.base` and therefore win over these — `@theme` emits into Tailwind's own `theme` layer,
+ * which is declared before any of ours. The values are identical either way, and the duplication is
+ * what lets a token be named as `--radius` or as `rounded-md` without the two drifting. */
 @theme {
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -271,11 +308,18 @@
   body,
   #root {
     height: 100%;
+    /* Stated rather than inherited from "a block box fills its parent", because `#root` is a flex
+     * container whose child is a flex item: the shell's width comes from this chain, and an
+     * `auto` anywhere along it shrink-wraps the app onto its own content. */
+    width: 100%;
   }
 
   body {
+    /* The bloom is `--brand-soft`, not a violet literal. It was `rgba(125, 103, 203, 0.1)`, which
+     * is #7d67cb hard-coded into the page background — so an appearance that repainted every brand
+     * token left a violet haze in the top-right corner of its own window. */
     background:
-      radial-gradient(circle at 86% -10%, rgba(125, 103, 203, 0.1), transparent 30rem),
+      radial-gradient(circle at 86% -10%, var(--brand-soft), transparent 30rem),
       var(--bg);
     color: var(--text);
     font: 13.5px/1.55 var(--font-ui);
@@ -295,16 +339,58 @@
   letter-spacing: -0.035em;
 }
 
+/* The centred content column.
+ *
+ * A **maximum**, never a width. `min(100%, var(--canvas-max))` computed to the same number here,
+ * but only while every ancestor had a definite width to take 100% of: under intrinsic sizing a
+ * percentage is indefinite and behaves as `auto`, so the canvas collapsed onto its own content and
+ * the page read as a narrow column stranded in a wide window. `max-width` says the same thing in a
+ * form that survives being measured.
+ *
+ * `min-width: 0` because this is usually a flex or grid child, and their automatic minimum size is
+ * `min-content` — which is what lets one unbreakable row inside a card push the canvas wider than
+ * the window that contains it. */
 @utility page-canvas {
-  width: min(100%, var(--canvas-max));
+  width: 100%;
+  max-width: var(--canvas-max);
+  min-width: 0;
   margin-inline: auto;
   padding-inline: var(--canvas-gutter);
 }
 
+/* Twelve equal columns, and children that are allowed to be narrower than their contents.
+ *
+ * `minmax(0, 1fr)` already stops a wide child from stretching the *track*; it does nothing about
+ * the child itself, which as a grid item still carries `min-width: auto` and overflows the track it
+ * was given. Every direct child of this grid holds text, a nested grid or a table, so the rule from
+ * the layout contract — `min-width: 0` on every flex and grid child that holds one of those — is
+ * written once here rather than remembered on each `col-span-12` in eight screens. */
 @utility page-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   column-gap: clamp(14px, 1.5vw, 24px);
+
+  & > * {
+    min-width: 0;
+  }
+}
+
+/* A wall of cards that answers a wider window with more columns instead of more emptiness.
+ *
+ * Panels 03, 04 and 06 of the reference all spend horizontal space this way: three cards across a
+ * ~1090px content column, reflowing rather than stretching. A fixed `wide:col-span-6` cannot do
+ * that — it is two columns at 1180px and still two columns at 1920px, each nearly 800px wide.
+ *
+ * `auto-fit` rather than `auto-fill`: with fewer cards than tracks, `auto-fill` keeps the empty
+ * tracks and leaves a ragged gap at the right, which is the under-fill this exists to end. */
+@utility card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(260px, 22vw, 340px), 1fr));
+  gap: clamp(14px, 1.5vw, 24px);
+
+  & > * {
+    min-width: 0;
+  }
 }
 
 @utility bg-brand {
@@ -359,6 +445,11 @@
  * `customtheme.ts` for the other three, one of which is what survives an engine that does not
  * implement `@layer` at all — an unknown at-rule is dropped whole, so this block would fail *open*).
  *
+ * **Every declaration here ends in `!important`, and that is a requirement, not a habit.** The
+ * layer is declared first so that it wins the inverted important order; the same position makes it
+ * the *weakest* layer for normal declarations, so a normal declaration written here would lose to
+ * `nodera.base` and do nothing at all. `theme-screen.test.mjs` asserts there is not one.
+ *
  * `[data-nodera-truth]` marks the handful of elements that render a signed or proven fact: the node
  * id, a world's owner, an admin proof, a delete confirmation. A theme that could put a `content:`
  * on their pseudo-elements could forge one, so the rewriter drops any rule naming the attribute and
@@ -369,16 +460,42 @@
   body,
   #root {
     height: 100% !important;
+    /* The partner of `height`, and it was missing. A theme that shrink-wraps the app —
+     * `#root { width: 120px }` — locks the window out exactly as thoroughly as `display: none`,
+     * and every other way back is inside the app it just made unreachable. */
+    width: 100% !important;
     visibility: visible !important;
     opacity: 1 !important;
     transform: none !important;
     pointer-events: auto !important;
   }
 
+  /* `display` has to be pinned separately because the three elements do not want the same value.
+   *
+   * It was missing on `html` and `body`, and a measured probe found the hole: a theme containing
+   * `* { display: none !important }` is rewritten to `<scope> * { … }`, which matches `body` — and a
+   * `body` that is not displayed takes the entire window with it, including the escape hatch, whose
+   * own `display: flex` was still computing correctly on an element inside a subtree that no longer
+   * generates boxes. Pinning `height` and `visibility` on `body` without pinning `display` was
+   * therefore protection that measured green and locked the user out anyway.
+   *
+   * `#root` is a flex container so the shell it holds can be `h-full` without a second height
+   * chain. That makes the shell a flex *item*, which is why the shell declares `w-full min-w-0`:
+   * a flex item that says neither is shrink-to-fit and ignores the window it is in. */
+  html,
+  body {
+    display: block !important;
+  }
+
   #root {
     display: flex !important;
   }
 
+  /* The hatch has two states — a labelled button and a withdrawn handle — and both are written as
+   * inline `!important` by `customtheme.ts`, which outranks even this block. What is pinned here is
+   * only what is true of *both*: it is on screen, it is in front, it can be clicked, and it is big
+   * enough to hit. The minimum size is the withdrawn handle's, so a theme cannot collapse the hatch
+   * to a point on an engine where this block is all there is. */
   [data-nodera-escape] {
     position: fixed !important;
     inset: auto 16px 16px auto !important;
@@ -390,6 +507,8 @@
     filter: none !important;
     pointer-events: auto !important;
     z-index: 2147483647 !important;
+    min-width: 14px !important;
+    min-height: 44px !important;
     background: #16171b !important;
     color: #ffffff !important;
     border: 1px solid #ffffff !important;

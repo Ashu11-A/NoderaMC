@@ -26,7 +26,7 @@ use crate::api::model::Dashboard;
 use crate::api::store::DashboardStore;
 use crate::browser::LinkOpener;
 use crate::config::{ConfigStatusHandle, PushSignal};
-use crate::daemon::RestartSignal;
+use crate::daemon::{LaunchedWorker, RestartSignal};
 use crate::logs::LogBuffer;
 use crate::power::PauseHandle;
 use crate::settings::SettingsHandle;
@@ -87,6 +87,11 @@ pub struct NoderaCore {
     pub pause: Arc<PauseHandle>,
     pub push: Arc<PushSignal>,
     pub restart: Arc<RestartSignal>,
+    /// What the running worker was actually started with. Written by the supervisor, read by
+    /// [`Self::worker_ownership`] — it is the only thing that can tell a bind-time setting apart
+    /// from a bind-time setting the user has *changed*, which is the difference between a banner
+    /// that means something and one that is permanently true.
+    pub launched: Arc<LaunchedWorker>,
     pub network: Arc<std::sync::Mutex<android::network::NetworkState>>,
     pub pending_store: Arc<PendingStore>,
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -111,6 +116,7 @@ impl NoderaCore {
             pause: Arc::new(PauseHandle::new()),
             push: Arc::new(PushSignal::new(config_status)),
             restart: Arc::new(RestartSignal::default()),
+            launched: Arc::new(LaunchedWorker::default()),
             // Deliberately not probed here: on Android the Activity has not yet bound this process's
             // `Context`, so a read would panic (caught, but noisy) and be discarded ten seconds later
             // anyway. The sampler fills it in.
@@ -158,8 +164,13 @@ impl NoderaCore {
         self.logs.snapshot()
     }
 
+    /// Who owns the worker, and which settings the *running* one is out of date on.
+    ///
+    /// The pending set is computed here rather than in the command so the answer comes from the same
+    /// supervisor record the automatic restart works from — two ways of deciding what is pending is
+    /// two ways for the screen to disagree with what the app then does.
     pub fn worker_ownership(&self) -> daemon::WorkerOwnership {
-        daemon::ownership()
+        daemon::ownership(self.launched.pending_restart_keys(&self.settings.snapshot()))
     }
 
     /// Cycle the worker so env-shaped settings (trackers, port range, archive dir) apply.

@@ -15,9 +15,32 @@
 //   said". The exit test in `tests/ux-honesty.test.mjs` asserts exactly that.
 // * **A failure offers one action.** The `remedy` enum decides which — not the prose, which can be
 //   reworded without anybody noticing a button stopped appearing.
+//
+// # The picker is a wall of cards, not a dropdown
+//
+// It was a `<select>`, and below the hero the screen held that dropdown, one sentence of status,
+// and nothing else — so on a 1080p display the bottom half of the window was empty and the one
+// decision the screen exists for was folded shut inside a control that shows one option at a time.
+// A launcher is the wrong place to hide the list of things you can launch.
+//
+// The wall is the same `CARD_GRID` the library uses, which is why it answers a wider window with
+// more columns rather than more margin, and each card is the world's own generated art — the same
+// picture it has in the library and on its own screen, so it is something a player recognises
+// rather than a row of names. The set is still exactly the set the dropdown offered: worlds you are
+// in, worlds with a game running, worlds you administer. Choosing one selects it; it does not
+// navigate, because the whole point of this screen is that the next thing you press is Play.
 import { useEffect, useMemo, useState } from "react";
-import { FiAlertCircle, FiCopy, FiFileText, FiPlay, FiSettings, FiUsers, FiWifiOff } from "react-icons/fi";
-import { Banner, Button, Empty, Select, cx, worldArt } from "./components";
+import {
+  FiAlertCircle,
+  FiCheck,
+  FiCopy,
+  FiFileText,
+  FiPlay,
+  FiSettings,
+  FiUsers,
+  FiWifiOff,
+} from "react-icons/fi";
+import { Banner, Button, CARD_GRID, Empty, Select, cx, worldArt } from "./components";
 import {
   IDLE_LAUNCH,
   autoConnects,
@@ -136,8 +159,22 @@ export function PlayScreen(props: {
 
   // Worlds worth playing: somewhere you already are, or somewhere with a game running. A world this
   // node merely stores has nothing to join.
+  //
+  // Sorted, because these are now cards a person points at rather than rows in a dropdown they read
+  // top to bottom. The payload's order is the worker's, and a wall whose tiles trade places between
+  // snapshots is one nobody can learn. Alphabetical by name, and by id for a world that has none.
   const playable = useMemo(
-    () => d.worlds.filter((w) => w.connected || w.game_endpoint || w.administered),
+    () =>
+      d.worlds
+        .filter((w) => w.connected || w.game_endpoint || w.administered)
+        .sort((a, b) => {
+          const left = a.name || a.world_id;
+          const right = b.name || b.world_id;
+          return (
+            left.localeCompare(right, undefined, { sensitivity: "base" }) ||
+            a.world_id.localeCompare(b.world_id)
+          );
+        }),
     [d.worlds],
   );
 
@@ -264,52 +301,164 @@ export function PlayScreen(props: {
         }
       />
 
-      <div className="page-canvas relative z-10 flex w-full flex-col gap-4 pt-6 pb-12">
-        <div className="flex flex-wrap items-end gap-3">
-          {playable.length > 1 && world && (
-            <Select
-              ariaLabel="World to play"
-              value={world.world_id}
-              onChange={setSelected}
-              options={playable.map((w) => ({
-                value: w.world_id,
-                label: w.name || w.world_id.slice(0, 10),
-              }))}
-            />
+      <div className="page-canvas page-grid relative z-10 gap-y-5 pt-6 pb-12">
+        <div className="col-span-12 flex flex-col gap-3">
+          {/* One dropdown is left, and it is a genuinely different decision from the one the wall
+              below makes: which copy of Minecraft starts, not which world it opens. It carries a
+              visible label because a bare `<select>` under a hero says nothing about what it
+              chooses. */}
+          {targetChoices.length > 1 && targetChoice && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="text-2xs font-medium tracking-[0.16em] text-faint uppercase">
+                Minecraft installation
+              </span>
+              <Select
+                ariaLabel="Minecraft installation"
+                value={targetChoice.value}
+                onChange={setSelectedTarget}
+                options={targetChoices.map((candidate) => ({
+                  value: candidate.value,
+                  label: candidate.target.name,
+                }))}
+              />
+            </div>
           )}
 
-          {targetChoices.length > 1 && targetChoice && (
-            <Select
-              ariaLabel="Minecraft installation"
-              value={targetChoice.value}
-              onChange={setSelectedTarget}
-              options={targetChoices.map((candidate) => ({
-                value: candidate.value,
-                label: candidate.target.name,
-              }))}
-            />
+          <LaunchLine
+            launch={launch}
+            target={target}
+            targetsLoaded={targets !== null}
+            onSettings={props.onSettings}
+            onRemedy={handleRemedy}
+            onCloseConnection={closeConnection}
+            closing={closing}
+          />
+
+          {closeError && (
+            <Banner tone="danger">
+              Connection is still open: {closeError.replace(/^Error:\s*/, "")}
+            </Banner>
           )}
         </div>
 
-        <LaunchLine
-          launch={launch}
-          target={target}
-          targetsLoaded={targets !== null}
-          onSettings={props.onSettings}
-          onRemedy={handleRemedy}
-          onCloseConnection={closeConnection}
-          closing={closing}
-        />
-
-        {closeError && (
-          <Banner tone="danger">
-            Connection is still open: {closeError.replace(/^Error:\s*/, "")}
-          </Banner>
+        {/* Only when there is a choice to make. One playable world is already the hero, at the size
+            of the window, and repeating it underneath as a card would be the same world twice. */}
+        {playable.length > 1 && (
+          <section className="col-span-12" aria-label="World to play">
+            <header className="mb-3.5 flex flex-wrap items-end justify-between gap-x-5 gap-y-1 border-b border-line-soft pb-2.5">
+              <div className="min-w-0">
+                <h2 className="text-2xs font-medium tracking-[0.16em] text-dim uppercase">
+                  Worlds ready to play
+                </h2>
+                <p className="mt-1.5 max-w-[80ch] text-xs text-faint">
+                  Worlds you are in, worlds with a game running, and worlds you run yourself. Pick
+                  one and the hero above changes with it.
+                </p>
+              </div>
+              <span className="flex-none text-xs text-faint tabular-nums">{playable.length}</span>
+            </header>
+            <div className={CARD_GRID}>
+              {playable.map((candidate) => (
+                <WorldChoice
+                  key={candidate.world_id}
+                  world={candidate}
+                  active={candidate.world_id === world?.world_id}
+                  // The same condition that disables Play. A launch in flight is a launch of one
+                  // named world, and letting the picker move under it would put a different name
+                  // in the hero's progress pill than the one actually starting.
+                  disabled={busy}
+                  onSelect={() => setSelected(candidate.world_id)}
+                />
+              ))}
+            </div>
+          </section>
         )}
 
-        {!launchSelection && <NothingToPlay d={d} onSettings={props.onSettings} />}
+        {!launchSelection && (
+          <div className="col-span-12">
+            <NothingToPlay d={d} onSettings={props.onSettings} />
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/* -------------------------------------------------------------------------------------- picker */
+
+/**
+ * One world you could press Play on.
+ *
+ * A button rather than a link, and `aria-pressed` rather than a radio: pressing it changes what the
+ * hero is about, and nothing about the app has moved. The art is the same hash of the same world id
+ * the library and the world screen draw, so the three surfaces agree about what a world looks like.
+ *
+ * Every fact on the card is one that bears on "can I play here now" — whether a game is open, and
+ * how many people are in it. Size, completeness and peer counts belong to the world's own screen;
+ * a picker that reports eleven figures is a table with pictures.
+ */
+function WorldChoice(props: {
+  world: World;
+  active: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  const w = props.world;
+  return (
+    <button
+      type="button"
+      aria-pressed={props.active}
+      disabled={props.disabled}
+      onClick={props.onSelect}
+      className={cx(
+        "group relative flex min-w-0 flex-col overflow-hidden rounded-lg border p-4 text-left",
+        "transition-[border-color,box-shadow,translate] duration-[var(--motion-base)] ease-[var(--ease-out)]",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
+        props.active
+          ? "border-brand-edge bg-surface shadow-glow"
+          : "border-line-soft bg-surface",
+        props.disabled
+          ? !props.active && "opacity-50"
+          : !props.active && "hover:-translate-y-0.5 hover:border-brand-edge hover:shadow-e2",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cx("world-art absolute inset-0", props.active ? "opacity-20" : "opacity-10")}
+        style={worldArt(w.world_id)}
+      />
+
+      <span className="relative flex min-w-0 items-center gap-2.5">
+        <span className="display-type min-w-0 flex-1 truncate text-[17px] font-bold uppercase">
+          {w.name || w.world_id.slice(0, 10)}
+        </span>
+        {props.active && (
+          <span aria-hidden className="flex-none text-brand-1">
+            <FiCheck />
+          </span>
+        )}
+      </span>
+
+      <span className="relative mt-1.5 truncate text-xs text-dim">{describe(w)}</span>
+
+      <span className="relative mt-4 flex items-center justify-between gap-3 text-xs">
+        <span className="flex min-w-0 items-center gap-2 text-dim">
+          <FiUsers aria-hidden className="flex-none" />
+          {/* `—`, never `0`. Only a node with a game *in* the world can count players, so null is
+              the ordinary answer on a peer that merely stores it, and the title — which is attached
+              here and never to a real figure — says which of the two a dash means. */}
+          <span
+            className="font-medium tabular-nums text-text"
+            title={w.players === null || w.players === undefined ? "player count unknown" : undefined}
+          >
+            {show(w.players, String)}
+          </span>
+        </span>
+        <span className={cx("flex-none whitespace-nowrap", w.game_endpoint ? "text-up" : "text-faint")}>
+          {w.game_endpoint ? "A game is running" : "No game running"}
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -384,7 +533,7 @@ function Hero(props: {
               />
               <span className="flex flex-col leading-tight">
                 <span className="font-medium text-text">{PHASE_LABEL[props.launch.phase]}</span>
-                <span className="text-[10px] text-dim">
+                <span className="max-w-[22ch] truncate text-[10px] text-dim">
                   {world?.name || props.launch.world_id.slice(0, 10) || "Nodera"}
                 </span>
               </span>
@@ -394,7 +543,11 @@ function Hero(props: {
 
       <div className="page-canvas relative flex w-full flex-1 flex-col justify-end gap-2 pt-10 pb-6">
         <p className="text-2xs font-medium tracking-[0.16em] text-brand-tint uppercase">Ready to play</p>
-        <h1 className="display-type max-w-[12ch] text-hero leading-[0.95] font-bold">
+        {/* `12ch` is a measure, and a measure only wraps text that has somewhere to wrap. A world
+            named in one unbroken 30-character token is ~850px at this size, which walks straight
+            out of the canvas and gives the page the horizontal scrollbar it is not allowed to
+            have. `anywhere` is the only overflow-wrap value that will break inside a word. */}
+        <h1 className="display-type max-w-[12ch] text-hero leading-[0.95] font-bold [overflow-wrap:anywhere]">
           {world ? world.name || "Unnamed world" : props.fallbackName || "Nodera"}
         </h1>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-dim">

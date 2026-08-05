@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the Nodera window is allowed to ask the core and the plugins for. Without a capability granting it, `listen()` is refused and every push from the node is dropped before it reaches a pixel \u2014 the app renders its first snapshot and then never changes. `deep-link:default` is what lets an incoming nodera:// link reach the window that has to show it to the user.",
+  "description": "What the Nodera window is allowed to ask the core and the plugins for. Without a capability granting it, `listen()` is refused and every push from the node is dropped before it reaches a pixel — the app renders its first snapshot and then never changes. `core:default` is what grants `plugin:event|listen`, so it stays in this list and is never narrowed to a hand-picked subset: three of the five backend emits are written `let _ = emit(...)`, so a denial would be silent on both sides of the bridge, and the symptom — `invoke` still working while the dashboard quietly stops changing — reads as a dead node rather than as a permissions error. The window's own chrome is granted next door in `desktop.json`, because `decorations: false` is a desktop question and Android draws no window. `deep-link:default` is what lets an incoming nodera:// link reach the window that has to show it to the user.",
   "windows": [
     "main"
   ],

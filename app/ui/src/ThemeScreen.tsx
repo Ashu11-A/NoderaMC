@@ -264,6 +264,21 @@ export function ThemeScreen(props: {
             Custom themes apply to this desktop app only — the phone renders in Compose against the
             system palette and cannot read CSS.
           </p>
+          {/* Said here because this is the screen where the lockout gets made, and because the
+            * hatch itself withdraws to a handle after twenty seconds — a route nobody has read
+            * about is not a route. `customtheme.ts` owns the chord; this sentence and that constant
+            * have to agree. */}
+          <p className="mt-2 text-xs text-faint">
+            If an appearance makes this window unusable, press{" "}
+            <kbd className="rounded-sm border border-line px-1 font-mono text-2xs text-dim">
+              Ctrl
+            </kbd>
+            +<kbd className="rounded-sm border border-line px-1 font-mono text-2xs text-dim">Alt</kbd>
+            +<kbd className="rounded-sm border border-line px-1 font-mono text-2xs text-dim">R</kbd>{" "}
+            — or Shift+Tab from the top of the page — to bring back{" "}
+            <span className="text-dim">Reset appearance</span>. It is always in the bottom-right
+            corner while a custom appearance is in force.
+          </p>
         </Card>
       </div>
 

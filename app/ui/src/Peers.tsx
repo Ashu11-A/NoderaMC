@@ -5,7 +5,7 @@
 // under a selected world, where they claimed a per-world scope they never had.
 import { useEffect, useState } from "react";
 import { FiRadio, FiUsers } from "react-icons/fi";
-import { Card, DataTable, Empty, MONO, Pagination, Pill, Stat, STAT_GRID, Td, Th, Tr, cx } from "./components";
+import { CARD_GRID, Card, DataTable, Empty, MONO, Pagination, Pill, Stat, STAT_GRID, Td, Th, Tr, cx } from "./components";
 import {
   UNKNOWN,
   formatBytes,
@@ -107,8 +107,14 @@ export function PeersScreen(props: { d: Dashboard }) {
         )}
       </Card>
 
-      <EndpointCard title="Trackers" rows={d.discovery.trackers} known={known} />
-      <EndpointCard title="Rendezvous" rows={d.discovery.rendezvous} known={known} />
+      {/* Two lists of the same shape, read against each other: "are my trackers up" and "are my
+          relays up" is one question asked twice, and stacking them put a screen-height of table
+          between the two halves of the answer. The peer table above stays full width because eight
+          columns of transfer figures is what that width is for. */}
+      <div className={`${CARD_GRID} items-start`}>
+        <EndpointCard title="Trackers" rows={d.discovery.trackers} known={known} />
+        <EndpointCard title="Rendezvous" rows={d.discovery.rendezvous} known={known} />
+      </div>
     </div>
   );
 }
