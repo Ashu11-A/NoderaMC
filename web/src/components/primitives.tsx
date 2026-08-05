@@ -79,40 +79,51 @@ export function Badge(props: { tone?: "brand" | "up" | "warn" | "danger" | "mute
  * bundle blocked. Used on the install page, where the three platforms are the same page read three
  * ways and a reader on a broken network still has to be able to read the other two.
  */
+/**
+ * The peer names, written out.
+ *
+ * Tailwind reads class names as literals out of the source; a name built at runtime from an index
+ * resolves to no CSS at all and the panels silently stack on top of each other. Three is the number
+ * of platforms this site has, and the array is the honest way to say that a fourth needs a line
+ * here.
+ */
+const PEER = ["peer/t0", "peer/t1", "peer/t2"];
+const PEER_LABEL = [
+  "peer-checked/t0:bg-surface-2 peer-checked/t0:text-text",
+  "peer-checked/t1:bg-surface-2 peer-checked/t1:text-text",
+  "peer-checked/t2:bg-surface-2 peer-checked/t2:text-text",
+];
+const PEER_PANEL = ["peer-checked/t0:block", "peer-checked/t1:block", "peer-checked/t2:block"];
+
 export function Tabs(props: { name: string; tabs: { id: string; label: string; body: ReactNode }[] }) {
+  if (props.tabs.length > PEER.length) {
+    throw new Error(`Tabs: ${props.tabs.length} tabs, but only ${PEER.length} peer names are declared.`);
+  }
   return (
-    <div className="my-6 rounded-lg border border-line bg-surface">
-      <div className="flex flex-wrap gap-1 border-b border-line-soft p-2">
-        {props.tabs.map((tab, i) => (
-          <span key={tab.id} className="contents">
-            <input
-              className="peer/tab sr-only"
-              type="radio"
-              name={props.name}
-              id={`${props.name}-${tab.id}`}
-              defaultChecked={i === 0}
-            />
-            <label
-              className="cursor-pointer rounded-sm px-3 py-1.5 text-sm text-dim hover:bg-surface-hover hover:text-text peer-checked/tab:bg-surface-2 peer-checked/tab:text-text"
-              htmlFor={`${props.name}-${tab.id}`}
-            >
-              {tab.label}
-            </label>
-          </span>
-        ))}
-      </div>
-      <div className="grid">
-        {props.tabs.map((tab) => (
+    <div className="my-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-2">
+      {props.tabs.map((tab, i) => (
+        <span key={tab.id} className="contents">
+          <input
+            className={`${PEER[i]} sr-only`}
+            type="radio"
+            name={props.name}
+            id={`${props.name}-${tab.id}`}
+            defaultChecked={i === 0}
+          />
+          <label
+            className={`order-1 cursor-pointer rounded-sm px-3 py-1.5 text-sm text-dim hover:bg-surface-hover hover:text-text ${PEER_LABEL[i]}`}
+            htmlFor={`${props.name}-${tab.id}`}
+          >
+            {tab.label}
+          </label>
           <section
-            key={tab.id}
-            className="col-start-1 row-start-1 px-5 py-4 text-body"
+            className={`order-2 hidden w-full border-t border-line-soft px-3 py-4 text-body ${PEER_PANEL[i]}`}
             aria-labelledby={`${props.name}-${tab.id}`}
           >
-            <p className="mb-3 font-medium text-text">{tab.label}</p>
             {tab.body}
           </section>
-        ))}
-      </div>
+        </span>
+      ))}
     </div>
   );
 }

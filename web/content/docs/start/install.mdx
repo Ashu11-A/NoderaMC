@@ -99,6 +99,18 @@ If the app is running and the game still cannot reach it, something on your mach
 You can turn the requirement off by setting `companion.required = false` in `config/nodera-client.toml`, and it is worth knowing what that actually buys you: the game will start, and every NoderaMC feature will be inert, because there is no node.
 It is a way to load a profile that has the jar in it, not a way to play without the worker.
 
+## Updating
+
+The app can update itself, and it is worth knowing exactly what that check proves.
+
+It downloads the release's checksum list, verifies the digest of what it fetched, and refuses to install anything that does not match.
+That proves the file you are about to run is the file the release published.
+It does **not** prove who published the release, because releases are not signed yet: the signature check is built and tested, and it is waiting on a key that does not exist.
+The update channel is empty by default, which is what keeps that gap confined to a lane you have to switch on — and it is written down rather than glossed over, as <a href="/status">tracker limitation L-81</a>.
+
+Updating the mod is a file copy.
+Replace the jar in `mods/` with the new one; there is no migration step and no state in the jar.
+
 ## What is installed where
 
 <Callout type="details" title="For the curious, or for uninstalling">

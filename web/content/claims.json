@@ -96,6 +96,19 @@
     "note": "L-81. The download page claims integrity, never provenance, and says which one it is claiming."
   },
   {
+    "claim": "It does **not** prove who published the release, because releases are not signed yet: the signature check is built and tested, and it is waiting on a key that does not exist.",
+    "page": "content/docs/start/install.mdx",
+    "source": "docs/tracker/LIMITATIONS.md",
+    "must_match": "no signing key exists yet",
+    "note": "Integrity, never provenance. The same L-81 sentence the download page makes, in the place a reader meets the update lane."
+  },
+  {
+    "claim": "The update channel is empty by default, which is what keeps that gap confined to a lane you have to switch on",
+    "page": "content/docs/start/install.mdx",
+    "source": "docs/tracker/LIMITATIONS.md",
+    "must_match": "with `update_channel` empty — the default"
+  },
+  {
     "claim": "supported or it is not. Reviving it needs one matrix entry and a runner that can actually",
     "page": "src/pages/download.tsx",
     "source": "scripts/lib/release.sh",
