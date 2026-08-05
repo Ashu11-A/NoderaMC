@@ -153,6 +153,16 @@ export function ThemeScreen(props: {
   useEffect(() => {
     setReport(contrastReport());
   }, [pending, effective.selected, draft?.tokens, draft?.css, draft?.base]);
+
+  // What the report found, said at the moment of the decision rather than in a card further down.
+  //
+  // The screen already measured this and already drew it — in `--warn`, which is a colour the theme
+  // owns. The appearance this came from had all twenty-four colour tokens set to one hex, so the
+  // warning rendered the same colour as the surface behind it. The count is therefore repeated
+  // inside the banner that holds the button, and marked as a proven fact so the guard draws it in
+  // colours no theme can name.
+  const failing = report.filter((row) => row.ratio < row.floor);
+
   const rewritten = useMemo(
     () => (draft ? sanitise(draft.css, draft.id, draft.base) : null),
     [draft?.css, draft?.id, draft?.base],
@@ -178,7 +188,7 @@ export function ThemeScreen(props: {
       {pending && (
         <div className="col-span-12">
           <Banner
-            tone="info"
+            tone={failing.length > 0 ? "warn" : "info"}
             action={
               <span className="flex items-center gap-2">
                 <Button variant="ghost" shape="pill" onClick={() => revert.current()}>
@@ -191,6 +201,22 @@ export function ThemeScreen(props: {
             }
           >
             This appearance is being previewed, not saved. Reverting in {remaining}s.
+            {/* Stated, never enforced. Refusing to apply an appearance would be the same defect as
+              * the one this screen was just fixed for — the window declining to do what was asked
+              * without showing why — and the preview *is* how a person sees what they chose. So the
+              * measurement is put in front of them and the button stays live. */}
+            {failing.length > 0 && (
+              <>
+                {" "}
+                <span data-nodera-truth>
+                  {failing.length === report.length
+                    ? "Every pair measured fails: text and the surface behind it are the same colour."
+                    : `${failing.length} of ${report.length} measured pairs fail.`}
+                </span>{" "}
+                Keeping it is still your call. The reset handle stays in the bottom-right corner
+                whatever this does to the window.
+              </>
+            )}
           </Banner>
         </div>
       )}
@@ -423,8 +449,20 @@ export function ThemeScreen(props: {
           <dl className="text-xs">
             {report.map((row) => (
               <div key={row.label} className="flex items-baseline justify-between gap-3 border-b border-line-soft py-1.5 last:border-b-0">
-                <dt className="text-dim">{row.label}</dt>
-                <dd className={cx("font-mono tabular-nums", row.ratio >= row.floor ? "text-up" : "text-warn")}>
+                {/* The label is marked too. A ratio with no name beside it is a fragment, not a
+                  * fact — "1.00:1 needs 4.5" does not say *which* pair a person has to fix. */}
+                <dt data-nodera-truth className="text-dim">
+                  {row.label}
+                </dt>
+                {/* `data-nodera-truth`, because `--up` and `--warn` are tokens this very theme is
+                  * allowed to set — and an appearance that fails contrast is exactly the one able
+                  * to paint its own verdict the colour of the card behind it. The guard draws a
+                  * marked element in colours no theme can name, but only while one is in force, so
+                  * the app's own palette still renders these rows in its own green and amber. */}
+                <dd
+                  data-nodera-truth
+                  className={cx("font-mono tabular-nums", row.ratio >= row.floor ? "text-up" : "text-warn")}
+                >
                   {row.ratio.toFixed(2)}:1 {row.ratio >= row.floor ? "✓" : `needs ${row.floor}`}
                 </dd>
               </div>

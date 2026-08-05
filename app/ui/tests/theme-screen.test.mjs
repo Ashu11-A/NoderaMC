@@ -488,3 +488,107 @@ ${palette}
   assert.equal(after.accent, "rgb(229, 165, 10)", "the accent does not survive the current layer order");
   assert.equal(after.display, "flex", "the guard does not survive the current layer order");
 });
+
+/**
+ * WCAG 2.x contrast, implemented here rather than imported.
+ *
+ * The screen has its own copy and it is the thing being checked, so the test needs a yardstick that
+ * cannot agree with it by sharing its arithmetic.
+ */
+function ratio(front, back) {
+  const channels = (colour) =>
+    colour
+      .replace(/^rgba?\(|\)$/g, "")
+      .split(/[,/\s]+/)
+      .filter(Boolean)
+      .slice(0, 3)
+      .map(Number);
+  const luminance = (colour) => {
+    const [r, g, b] = channels(colour).map((v) => {
+      const c = v / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [light, dark] = [luminance(front), luminance(back)].sort((a, b) => b - a);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+test("measured: a palette that collapses to one colour cannot silence the report that says so", async () => {
+  assert.match(
+    builtCss,
+    /\.bg-surface\{background-color:var\(--surface\)\}/,
+    "the surface utility no longer reads the surface variable, so this measures nothing",
+  );
+
+  // Comments stripped first: the block explains at length why `revert-layer` was removed, and the
+  // explanation contains the words it is asserting are gone.
+  const sheet = read("styles.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const guard = sheet.slice(sheet.indexOf("@layer nodera.guard {"));
+  // Measured out rather than reasoned about: `revert-layer` in the *first* author layer rolls back
+  // to the UA origin, not to the app's own value, so it reset a marked element to `display: inline`
+  // and destroyed its layout. It was invisible only because nothing wore the attribute.
+  assert.doesNotMatch(
+    guard,
+    /display: revert-layer/,
+    "revert-layer is back in the guard; from the first layer it reverts to the UA default",
+  );
+  assert.match(
+    guard,
+    /:root\[data-custom-theme\] \[data-nodera-truth\]/,
+    "a proven fact is not pinned to colours a custom appearance cannot name",
+  );
+
+  if (!browser) {
+    console.warn("no browser found; the collapsed palette was not rendered");
+    return;
+  }
+
+  // The appearance from the report, rebuilt from the allowlist rather than pasted: every token of
+  // kind `colour` set to the one hex, which is exactly the set of rows that render a colour swatch
+  // and exactly what the saved document held.
+  const tokens = Object.fromEntries(
+    [...read("themetokens.ts").matchAll(/name: "(--[a-z0-9-]+)".*?kind: "colour"/g)].map((m) => [
+      m[1],
+      "#e5a50a",
+    ]),
+  );
+  assert.equal(Object.keys(tokens).length, 24, "the colour allowlist changed size; check the fixture");
+
+  const module_ = await bundleCustomTheme();
+  const m = measure(
+    "collapsed",
+    `<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><style>${builtCss}</style></head>` +
+      `<body><div id="root"><div id="card" class="bg-surface">` +
+      `<span id="marked" data-nodera-truth class="text-warn">1.00:1 needs 4.5</span>` +
+      `<span id="plain" class="text-warn">1.00:1 needs 4.5</span></div></div>` +
+      `<button id="nodera-escape" data-nodera-escape>Reset appearance</button>` +
+      `<pre id="measured"></pre><script>${module_}<\/script><script>
+        NoderaTheme.applyCustomTheme({ id: "collapse", base: "dark", tokens: ${JSON.stringify(tokens)}, css: "" });
+        const cs = (id) => getComputedStyle(document.getElementById(id));
+        document.getElementById("measured").textContent = JSON.stringify({
+          card: cs("card").backgroundColor,
+          markedText: cs("marked").color,
+          markedFill: cs("marked").webkitTextFillColor,
+          markedBack: cs("marked").backgroundColor,
+          plainText: cs("plain").color,
+        });
+      <\/script></body></html>`,
+  );
+
+  // The palette really did collapse: the card is the one hex, and an unmarked warning painted with
+  // `--warn` is the same hex again. This is what the window in the report was doing.
+  assert.equal(m.card, "rgb(229, 165, 10)", "the collapsed palette did not take effect");
+  assert.equal(
+    Number(ratio(m.plainText, m.card).toFixed(2)),
+    1,
+    "an unmarked warning is no longer invisible, so this test has stopped reproducing the defect",
+  );
+
+  // And the marked one is readable anyway, in colours the theme never named.
+  assert.equal(m.markedFill, "rgb(255, 255, 255)", "text-fill-color was not pinned, so it overrides colour");
+  assert.ok(
+    ratio(m.markedText, m.markedBack) >= 4.5,
+    `the proven fact measures ${ratio(m.markedText, m.markedBack).toFixed(2)}:1 against its own background`,
+  );
+});

@@ -522,10 +522,40 @@
     visibility: visible !important;
   }
 
+  /* `display: revert-layer` used to be here, and it was measured out.
+   *
+   * `revert-layer` rolls a property back to the value it would have had if the *current* layer did
+   * not exist — and because the guard is now the first author layer, the layer before it is the UA
+   * origin. So it did not restore the app's own `display`; it reset the element to `inline` and
+   * took whatever layout the app had given it. It was harmless only because nothing wore this
+   * attribute yet. Concealment by `display` is covered where it can be: the shell is pinned above,
+   * and the escape hatch is pinned inline at a priority no rule can reach. */
   [data-nodera-truth] {
-    display: revert-layer !important;
     visibility: visible !important;
     opacity: 1 !important;
+  }
+
+  /* A measured fact has to survive the thing it is measuring.
+   *
+   * This is the rule that was missing, and the window in the bug report is what found it: a palette
+   * with every colour token set to one hex made the contrast report — the screen's own warning that
+   * the palette was unusable — render amber on amber. A warning that a theme can silence is not a
+   * warning, and `--warn` is a token the theme owns.
+   *
+   * So under a custom appearance, and only then, a proven fact is drawn in colours no theme can
+   * name. `-webkit-text-fill-color` is pinned beside `color` because it overrides `color` on this
+   * engine and is inside the token grammar's reach through CSS mode; `mix-blend-mode` and `filter`
+   * are pinned because either one can cancel the pair without touching either colour. */
+  :root[data-custom-theme] [data-nodera-truth] {
+    color: #ffffff !important;
+    -webkit-text-fill-color: #ffffff !important;
+    background-color: #16171b !important;
+    background-image: none !important;
+    text-shadow: none !important;
+    filter: none !important;
+    mix-blend-mode: normal !important;
+    border-radius: 4px !important;
+    padding: 0 4px !important;
   }
 
   [data-nodera-truth]::before,
