@@ -40,7 +40,10 @@ listing = "--list" in sys.argv[1:]
 
 # Paths that look like ours. `**` and `*` are included because a workflow `paths:` filter is the
 # single most important thing here and it is always a glob.
-PATH_RE = re.compile(r"(?<![A-Za-z0-9_/.-])((?:java|rust|site|library|peer|endpoints)/[A-Za-z0-9._*/-]*[A-Za-z0-9._*])")
+# `web`, not `site`: the directory was renamed in 6201a2c and the alternation was not, so every
+# reference to the site's tree — a Dockerfile COPY, a workflow `paths:` filter — has been sailing
+# past this check unexamined ever since. That is the exact silent failure this file exists to catch.
+PATH_RE = re.compile(r"(?<![A-Za-z0-9_/.-])((?:java|rust|web|library|peer|endpoints)/[A-Za-z0-9._*/-]*[A-Za-z0-9._*])")
 
 # Not every match is a path. A workflow that says `rust/nodera-app` inside prose, or a Dockerfile
 # comment, is still worth checking; a match inside a URL is not.

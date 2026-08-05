@@ -1,10 +1,11 @@
-# Publishes the three service images to GHCR, for linux/amd64 and linux/arm64.
+# Publishes the container images to GHCR, for linux/amd64 and linux/arm64.
 #
 # <!-- AI-AGENT-INSTRUCTION: The two-job shape (build per platform by digest, then merge into one
 #      manifest list) is not incidental. Do not collapse it into a single `platforms: amd64,arm64`
 #      build: that path emulates arm64 through QEMU, and a Rust release build under emulation takes
 #      the better part of an hour per image. Native runners take minutes. If a service is added,
-#      add it to BOTH matrices. -->
+#      add it to BOTH matrices — AND add the paths it builds from to BOTH `paths:` filters, or it
+#      is published from a workflow that never fires for its own source. -->
 #
 # Tags, one package with a tag per service and channel:
 #
@@ -33,14 +34,28 @@ on:
     # connections and closing them without answering, which reads like a firewall and is not one.
     branches: [main, 'feature/**', 'feat/**']
     tags: ['v*']
+    # The two filters below are duplicated on purpose — GitHub has no anchor syntax for a `paths:`
+    # list — and they must be edited together. The `web/**` and `scripts/build-site.sh` entries are
+    # the second half of the same defect the branch globs above describe: until they were added the
+    # site image was published by a workflow that did not fire when the site changed, so editing a
+    # page rebuilt nothing and the deployment kept serving the previous one indefinitely.
+    #
+    # `docker/**` already covers `docker/web/**`; it is not listed twice.
+    # `app/ui/**` is deliberately ABSENT: docker/web/Dockerfile copies `web/` and nothing else, so
+    # the shared UI tree is not an input to the site. If the site ever imports from it, the COPY and
+    # this list have to gain it in the same commit.
     paths:
       - 'library/rust/**'
       - 'tracker/**'
       - 'rendezvous/**'
       - 'telemetry/**'
+      - 'web/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'docker/**'
+      - 'scripts/build-site.sh'
+      - 'scripts/lib/layout.sh'
+      - 'layout.properties'
       - 'VERSION'
       - '.dockerignore'
       - '.github/workflows/containers.yml'
@@ -50,9 +65,13 @@ on:
       - 'tracker/**'
       - 'rendezvous/**'
       - 'telemetry/**'
+      - 'web/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'docker/**'
+      - 'scripts/build-site.sh'
+      - 'scripts/lib/layout.sh'
+      - 'layout.properties'
       - 'VERSION'
       - '.dockerignore'
       - '.github/workflows/containers.yml'
@@ -97,7 +116,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [tracker, rendezvous, telemetry]
+        # `web` is the site, not a service: no Rust in it, and its builder runs
+        # scripts/build-site.sh. It rides this workflow anyway because the tag scheme, the
+        # per-architecture digest build and the manifest verification below are the parts that are
+        # hard to get right, and none of them care what is inside the image.
+        service: [tracker, rendezvous, telemetry, web]
         # Native runners for both architectures — free for public repositories, and the reason this
         # workflow finishes in minutes rather than emulating arm64 for the better part of an hour.
         platform: ${{ fromJSON(needs.plan.outputs.platforms) }}
@@ -156,7 +179,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [tracker, rendezvous, telemetry]
+        # Same list as the build matrix above. They are two matrices because they are two jobs, not
+        # because they may differ: a service in one and not the other either builds images nothing
+        # tags, or tags nothing was built.
+        service: [tracker, rendezvous, telemetry, web]
     steps:
       - uses: actions/checkout@v4
 

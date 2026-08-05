@@ -82,6 +82,13 @@ telemetry-spool/
 # Kotlin build-daemon crash logs from build-logic (per-machine, never useful in git).
 library/java/build-logic/.kotlin/
 
+# The built website. `scripts/build-site.sh` writes web/dist and docker/web/Dockerfile rebuilds it
+# inside the image, so a committed copy would be a second answer to "what is the site" that nothing
+# ever checks against the first. The sources in web/ are committed; what a build makes of them is
+# not. web/node_modules for the same reason as every other dependency directory.
+web/dist/
+web/node_modules/
+
 # Python bytecode (the Spark jobs are sources, never build output).
 __pycache__/
 *.pyc

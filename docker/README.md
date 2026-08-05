@@ -7,14 +7,15 @@
      service Dockerfiles are deliberately near identical: change one, change all three, in the same
      commit. Update this file when a service is added. -->
 
-Container images for the three Nodera services, and the compose file someone self-hosting a tracker
-or a relay actually runs.
+Container images for the three Nodera services, the project's own website, and the compose file
+someone self-hosting a tracker or a relay actually runs.
 
 | Path | What it is |
 |---|---|
 | `tracker/Dockerfile` | The tracker image — discovery. Port 6969 (TCP **and** UDP). |
 | `rendezvous/Dockerfile` | The rendezvous/relay image — reachability behind NAT. Port 7500 (TCP). |
 | `telemetry/` | The ingest image **and** the full analytics stack (Vector → Redpanda → ClickHouse → Grafana). A deployment, not a dependency. |
+| `web/` | The noderamc.org website image — the built static site plus the Caddy config that routes it. Port 8080, loopback only. Not a service, and not something a self-hoster wants: it is behind the `site` compose profile so a plain `up -d` never starts it. |
 | `compose.yml` | Run a tracker and/or a relay from the published images. |
 | `.env.example` | Copy to `.env`. Three variables are required and compose says so. |
 
@@ -29,6 +30,7 @@ Full operator documentation: [`docs/tracker/SELF-HOSTING.md`](../docs/tracker/SE
 ghcr.io/ashu11-a/noderamc:tracker-latest      ghcr.io/ashu11-a/noderamc:tracker-canary
 ghcr.io/ashu11-a/noderamc:rendezvous-latest   ghcr.io/ashu11-a/noderamc:rendezvous-canary
 ghcr.io/ashu11-a/noderamc:telemetry-latest    ghcr.io/ashu11-a/noderamc:telemetry-canary
+ghcr.io/ashu11-a/noderamc:web-latest          ghcr.io/ashu11-a/noderamc:web-canary
 ```
 
 One package, one tag per service and channel — `latest` is the newest release tag, `canary` is built
@@ -104,6 +106,7 @@ The build context is the repository root — the Rust build stamps its version f
 
 ```bash
 docker build -f docker/tracker/Dockerfile -t nodera-tracker:local .
+docker build -f docker/web/Dockerfile -t nodera-web:local .
 ```
 
 BuildKit is required (it is the default in Docker 23+): the builder uses cache mounts for the cargo

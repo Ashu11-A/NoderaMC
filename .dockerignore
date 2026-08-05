@@ -38,3 +38,23 @@ scripts/
 *.md
 *.jpg
 *.png
+
+# --- what docker/web/Dockerfile needs back ------------------------------------------------------
+#
+# The three rules above are right for a Rust service and wrong for a website: a site is exactly the
+# markdown, the screenshots and the build script the services have no use for. Docker takes the LAST
+# matching pattern, so these are narrow re-inclusions rather than deletions — docs/, fixtures/ and
+# the rest of scripts/ stay out of every build context, including this one.
+#
+# Losing one of these is silent. The site simply builds without the file, and the image serves a
+# page with a missing image or 404s a route nobody tested.
+!web/**
+!scripts/build-site.sh
+!scripts/lib/layout.sh
+
+# …and back out again, after the re-inclusion, because `!web/**` would otherwise drag in whatever
+# the site's package manager left lying around. `node_modules/` above is anchored at the context
+# root and never matched web/node_modules. web/dist is a build output: the image produces its own
+# inside the builder, and copying a laptop's in would only shadow it for one layer.
+web/node_modules/
+web/dist/

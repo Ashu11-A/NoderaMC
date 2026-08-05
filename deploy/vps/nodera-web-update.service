@@ -1,0 +1,55 @@
+# Pull the published Nodera web image and restart the site container.
+#
+# Installed to /etc/systemd/system/nodera-web-update.service by scripts/bootstrap-site-host.sh,
+# which also rewrites the Environment= line below to the compose directory it deployed to. Do not
+# enable this unit directly — the timer is what schedules it (`systemctl enable --now
+# nodera-web-update.timer`); this unit on its own would run once at boot and never again.
+#
+# Run it by hand to deploy immediately instead of waiting for the timer:
+#   sudo systemctl start nodera-web-update.service && journalctl -u nodera-web-update -n 40
+
+[Unit]
+Description=Pull the published Nodera web image and restart the site container
+Documentation=https://github.com/Ashu11-A/NoderaMC
+# The docker CLI needs the daemon; the pull needs a route out. `network-online.target` rather than
+# `network.target` because the latter is satisfied long before an address is usable, and the first
+# run after a reboot would fail on DNS.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Root, because that is who talks to the Docker socket on this host — `ubuntu` is deliberately not
+# in the `docker` group, which is why every script in this repository says `sudo docker`. Nothing
+# third-party runs here: the ExecStart below is a file from this repository.
+User=root
+Environment=NODERA_COMPOSE_DIR=/home/ubuntu/nodera
+ExecStart=/usr/local/lib/nodera/nodera-web-update.sh
+
+# A pull over a slow link should be allowed to finish; a hung one must not sit on the timer for
+# ever. The timer's period is minutes, so this is comfortably longer than a normal run and
+# comfortably shorter than the next attempt mattering.
+TimeoutStartSec=600
+
+# A failed pull is not an incident — the previous container keeps serving, and the next tick tries
+# again. Do not turn this into Restart=on-failure: a oneshot that retries in a tight loop against a
+# registry outage is how a poller becomes the outage.
+StandardOutput=journal
+StandardError=journal
+
+# Hardening, within what talking to the Docker socket allows. `ProtectHome=read-only` rather than
+# `yes`: the compose project lives under /home/ubuntu, so hiding /home outright would make this
+# unit fail with a missing compose.yml on a host where the file is plainly there — a confusing
+# failure bought for no security, since it only ever reads that directory.
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+# Present so `systemctl enable nodera-web-update.service` is not silently a no-op if somebody
+# reaches for it. The timer is still the thing to enable.
+WantedBy=multi-user.target

@@ -15,6 +15,7 @@
 #   layout_get module.neoforge-mod     # a value, relative to the root
 #   layout_dir module.neoforge-mod     # the same value, absolute
 #   layout_export                      # NODERA_ROOT + the handful of paths every script wants
+#                                      # (NODERA_WEB_DIR, NODERA_VPS_UNITS, the modules, …)
 
 # The repository root: the directory holding both `VERSION` and `settings.gradle.kts`.
 #
@@ -73,6 +74,7 @@ layout_export() {
     NODERA_ARTIFACTS="${NODERA_ARTIFACTS:-$NODERA_ROOT/$(layout_get dir.artifacts)}"
     NODERA_RUN_DIR="${NODERA_RUN_DIR:-$NODERA_ROOT/$(layout_get dir.run)}"
     NODERA_WEB_DIR="${NODERA_WEB_DIR:-$NODERA_ROOT/$(layout_get dir.web)}"
+    NODERA_VPS_UNITS="${NODERA_VPS_UNITS:-$NODERA_ROOT/$(layout_get dir.vpsUnits)}"
 
     NODERA_MOD_DIR="${NODERA_MOD_DIR:-$NODERA_ROOT/$(layout_get module.neoforge-mod)}"
     NODERA_PEER_MODULE="${NODERA_PEER_MODULE:-$NODERA_ROOT/$(layout_get module.peer)}"
@@ -81,6 +83,6 @@ layout_export() {
     NODERA_APP_DIR="${NODERA_APP_DIR:-$NODERA_ROOT/$(layout_get crate.nodera-app)}"
 
     export NODERA_CARGO_WS NODERA_RUST_TARGET NODERA_ARTIFACTS NODERA_RUN_DIR NODERA_WEB_DIR \
-        NODERA_MOD_DIR NODERA_PEER_MODULE NODERA_TESTING_MODULE \
+        NODERA_VPS_UNITS NODERA_MOD_DIR NODERA_PEER_MODULE NODERA_TESTING_MODULE \
         NODERA_PAPER_MODULE NODERA_APP_DIR
 }
