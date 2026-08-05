@@ -10,4 +10,4 @@
 // here would resolve to nothing in both applications, silently, and the page would simply render
 // plain. `tests/platform-seam.test.mjs` asserts it.
 export * from "./platform/index";
-export { storeOfferHref } from "./store-link";
+export { storeOfferHref } from "./store-link.mjs";

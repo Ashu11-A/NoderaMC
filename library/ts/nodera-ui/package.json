@@ -7,7 +7,12 @@
     ".": "./src/index.ts",
     "./platform": "./src/platform/index.ts",
     "./platform/impl": "./src/platform/impl.ts",
+    "./store-link": {
+      "types": "./src/store-link.d.mts",
+      "default": "./src/store-link.mjs"
+    },
     "./vite": "./vite/preset.mjs",
+    "./layout": "./layout.mjs",
     "./token-audit": "./tests/token-audit.mjs"
   },
   "dependencies": {

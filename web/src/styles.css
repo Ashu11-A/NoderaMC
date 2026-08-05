@@ -38,23 +38,44 @@
 }
 
 :root {
-  /* The app's canvas is a 1680px window; a page of prose is not. `--canvas-max` and
-   * `--canvas-gutter` are the app's window contract (pinned by its own `design-tokens.test.mjs`),
-   * so the site restates them rather than changing them where they are declared. */
+  /* ------------------------------------------------------------------ deliberate restatements
+   *
+   * These two are the app's tokens, restated with reading-page values. They are SHADOWED rather
+   * than renamed on purpose: the app's `page-canvas` utility is written as
+   * `width: min(100%, var(--canvas-max))`, so restating the variable is how the site reuses that
+   * utility at a prose width instead of declaring a second one. `--canvas-max: 1680px` stays the
+   * app's window contract — pinned by its own `design-tokens.test.mjs` — and is untouched where it
+   * is declared.
+   *
+   * `web/tests/design-tokens.test.mjs` holds this list to exactly these two names. Any OTHER app
+   * token this stylesheet shadows fails the build, because a shadow is invisible: the value simply
+   * changes, on every screen, with nothing to read that says it was deliberate. */
   --canvas-max: 1152px;
   --canvas-gutter: clamp(24px, 4vw, 64px);
-  --prose-measure: 752px;
 
-  /* Site-only, and derived so a palette change still moves them. The app has no callouts and no
-   * prose column, so these three do not belong in the shared layer — but they must follow the same
-   * accent, which is why they are `color-mix` of a palette token rather than values.
+  /* ------------------------------------------------------------------------- site-only tokens
    *
-   * NOTE for whoever merges the launcher redesign: that work introduces `--brand-soft` (the same
-   * idea at 12%) and `--glow-brand` (a bloom, NOT a gradient — a near-anagram of the name below,
-   * and the two are different things). When the design system moves into the shared kit, `-dimm`
-   * should fold into `--brand-soft` and this one should be renamed away from `--glow-brand`'s
-   * neighbourhood. Both names are load-bearing across the W1/W2 split today and cannot move here. */
-  --brand-dimm: color-mix(in oklab, var(--brand-1) 8%, transparent);
+   * The app has no reading column and no callouts, so these three belong to the site — but they
+   * must follow the same accent, which is why two of them are a `color-mix` of a palette token
+   * rather than a value.
+   *
+   * `--brand-dimm` reads `--brand-soft` first, and that is the resolution of a real collision
+   * rather than defensive coding. The launcher redesign (B1 §2.1) introduces `--brand-soft` as
+   * *the same idea at 12%*: "the tinted fill behind anything selected, active or armed", written
+   * inline as `bg-brand-2/8` in five places today and drifting between /8 and /12. The day that
+   * token lands in the imported stylesheet, this one becomes an alias of it and the duplicate
+   * stops existing — without an edit here, and without the site's callouts sitting at a different
+   * tint from the app's selected rows.
+   *
+   * `--brand-glow` cannot do the same, and the reason is worth writing down: B1 also introduces
+   * `--glow-brand` — a near-anagram, and a DIFFERENT TYPE. That one is a box-shadow bloom
+   * (`0 0 34px …`); this one is a background gradient. Aliasing them would put a shadow value into
+   * a `background-image`, which resolves to nothing and renders as a missing hero glow with no
+   * error anywhere. So they stay separate, and `design-tokens.test.mjs` fails the build if the
+   * imported stylesheet ever declares a token whose name is a reordering of one of ours — which
+   * turns "somebody will spot this at merge time" into a gate that fires on the merge commit. */
+  --prose-measure: 752px;
+  --brand-dimm: var(--brand-soft, color-mix(in oklab, var(--brand-1) 8%, transparent));
   --brand-glow: linear-gradient(-45deg, var(--brand-1) 25%, var(--brand-3) 75%);
 }
 

@@ -84,8 +84,15 @@ export interface LimitationRow {
   exitTest: string;
   /** The raw Status cell. It can run to four hundred words, and that is the point of it. */
   status: string;
-  /** The first word of `status`, uppercased. */
-  state: "OPEN" | "RETIRING" | "RETIRED";
+  /**
+   * The first word of `status`, uppercased — or `ENVELOPE` for a §A row.
+   *
+   * A §A envelope constraint has no status column, because it does not burn down: that is what §A
+   * means. Giving those rows a fourth value rather than defaulting them to `OPEN` is the difference
+   * between saying "this is a different kind of row" and claiming the register recorded something it
+   * did not.
+   */
+  state: "OPEN" | "RETIRING" | "RETIRED" | "ENVELOPE";
 }
 
 export interface StatusData {

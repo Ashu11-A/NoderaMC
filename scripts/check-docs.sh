@@ -26,13 +26,15 @@ import pathlib
 import re
 import sys
 
+# What a link MEANS is now written down once, in `scripts/lib/docs_links.py`, because the website
+# resolves the same links a second time when it mirrors nine of these documents. Two resolvers
+# eventually disagree, and the one that disagrees silently is the website's.
+sys.path.insert(0, "scripts/lib")
+from docs_links import is_submodule, links_in, resolve, submodule_roots  # noqa: E402
+
 links_only = "--links" in sys.argv[1:]
 docs = pathlib.Path("docs")
-SUBMODULES = (docs / "minecraft" / "upstream").resolve()
-
-# `[text](target)`, skipping anything that is not a path into this repository.
-LINK = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
-SKIP = re.compile(r'^(https?:|mailto:|#)')
+SUBMODULES = submodule_roots(docs)
 
 broken = []
 checked = 0
@@ -41,23 +43,13 @@ for md in sorted(docs.rglob("*.md")):
     if "upstream" in md.parts:
         continue
     for line_no, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
-        for target in LINK.findall(line):
-            target = target.split(" ", 1)[0].strip()
-            if not target or SKIP.match(target):
-                continue
-            path, _, _anchor = target.partition("#")
-            if not path:
-                continue          # a pure in-page anchor
-            resolved = (md.parent / path).resolve()
-            # `docs/minecraft/upstream/*` are git SUBMODULES. Whether they are on disk is a fact
-            # about how the repository was cloned, not about the documentation: they are present
-            # locally and absent on a CI runner that does not recurse. Checking them makes this
-            # gate environment-dependent, which is the one thing a gate must not be.
-            if SUBMODULES in resolved.parents or resolved == SUBMODULES:
+        for link in links_in(line):
+            resolved = resolve(md, link.path)
+            if is_submodule(resolved, SUBMODULES):
                 continue
             checked += 1
             if not resolved.exists():
-                broken.append(f"{md}:{line_no} → {target}")
+                broken.append(f"{md}:{line_no} → {link.target}")
 
 print(f"docs-links: {checked} relative links checked")
 if broken:

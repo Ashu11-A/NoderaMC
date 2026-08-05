@@ -43,7 +43,9 @@ listing = "--list" in sys.argv[1:]
 # `web`, not `site`: the directory was renamed in 6201a2c and the alternation was not, so every
 # reference to the site's tree — a Dockerfile COPY, a workflow `paths:` filter — has been sailing
 # past this check unexamined ever since. That is the exact silent failure this file exists to catch.
-PATH_RE = re.compile(r"(?<![A-Za-z0-9_/.-])((?:java|rust|web|library|peer|endpoints)/[A-Za-z0-9._*/-]*[A-Za-z0-9._*])")
+# `app` joined it when `app/ui` became a workspace package: the root `package.json` names it, and
+# `tauri.conf.json` composes `ui/dist` out of it.
+PATH_RE = re.compile(r"(?<![A-Za-z0-9_/.-])((?:java|rust|web|app|library|peer|endpoints)/[A-Za-z0-9._*/-]*[A-Za-z0-9._*])")
 
 # Not every match is a path. A workflow that says `rust/nodera-app` inside prose, or a Dockerfile
 # comment, is still worth checking; a match inside a URL is not.
@@ -57,6 +59,23 @@ files = sorted(
     | {".dockerignore"}
     | set(glob.glob("*/tauri.*.conf.json"))
     | set(glob.glob("*/*/tauri.*.conf.json"))
+    # The fifth kind, added when the frontend became a bun workspace. Bun resolves the root
+    # `package.json`'s `workspaces` array before a line of our code runs — the same reason Tauri's
+    # config and a workflow's `paths:` filter are on this list — and a workspace entry that no
+    # longer matches a directory does not error either: bun simply resolves one package fewer, and
+    # the message names a dependency nobody has heard of rather than a directory that moved.
+    #
+    # `app/ui/tests/layout-workspace.test.mjs` checks the stronger property (that the array and
+    # `layout.properties` are the same list). This catches the weaker one everywhere else — a
+    # `main`, an `exports` target or a script naming a directory that is not there.
+    | {
+        name
+        for pattern in ("package.json", "*/package.json", "*/*/package.json", "*/*/*/package.json")
+        for name in glob.glob(pattern)
+        # Dependencies are not ours to check, and under a hoisted install there are hundreds of
+        # them at exactly these depths.
+        if "node_modules" not in name.split("/")
+    }
 )
 
 sys.path.insert(0, "scripts/lib")
