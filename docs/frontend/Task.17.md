@@ -9,7 +9,7 @@
      settings file is (see Task 15 §1). Keep this header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS — built, not yet walked
-**Category:** frontend · **Owns:** L-91, L-92 (staged, see [Limitations](#limitations)) · **Last audit:** 2026-08-05
+**Category:** frontend · **Owns:** L-95, L-96 · **Last audit:** 2026-08-05
 **Depends on:** [frontend 11](Task.11.md)
 **Consumed by:** [frontend 19](Task.19.md)
 
@@ -232,14 +232,15 @@ destination from the rail, define a theme, restart the app, and confirm the appe
 
 ## Limitations
 
-Two rows, staged here in register shape. They are written into
-[`LIMITATIONS.md`](LIMITATIONS.md) §B when this branch merges — this file is edited by one lane and
-the register is edited by several, and a row that arrives through a merge conflict is a row nobody
-reads.
+Two rows, repeated here from [`LIMITATIONS.md`](LIMITATIONS.md) §B, which is where they are
+normative. They were staged in this file first because the register is edited by several lanes at
+once and a row that arrives through a merge conflict is a row nobody reads; they were lifted across
+on merge, and renumbered from L-91/L-92 to **L-95/L-96** because the frontend register already held
+L-91 … L-94 from the mobile merge.
 
 | ID | Limitation today | Owner | Exit test | Status |
 |---|---|---|---|---|
-| L-91 | A custom appearance applies to the **desktop window only**. The phone renders in Compose against the system palette and cannot read CSS, so a theme authored here has no effect there. The value is stored, never dropped, and the screen says so on its face rather than implying a preference that travels | [17](Task.17.md) | The Android companion reads `appearance.themes` and renders at least the accent and surface roles from the selected appearance, or the register records that it structurally cannot | OPEN |
-| L-92 | A stored appearance whose CSS the parser rejects is **dropped silently at startup**. Nothing is overwritten and the base scheme renders correctly, but the reason is only shown when the Theme screen is opened — so a theme that stopped working after a webview upgrade looks like a theme that was never saved | [17](Task.17.md) | Applying a stored appearance whose CSS fails to parse raises the same fault channel the settings document uses, so the reason is visible without opening the editor | OPEN |
+| L-95 | A custom appearance applies to the **desktop window only**. The phone renders in Compose against the system palette and cannot read CSS, so a theme authored here has no effect there. The value is stored, never dropped, and the screen says so on its face rather than implying a preference that travels | [17](Task.17.md) | The Android companion reads `appearance.themes` and renders at least the accent and surface roles from the selected appearance, or the register records that it structurally cannot | OPEN |
+| L-96 | A stored appearance whose CSS the parser rejects is **dropped silently at startup**. Nothing is overwritten and the base scheme renders correctly, but the reason is only shown when the Theme screen is opened — so a theme that stopped working after a webview upgrade looks like a theme that was never saved | [17](Task.17.md) | Applying a stored appearance whose CSS fails to parse raises the same fault channel the settings document uses, so the reason is visible without opening the editor | OPEN |
 
 The L-56 precedent holds over both: **badge it, do not fake it, and do not delete the saved value.**

@@ -347,7 +347,7 @@ Every category owns its limitations. A task is only done when its register rows 
 | Rendezvous | [`rendezvous/LIMITATIONS.md`](rendezvous/LIMITATIONS.md) | L-83 (OPEN — drain-resume proof missing; mechanism believed complete) |
 | Minecraft | [`minecraft/LIMITATIONS.md`](minecraft/LIMITATIONS.md) | L-43, L-46, L-49, L-50, L-80 · MC-JOIN-1…6 · MC-GUI-1…5 |
 | Worker | [`peer/LIMITATIONS.md`](peer/LIMITATIONS.md) | RETIRING: W-FETCH-1, W-REPL-1, W-DUP-3 · OPEN: W-DUP-1, W-DUP-2, W-DUP-4 |
-| Frontend | [`frontend/LIMITATIONS.md`](frontend/LIMITATIONS.md) | OPEN: L-47, L-56, L-91, L-92, L-93, M-1, M-3, M-4 · RETIRING: L-94, M-NET-2 · envelope: A-9 |
+| Frontend | [`frontend/LIMITATIONS.md`](frontend/LIMITATIONS.md) | OPEN: L-47, L-56, L-91, L-92, L-93, L-95, L-96, M-1, M-3, M-4 · RETIRING: L-94, M-NET-2 · envelope: A-9 |
 | Telemetry | [`telemetry/LIMITATIONS.md`](telemetry/LIMITATIONS.md) | L-73, L-74, L-75 (L-72 retired → [`LIMITATIONS.fixed.md`](telemetry/LIMITATIONS.fixed.md)) |
 
 **Envelope constraints** (immovable facts of physics/platform, engineered around until players
