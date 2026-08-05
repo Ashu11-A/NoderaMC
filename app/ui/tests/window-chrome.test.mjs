@@ -144,9 +144,8 @@ test("the window is undecorated, and the app draws what the decorations used to"
 
 test("an undecorated window keeps a resize frame, on all eight edges", () => {
   // The regression that would be reported as "the window is stuck at one size". A window manager
-  // gives an undecorated window no resize border, and on Linux the failure is worse than absent:
-  // GTK's toplevel handler exists and WebKitGTK eats the button-press before it arrives, so the
-  // frame is dead in a way indistinguishable from `resizable: false`.
+  // gives an undecorated window no resize border, so the app that removed the decorations owes the
+  // window a frame of its own.
   const directions = [...titleBar.matchAll(/direction: "(North|South|East|West|[A-Za-z]+)"/g)].map(
     (match) => match[1],
   );
@@ -157,6 +156,30 @@ test("an undecorated window keeps a resize frame, on all eight edges", () => {
   );
   assert.match(titleBar, /plugin:window\|start_resize_dragging/);
   assert.match(titleBar, /value: grip\.direction/, "the grips do not tell the compositor which edge");
+});
+
+test("the resize frame is unconditional, and in particular not gated on isMaximized()", () => {
+  // A shipped bug, found by running the app rather than by reading it. The grips used to be
+  // withdrawn while the window reported itself maximised — sound reasoning resting on the
+  // assumption that "maximised" describes a window somebody maximised. Hyprland hands the state to
+  // ordinary floating windows, so the gate was permanently shut, no grip was ever rendered, and the
+  // window could not be resized by mouse at all: the exact failure the grips exist to prevent,
+  // reached through the code meant to prevent it.
+  //
+  // Pinned as a property of the component rather than of a comment. `ResizeGrips` takes no
+  // parameters, so there is nowhere for a future condition to be threaded in without failing here.
+  assert.match(
+    titleBar,
+    /function ResizeGrips\(\)/,
+    "ResizeGrips takes an argument again — a frame the user cannot recover from must not be gated",
+  );
+  assert.match(titleBar, /<ResizeGrips \/>/, "the frame is being rendered conditionally");
+  const body = titleBar.slice(titleBar.indexOf("function ResizeGrips()"));
+  assert.doesNotMatch(
+    body.slice(0, 300),
+    /return null|maximized/,
+    "the frame withdraws itself under some condition again",
+  );
 });
 
 test("the chrome is refused where there is no window to control", () => {

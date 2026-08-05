@@ -94,12 +94,17 @@ function fire(command: string, args?: Record<string, unknown>): void {
 /**
  * The eight edges, and why a decoration-less window needs them spelled out.
  *
- * A window manager gives an undecorated window no resize border. On Linux it is worse than absent:
- * GTK's toplevel *does* have a handler that would begin the drag, and WebKitGTK consumes the
- * button-press event before it ever reaches it — so the frame is dead in a way that looks exactly
- * like a window that was configured `resizable: false`. Each grip is a four-pixel strip (twelve at
- * the corners, so a diagonal drag has something to hit) that hands the direction back to the
- * compositor through `start_resize_dragging`.
+ * A window manager gives an undecorated window no resize border, so an app that draws its own
+ * chrome has to grow its own frame. Each grip is a four-pixel strip — twelve at the corners, so a
+ * diagonal drag has something to hit — that hands the direction back to the compositor through
+ * `start_resize_dragging`, which is the same call `getCurrentWindow().startResizeDragging()` makes.
+ *
+ * tao does carry a fallback of its own: a `button_press_event` handler on the GTK toplevel that
+ * hit-tests a five-pixel border and begins the drag itself. It is not a reason to delete these.
+ * It only runs when the press reaches the toplevel handler rather than being consumed by the
+ * webview, and it is gated on `!window.is_maximized()`, which is permanently true on at least one
+ * compositor this app is used on — see `ResizeGrips` for what that gate did to the grips when they
+ * shared it.
  *
  * The corners are listed last because they overlap the edges and equal `z-index` resolves in
  * document order — the later element wins, which is the behaviour a corner needs.
@@ -161,6 +166,13 @@ export function TitleBar() {
   // remembered: the window manager can maximise a window without this app pressing anything —
   // a keyboard shortcut, a tiling rule, a double-click on a snap zone. The DOM resize event fires
   // for every one of those, and re-asking is cheaper than tracking them.
+  //
+  // It is the only source there is, and on a tiling compositor it is not always right: Hyprland
+  // reports `is_maximized() == true` for an ordinary floating window, so the glyph reads Restore
+  // when nothing has been maximised. That is worth knowing and not worth guessing around — the
+  // button still toggles correctly, and inventing a second opinion about the window's state would
+  // be this app claiming to know better than the window system. What must NOT depend on it is
+  // anything the user cannot recover from; `ResizeGrips` says why.
   const sync = useCallback(() => {
     windowCommand<boolean>(WINDOW.isMaximized)
       .then(setMaximized)
@@ -233,7 +245,7 @@ export function TitleBar() {
           <FiX aria-hidden />
         </button>
       </div>
-      <ResizeGrips active={!maximized} />
+      <ResizeGrips />
     </>
   );
 }
@@ -247,11 +259,26 @@ export function TitleBar() {
  * onto some inner element. A sibling of `#root` has only `html` and `body` above it, and the guard
  * layer pins their `transform` to `none`.
  *
- * Withdrawn while the window is maximised: there is no edge to drag, and a strip that answers the
- * press by unmaximising the window is a frame that moves the moment it is touched.
+ * # Always present, never gated on `isMaximized()`
+ *
+ * These used to be withdrawn while the window reported itself maximised — there is no edge to drag
+ * on a maximised window, and a strip that answers the press by unmaximising is a frame that moves
+ * the moment it is touched. That reasoning is sound and the condition it rests on is not: it
+ * assumes every window system reserves "maximised" for a window the user maximised.
+ *
+ * Hyprland does not. It hands its windows the maximised state as a matter of course — a plain
+ * floating 1100×720 window on an empty workspace reports `is_maximized() == true` — so the gate was
+ * permanently closed, every grip was permanently absent, and the window could not be resized by
+ * mouse at all. Which is precisely the failure the grips exist to prevent, arrived at through the
+ * code that was meant to prevent it.
+ *
+ * So the frame is unconditional. Being wrong in the other direction costs nothing: a press on the
+ * edge of a genuinely maximised window is a `begin_resize_drag` the compositor declines, which is
+ * the same nothing the user would have got from a strip that was not there. tao's own built-in edge
+ * hit-test carries the identical `!window.is_maximized()` condition and is dead here for the same
+ * reason, which is worth knowing before anyone concludes this file is duplicating it.
  */
-function ResizeGrips(props: { active: boolean }) {
-  if (!props.active) return null;
+function ResizeGrips() {
   return createPortal(
     <>
       {GRIPS.map((grip) => (
