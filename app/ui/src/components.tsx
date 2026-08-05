@@ -35,8 +35,26 @@ export function resetScrollport(): void {
 /** The world's initial in a gradient tile — the app's only avatar. Size is the caller's. */
 export const AVATAR = "grid flex-none place-items-center rounded-sm bg-brand font-bold text-white";
 
-/** Auto-filling tile grid shared by Home and the world State tab. */
-export const STAT_GRID = "grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-3";
+/**
+ * Auto-fitting tile grid shared by Home and the world State tab.
+ *
+ * `auto-fit`, not `auto-fill`. The difference only shows on a wide window and it is the whole
+ * complaint: with four stats in a 1568px canvas, `auto-fill` lays out eight 190px tracks, fills
+ * four and leaves the right half of the row visibly empty. `auto-fit` collapses the tracks nobody
+ * is standing in and the four tiles share the width. The floor moves 190px → 210px to match the
+ * one the world screen had already hand-written over this constant.
+ */
+export const STAT_GRID = "grid min-w-0 grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3";
+
+/**
+ * A wall of cards, as many across as the window has room for.
+ *
+ * The counterpart to `STAT_GRID` for things bigger than a figure. Screens that lay cards out with a
+ * fixed `wide:col-span-6` get two columns at 1180px and the same two at 1920px; this one reflows,
+ * which is how panels 03/04/06 of the reference spend horizontal space. The rule lives in
+ * `styles.css` as `@utility card-grid` so the column floor is one edit.
+ */
+export const CARD_GRID = "card-grid";
 
 /** Centered desktop canvas backed by twelve equal columns. */
 export function PageGrid(props: { children: ReactNode; className?: string }) {
@@ -59,11 +77,11 @@ export function PageHeader(props: {
     <header className={cx("col-span-12 mb-2 flex items-end justify-between gap-6", props.className)}>
       <div className="min-w-0">
         {props.eyebrow && (
-          <p className="mb-2 text-[10px] font-semibold tracking-[0.2em] text-brand-2 uppercase">
+          <p className="mb-2 text-2xs font-medium tracking-[0.16em] text-brand-tint uppercase">
             {props.eyebrow}
           </p>
         )}
-        <h1 className="display-type text-3xl font-semibold text-text">{props.title}</h1>
+        <h1 className="display-type text-title font-bold text-text">{props.title}</h1>
         {props.description && <p className="mt-2 max-w-[72ch] text-sm text-dim">{props.description}</p>}
       </div>
       {props.actions && <div className="flex flex-none items-center gap-2">{props.actions}</div>}
@@ -91,17 +109,25 @@ export function StaleDataNotice() {
 
 export function Card(props: { title?: string; hint?: string; right?: ReactNode; children: ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-md border border-line bg-surface shadow-e1">
+    <section className="overflow-hidden rounded-md border border-line-soft bg-surface shadow-e1">
       {(props.title || props.right) && (
-        <header className="flex items-start justify-between gap-3 border-b border-line-soft px-4 py-[13px]">
-          <div>
-            {props.title && <h2 className="text-sm font-semibold">{props.title}</h2>}
-            {props.hint && <p className="mt-[3px] max-w-[70ch] text-xs text-faint">{props.hint}</p>}
+        <header className="flex items-start justify-between gap-3 border-b border-line-soft px-5 py-4">
+          {/* `min-w-0` on the text, `flex-none` around the badge. Without the first the title block
+              refuses to go below its own min-content and pushes the badge past the card's right
+              edge — which is the sliced "not bundled" pill in the 1000px screenshot. */}
+          <div className="min-w-0">
+            {/* Panel 06's card title: an 11px uppercase micro-label, not a heading competing with
+                the page's own. The subtitle under it is `--text-faint`, which is why it is only
+                ever an elaboration — that tier may never be the sole carrier of meaning. */}
+            {props.title && (
+              <h2 className="text-2xs font-medium tracking-[0.16em] text-dim uppercase">{props.title}</h2>
+            )}
+            {props.hint && <p className="mt-1.5 max-w-[70ch] text-xs text-faint">{props.hint}</p>}
           </div>
-          {props.right}
+          {props.right && <div className="flex flex-none items-center gap-2">{props.right}</div>}
         </header>
       )}
-      <div className="px-4 pt-1.5 pb-3">{props.children}</div>
+      <div className="px-5 pt-2 pb-3.5">{props.children}</div>
     </section>
   );
 }
@@ -122,7 +148,7 @@ const ROW_TEXT = "flex min-w-0 flex-col";
 const ROW_LABEL = "flex flex-wrap items-center gap-2";
 const ROW_HINT = "max-w-[68ch] text-xs text-faint";
 const FIELD =
-  "min-w-0 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-2 focus:outline-none";
+  "min-w-0 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-1 focus:outline-none";
 
 export function Toggle(props: {
   label: string;
@@ -157,7 +183,7 @@ export function Toggle(props: {
           className={cx(
             "pointer-events-none absolute inset-0 rounded-full transition-colors duration-[180ms]",
             "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-3",
-            props.checked ? "bg-brand-2" : "bg-line",
+            props.checked ? "bg-brand-1" : "bg-line",
           )}
         />
         <span
@@ -198,8 +224,8 @@ export function Segmented<T extends string>(props: {
             className={cx(
               "flex items-center gap-1.5 rounded-[6px] px-[11px] py-[5px] text-[12px]",
               props.value === o.value
-                ? "bg-surface-hover text-text shadow-[inset_0_0_0_1px_var(--line)]"
-                : "text-dim",
+                ? "bg-brand-soft font-medium text-brand-tint shadow-[inset_0_0_0_1px_var(--brand-edge)]"
+                : "text-dim hover:text-text",
             )}
             onClick={() => props.onChange(o.value)}
           >
@@ -299,7 +325,7 @@ export function Slider(props: {
       <span className="flex flex-none items-center gap-2.5">
         <input
           type="range"
-          className="w-[190px] accent-brand-2"
+          className="w-[190px] accent-brand-1"
           min={props.min}
           max={props.max}
           value={props.value}
@@ -390,17 +416,17 @@ export function Stat(props: {
   tone?: "up" | "down" | "warn";
 }) {
   return (
-    <div className="flex gap-3 rounded-md border border-line bg-surface px-4 py-3.5">
+    <div className="flex min-w-0 gap-3 rounded-md border border-line-soft bg-surface px-4 py-3.5 shadow-e1">
       {props.icon && (
-        <span className="grid h-8 w-8 flex-none place-items-center rounded-sm bg-surface-2 text-[15px] text-brand-2">
+        <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-brand-soft text-[15px] text-brand-tint">
           {props.icon}
         </span>
       )}
       <div className="min-w-0">
-        <div className="text-2xs tracking-[0.08em] text-faint uppercase">{props.label}</div>
+        <div className="text-2xs tracking-[0.16em] text-faint uppercase">{props.label}</div>
         <div
           className={cx(
-            "mt-0.5 text-[20px] font-semibold tabular-nums",
+            "mt-1 text-[20px] font-medium tabular-nums",
             props.tone && TONE[props.tone],
           )}
         >
@@ -425,14 +451,14 @@ export function KeyValue(props: { label: string; value: ReactNode; mono?: boolea
 
 export function Empty(props: { icon?: ReactNode; title: string; children?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-1.5 px-5 py-11 text-center text-dim">
+    <div className="flex flex-col items-center gap-3.5 px-5 py-12 text-center text-dim">
       {props.icon && (
-        <span className="mb-1 grid h-[46px] w-[46px] place-items-center rounded-md bg-surface-2 text-[20px] text-faint">
+        <span className="grid size-11 place-items-center rounded-full bg-brand-soft text-[20px] text-brand-tint">
           {props.icon}
         </span>
       )}
-      <p className="font-semibold text-text">{props.title}</p>
-      {props.children && <p className="max-w-[46ch] text-sm">{props.children}</p>}
+      <p className="text-lead font-medium text-text">{props.title}</p>
+      {props.children && <p className="max-w-[42ch] text-sm">{props.children}</p>}
     </div>
   );
 }
@@ -475,7 +501,7 @@ export function Th(props: { children?: ReactNode; num?: boolean }) {
   return (
     <th
       className={cx(
-        "border-b border-line px-2.5 py-2 text-[10px] tracking-[0.07em] text-faint uppercase whitespace-nowrap",
+        "border-b border-line-soft px-3 py-2.5 text-2xs tracking-[0.16em] text-faint uppercase whitespace-nowrap",
         props.num ? "text-right" : "text-left",
       )}
     >
@@ -488,7 +514,7 @@ export function Td(props: { children?: ReactNode; num?: boolean; mono?: boolean;
   return (
     <td
       className={cx(
-        "px-2.5 py-2 whitespace-nowrap",
+        "px-3 py-2.5 whitespace-nowrap",
         props.num && "text-right font-mono tabular-nums",
         props.mono && MONO,
       )}
@@ -501,7 +527,7 @@ export function Td(props: { children?: ReactNode; num?: boolean; mono?: boolean;
 
 export function DataTable(props: { children: ReactNode; label?: string }) {
   return (
-    <div className="overflow-x-auto rounded-sm border border-line-soft">
+    <div className="overflow-x-auto rounded-md border border-line-soft bg-surface">
       <table className="w-full border-collapse text-sm" aria-label={props.label}>
         {props.children}
       </table>
@@ -517,7 +543,7 @@ export function FilterBar(props: {
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface p-2 shadow-e1">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-line-soft bg-surface p-2 shadow-e1">
       <label className="relative min-w-[220px] flex-1">
         <FiSearch aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
         <input
@@ -525,7 +551,7 @@ export function FilterBar(props: {
           value={props.value}
           onChange={(event) => props.onChange(event.target.value)}
           placeholder={props.placeholder}
-          className="w-full rounded-sm border border-transparent bg-surface-2 py-2 pr-3 pl-9 text-sm outline-none focus:border-brand-2"
+          className="w-full rounded-sm border border-transparent bg-surface-2 py-2 pr-3 pl-9 text-sm outline-none focus:border-brand-1"
         />
       </label>
       {props.actions}
@@ -543,7 +569,7 @@ export function Pagination(props: {
   if (pages <= 1) return null;
   const page = Math.min(props.page, pages);
   return (
-    <nav aria-label="Pagination" className="flex items-center justify-between border-t border-line-soft pt-3 text-xs text-faint">
+    <nav aria-label="Pagination" className="flex flex-wrap items-center justify-between gap-3 border-t border-line-soft pt-3 text-xs text-faint">
       <span>
         {(page - 1) * props.pageSize + 1}-{Math.min(page * props.pageSize, props.total)} of {props.total}
       </span>
@@ -574,12 +600,19 @@ export function Pagination(props: {
  *
  * `hero` is the size the Play button uses. It is a size rather than a variant because it is still
  * the same control; what makes it the loudest thing on the screen is `primary` plus the gradient.
+ *
+ * `shape` is the reference's real system, and it is not obvious from looking at the sheet: the
+ * radius is chosen by the button's *role*, not by its size. An action inside a layout is a pill;
+ * the one action a screen or dialog exists for is a full-width block; an action bound to an
+ * adjacent input is inline and matches that input's radius. `block` therefore also takes the width,
+ * because a block button that is not full-width is just a rectangle.
  */
 export function Button(props: {
   children: ReactNode;
   onClick?: () => void;
   variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "sm" | "md" | "hero";
+  shape?: "pill" | "block" | "inline";
   disabled?: boolean;
   title?: string;
   type?: "button" | "submit";
@@ -587,6 +620,7 @@ export function Button(props: {
 }) {
   const variant = props.variant ?? "secondary";
   const size = props.size ?? "sm";
+  const shape = props.shape ?? "inline";
   return (
     <button
       type={props.type ?? "button"}
@@ -601,7 +635,9 @@ export function Button(props: {
         "disabled:pointer-events-none disabled:opacity-50",
         size === "sm" && "px-2.5 py-1 text-xs",
         size === "md" && "px-3.5 py-2 text-sm",
-        size === "hero" && "rounded-lg px-8 py-3.5 text-[15px] tracking-wide shadow-e2",
+        size === "hero" && "px-8 py-3.5 text-[15px] font-medium tracking-[0.08em] uppercase shadow-e2",
+        shape === "pill" && "rounded-full",
+        shape === "block" && "w-full",
         variant === "primary" && "bg-play text-on-play hover:brightness-110 active:brightness-95",
         variant === "secondary" && "border border-line bg-surface-2 hover:bg-surface-hover",
         variant === "ghost" && "text-dim hover:bg-surface-hover hover:text-text",
@@ -684,14 +720,14 @@ export function Modal(props: {
   }, [dismissable, props.onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+    <div className="fixed inset-0 z-50 grid place-items-center p-4 pb-[7vh]">
       <button
         type="button"
         aria-label="Close"
         tabIndex={-1}
         disabled={!dismissable}
         onClick={() => props.onClose?.()}
-        className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm disabled:cursor-default"
+        className="absolute inset-0 cursor-default bg-scrim backdrop-blur-[8px] disabled:cursor-default"
       />
       <div
         ref={panel}
@@ -700,16 +736,19 @@ export function Modal(props: {
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cx(
-          "relative flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-e3 outline-none",
-          props.width === "lg" ? "max-w-3xl" : props.width === "md" ? "max-w-xl" : "max-w-lg",
+          // Panel 07 measures an 8px radius on the dialog against 12–14 on the cards behind it:
+          // the modal is tighter than a card, not looser, and its elevation is the scrim rather
+          // than the shadow.
+          "relative flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-sm border border-line bg-surface shadow-e3 outline-none",
+          props.width === "lg" ? "max-w-3xl" : props.width === "md" ? "max-w-xl" : "max-w-[560px]",
         )}
       >
-        <header className="border-b border-line-soft px-5 py-3.5">
-          <h2 id={titleId} className="display-type text-lg font-semibold">{props.title}</h2>
+        <header className="px-6 pt-5 pb-1">
+          <h2 id={titleId} className="text-lead font-medium">{props.title}</h2>
         </header>
-        <div className="min-h-0 overflow-y-auto px-5 py-4">{props.children}</div>
+        <div className="min-h-0 overflow-y-auto px-6 py-4">{props.children}</div>
         {props.footer && (
-          <footer className="flex justify-end gap-2 border-t border-line-soft px-5 py-3">
+          <footer className="flex justify-end gap-2 px-6 pt-1 pb-5">
             {props.footer}
           </footer>
         )}
@@ -725,15 +764,25 @@ export function Modal(props: {
  *
  * The world detail screen and the settings screen each rolled their own, with different padding,
  * different active colours, and — in one of them — no `role="tab"` at all.
+ *
+ * A strip of tabs is the app's canonical piece of *irreducibly wide* content: eight labels that
+ * cannot wrap and must not be abbreviated. So it carries the horizontal boundary itself —
+ * `min-w-0` so it is allowed to be narrower than its own contents, `overflow-x-auto` so what is
+ * left over is scrolled here rather than pushed through the page — and each tab is `shrink-0` so
+ * the strip crowds instead of squeezing every label into two lines. Without the pair, the last tab
+ * is simply gone: the 1000px screenshot has no "Diagnostics" in it.
  */
 export function Tabs<T extends string>(props: {
-  tabs: readonly { id: T; label: string }[];
+  tabs: readonly { id: T; label: string; icon?: ReactNode }[];
   active: T;
   onSelect: (id: T) => void;
   className?: string;
 }) {
   return (
-    <div role="tablist" className={cx("flex gap-1 border-b border-line", props.className)}>
+    <div
+      role="tablist"
+      className={cx("flex min-w-0 gap-1 overflow-x-auto border-b border-line-soft", props.className)}
+    >
       {props.tabs.map((tab) => (
         <button
           key={tab.id}
@@ -741,13 +790,15 @@ export function Tabs<T extends string>(props: {
           aria-selected={tab.id === props.active}
           onClick={() => props.onSelect(tab.id)}
           className={cx(
-            "-mb-px border-b-2 px-3 py-2 text-sm transition-colors duration-[var(--motion-fast)]",
+            "-mb-px flex h-9 shrink-0 items-center border-b-2 px-3.5 text-body whitespace-nowrap",
+            "transition-colors duration-[var(--motion-fast)]",
             "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus",
             tab.id === props.active
-              ? "border-brand-2 text-text"
-              : "border-transparent text-faint hover:text-dim",
+              ? "border-brand-1 font-medium text-text"
+              : "border-transparent text-dim hover:text-text",
           )}
         >
+          {tab.icon && <span aria-hidden className="mr-2 flex">{tab.icon}</span>}
           {tab.label}
         </button>
       ))}
@@ -771,7 +822,7 @@ export function Select<T extends string>(props: {
       value={props.value}
       onChange={(e) => props.onChange(e.target.value as T)}
       className={cx(
-        "min-w-0 max-w-full appearance-none rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm",
+        "min-w-0 max-w-full appearance-none rounded-sm border border-line bg-surface-2 px-3 py-2 text-sm focus:border-brand-1",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus",
         props.className,
       )}
@@ -807,11 +858,14 @@ export function Banner(props: {
         props.tone === "info" && "border-brand-3/35 bg-brand-3/10 text-brand-3",
       )}
     >
-      <span className="flex items-center gap-2">
+      {/* `min-w-0` on the sentence, `flex-none` on the action: the restart banner's "Restart worker"
+          button is what fell off the right edge of the 1600px and 1000px screenshots, because the
+          sentence beside it would not agree to be narrower than itself. */}
+      <span className="flex min-w-0 items-center gap-2">
         <FiInfo aria-hidden className="flex-none" />
         {props.children}
       </span>
-      {props.action}
+      {props.action && <span className="flex flex-none items-center gap-2">{props.action}</span>}
     </div>
   );
 }

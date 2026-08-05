@@ -1,137 +1,42 @@
-// Every styling class written in the source must actually resolve to a rule in the shipped CSS.
+// The launcher's half of the token audit, plus the launcher-specific surfaces it has to prove.
 //
-// # Why this test exists
+// The general rule — "every class token written in the source resolves to a rule in the shipped
+// stylesheet" — now lives in `nodera-ui/token-audit`, because there are two frontends that need it
+// and the website's likeliest styling failure is that *every* class in it resolves to nothing:
+// Tailwind v4 detects its sources relative to the Vite root, and the site imports this application's
+// stylesheet across a package boundary. A second copy of the rule would be a second definition of
+// what counts as a token, drifting from this one the first time either was edited.
 //
-// Tailwind emits a class only when it resolves. A class name that names a token the theme does not
-// declare — `bg-panel` when the palette calls it `--color-surface` — is not an error anywhere: `tsc`
-// does not read class names, Vite does not warn, and the element simply renders with no background.
-// The first-run consent modal shipped that way: `bg-panel`, `text-brand`, `text-muted` and
-// `hover:bg-hover` all resolved to nothing, so the panel was transparent over the scrim, its prose
-// rendered at full contrast instead of dimmed, and neither button had a hover state — on the first
-// screen a new user ever sees.
-//
-// The check is the inverse of the bug: take every class token that appears in the source, and assert
-// the production stylesheet contains a rule for it. A token Tailwind rejected is a token that is
-// missing from `dist`, which is exactly the signature.
-//
-// # Why it reads the built CSS rather than the theme
-//
-// Comparing class names against the `@theme` block in `styles.css` would only cover colours, and it
-// would re-implement Tailwind's own resolution rules — including the built-in palette, arbitrary
-// values and every variant prefix — in this file, where they would drift. The built stylesheet is
-// the authority on what resolved, because it *is* what resolved.
+// Why the rule exists at all is worth keeping here, because it is a real bug this file caught: a
+// class naming a token the theme does not declare — `bg-panel` when the palette calls it
+// `--color-surface` — is not an error anywhere. `tsc` does not read class names, Vite does not warn,
+// and the element renders with no background. The first-run consent modal shipped that way, on the
+// first screen a new user ever sees.
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { readCrate } from "./layout.mjs";
+import { readFileSync } from "node:fs";
+import { frontendRoots, readCrate } from "./layout.mjs";
+import { auditTokens } from "nodera-ui/token-audit";
 import { fileURLToPath } from "node:url";
-import path from "node:path";
 import test from "node:test";
 
-const srcDir = fileURLToPath(new URL("../src/", import.meta.url));
-const assets = new URL("../dist/assets/", import.meta.url);
-const builtCss = readdirSync(assets)
-  .filter((name) => name.endsWith(".css"))
-  .map((name) => readFileSync(new URL(name, assets), "utf8"))
-  .join("\n");
+const assets = fileURLToPath(new URL("../dist/assets/", import.meta.url));
 
-/** Every `.tsx`/`.ts` under `src/`, recursively — a new folder of screens cannot escape the rule. */
-function sources(dir) {
-  const out = [];
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...sources(full));
-    else if (/\.(tsx|ts)$/.test(entry)) out.push(full);
-  }
-  return out;
-}
-
-/**
- * The utility families that carry a design decision.
- *
- * Deliberately not "every class": layout utilities (`flex`, `grid-cols-2`) cannot name a missing
- * token, so including them would add noise without adding coverage. These families all take a value
- * out of the theme, which is where a name can be wrong.
- */
-const FAMILIES = [
-  "text",
-  "bg",
-  "border",
-  "outline",
-  "ring",
-  "fill",
-  "stroke",
-  "from",
-  "via",
-  "to",
-  "shadow",
-  "decoration",
-  "divide",
-  "accent",
-  "caret",
-  "placeholder",
-  "rounded",
-];
-
-const TOKEN = new RegExp(
-  // optional variant prefixes (`hover:`, `max-narrow:`, `dark:`…), then family-value
-  String.raw`^(?:[a-z][a-z0-9-]*:)*(?:${FAMILIES.join("|")})-[a-z0-9[\]()/.,%#_-]+$`,
-  "i",
-);
-
-/** CSS identifier escaping, the same transformation Tailwind applies when it emits the selector. */
-function cssEscape(token) {
-  return token.replace(/[^a-zA-Z0-9_-]/g, (ch) => `\\${ch}`);
-}
-
-/**
- * Is there a rule for this class in the stylesheet?
- *
- * Matches `.token` only at a class boundary, so `.bg-surface` is not satisfied by `.bg-surface-hover`
- * — the near-miss this test most needs to catch, because a token one hyphen away from a real one is
- * exactly what a rename leaves behind.
- */
-function emitted(token) {
-  const needle = `.${cssEscape(token)}`;
-  let at = builtCss.indexOf(needle);
-  while (at !== -1) {
-    const next = builtCss[at + needle.length];
-    if (next === undefined || !/[a-zA-Z0-9_-]/.test(next)) return true;
-    at = builtCss.indexOf(needle, at + 1);
-  }
-  return false;
-}
-
-/**
- * Class tokens written as plain string literals.
- *
- * Literals containing `${` are skipped: an interpolated class is composed at runtime, so the pieces
- * around the hole are not tokens and Tailwind never sees them as such either.
- */
-function tokensIn(source) {
-  const found = new Set();
-  for (const [, literal] of source.matchAll(/"([^"\\\n]*)"|'([^'\\\n]*)'|`([^`\\$]*)`/g)) {
-    if (literal === undefined || literal.includes("${")) continue;
-    for (const word of literal.split(/\s+/)) {
-      if (TOKEN.test(word)) found.add(word);
-    }
-  }
-  return found;
-}
+// The source roots come from the manifest for the same reason as the walkers in
+// `ux-honesty.test.mjs`: the frontend stopped being one directory when the platform seam moved into
+// the shared kit, and a walker pointed at a directory the code has left goes green by finding
+// nothing.
+const audit = auditTokens({ sourceRoots: frontendRoots(), distAssets: assets });
+const builtCss = audit.css;
 
 test("every styling class in the source resolves to a rule in the shipped CSS", () => {
-  const dead = [];
-  for (const file of sources(srcDir)) {
-    const source = readFileSync(file, "utf8");
-    for (const token of tokensIn(source)) {
-      if (!emitted(token)) dead.push(`${path.relative(srcDir, file)}: ${token}`);
-    }
-  }
-
   assert.deepEqual(
-    dead,
+    audit.dead,
     [],
-    `these classes name something the theme does not declare, so they style nothing:\n  ${dead.join("\n  ")}`,
+    `these classes name something the theme does not declare, so they style nothing:\n  ${audit.dead.join("\n  ")}`,
   );
+  // Zero dead tokens out of zero tokens is the shape a wrong source root produces. The count is
+  // what tells that green apart from the real one.
+  assert.ok(audit.inspected > 100, `only ${audit.inspected} class tokens were inspected`);
 });
 
 test("the consent modal's own classes are among them", () => {
@@ -189,13 +94,53 @@ test("desktop screens share the wide twelve-column obsidian canvas", () => {
 
   assert.match(css, /--canvas-max:\s*1680px/);
   assert.match(css, /grid-template-columns:\s*repeat\(12, minmax\(0, 1fr\)\)/);
-  assert.match(css, /--bg:\s*#080a09/);
-  assert.match(css, /--brand-1:\s*#b8ff4a/);
+  assert.match(css, /--bg:\s*#16171b/);
+  assert.match(css, /--brand-1:\s*#7d67cb/);
   assert.doesNotMatch(css, /#ff4d8d|#a855f7|#22d3ee/i);
   assert.match(settings, /wide:hidden/);
-  assert.match(settings, /hidden pr-6 wide:block/);
-  assert.match(settings, /wide:grid-cols-2/);
+  // The rule is "a sidebar that only exists at the wide breakpoint", and that is all this pins.
+  // It used to read `hidden pr-6 wide:block` — an exact class string including the padding, which
+  // makes a spacing tweak in a file this test does not own look like the navigation collapsing.
+  assert.match(settings, /hidden[^"]*wide:block/);
+  // Settings lays its cards out in more than one column once there is room. Either mechanism
+  // satisfies that: the fixed two-up it was written with, or the reflowing `card-grid` wall, which
+  // answers a 1920px window with more columns rather than two very wide ones.
+  assert.match(settings, /wide:grid-cols-2|card-grid/);
   assert.match(worlds, /<PageGrid/);
+});
+
+test("the canvas is a ceiling, and nothing inside it may be wider than the window", () => {
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+
+  // `min(100%, var(--canvas-max))` and `max-width: var(--canvas-max)` compute to the same number
+  // right up until something measures the canvas intrinsically — and then the percentage is
+  // indefinite, behaves as `auto`, and the canvas collapses onto its own content. That is the
+  // "content sits in a narrow column while the window is wide" half of the report, and it is a
+  // one-word difference in the source. A maximum is a maximum.
+  const canvas = css.slice(css.indexOf("@utility page-canvas"));
+  assert.match(canvas.slice(0, 260), /max-width:\s*var\(--canvas-max\)/);
+  assert.doesNotMatch(
+    canvas.slice(0, 260),
+    /width:\s*min\(/,
+    "the canvas is back to a computed width instead of a ceiling",
+  );
+
+  // The automatic minimum size, in the shipped CSS rather than in the source. `minmax(0, 1fr)`
+  // stops a wide child stretching its *track*; it says nothing about the child, which is still a
+  // grid item with `min-width: auto` and still overflows the track it was handed. Both grids have
+  // to hand their children a zero minimum or a table, a tab strip or an unbreakable id pushes the
+  // page out past the window's right edge, where `body { overflow: hidden }` eats it in silence.
+  for (const grid of ["page-grid", "card-grid"]) {
+    assert.match(
+      builtCss,
+      new RegExp(String.raw`\.${grid}\s*>\s*\*\s*\{[^}]*min-width:\s*0`),
+      `production CSS lets a ${grid} child refuse to be narrower than its contents`,
+    );
+  }
+
+  // A wide window has to answer with more columns, not more emptiness — the reference spends
+  // horizontal space on card walls three and four across, never on one stretched column.
+  assert.match(builtCss, /\.card-grid\{[^}]*repeat\(auto-fit,\s*minmax\(/);
 });
 
 test("desktop typefaces are bundled and separated by role", () => {

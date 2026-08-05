@@ -3,7 +3,7 @@
 // Settings save on change rather than behind an Apply button — every control here is independent,
 // so there is no half-valid intermediate state an explicit commit would be protecting. A rejected
 // document (the backend validates) surfaces inline and the previous value stays on screen.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   FiMonitor,
   FiMoon,
@@ -20,6 +20,7 @@ import {
   FiPackage,
   FiTerminal,
   FiInfo,
+  FiDroplet,
 } from "react-icons/fi";
 import TrackerStoresScreen from "./TrackerStores";
 import { PeersScreen } from "./Peers";
@@ -28,6 +29,7 @@ import { ConsoleScreen } from "./Console";
 import { AboutScreen } from "./About";
 import { PrivacyCard, useTelemetryStatus } from "./Consent";
 import {
+  Button,
   Card,
   Toggle,
   Segmented,
@@ -82,18 +84,39 @@ export type Section =
   | "privacy"
   | "about";
 
-const SECTIONS: { id: Section; label: string; icon: JSX.Element }[] = [
-  { id: "appearance", label: "Appearance", icon: <FiEye /> },
-  { id: "behavior", label: "Behavior", icon: <FiPower /> },
-  { id: "network", label: "Network", icon: <FiWifi /> },
-  { id: "stores", label: "Tracker stores", icon: <FiTag /> },
-  { id: "peers", label: "Peers", icon: <FiUsers /> },
-  { id: "storage", label: "Storage", icon: <FiHardDrive /> },
-  { id: "minecraft", label: "Minecraft", icon: <FiPackage /> },
-  { id: "diagnostics", label: "Diagnostics", icon: <FiTerminal /> },
-  { id: "privacy", label: "Privacy", icon: <FiShield /> },
-  { id: "about", label: "About", icon: <FiInfo /> },
+/**
+ * Ten sections, three groups, in the order the questions get asked.
+ *
+ * A flat list of ten is a list you read from the top every time. Panel 06's nav card groups its
+ * entries under quiet uppercase headings, and this screen has wanted that since it absorbed six
+ * former destinations — the three groups answer *what is this about*: your node on the network,
+ * this computer, or who you trust.
+ *
+ * The `group` is only read by the wide sidebar. The narrow tab strip stays flat, because a
+ * horizontal strip has nowhere to put a heading.
+ */
+type Group = "YOUR NODE" | "THIS COMPUTER" | "TRUST";
+
+const SECTIONS: { id: Section; label: string; icon: JSX.Element; group: Group }[] = [
+  { id: "appearance", label: "Appearance", icon: <FiEye />, group: "THIS COMPUTER" },
+  { id: "behavior", label: "Behavior", icon: <FiPower />, group: "YOUR NODE" },
+  { id: "network", label: "Network", icon: <FiWifi />, group: "YOUR NODE" },
+  { id: "stores", label: "Tracker stores", icon: <FiTag />, group: "TRUST" },
+  { id: "peers", label: "Peers", icon: <FiUsers />, group: "YOUR NODE" },
+  { id: "storage", label: "Storage", icon: <FiHardDrive />, group: "YOUR NODE" },
+  { id: "minecraft", label: "Minecraft", icon: <FiPackage />, group: "THIS COMPUTER" },
+  { id: "diagnostics", label: "Diagnostics", icon: <FiTerminal />, group: "THIS COMPUTER" },
+  { id: "privacy", label: "Privacy", icon: <FiShield />, group: "TRUST" },
+  { id: "about", label: "About", icon: <FiInfo />, group: "TRUST" },
 ];
+
+const GROUPS: readonly Group[] = ["YOUR NODE", "THIS COMPUTER", "TRUST"];
+
+/** The name of the custom appearance in force, or `undefined` when the built-in scheme is alone. */
+function customName(settings: SettingsDoc): string | undefined {
+  const themes = settings.appearance.themes;
+  return themes?.custom.find((t) => t.id === themes.selected)?.name || undefined;
+}
 
 const SECTION_COPY: Record<Section, string> = {
   appearance: "Theme and desktop presentation.",
@@ -201,6 +224,37 @@ const TAB_BTN =
   "flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm transition-colors";
 const NESTED = "my-0.5 ml-3.5 border-l-2 border-line pl-3.5";
 
+/**
+ * The narrow tab strip's own scrollbar, 4px under the tabs.
+ *
+ * Ten sections do not fit across a 1000px window and never will, so the strip scrolls — and a strip
+ * that scrolls without saying so is indistinguishable from one that has been cut off, which is
+ * exactly how "Diagnostics" read on a square window. WebKit paints these pseudo-elements (this app's
+ * Linux webview *is* WebKit) and `overflow-x: auto` only shows them when there is something to
+ * scroll, so the bar appears precisely when the strip has more to offer than it can show.
+ */
+const TAB_SCROLLBAR =
+  "[&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent " +
+  "[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-line";
+
+/**
+ * A wall of setting cards that answers a wider window with more columns instead of more air.
+ *
+ * `wide:grid-cols-2` cannot: it is two columns at 1180px and still two columns at 1920px, where each
+ * card is 700px of mostly empty middle with its label pinned to one edge and its control to the
+ * other. `auto-fit` reflows, and with fewer cards than tracks the empty tracks collapse, so a
+ * two-card section still fills its row rather than sitting in the left half of one.
+ *
+ * **Why not `card-grid`.** The shared wall's floor is a *card* — a tile with a picture and a name,
+ * which reads fine at 340px. A setting is a row: a label, a hint, and a control that may be a 190px
+ * slider plus its readout, or a three-way segmented switch. Below about 440px the control wins and
+ * the label wraps to three words a line, so this wall carries its own floor and says why. `min(100%,
+ * …)` keeps that floor from becoming an overflow in a container narrower than it — the one way
+ * `minmax()` can push content off the screen.
+ */
+const CARD_WALL =
+  "grid gap-4 grid-cols-[repeat(auto-fit,minmax(min(100%,440px),1fr))] [&>*]:min-w-0";
+
 export function SettingsScreen(props: {
   settings: SettingsDoc | null;
   onChange: (next: SettingsDoc) => void;
@@ -209,6 +263,8 @@ export function SettingsScreen(props: {
   /** Live node figures, for the sections that report on the node rather than configure it. */
   d: Dashboard;
   sys: SystemStats;
+  /** Opens the Theme screen. Absent on a surface that has no screen to open. */
+  onOpenTheme?: () => void;
 }) {
   const [section, setSection] = useState<Section>(props.initial ?? "appearance");
   const [statuses, setStatuses] = useState<SettingStatus[]>([]);
@@ -225,21 +281,37 @@ export function SettingsScreen(props: {
   // Read from the worker, never from this app's own idea of it: the consent record lives on the
   // node, and the in-game `/nodera telemetry` command can change it while this screen is open.
   const [telemetry, setTelemetry] = useTelemetryStatus();
+  // The narrow tab strip, so the section in force can be brought back into view.
+  const strip = useRef<HTMLElement>(null);
 
   // Statuses are re-read after every save, because a push can change them: a key moves to `live`
   // only once the worker has confirmed it, so the badges settle a beat after the toggle does.
   const refreshStatus = useCallback(() => {
     fetchSettingStatus().then(setStatuses).catch(() => {});
     fetchConfigStatus().then(setConfig).catch(() => {});
+    // Polled with the rest, not read once on arrival. It carries `pending_restart_keys` now, which
+    // changes as the user edits and empties itself when the worker comes back on the new value —
+    // read once, the banner would appear and then stay for the life of the screen, which is the
+    // shape of the bug this whole change is about.
+    fetchWorkerOwnership().then(setOwnership).catch(() => {});
   }, []);
 
   useEffect(() => {
     refreshStatus();
-    fetchWorkerOwnership().then(setOwnership).catch(() => {});
     fetchSettingsFault().then(setFault).catch(() => {});
     const timer = window.setInterval(refreshStatus, 3000);
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
+
+  // Keep the section in force on screen in the narrow strip — on arrival as much as on a change.
+  // Something else chooses the section here: `initial` sends the user to the one control they were
+  // told to fix, and a strip that opens scrolled to the left has just hidden the reason they came.
+  // `block: "nearest"` confines this to the horizontal axis; the page must not jump.
+  useEffect(() => {
+    strip.current
+      ?.querySelector('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [section]);
 
   const s = props.settings;
   if (!s) return <div className="p-6 text-dim">Loading settings…</div>;
@@ -260,12 +332,39 @@ export function SettingsScreen(props: {
       .catch((e) => setError(String(e)));
   };
 
-  const restartNeeded = config.restart_required.length > 0;
+  // What the RUNNING worker is out of date on — not `config.restart_required`, which is what this
+  // banner used to read and is the reason it was permanently true. The worker answers
+  // `restart_required` for a bind-time key whenever it is pushed one, because the reply describes
+  // the key's scope; the app pushes `network.port_range` and `network.rendezvous_endpoints` on every
+  // save, so the list was never empty, the banner never went away, and restarting could not clear
+  // it. `pending_restart_keys` is the difference between what the worker was started with and what
+  // the settings say now, which is the question the banner was always asking.
+  //
+  // `pending_known` gates it, and an unknown is not a zero: where the app did not spawn the worker
+  // it cannot compare anything, so it shows nothing here and says so in the Peer worker card
+  // instead (A-UX-1).
+  const pendingKeys = ownership?.pending_known ? ownership.pending_restart_keys : [];
+  const restartNeeded = pendingKeys.length > 0;
+
+  const restartNow = () => {
+    setRestarting(true);
+    restartWorker()
+      .catch((e) => setError(String(e)))
+      .finally(() => window.setTimeout(() => setRestarting(false), 1500));
+  };
 
   return (
     <div className="flex min-h-full flex-col">
+      {/* Ten sections across a window that holds six. It scrolls — `min-w-0` is what lets it,
+          because a flex child sizes to its content until it is told it may not — and it says so
+          with a scrollbar of its own rather than letting the shell's clip eat the last two. */}
       <nav
-        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-b border-line bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden"
+        ref={strip}
+        className={cx(
+          "sticky top-0 z-10 flex min-w-0 gap-1 overflow-x-auto border-b border-line-soft",
+          "bg-bg/95 px-[var(--canvas-gutter)] backdrop-blur wide:hidden",
+          TAB_SCROLLBAR,
+        )}
         role="tablist"
       >
         {SECTIONS.map((sec) => (
@@ -276,7 +375,7 @@ export function SettingsScreen(props: {
             className={cx(
               TAB_BTN,
               section === sec.id
-                ? "border-b-brand-2 font-semibold text-text"
+                ? "border-b-brand-1 font-medium text-text"
                 : "border-b-transparent text-dim hover:text-text",
             )}
             onClick={() => {
@@ -290,35 +389,50 @@ export function SettingsScreen(props: {
         ))}
       </nav>
 
-      <div className="page-canvas page-grid py-8">
-        <aside className="col-span-3 hidden pr-6 wide:block">
-          <div className="sticky top-6">
-            <p className="mb-3 px-3 text-[10px] font-semibold tracking-[0.18em] text-faint uppercase">Settings</p>
+      {/* A sidebar of its own width, and a content column that takes everything else.
+
+          This was three of twelve canvas columns against nine, which reads as a proportion and
+          behaves as a tax: at 1920 the nav card grew to 374px to hold ten short labels while the
+          settings it navigates were squeezed into 1170. A navigation list has a width — the width
+          of its longest label — and it does not want more of the window as the window grows. The
+          clamp gives it 196px on the narrowest window that shows it and stops at 296px, and the
+          content column gets every pixel that leaves. */}
+      <div className="page-canvas flex py-8">
+        <aside className="w-[clamp(196px,17vw,296px)] flex-none hidden pr-6 wide:block">
+          <div className="sticky top-6 rounded-md border border-line-soft bg-surface p-3 shadow-e1">
             <nav className="flex flex-col gap-1" aria-label="Settings sections">
-              {SECTIONS.map((sec) => (
-                <button
-                  key={sec.id}
-                  aria-current={section === sec.id ? "page" : undefined}
-                  className={cx(
-                    "flex items-center gap-3 rounded-sm border px-3 py-2.5 text-left text-sm transition-colors",
-                    section === sec.id
-                      ? "border-brand-2/40 bg-brand-2/8 text-text"
-                      : "border-transparent text-dim hover:bg-surface-hover hover:text-text",
-                  )}
-                  onClick={() => {
-                    setSection(sec.id);
-                    resetScrollport();
-                  }}
-                >
-                  <span className={section === sec.id ? "text-brand-1" : "text-faint"}>{sec.icon}</span>
-                  {sec.label}
-                </button>
+              {GROUPS.map((group) => (
+                <div key={group} className="mb-2 flex flex-col gap-1 last:mb-0">
+                  <p className="mt-2 mb-1 px-3 text-2xs font-medium tracking-[0.16em] text-faint uppercase">
+                    {group}
+                  </p>
+                  {SECTIONS.filter((sec) => sec.group === group).map((sec) => (
+                    <button
+                      key={sec.id}
+                      aria-current={section === sec.id ? "page" : undefined}
+                      className={cx(
+                        "flex items-center gap-3 rounded-sm border px-3 py-2 text-left text-sm transition-colors duration-[var(--motion-fast)]",
+                        "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus",
+                        section === sec.id
+                          ? "border-brand-edge bg-brand-soft font-medium text-text"
+                          : "border-transparent text-dim hover:bg-surface-hover hover:text-text",
+                      )}
+                      onClick={() => {
+                        setSection(sec.id);
+                        resetScrollport();
+                      }}
+                    >
+                      <span className={section === sec.id ? "text-brand-tint" : "text-faint"}>{sec.icon}</span>
+                      {sec.label}
+                    </button>
+                  ))}
+                </div>
               ))}
             </nav>
           </div>
         </aside>
 
-      <section aria-label="Settings content" className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-9">
+      <section aria-label="Settings content" className="flex min-w-0 flex-1 flex-col gap-4">
         <PageHeader
           eyebrow="Launcher configuration"
           title={SECTIONS.find((entry) => entry.id === section)?.label ?? "Settings"}
@@ -354,42 +468,31 @@ export function SettingsScreen(props: {
           </div>
         )}
 
+        {/* Transient by construction now. It appears when a bind-time setting has actually moved,
+            names the settings it is about, and goes away a second or two later when the app has
+            restarted the worker for it — the user is told what is happening, not given a chore.
+            The button is here as well because a settle window is a wait, and a wait the user can
+            skip is better than one they cannot. It needs no `can_restart` gate: the backend only
+            answers `pending_known` where it spawned the worker itself, which is exactly where it
+            may stop it — the two come from the same question. */}
         {restartNeeded && (
           <div className="flex flex-wrap items-center gap-3 rounded-sm border border-down/40 bg-down/12 px-3.5 py-2.5 text-sm text-down">
             <FiRefreshCw aria-hidden />
             <span className="flex-1">
-              Some changes apply when the peer worker restarts.
+              Restarting the peer worker to apply {pendingKeys.join(", ")}.
             </span>
-            {ownership?.can_restart ? (
-              <button
-                className="rounded-sm border border-down/50 px-2.5 py-1 text-xs hover:bg-down/12 disabled:opacity-50"
-                disabled={restarting}
-                onClick={() => {
-                  setRestarting(true);
-                  restartWorker()
-                    .catch((e) => setError(String(e)))
-                    .finally(() => window.setTimeout(() => setRestarting(false), 1500));
-                }}
-              >
-                {restarting ? "Restarting…" : "Restart worker"}
-              </button>
-            ) : (
-              // Two reasons the button is absent, and they need different sentences:
-              //   * attached — the worker belongs to whoever started it (scripts/dev.sh, an
-              //     operator), and offering to kill someone else's process would be wrong;
-              //   * mobile — the worker is a thread in this app, so it cannot be cycled without
-              //     the app. Telling a phone user to "restart it where you started it" told them
-              //     nothing (M-NET-3).
-              <span className="text-xs opacity-80">
-                {ownership?.attached
-                  ? "Restart it where you started it."
-                  : "Close and reopen the app to apply these."}
-              </span>
-            )}
+            <button
+              className="rounded-sm border border-down/50 px-2.5 py-1 text-xs hover:bg-down/12 disabled:opacity-50"
+              disabled={restarting}
+              onClick={restartNow}
+            >
+              {restarting ? "Restarting…" : "Restart now"}
+            </button>
           </div>
         )}
 
         {section === "appearance" && (
+          <div className={CARD_WALL}>
           <Card title="Interface">
             <Segmented<Theme>
               label="Theme"
@@ -410,10 +513,35 @@ export function SettingsScreen(props: {
               onChange={(v) => update((d) => (d.appearance.notifications = v))}
             />
           </Card>
+
+          {/* Its own card, beside Interface rather than a fourth row inside it — a deep link is not
+              a preference, and a card wall with one card in it is a 1400px band with a control at
+              each end. Authoring an appearance wants the whole canvas (an editor, a preview and a
+              contrast report do not fit in a settings row), so what lives here is the door and the
+              name of what is behind it. Dropping a block that size into this section chain is how
+              the restart-banner exit test gets broken. */}
+          <Card title="Custom appearance">
+            <div className="flex items-center justify-between gap-5 py-[11px] max-narrow:flex-col max-narrow:items-start max-narrow:gap-2">
+              <span className="flex min-w-0 flex-col">
+                <span>{customName(s) ?? "None"}</span>
+                <span className="max-w-[68ch] text-xs text-faint">
+                  {customName(s)
+                    ? "In force in this window, over the scheme chosen beside it."
+                    : "This window renders the built-in scheme beside it."}
+                </span>
+              </span>
+              {props.onOpenTheme && (
+                <Button shape="pill" onClick={props.onOpenTheme}>
+                  <FiDroplet aria-hidden /> {customName(s) ? "Edit" : "Create"}
+                </Button>
+              )}
+            </div>
+          </Card>
+          </div>
         )}
 
         {section === "behavior" && (
-          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
+          <div className={CARD_WALL}>
             <Card title="Startup">
               <Toggle
                 label="Auto-start"
@@ -468,14 +596,14 @@ export function SettingsScreen(props: {
         )}
 
         {section === "network" && (
-          <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
+          <div className={CARD_WALL}>
             <Card
               title="Default trackers"
               hint="Discovery services this node announces its worlds to and queries for peers. One per line — tcp://host:port; a bare host:port means TCP."
               right={note("network.default_trackers")}
             >
               <textarea
-                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-2 focus:outline-none"
+                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
                 rows={4}
                 value={s.network.default_trackers.join("\n")}
                 onChange={(e) =>
@@ -496,7 +624,7 @@ export function SettingsScreen(props: {
               right={note("network.rendezvous_endpoints")}
             >
               <textarea
-                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-2 focus:outline-none"
+                className="w-full resize-y rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] font-mono text-[12px] leading-relaxed focus:border-brand-1 focus:outline-none"
                 rows={3}
                 value={s.network.rendezvous_endpoints.join("\n")}
                 onChange={(e) =>
@@ -613,9 +741,19 @@ export function SettingsScreen(props: {
                 onChange={(v) => update((d) => (d.network.max_download_bytes_per_sec = v))}
               />
             </Card>
+
+            <WorkerCard
+              ownership={ownership}
+              pending={pendingKeys}
+              restarting={restarting}
+              onRestart={restartNow}
+            />
           </div>
         )}
 
+        {/* Two columns at most, and deliberately not the reflowing wall above: both cards here are
+            paths and budgets that read as a pair, the location card carries a row of writable-target
+            chips that wants the width, and a third column would only ever be empty. */}
         {section === "storage" && (
           <div className="grid grid-cols-1 gap-4 wide:grid-cols-2">
           <Card
@@ -726,6 +864,74 @@ function SpeedSlider(props: {
       hint={props.value === 0 ? "Unlimited" : `${formatBytes(props.value)}/s`}
       onChange={(i) => props.onChange(SPEEDS[i])}
     />
+  );
+}
+
+/**
+ * The peer worker itself: what it is currently out of date on, and a way to cycle it.
+ *
+ * ## Why a card, and not only a banner
+ *
+ * The Restart control used to exist solely inside the "some changes apply when the peer worker
+ * restarts" banner, so it was reachable only while the app believed something was pending — and,
+ * separately, the banner's condition was permanently true, which is the only reason anyone ever saw
+ * the button at all. Fixing the condition would have taken the control away with it. A player whose
+ * node has gone quiet wants to restart it whether or not a *setting* changed, so it lives here,
+ * always, as a plain piece of the Network section.
+ *
+ * ## Three states, and none of them is silence
+ *
+ * * **A restart is available.** The button, plus what is waiting on it if anything is.
+ * * **It is not.** The backend's own sentence, verbatim — an attached worker belongs to whoever
+ *   started it, and on Android it is a thread inside this app. The old code hid the button and
+ *   re-derived a sentence here from `attached`, which is a second copy of a decision the backend
+ *   already makes (M-NET-3).
+ * * **The app cannot tell what the worker is running.** Said out loud rather than drawn as an empty
+ *   pending list: `pending_known: false` means the worker's environment was built by somebody else,
+ *   and rendering that as "everything is applied" is the unknown-as-zero this codebase has
+ *   `StaleDataNotice` to avoid elsewhere (A-UX-1).
+ */
+function WorkerCard(props: {
+  ownership: WorkerOwnership | null;
+  pending: string[];
+  restarting: boolean;
+  onRestart: () => void;
+}) {
+  const own = props.ownership;
+  return (
+    <Card
+      title="Peer worker"
+      hint="The node that keeps your worlds on the network with Minecraft closed. Restarting it drops its connections for a moment; nothing is lost."
+    >
+      {!own ? (
+        // Never "nothing pending": the command has not answered yet, and the honest word for that
+        // is neither yes nor no.
+        <p className="py-1 text-xs text-faint">Asking the worker who owns it…</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 py-1">
+            <p className="min-w-0 flex-1 text-xs text-faint">
+              {!own.pending_known
+                ? "This app did not start the worker, so it cannot tell which settings it is running."
+                : props.pending.length > 0
+                  ? `Waiting on a restart: ${props.pending.join(", ")}.`
+                  : "Running the settings on this screen."}
+            </p>
+            {own.can_restart && (
+              <Button onClick={props.onRestart} disabled={props.restarting}>
+                <FiRefreshCw aria-hidden />
+                {props.restarting ? "Restarting…" : "Restart peer worker"}
+              </Button>
+            )}
+          </div>
+          {/* The backend's sentence, not one assembled here. It is the same string the command
+              itself would refuse with, so the screen cannot promise what the verb declines. */}
+          {!own.can_restart && own.unavailable_reason && (
+            <p className="py-1 text-xs text-warn">{own.unavailable_reason}</p>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 

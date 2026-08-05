@@ -2,7 +2,7 @@
 //!
 //! Everything here runs before the registry is touched, on bytes from an unauthenticated socket. It
 //! is pure (clock and binding state are passed in) so every rejection path is unit-testable without
-//! a network. Self-registration only, Ed25519-verified, TTL'd, size-capped (RENDEZVOUS.md §8.3).
+//! a network. Self-registration only, Ed25519-verified, TTL'd, size-capped (docs/rendezvous/REFERENCE.md).
 
 use nodera_codec::rendezvous::SignedRecord;
 use nodera_codec::sig;
@@ -47,7 +47,7 @@ impl Rejection {
 ///
 /// Nodera's `NodeId` is random, not key-derived, so the service cannot check the binding
 /// cryptographically. The first key to claim an id keeps it while remembered, so an attacker cannot
-/// hijack a live peer's id — a directory-level protection, not an authority claim (§8.1).
+/// hijack a live peer's id — a directory-level protection, not an authority claim.
 #[derive(Debug, Default)]
 pub struct IdentityBindings {
     bindings: HashMap<NodeId, Vec<u8>>,

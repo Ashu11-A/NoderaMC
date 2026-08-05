@@ -1,0 +1,71 @@
+---
+title: Privacy
+description: This site collects nothing. The app measures nothing until you turn it on. Here is exactly what each of those sentences means.
+---
+
+import { Callout } from "../src/components/primitives";
+import { Cmd, Ui } from "../src/components/mdx";
+
+## This site
+
+No analytics. No cookies. No fonts, scripts, images or stylesheets loaded from anybody else's
+server.
+
+That is a property of what was built rather than a promise about intent, and it is checked rather
+than asserted: the site is served under a policy that forbids loading anything from another origin
+at all, and a test over the built output fails if a single reference to a third-party host appears
+in it. One preference is stored in your browser — whether you chose the light or the dark theme —
+and it never leaves it.
+
+The server that serves these pages writes ordinary web-server logs, as every web server does.
+Nothing on this site reads them, and nothing correlates them with anything.
+
+## The app
+
+The companion app can send operational measurements to the project. It is **off by default**, and
+it stays off unless you say yes.
+
+The question is asked once, in plain language, at a moment you are not blocked by it. "Not now" is
+a complete answer and it is not asked again. You can change your mind either way afterwards, from
+<Ui to="privacy-settings" /> or with <Cmd to="nodera-telemetry" /> in chat, and turning it off stops
+the emitter rather than merely stopping the reporting.
+
+### What can be in a report
+
+There is a declared registry of the values that may be collected — the collection policy in
+executable form — and the gate is at the **receiver**. That ordering is the point: a client that is
+buggy, modified or deliberately hostile still cannot cause a value outside the registry to be
+stored.
+
+No declared value can be free text. That single rule is what makes the guarantee checkable rather
+than aspirational, because a world name, a player name, a chat line and a file path are simply not
+representable in the format. What is left is counts and buckets. Reports are pseudonymised, and
+geolocation is coarse enough that the default row records no country and no network at all.
+
+### What it is never used for
+
+Nothing in the network reads telemetry.
+
+Not the trackers, not the relays, not a peer deciding who to talk to, not a committee deciding what
+happened in a region. It influences nothing, which is what makes it safe to sample, throttle or
+switch off entirely — and it is a stricter rule than the one the tracker and relay services live
+under, because those at least influence discovery.
+
+## What the network sees regardless
+
+Being a peer means other machines can see that you are one.
+
+When you share a world, the trackers you have configured learn that a node is holding that world,
+and peers you connect to learn an address for you — or, when you are both behind a NAT, a relay
+learns that two circuits pass through it. That is not telemetry and it cannot be switched off,
+because it is what participating in a peer-to-peer network *is*.
+
+World content is encrypted per world, so a peer holding pieces of a world it is not a member of
+holds bytes it cannot read. Setting a password on the world in the Share screen is what turns that
+key into one only invited players have.
+
+<Callout type="note" title="If that is more exposure than you want">
+  The answer is not a setting. Open the world to LAN instead and use
+  <a href="/docs/start/play-without-the-mod"> the tunnel</a>: it announces a session rather than a
+  world, copies nothing, and puts no part of your save on the network.
+</Callout>

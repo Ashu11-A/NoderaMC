@@ -1,0 +1,68 @@
+# The web image's own Caddy configuration. Nothing outside the container reads this file.
+#
+# <!-- AI-AGENT-INSTRUCTION: There are TWO Caddy configurations in this repository and they own
+#      different halves of the same site. Do not move a rule between them without moving the reason.
+#
+#        * THIS file decides WHICH FILE answers a path. That decision needs the filesystem, and the
+#          filesystem only exists in here.
+#        * `web/noderamc.caddy` — installed on the VPS, in front of this — decides TLS, the security
+#          headers (CSP included), the cache policy and the access log. Those need to sit next to
+#          the other sites that host serves, and they do not need the filesystem.
+#
+#      A rule written in both places does not become twice as safe; it becomes two rules that drift.
+#      -->
+{
+	# No admin API. This container is replaced, never reconfigured in place, so the endpoint is
+	# surface with no user.
+	admin off
+	# No certificates, no ACME, no port 443. The VPS Caddy terminates TLS and proxies plaintext to
+	# 127.0.0.1:8080; a second Caddy trying to provision its own certificate for a site it does not
+	# own would fail forever and write to a data directory this image does not persist.
+	auto_https off
+	# The default error log goes to stderr, which is what `docker logs` reads. Access logs are
+	# deliberately NOT enabled here: the host block already writes one per request to
+	# /var/log/caddy/noderamc.log, and logging every request twice buys nothing but disk.
+}
+
+:8080 {
+	root * /srv/noderamc
+
+	encode zstd gzip
+
+	# /add-store is an external contract — it is the target of the button in the README and in the
+	# app's store screen — and it is add-store.html on disk. Pinned ahead of the SPA fallback so a
+	# JavaScript regression in the site can never take it out: this route resolves to a specific
+	# file and does not depend on the shell booting. A rewrite keeps the query string, so `?url=…`
+	# survives untouched.
+	handle /add-store {
+		rewrite * /add-store.html
+		file_server
+	}
+
+	# /.well-known is served straight from disk with no fallback. Android App Links verification
+	# fetches /.well-known/assetlinks.json and accepts nothing but JSON; answering it with the SPA
+	# shell fails verification silently, which is the worst possible way for that to break.
+	handle /.well-known/* {
+		file_server
+	}
+
+	# Hashed assets never fall back. A missing one has to 404 rather than answer with the HTML shell,
+	# for two reasons: a <script> that receives an HTML document fails with a parse error that names
+	# nothing useful, and the host block marks /assets/* `immutable` for a year — so a shell cached
+	# under an asset URL would stay wrong for as long as anyone kept the tab's cache.
+	handle /assets/* {
+		file_server
+	}
+
+	handle {
+		# The SPA fallback, and the reason it lives in this file rather than in the host block: it
+		# is `try_files`, which asks the filesystem whether a path exists, and the host has no copy
+		# of the site to ask. A deep link like /docs/getting-started therefore returns the shell and
+		# the client router takes it from there.
+		#
+		# The cost of this line is that a genuinely missing path answers 200 with the shell instead
+		# of 404. That is the standard SPA trade and it is taken knowingly.
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+	}
+}

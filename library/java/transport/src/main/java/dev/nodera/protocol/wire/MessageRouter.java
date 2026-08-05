@@ -141,7 +141,7 @@ public final class MessageRouter {
         // An `instanceof` chain, not a type-pattern switch: those compile to an invokedynamic on
         // java.lang.runtime.SwitchBootstraps, which ART does not implement and D8 can neither run
         // nor desugar — so on Android the first encode through this path throws. See
-        // docs/mobile/LIMITATIONS.md M-5 and docs/mobile/LIMITATIONS.fixed.md M-8.
+        // docs/frontend/LIMITATIONS.md M-5 and docs/frontend/LIMITATIONS.fixed.md M-8.
         Nack nack;
         if (outcome instanceof Outcome.UnknownKind u) {
             nack = u.nack();

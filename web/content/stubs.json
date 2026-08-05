@@ -1,0 +1,23 @@
+[
+  {
+    "route": "/docs/start/on-android",
+    "file": "docs/start/on-android.tsx",
+    "task": "frontend Task 16",
+    "taskPath": "docs/frontend/Task.16.md",
+    "why": "The Android companion runs the real worker, but the background-service, battery and metered-data behaviour is still moving. Writing the page now would mean writing it twice."
+  },
+  {
+    "route": "/docs/using/world-ownership",
+    "file": "docs/using/world-ownership.tsx",
+    "task": "peer Task 8",
+    "taskPath": "docs/peer/Task.8.md",
+    "why": "Ownership, operator grants, passwords and deletion are owned by peer Task 8 and minecraft Task 6, both in progress. The rules a page would state are the ones still being decided."
+  },
+  {
+    "route": "/docs/faq/network-and-performance",
+    "file": "docs/faq/network-and-performance.tsx",
+    "task": "network Task 2",
+    "taskPath": "docs/network/Task.2.md",
+    "why": "Relay fallback has not yet been proven across the open internet (rendezvous Task 3 is blocked on it), so any number this page gave for reachability or handoff cost would be a guess."
+  }
+]

@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>Availability outranks latency, on purpose</h2>
  *
  * <p>The weights are 40/30/20/10 over availability, latency, capacity, freshness. Registration and
- * discovery are latency-tolerant (rendezvous {@code REFERENCE.md} §15), so a slow rendezvous that is
+ * discovery are latency-tolerant ({@code docs/rendezvous/REFERENCE.md}), so a slow rendezvous that is
  * always up must beat a fast one that is usually down. The latency term reads p95, not the median: a
  * relay whose tail is bad is bad, and a median hides the stalls that leave a peer sitting on a path it
  * cannot use.
@@ -221,7 +221,7 @@ public final class ServiceScoreBoard {
      *
      * <p>Returns up to {@code fanout} rows, because a peer that registered with several rendezvous but
      * queried only the first would have converted redundancy into a silent single point of failure —
-     * the fallback endpoints would hold records nobody reads (rendezvous {@code REFERENCE.md} §9.1).
+     * the fallback endpoints would hold records nobody reads ({@code docs/rendezvous/REFERENCE.md}).
      * Rows scoring zero are dropped rather than kept as a last resort: they are draining, expired, or
      * measured dead, and dialling them wastes the reconnect budget that failover needs.
      *

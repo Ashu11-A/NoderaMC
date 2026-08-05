@@ -14,7 +14,7 @@ import {
   FiLink,
   FiUsers,
 } from "react-icons/fi";
-import { AVATAR, Card, DataTable, Empty, FilterBar, MONO, PageGrid, PageHeader, Pagination, Pill, Td, Th, Tr, cx } from "./components";
+import { AVATAR, Banner, Button, Card, DataTable, Empty, FilterBar, MONO, PageGrid, PageHeader, Pagination, Pill, Td, Th, Tr, cx } from "./components";
 import {
   browseNetwork,
   joinWorld,
@@ -128,7 +128,11 @@ export function NetworkScreen(props: {
   const [worlds, setWorlds] = useState<DirectoryEntry[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>({ key: "name", ascending: true });
-  const [loading, setLoading] = useState(true);
+  // `null` until a poll has come back at all: "we have not asked yet" is not "nothing is there",
+  // and this screen used to have no way to say the difference. It replaces a plain `loading` flag,
+  // which could only distinguish "asking" from "not asking" and therefore had to render a failed
+  // query and an empty network identically.
+  const [answered, setAnswered] = useState<boolean | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [joined, setJoined] = useState<Joined[]>([]);
@@ -137,11 +141,15 @@ export function NetworkScreen(props: {
   const [page, setPage] = useState(1);
 
   const refresh = () => {
-    setLoading(true);
     browseNetwork(100)
-      .then(setWorlds)
-      .catch(() => setWorlds([]))
-      .finally(() => setLoading(false));
+      .then((found) => {
+        setWorlds(found);
+        setAnswered(true);
+      })
+      // A failed query used to clear the list, so a tracker outage rendered as a confident
+      // "Nothing found" — the same defect as a dashboard of zeros, on the one screen whose whole
+      // job is reporting what other people are running. The last answer is kept and marked.
+      .catch(() => setAnswered(false));
   };
 
   useEffect(() => {
@@ -265,8 +273,11 @@ export function NetworkScreen(props: {
         title="Discover worlds"
         description="Browse sessions currently announced by trackers, or open a trusted invitation."
       />
-      <div className="col-span-12 flex flex-col gap-4">
+      {/* The doors this app has already opened, across the top and not in the rail beside the
+          list: it is the result of the last thing the user did, and the address on it is what they
+          are about to type into Minecraft. */}
       {joined.length > 0 && (
+        <div className="col-span-12">
         <Card
           title="Connect Minecraft to"
           hint="Minecraft → Multiplayer → Direct Connection. Nothing is downloaded; this is a door onto their running game."
@@ -285,51 +296,34 @@ export function NetworkScreen(props: {
                   <code className={cx(MONO, "rounded-sm bg-surface-2 px-2 py-1 text-brand-3")}>
                     {j.address}
                   </code>
-                  <button
-                    className={BUTTON}
+                  <Button
                     onClick={() => void navigator.clipboard?.writeText(j.address)}
                     title="Copy the address"
                   >
-                    <FiCopy aria-hidden className="inline" /> Copy
-                  </button>
-                  <button
-                    className={cx(BUTTON, "text-warn")}
+                    <FiCopy aria-hidden /> Copy
+                  </Button>
+                  <Button
+                    className="text-warn"
                     disabled={busy === j.sessionId}
                     onClick={() => leave(j.sessionId)}
                   >
                     Leave
-                  </button>
+                  </Button>
                 </div>
               );
             })}
           </div>
         </Card>
+        </div>
       )}
 
-      <Card
-        title="Have an invitation?"
-        hint="Paste a nodera: link."
-      >
-        <div className="flex flex-wrap items-center gap-2 py-1">
-          <span className="text-faint">
-            <FiLink aria-hidden />
-          </span>
-          <input
-            className="min-w-0 flex-1 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-2 focus:outline-none"
-            placeholder="nodera:?xt=urn:nodera:…"
-            value={link}
-            onChange={(e) => setLink(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") followLink();
-            }}
-          />
-          <button className={BUTTON} onClick={followLink} disabled={!link.trim()}>
-            Open
-          </button>
-        </div>
-        {linkError && <p className="pb-1 text-sm text-danger">{linkError}</p>}
-      </Card>
+      {/* Eight columns of directory and four of invitation, rather than one column of everything.
 
+          A five-column table given the whole of a 1920px canvas does not use that width, it is
+          diluted by it: a world's name sat 600px from its own peer count. Two thirds is the width
+          this table's content actually wants, and the third that leaves is spent on the other way
+          into a world — which was previously a full-width band above the list carrying one input. */}
+      <div className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-8">
       <FilterBar
         label="Search discoverable worlds"
         value={query}
@@ -345,9 +339,26 @@ export function NetworkScreen(props: {
         title="On the network"
       >
         {error && <p className="pb-2 text-sm text-danger">{error}</p>}
+        {answered === false && (
+          <div className="pb-3">
+            <Banner tone="warn">
+              No tracker answered the last query.{" "}
+              {worlds.length > 0
+                ? "This is what they said before that."
+                : "Nothing below is a claim that the network is empty."}
+            </Banner>
+          </div>
+        )}
         {matches.length === 0 ? (
-          <Empty icon={<FiGlobe />} title={loading ? "Looking…" : "Nothing found"}>
-            {query.trim() ? "Try part of the name, or paste an invitation." : ""}
+          <Empty
+            icon={<FiGlobe />}
+            title={answered === null ? "Asking trackers…" : answered ? "Nothing found" : "No answer yet"}
+          >
+            {query.trim()
+              ? "Try part of the name, or paste an invitation."
+              : answered
+                ? "No world is advertising itself right now."
+                : ""}
           </Empty>
         ) : (
           <>
@@ -369,6 +380,10 @@ export function NetworkScreen(props: {
                   const here = joined.find((j) => j.sessionId === world.session_id);
                   return (
                     <Tr key={world.session_id}>
+                      {/* The name and the id it is searched by. The id was only ever shown when a
+                          world had no name, so the one column with room to spare showed nothing —
+                          while the search box above invites you to paste an id, and the invitation
+                          beside it reports a failure by quoting one. */}
                       <Td>
                         <span className="flex items-center gap-2">
                           <span
@@ -377,7 +392,14 @@ export function NetworkScreen(props: {
                           >
                             {(world.name || "?").slice(0, 1).toUpperCase()}
                           </span>
-                          <span className="truncate">{world.name || shortId(world.session_id)}</span>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="truncate">
+                              {world.name || shortId(world.session_id)}
+                            </span>
+                            <span className={cx(MONO, "truncate text-[11px] text-faint")}>
+                              {shortId(world.session_id)}
+                            </span>
+                          </span>
                           {world.mine && <Pill tone="muted">Yours</Pill>}
                         </span>
                       </Td>
@@ -401,14 +423,13 @@ export function NetworkScreen(props: {
                             <FiCheck aria-hidden /> {here.address}
                           </span>
                         ) : (
-                          <button
-                            className={BUTTON}
+                          <Button
                             disabled={busy === world.session_id}
                             onClick={() => join(world)}
                           >
-                            <FiLogIn aria-hidden className="inline" />{" "}
+                            <FiLogIn aria-hidden />
                             {busy === world.session_id ? "Starting…" : "Play"}
-                          </button>
+                          </Button>
                         )}
                       </Td>
                     </Tr>
@@ -421,9 +442,35 @@ export function NetworkScreen(props: {
         )}
       </Card>
       </div>
+
+      <div className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-4">
+        <Card
+          title="Have an invitation?"
+          hint="Paste a nodera: link. It names one world, and it is opened the same way as a row in the list — nothing is downloaded."
+        >
+          {/* Wrapping, not squeezing: in a quarter-canvas rail the field and its button stop
+              sharing a line, and an input that has been shrunk to two characters is worse than one
+              on a line of its own. */}
+          <div className="flex flex-wrap items-center gap-2 py-1">
+            <span className="text-faint">
+              <FiLink aria-hidden />
+            </span>
+            <input
+              className="min-w-0 flex-1 basis-40 rounded-sm border border-line bg-surface-2 px-2.5 py-[7px] focus:border-brand-1 focus:outline-none"
+              placeholder="nodera:?xt=urn:nodera:…"
+              value={link}
+              onChange={(e) => setLink(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") followLink();
+              }}
+            />
+            <Button onClick={followLink} disabled={!link.trim()}>
+              Open
+            </Button>
+          </div>
+          {linkError && <p className="pb-1 text-sm text-danger">{linkError}</p>}
+        </Card>
+      </div>
     </PageGrid>
   );
 }
-
-const BUTTON =
-  "rounded-sm border border-line bg-surface-2 px-2.5 py-1 text-xs hover:bg-surface-hover disabled:opacity-50";

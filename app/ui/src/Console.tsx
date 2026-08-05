@@ -134,7 +134,7 @@ export function ConsoleScreen(props: { d: Dashboard; sys: SystemStats }) {
             <FiSearch aria-hidden />
           </span>
           <input
-            className="min-w-0 flex-1 rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
+            className="min-w-0 flex-1 rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-1 focus:outline-none"
             placeholder="Filter lines"
             value={filter}
             onChange={(e) => setFilter(e.currentTarget.value)}

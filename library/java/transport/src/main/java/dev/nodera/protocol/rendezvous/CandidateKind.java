@@ -3,7 +3,7 @@ package dev.nodera.protocol.rendezvous;
 import dev.nodera.core.crypto.CanonicalReader;
 
 /**
- * The category of a reachability {@link PeerCandidate} (Task 29; RENDEZVOUS.md §2.5).
+ * The category of a reachability {@link PeerCandidate} (Task 29; docs/rendezvous/REFERENCE.md).
  *
  * <p>Ordinals are the encoded form and are <b>frozen</b>: append new constants, never reorder.
  *

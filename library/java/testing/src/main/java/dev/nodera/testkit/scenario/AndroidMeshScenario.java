@@ -42,7 +42,7 @@ import java.util.Set;
  * cannot be inspected is a phone whose result cannot be trusted.
  *
  * <p>Requires a device on the same Wi-Fi with wireless debugging connected (see
- * docs/mobile/TESTING.md §3.2), and a GUI session for the Minecraft clients. Two knobs carry the
+ * docs/frontend/TESTING.md §3.2), and a GUI session for the Minecraft clients. Two knobs carry the
  * shell script's flags: {@code NODERA_ANDROID_SKIP_APK=1} ({@code --no-apk}: do not build <b>or</b>
  * install) and {@code NODERA_ANDROID_SKIP_GAME=1} ({@code --no-game}: peers only).
  *
@@ -94,7 +94,7 @@ public final class AndroidMeshScenario implements Scenario {
             String serial = phone.resolveSerial();
             if (serial.isBlank()) {
                 ctx.skip("no wireless device. Connect one first: adb tcpip 5555 && adb connect "
-                        + "<phone-ip>:5555 (docs/mobile/TESTING.md §3.2)");
+                        + "<phone-ip>:5555 (docs/frontend/TESTING.md §3.2)");
             }
             phoneIp[0] = phone.ip();
             // A USB-only device cannot be dialled by the Linux peers at all, so it is not a device

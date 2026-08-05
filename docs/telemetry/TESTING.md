@@ -101,6 +101,6 @@ built binary and a compose smoke test.
   TTL is read from the schema rather than observed after a merge.
 - Retention TTL behaviour is asserted by reading the schema, not by running a merge.
 - The app's consent modal has no component test: "neither button is favoured" is held by the markup
-  and by review ([app 5](../app/Task.5.md)).
+  and by review ([frontend 5](../frontend/Task.5.md)).
 - No dashboard has answered a real question yet, because nothing has collected a population
   ([telemetry 3](Task.3.md), and the reason **L-75** is OPEN rather than retired).

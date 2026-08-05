@@ -4,7 +4,7 @@
 //! game/consensus/storage logic (Task 0 §4 rule 7): the service decodes, verifies signatures, and
 //! forwards. Registration records are self-signed and verified against the *same* canonical bytes
 //! (`SignedPeerRecord`, tag 91) whether the relay or a discovering peer checks them, so a lying
-//! relay can hide or invent peers but never forge a record (RENDEZVOUS.md §8.1).
+//! relay can hide or invent peers but never forge a record (docs/rendezvous/REFERENCE.md).
 
 use crate::tags::message_tags;
 use crate::types::{NetworkId, NodeId, PeerCandidate, SignedPeerRecord};

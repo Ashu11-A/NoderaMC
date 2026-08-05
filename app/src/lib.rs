@@ -550,16 +550,26 @@ fn about_build() -> api::about::About {
     api::about::about()
 }
 
+/// Where THIS bundle keeps its resources, or `None` on a build that has no bundle (`cargo run`).
+///
+/// The supervisor is handed the same answer once, at setup. The mod installer resolves it per call
+/// instead: it is two `is_file` probes behind a button press, and threading a second copy through
+/// managed state would be a second place for the two to disagree about what "the bundle" is.
+fn resource_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager as _;
+    app.path().resource_dir().ok()
+}
+
 /// Tauri command: where Minecraft is, and whether the mod is installed there.
 #[tauri::command]
-fn mod_install_status() -> api::modinstall::ModInstallStatus {
-    api::modinstall::status()
+fn mod_install_status(app: tauri::AppHandle) -> api::modinstall::ModInstallStatus {
+    api::modinstall::status(resource_dir(&app).as_deref())
 }
 
 /// Tauri command: install the bundled mod jar into one Minecraft installation.
 #[tauri::command]
-fn install_mod(game_dir: String) -> Result<String, String> {
-    api::modinstall::install(&game_dir)
+fn install_mod(app: tauri::AppHandle, game_dir: String) -> Result<String, String> {
+    api::modinstall::install(&game_dir, resource_dir(&app).as_deref())
 }
 
 /// Tauri command: remove the Nodera jar from one Minecraft installation.
@@ -941,23 +951,42 @@ pub fn run() {
                 let logs_daemon = Arc::clone(&worker_logs);
                 let settings_daemon = Arc::clone(&user_settings);
                 let restart_daemon = Arc::clone(&core.restart);
+                let launched_daemon = Arc::clone(&core.launched);
                 // Where THIS bundle keeps its resources. Resolved here because `setup` is the only
                 // place holding an `AppHandle`, and passed in rather than looked up inside the
                 // supervisor so the path logic stays testable without a running Tauri app.
                 //
                 // `Err` is not a failure: a `cargo run` build has no bundle, and the supervisor's
                 // other candidates are the right answer there.
-                let resource_dir = {
-                    use tauri::Manager as _;
-                    app.path().resource_dir().ok()
-                };
+                let resources = resource_dir(app.handle());
                 tauri::async_runtime::spawn(async move {
                     daemon::supervise(
                         store_daemon,
                         logs_daemon,
                         settings_daemon,
                         restart_daemon,
-                        resource_dir,
+                        launched_daemon,
+                        resources,
+                    )
+                    .await;
+                });
+
+                // ...and cycle it by itself when a setting the worker can only read at startup has
+                // actually changed. Without this the two bind-time settings — which port to bind and
+                // which relays to seed from — were saved into a file the running worker had already
+                // finished reading, and applying them was a banner the user had to notice and act
+                // on. Beside the supervisor because it drives the supervisor: it sends the same
+                // restart signal the button does, so there is still exactly one spawn path.
+                let launched_settle = Arc::clone(&core.launched);
+                let settings_settle = Arc::clone(&user_settings);
+                let restart_settle = Arc::clone(&core.restart);
+                let logs_settle = Arc::clone(&worker_logs);
+                tauri::async_runtime::spawn(async move {
+                    daemon::apply_bind_time_changes(
+                        launched_settle,
+                        settings_settle,
+                        restart_settle,
+                        logs_settle,
                     )
                     .await;
                 });

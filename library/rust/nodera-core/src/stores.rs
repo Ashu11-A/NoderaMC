@@ -309,6 +309,65 @@ pub fn built_in_store() -> Option<TrackerStore> {
         .map(|index| store_from(OFFICIAL_STORE_URL, index, 0, true))
 }
 
+/// Hold the built-in store to [`OFFICIAL_STORE_URL`], discarding a stored copy that names anything
+/// else.
+///
+/// # The bug this closes
+///
+/// The built-in store is persisted into the user's settings document at first run, and from then on
+/// the *saved* copy was the only one anybody read. When the published list moved to its own branch
+/// the constant moved with it — and every install that had ever been run kept dialling
+/// `…/main/services/official.json`, which is a 404. The store screen reported "Last refresh failed
+/// (could not fetch the store: http status: 404). Still using what it said before." against a URL
+/// that is not in this source tree, so the URL a reader could find and the URL the app was using
+/// were different strings, and no amount of pressing Refresh could ever reconcile them.
+///
+/// # Why the built-in row may be rewritten and a user's may not
+///
+/// A store the user added is a decision they took with the URL in front of them; it is theirs, and
+/// nothing here may edit it — not its address, not its name, not the services it last served. The
+/// built-in row is not user data at all. It is a constant that happens to be cached in the same
+/// file, and a constant that can drift from the code that declares it is not a constant.
+///
+/// # What this deliberately does NOT do
+///
+/// **It never puts the built-in store back.** It is deletable like any other — that is what stops
+/// the project being the authority this design avoids having — and resurrecting it on the next
+/// launch would quietly overrule the person who removed it. Absent stays absent.
+///
+/// **It leaves a correct built-in row completely alone,** rather than resetting it to the compiled
+/// copy on every load. A row already at the right URL may hold a fresher list than this build was
+/// compiled with, and throwing that away once per launch would make the refresh loop pointless.
+pub fn reconcile_built_in(stores: &mut Vec<TrackerStore>) -> bool {
+    let Some(index) = stores
+        .iter()
+        .position(|store| store.built_in && store.url.trim() != OFFICIAL_STORE_URL)
+    else {
+        return false;
+    };
+    match built_in_store() {
+        // The compiled-in list wholesale: the stale row's services came from an address this build
+        // does not publish, and `last_refreshed_epoch_millis: 0` is the honest answer for a URL
+        // nothing has read yet. The 404 in `last_error` goes with it.
+        Some(fresh) => stores[index] = fresh,
+        // A build whose compiled list will not parse. Correcting the address alone still turns a
+        // permanent 404 into a row the refresh loop can repair.
+        None => stores[index].url = OFFICIAL_STORE_URL.to_owned(),
+    }
+    // One entry per URL is the store list's invariant (`url` is a store's identity). A user who
+    // added the current official URL by hand while the built-in row was stuck on the old one would
+    // otherwise end up holding it twice, and every endpoint it contributes would appear twice with
+    // it. The corrected row survives, whatever its position; the duplicate goes.
+    let corrected = stores[index].url.clone();
+    let mut position = 0;
+    stores.retain(|store| {
+        let keep = position == index || store.url.trim() != corrected;
+        position += 1;
+        keep
+    });
+    true
+}
+
 // `endpoints_of(stores, kind)` lived here: the store-only half of the walk. `merged` was the only
 // caller, and once `resolved` below took over the walk it had none — `merged(&[], stores, kind)` is
 // the same list, from the same code, and a second entry point into one algorithm is how the two
@@ -745,5 +804,104 @@ mod tests {
         let mut store = store_from("https://example.org/i.json", index, 10, false);
         store.last_error = "connection reset".to_owned();
         assert_eq!(merged(&[], &[store], ServiceKind::Tracker).len(), 1);
+    }
+
+    /* -------------------------------------------------------- holding the built-in to its URL */
+
+    /// The address every install saved before the list moved to its own branch. A 404 since.
+    const STALE_URL: &str =
+        "https://raw.githubusercontent.com/Ashu11-A/NoderaMC/main/services/official.json";
+
+    /// A stored built-in row as an install from before the move actually holds one: the old URL,
+    /// yesterday's services, and the 404 it has been collecting ever since.
+    fn stale_built_in() -> TrackerStore {
+        let index = parse_index(&index_json("")).unwrap();
+        let mut store = store_from(STALE_URL, index, 1_700_000_000_000, true);
+        store.last_error = "could not fetch the store: http status: 404".to_owned();
+        store
+    }
+
+    #[test]
+    fn a_built_in_store_stuck_on_the_old_url_is_reset_to_this_builds() {
+        let mut stores = vec![stale_built_in()];
+        assert!(reconcile_built_in(&mut stores));
+
+        assert_eq!(stores.len(), 1);
+        assert_eq!(stores[0].url, OFFICIAL_STORE_URL);
+        assert!(stores[0].built_in);
+        // The 404 belonged to an address this build no longer dials; carrying it forward would
+        // report a failure against a URL that has never been tried.
+        assert!(
+            stores[0].last_error.is_empty(),
+            "{:?}",
+            stores[0].last_error
+        );
+        assert_eq!(stores[0].last_refreshed_epoch_millis, 0);
+        // ...and the row is usable straight away rather than empty until the first refresh.
+        assert!(!stores[0].services.is_empty());
+        assert!(!merged(&[], &stores, ServiceKind::Tracker).is_empty());
+    }
+
+    #[test]
+    fn a_built_in_store_already_on_the_right_url_is_left_exactly_as_it_was() {
+        // The refresh loop's whole point is that this row gets fresher than the compiled copy.
+        // Resetting it once per launch would throw that away every time the app started.
+        let index = parse_index(&index_json("")).unwrap();
+        let current = store_from(OFFICIAL_STORE_URL, index, 1_700_000_000_000, true);
+        let mut stores = vec![current.clone()];
+
+        assert!(!reconcile_built_in(&mut stores));
+        assert_eq!(stores, vec![current]);
+    }
+
+    #[test]
+    fn a_store_the_user_added_is_never_edited_however_odd_its_url_looks() {
+        // A user's store is a decision they took with the URL in front of them. Nothing here may
+        // rewrite it — not even a row that happens to sit on the address the built-in used to use.
+        let index = parse_index(&index_json("")).unwrap();
+        let theirs = store_from(STALE_URL, index.clone(), 5, false);
+        let other = store_from("https://someone.example.org/i.json", index, 7, false);
+        let mut stores = vec![theirs.clone(), other.clone()];
+
+        assert!(!reconcile_built_in(&mut stores));
+        assert_eq!(stores, vec![theirs, other]);
+    }
+
+    #[test]
+    fn a_built_in_store_the_user_deleted_is_not_resurrected() {
+        // Deleting it is allowed; putting it back on the next launch would overrule the person who
+        // deleted it, which is exactly the authority this project declines to have.
+        let index = parse_index(&index_json("")).unwrap();
+        let theirs = store_from("https://someone.example.org/i.json", index, 7, false);
+        let mut stores = vec![theirs.clone()];
+
+        assert!(!reconcile_built_in(&mut stores));
+        assert_eq!(stores, vec![theirs]);
+
+        // Nor into an empty list, which is the same decision taken to its end.
+        let mut none = Vec::new();
+        assert!(!reconcile_built_in(&mut none));
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn correcting_the_url_does_not_leave_the_official_store_listed_twice() {
+        // The workaround a user could have found for themselves: add the working URL by hand while
+        // the built-in row sat on the dead one. Correcting the built-in row must not then hand them
+        // two copies of the same list — `url` is a store's identity, one entry per URL.
+        let index = parse_index(&index_json("")).unwrap();
+        let by_hand = store_from(OFFICIAL_STORE_URL, index, 9, false);
+
+        for (mut stores, label) in [
+            (vec![stale_built_in(), by_hand.clone()], "duplicate after"),
+            (vec![by_hand.clone(), stale_built_in()], "duplicate before"),
+        ] {
+            assert!(reconcile_built_in(&mut stores), "{label}");
+            assert_eq!(stores.len(), 1, "{label}: {stores:?}");
+            assert_eq!(stores[0].url, OFFICIAL_STORE_URL, "{label}");
+            // The surviving row is the reconciled built-in one, so the list still knows which row
+            // the app shipped with and the store screen can still explain it.
+            assert!(stores[0].built_in, "{label}");
+        }
     }
 }

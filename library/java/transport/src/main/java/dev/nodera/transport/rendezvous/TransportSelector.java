@@ -9,8 +9,8 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Per-{@code (peer, messageClass)} path policy for the rendezvous transport (Task 29; RENDEZVOUS.md
- * §4.7). Prefers {@link Path#DIRECT} over {@link Path#PUNCHED} over {@link Path#RELAYED}, with
+ * Per-{@code (peer, messageClass)} path policy for the rendezvous transport (Task 29;
+ * {@code docs/rendezvous/REFERENCE.md}). Prefers {@link Path#DIRECT} over {@link Path#PUNCHED} over {@link Path#RELAYED}, with
  * transparent demotion on failure and re-promotion on success. Bulk traffic
  * ({@code StreamChunk}-shaped) strongly prefers a non-relayed path to spare relay bandwidth — the
  * same policy Task 10 had assigned to the never-built libp2p module, now owned here.

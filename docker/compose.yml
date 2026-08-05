@@ -11,6 +11,9 @@
 # Two independent services. Neither depends on the other to function: a tracker with no rendezvous
 # still answers queries, and a rendezvous with no tracker still relays for peers that know its
 # address (it is only undiscoverable). Run one, the other, or both.
+#
+# A third service, `web`, sits behind the `site` profile and is not part of that pair — it is the
+# project's own website, and `docker compose up -d` deliberately does not start it.
 
 name: nodera
 
@@ -59,6 +62,35 @@ services:
       NODERA_RENDEZVOUS_DRAIN_GRACE_SECONDS: "${NODERA_RENDEZVOUS_DRAIN_GRACE_SECONDS:-30}"
     volumes:
       - rendezvous-state:/var/lib/nodera
+
+  # The public website. Nothing else in this file depends on it and it depends on nothing here — a
+  # self-hoster running a tracker has no use for it, which is why it is not in the `up -d` line at
+  # the top of this file. It is here so the project's own host can run the site out of the same
+  # compose project it already runs, and so `docker compose pull web` is the whole update path.
+  web:
+    image: ghcr.io/ashu11-a/noderamc:web-${NODERA_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # Behind a profile, so a plain `docker compose up -d` still brings up a tracker and a relay and
+    # nothing else. Somebody self-hosting a tracker has no reason to also run noderamc.org's
+    # website, and starting it for them would take port 8080 on their machine to do it. Everything
+    # that does want it — scripts/bootstrap-site-host.sh and the systemd timer — says `--profile
+    # site` explicitly rather than relying on naming the service being enough, which is only true
+    # on newer Compose.
+    profiles: ["site"]
+    ports:
+      # LOOPBACK ONLY, and never 0.0.0.0. The host in front of this terminates TLS for other
+      # people's sites out of the same Caddy; a container published on every interface would be a
+      # second, plaintext, unlogged way in to this one, reachable by IP and bypassing every header
+      # in web/noderamc.caddy. Dropping the `127.0.0.1:` prefix also opens a port on a machine whose
+      # firewall rules this repository does not manage.
+      - "127.0.0.1:${NODERA_WEB_PORT:-8080}:8080/tcp"
+    # No `stop_grace_period`: unlike the two services above there is no drain to protect. The
+    # responses are static files and Docker's default 10 seconds is more than the in-flight ones
+    # need.
+    #
+    # No volume, and no `healthcheck:` either. The site is baked into the image — a new site is a
+    # new image — and the health check that matters lives in docker/web/Dockerfile, where it can be
+    # written once and apply to `docker run` as well as to this file.
 
 volumes:
   tracker-state:

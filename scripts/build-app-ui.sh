@@ -1,50 +1,26 @@
 #!/usr/bin/env bash
-# Install the companion UI's dependencies and build it, surviving rollup's native-binary bug.
+# Install the frontend workspace's dependencies and build the companion UI.
 #
 # # Why this is a script and not two commands in a workflow
 #
-# `bun install --frozen-lockfile && bun run build` was written inline in two workflows, and it fails
-# intermittently:
+# The install has one non-obvious repair in it — rollup's optional native binary, which resolves but
+# never unpacks on a partially warm cache (npm/cli#4828). That repair now lives in
+# `scripts/lib/bun.sh`, because there are two builds behind the same install: this one and
+# `scripts/build-site.sh`. `app/ui`, `library/ts/nodera-ui` and `web` are one bun workspace, so they
+# share one `node_modules` and one tracked `/bun.lock`, and the install happens once at the root.
 #
-#   Error: Cannot find module @rollup/rollup-linux-x64-gnu
-#
-# Rollup ships its parser as a per-platform **optional** dependency, and both npm and bun have a
-# long-standing bug where a partially warm cache resolves the package but never unpacks the platform
-# binary (npm/cli#4828). Two things make it nasty: the install **succeeds**, so the failure surfaces
-# later inside `vite build` where it reads as a broken frontend; and it is intermittent, so the same
-# commit builds on one run and fails on the next. That is a job somebody re-runs by hand until it
-# passes, which is the worst kind of green.
-#
-# So the check happens where the answer is knowable — after install, before build — and the repair is
-# one targeted reinstall rather than a blanket retry of everything.
+# The directories are resolved through `layout.properties` rather than sed'd out of it. This script
+# used to compose `$(sed …crate.nodera-app…)/ui`, which is the manifest read by hand — it worked, and
+# it is exactly the second copy of the table that `scripts/lib/layout.sh` exists to prevent.
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-UI="$ROOT/$(sed -n 's/^ *crate\.nodera-app *= *//p' "$ROOT/layout.properties" | head -1)/ui"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/layout.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/bun.sh"
+layout_export
 
-cd "$UI"
+UI="$NODERA_ROOT/$(layout_get package.nodera-app-ui)"
 
-# The binary rollup will look for on this machine. Derived rather than hardcoded so the script says
-# something true on a macOS or arm64 runner instead of silently checking the wrong package.
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64)  NATIVE="@rollup/rollup-linux-x64-gnu" ;;
-  Linux-aarch64) NATIVE="@rollup/rollup-linux-arm64-gnu" ;;
-  Darwin-x86_64) NATIVE="@rollup/rollup-darwin-x64" ;;
-  Darwin-arm64)  NATIVE="@rollup/rollup-darwin-arm64" ;;
-  *)             NATIVE="" ;;
-esac
+nodera_bun_install "$UI"
 
-bun install --frozen-lockfile
-
-if [[ -n "$NATIVE" ]] && ! node -e "require.resolve('$NATIVE')" >/dev/null 2>&1; then
-  echo "ui: $NATIVE did not unpack (npm/cli#4828); reinstalling once" >&2
-  rm -rf node_modules
-  bun install --frozen-lockfile
-  # Asserted, not hoped for. If the repair did not work the build below would fail with rollup's own
-  # message, which names a module and not the reason — this names the reason.
-  node -e "require.resolve('$NATIVE')" >/dev/null 2>&1 \
-    || { echo "ui: $NATIVE is still missing after a clean install" >&2; exit 1; }
-fi
-
-bun run build
+bun run --cwd "$UI" build

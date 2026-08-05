@@ -10,12 +10,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The peer half of hole-punch coordination (Task 29; RENDEZVOUS.md §4.6, DCUtR-style).
+ * The peer half of hole-punch coordination (Task 29; docs/rendezvous/REFERENCE.md, DCUtR-style).
  *
  * <p>Over an established relay circuit (a reliable signaling channel), the peers exchange observed
  * addresses via {@link PunchSync} and agree on a shared go-signal the relay stamps; each then
  * attempts a TCP simultaneous-open at that instant. A success upgrades the session to a direct
- * socket; a failure is not an error — the circuit remains a legal steady state (§7). This class is
+ * socket; a failure is not an error — the circuit remains a legal steady state. This class is
  * the pure, testable coordination logic: the timing wait and the candidate to dial.
  *
  * <p>Thread-context: stateless; safe for any thread.

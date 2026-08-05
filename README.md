@@ -94,7 +94,7 @@ Android runs the same worker behind a native Material You node companion.
 ### Play with no mod installed
 
 <!-- AI-AGENT-INSTRUCTION: The lane described below is docs/peer/Task.7.md (the tunnel, the
-     multicast detection, the control verbs) and docs/app/Task.7.md (the modal, the directory, the
+     multicast detection, the control verbs) and docs/frontend/Task.7.md (the modal, the directory, the
      Join button) — both ✅ COMPLETED and live-verified. Read those before editing this copy; do NOT
      cite them inline here, the visible text stays link-free. The two claims that must never be
      softened or lost: (1) joining does NOT download the world — the tunnel carries the game's own
@@ -259,7 +259,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | `neoforge-mod` | `@Mod` entrypoints, host lane, live block capture, GUI, world identity | 120 | 🚧 |
 | `paper-plugin` | `nodera-paper.jar` — the Paper/Folia endpoint plugin | 20 | 🚧 |
 | `library/rust/nodera-codec` | Byte-exact canonical-encoding port + Ed25519 verify + tag mirror | 79 | ✅ |
-| `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 270 | 🚧 |
+| `library/rust/nodera-core` | Companion-app core, shared by both front ends: worker link, settings, stores, telemetry, the launch lane | 287 | 🚧 |
 | `library/rust/nodera-service` | Shared service crate: signed directory, scoring, drain deadlines, release asset naming | 66 | ✅ |
 | `tracker` | Tracker service binary — announce lifecycle, swarm registry, quotas | 111 | ✅ |
 | `rendezvous` | Rendezvous + relay binary — registration, hole punch, metered circuits | 71 | ✅ |
@@ -282,8 +282,7 @@ scripts/release.sh --verify               # hold build/release to the manifest
 | [**Rendezvous**](docs/rendezvous/Task.0.md) | NAT reach: registration, hole punching, encrypted relay fallback | 6 | 🚧 4 done |
 | [**Minecraft**](docs/minecraft/Task.0.md) | The NeoForge mod: capture, live lanes, GUI, host lane, world identity | 11 | 🚧 5 done |
 | [**Peer**](docs/peer/Task.0.md) | The required always-on headless peer + its loopback control protocol | 8 | 🚧 6 done |
-| [**App**](docs/app/Task.0.md) | Desktop game launcher + Tauri shell over the shared app core | 11 | 🚧 6 done |
-| [**Mobile**](docs/mobile/Task.0.md) | The Android build: same app, same Java worker, one process on a phone | 5 | 🚧 4 done |
+| [**Frontend**](docs/frontend/Task.0.md) | Every user-facing surface: desktop launcher, the Android build running the same Java worker, and the website | 20 | 🚧 10 done |
 | [**Telemetry**](docs/telemetry/Task.0.md) | Consented, de-identified measurement + the Big Data plane | 3 | 🚧 1 done |
 | [**Server**](docs/server/Task.0.md) | The Paper/Folia endpoint plugin | 10 | ⬜ 0 done |
 

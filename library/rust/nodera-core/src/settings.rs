@@ -28,6 +28,43 @@ pub enum Theme {
     Light,
 }
 
+/// One appearance authored on this computer.
+///
+/// A **patch on a base scheme**, never a replacement: `base` names the built-in scheme this theme
+/// sits on top of, and every token it does not set falls through to that scheme's block in the
+/// stylesheet. A theme that sets three tokens therefore leaves the other forty working, and
+/// deselecting it is a complete uninstall — nothing was overwritten to begin with.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomTheme {
+    /// Minted by the app, never taken from user input: it becomes a selector fragment.
+    pub id: String,
+    pub name: String,
+    /// Dark or Light. `System` is refused by the editor — a patch has to know what it is patching.
+    pub base: Theme,
+    /// Token name → value, over the app's own allowlist. Cannot express a selector or an at-rule.
+    pub tokens: BTreeMap<String, String>,
+    /// Free-form CSS, rewritten by the app's parser before it is ever applied.
+    pub css: String,
+    pub updated_at: u64,
+}
+
+/// The custom appearances this computer holds, and which one is in force.
+///
+/// One field on [`Appearance`] rather than several, deliberately: [`Settings::keys`] derives the
+/// key set from the serialised document, so every new field is a new key that [`ENFORCEMENT`] must
+/// cover exactly once. Folding the whole feature into one key keeps that surface to a single row.
+///
+/// Desktop only. Android renders in Compose against Material You and cannot read CSS, which is why
+/// the enforcement row says "this window" rather than "this app".
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Themes {
+    /// The custom theme in force, by id. Empty means none — the base scheme renders alone.
+    pub selected: String,
+    pub custom: Vec<CustomTheme>,
+}
+
 /// Appearance settings.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -35,6 +72,9 @@ pub struct Appearance {
     pub theme: Theme,
     /// Desktop notifications for node events (peer joined, world recovered, worker lost).
     pub notifications: bool,
+    /// Custom appearances authored on this computer. See [`Themes`].
+    #[serde(default)]
+    pub themes: Themes,
 }
 
 impl Default for Appearance {
@@ -42,6 +82,7 @@ impl Default for Appearance {
         Self {
             theme: Theme::System,
             notifications: true,
+            themes: Themes::default(),
         }
     }
 }
@@ -438,6 +479,14 @@ pub static ENFORCEMENT: &[(&str, Enforcement)] = &[
         Enforcement::Never {
             reason: "desktop notifications are not wired up in this build; the toggle is saved \
                      but no notification is raised",
+        },
+    ),
+    // `Local`, and honestly so: the window that renders this document is the thing that applies a
+    // custom theme, immediately, with no worker involved. It is never pushed over NODERA-CONFIG.
+    (
+        "appearance.themes",
+        Enforcement::Local {
+            how: "stored on this computer and applied by this window as it renders",
         },
     ),
     (
@@ -878,7 +927,21 @@ impl SettingsHandle {
     /// Apply a read result to this handle.
     fn absorb(&self, stored: Stored) {
         match stored {
-            Stored::Document(settings) => {
+            Stored::Document(mut settings) => {
+                // The one thing in a stored document that is not the user's: the built-in store is
+                // a constant that happens to be cached here, and it had drifted — every install
+                // that predates the services branch was still dialling the URL it was first saved
+                // with, getting a 404, and showing an address that is nowhere in this source tree.
+                // Reconciled on the way in, so nothing downstream ever sees the stale copy; the
+                // corrected row reaches disk with the next save, and until then the app is at least
+                // reading the right list. See `stores::reconcile_built_in` for what it will not do.
+                if crate::stores::reconcile_built_in(&mut settings.network.tracker_stores) {
+                    log::info!(
+                        "settings: the built-in tracker store had drifted from this build's URL and \
+                         has been reset to {}",
+                        crate::stores::OFFICIAL_STORE_URL
+                    );
+                }
                 *self.inner.lock().unwrap() = settings;
                 *self.damaged.lock().unwrap() = None;
                 self.loaded
@@ -1230,6 +1293,54 @@ mod tests {
                 "the handle kept serving defaults and would have overwritten the file"
             );
             assert!(handle.fault().is_empty());
+        });
+    }
+
+    /// The shipped bug, end to end: a settings document written before the published list moved to
+    /// its own branch names `…/main/services/official.json`, and every read of it went on dialling
+    /// that URL — a 404 — forever. The store screen showed the failure against an address that is
+    /// nowhere in this source tree, and pressing Refresh could only fail again.
+    ///
+    /// This is the test that would have caught it. `reconcile_built_in` having unit tests is not
+    /// the same claim: what was missing was anybody *calling* it on the way in from disk.
+    #[test]
+    fn a_stored_built_in_store_from_before_the_move_loads_as_this_builds_url() {
+        let stale = r#"{"network":{"tracker_stores":[{
+            "url":"https://raw.githubusercontent.com/Ashu11-A/NoderaMC/main/services/official.json",
+            "name":"Nodera official",
+            "last_error":"could not fetch the store: http status: 404",
+            "built_in":true
+        }]}}"#;
+        with_settings_file(Some(stale), |_| {
+            let stores = SettingsHandle::load().snapshot().network.tracker_stores;
+            assert_eq!(stores.len(), 1);
+            assert_eq!(
+                stores[0].url,
+                crate::stores::OFFICIAL_STORE_URL,
+                "the app went on reading the URL the document was saved with"
+            );
+            assert!(stores[0].last_error.is_empty());
+        });
+    }
+
+    /// The same document read through the Android path, where the first read happens before the
+    /// settings directory is knowable and the real one arrives at the next `snapshot()`. A fix that
+    /// only ran on the startup read would leave every handset on the dead URL.
+    #[test]
+    fn the_late_read_reconciles_the_built_in_store_too() {
+        with_settings_file(Some("{ not readable yet"), |path| {
+            let handle = SettingsHandle::load();
+            assert!(!handle.fault().is_empty());
+            std::fs::write(
+                path,
+                r#"{"network":{"tracker_stores":[{
+                    "url":"https://raw.githubusercontent.com/Ashu11-A/NoderaMC/main/services/official.json",
+                    "name":"Nodera official","built_in":true}]}}"#,
+            )
+            .unwrap();
+
+            let stores = handle.snapshot().network.tracker_stores;
+            assert_eq!(stores[0].url, crate::stores::OFFICIAL_STORE_URL);
         });
     }
 

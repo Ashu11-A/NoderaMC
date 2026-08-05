@@ -12,7 +12,7 @@
 **Depends on:** [tracker 5](../tracker/Task.5.md), [rendezvous 5](../rendezvous/Task.5.md),
 [network 1](Task.1.md), [network 2](Task.2.md)
 **Consumed by:** [worker 3](../peer/Task.3.md), [minecraft 5](../minecraft/Task.5.md),
-[app 2](../app/Task.2.md)
+[frontend 2](../frontend/Task.2.md)
 
 ---
 

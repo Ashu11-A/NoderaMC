@@ -1,0 +1,121 @@
+---
+title: Play with no mod installed
+description: Browse and join NoderaMC worlds from an unmodified Minecraft, over a tunnel to your own machine.
+---
+
+import { Callout, Figure, Scroller } from "../../../src/components/primitives";
+import { NoModTunnel } from "../../../src/components/diagrams";
+import { Ui } from "../../../src/components/mdx";
+
+Everything else on this site assumes both players have the mod. This does not.
+
+**Neither side installs anything into Minecraft.** Both sides run the companion app, because the app
+is what carries the connection; the games are ordinary, unmodified, any launcher, vanilla or modded.
+The host opens a world with vanilla's own *Open to LAN*, and the guest joins it as though it were on
+their own network.
+
+<Figure caption="The guest's Minecraft connects to a port on the guest's own machine. Everything past that port is the app's problem.">
+  <NoModTunnel />
+</Figure>
+
+<Callout type="warning" title="If you have the NoderaMC mod, this is not your lane">
+  The mod takes vanilla's *Open to LAN* slot in the pause menu for **Open to Nodera…**, so with it
+  installed there is no LAN button to press. Sharing to the network is
+  <a href="/docs/start/share-and-join"> the other page</a>, and it needs the mod on both ends.
+</Callout>
+
+## How it works
+
+**On the host's machine.** Minecraft announces a LAN world by shouting on the local multicast group
+`224.0.2.60:4445`, roughly every 1.5 seconds, in a format that has not changed in a decade:
+
+```
+[MOTD]Steve's world[/MOTD][AD]54321[/AD]
+```
+
+The worker hears that and records the world as an **offer** — something it *could* share, and has
+not. Nothing leaves the machine until the host says yes. Once the host does, the port is published
+as a tunnel session and announced to the trackers, so other people's apps can find it.
+
+Because the port is what a joiner is ultimately connected to, the **port is the session's
+identity**: Minecraft picks a fresh one every time a world is opened, so closing and reopening a
+world produces a new session rather than reviving the old one. A world that stops announcing for
+eight seconds is treated as closed.
+
+**On the guest's machine.** The guest picks a session and presses Play. The worker binds a port on
+the guest's own machine and starts the guest's normal Minecraft profile; the game connects to
+`127.0.0.1` like any other server. Everything past that local port is a circuit between the two
+apps, encrypted end to end.
+
+## The two things this is careful about
+
+**No save is ever downloaded.**
+
+The tunnel carries the game's own connection — the same TCP traffic vanilla LAN play would carry,
+over a longer path. The host's world file stays on the host's machine and the host stays the sole
+authority over it. Nothing is copied, nothing is cached, and nothing about either Minecraft
+installation is modified.
+
+**A guest names a session, never an address.**
+
+You pick a published session out of a list by its name. You cannot hand the worker a host and a
+port and ask it to connect you there.
+
+That restriction is the entire security model of the feature. A worker that accepted an arbitrary
+address would be an open proxy into its own machine's loopback interface — point it at `127.0.0.1`
+and something else on the host's machine and it would happily bridge that instead. Sessions are the
+only thing addressable, and a session only exists because its host published it.
+
+## Doing it
+
+**As the host.** Open your world, press Escape, press **Open to LAN**. The app raises a prompt
+naming the world; answer it, or answer later from <Ui to="lan-sessions" />, which lists every LAN
+world this machine can see with its current state:
+
+<Scroller>
+
+| State | Means |
+| --- | --- |
+| **Waiting for you** | Detected, nobody has answered yet. |
+| **On the network** | Announced, and accepting tunnelled connections. |
+| **Not shared** | You said no. It stays listed, so you can still share it later. |
+
+</Scroller>
+
+Declining is remembered rather than making the world disappear — "ask me again later" is only
+useful if there is something left to say yes to.
+
+**As the guest.** Open <Ui to="discover" />, find the session, press Play. Point the app at your
+existing Minecraft installation the first time; it starts your own profile, so whatever you normally
+play with is what launches.
+
+## What the guest gives up
+
+This is a tunnel, not membership. The guest's machine validates nothing, stores nothing, holds no
+piece of the world, and has no vote. When the host closes the world it is gone — there is no
+committee behind it and nothing to re-host, because an *Open to LAN* world was never on the network
+in the first place. It is the right answer for an evening with a friend who will not install
+anything, and the wrong answer for a world you want to still exist next month.
+
+## What can go wrong
+
+**The session never appears in anyone's app.** The host's worker did not hear the beacon, or the
+host never approved it. LAN announcements do not leave the local network; publishing the session is
+what carries it further, so an unapproved session is invisible by design. If the host's app says
+the feature is *not available on this machine*, the worker could not join the multicast group —
+that is a network-interface problem, and it stops detection only, not sharing from inside the game.
+
+**The guest's game cannot reach the server.** The tunnel is up but the port the game was pointed at
+is not the port the worker bound, which usually means a second Minecraft instance is already on it.
+Close the other one.
+
+**It connects and then drops.** The circuit between the two apps went away — the host closed the
+world, or a relay in the middle was drained. The host's world is unaffected; only the tunnel ended.
+
+<Callout type="note" title="On accuracy">
+  Both halves of this feature — the tunnel and the app's session directory — are finished and have
+  been verified on real machines rather than only in tests. What that does <em>not</em> mean is that
+  it has been proven across the open internet at scale;
+  <a href="/status"> the register</a> is explicit about which live proofs have been run and which
+  have not.
+</Callout>

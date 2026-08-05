@@ -2,8 +2,8 @@
 //!
 //! Every bound here exists because the rendezvous/relay service is unauthenticated and
 //! internet-facing: anyone can open a socket, register, and reserve. Registration and discovery are
-//! cheap metadata (RENDEZVOUS.md §3.1); relay circuits carry real bandwidth and get the hard limits
-//! (§4.2/§8.4). Defaults are conservative — an operator raises them knowingly.
+//! cheap metadata; relay circuits carry real bandwidth and get the hard limits
+//! (`docs/rendezvous/REFERENCE.md`). Defaults are conservative — an operator raises them knowingly.
 
 use nodera_service::env::{EnvOverlay, EnvSource};
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ pub const ENV_PREFIX: &str = "NODERA_RENDEZVOUS_";
 pub struct Config {
     /// Address to listen on.
     pub bind_addr: SocketAddr,
-    /// How long a registration survives without a refresh (RENDEZVOUS.md §9.3). Kept at ~2× the
+    /// How long a registration survives without a refresh (docs/rendezvous/REFERENCE.md). Kept at ~2× the
     /// refresh interval so one lost refresh does not evict a healthy peer.
     pub registration_ttl_seconds: u64,
     /// The refresh cadence the service advertises; peers refresh at about half this.
@@ -33,7 +33,7 @@ pub struct Config {
     /// How far a record's own `issuedAt` may deviate from the service clock before it is refused as
     /// stale/replayed.
     pub clock_skew_seconds: u64,
-    /// Maximum records returned in one discovery page (RENDEZVOUS.md §8.5 — no full enumeration).
+    /// Maximum records returned in one discovery page (docs/rendezvous/REFERENCE.md — no full enumeration).
     pub discover_page_limit: usize,
     /// Maximum records retained per `(network, world)` namespace.
     pub max_records_per_namespace: usize,
@@ -41,14 +41,14 @@ pub struct Config {
     pub max_namespaces: usize,
     /// How long a relay reservation is valid (millis-resolution; §4.2).
     pub reservation_ttl_seconds: u64,
-    /// Byte ceiling for a single relay circuit (§8.4).
+    /// Byte ceiling for a single relay circuit.
     pub reservation_max_bytes: u64,
     /// Wall-clock ceiling for a single relay circuit (seconds; §8.4).
     pub reservation_max_duration_seconds: u64,
     /// Idle timeout for a bridged circuit (seconds) — no bytes either way for this long tears it
-    /// down (§8.4 idle timeouts).
+    /// down.
     pub circuit_idle_timeout_seconds: u64,
-    /// Register/reserve requests accepted per source IP per refresh interval (§8.3/§8.4).
+    /// Register/reserve requests accepted per source IP per refresh interval.
     pub per_ip_request_quota: u32,
     /// Largest accepted control frame.
     pub max_frame_bytes: usize,

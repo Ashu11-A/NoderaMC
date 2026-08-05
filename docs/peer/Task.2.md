@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED
 **Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 1](Task.1.md), [network 11](../network/Task.11.md), [network 3](../network/Task.3.md)
-**Consumed by:** [minecraft 4](../minecraft/Task.4.md), [minecraft 6](../minecraft/Task.6.md), [app 2](../app/Task.2.md)
+**Consumed by:** [minecraft 4](../minecraft/Task.4.md), [minecraft 6](../minecraft/Task.6.md), [frontend 2](../frontend/Task.2.md)
 
 ---
 
@@ -71,7 +71,7 @@ password" a cryptographic statement rather than a UI convention.
 `restart_required` per key. Reporting a false success for a setting the node cannot honour is worse
 than refusing it, because the user then believes something is enforced that is not. Two settings are
 permanently reported as unsupportable with the worker's own reason rather than being deleted from the
-UI — see [`app/LIMITATIONS.md`](../app/LIMITATIONS.md) L-56.
+UI — see [`frontend/LIMITATIONS.md`](../frontend/LIMITATIONS.md) L-56.
 
 **No secrets cross the boundary in the clear.** Passwords are hashed or derived before they reach a
 verb; nothing password-shaped is logged or serialized.
@@ -105,9 +105,9 @@ verb; nothing password-shaped is logged or serialized.
 `NODERA-WATCH` (app task 6) is the one verb that inverts this protocol: the worker holds the
 connection and writes a `STATE` line whenever its own state changes, plus a keepalive every 10 s so
 a reader can tell a quiet node from a dead socket. Everything else here stays one request, one reply,
-one connection. See [`../app/Task.6.md`](../app/Task.6.md) for why the dashboard needed it.
+one connection. See [`../frontend/Task.6.md`](../frontend/Task.6.md) for why the dashboard needed it.
 
 ## Limitations
 
 None owned. **L-56** (two connection settings that cannot be honoured as specified) is owned by
-[`app/LIMITATIONS.md`](../app/LIMITATIONS.md), where the UI that exposes them lives.
+[`frontend/LIMITATIONS.md`](../frontend/LIMITATIONS.md), where the UI that exposes them lives.

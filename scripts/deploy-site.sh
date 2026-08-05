@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish web/ to noderamc.org, and install the Caddy site block that serves it.
+# Push the built site to noderamc.org by hand. THE FALLBACK PATH, not the primary one.
 #
 # <!-- AI-AGENT-INSTRUCTION: This script touches a live host that runs OTHER PEOPLE'S sites out of
 #      the same Caddy. Four rules. (1) It may only ever write /var/www/noderamc and the single file
@@ -7,11 +7,28 @@
 #      (2) `caddy validate` must pass before a reload; a bad block would take every other site on
 #      the box down with it, so the install is staged and rolled back if validation fails.
 #      (3) Reload, never restart: a restart drops live connections for sites that are nothing to do
-#      with us. (4) It must stay idempotent — running it twice changes nothing the second time. -->
+#      with us. (4) It must stay idempotent — running it twice changes nothing the second time.
 #
-#   scripts/deploy-site.sh                 # publish and reload
+#      Do NOT delete this script now that the container lane exists. Nothing in .github holds an SSH
+#      secret for this host and nothing is expected to, so CI cannot deploy; when the image pipeline
+#      is broken, this is the only way anything reaches the site at all. -->
+#
+#   scripts/deploy-site.sh                 # build, push the standby copy, reload
 #   scripts/deploy-site.sh --dry-run       # show what would be sent, change nothing
-#   scripts/deploy-site.sh --status        # what is being served there now
+#   scripts/deploy-site.sh --status        # what is being served there now, and by which path
+#
+# HOW THE SITE IS NORMALLY SERVED, and what this script actually does
+#
+#   Primary path (nothing manual):  merge to main → .github/workflows/containers.yml publishes
+#   ghcr.io/ashu11-a/noderamc:web-canary → the VPS's nodera-web-update.timer pulls it within minutes
+#   → Caddy reverse-proxies 127.0.0.1:8080. Set up once by scripts/bootstrap-site-host.sh.
+#
+#   This script is the other half of that block's `handle_errors`: it copies the built site to
+#   /var/www/noderamc, which the Caddy block serves ONLY when the container cannot be reached. So a
+#   run of this script is not "deploying the site" — it is refreshing the standby and reinstalling
+#   the site block. If the container is healthy, what you push here is invisible until it is not.
+#
+#   Which means: when the image lane is working, prefer it. Use this when it is not.
 #
 # The key is the same PuTTY key scripts/deploy-vps.sh uses, converted in a temp file that is removed
 # on exit. Nothing here prints, copies, or logs key material.
@@ -41,7 +58,7 @@ while [[ $# -gt 0 ]]; do
 		--key) VPS_KEY="$2"; shift 2 ;;
 		--dry-run) DRY_RUN=1; shift ;;
 		--status) STATUS_ONLY=1; shift ;;
-		-h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+		-h|--help) sed -n '2,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
 		*) echo "unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -67,9 +84,15 @@ SSH_OPTS=(-i "$SSH_KEY" -p "$VPS_PORT" -o BatchMode=yes -o StrictHostKeyChecking
 remote() { ssh "${SSH_OPTS[@]}" "$VPS_USER@$VPS_HOST" "$@"; }
 
 if [[ $STATUS_ONLY -eq 1 ]]; then
+	say "which path is serving"
+	# The distinction the header is about, answered rather than assumed: if the container answers on
+	# loopback, the public site is the image and the disk copy below is dormant.
+	remote "curl -fsS -o /dev/null http://127.0.0.1:8080/ \
+	          && echo 'container: UP — the public site is the image; the disk copy is dormant' \
+	          || echo 'container: DOWN — the public site is the disk copy this script pushes'"
 	say "caddy"
 	remote "systemctl is-active caddy; ls -l $CADDY_FILE 2>/dev/null || echo 'no site block installed'"
-	say "published files"
+	say "standby files"
 	remote "ls -l $WEB_ROOT 2>/dev/null || echo 'nothing published'"
 	say "what it answers"
 	curl -sS -o /dev/null -w 'https://noderamc.org/            %{http_code}\n' https://noderamc.org/ || true
@@ -77,24 +100,36 @@ if [[ $STATUS_ONLY -eq 1 ]]; then
 	exit 0
 fi
 
-for f in index.html add-store.html noderamc.caddy; do
-	[[ -f "$NODERA_WEB_DIR/$f" ]] || die "web/$f is missing"
-done
+# Said loudly, before anything is sent. The most expensive mistake available here is pushing files,
+# reloading, seeing the old site, and concluding the push failed — when in fact it worked and the
+# container in front of it is serving something else entirely.
+say "FALLBACK MODE — the site is normally served by the web container."
+say "               This run refreshes the on-disk standby and the Caddy site block."
+say "               Primary path: merge to main, then the VPS timer pulls web-canary."
+
+[[ -f "$NODERA_WEB_DIR/noderamc.caddy" ]] || die "web/noderamc.caddy is missing"
+
+# Built here rather than assumed, so the standby is the same artefact the image serves. This is the
+# one command docker/web/Dockerfile runs too; if it fails, it fails identically in both places.
+say "building the site"
+"$NODERA_ROOT/scripts/build-site.sh"
+[[ -f "$NODERA_WEB_DIR/dist/index.html" ]] || die "scripts/build-site.sh produced no dist/index.html"
 
 if [[ $DRY_RUN -eq 1 ]]; then
 	say "would publish to $VPS_USER@$VPS_HOST"
-	echo "  web/index.html      -> $WEB_ROOT/index.html"
-	echo "  web/add-store.html  -> $WEB_ROOT/add-store.html"
-	echo "  web/noderamc.caddy  -> $CADDY_FILE   (validated, then reload)"
+	echo "  web/dist/            -> $WEB_ROOT/            (overlaid; /.well-known left alone)"
+	echo "  web/noderamc.caddy   -> $CADDY_FILE           (validated, then reload)"
+	echo
+	echo "  files that would be sent:"
+	(cd "$NODERA_WEB_DIR/dist" && find . -type f | sed 's|^\./|    |')
 	exit 0
 fi
 
 STAGE="/tmp/nodera-site.$$"
-say "sending web/ to $VPS_USER@$VPS_HOST"
+say "sending web/dist to $VPS_USER@$VPS_HOST"
 remote "mkdir -p $STAGE"
-scp "${SSH_OPTS[@]/-p/-P}" -q \
-	"$NODERA_WEB_DIR/index.html" "$NODERA_WEB_DIR/add-store.html" "$NODERA_WEB_DIR/noderamc.caddy" \
-	"$VPS_USER@$VPS_HOST:$STAGE/"
+scp "${SSH_OPTS[@]/-p/-P}" -q -r "$NODERA_WEB_DIR/dist" "$VPS_USER@$VPS_HOST:$STAGE/"
+scp "${SSH_OPTS[@]/-p/-P}" -q "$NODERA_WEB_DIR/noderamc.caddy" "$VPS_USER@$VPS_HOST:$STAGE/"
 
 say "installing"
 # The Caddy block is staged, validated, reloaded, and rolled back if EITHER step fails. Both are
@@ -104,7 +139,13 @@ say "installing"
 # site on this host is served by the same Caddy.
 remote "set -e
   sudo install -d -m 755 '$WEB_ROOT'
-  sudo install -m 644 '$STAGE/index.html' '$STAGE/add-store.html' '$WEB_ROOT/'
+
+  # Overlaid, not replaced. /var/www/noderamc also holds /.well-known, which is served from disk on
+  # purpose (Android App Links) and is nothing to do with the site build — wiping the directory
+  # would take assetlinks.json with it. Old hashed assets left behind are harmless: their names are
+  # unique, so nothing new ever collides with them.
+  sudo cp -a '$STAGE/dist/.' '$WEB_ROOT/'
+  sudo chmod -R a+rX '$WEB_ROOT'
 
   # systemd runs the reload as root, so an absent log file is CREATED as root and then cannot be
   # opened by the caddy user the service actually runs as. Own it before the reload, every time:
@@ -140,6 +181,7 @@ remote "set -e
 
   [ -n \"\$BACKUP\" ] && rm -f \"\$BACKUP\"
   rm -rf '$STAGE'
+  true
 "
 
 say "checking what it answers"
@@ -147,5 +189,13 @@ sleep 3
 curl -sS -o /dev/null -w '  https://noderamc.org/            %{http_code}\n' https://noderamc.org/ || true
 curl -sS -o /dev/null -w '  https://noderamc.org/add-store   %{http_code}\n' \
 	'https://noderamc.org/add-store?url=https%3A%2F%2Fexample.org%2Findex.json' || true
+
+# The last word, because a green 200 above proves the site is up and says nothing about which copy
+# answered it.
+remote "curl -fsS -o /dev/null http://127.0.0.1:8080/ \
+          && echo '==> the container is up, so those responses came from the IMAGE, not from what \
+this run just pushed. The standby is refreshed and dormant.' \
+          || echo '==> the container is down, so those responses came from the copy this run \
+pushed. Bring the image back with: sudo systemctl start nodera-web-update.service'"
 
 say "done"

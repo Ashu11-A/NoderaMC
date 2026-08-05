@@ -1,36 +1,127 @@
-# noderamc.org — the static signpost, and the https hop the README button needs.
+# noderamc.org — the TLS terminator in front of the site container, and the https hop the README
+# button needs.
 #
 # <!-- AI-AGENT-INSTRUCTION: Installed to /etc/caddy/conf.d/noderamc.caddy by
-#      scripts/deploy-site.sh, which is the ONLY thing that should write it. The host runs other
-#      people's sites out of the same conf.d; never edit, move, or reload anything in there that is
-#      not this one file. TLS comes from the global `acme_dns cloudflare` block in the parent
-#      Caddyfile — do not add a tls directive here, and do not copy that token into this repo.
-#      /.well-known is left served from disk on purpose: Android App Links will want an
-#      assetlinks.json there, and that must not need a Caddy change to land. -->
+#      scripts/bootstrap-site-host.sh (and, in fallback mode, scripts/deploy-site.sh), which are the
+#      ONLY things that should write it. The host runs other people's sites out of the same conf.d;
+#      never edit, move, or reload anything in there that is not this one file. TLS comes from the
+#      global `acme_dns cloudflare` block in the parent Caddyfile — do not add a tls directive here,
+#      and do not copy that token into this repo.
+#
+#      This file is one half of a pair. It owns TLS, the security headers, the cache policy and the
+#      access log — the decisions that belong next to the other sites this host serves. The other
+#      half, docker/web/Caddyfile, runs INSIDE the container and owns which file answers which path,
+#      because that decision needs the filesystem and this host has no copy of the site. Do not
+#      move a rule across that line without moving the reason with it. -->
 #
 # Before this file existed the domain answered 525: Cloudflare proxies it to this host and Caddy had
 # no site block to terminate TLS with.
+#
+# The site itself is no longer served from disk here. It is a container image published by CI
+# (ghcr.io/ashu11-a/noderamc:web-canary), started by docker/compose.yml in the `nodera` project, and
+# bound to 127.0.0.1:8080 — never to a public interface, so this block is the only route to it.
 
 noderamc.org, www.noderamc.org {
-	root * /var/www/noderamc
-
 	encode zstd gzip
 
-	# /add-store is the button's target, and it is add-store.html on disk. Extensionless first so
-	# the URL people paste into a page never carries a file extension.
-	try_files {path} {path}.html {path}/index.html
+	# /.well-known stays on disk and is pinned ahead of the proxy on purpose: Android App Links
+	# verification fetches /.well-known/assetlinks.json and accepts nothing but JSON, and landing a
+	# file there must not need a Caddy change, a container rebuild, or the site to be up.
+	handle /.well-known/* {
+		root * /var/www/noderamc
+		file_server
+	}
 
-	file_server
+	# Everything else, including /add-store and every client-side route. The container decides which
+	# file answers: /add-store is pinned there to add-store.html ahead of the SPA fallback, so the
+	# README button keeps working even if the shell's JavaScript regresses, and the query string
+	# survives the rewrite untouched.
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# The disk copy is a standby, not the primary. `handle_errors` fires when the proxy cannot reach
+	# an upstream at all, so an image that failed to start, a pull mid-flight, or a stopped container
+	# serves the last files scripts/deploy-site.sh pushed instead of a bare 502. Those files are
+	# whatever `scripts/build-site.sh` last produced — the same site, one deploy behind.
+	#
+	# Status-code arguments to `handle_errors`, and `file_server`'s `status` — both need Caddy 2.7 or
+	# newer. If this host is older, `caddy validate` rejects the block and the install rolls back
+	# rather than reloading it, which is exactly the safety net that discipline exists for.
+	#
+	# `status 200` is not cosmetic. Without it the standby is served with the ORIGINAL error's code:
+	# the right bytes under a 502, which browsers treat as a failure and Cloudflare may replace with
+	# its own error page. The whole point of the standby is that a visitor sees the site, so the
+	# response has to say so. Verified by curl against this exact block, not assumed.
+	handle_errors 502 503 504 {
+		root * /var/www/noderamc
+		try_files {path} {path}.html /index.html
+		file_server {
+			status 200
+		}
+	}
 
 	header {
-		# The page runs its own inline script and asks for nothing else, from anywhere.
-		Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		# The CSP a bundled SPA can actually boot under. The previous policy was
+		# `default-src 'none'` with `script-src 'unsafe-inline'`, which permits inline script and NO
+		# file loads whatsoever — correct for the two hand-written pages it was written for, and a
+		# blank page for anything with a hashed asset in it.
+		#
+		# THE REQUIREMENT THIS IMPOSES ON THE SITE, stated so it is not discovered in a browser
+		# console: `script-src 'self'` means the site must ship NO inline <script>, no `onclick=`
+		# handlers, and no `javascript:` URLs. A Vite/React production build satisfies this out of
+		# the box — it emits `<script type="module" src="/assets/…">` and nothing inline. If a page
+		# needs inline script, the answer is a hashed or nonce'd source, not `'unsafe-inline'`.
+		#
+		# The two hand-written pages still in web/ do NOT satisfy it: add-store.html carries an
+		# inline <script>, and under this policy that script will not run until the site lane
+		# rebuilds the page with its logic in a file. The page's markup and its instructions work
+		# without JavaScript, which is why it was written that way, so the deep link keeps
+		# answering — but this is the one visible cost of tightening the policy and it is named
+		# here rather than left to be found.
+		#
+		# `form-action 'none'` is kept from the previous policy: no page ships a form today. A site
+		# that adds one must widen this to 'self' in the same commit, and will find out immediately.
+		#
+		# 'unsafe-inline' survives for STYLES only. It is the weaker of the two by a long way (an
+		# injected stylesheet cannot execute), and component libraries inject <style> elements at
+		# runtime in a way no build step can hash ahead of time.
+		#
+		# `connect-src 'self'` means the site may not call a third-party origin. If it needs to read
+		# the published service index at runtime, add that exact origin here — do not widen to `*`,
+		# and do not let a build-time fetch turn into a runtime one without this line changing.
+		#
+		# No 'unsafe-eval', and object-src/base-uri/frame-ancestors stay at 'none'.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
 		X-Frame-Options "DENY"
-		-Server
 	}
+
+	# `-Server` is a separate directive, and it has to be. A `header` block containing a DELETION is
+	# applied lazily, by wrapping the response writer — and the `handle_errors` route above does not
+	# run inside that wrapper, so every header in the same block silently vanishes from the standby
+	# response. Splitting the one deletion out leaves the block above as plain sets, which land in
+	# the header map immediately and therefore survive into the error path. Measured: with `-Server`
+	# inline, the fallback answered with no CSP and no HSTS at all.
+	#
+	# The cost of the split is that `Server: Caddy` is still sent on standby responses. That is a
+	# banner on a page nobody should be seeing, and it is the cheaper half of the trade.
+	header -Server
+
+	# Cache policy lives here rather than in the container because it is a property of what the
+	# public is allowed to hold, not of where the bytes came from — and because a single owner is
+	# the only way it stays consistent: whatever this block sets replaces what the upstream said.
+	#
+	# Hashed assets are immutable by construction — a changed file gets a changed name — so they can
+	# be held for a year. Everything else is HTML, and HTML must be revalidated on every load or a
+	# deploy is invisible to anybody who has already visited: their browser keeps serving a shell
+	# that references assets which no longer exist.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	@html not path /assets/*
+	header @html Cache-Control "no-cache"
 
 	log {
 		output file /var/log/caddy/noderamc.log {

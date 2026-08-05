@@ -4,7 +4,7 @@
 // protocol, and removes only a jar it recognises as ours.
 import { useCallback, useEffect, useState } from "react";
 import { FiAlertTriangle, FiCheck, FiFolder, FiPackage, FiTrash2 } from "react-icons/fi";
-import { Card, Empty, MONO, Pill, cx } from "./components";
+import { CARD_GRID, Card, Empty, MONO, Pill, cx } from "./components";
 import { installMod, modInstallStatus, uninstallMod, type ModInstallStatus } from "./play";
 
 export function ModInstallScreen() {
@@ -39,7 +39,11 @@ export function ModInstallScreen() {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    // Two cards that answer one question between them — what this build carries, and where it can
+    // go — so they sit side by side once there is room for both and stack when there is not. As one
+    // full-width column on a 1400px settings canvas, each was a band with a label at one edge and a
+    // pill at the other and a thousand pixels of nothing in between.
+    <div className={`${CARD_GRID} items-start`}>
       {status === null ? (
         <Card title="Installations">
           {/* The error paragraph used to live *inside* the `status !== null` branch, so a failing
@@ -63,10 +67,30 @@ export function ModInstallScreen() {
             hint="The build this app shipped with. Never downloaded."
           >
             {!status.bundled_available && (
-              <p className="flex items-start gap-2 py-2 text-sm text-warn">
+              // A shipped build reaches this only when its installation is damaged: the jar is a
+              // declared Tauri resource now (`app/tauri.<system>.conf.json`), and a bundle built
+              // without one fails at bundle time rather than shipping this sentence. So the paths
+              // are shown — "there is nothing to install" was the whole message for every build
+              // that ever shipped, and it left nobody anywhere to go.
+              <div className="flex items-start gap-2 py-2 text-sm text-warn">
                 <FiAlertTriangle aria-hidden className="mt-0.5 flex-none" />
-                This build carries no mod jar, so there is nothing to install.
-              </p>
+                <span className="min-w-0">
+                  This build carries no mod jar, so there is nothing to install.
+                  {status.bundled_looked_in.length > 0 && (
+                    <>
+                      {" "}
+                      Looked in:
+                      <span className={cx(MONO, "mt-1 block text-[11px] text-faint")}>
+                        {status.bundled_looked_in.map((path) => (
+                          <span key={path} className="block break-all">
+                            {path}
+                          </span>
+                        ))}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
             )}
           </Card>
 

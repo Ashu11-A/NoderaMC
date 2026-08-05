@@ -10,7 +10,7 @@
 **Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 2](Task.2.md), [worker 6](Task.6.md), [network 3](../network/Task.3.md),
 [tracker 2](../tracker/Task.2.md)
-**Consumed by:** [app 7](../app/Task.7.md)
+**Consumed by:** [frontend 7](../frontend/Task.7.md)
 
 ---
 

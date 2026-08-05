@@ -131,7 +131,7 @@ final class ServiceScoreBoardTest {
     @Test
     void selection_returns_several_endpoints_best_first() {
         // A peer that registered with several relays but only used the first would have redundancy on
-        // paper and a single point of failure in practice (RENDEZVOUS.md §9.1).
+        // paper and a single point of failure in practice (docs/rendezvous/REFERENCE.md).
         ServiceScoreBoard board = new ServiceScoreBoard();
         List<ServiceDirectoryEntry> directory =
                 List.of(entry(1, 500, 200), entry(2, 1_000, 30), entry(3, 900, 60));

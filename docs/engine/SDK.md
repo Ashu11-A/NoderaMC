@@ -1,4 +1,4 @@
-# SDK.md — writing a Nodera rule pack
+# Writing a Nodera rule pack
 
 <!-- AI-AGENT-INSTRUCTION: This is the public contract for third-party mods (Task 16 / L-21). Keep
      it in sync with dev.nodera.simulation.rules.{RulePack,PackRules,RulePackRegistry,
@@ -58,7 +58,7 @@ carries an identity.
 |---|---|
 | No clocks, no IO, no network | Replicas run your code at different wall-clock times |
 | No shared mutable statics | Two replicas would see different state |
-| No floating-point in anything reaching hashed state | JVM float math is not reproducible across hardware (`LIMITATIONS.md` A-5) — use fixed-point |
+| No floating-point in anything reaching hashed state | JVM float math is not reproducible across hardware, so every continuous quantity in hashed state is Q32.32 fixed point ([envelope A-5](LIMITATIONS.md)) |
 | Only the supplied `DeterministicRandom` | Any other source diverges immediately |
 | Iterate in a canonical order | `HashMap` iteration order is not a contract |
 | Write blocks through `MutableRegionState.setBlock` | Direct writes bypass the mutation buffer |

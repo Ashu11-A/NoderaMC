@@ -1,0 +1,35 @@
+{
+  "name": "nodera-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./platform": "./src/platform/index.ts",
+    "./platform/impl": "./src/platform/impl.ts",
+    "./store-link": {
+      "types": "./src/store-link.d.mts",
+      "default": "./src/store-link.mjs"
+    },
+    "./search": {
+      "types": "./src/search.d.mts",
+      "default": "./src/search.mjs"
+    },
+    "./vite": "./vite/preset.mjs",
+    "./layout": "./layout.mjs",
+    "./token-audit": "./tests/token-audit.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2"
+  },
+  "peerDependencies": {
+    "vite": "^5.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^4.3.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0"
+  }
+}

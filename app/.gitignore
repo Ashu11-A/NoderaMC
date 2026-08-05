@@ -13,11 +13,17 @@
 # key was unchanged, so the action logged "full match: true" and skipped saving. The six-minute
 # rebuild then repeated on every subsequent run until somebody happened to edit Cargo.toml.
 
-# Frontend build output + deps
-/ui/node_modules/
+# Frontend build output.
+#
+# The dependency directory and the lockfile are no longer this file's business. `app/ui` is one of
+# three packages in a bun workspace rooted at the repository, so its dependencies hoist to
+# `/node_modules` and its lockfile IS `/bun.lock` — both handled by the root `.gitignore`, which
+# also un-ignores the lockfile so it is reviewed like `Cargo.lock` above.
+#
+# `/ui/bun.lock` was listed here, and that is why `scripts/build-app-ui.sh`'s
+# `bun install --frozen-lockfile` had nothing to be frozen against for its whole life.
 /ui/dist/
 /ui/package-lock.json
-/ui/bun.lock
 
 # App icons. `cargo tauri icon` generates a whole set here (icon.icns, Square*Logo.png, …) and
 # those are build output — but the handful below are COMMITTED, because they are the source the

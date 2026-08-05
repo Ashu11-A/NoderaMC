@@ -1,8 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Launch-at-login, which only a desktop has. Kept in its own file because the autostart plugin is not compiled for Android at all (see Cargo.toml), so naming its permission in the shared capability would fail the mobile build rather than being ignored there.",
+  "description": "What only a desktop window has: launch-at-login, and the window chrome the app draws for itself. Kept in its own file because the autostart plugin is not compiled for Android at all (see Cargo.toml), so naming its permission in the shared capability would fail the mobile build rather than being ignored there — and the `core:window:*` entries belong beside it for the same reason, since `decorations: false` is a statement about a desktop window and Android draws none. One entry per command the title bar calls, never a blanket `core:window:default`: `minimize`, `toggle-maximize` and `close` are the three buttons; `start-dragging` is the bar itself, and `internal-toggle-maximize` is Tauri's own drag script answering a double-click on it; `is-maximized` decides which glyph the middle button wears; `start-resize-dragging` is the eight edge grips, which a decoration-less window on Linux cannot do without, because GTK's own resize border is dead behind a webview — WebKitGTK consumes button-press before it reaches the toplevel handler that would have begun the drag. `is-maximized` and `internal-toggle-maximize` are already inside `core:default`; they are named anyway so this list is the whole call list of the title bar rather than the part of it that happens to work by inheritance.",
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
-  "permissions": ["autostart:default"]
+  "permissions": [
+    "autostart:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-is-maximized"
+  ]
 }

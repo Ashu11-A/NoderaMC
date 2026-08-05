@@ -1,10 +1,11 @@
-# Publishes the three service images to GHCR, for linux/amd64 and linux/arm64.
+# Publishes the container images to GHCR, for linux/amd64 and linux/arm64.
 #
 # <!-- AI-AGENT-INSTRUCTION: The two-job shape (build per platform by digest, then merge into one
 #      manifest list) is not incidental. Do not collapse it into a single `platforms: amd64,arm64`
 #      build: that path emulates arm64 through QEMU, and a Rust release build under emulation takes
 #      the better part of an hour per image. Native runners take minutes. If a service is added,
-#      add it to BOTH matrices. -->
+#      add it to BOTH matrices — AND add the paths it builds from to BOTH `paths:` filters, or it
+#      is published from a workflow that never fires for its own source. -->
 #
 # Tags, one package with a tag per service and channel:
 #
@@ -33,27 +34,67 @@ on:
     # connections and closing them without answering, which reads like a firewall and is not one.
     branches: [main, 'feature/**', 'feat/**']
     tags: ['v*']
+    # The two filters below are duplicated on purpose — GitHub has no anchor syntax for a `paths:`
+    # list — and they must be edited together. The `web/**` and `scripts/build-site.sh` entries are
+    # the second half of the same defect the branch globs above describe: until they were added the
+    # site image was published by a workflow that did not fire when the site changed, so editing a
+    # page rebuilt nothing and the deployment kept serving the previous one indefinitely.
+    #
+    # `docker/**` already covers `docker/web/**`; it is not listed twice.
+    #
+    # `app/ui/**` used to be deliberately ABSENT, with a note saying that if the site ever imported
+    # from the shared UI tree, the COPY and this list had to gain it in the same commit. The site now
+    # does — `web/src/styles.css` imports the launcher's stylesheet and `build-tokens.mjs` parses it
+    # — so it is here, along with the rest of what the site is generated from.
+    #
+    # This list is broad on purpose, and broader than it looks like it should be. The site is
+    # GENERATED FROM THE REPOSITORY: the roadmap table, the ten limitation registers, the launcher's
+    # palette, the published service list and nine mirrored documents all come out of files here
+    # rather than being retyped into pages. So `docs/**` and the root markdown really are site
+    # sources, and a filter that omitted them would be the same defect the branch globs above
+    # describe — a workflow that does not fire when the thing it publishes changed, whose only
+    # symptom is a deployment serving last week's page indefinitely.
+    #
+    # The cost is that a documentation commit rebuilds four images rather than one. That is the
+    # cheap direction to be wrong in: a redundant build wastes minutes, a missing one publishes a
+    # stale site and says nothing.
     paths:
-      - 'library/rust/**'
+      - 'library/**'
       - 'tracker/**'
       - 'rendezvous/**'
       - 'telemetry/**'
+      - 'web/**'
+      - 'app/ui/**'
+      - 'docs/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'bun.lock'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'docker/**'
+      - 'layout.properties'
       - 'VERSION'
+      - '*.md'
       - '.dockerignore'
       - '.github/workflows/containers.yml'
   pull_request:
     paths:
-      - 'library/rust/**'
+      - 'library/**'
       - 'tracker/**'
       - 'rendezvous/**'
       - 'telemetry/**'
+      - 'web/**'
+      - 'app/ui/**'
+      - 'docs/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'bun.lock'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'docker/**'
+      - 'layout.properties'
       - 'VERSION'
+      - '*.md'
       - '.dockerignore'
       - '.github/workflows/containers.yml'
   workflow_dispatch:
@@ -97,12 +138,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [tracker, rendezvous, telemetry]
+        # `web` is the site, not a service: no Rust in it, and its builder runs
+        # scripts/build-site.sh. It rides this workflow anyway because the tag scheme, the
+        # per-architecture digest build and the manifest verification below are the parts that are
+        # hard to get right, and none of them care what is inside the image.
+        service: [tracker, rendezvous, telemetry, web]
         # Native runners for both architectures — free for public repositories, and the reason this
         # workflow finishes in minutes rather than emulating arm64 for the better part of an hour.
         platform: ${{ fromJSON(needs.plan.outputs.platforms) }}
     steps:
+      # The web image builds a REPOSITORY, not a directory of files, and the three service images do
+      # not. `docker/web/Dockerfile` runs `scripts/build-site.sh`, which mirrors nine documents:
+      # eight are files on disk, the ninth lives on the orphan `services` branch and is read with
+      # `git show`, and every mirrored page is dated from `git log -1` over its source. Under the
+      # default shallow clone there is no history to date them from and no orphan ref to read, so the
+      # site build fails closed — which is better than the alternative it replaced, but it fails.
+      #
+      # This is the recipe `build.yml`'s companion job already proved; it is repeated here rather
+      # than shared because these are two workflows.
+      #
+      # The quotes around '0' and '1' are not decorative. GitHub expressions treat the NUMBER 0 as
+      # falsy, so `matrix.service == 'web' && 0 || 1` evaluates to 1 for every service including web
+      # — the classic form of this trap. Non-empty strings are truthy, so these are strings.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ matrix.service == 'web' && '0' || '1' }}
+
+      - name: Fetch the orphan branches the site reads
+        if: matrix.service == 'web'
+        # `services` carries the published service list — one of the nine mirrored documents lives on
+        # it — and `badges` carries the measured test totals /status shows. Both fail closed rather
+        # than rendering a page with a hole in it.
+        run: git fetch --depth=1 origin services:services badges:badges
 
       - uses: docker/setup-buildx-action@v3
 
@@ -128,6 +195,13 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.platform.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.platform.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          # The site build asks GitHub which release is current. Anonymously that is sixty requests
+          # an hour for the whole runner, and it ran out: `web` built at one commit and failed at
+          # the next with nothing about the site changed. A secret, not a build-arg — an ARG is
+          # recorded in the image history. The other services never call the API and are handed an
+          # empty string, which the Dockerfile's `cat … || true` reads as absent.
+          secrets: |
+            github_token=${{ matrix.service == 'web' && secrets.GITHUB_TOKEN || '' }}
 
       - name: Record the digest
         if: github.event_name != 'pull_request'
@@ -156,7 +230,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [tracker, rendezvous, telemetry]
+        # Same list as the build matrix above. They are two matrices because they are two jobs, not
+        # because they may differ: a service in one and not the other either builds images nothing
+        # tags, or tags nothing was built.
+        service: [tracker, rendezvous, telemetry, web]
     steps:
       - uses: actions/checkout@v4
 

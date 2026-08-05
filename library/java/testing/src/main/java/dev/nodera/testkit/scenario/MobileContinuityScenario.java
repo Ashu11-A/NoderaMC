@@ -183,7 +183,7 @@ public final class MobileContinuityScenario implements Scenario {
             String serial = phone.resolveSerial();
             if (serial.isBlank()) {
                 ctx.skip("no wireless device. Connect one first: adb tcpip 5555 && adb connect "
-                        + "<phone-ip>:5555 (docs/mobile/TESTING.md §3.2)");
+                        + "<phone-ip>:5555 (docs/frontend/TESTING.md §3.2)");
             }
             ctx.check(phone.isWireless(), "the device must be reachable by IP (got '" + serial
                     + "'); a USB-only device cannot be dialled by the peers");

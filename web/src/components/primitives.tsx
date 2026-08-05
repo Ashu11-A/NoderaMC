@@ -1,0 +1,197 @@
+import type { ReactNode } from "react";
+
+/**
+ * The small shapes the rest of the site is built out of.
+ *
+ * Every one of them is styled with utility classes over the launcher's tokens, so a palette change
+ * in `app/ui/src/styles.css` moves this site too and there is no second copy of the colour to
+ * forget. There are no class selectors anywhere on this site for the same reason there are none
+ * left in the launcher: a class in the markup cannot drift from a rule in a stylesheet that does
+ * not exist.
+ */
+
+/**
+ * The box irreducibly wide content lives in.
+ *
+ * A table of wire tags, a signed endpoint, a `docker run` line — some content has a minimum width
+ * and no amount of layout makes it smaller. There are exactly two things to do with it: let it push
+ * the whole document sideways, or give it a scroller of its own. This is the second, and it is
+ * written once so the answer is the same in the mirrored documents, in the status registers and in
+ * anything either of the other two lanes adds.
+ *
+ * `min-w-0` is on it because the scroller is itself usually a grid or flex child, and a scroll
+ * container whose own min-width is `auto` still reports its content's width to its parent — which
+ * moves the overflow up one level instead of ending it.
+ *
+ * Exported as a string as well as a component: the mirrored pages arrive as HTML rather than as
+ * elements, so `mirrored.tsx` has to write the same class list into a string. One constant, so the
+ * two cannot drift, and Tailwind sees the literal either way.
+ */
+export const SCROLLER_CLASS = "my-6 w-full min-w-0 overflow-x-auto [&>table]:my-0";
+
+export function Scroller(props: { children: ReactNode }) {
+  return <div className={SCROLLER_CLASS}>{props.children}</div>;
+}
+
+type Tone = "note" | "tip" | "warning" | "danger" | "details";
+
+const TONE: Record<Tone, { border: string; label: string; text: string }> = {
+  note: { border: "border-l-line", label: "Note", text: "text-dim" },
+  tip: { border: "border-l-up", label: "Tip", text: "text-up" },
+  warning: { border: "border-l-warn", label: "Careful", text: "text-warn" },
+  danger: { border: "border-l-danger", label: "This can lose data", text: "text-danger" },
+  details: { border: "border-l-line", label: "Detail", text: "text-dim" },
+};
+
+/**
+ * The admonition. `:::note`, `:::tip`, `:::warning`, `:::danger` and `:::details` in the prose all
+ * arrive here, using the identical directive syntax `docs/` already uses so a paragraph can move
+ * between the two without being rewritten.
+ *
+ * `danger` is reserved for "this can lose your world or your privacy". If it is used for anything
+ * else it stops meaning anything, and the one place it needs to be believed is the place it will
+ * not be.
+ */
+export function Callout(props: {
+  /** What the `:::note` directive syntax passes. The prose in `web/content/**` may use either. */
+  kind?: Tone;
+  type?: Tone;
+  title?: string;
+  marker?: string;
+  children: ReactNode;
+}) {
+  const tone = TONE[props.kind ?? props.type ?? "note"];
+  return (
+    <aside
+      className={`my-6 rounded-md border-l-2 bg-surface px-5 py-4 text-body ${tone.border}`}
+      role="note"
+      data-unwritten={props.marker}
+    >
+      <p className={`mb-1 font-medium ${tone.text}`}>{props.title ?? tone.label}</p>
+      <div className="text-dim [&>p]:mb-2 [&>p:last-child]:mb-0">{props.children}</div>
+    </aside>
+  );
+}
+
+/** A short status word. Used for release channels, task status and the sidebar's stub marker. */
+export function Badge(props: { tone?: "brand" | "up" | "warn" | "danger" | "muted"; children: ReactNode }) {
+  const tone = props.tone ?? "muted";
+  const colour =
+    tone === "brand"
+      ? "border-brand-1 text-brand-1"
+      : tone === "up"
+        ? "border-up text-up"
+        : tone === "warn"
+          ? "border-warn text-warn"
+          : tone === "danger"
+            ? "border-danger text-danger"
+            : "border-line text-faint";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-px align-middle text-2xs font-medium tracking-wide uppercase ${colour}`}
+    >
+      {props.children}
+    </span>
+  );
+}
+
+/**
+ * Tabs, without JavaScript.
+ *
+ * Radio inputs and sibling selectors, so the whole thing works in the prerendered HTML with the
+ * bundle blocked. Used on the install page, where the three platforms are the same page read three
+ * ways and a reader on a broken network still has to be able to read the other two.
+ */
+/**
+ * The peer names, written out.
+ *
+ * Tailwind reads class names as literals out of the source; a name built at runtime from an index
+ * resolves to no CSS at all and the panels silently stack on top of each other. Three is the number
+ * of platforms this site has, and the array is the honest way to say that a fourth needs a line
+ * here.
+ */
+const PEER = ["peer/t0", "peer/t1", "peer/t2"];
+const PEER_LABEL = [
+  "peer-checked/t0:bg-surface-2 peer-checked/t0:text-text",
+  "peer-checked/t1:bg-surface-2 peer-checked/t1:text-text",
+  "peer-checked/t2:bg-surface-2 peer-checked/t2:text-text",
+];
+const PEER_PANEL = ["peer-checked/t0:block", "peer-checked/t1:block", "peer-checked/t2:block"];
+
+export function Tabs(props: { name: string; tabs: { id: string; label: string; body: ReactNode }[] }) {
+  if (props.tabs.length > PEER.length) {
+    throw new Error(`Tabs: ${props.tabs.length} tabs, but only ${PEER.length} peer names are declared.`);
+  }
+  return (
+    <div className="my-6 flex flex-wrap gap-1 rounded-lg border border-line bg-surface p-2">
+      {props.tabs.map((tab, i) => (
+        <span key={tab.id} className="contents">
+          <input
+            className={`${PEER[i]} sr-only`}
+            type="radio"
+            name={props.name}
+            id={`${props.name}-${tab.id}`}
+            defaultChecked={i === 0}
+          />
+          <label
+            className={`order-1 cursor-pointer rounded-sm px-3 py-1.5 text-sm text-dim hover:bg-surface-hover hover:text-text ${PEER_LABEL[i]}`}
+            htmlFor={`${props.name}-${tab.id}`}
+          >
+            {tab.label}
+          </label>
+          <section
+            className={`order-2 hidden w-full border-t border-line-soft px-3 py-4 text-body ${PEER_PANEL[i]}`}
+            aria-labelledby={`${props.name}-${tab.id}`}
+          >
+            {tab.body}
+          </section>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A picture with a caption that carries the meaning.
+ *
+ * There are no screenshots on this site yet and that is a decision, not an omission: the launcher
+ * is being redesigned as this ships, so a screenshot taken today is wrong within the month. What
+ * this renders is authored SVG, drawn in `currentColor` and tokens so it is correct in both themes
+ * without a second file. The figure itself is `aria-hidden`; the caption is the accessible content,
+ * which is the right way round — a diagram that has to be described in an `alt` attribute is a
+ * diagram whose caption should have said it.
+ */
+export function Figure(props: { caption: ReactNode; children: ReactNode }) {
+  return (
+    <figure className="my-8">
+      <div className="rounded-lg border border-line-soft bg-surface p-6" aria-hidden="true">
+        {props.children}
+      </div>
+      <figcaption className="mt-3 text-sm text-dim">{props.caption}</figcaption>
+    </figure>
+  );
+}
+
+/** A directory listing, monospaced, for the handful of places the prose names real paths. */
+export function FileTree(props: { children: string }) {
+  return (
+    <pre className="my-6 w-full min-w-0 overflow-x-auto rounded-md border border-line-soft bg-surface px-5 py-4 font-mono text-sm text-dim">
+      {props.children}
+    </pre>
+  );
+}
+
+/**
+ * A short inline code span. Written out so the prose never reaches for a colour of its own.
+ *
+ * `break-words` because most of what goes in one of these is a path, a flag or an endpoint, and a
+ * word with no spaces in it is the thing that decides a paragraph's min-content width. Without it a
+ * single `nodera-rendezvous-arm64-latest` sets the floor for the whole column it sits in.
+ */
+export function Code(props: { children: ReactNode }) {
+  return (
+    <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-sm break-words text-text">
+      {props.children}
+    </code>
+  );
+}

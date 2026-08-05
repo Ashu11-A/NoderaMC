@@ -40,7 +40,7 @@ import java.util.function.Consumer;
  *
  * <p>{@link #selected()} returns a list, not an endpoint. Registering with several rendezvous but
  * querying only the first converts redundancy into a silent single point of failure — the fallback
- * endpoints hold records nobody reads (rendezvous {@code REFERENCE.md} §9.1). Callers register with,
+ * endpoints hold records nobody reads ({@code docs/rendezvous/REFERENCE.md}). Callers register with,
  * and discover through, every entry in that list.
  *
  * <h2>A drain is a migration, not a failure</h2>

@@ -56,7 +56,7 @@ import {
   type TrackerStore,
 } from "./ipc";
 import { linkNote, useExternalLink } from "./links";
-import { Modal, Pagination } from "./components";
+import { CARD_GRID, Modal, Pagination } from "./components";
 
 /** How often to look for a store offered by a deep link while this screen is open. */
 const PENDING_POLL_MS = 1000;
@@ -377,7 +377,14 @@ export default function TrackerStores() {
           No store here matches “{filter}”.
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        // A wall of stores rather than a column of bands. Each row is a name, a summary and four
+        // icon buttons — content about 400px wide that was being stretched across the whole canvas,
+        // with the actions marooned an inch from the name they act on. The shared wall reflows, and
+        // with one store its empty tracks collapse so that store does not sit in a third of a page.
+        //
+        // `items-start` because these are not equal: a store whose last refresh failed says so, and
+        // stretching its neighbours to match would give each of them an inch of empty card.
+        <ul className={`${CARD_GRID} items-start`}>
           {visible.map((store) => (
             <StoreCard
               key={store.url}
@@ -753,7 +760,10 @@ function StoreCard(props: {
             >
               {ago(store.last_refreshed_epoch_millis)}
             </span>{" "}
-            · <span className="break-all">{hostOf(store.url)}</span>
+            {/* `anywhere`, not `break-all`: a host only breaks when it cannot fit on a line of its
+                own, so a card in a three-column wall stops splitting `list0.nodera.example` down
+                the middle while a genuinely unbreakable address still cannot widen the card. */}
+            · <span className="[overflow-wrap:anywhere]">{hostOf(store.url)}</span>
           </p>
           {store.last_error && (
             // Beside the services, not instead of them: the list above is the last one that worked,

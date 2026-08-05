@@ -11,7 +11,7 @@ world-continuity rows (W-FETCH-1/2, W-REPL-1/4) wait on a live run
 **Category:** worker · **Owns:** W-DUP-1…4, W-FETCH-1, W-REPL-1 (W-REPL-2 and W-REPL-3 retired
 2026-07-28; W-DUP-1/2/4 the same day; **W-DUP-3 retired 2026-07-29**) · **Last audit:** 2026-08-01
 **Depends on:** [worker 3](Task.3.md), [minecraft 6](../minecraft/Task.6.md)
-**Consumed by:** [app 10](../app/Task.10.md), [minecraft 10](../minecraft/Task.10.md)
+**Consumed by:** [frontend 10](../frontend/Task.10.md), [minecraft 10](../minecraft/Task.10.md)
 
 ---
 

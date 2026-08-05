@@ -8,7 +8,7 @@
 **Status:** 🚧 IN PROGRESS
 **Category:** worker · **Owns:** — (L-41 retired 2026-07-26) · **Last audit:** 2026-07-28
 **Depends on:** [minecraft 5](../minecraft/Task.5.md), [network 4](../network/Task.4.md), [tracker 2](../tracker/Task.2.md), [rendezvous 2](../rendezvous/Task.2.md)
-**Consumed by:** [minecraft 5](../minecraft/Task.5.md), [app 4](../app/Task.4.md)
+**Consumed by:** [minecraft 5](../minecraft/Task.5.md), [frontend 4](../frontend/Task.4.md)
 
 ---
 

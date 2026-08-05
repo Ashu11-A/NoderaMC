@@ -22,6 +22,7 @@ import {
 } from "react-icons/fi";
 import {
   AVATAR,
+  Button,
   Card,
   Empty,
   MONO,
@@ -29,6 +30,7 @@ import {
   Pill,
   Stat,
   STAT_GRID,
+  Tabs,
   cx,
   resetScrollport,
 } from "./components";
@@ -62,24 +64,30 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="page-canvas page-grid items-center gap-y-3 pt-7 pb-4">
+      {/* A flex row, not the twelve-column grid. Two of those columns were spent on a 32px button
+          and a 38px tile — 121px of track each on a 1680px canvas — which pushed the title into a
+          six-column slot and left the pills stranded in four. Chrome sizes itself; only the title
+          and the pills want the room, and only the title needs `min-w-0` to give it up again. */}
+      <header className="page-canvas flex flex-wrap items-center gap-x-4 gap-y-3 pt-7 pb-4">
         <button
-          className="col-span-1 grid h-8 w-8 place-items-center rounded-sm border border-line bg-surface hover:bg-surface-hover"
+          className="grid h-8 w-8 flex-none place-items-center rounded-sm border border-line bg-surface hover:bg-surface-hover"
           onClick={props.onBack}
           aria-label="Back to the dashboard"
         >
           <FiArrowLeft />
         </button>
-        <span className={cx(AVATAR, "col-span-1 h-[38px] w-[38px] text-[16px]")} aria-hidden>
+        <span className={cx(AVATAR, "h-[38px] w-[38px] text-[16px]")} aria-hidden>
           {(world.name || "?").slice(0, 1).toUpperCase()}
         </span>
-        <div className="col-span-10 min-w-0 wide:col-span-6">
-          <h1 className="display-type text-2xl font-semibold">{world.name || "Unnamed world"}</h1>
+        <div className="min-w-0 flex-1 basis-[16rem]">
+          <h1 className="display-type text-title font-bold [overflow-wrap:anywhere]">
+            {world.name || "Unnamed world"}
+          </h1>
           <p className="mt-px text-[12px] text-dim">
             {describeRole(world)} · v{world.version} · {formatBytes(world.total_bytes)}
           </p>
         </div>
-        <div className="col-span-12 flex flex-wrap items-center gap-2 wide:col-span-4 wide:justify-end">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {world.connected && <Pill tone="up">You are playing here</Pill>}
           {world.administered && <Pill tone="up">You administer this</Pill>}
           {world.discoverable === false && <Pill tone="down">On no tracker — nobody can find it</Pill>}
@@ -89,40 +97,33 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
         </div>
       </header>
 
-      <nav className="page-canvas flex gap-1 border-b border-line" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={cx(
-              "flex items-center gap-1.5 border-b-2 px-3.5 py-[9px] text-sm",
-              tab === t.id
-                ? "border-b-brand-2 text-text"
-                : "border-b-transparent text-dim hover:text-text",
-            )}
-            onClick={() => {
-              setTab(t.id);
-              resetScrollport();
-            }}
-          >
-            {t.icon}
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      {/* The shared strip, which was dead code while this screen and Settings each rolled their
+          own — with different padding, different active colours, and in one of them no
+          `role="tab"` at all. Settings keeps its own: its two chromes are a responsive pair, not a
+          tab strip. */}
+      <Tabs
+        className="page-canvas"
+        tabs={TABS}
+        active={tab}
+        onSelect={(id) => {
+          setTab(id);
+          resetScrollport();
+        }}
+      />
 
       <div
         className="page-canvas page-grid flex-1 gap-y-4 pt-6 pb-12"
         role="tabpanel"
       >
+        {/* Each tab lays itself out across the twelve columns rather than being handed a single
+            full-width slot to stack inside. A `<dl>` of short answers stretched over a 1680px
+            canvas is the "content does not fill the display" complaint upside down: the width is
+            all there, and one column of prose is using none of it. */}
         {tab === "info" && <InfoTab world={world} />}
         {tab === "content" && (
           <div className="col-span-12"><PiecesTab world={world} /></div>
         )}
-        {tab === "sharing" && (
-          <div className="col-span-12"><ShareTab world={world} /></div>
-        )}
+        {tab === "sharing" && <ShareTab world={world} />}
       </div>
     </div>
   );
@@ -164,7 +165,7 @@ function InfoTab(props: { world: World }) {
   const w = props.world;
   return (
     <>
-      <div className={cx(STAT_GRID, "col-span-12 grid-cols-[repeat(auto-fit,minmax(210px,1fr))]")}>
+      <div className={cx(STAT_GRID, "col-span-12")}>
         <Stat
           label="Players online"
           value={show(w.players, String)}
@@ -381,68 +382,70 @@ function ShareTab(props: { world: World }) {
       .finally(() => setBusy(false));
   };
 
+  // Two columns rather than one stack. The left is the world's standing — who runs it, and the
+  // proof — and the right is what you can do about it. Narrow windows collapse to the same reading
+  // order, which is why the destructive card is last in the DOM as well as last in the column.
   return (
     <>
-      <OwnershipTab world={w} />
-      <DeleteCard world={w} />
+      <div className="col-span-12 flex flex-col gap-4 wide:col-span-7">
+        <OwnershipTab world={w} />
+      </div>
 
-      <Card
-        title="Invite someone"
-        hint="Carries the world id, this node's trackers and rendezvous services, and the world's public key. No content, no password."
-        right={
-          <button className={BUTTON} onClick={mint} disabled={busy}>
-            {busy ? "Minting…" : uri ? "Mint again" : "Create link"}
-          </button>
-        }
-      >
-        {error && <p className="py-2 text-sm text-danger">{error}</p>}
-        {!uri && !error && (
-          <p className="py-2 text-sm text-faint">Not created yet.</p>
-        )}
-        {uri && (
-          <>
-            <textarea
-              className={cx(
-                MONO,
-                "mt-1 h-[76px] w-full resize-none rounded-sm border border-line bg-surface-2 p-2.5",
-                "break-all focus:border-brand-2 focus:outline-none",
-              )}
-              readOnly
-              value={uri}
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <div className="flex flex-wrap items-center gap-2 pt-2">
-              <button
-                className={BUTTON}
-                onClick={() => {
-                  void navigator.clipboard?.writeText(uri);
-                  setCopied(true);
-                }}
-              >
-                <FiCopy aria-hidden className="inline" /> {copied ? "Copied" : "Copy link"}
-              </button>
-              <button
-                className={BUTTON}
-                onClick={() => {
-                  saveShareFile(w.name || w.world_id.slice(0, 12), uri)
-                    .then(setSaved)
-                    .catch((e: unknown) => setError(String(e)));
-                }}
-              >
-                <FiSave aria-hidden className="inline" /> Save as a file
-              </button>
-              {saved && <span className={cx(MONO, "text-xs text-up")}>{saved}</span>}
-            </div>
-          </>
-        )}
-      </Card>
+      <div className="col-span-12 flex flex-col gap-4 wide:col-span-5">
+        <Card
+          title="Invite someone"
+          hint="Carries the world id, this node's trackers and rendezvous services, and the world's public key. No content, no password."
+          right={
+            <Button onClick={mint} disabled={busy}>
+              {busy ? "Minting…" : uri ? "Mint again" : "Create link"}
+            </Button>
+          }
+        >
+          {error && <p className="py-2 text-sm text-danger">{error}</p>}
+          {!uri && !error && (
+            <p className="py-2 text-sm text-faint">Not created yet.</p>
+          )}
+          {uri && (
+            <>
+              <textarea
+                className={cx(
+                  MONO,
+                  "mt-1 h-[76px] w-full resize-none rounded-sm border border-line bg-surface-2 p-2.5",
+                  "break-all focus:border-brand-1 focus:outline-none",
+                )}
+                readOnly
+                value={uri}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <div className="flex flex-wrap items-center gap-2 pt-2">
+                <Button
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(uri);
+                    setCopied(true);
+                  }}
+                >
+                  <FiCopy aria-hidden /> {copied ? "Copied" : "Copy link"}
+                </Button>
+                <Button
+                  onClick={() => {
+                    saveShareFile(w.name || w.world_id.slice(0, 12), uri)
+                      .then(setSaved)
+                      .catch((e: unknown) => setError(String(e)));
+                  }}
+                >
+                  <FiSave aria-hidden /> Save as a file
+                </Button>
+                {saved && <span className={cx(MONO, "min-w-0 [overflow-wrap:anywhere] text-xs text-up")}>{saved}</span>}
+              </div>
+            </>
+          )}
+        </Card>
 
+        <DeleteCard world={w} />
+      </div>
     </>
   );
 }
-
-const BUTTON =
-  "rounded-sm border border-line bg-surface-2 px-2.5 py-1 text-xs hover:bg-surface-hover disabled:opacity-50";
 
 /* ---------------------------------------------------------------------------------- ownership */
 
@@ -493,8 +496,8 @@ function OwnershipTab(props: { world: World }) {
           title="Prove it"
           hint="Signs a fresh challenge with this world's private key. Shows the key is on this machine; verification is what other peers do."
           right={
-            <button
-              className="rounded-sm border border-line bg-surface-2 px-3 py-1.5 text-sm hover:bg-surface-hover disabled:opacity-50"
+            <Button
+              size="md"
               disabled={busy}
               onClick={() => {
                 setBusy(true);
@@ -512,7 +515,7 @@ function OwnershipTab(props: { world: World }) {
               }}
             >
               {busy ? "Signing…" : "Sign a challenge"}
-            </button>
+            </Button>
           }
         >
           {proof === null ? (
@@ -608,22 +611,24 @@ function DeleteCard(props: { world: World }) {
       </p>
       <div className="flex flex-col gap-2 py-1">
         <input
-          className="rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
+          className="min-w-0 rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-1 focus:outline-none"
           placeholder={`Type ${expected} to confirm`}
           value={confirmation}
           disabled={outcome?.done}
           onChange={(e) => setConfirmation(e.currentTarget.value)}
         />
         <input
-          className="rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-2 focus:outline-none"
+          className="min-w-0 rounded-sm border border-line bg-surface-2 px-2.5 py-[6px] text-sm focus:border-brand-1 focus:outline-none"
           placeholder="Reason (optional, shown to other players)"
           maxLength={200}
           value={reason}
           disabled={outcome?.done}
           onChange={(e) => setReason(e.currentTarget.value)}
         />
-        <button
-          className="self-start rounded-sm border border-danger px-3 py-1.5 text-sm text-danger hover:bg-surface-hover disabled:opacity-40"
+        <Button
+          variant="danger"
+          size="md"
+          className="self-start"
           disabled={!armed || outcome?.done}
           onClick={() => {
             setBusy(true);
@@ -645,8 +650,8 @@ function DeleteCard(props: { world: World }) {
               .finally(() => setBusy(false));
           }}
         >
-          <FiTrash2 aria-hidden className="inline" /> {busy ? "Deleting…" : "Delete everywhere"}
-        </button>
+          <FiTrash2 aria-hidden /> {busy ? "Deleting…" : "Delete everywhere"}
+        </Button>
       </div>
       {outcome && (
         <p className={cx("py-1 text-sm", outcome.done ? "text-up" : "text-danger")}>
@@ -685,7 +690,20 @@ function PiecesTab(props: { world: World }) {
     };
   }, [props.world.world_id]);
 
-  if (loaded && map.piece_count === 0) {
+  // Before the first `get_piece_map` returns there is nothing to draw, and drawing the empty
+  // manifest anyway would render a full grid of unheld cells — a picture that says "you hold none
+  // of this world" when the truth is that nobody has been asked yet. Same defect as a stat tile
+  // showing `0`, in the one place on this screen where it would be a whole screenful of it.
+  if (!loaded) {
+    return (
+      <Card title="Pieces" hint="Asking your peer which pieces this node holds.">
+        <div className="my-2 h-[120px] animate-pulse rounded-sm border border-line-soft bg-surface-2" />
+        <p className="pb-1 text-xs text-faint">Loading piece map…</p>
+      </Card>
+    );
+  }
+
+  if (map.piece_count === 0) {
     return (
       <Empty icon={<FiGrid />} title="No content pieces on this node" />
     );
@@ -739,7 +757,7 @@ function PieceCanvas(props: { held: boolean[] }) {
     const styles = getComputedStyle(document.documentElement);
     context.fillStyle = styles.getPropertyValue("--surface-2");
     context.fillRect(0, 0, width, height);
-    const color = styles.getPropertyValue("--up").trim();
+    const color = styles.getPropertyValue("--brand-1").trim();
     if (aggregated) {
       for (let bucket = 0; bucket < buckets; bucket += 1) {
         const start = Math.floor((bucket * props.held.length) / buckets);
@@ -752,6 +770,11 @@ function PieceCanvas(props: { held: boolean[] }) {
         context.fillRect((bucket % columns) * cell, Math.floor(bucket / columns) * cell, cell - 1, cell - 1);
       }
     } else {
+      // The exact branch never set a fill, so every held cell was painted in the background colour
+      // this function had just filled the canvas with — an "exact map" that was uniformly blank for
+      // every manifest of 2048 pieces or fewer, which is most of them. The aggregated branch sets
+      // it inside its own loop, which is why the bug only ever showed on the common path.
+      context.fillStyle = color;
       props.held.forEach((held, index) => {
         if (!held) return;
         context.fillRect((index % columns) * cell, Math.floor(index / columns) * cell, cell - 1, cell - 1);
@@ -763,7 +786,7 @@ function PieceCanvas(props: { held: boolean[] }) {
     <figure className="my-2">
       <canvas
         ref={canvas}
-        className="w-full rounded-sm border border-line bg-surface-2"
+        className="w-full rounded-sm border border-line-soft bg-surface-2"
         role="img"
         aria-label={`${props.held.filter(Boolean).length} of ${props.held.length} pieces held`}
       />

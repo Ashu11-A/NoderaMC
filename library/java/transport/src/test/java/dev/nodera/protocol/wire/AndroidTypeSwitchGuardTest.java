@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * exist; this test catches the same regression in {@code ./gradlew check} by scanning the module's
  * compiled main classes — the module whose {@code MessageRouter.answerFor} was the regression.
  *
- * <p>See {@code docs/mobile/LIMITATIONS.md} M-5 and {@code docs/mobile/LIMITATIONS.fixed.md} M-8.
+ * <p>See {@code docs/frontend/LIMITATIONS.md} M-5 and {@code docs/frontend/LIMITATIONS.fixed.md} M-8.
  *
  * <p>Thread-context: JUnit test; single-threaded, read-only over the class files.
  */
@@ -52,7 +52,7 @@ class AndroidTypeSwitchGuardTest {
                 String probe = new String(bytes, StandardCharsets.ISO_8859_1);
                 assertThat(probe)
                         .withFailMessage("%s compiles to a SwitchBootstraps type-switch — rewrite it "
-                                + "as an instanceof chain (see docs/mobile/LIMITATIONS.md M-5)",
+                                + "as an instanceof chain (see docs/frontend/LIMITATIONS.md M-5)",
                                 classesRoot.relativize(clazz))
                         .doesNotContain("SwitchBootstraps")
                         .doesNotContain("typeSwitch");

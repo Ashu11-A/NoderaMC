@@ -1,0 +1,140 @@
+---
+title: Share a world, and join one
+description: Open to Nodera from the pause menu, what the other side does, and what the words on the Worlds screen mean.
+---
+
+import { Callout, Scroller } from "../../../src/components/primitives";
+import { Cmd, Ui } from "../../../src/components/mdx";
+
+## Sharing
+
+Open a single-player world, press Escape, and press **Open to Nodera…**. It sits where vanilla's
+*Open to LAN* button sits, because it replaces it: this is how you play with other people here, not
+a second way bolted on beside the normal one.
+
+That opens a screen with three settings, and nothing is announced until you confirm it:
+
+<Scroller>
+
+| Setting | Default | What it decides |
+| --- | --- | --- |
+| **Encryption password** | empty | Empty means the world's archived content is plaintext. A password encrypts it *and* gates the live game — joiners are asked for it during the connection. Only the world's author may set or change it. |
+| **Region delegation** | on | Whether other peers may be given regions of this world to simulate and validate. |
+| **Visibility** | listed | *Listed on tracker* puts the world in the directory anyone querying your trackers can see. *Invite-only* keeps it off that list; peers that already know its id can still reach it. |
+
+</Scroller>
+
+Nothing about your save changes. The world you were playing is the world that is now shared — no
+import, no conversion, no copy. From then on the screen reads **Nodera: Sharing options…** and
+offers *Update sharing options* and *Stop sharing*.
+
+<Callout type="note" title="Two shortcuts">
+  <Cmd to="nodera-share" /> does the same thing from chat, and the create-world screen has a
+  **Nodera: Shared** toggle so a brand-new world is on the network the moment it is generated.
+</Callout>
+
+### What "shared" publishes
+
+Three facts: that the world exists, what its identity is, and that your node is currently holding
+it. It does **not** publish your save for anyone to download — content is encrypted per world, so a
+peer holding pieces of a world it is not a member of holds bytes it cannot read. It does not
+publish your address either; when there is no direct path, reachability goes through a relay, which
+is a circuit between two peers rather than a listing.
+
+## Joining
+
+On the other machine, open Minecraft's multiplayer screen. NoderaMC replaces it entirely, with two
+tabs:
+
+- **Worlds** — worlds your own node is already involved with, plus everything the trackers you have
+  configured will tell you about. Search, **Refresh**, **Join world** and **View pieces** are here.
+- **Network** — a *Trackers* panel and a *Rendezvous* panel: which of your configured services are
+  answering, how long ago, and how many worlds each is indexing.
+
+<Cmd to="nodera-worlds" /> prints the same Worlds list in chat.
+
+### What pressing Join actually does
+
+1. If the row already carries a live game endpoint, the client connects straight to it.
+2. Otherwise it asks the tracker for the world's current endpoint claim.
+3. If there is no claim, the host's game is closed — so this machine fetches the world from the
+   peer network through its own worker and re-opens it locally. You become its host. This is the
+   same mechanism <a href="/docs/using/when-the-host-leaves">that keeps a world alive when its host
+   leaves</a>, arriving from the other direction.
+4. Only if that also fails do you get an error, and the error says which step failed. "The host's
+   game is closed — the world is archived on the network but not currently playable" is a different
+   problem from "this world has no network identity yet", and both are different from a password
+   prompt.
+
+<Callout type="warning" title="The other player needs the mod">
+  Every player in a NoderaMC world runs it. If the person you are trying to play with has an
+  unmodified Minecraft, the thing you want is
+  <a href="/docs/start/play-without-the-mod"> the LAN tunnel</a>, and it works completely
+  differently.
+</Callout>
+
+## What the badge on a world means
+
+<Scroller>
+
+| Badge | Means |
+| --- | --- |
+| **Joinable** | A live game endpoint is being advertised right now. Press Join and you are in. |
+| **Online** | Enough peers are holding copies to sustain the replication target. No game is open. |
+| **At risk** | Under-replicated: fewer copies than the target. Still playable, and a data-loss risk. |
+| **drops in …** | Nobody is holding it at all, and the retention window is counting down. |
+| **Offline** | Zero seeders past that window. |
+
+</Scroller>
+
+The badge is about **copies of the world**, not about validators. A world running with fewer
+validators than its committees want is a separate report — the in-game diagnostics call that
+*degraded*, and the fix is the same either way: another peer coming online.
+
+## Your library
+
+The companion app's <Ui to="library" /> screen groups worlds three ways.
+
+**You are playing in** — where a player on this machine is right now.
+
+**Worlds you run** — worlds whose identity you hold. You created them, or ownership was transferred
+to you, and your key is what signs administrative changes to them.
+
+**Worlds you help share** — worlds you have played in. Your node holds pieces of them and validates
+regions for them, and it keeps doing that with Minecraft closed. This is the group that makes the
+network work, and you join it by playing rather than by opting in.
+
+A world stays in the last group because your node keeps telling the world's other peers that it is
+still here. Stop — the machine is off, the app has been closed for a week — and the membership
+expires. That is correct behaviour: it keeps a world's committee made of machines that exist rather
+than of every machine that ever visited, and it is why "how many peers does this world have" is a
+number that moves.
+
+## Administering a world
+
+Authority is a key, not a username. Every one of these is signed by the world's author key and
+re-verified by whoever receives it, so "the server said so" is never enough.
+
+<Scroller>
+
+| Action | How | Who may |
+| --- | --- | --- |
+| Change the password | <Cmd to="nodera-share-password" /> `<new>`, or the Share screen | The author only. Every seeder re-fetches and joiners need the new one. |
+| Grant an operator | <Cmd to="nodera-op" /> `<player>` (`/op` is an alias) | The author. The grant is bound to the recipient's peer key. |
+| Revoke one | <Cmd to="nodera-deop" /> `<player>` (`/deop`) | The author. |
+| Delete the world everywhere | **Delete world from network…** in the Share screen | The author, and the worker refuses without the world's private key. |
+
+</Scroller>
+
+<Callout type="danger" title="Deleting is the one action that cannot be undone">
+  The deletion is signed with the world's private key and flooded to every peer that will ever hear
+  of the world; each verifies it and destroys its copy. The confirmation is typed — you write the
+  world's name — rather than a second button, because there is no message that could bring it back.
+  A message that could would be a message an attacker could send.
+</Callout>
+
+## If something looks wrong
+
+<Cmd to="nodera-selftest" /> runs the client's own diagnostic pass and prints what it found. It is
+the first thing to run before reporting anything, and far more useful in a bug report than a
+description of what the screen looked like.

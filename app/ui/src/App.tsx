@@ -2,23 +2,46 @@
 //
 // # Three destinations, not nine
 //
-// The rail used to carry one screen per subsystem — Overview, Worlds, Join, Tracker stores, Peers,
-// Peer console, Minecraft mod, About, Settings — which is an accurate map of the software and a
-// useless one for a player. What they came to do is play; everything else is either about a world
-// (one click from the library) or about the machinery (Settings).
+// The navigation used to carry one screen per subsystem — Overview, Worlds, Join, Tracker stores,
+// Peers, Peer console, Minecraft mod, About, Settings — which is an accurate map of the software
+// and a useless one for a player. What they came to do is play; everything else is either about a
+// world (one click from the library) or about the machinery (Settings).
 //
 //   Play      the hero, the world picker, and the button
 //   Worlds    the library, as art rather than as a table
 //   Discover  what is joinable on the network right now
-//   ⚙         everything that used to have its own rail entry
+//   ⚙         everything that used to have its own entry
+//
+// # Where they live
+//
+// In a left rail, not a top bar. Three destinations do not need 64px of window height across the
+// top of every screen, and the node facts that shared that strip were hidden below 900px — so the
+// app said nothing about its own identity on a small window. `Rail.tsx` has the reasoning.
+//
+// Two tables, deliberately. `DESTINATIONS` is the places you go to do the thing the app is for,
+// and it is the list A-UX-1 is enforced against. `UTILITIES` is the preferences drawer, pinned to
+// the bottom of the rail — a preference is not a destination, it shows no worker figures, and
+// keeping it out of `DESTINATIONS` keeps that table's shape exactly as the exit test parses it.
+//
+// # The window is the app's too
+//
+// The desktop window is undecorated (`tauri.conf.json`), so the minimise / maximise / close buttons
+// are drawn here rather than by the window manager — they were the last part of the interface still
+// wearing the operating system's design instead of this one. `TitleBar.tsx` has the reasoning and
+// the eight resize grips an undecorated window has to grow for itself.
 //
 // # Data path
 //
 // `api::link` (Rust) → `nodera://dashboard` → `useDashboard`. There is no polling loop here; the
 // backend emits when the node changes.
 import { useEffect, useState } from "react";
-import { FiCompass, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
-import { cx, MONO, SCROLLPORT_ID, StaleDataNotice } from "./components";
+import { createPortal } from "react-dom";
+import { FiCompass, FiDroplet, FiGlobe, FiPlay, FiSettings } from "react-icons/fi";
+import { SCROLLPORT_ID, StaleDataNotice } from "./components";
+import { Rail } from "./Rail";
+import { TitleBar } from "./TitleBar";
+import { ThemeScreen } from "./ThemeScreen";
+import { ESCAPE_ID, applyCustomTheme, useCustomTheme } from "./customtheme";
 import { SettingsScreen, type Section as SettingsSection } from "./Settings";
 import { ConsentModal, useTelemetryStatus } from "./Consent";
 import { PlayScreen } from "./PlayScreen";
@@ -28,22 +51,12 @@ import { LanOfferModal } from "./Lan";
 import { WorldScreen } from "./World";
 import { launchPlay } from "./play";
 import { useResolvedTheme } from "./theme";
-import {
-  EMPTY_DASHBOARD,
-  formatAge,
-  useDashboard,
-  formatRate,
-  isStale,
-  linkFault,
-  shortId,
-  show,
-  type Dashboard,
-  type World,
-} from "./api";
+import { EMPTY_DASHBOARD, useDashboard, isStale, type Dashboard, type World } from "./api";
 import {
   fetchSystemStats,
   onSystemStats,
   fetchSettings,
+  saveSettings,
   EMPTY_SYSTEM,
   type SystemStats,
   type Settings as SettingsDoc,
@@ -54,6 +67,7 @@ type Screen =
   | { name: "worlds" }
   | { name: "world"; id: string }
   | { name: "discover" }
+  | { name: "theme" }
   | { name: "settings"; section?: SettingsSection };
 
 /**
@@ -69,6 +83,19 @@ const DESTINATIONS = [
   { name: "play", label: "Play", icon: <FiPlay />, showsWorkerFigures: true },
   { name: "worlds", label: "Library", icon: <FiGlobe />, showsWorkerFigures: true },
   { name: "discover", label: "Discover", icon: <FiCompass />, showsWorkerFigures: false },
+] as const;
+
+/**
+ * The bottom of the rail: preferences, not places.
+ *
+ * A separate table rather than a fourth destination. Settings is the drawer the other six screens
+ * were folded into, it renders no worker figure, and `DESTINATIONS` above is parsed by the A-UX-1
+ * exit test — so the set that gates the stale banner stays exactly the set of screens that show the
+ * worker's numbers, with nothing in it that is not one.
+ */
+const UTILITIES = [
+  { name: "theme", label: "Theme", icon: <FiDroplet /> },
+  { name: "settings", label: "Settings", icon: <FiSettings /> },
 ] as const;
 
 /** The screens whose figures come from the worker. Read by `tests/ux-honesty.test.mjs`. */
@@ -91,19 +118,79 @@ export const WORKER_FIGURE_SCREENS: readonly string[] = [
 export function App() {
   const d = useDashboard(EMPTY_DASHBOARD);
   const [settings, setSettings] = useState<SettingsDoc | null>(null);
-  useResolvedTheme(settings?.appearance.theme ?? "system");
+  // A custom appearance is a *patch on a base scheme*, so it decides which scheme is underneath it
+  // and `theme.ts` is still the only thing that writes `dataset.theme`. A missing or stale
+  // `selected` id resolves to undefined and the app behaves exactly as it did before this existed.
+  const themes = settings?.appearance.themes;
+  const custom = themes?.custom.find((t) => t.id === themes.selected);
+  const resolved = useResolvedTheme(custom ? custom.base : (settings?.appearance.theme ?? "system"));
+  useCustomTheme(custom);
 
   useEffect(() => {
     fetchSettings().then(setSettings).catch(() => {});
   }, []);
 
-  return <DesktopApp dashboard={d} settings={settings} onSettings={setSettings} />;
+  return (
+    <>
+      <DesktopApp
+        dashboard={d}
+        settings={settings}
+        onSettings={setSettings}
+        resolved={resolved}
+      />
+      <EscapeHatch active={Boolean(custom)} settings={settings} onSettings={setSettings} />
+    </>
+  );
+}
+
+/**
+ * The way out of an appearance that made the window unusable.
+ *
+ * Rendered on every path, into `document.body` rather than into `#root` — a sibling of the app, so
+ * no selector rooted at `#root` can reach it, and `position: fixed` escapes any ancestor overflow
+ * (its only possible containing blocks are `html` and `body`, whose `transform` the guard pins to
+ * `none`).
+ *
+ * It carries `data-nodera-escape` only while a custom appearance is in force, which is the only
+ * time there is anything to escape from — and that decision is React state, not a stylesheet, so
+ * nothing a theme can write reaches it. `customtheme.ts` then re-asserts every one of its styles
+ * inline at `!important`, which outranks every important author rule in every layer and is what
+ * survives an engine that does not implement `@layer` at all.
+ *
+ * Pressing it also *persists* the reset, because a kept theme that locked the window out has to
+ * stay gone across a restart.
+ */
+function EscapeHatch(props: {
+  active: boolean;
+  settings: SettingsDoc | null;
+  onSettings: (next: SettingsDoc) => void;
+}) {
+  return createPortal(
+    <button
+      id={ESCAPE_ID}
+      type="button"
+      data-nodera-escape={props.active ? "" : undefined}
+      hidden={!props.active}
+      onClick={() => {
+        applyCustomTheme(undefined);
+        const settings = props.settings;
+        if (!settings) return;
+        const next: SettingsDoc = JSON.parse(JSON.stringify(settings));
+        next.appearance.themes.selected = "";
+        saveSettings(next).then(() => props.onSettings(next)).catch(() => {});
+      }}
+    >
+      Reset appearance
+    </button>,
+    document.body,
+  );
 }
 
 function DesktopApp(props: {
   dashboard: Dashboard;
   settings: SettingsDoc | null;
   onSettings: (next: SettingsDoc) => void;
+  resolved: "dark" | "light";
 }) {
   // Passed in, never re-subscribed. A second `useDashboard` here meant two `nodera://dashboard`
   // listeners and two initial fetches, and every worker push — four a second — re-rendered both
@@ -134,7 +221,22 @@ function DesktopApp(props: {
   const openSettings = (section?: SettingsSection) => setScreen({ name: "settings", section });
 
   return (
-    <div className="flex h-full flex-col">
+    // `w-full min-w-0` is load-bearing, not tidiness. The guard layer makes `#root` a flex
+    // container (`display: flex !important` — a theme must never be able to un-display the app),
+    // which makes this div a **flex item**, and a flex item with `width: auto` is shrink-to-fit:
+    // it sized itself to its own content and ignored the window. That is one bug wearing two
+    // faces. On a wide window the shell stopped at the width of the widest card and left the rest
+    // of the display empty; on a narrow or square one the shell's min-content — a settings tab
+    // strip that does not wrap — was *wider* than the window, and `body { overflow: hidden }`
+    // silently cut the right-hand edge off every card, badge and tab.
+    //
+    // `w-full` pins the shell to the window. `min-w-0` lets it shrink below its own min-content, so
+    // anything irreducibly wide overflows *inside* a container that can scroll it (the tab strip,
+    // `DataTable`) instead of pushing the whole app sideways under a clip.
+    //
+    // Deliberately no `overflow-hidden` here: the rail's identity popover is absolutely positioned
+    // and wider than the collapsed rail, and clipping at this level would eat it.
+    <div className="flex h-full w-full min-w-0 flex-row">
       <ConsentModal status={telemetry} onAnswered={setTelemetry} />
       {/* Raised by the worker's `lan.opened` announcement. Held back while the privacy question is
           unanswered: that one is a gate, and two stacked dialogs is where people answer the wrong. */}
@@ -144,158 +246,78 @@ function DesktopApp(props: {
         onAnswered={() => undefined}
       />
 
-      <TopNav
+      <Rail
         d={d}
         active={onWorlds ? "worlds" : screen.name}
-        onSelect={(name) => setScreen({ name } as Screen)}
-        onSettings={() => openSettings()}
+        destinations={DESTINATIONS}
+        utilities={UTILITIES}
+        onSelect={(name) => (name === "settings" ? openSettings() : setScreen({ name } as Screen))}
       />
 
-      {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
+      {/* The content column, and the reason it exists is the bar at the top of it.
+          The window has no decorations — `tauri.conf.json` says so — which means the minimise,
+          maximise and close buttons are the app's to draw. They belong *beside* the rail rather
+          than above it: the rail runs to the top edge of the window carrying the wordmark, exactly
+          as the reference panels do, and the caption strip sits over the page in the same corner
+          the reference puts its own window controls. A bar spanning the whole window would push
+          the rail down and leave a band of page background above it, which is the arrangement that
+          made the buttons read as somebody else's frame in the first place. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <TitleBar />
+
+        {/* The `key` is the scroll reset. One scrollport serves every screen, and `scrollTop` is a
           property of the DOM node — without a key React keeps that same node across navigation and a
-          screen opened after a long scroll starts halfway down. A new key is a new node at zero. */}
-      <main
-        id={SCROLLPORT_ID}
-        key={screen.name === "world" ? `world:${screen.id}` : screen.name}
-        className="min-h-0 flex-1 overflow-y-auto"
-      >
-        {staleWorkerFigures && (
-          <div className="page-canvas pt-4">
-            <StaleDataNotice />
-          </div>
-        )}
-        {screen.name === "settings" ? (
-          <SettingsScreen
-            settings={settings}
-            onChange={setSettings}
-            initial={screen.section}
-            d={d}
-            sys={sys}
-          />
-        ) : screen.name === "discover" ? (
-          <NetworkScreen
-            onPlay={async (sessionId, worldName) => {
-              await launchPlay(sessionId, worldName);
-              setScreen({ name: "play", launchWorld: { id: sessionId, name: worldName } });
-            }}
-          />
-        ) : selected ? (
-          <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
-        ) : screen.name === "worlds" ? (
-          <WorldsScreen d={d} onOpen={(id) => setScreen({ name: "world", id })} />
-        ) : (
-          <PlayScreen
-            d={d}
-            initialWorld={screen.name === "play" ? screen.launchWorld : undefined}
-            onOpenWorld={(id) => setScreen({ name: "world", id })}
-            onSettings={(section) => openSettings(section as SettingsSection)}
-          />
-        )}
-      </main>
+          screen opened after a long scroll starts halfway down. A new key is a new node at zero.
+
+          It scrolls in **one** axis. `overflow-y: auto` alone is not that: the spec computes an
+          `overflow-x: visible` to `auto` the moment the other axis is not visible, so the scrollport
+          would answer a too-wide child by growing a horizontal scrollbar under the whole app — the
+          page sliding sideways past the rail. Naming `overflow-x: hidden` puts the horizontal
+          boundary here and forces the decision downwards: content that genuinely cannot get
+          narrower carries its own `overflow-x-auto` (the settings tab strip, `DataTable`, `Tabs`)
+          and scrolls inside itself. */}
+        <main
+          id={SCROLLPORT_ID}
+          key={screen.name === "world" ? `world:${screen.id}` : screen.name}
+          className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+        >
+          {staleWorkerFigures && (
+            <div className="page-canvas pt-4">
+              <StaleDataNotice />
+            </div>
+          )}
+          {screen.name === "settings" ? (
+            <SettingsScreen
+              settings={settings}
+              onChange={setSettings}
+              initial={screen.section}
+              d={d}
+              sys={sys}
+              onOpenTheme={() => setScreen({ name: "theme" })}
+            />
+          ) : screen.name === "theme" ? (
+            <ThemeScreen settings={settings} onChange={setSettings} resolved={props.resolved} />
+          ) : screen.name === "discover" ? (
+            <NetworkScreen
+              onPlay={async (sessionId, worldName) => {
+                await launchPlay(sessionId, worldName);
+                setScreen({ name: "play", launchWorld: { id: sessionId, name: worldName } });
+              }}
+            />
+          ) : selected ? (
+            <WorldScreen world={selected} onBack={() => setScreen({ name: "worlds" })} />
+          ) : screen.name === "worlds" ? (
+            <WorldsScreen d={d} onOpen={(id) => setScreen({ name: "world", id })} />
+          ) : (
+            <PlayScreen
+              d={d}
+              initialWorld={screen.name === "play" ? screen.launchWorld : undefined}
+              onOpenWorld={(id) => setScreen({ name: "world", id })}
+              onSettings={(section) => openSettings(section as SettingsSection)}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
-}
-
-/**
- * The strip across the top: where you are, and the one control that is not a destination.
- *
- * It floats over the Play screen's hero rather than pushing it down — `--surface-3` is a translucent
- * fill for exactly this — so the art starts at the top of the window and the launcher reads as one
- * surface rather than as a page inside a frame.
- */
-function TopNav(props: {
-  d: Dashboard;
-  active: string;
-  onSelect: (name: string) => void;
-  onSettings: () => void;
-}) {
-  const { d } = props;
-  const fault = linkFault(d.link);
-  const now = useNow(d.link.has_data);
-  const age = d.link.last_update_ms ? Math.max(0, now - d.link.last_update_ms) : 0;
-
-  return (
-    <header
-      className="relative z-20 flex flex-none border-b border-line/70 bg-surface-3 backdrop-blur-xl"
-      style={{ height: "var(--top-nav-height)" }}
-    >
-      <div className="page-canvas flex items-center gap-5">
-        <div className="mr-2 flex items-center gap-2.5" title="NoderaMC">
-          <span aria-hidden className="grid size-7 rotate-45 place-items-center border border-brand-2/70 bg-brand-2/10 shadow-[0_0_24px_rgba(142,219,63,0.18)]">
-            <span className="size-2 bg-brand-1" />
-          </span>
-          <span className="display-type text-sm font-semibold tracking-tight">NODERA</span>
-        </div>
-
-      <nav className="flex h-full items-center gap-1">
-        {DESTINATIONS.map((entry) => (
-          <button
-            key={entry.name}
-            aria-current={props.active === entry.name ? "page" : undefined}
-            onClick={() => props.onSelect(entry.name)}
-            className={cx(
-              "relative flex h-full items-center gap-2 px-3 text-sm transition-colors",
-              "duration-[var(--motion-fast)] focus-visible:outline-2 focus-visible:outline-focus",
-              props.active === entry.name
-                ? "font-medium text-text after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:bg-brand-1"
-                : "text-dim hover:text-text",
-            )}
-          >
-            {entry.icon}
-            {entry.label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="ml-auto flex items-center gap-2 text-xs">
-        <div className="hidden items-center gap-4 narrow:flex">
-        {fault ? (
-          <span className="inline-flex items-center gap-1.5 text-danger" title={d.link.last_error}>
-            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
-            {fault}
-          </span>
-        ) : (
-          d.link.has_data && (
-            <span className={cx(MONO, "text-faint")} title={d.node.node_id}>
-              {shortId(d.node.node_id, 6, 4)} · updated {formatAge(age)}
-            </span>
-          )
-        )}
-        {d.node.is_gateway && (
-          <span className="rounded-full border border-brand-2/55 bg-brand-2/8 px-[7px] py-0.5 text-[10px] tracking-[0.08em] text-brand-1">
-            GATEWAY
-          </span>
-        )}
-        <span className="flex gap-2.5 font-mono tabular-nums">
-          <span className="text-up" title="Upload">
-            ▲ {show(d.traffic.up_bytes_per_sec, formatRate)}
-          </span>
-          <span className="text-down" title="Download">
-            ▼ {show(d.traffic.down_bytes_per_sec, formatRate)}
-          </span>
-        </span>
-        </div>
-        <button
-          onClick={props.onSettings}
-          aria-label="Settings"
-          title="Settings"
-          className="grid h-[30px] w-[30px] place-items-center rounded-sm text-[16px] text-dim transition-colors duration-[var(--motion-fast)] hover:bg-surface-hover hover:text-text focus-visible:outline-2 focus-visible:outline-focus"
-        >
-          <FiSettings />
-        </button>
-      </div>
-      </div>
-    </header>
-  );
-}
-
-/** A one-second clock, used only where the passage of time is itself the information. */
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [active]);
-  return now;
 }

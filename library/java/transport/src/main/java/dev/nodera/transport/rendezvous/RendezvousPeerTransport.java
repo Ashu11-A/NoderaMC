@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * (LEGACY.md); behind the transport-api seam, so peer-runtime / committee / distribution cannot tell
  * which transport carried a message.
  *
- * <p><b>Composition (RENDEZVOUS.md §4.7).</b> A {@link TransportSelector} chooses per peer:
+ * <p><b>Composition (docs/rendezvous/REFERENCE.md).</b> A {@link TransportSelector} chooses per peer:
  * a {@link #directTransport} (e.g. {@code SocketPeerTransport}) when a direct path exists, else an
  * end-to-end-encrypted {@link RelayCircuit} through the service. Registration and discovery run over
  * {@link RendezvousClient}; the relayed data path is a first-class fallback, not an apology — the
@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p><b>The service is never authority.</b> Records are Ed25519-signed and verified against the same
  * canonical bytes on both sides; relayed payloads are E2E-encrypted; the transport handshake
- * re-verifies the far end owns the {@code NodeId} of the discovered record (§4.4/§8.1). A discovered
+ * re-verifies the far end owns the {@code NodeId} of the discovered record. A discovered
  * peer must be {@link #learn learned} before it can be dialed, so its identity key is known before
  * any circuit trusts it.
  *
@@ -202,7 +202,7 @@ public final class RendezvousPeerTransport implements PeerTransport {
             acceptor.start();
             // Registrations are leases, not permanent state: without renewal this peer silently
             // vanished from discovery after REGISTRATION_TTL while still believing it was
-            // published (RENDEZVOUS.md §9.3).
+            // published (docs/rendezvous/REFERENCE.md).
             Thread refresher = new Thread(this::refreshLoop, "rendezvous-refresh-" + nodeId());
             refresher.setDaemon(true);
             threads.add(refresher);
@@ -592,7 +592,7 @@ public final class RendezvousPeerTransport implements PeerTransport {
                 last = e;
             }
         }
-        // Publishing to a subset is a working registration (RENDEZVOUS.md §9.1 merges results);
+        // Publishing to a subset is a working registration (docs/rendezvous/REFERENCE.md merges results);
         // only a total failure is an error worth propagating.
         if (registered == 0 && last != null) {
             throw last;
@@ -616,7 +616,7 @@ public final class RendezvousPeerTransport implements PeerTransport {
 
     /**
      * The candidates this peer publishes: its <b>direct</b> listen route first, then the relay
-     * reservation as fallback (RENDEZVOUS.md §2.5 / §4.7 preference order).
+     * reservation as fallback (docs/rendezvous/REFERENCE.md preference order).
      *
      * <p>Publishing the host candidate is what makes direct-first real. While only a relay
      * candidate was advertised, {@link #hasDirectCandidate} was false for every discovered peer, so
@@ -654,7 +654,7 @@ public final class RendezvousPeerTransport implements PeerTransport {
         return direct.isEmpty() ? null : PeerAddress.of(peer, direct.get(0).address());
     }
 
-    /** Re-publish this peer's record before the registration lease expires (RENDEZVOUS.md §9.3). */
+    /** Re-publish this peer's record before the registration lease expires (docs/rendezvous/REFERENCE.md). */
     private void refreshLoop() {
         long periodMillis = REGISTRATION_TTL.toMillis() / 2;
         while (running.get()) {

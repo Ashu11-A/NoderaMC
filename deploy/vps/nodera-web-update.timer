@@ -1,0 +1,34 @@
+# How often the VPS looks for a newly published web image.
+#
+# Installed to /etc/systemd/system/nodera-web-update.timer by scripts/bootstrap-site-host.sh and
+# enabled with `systemctl enable --now nodera-web-update.timer`. This is the unit to enable; the
+# .service beside it is what this starts.
+#
+#   systemctl list-timers nodera-web-update.timer     # when it last ran and when it runs next
+#   journalctl -u nodera-web-update                   # what every run did
+
+[Unit]
+Description=Check for a newly published Nodera web image
+
+[Timer]
+Unit=nodera-web-update.service
+
+# Not at boot exactly: docker.service, the containers it restarts and this timer all come up at
+# once, and pulling into that is how a reboot takes longer than it needs to. Three minutes in, the
+# host is quiet.
+OnBootSec=3min
+
+# Measured from the END of the last run, not from a wall clock. That matters here: a pull that
+# takes four minutes must not have the next one already queued behind it.
+OnUnitInactiveSec=5min
+
+# Every host running this unit would otherwise hit GHCR on the same schedule relative to its own
+# boot. The jitter costs nothing and keeps a herd from forming if this is ever copied.
+RandomizedDelaySec=60
+
+# Persistent= is deliberately absent. It only means anything for OnCalendar= timers — it replays a
+# wall-clock run the machine was off for — and setting it on a monotonic timer looks like a reboot
+# guarantee it does not provide. OnBootSec= above is the reboot guarantee.
+
+[Install]
+WantedBy=timers.target
