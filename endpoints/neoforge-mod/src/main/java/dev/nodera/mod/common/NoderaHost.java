@@ -927,7 +927,8 @@ public final class NoderaHost {
     private static int assignResidentSeats(
             NoderaPeerService.HostContext host,
             List<EntityLaneBootstrap.PlannedRegion> plan,
-            Map<NodeId, dev.nodera.protocol.membership.PeerEntry> residents) {
+            Map<NodeId, dev.nodera.protocol.membership.PeerEntry> residents,
+            Map<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> bases) {
         if (residents.isEmpty()) {
             return 0;
         }
@@ -963,7 +964,11 @@ public final class NoderaHost {
                                             planned.region(), planned.lease().epoch(),
                                             dev.nodera.core.region.RegionReplicaRole.VALIDATOR,
                                             dev.nodera.core.state.SnapshotVersion.INITIAL,
-                                            planned.lease().expiresAtTick(), committee)));
+                                            planned.lease().expiresAtTick(), committee,
+                                            // Null for a region this node does not itself hold —
+                                            // it has no base to name, and a v1 assignment says
+                                            // exactly that rather than naming one it invented.
+                                            bases.get(planned.region()))));
                     sent++;
                     seatedPerResident.merge(entry.nodeId(), 1, Integer::sum);
                 } catch (RuntimeException unreachable) {
@@ -1054,6 +1059,85 @@ public final class NoderaHost {
                 views, NoderaConstants.QUORUM_MVP_SIZE, residents);
     }
 
+    /**
+     * The state a region's committee is seated on.
+     *
+     * <h2>The all-air base, and why it lasted so long</h2>
+     *
+     * <p>Every member used to derive this locally as sixty-four columns of air. That was not an
+     * oversight — it is the only base every member can produce identically with no transfer, which
+     * is what made the first {@code prevRoot} comparison line up. The price was that the validated
+     * lane's world was air plus whatever edits it had happened to witness since activation, never
+     * the world the players were standing in. A region seeded from it carried air, so the one thing
+     * the whole content plane exists to move was not in it.
+     *
+     * <p>The host is the one node with a {@link ServerLevel}, so it reads the real terrain. It runs
+     * on the server thread because {@link dev.nodera.mod.server.shadow.LiveSnapshotExtractor} reads live chunk sections, and this
+     * bootstrap runs on its own thread.
+     *
+     * <p>Answers {@code null} when the region is not fully resident, which means "name no base" —
+     * and every member then derives the same all-air one, exactly as before. That is not a silent
+     * downgrade: extraction reports non-resident chunks as air and counts them, and seating a
+     * committee on a half-read region would give every member a different base. Everyone agreeing
+     * on nothing beats disagreeing about something.
+     *
+     * @return the region's real state, or {@code null} when it cannot be read completely.
+     */
+    private static dev.nodera.core.state.RegionSnapshot baseFor(
+            MinecraftServer server, ServerLevel level, dev.nodera.core.region.RegionId region) {
+        try {
+            java.util.concurrent.CompletableFuture<dev.nodera.mod.server.shadow.LiveSnapshotExtractor.Extraction> extracted =
+                    new java.util.concurrent.CompletableFuture<>();
+            server.execute(() -> {
+                try {
+                    extracted.complete(dev.nodera.mod.server.shadow.LiveSnapshotExtractor.extract(
+                            level, region, dev.nodera.core.state.SnapshotVersion.INITIAL,
+                            level.getGameTime()));
+                } catch (RuntimeException failure) {
+                    extracted.completeExceptionally(failure);
+                }
+            });
+            dev.nodera.mod.server.shadow.LiveSnapshotExtractor.Extraction result =
+                    extracted.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (result.missingChunks() > 0) {
+                LOG.info("region {} is {} chunk(s) short of resident — no base named for it, so "
+                                + "every member derives the same one",
+                        region, result.missingChunks());
+                return null;
+            }
+            return result.snapshot();
+        } catch (Exception unavailable) {
+            LOG.warn("could not read {} to seat its committee ({}); no base named for it",
+                    region, unavailable.toString());
+            return null;
+        }
+    }
+
+    /**
+     * Publish a region's base so every member seated on it can fetch it, and record its root.
+     *
+     * <p>Order matters and is the whole point: an assignment names a base, and a member that cannot
+     * obtain the named base must refuse the seat. Naming one that was never published would make
+     * every resident refuse, which is a correct response to an incorrect instruction.
+     */
+    private static void publishBase(dev.nodera.core.region.RegionId region,
+                                    dev.nodera.core.state.RegionSnapshot base,
+                                    Map<dev.nodera.core.region.RegionId,
+                                            dev.nodera.core.Bytes> bases) {
+        dev.nodera.core.state.RegionChunkIndex index =
+                dev.nodera.distribution.RegionSnapshotSplitter.split(base).chunkIndex();
+        bases.put(region, index.root());
+        BASE_SEEDS.offer(base);
+    }
+
+    /**
+     * Pushes each region's activation base to the worker, so a member seated on it can fetch it.
+     *
+     * <p>Its own spool rather than the lane's: the lane's exists to publish COMMITTED state and
+     * throttles per region on that basis, and a base has to be out before the seats go out.
+     */
+    private static final RegionSeedSpool BASE_SEEDS = RegionSeedSpool.companion();
+
     public static boolean activateEntityLaneFromWorld(MinecraftServer server) {
         NoderaPeerService.HostContext host = NoderaPeerService.get().hostContext();
         if (host == null || server.getPlayerList().getPlayers().isEmpty()) {
@@ -1142,6 +1226,10 @@ public final class NoderaHost {
                 }
                 dev.nodera.endpoint.lane.ObserverOwnership.publish(planSeats);
                 List<LiveEntityLaneSession.RegionBinding> bindings = new ArrayList<>();
+                // The base each committee is seated on, by region — read from the live world here,
+                // seeded so the other members can fetch it, and named in their assignments below.
+                Map<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> bases =
+                        new java.util.LinkedHashMap<>();
                 for (EntityLaneBootstrap.PlannedRegion planned : plan) {
                     // Activate every region this node participates in: primary regions drive
                     // proposals, validator regions re-execute + vote (the committee model — the
@@ -1149,9 +1237,25 @@ public final class NoderaHost {
                     // `lease.contains` is "primary or validator" — the same predicate, and the
                     // client lane spells it the same way, which is the point: the two sides of the
                     // shared computation should not read differently.
+                    // A base is read for EVERY planned region, not only this node's seats: the host
+                    // is the only member with a ServerLevel, so it is the only one that can read the
+                    // real terrain. A region it cannot read completely gets no base, every member
+                    // falls back to deriving the same all-air one, and the old invariant holds
+                    // exactly — everyone agreeing on nothing beats disagreeing about something.
+                    dev.nodera.core.state.RegionSnapshot base =
+                            baseFor(server, level, planned.region());
+                    if (base != null) {
+                        // Seeded BEFORE anyone is seated on it. A member told to activate on a base
+                        // it cannot fetch has to refuse the seat, and the only reason it could not
+                        // fetch this one would be that the node naming it never published it.
+                        publishBase(planned.region(), base, bases);
+                    }
                     if (planned.lease().contains(local)) {
                         bindings.add(new LiveEntityLaneSession.RegionBinding(
-                                level, EntityLaneBootstrap.initialSnapshot(planned.region()),
+                                level,
+                                base == null
+                                        ? EntityLaneBootstrap.initialSnapshot(planned.region())
+                                        : base,
                                 planned.lease()));
                     }
                 }
@@ -1183,7 +1287,7 @@ public final class NoderaHost {
                 // Hand every resident its committee seats BEFORE the local lane opens: the seat is
                 // what makes an always-on peer re-execute the world, and a validator that has not
                 // activated the region drops the primary's very first proposal on the floor.
-                int seats = assignResidentSeats(host, plan, residents);
+                int seats = assignResidentSeats(host, plan, residents, bases);
                 List<LiveEntityLaneSession.CommitteePeer> peers = new ArrayList<>();
                 for (PlayerNodeRegistry.PlayerNode node : memberNodes.values()) {
                     peers.add(new LiveEntityLaneSession.CommitteePeer(
@@ -1262,6 +1366,15 @@ public final class NoderaHost {
                                     entry.publicKey().toArray()),
                             entry.route()));
                 }
+                List<LanePlan.RegionBase> planBases = new ArrayList<>();
+                for (Map.Entry<dev.nodera.core.region.RegionId, dev.nodera.core.Bytes> base
+                        : bases.entrySet()) {
+                    planBases.add(new LanePlan.RegionBase(
+                            base.getKey().dimension().namespace(),
+                            base.getKey().dimension().path(),
+                            base.getKey().regionX(), base.getKey().regionZ(),
+                            base.getValue().toHex()));
+                }
                 NoderaLanePlanPayload payload = new NoderaLanePlanPayload(new LanePlan(
                         manifest.worldSeed(), manifest.rulesVersion(),
                         manifest.registryFingerprint(),
@@ -1269,7 +1382,12 @@ public final class NoderaHost {
                                 manifest.genesisRoot().hash().toArray()),
                         java.util.Base64.getEncoder().encodeToString(
                                 host.identity().publicKeyBytes().toArray()),
-                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs));
+                        gameTime, NoderaConstants.QUORUM_MVP_SIZE, members, residentInputs,
+                        // The bases every member seats on. A plan input like the resident pool: a
+                        // member that derived leases without it would activate on different state
+                        // from everyone else, which is the same class of bug as deriving a
+                        // different committee.
+                        planBases));
                 server.execute(() -> {
                     for (ServerPlayer p : server.getPlayerList().getPlayers()) {
                         net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(p, payload);

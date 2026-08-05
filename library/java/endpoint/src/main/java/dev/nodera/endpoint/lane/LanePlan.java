@@ -47,7 +47,61 @@ public record LanePlan(
         long gameTime,
         int committeeSize,
         List<Member> members,
-        List<Resident> residents) {
+        List<Resident> residents,
+        List<RegionBase> bases) {
+
+    /** Backwards-compatible shape for a plan that names no bases. */
+    public LanePlan(long worldSeed, int rulesVersion, long registryFingerprint,
+                    String genesisRootB64, String actionSignerKeyB64, long gameTime,
+                    int committeeSize, List<Member> members, List<Resident> residents) {
+        this(worldSeed, rulesVersion, registryFingerprint, genesisRootB64, actionSignerKeyB64,
+                gameTime, committeeSize, members, residents, List.of());
+    }
+
+    /**
+     * The state a region's committee is being seated on.
+     *
+     * <h2>Why the plan has to say</h2>
+     *
+     * <p>Every member used to derive its own starting state, and derived it as an all-air region.
+     * That worked only because everyone derived the same nothing, so their first {@code prevRoot}
+     * comparison lined up without a transfer — and it meant the validated lane held a world made of
+     * the edits it had happened to witness, never the world the players were standing in.
+     *
+     * <p>Naming the base is what lets a member activate on the real world. It is a plan input like
+     * the resident pool: a member that computed leases from a plan without it would seat itself on
+     * different state from everyone else, which is the same class of bug as deriving a different
+     * committee.
+     *
+     * @param dimNamespace  the region's dimension namespace.
+     * @param dimPath       the region's dimension path.
+     * @param regionX       region X.
+     * @param regionZ       region Z.
+     * @param indexRootHex  the chunk-index root of the state to activate on.
+     */
+    public record RegionBase(String dimNamespace, String dimPath, int regionX, int regionZ,
+                             String indexRootHex) {
+    }
+
+    /**
+     * The base named for a region, or {@code null} when the plan names none.
+     *
+     * @param dimNamespace the region's dimension namespace.
+     * @param dimPath      the region's dimension path.
+     * @param regionX      region X.
+     * @param regionZ      region Z.
+     * @return the chunk-index root as hex, or {@code null}.
+     */
+    public String baseFor(String dimNamespace, String dimPath, int regionX, int regionZ) {
+        for (RegionBase base : bases) {
+            if (base.regionX() == regionX && base.regionZ() == regionZ
+                    && base.dimNamespace().equals(dimNamespace)
+                    && base.dimPath().equals(dimPath)) {
+                return base.indexRootHex();
+            }
+        }
+        return null;
+    }
 
     /**
      * One participating player node.

@@ -282,6 +282,27 @@ public final class PeerNode implements AutoCloseable {
         // members already known.
         sessionListener.bind(validation);
         sessionListener.onSessionChanged(runtime.sessionView());
+        // A seat names the state it is being taken on, and this is how the worker obtains it. Before
+        // this, every member derived an all-air base — the only state everyone could produce without
+        // a transfer — so the validated lane held air plus whatever edits it had witnessed, never
+        // the world the players were standing in. Returning null refuses the seat, which is the
+        // right answer: validating a world this node does not hold is worse than not validating.
+        validation.regionBaseSource((region, indexRoot) -> {
+            // A region names a dimension, not a world, so the world is whichever one this worker
+            // holds that knows about this region. In practice a worker is seated for one session at
+            // a time; iterating is what keeps that an observation rather than an assumption.
+            for (var world : hosting.hostedWorlds()) {
+                try {
+                    return archive.fetchRegion(world.worldIdHex(), region, indexRoot,
+                            java.time.Duration.ofSeconds(30));
+                } catch (RuntimeException unavailable) {
+                    LOG.debug("world {} could not supply the base for {}: {}",
+                            world.worldIdHex(), region, unavailable.toString());
+                }
+            }
+            LOG.warn("no hosted world could supply the base for {}", region);
+            return null;
+        });
 
         // Every region this worker commits is seeded into the content plane (L-41). The archive
         // lane keeps the hosted world's save alive after the driving game closes; this keeps the

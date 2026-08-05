@@ -134,8 +134,24 @@ public final class ClientValidationLane {
             // `lease.contains` is "primary or validator", which is exactly this test — and unlike
             // spelling it out, it keeps the membership scan out of the per-region loop's bytecode.
             if (planned.lease().contains(identity.nodeId())) {
-                lane.activateRegion(
-                        EntityLaneBootstrap.initialSnapshot(planned.region()), planned.lease());
+                // The base the host named, fetched through this player's own worker. Deriving it
+                // locally — the all-air base every member used to produce — is only consistent while
+                // EVERY member does it, and the host now activates on the real world. A client that
+                // derived air would disagree with the very first proposal and call it divergence.
+                String named = plan.baseFor(
+                        planned.region().dimension().namespace(),
+                        planned.region().dimension().path(),
+                        planned.region().regionX(), planned.region().regionZ());
+                dev.nodera.core.state.RegionSnapshot base = named == null
+                        ? EntityLaneBootstrap.initialSnapshot(planned.region())
+                        : fetchBase(planned.region(), named);
+                if (base == null) {
+                    LOG.warn("Nodera: not validating {} — the base the host named could not be "
+                            + "fetched, and validating a world this client does not hold is worse "
+                            + "than not validating", planned.region());
+                    continue;
+                }
+                lane.activateRegion(base, planned.lease());
                 mine++;
             }
         }
@@ -239,6 +255,39 @@ public final class ClientValidationLane {
                 regionSeedSpool = null;
             }
             activeRegions = 0;
+        }
+    }
+
+    /**
+     * Fetch the state the host named for a region, through this player's own worker.
+     *
+     * <p>Blocking, and on the lane-apply path deliberately: a client that starts validating before
+     * it holds the region is a client that disagrees with every proposal it sees. The transfer is a
+     * few columns for a region this node mostly holds already — the piece plane reuses anything
+     * whose hash it has under any other root — and the alternative is a validator voting confidently
+     * against reality.
+     *
+     * @return the state, or {@code null} when it could not be obtained.
+     */
+    private static dev.nodera.core.state.RegionSnapshot fetchBase(
+            dev.nodera.core.region.RegionId region, String indexRootHex) {
+        java.util.concurrent.CompletableFuture<dev.nodera.core.state.RegionSnapshot> arrived =
+                new java.util.concurrent.CompletableFuture<>();
+        dev.nodera.mod.common.RegionFetchSpool spool =
+                dev.nodera.mod.common.RegionFetchSpool.companion();
+        try {
+            if (!spool.request(region, indexRootHex, arrived::complete)) {
+                return null;
+            }
+            return arrived.get(45, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception unavailable) {
+            LOG.debug("could not fetch the base for {}: {}", region, unavailable.toString());
+            return null;
+        } finally {
+            spool.close();
         }
     }
 }

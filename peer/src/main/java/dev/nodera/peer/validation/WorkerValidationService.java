@@ -1854,7 +1854,85 @@ public final class WorkerValidationService {
             replicas.put(assigned.region(), adopt(existing, lease));
             return;
         }
-        activateRegion(EntityLaneBootstrap.initialSnapshot(assigned.region()), lease);
+        RegionSnapshot base = baseFor(assigned);
+        if (base == null) {
+            // Refused, not failed. Throwing would reach the peer state thread; taking the seat on
+            // a world nobody else has would be worse than either.
+            refusedSeats.incrementAndGet();
+            LOG.warn("refusing the seat on {}: its base {} could not be obtained, and validating "
+                            + "a world this node does not hold is worse than not validating",
+                    assigned.region(), assigned.baseIndexRoot().toShortHex(6));
+            return;
+        }
+        activateRegion(base, lease);
+    }
+
+    /** @return seats declined because the base the assigner named could not be obtained. */
+    public long refusedSeats() {
+        return refusedSeats.get();
+    }
+
+    private final AtomicLong refusedSeats = new AtomicLong();
+
+    /**
+     * The state to take a seat on.
+     *
+     * <h2>Adopt what was named, or derive the shared nothing</h2>
+     *
+     * <p>A v2 assignment names its base, so this node fetches that content and activates on the
+     * world the rest of the committee is actually in. A v1 assignment names nothing — an older
+     * assigner seating a committee the old way — and the derived all-air base is exactly right
+     * there: it is the only state every member produces identically with no transfer, which is what
+     * made the first {@code prevRoot} comparison line up.
+     *
+     * <p>When a base IS named and cannot be obtained, this throws rather than falling back. Falling
+     * back would put this member on a different world from everyone else, where it disagrees with
+     * every proposal it ever sees and calls that divergence — a seat refused is a committee one
+     * member short, which the quorum handles; a seat taken on the wrong world is a validator voting
+     * confidently against reality.
+     *
+     * @return the state to activate on, or {@code null} when a named base could not be obtained.
+     */
+    private RegionSnapshot baseFor(dev.nodera.protocol.assignment.RegionAssigned assigned) {
+        if (!assigned.namesBase()) {
+            return EntityLaneBootstrap.initialSnapshot(assigned.region());
+        }
+        RegionBaseSource source = regionBases;
+        if (source == null) {
+            return null;
+        }
+        try {
+            return source.baseFor(assigned.region(), assigned.baseIndexRoot());
+        } catch (RuntimeException unavailable) {
+            LOG.debug("could not obtain the base for {}: {}",
+                    assigned.region(), unavailable.toString());
+            return null;
+        }
+    }
+
+    /** Supplies the content an assignment names, so a seat is taken on the right world. */
+    @FunctionalInterface
+    public interface RegionBaseSource {
+        /**
+         * @param region    the region being assigned.
+         * @param indexRoot the chunk-index root the assigner named.
+         * @return the state, or {@code null} when it cannot be obtained.
+         */
+        RegionSnapshot baseFor(RegionId region, dev.nodera.core.Bytes indexRoot);
+    }
+
+    private volatile RegionBaseSource regionBases;
+
+    /**
+     * Install the source that fetches the base an assignment names.
+     *
+     * <p>Without one, every v2 assignment is refused — which is the safe default for a node that
+     * has no way to obtain the world it is being asked to validate.
+     *
+     * @param source the source, or {@code null} to refuse every named base.
+     */
+    public void regionBaseSource(RegionBaseSource source) {
+        this.regionBases = source;
     }
 
     /**

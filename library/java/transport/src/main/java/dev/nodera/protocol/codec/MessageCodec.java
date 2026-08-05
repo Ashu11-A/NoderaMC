@@ -407,6 +407,12 @@ public final class MessageCodec {
                 throw new IllegalStateException(
                         "unsupported ExternalDelta encoding version " + version);
             }
+        } else if (tag == TAG_REGION_ASSIGNED) {
+            if (version < ENCODING_VERSION
+                    || version > RegionAssigned.V2_BASE_INDEX) {
+                throw new IllegalStateException(
+                        "unsupported RegionAssigned encoding version " + version);
+            }
         } else if (version != ENCODING_VERSION) {
             throw new IllegalStateException("unsupported message encoding version " + version);
         }
@@ -461,13 +467,19 @@ public final class MessageCodec {
                 w.writeU32(Integer.toUnsignedLong(m.maxReplica()));
                 w.writeU64(m.heartbeatTicks());
         } else if (msg instanceof RegionAssigned m) {
-                w.writeU16(TAG_REGION_ASSIGNED).writeU16(ENCODING_VERSION);
+                // Per-message body version, retrofitted: this kind hardcoded the global one, so
+                // there was no way to append a field. The decoded version is carried on the record
+                // and written back here, which is what keeps a re-encode byte-identical.
+                w.writeU16(TAG_REGION_ASSIGNED).writeU16(m.bodyVersion());
                 m.region().encode(w);
                 m.epoch().encode(w);
                 m.role().encode(w);
                 m.snapshotVersion().encode(w);
                 w.writeU64(m.leaseExpiryTick());
                 w.writeList(m.committee(), CanonicalWriter::writeEncodable);
+                if (m.bodyVersion() >= RegionAssigned.V2_BASE_INDEX) {
+                    w.writeBytes(m.baseIndexRoot());
+                }
         } else if (msg instanceof RegionRevoked m) {
                 w.writeU16(TAG_REGION_REVOKED).writeU16(ENCODING_VERSION);
                 m.region().encode(w);
@@ -1052,8 +1064,11 @@ public final class MessageCodec {
                 long leaseExpiryTick = r.readU64();
                 java.util.List<dev.nodera.core.identity.NodeId> committee =
                         r.readList(dev.nodera.core.identity.NodeId::decode);
+                dev.nodera.core.Bytes baseIndexRoot =
+                        encodingVersion >= RegionAssigned.V2_BASE_INDEX
+                                ? r.readBytesValue() : null;
                 yield new RegionAssigned(region, epoch, role, snapshotVersion,
-                        leaseExpiryTick, committee);
+                        leaseExpiryTick, committee, baseIndexRoot, encodingVersion);
             }
             case TAG_REGION_REVOKED -> {
                 dev.nodera.core.region.RegionId region = dev.nodera.core.region.RegionId.decode(r);
