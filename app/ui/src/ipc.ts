@@ -380,12 +380,39 @@ export async function fetchConfigStatus(): Promise<ConfigStatus> {
   return invoke<ConfigStatus>("get_config_status");
 }
 
-/** Who owns the worker process — decides whether to offer a Restart button at all. */
+/**
+ * Who owns the worker process, and whether anything is waiting on a restart.
+ *
+ * Everything needed to draw the Restart affordance, answered by the one side that can. Do not
+ * re-derive {@link WorkerOwnership.unavailable_reason} from `attached` here: the backend's sentence
+ * is the one the command itself would give, and a second copy is a second thing to keep in step.
+ */
 export interface WorkerOwnership {
   /** The worker was started outside this app (attach mode, e.g. scripts/dev.sh). */
   attached: boolean;
   /** Only true when this app spawned the worker and may therefore stop it. */
   can_restart: boolean;
+  /**
+   * When `can_restart` is false, what the user should do instead — render it verbatim. Empty when a
+   * restart is available. Never hide the control without showing this: a control that vanishes with
+   * no explanation reads exactly like a control that does nothing.
+   */
+  unavailable_reason: string;
+  /**
+   * Dotted settings keys the **running** worker is out of date on. Empty means nothing is waiting.
+   *
+   * Not to be confused with {@link ConfigStatus.restart_required}, which is the worker naming every
+   * bind-time key it was pushed, whether or not the value moved — a description of *scope*, true
+   * from first launch to uninstall. This one is a description of *difference*, computed by the app
+   * against the environment it actually spawned the running worker with.
+   */
+  pending_restart_keys: string[];
+  /**
+   * False when the app cannot know what the running worker was started with — attach mode, or the
+   * in-process worker on Android. `pending_restart_keys` is then not evidence of anything, and an
+   * empty list must NOT be rendered as "nothing pending" (A-UX-1).
+   */
+  pending_known: boolean;
 }
 
 export async function fetchWorkerOwnership(): Promise<WorkerOwnership> {
@@ -393,10 +420,15 @@ export async function fetchWorkerOwnership(): Promise<WorkerOwnership> {
 }
 
 /**
- * Restart the worker so env-shaped settings (trackers, port range, archive directory) apply.
+ * Restart the worker so env-shaped settings (port range, rendezvous relays) apply.
  *
  * Rejects with a message when the worker was started outside the app — the app must not kill a
- * process it did not start. Gate the button on {@link WorkerOwnership.can_restart}.
+ * process it did not start; show {@link WorkerOwnership.unavailable_reason} rather than gating the
+ * control into invisibility.
+ *
+ * Rarely the only way those settings apply: the app watches for a bind-time change of its own and
+ * restarts the worker a couple of seconds after the edit settles. This is the manual path, for a
+ * worker that is wedged, or one whose settings have not changed at all.
  */
 export async function restartWorker(): Promise<void> {
   return invoke<void>("restart_worker");

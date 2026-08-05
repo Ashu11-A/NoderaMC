@@ -289,11 +289,15 @@ export function SettingsScreen(props: {
   const refreshStatus = useCallback(() => {
     fetchSettingStatus().then(setStatuses).catch(() => {});
     fetchConfigStatus().then(setConfig).catch(() => {});
+    // Polled with the rest, not read once on arrival. It carries `pending_restart_keys` now, which
+    // changes as the user edits and empties itself when the worker comes back on the new value —
+    // read once, the banner would appear and then stay for the life of the screen, which is the
+    // shape of the bug this whole change is about.
+    fetchWorkerOwnership().then(setOwnership).catch(() => {});
   }, []);
 
   useEffect(() => {
     refreshStatus();
-    fetchWorkerOwnership().then(setOwnership).catch(() => {});
     fetchSettingsFault().then(setFault).catch(() => {});
     const timer = window.setInterval(refreshStatus, 3000);
     return () => window.clearInterval(timer);
@@ -328,7 +332,26 @@ export function SettingsScreen(props: {
       .catch((e) => setError(String(e)));
   };
 
-  const restartNeeded = config.restart_required.length > 0;
+  // What the RUNNING worker is out of date on — not `config.restart_required`, which is what this
+  // banner used to read and is the reason it was permanently true. The worker answers
+  // `restart_required` for a bind-time key whenever it is pushed one, because the reply describes
+  // the key's scope; the app pushes `network.port_range` and `network.rendezvous_endpoints` on every
+  // save, so the list was never empty, the banner never went away, and restarting could not clear
+  // it. `pending_restart_keys` is the difference between what the worker was started with and what
+  // the settings say now, which is the question the banner was always asking.
+  //
+  // `pending_known` gates it, and an unknown is not a zero: where the app did not spawn the worker
+  // it cannot compare anything, so it shows nothing here and says so in the Peer worker card
+  // instead (A-UX-1).
+  const pendingKeys = ownership?.pending_known ? ownership.pending_restart_keys : [];
+  const restartNeeded = pendingKeys.length > 0;
+
+  const restartNow = () => {
+    setRestarting(true);
+    restartWorker()
+      .catch((e) => setError(String(e)))
+      .finally(() => window.setTimeout(() => setRestarting(false), 1500));
+  };
 
   return (
     <div className="flex min-h-full flex-col">
@@ -445,38 +468,26 @@ export function SettingsScreen(props: {
           </div>
         )}
 
+        {/* Transient by construction now. It appears when a bind-time setting has actually moved,
+            names the settings it is about, and goes away a second or two later when the app has
+            restarted the worker for it — the user is told what is happening, not given a chore.
+            The button is here as well because a settle window is a wait, and a wait the user can
+            skip is better than one they cannot. It needs no `can_restart` gate: the backend only
+            answers `pending_known` where it spawned the worker itself, which is exactly where it
+            may stop it — the two come from the same question. */}
         {restartNeeded && (
           <div className="flex flex-wrap items-center gap-3 rounded-sm border border-down/40 bg-down/12 px-3.5 py-2.5 text-sm text-down">
             <FiRefreshCw aria-hidden />
             <span className="flex-1">
-              Some changes apply when the peer worker restarts.
+              Restarting the peer worker to apply {pendingKeys.join(", ")}.
             </span>
-            {ownership?.can_restart ? (
-              <button
-                className="rounded-sm border border-down/50 px-2.5 py-1 text-xs hover:bg-down/12 disabled:opacity-50"
-                disabled={restarting}
-                onClick={() => {
-                  setRestarting(true);
-                  restartWorker()
-                    .catch((e) => setError(String(e)))
-                    .finally(() => window.setTimeout(() => setRestarting(false), 1500));
-                }}
-              >
-                {restarting ? "Restarting…" : "Restart worker"}
-              </button>
-            ) : (
-              // Two reasons the button is absent, and they need different sentences:
-              //   * attached — the worker belongs to whoever started it (scripts/dev.sh, an
-              //     operator), and offering to kill someone else's process would be wrong;
-              //   * mobile — the worker is a thread in this app, so it cannot be cycled without
-              //     the app. Telling a phone user to "restart it where you started it" told them
-              //     nothing (M-NET-3).
-              <span className="text-xs opacity-80">
-                {ownership?.attached
-                  ? "Restart it where you started it."
-                  : "Close and reopen the app to apply these."}
-              </span>
-            )}
+            <button
+              className="rounded-sm border border-down/50 px-2.5 py-1 text-xs hover:bg-down/12 disabled:opacity-50"
+              disabled={restarting}
+              onClick={restartNow}
+            >
+              {restarting ? "Restarting…" : "Restart now"}
+            </button>
           </div>
         )}
 
@@ -730,6 +741,13 @@ export function SettingsScreen(props: {
                 onChange={(v) => update((d) => (d.network.max_download_bytes_per_sec = v))}
               />
             </Card>
+
+            <WorkerCard
+              ownership={ownership}
+              pending={pendingKeys}
+              restarting={restarting}
+              onRestart={restartNow}
+            />
           </div>
         )}
 
@@ -846,6 +864,74 @@ function SpeedSlider(props: {
       hint={props.value === 0 ? "Unlimited" : `${formatBytes(props.value)}/s`}
       onChange={(i) => props.onChange(SPEEDS[i])}
     />
+  );
+}
+
+/**
+ * The peer worker itself: what it is currently out of date on, and a way to cycle it.
+ *
+ * ## Why a card, and not only a banner
+ *
+ * The Restart control used to exist solely inside the "some changes apply when the peer worker
+ * restarts" banner, so it was reachable only while the app believed something was pending — and,
+ * separately, the banner's condition was permanently true, which is the only reason anyone ever saw
+ * the button at all. Fixing the condition would have taken the control away with it. A player whose
+ * node has gone quiet wants to restart it whether or not a *setting* changed, so it lives here,
+ * always, as a plain piece of the Network section.
+ *
+ * ## Three states, and none of them is silence
+ *
+ * * **A restart is available.** The button, plus what is waiting on it if anything is.
+ * * **It is not.** The backend's own sentence, verbatim — an attached worker belongs to whoever
+ *   started it, and on Android it is a thread inside this app. The old code hid the button and
+ *   re-derived a sentence here from `attached`, which is a second copy of a decision the backend
+ *   already makes (M-NET-3).
+ * * **The app cannot tell what the worker is running.** Said out loud rather than drawn as an empty
+ *   pending list: `pending_known: false` means the worker's environment was built by somebody else,
+ *   and rendering that as "everything is applied" is the unknown-as-zero this codebase has
+ *   `StaleDataNotice` to avoid elsewhere (A-UX-1).
+ */
+function WorkerCard(props: {
+  ownership: WorkerOwnership | null;
+  pending: string[];
+  restarting: boolean;
+  onRestart: () => void;
+}) {
+  const own = props.ownership;
+  return (
+    <Card
+      title="Peer worker"
+      hint="The node that keeps your worlds on the network with Minecraft closed. Restarting it drops its connections for a moment; nothing is lost."
+    >
+      {!own ? (
+        // Never "nothing pending": the command has not answered yet, and the honest word for that
+        // is neither yes nor no.
+        <p className="py-1 text-xs text-faint">Asking the worker who owns it…</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3 py-1">
+            <p className="min-w-0 flex-1 text-xs text-faint">
+              {!own.pending_known
+                ? "This app did not start the worker, so it cannot tell which settings it is running."
+                : props.pending.length > 0
+                  ? `Waiting on a restart: ${props.pending.join(", ")}.`
+                  : "Running the settings on this screen."}
+            </p>
+            {own.can_restart && (
+              <Button onClick={props.onRestart} disabled={props.restarting}>
+                <FiRefreshCw aria-hidden />
+                {props.restarting ? "Restarting…" : "Restart peer worker"}
+              </Button>
+            )}
+          </div>
+          {/* The backend's sentence, not one assembled here. It is the same string the command
+              itself would refuse with, so the screen cannot promise what the verb declines. */}
+          {!own.can_restart && own.unavailable_reason && (
+            <p className="py-1 text-xs text-warn">{own.unavailable_reason}</p>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 

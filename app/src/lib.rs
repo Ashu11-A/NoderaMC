@@ -951,6 +951,7 @@ pub fn run() {
                 let logs_daemon = Arc::clone(&worker_logs);
                 let settings_daemon = Arc::clone(&user_settings);
                 let restart_daemon = Arc::clone(&core.restart);
+                let launched_daemon = Arc::clone(&core.launched);
                 // Where THIS bundle keeps its resources. Resolved here because `setup` is the only
                 // place holding an `AppHandle`, and passed in rather than looked up inside the
                 // supervisor so the path logic stays testable without a running Tauri app.
@@ -964,7 +965,28 @@ pub fn run() {
                         logs_daemon,
                         settings_daemon,
                         restart_daemon,
+                        launched_daemon,
                         resources,
+                    )
+                    .await;
+                });
+
+                // ...and cycle it by itself when a setting the worker can only read at startup has
+                // actually changed. Without this the two bind-time settings — which port to bind and
+                // which relays to seed from — were saved into a file the running worker had already
+                // finished reading, and applying them was a banner the user had to notice and act
+                // on. Beside the supervisor because it drives the supervisor: it sends the same
+                // restart signal the button does, so there is still exactly one spawn path.
+                let launched_settle = Arc::clone(&core.launched);
+                let settings_settle = Arc::clone(&user_settings);
+                let restart_settle = Arc::clone(&core.restart);
+                let logs_settle = Arc::clone(&worker_logs);
+                tauri::async_runtime::spawn(async move {
+                    daemon::apply_bind_time_changes(
+                        launched_settle,
+                        settings_settle,
+                        restart_settle,
+                        logs_settle,
                     )
                     .await;
                 });

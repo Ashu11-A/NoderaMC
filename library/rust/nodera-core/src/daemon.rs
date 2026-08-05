@@ -34,31 +34,55 @@ pub fn attach_mode() -> bool {
         .unwrap_or(false)
 }
 
-/// Who owns the worker process — what the UI needs to decide whether to offer a Restart button.
+/// Who owns the worker process, and whether anything is actually waiting on a restart — everything
+/// the UI needs to draw the Restart affordance.
 ///
 /// Exposed as its own shape rather than a bare boolean because "attached" and "may I restart it"
 /// are different questions that happen to share an answer today; a future headless-remote mode
 /// would separate them, and the UI would not have to change.
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct WorkerOwnership {
     /// `true` when the worker was started outside this app (`NODERA_APP_ATTACH=1`).
     pub attached: bool,
     /// `true` only when this app spawned the worker and may therefore stop it.
     pub can_restart: bool,
+    /// When `can_restart` is `false`, what the player should do instead — in words, from
+    /// [`restart_unavailable`]. Empty when a restart is available.
+    ///
+    /// Carried on the wire so the UI renders the backend's own sentence instead of re-deriving one
+    /// from `attached`. It had two branches of its own, which is two chances to disagree with the
+    /// command that actually refuses.
+    pub unavailable_reason: String,
+    /// Dotted settings keys whose saved value differs from the value the **running** worker was
+    /// started with. Empty means nothing is waiting on a restart.
+    pub pending_restart_keys: Vec<String>,
+    /// `false` when this app cannot know what the running worker was started with — attach mode,
+    /// where somebody else's environment built it. `pending_restart_keys` is then not evidence of
+    /// anything and the UI must say so rather than reading an empty list as "all applied".
+    pub pending_known: bool,
 }
 
-/// Report who owns the worker process.
+/// Report who owns the worker process, and what (if anything) is waiting on a restart.
+///
+/// `pending` is [`None`] when the answer is unknowable — see [`WorkerOwnership::pending_known`].
 ///
 /// **Never on mobile.** [`supervise`] — the only consumer of [`RestartSignal`] — is desktop-only,
 /// and on Android the worker is a thread in this very process rather than a child of it. A process
 /// that cannot outlive us cannot be cycled by us, so notifying the signal there wakes nobody and the
-/// button that sent it is a silent lie. Offering nothing is the honest answer, and the UI already
-/// gates the Restart button on this flag (M-NET-3).
-pub fn ownership() -> WorkerOwnership {
-    let attached = attach_mode();
+/// button that sent it is a silent lie. Saying so is the honest answer (M-NET-3) — and the UI now
+/// prints [`Self::unavailable_reason`] rather than hiding the control with no explanation.
+///
+/// `can_restart` is defined as "[`restart_unavailable`] has no objection" rather than as its own
+/// copy of the same condition: the two used to be written out separately, and a flag that says yes
+/// while the command says no is a button that fails when pressed.
+pub fn ownership(pending: Option<Vec<String>>) -> WorkerOwnership {
+    let unavailable = restart_unavailable();
     WorkerOwnership {
-        attached,
-        can_restart: !attached && crate::SUPERVISES_A_WORKER,
+        attached: attach_mode(),
+        can_restart: unavailable.is_none(),
+        unavailable_reason: unavailable.unwrap_or_default().to_owned(),
+        pending_known: pending.is_some(),
+        pending_restart_keys: pending.unwrap_or_default(),
     }
 }
 
@@ -89,6 +113,164 @@ pub fn restart_unavailable() -> Option<&'static str> {
 /// would silently resolve to whichever was registered last.
 #[derive(Default)]
 pub struct RestartSignal(pub Notify);
+
+/// The spawn-environment keys the worker reads exactly once, and the settings key each one is.
+///
+/// # Which settings cannot be applied to a running worker, and why
+///
+/// Exactly these two, and the reason is the same in both cases: the value is consumed while the
+/// worker is *building* something it then holds open for its whole life, and there is no code path
+/// that takes it apart again.
+///
+/// * **`network.port_range`** — `HeadlessPeerMain` binds the listening socket once at startup. A new
+///   port cannot be moved to without closing that socket, which drops every peer session on it and
+///   invalidates the address this node has already announced to trackers and rendezvous. A worker
+///   that did this to itself mid-run would look, from outside, exactly like a node that crashed.
+/// * **`network.rendezvous_endpoints`** — the relay set is turned into live registrations at
+///   startup; changing the list means deregistering from relays that are leaving and handshaking
+///   with ones that are arriving, and nothing on the worker side implements either half. Pushing a
+///   new list to a running worker changes a field nobody reads again.
+///
+/// So the honest way to apply them is to restart the process that read them — which is what
+/// [`apply_bind_time_changes`] does, automatically and within [`SETTLE_INTERVAL`], rather than
+/// leaving a banner for the user to act on. Everything else in [`worker_env`] either has a live
+/// `NODERA-CONFIG` path (the tracker list, the bandwidth caps, the archive directory) or is only a
+/// file path, and none of it belongs here.
+///
+/// Two env keys map onto one settings key because the listening port is one decision spread over
+/// three controls: `use_random_port`, `port_range_start` and `port_range_end` all end up as
+/// `NODERA_P2P_PORT` plus an optional `NODERA_P2P_PORT_RANGE`. `network.port_range` is the name the
+/// enforcement table already gives that decision, so it is the name the banner uses too.
+///
+/// Comparing the *env* rather than the settings is what makes this exact in both directions: with a
+/// random port asked for, the port range is not in the environment at all, so editing it changes
+/// nothing the worker read and nothing is reported pending — which is the truth.
+const BIND_TIME_ENV: [(&str, &str); 3] = [
+    ("NODERA_P2P_PORT", "network.port_range"),
+    ("NODERA_P2P_PORT_RANGE", "network.port_range"),
+    ("NODERA_RENDEZVOUS_ENDPOINTS", "network.rendezvous_endpoints"),
+];
+
+/// What the running worker was actually started with.
+///
+/// # The banner this exists to clear
+///
+/// The worker answers `restart_required` for a bind-time key **whenever it is pushed one**, because
+/// its reply describes the key's *scope*, not whether the value differs from the one it is running.
+/// The app sends `network.port_range` and `network.rendezvous_endpoints` in every single push — they
+/// are plain fields of [`crate::config::WorkerConfig`] — so the reply named them every time, and a
+/// banner reading "some changes apply when the peer worker restarts" was therefore **permanently
+/// true**. Restarting did not clear it; nothing could, because it was never about a change.
+///
+/// The app is the one process that can answer the real question: it spawned the worker, so it knows
+/// the environment that worker holds. Comparing that against the environment the settings *would*
+/// produce now is the difference between "this key is bind-time" and "you have changed it since".
+#[derive(Default)]
+pub struct LaunchedWorker {
+    /// The env of the live child, or `None` when no child of ours is running.
+    inner: std::sync::Mutex<Option<Vec<(String, String)>>>,
+}
+
+impl LaunchedWorker {
+    /// Remember what a freshly spawned worker was handed.
+    pub fn record(&self, env: &[(String, String)]) {
+        *self.inner.lock().unwrap() = Some(env.to_vec());
+    }
+
+    /// Forget it, because the child is gone. The next spawn reads the settings as they are then, so
+    /// a worker that is not running has nothing pending by construction.
+    pub fn forget(&self) {
+        *self.inner.lock().unwrap() = None;
+    }
+
+    /// Settings keys whose bind-time value has moved since the running worker was started.
+    ///
+    /// [`None`] means *unknowable*, not *none*, and it is the answer wherever the running worker is
+    /// not one this app spawned: in attach mode its environment was built by whoever started it, and
+    /// on Android it is a thread inside this very process that never went through [`supervise`].
+    /// Reporting an empty list there would claim everything is applied on exactly the installs where
+    /// the app knows least (A-UX-1) — the same condition [`restart_unavailable`] already names, so
+    /// it is asked once rather than re-derived here.
+    pub fn pending_restart_keys(&self, settings: &Settings) -> Option<Vec<String>> {
+        if restart_unavailable().is_some() {
+            return None;
+        }
+        // No child of ours: either it has not started yet or it just died, and both are about to be
+        // spawned from the settings as they are now.
+        let Some(running) = self.inner.lock().unwrap().clone() else {
+            return Some(Vec::new());
+        };
+        Some(bind_time_changes(&running, settings))
+    }
+}
+
+/// The bind-time keys on which `running` and `settings` disagree, in table order, without repeats.
+///
+/// An absent env key and an empty one are the same thing — [`worker_env`] omits a key rather than
+/// sending a blank, and `HeadlessPeerMain.env()` substitutes its default for either — so both sides
+/// are read through the same "missing means empty" lens. Otherwise turning a relay list from one
+/// entry to none would compare `Some("")` against `None` and report a change forever.
+fn bind_time_changes(running: &[(String, String)], settings: &Settings) -> Vec<String> {
+    let wanted = worker_env(settings);
+    let value = |env: &[(String, String)], key: &str| {
+        env.iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default()
+    };
+    let mut changed: Vec<String> = Vec::new();
+    for (env_key, settings_key) in BIND_TIME_ENV {
+        if value(running, env_key) != value(&wanted, env_key)
+            && !changed.iter().any(|held| held == settings_key)
+        {
+            changed.push(settings_key.to_owned());
+        }
+    }
+    changed
+}
+
+/// How long a bind-time change must hold still before the worker is cycled for it.
+///
+/// The user asked for these to apply immediately, and a banner they have to notice and act on is
+/// not immediate. But "on save" is not usable either: the relay list is a text field that saves per
+/// keystroke, so applying on save would restart the worker once per character typed. Requiring the
+/// same pending set twice in a row, one interval apart, is what makes a settled edit — rather than
+/// an edit in progress — the thing that triggers a restart.
+const SETTLE_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Cycle the worker when a bind-time setting has actually changed and stopped moving.
+///
+/// Runs forever beside [`supervise`], and does nothing at all on a build or a run where a restart is
+/// not this app's to perform. The comparison is against the environment the *running* worker holds,
+/// so the restart it triggers immediately makes the pending set empty — there is no second cycle,
+/// and a worker that is down is never restarted for a change the next spawn will pick up anyway.
+pub async fn apply_bind_time_changes(
+    launched: Arc<LaunchedWorker>,
+    settings: Arc<SettingsHandle>,
+    restart: Arc<RestartSignal>,
+    logs: Arc<LogBuffer>,
+) {
+    if restart_unavailable().is_some() {
+        return;
+    }
+    let mut previous: Vec<String> = Vec::new();
+    loop {
+        tokio::time::sleep(SETTLE_INTERVAL).await;
+        let pending = launched
+            .pending_restart_keys(&settings.snapshot())
+            .unwrap_or_default();
+        if !pending.is_empty() && pending == previous {
+            logs.push(format!(
+                "nodera-app: restarting the peer worker to apply {}",
+                pending.join(", ")
+            ));
+            restart.0.notify_one();
+            previous.clear();
+            continue;
+        }
+        previous = pending;
+    }
+}
 
 /// The environment a freshly spawned worker inherits from the user's settings.
 ///
@@ -283,11 +465,19 @@ fn worker_launcher(resource_dir: Option<&Path>) -> Result<PathBuf, Vec<PathBuf>>
 /// explicit restart kills the child and falls through to the same spawn, which recomputes
 /// [`worker_env`] from the settings as they are now. There is deliberately no second spawn site to
 /// keep in sync — a settings change plus a restart is how env-shaped configuration takes effect.
+///
+/// Both things that send that signal go through it: the Restart control in Settings, and
+/// [`apply_bind_time_changes`], which sends it on the user's behalf when a bind-time setting has
+/// actually moved. Run that task beside this one, or those settings only apply when something else
+/// happens to cycle the worker.
 pub async fn supervise(
     store: Arc<DashboardStore>,
     logs: Arc<LogBuffer>,
     settings: Arc<SettingsHandle>,
     restart: Arc<RestartSignal>,
+    // Records what each child was actually started with, so the app can tell a bind-time key from a
+    // bind-time key the user has *changed*. See `LaunchedWorker`.
+    launched: Arc<LaunchedWorker>,
     // Resolved by the caller, which is the only place with an `AppHandle`. `None` means "this build
     // has no bundle", not "look in the current directory" — see `launcher_candidates`.
     resource_dir: Option<PathBuf>,
@@ -328,7 +518,7 @@ pub async fn supervise(
     loop {
         let env = worker_env(&settings.snapshot());
         let spawn = Command::new(&launcher)
-            .envs(env)
+            .envs(env.clone())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
@@ -336,7 +526,12 @@ pub async fn supervise(
         match spawn {
             Ok(mut child) => {
                 backoff = Duration::from_secs(1); // healthy start resets backoff
-                                                  // Stream the worker's output into the dashboard's log ring.
+                                                  // What this child holds, so a later settings edit
+                                                  // can be compared against it rather than guessed
+                                                  // at. Recorded here — beside the one spawn — so
+                                                  // there is no second place to keep in step.
+                launched.record(&env);
+                // Stream the worker's output into the dashboard's log ring.
                 if let Some(out) = child.stdout.take() {
                     let sink = Arc::clone(&logs);
                     tokio::spawn(async move {
@@ -389,6 +584,11 @@ pub async fn supervise(
                 eprintln!("nodera-app: failed to start peer worker ({launcher:?}): {e}");
             }
         }
+        // Both arms above leave no child: it exited, or we killed it. Whatever it was launched with
+        // is now history, and the respawn at the top of this loop reads the settings as they are
+        // then — so a worker that is down has nothing pending, by construction rather than by a
+        // comparison that could go stale.
+        launched.forget();
         // The link reports its own state, but it can take a moment to notice; saying it here means
         // the screen reflects a worker we KNOW is gone the instant we stop it.
         store.mark_offline("the peer worker is not running");
@@ -680,11 +880,168 @@ mod tests {
     fn ownership_refuses_restart_exactly_when_the_worker_is_someone_elses() {
         // `attach_mode` reads the process environment, so assert the invariant rather than mutate
         // it: a test that sets NODERA_APP_ATTACH would race every other test in the binary.
-        let owned = ownership();
+        let owned = ownership(Some(Vec::new()));
         assert_eq!(
             owned.can_restart,
             !owned.attached && crate::SUPERVISES_A_WORKER
         );
+    }
+
+    /// A refusal has to arrive with its sentence. The UI used to keep its own copy of both branches
+    /// and pick between them on `attached`, which is one more place for the reason the app *shows*
+    /// to drift from the reason the command actually gives.
+    #[test]
+    fn a_worker_that_cannot_be_restarted_says_why_on_the_wire() {
+        let owned = ownership(None);
+        assert_eq!(owned.can_restart, restart_unavailable().is_none());
+        assert_eq!(owned.unavailable_reason.is_empty(), owned.can_restart);
+    }
+
+    /// A-UX-1: an unknown may not be rendered as a zero. `pending_known: false` is the whole reason
+    /// the list is optional — an empty `pending_restart_keys` beside it would read as "everything
+    /// you have changed is already applied", which is exactly what the app cannot tell in attach
+    /// mode or on a phone.
+    #[test]
+    fn an_unknowable_pending_set_is_reported_as_unknown_not_as_empty() {
+        let unknown = ownership(None);
+        assert!(!unknown.pending_known);
+        assert!(unknown.pending_restart_keys.is_empty());
+
+        let known = ownership(Some(vec!["network.port_range".to_owned()]));
+        assert!(known.pending_known);
+        assert_eq!(known.pending_restart_keys, vec!["network.port_range"]);
+    }
+
+    /* ------------------------------------------------- the banner that was permanently true */
+
+    /// The shipped bug. The worker answers `restart_required` for a bind-time key *whenever it is
+    /// pushed one* — the reply describes the key's scope, not whether the value moved — and the app
+    /// pushes `network.port_range` and `network.rendezvous_endpoints` on every single save. So the
+    /// banner was true from first launch to uninstall, and restarting could not clear it.
+    ///
+    /// The real question is this one: does the worker that is *running* hold what the settings now
+    /// say? Same settings, same env, nothing pending.
+    #[test]
+    fn a_worker_running_the_current_settings_has_nothing_pending() {
+        let settings = without_stores();
+        let launched = LaunchedWorker::default();
+        launched.record(&worker_env(&settings));
+
+        assert!(bind_time_changes(&worker_env(&settings), &settings).is_empty());
+        assert_eq!(launched.pending_restart_keys(&settings), Some(Vec::new()));
+    }
+
+    #[test]
+    fn moving_the_port_or_the_relay_list_is_what_makes_something_pending() {
+        let mut before = without_stores();
+        before.network.use_random_port = false;
+        let running = worker_env(&before);
+
+        let mut after = before.clone();
+        after.network.port_range_start = 40000;
+        assert_eq!(bind_time_changes(&running, &after), vec!["network.port_range"]);
+
+        // Asking for a random port is the same decision by another control, and reports under the
+        // same name — `network.port_range` is what the enforcement table calls "which port to bind".
+        let mut after = before.clone();
+        after.network.use_random_port = true;
+        assert_eq!(bind_time_changes(&running, &after), vec!["network.port_range"]);
+
+        let mut after = before.clone();
+        after.network.rendezvous_endpoints = vec!["tcp://relay.example:25601".to_owned()];
+        assert_eq!(
+            bind_time_changes(&running, &after),
+            vec!["network.rendezvous_endpoints"]
+        );
+
+        // Both at once report both, once each — the port is two env keys and one settings key, so a
+        // naive walk of the table would name it twice and the banner would repeat itself.
+        let mut after = before.clone();
+        after.network.port_range_start = 40000;
+        after.network.port_range_end = 40010;
+        after.network.rendezvous_endpoints = vec!["tcp://relay.example:25601".to_owned()];
+        assert_eq!(
+            bind_time_changes(&running, &after),
+            vec!["network.port_range", "network.rendezvous_endpoints"]
+        );
+    }
+
+    /// A setting with a live `NODERA-CONFIG` path is not a restart, however much the worker's reply
+    /// says `restart_required`. If this ever fails, something has been added to `worker_env` without
+    /// being classified — and the banner is on its way back.
+    #[test]
+    fn a_setting_the_worker_can_be_told_about_live_never_becomes_pending() {
+        let before = without_stores();
+        let running = worker_env(&before);
+
+        let mut after = before.clone();
+        after.network.default_trackers = vec!["tcp://new.example:25600".to_owned()];
+        after.network.max_upload_bytes_per_sec = 1_000_000;
+        assert!(bind_time_changes(&running, &after).is_empty());
+    }
+
+    /// ...and neither is a control the worker never saw. With a random port asked for, the range is
+    /// not in the environment at all, so editing it cannot be something the running worker is out of
+    /// date on. Comparing settings instead of env would have restarted the worker for nothing.
+    #[test]
+    fn editing_a_range_the_worker_was_never_given_is_not_a_pending_change() {
+        let before = without_stores();
+        assert!(before.network.use_random_port);
+        let running = worker_env(&before);
+
+        let mut after = before.clone();
+        after.network.port_range_start = 40000;
+        after.network.port_range_end = 40010;
+        assert!(bind_time_changes(&running, &after).is_empty());
+    }
+
+    /// The asymmetry that would have made the banner permanent from the other end: `worker_env`
+    /// omits an empty key rather than sending a blank, so a relay list emptied back out compares an
+    /// absent key against an absent key — not `Some("")` against `None`.
+    #[test]
+    fn emptying_a_list_settles_instead_of_reporting_a_change_forever() {
+        let mut with_relay = without_stores();
+        with_relay.network.rendezvous_endpoints = vec!["tcp://relay.example:25601".to_owned()];
+        let empty = without_stores();
+
+        // Removing it is a change...
+        assert_eq!(
+            bind_time_changes(&worker_env(&with_relay), &empty),
+            vec!["network.rendezvous_endpoints"]
+        );
+        // ...and once the worker is running without it, it is not a change any more.
+        assert!(bind_time_changes(&worker_env(&empty), &empty).is_empty());
+    }
+
+    /// A worker that is not running has nothing pending: the next spawn reads the settings as they
+    /// are then. Reporting a change here would restart a worker that is already going to pick it up.
+    #[test]
+    fn a_worker_that_is_not_running_is_never_waiting_on_a_restart() {
+        let mut settings = without_stores();
+        settings.network.use_random_port = false;
+        let launched = LaunchedWorker::default();
+        launched.record(&worker_env(&settings));
+        settings.network.port_range_start = 40000;
+        assert_eq!(
+            launched.pending_restart_keys(&settings),
+            Some(vec!["network.port_range".to_owned()]),
+            "a running worker on the old port is exactly the case this reports"
+        );
+
+        launched.forget();
+        assert_eq!(
+            launched.pending_restart_keys(&settings),
+            Some(Vec::new()),
+            "the supervisor forgets the child it lost, and the respawn takes the new port"
+        );
+    }
+
+    /// Where the app cannot see the worker's environment it must say so rather than answer `[]`.
+    #[test]
+    fn an_unowned_worker_reports_pending_as_unknowable() {
+        let launched = LaunchedWorker::default();
+        let pending = launched.pending_restart_keys(&without_stores());
+        assert_eq!(pending.is_none(), restart_unavailable().is_some());
     }
 
     /// M-NET-3. The Restart button was offered on Android and did nothing: the signal it notifies
@@ -695,11 +1052,11 @@ mod tests {
         if crate::SUPERVISES_A_WORKER {
             // Desktop, not attached (the test binary sets no NODERA_APP_ATTACH): a restart works.
             if !attach_mode() {
-                assert!(ownership().can_restart);
+                assert!(ownership(Some(Vec::new())).can_restart);
                 assert!(restart_unavailable().is_none());
             }
         } else {
-            assert!(!ownership().can_restart);
+            assert!(!ownership(None).can_restart);
             let why = restart_unavailable().expect("mobile must refuse with a reason");
             assert!(why.contains("Android"), "the refusal must say why: {why}");
         }
