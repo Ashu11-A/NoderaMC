@@ -31,14 +31,25 @@
 //   * There was no way to find a world. Thirty of them is six screens of scrolling and no search,
 //     which is the point at which a library stops being a library and becomes a list.
 //
-// So: one full-width band per group, each an `auto-fit` grid that gains columns with the window;
-// the group's frame is a rule and a title rather than a card; and a filter bar above them that
-// searches by name or id and can narrow to one group. The bar only appears once the worker has
-// actually reported worlds — offering a search over a library nobody has described yet is the same
-// class of claim as rendering `0` for "we have not heard".
+// So: one full-width band per group, each drawn on the shared `CARD_GRID` — an `auto-fit` wall that
+// gains columns with the window rather than stretching four cards across it; the group's frame is a
+// rule and a title rather than a card; and a filter bar above them that searches by name or id and
+// can narrow to one group. The bar only appears once the worker has actually reported worlds —
+// offering a search over a library nobody has described yet is the same class of claim as rendering
+// `0` for "we have not heard".
 import { useMemo, useState } from "react";
 import { FiGlobe, FiKey, FiPlay, FiSearch, FiUploadCloud, FiUsers } from "react-icons/fi";
-import { Empty, FilterBar, PageGrid, PageHeader, Stat, STAT_GRID, cx, worldArt } from "./components";
+import {
+  CARD_GRID,
+  Empty,
+  FilterBar,
+  PageGrid,
+  PageHeader,
+  Stat,
+  STAT_GRID,
+  cx,
+  worldArt,
+} from "./components";
 import { LanCard } from "./Lan";
 import {
   UNKNOWN,
@@ -154,7 +165,7 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
         title="World library"
         description="Worlds you play, administer, or keep available for other players."
       />
-      <div className={cx(STAT_GRID, "col-span-12 min-w-0")}>
+      <div className={cx(STAT_GRID, "col-span-12")}>
         <Stat
           label="Playing in"
           value={known ? String(d.counts.connected_worlds) : UNKNOWN}
@@ -181,7 +192,7 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
       </div>
 
       {searchable && (
-        <div className="col-span-12 min-w-0">
+        <div className="col-span-12">
           <FilterBar
             label="Search your world library"
             value={query}
@@ -245,7 +256,7 @@ export function WorldsScreen(props: { d: Dashboard; onOpen: (id: string) => void
         </p>
       )}
 
-      <div className="col-span-12 min-w-0">
+      <div className="col-span-12">
         <LanCard lan={d.lan} known={known} onChanged={() => undefined} />
       </div>
     </PageGrid>
@@ -294,7 +305,7 @@ function WorldSection(props: {
   onOpen: (id: string) => void;
 }) {
   return (
-    <section className="col-span-12 min-w-0">
+    <section className="col-span-12">
       <header className="mb-3.5 flex flex-wrap items-end justify-between gap-x-5 gap-y-1 border-b border-line-soft pb-2.5">
         <div className="min-w-0">
           {/* Panel 06's card title: an 11px uppercase micro-label, not a heading competing with the
@@ -313,7 +324,7 @@ function WorldSection(props: {
       {props.worlds.length === 0 ? (
         <div className="rounded-lg border border-line-soft bg-surface">{props.empty}</div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(260px,100%),1fr))] gap-3">
+        <div className={CARD_GRID}>
           {props.worlds.map((w) => (
             <WorldCard key={w.world_id} world={w} onOpen={() => props.onOpen(w.world_id)} />
           ))}

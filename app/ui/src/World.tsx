@@ -121,7 +121,7 @@ export function WorldScreen(props: { world: World; onBack: () => void }) {
             all there, and one column of prose is using none of it. */}
         {tab === "info" && <InfoTab world={world} />}
         {tab === "content" && (
-          <div className="col-span-12 min-w-0"><PiecesTab world={world} /></div>
+          <div className="col-span-12"><PiecesTab world={world} /></div>
         )}
         {tab === "sharing" && <ShareTab world={world} />}
       </div>
@@ -165,7 +165,7 @@ function InfoTab(props: { world: World }) {
   const w = props.world;
   return (
     <>
-      <div className={cx(STAT_GRID, "col-span-12 min-w-0 grid-cols-[repeat(auto-fit,minmax(210px,1fr))]")}>
+      <div className={cx(STAT_GRID, "col-span-12")}>
         <Stat
           label="Players online"
           value={show(w.players, String)}
@@ -185,11 +185,11 @@ function InfoTab(props: { world: World }) {
         <Stat label="Size" value={formatBytes(w.total_bytes)} sub={`v${w.version}`} />
       </div>
 
-      <div className="col-span-12 min-w-0 wide:col-span-7">
+      <div className="col-span-12 wide:col-span-7">
         <ContributionCard world={w} />
       </div>
 
-      <div className="col-span-12 min-w-0 wide:col-span-5">
+      <div className="col-span-12 wide:col-span-5">
         <Card title="World">
         <dl>
           <KeyValue label="World name" value={w.name || UNKNOWN} />
@@ -387,11 +387,11 @@ function ShareTab(props: { world: World }) {
   // order, which is why the destructive card is last in the DOM as well as last in the column.
   return (
     <>
-      <div className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-7">
+      <div className="col-span-12 flex flex-col gap-4 wide:col-span-7">
         <OwnershipTab world={w} />
       </div>
 
-      <div className="col-span-12 flex min-w-0 flex-col gap-4 wide:col-span-5">
+      <div className="col-span-12 flex flex-col gap-4 wide:col-span-5">
         <Card
           title="Invite someone"
           hint="Carries the world id, this node's trackers and rendezvous services, and the world's public key. No content, no password."
