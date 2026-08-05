@@ -2,7 +2,7 @@
 //!
 //! The service is pre-auth by construction — a signature proves who signed, not that they are
 //! entitled to a share of the service. The quota keeps one host from filling the registry with
-//! registrations or exhausting reservation slots (RENDEZVOUS.md §8.3/§8.4).
+//! registrations or exhausting reservation slots (docs/rendezvous/REFERENCE.md).
 
 use std::collections::HashMap;
 use std::net::IpAddr;

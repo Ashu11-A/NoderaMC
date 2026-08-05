@@ -1,14 +1,14 @@
 //! The registration registry: which peers registered in which `(network, world)` namespace.
 //!
-//! State is ephemeral (RENDEZVOUS.md §9.3): a restart loses nothing that matters because peers
+//! State is ephemeral (docs/rendezvous/REFERENCE.md): a restart loses nothing that matters because peers
 //! re-register within one refresh interval. Nothing here is authoritative — it is a directory of
-//! self-signed claims that discovering peers verify for themselves (§8.1).
+//! self-signed claims that discovering peers verify for themselves.
 
 use nodera_codec::rendezvous::SignedRecord;
 use nodera_codec::types::{NetworkId, NodeId, RegistrationEvent};
 use std::collections::HashMap;
 
-/// A discovery namespace: a network + a world (RENDEZVOUS.md §3.1 / Task 29 Context).
+/// A discovery namespace: a network + a world (docs/rendezvous/REFERENCE.md / Task 29 Context).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Namespace {
     /// The network id.

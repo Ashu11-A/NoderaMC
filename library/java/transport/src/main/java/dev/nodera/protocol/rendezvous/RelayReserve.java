@@ -8,9 +8,9 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A peer reserving an inbound relay slot (Task 29, wire tag 38; RENDEZVOUS.md §4.2). A peer that
+ * A peer reserving an inbound relay slot (Task 29, wire tag 38; docs/rendezvous/REFERENCE.md). A peer that
  * expects inbound relayed connects reserves before advertising a relay candidate — no reservation,
- * no {@code CONNECT} (circuit-relay-v2 style; RENDEZVOUS.md §8.4). Answered with a
+ * no {@code CONNECT} (circuit-relay-v2 style; docs/rendezvous/REFERENCE.md). Answered with a
  * {@link RelayReservation}.
  *
  * <p>Thread-context: immutable record, safe for any thread.

@@ -13,13 +13,13 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Tries a peer's direct reachability candidates in preference order (Task 29; RENDEZVOUS.md §4.4).
+ * Tries a peer's direct reachability candidates in preference order (Task 29; docs/rendezvous/REFERENCE.md).
  *
  * <p>A should attempt B's direct candidates before falling back to the relay: a direct path cuts
- * latency, relay bandwidth, and the dependency on central infrastructure (§3.3). Relay-kind
+ * latency, relay bandwidth, and the dependency on central infrastructure. Relay-kind
  * candidates are skipped here — those are the fallback the {@link RelayCircuitClient} handles. A
  * connected socket is <b>not</b> proof of identity; the caller still runs the identity-binding
- * handshake ({@link EndToEndCipher}) before trusting the far end (§4.4).
+ * handshake ({@link EndToEndCipher}) before trusting the far end.
  *
  * <p>Thread-context: {@link #dial} blocks; call from a dialing thread.
  */

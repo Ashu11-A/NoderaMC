@@ -39,7 +39,7 @@ public record ServiceScore(
      *
      * <p>They sum to 100, so a composite reads directly as a permille of the ideal service.
      * Availability dominating latency is the deliberate ordering: registration and discovery are
-     * latency-tolerant (rendezvous {@code REFERENCE.md} §15), so a slow rendezvous that is always up
+     * latency-tolerant ({@code docs/rendezvous/REFERENCE.md}), so a slow rendezvous that is always up
      * must outrank a fast one that is usually down.
      */
     public static final int[] WEIGHTS = {40, 30, 20, 10};

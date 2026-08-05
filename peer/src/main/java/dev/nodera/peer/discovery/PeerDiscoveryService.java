@@ -46,7 +46,7 @@ import java.util.function.Supplier;
  * not do": a tracker knows only who announced to <i>it</i>, so
  * several partial views beat one authoritative one). A source that omits peers loses influence
  * rather than winning it; a source that invents them costs one failed dial, because the transport
- * handshake re-verifies identity and nothing here is trusted as authority (RENDEZVOUS.md §8.1).
+ * handshake re-verifies identity and nothing here is trusted as authority (docs/rendezvous/REFERENCE.md).
  *
  * <h2>Announce, do not connect</h2>
  *

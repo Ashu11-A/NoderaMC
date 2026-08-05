@@ -88,7 +88,7 @@ public interface PeerTransport {
      * <p>This exists so a composing transport can <b>advertise</b> where the peer is directly
      * reachable. Without it the rendezvous transport could only publish a relay candidate, which
      * silently made every discovered path relayed — direct-first requires the direct address to be
-     * discoverable in the first place (RENDEZVOUS.md §2.5 "host candidate", §4.4).
+     * discoverable in the first place ({@code docs/rendezvous/REFERENCE.md}, "Verbs").
      *
      * @return the inbound route, or {@code null}.
      * @Thread-context any thread.

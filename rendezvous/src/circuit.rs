@@ -3,9 +3,9 @@
 //! The bridging itself (splicing two sockets) lives in [`crate::wire`]; the accounting that decides
 //! *when a circuit must be torn down* lives here and takes the clock as a parameter, so every limit
 //! is unit-testable without a network. A circuit is a paired copy-loop with per-direction byte
-//! counters checked against the reservation (RENDEZVOUS.md §4.5/§8.4).
+//! counters checked against the reservation (docs/rendezvous/REFERENCE.md).
 
-/// Why a circuit was torn down. Both sides get a reason code (RENDEZVOUS.md §4.5).
+/// Why a circuit was torn down. Both sides get a reason code (docs/rendezvous/REFERENCE.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TeardownReason {
     /// One side closed its half of the circuit — the normal end of a session.

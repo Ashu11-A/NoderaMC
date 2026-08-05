@@ -16,11 +16,11 @@ import java.util.Objects;
 /**
  * Establishes {@link RelayCircuit}s over the relay: the dialing side wraps a fresh
  * {@code CONNECT} socket, the reserving side waits for a {@code RelayIncoming} on its reservation
- * control socket and accepts it (Task 29; RENDEZVOUS.md §4.5).
+ * control socket and accepts it (Task 29; docs/rendezvous/REFERENCE.md).
  *
  * <p>Both sides run the {@link EndToEndCipher} handshake before any application byte, and each binds
  * the far end to the exact identity key from the discovered record — the relay only forwards; it
- * never authenticates a peer on another's behalf (§4.4/§8.1).
+ * never authenticates a peer on another's behalf.
  *
  * <p>Thread-context: the {@link #accept} blocks on the control socket; use from the reserver's
  * accept thread. {@link #dial} blocks on the handshake; use from the dialer's connect thread.

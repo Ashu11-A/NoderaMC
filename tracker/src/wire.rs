@@ -9,7 +9,7 @@
 //!
 //! Both surfaces decode into the same `Tracker::handle_frame`, so a world announced over one is
 //! queryable over the other; they differ only in bounds, because a forgeable UDP source address
-//! makes an unbounded answer an amplification weapon (§13.2).
+//! makes an unbounded answer an amplification weapon.
 
 use crate::service::{Handled, Tracker};
 use nodera_codec::framing;

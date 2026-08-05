@@ -7,9 +7,9 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A namespace discovery query (Task 29, wire tag 36; RENDEZVOUS.md §4.3). Answered with a
+ * A namespace discovery query (Task 29, wire tag 36; docs/rendezvous/REFERENCE.md). Answered with a
  * {@link RendezvousPeers} page. Paged + rate-limited: no full-namespace enumeration beyond the page
- * limit (RENDEZVOUS.md §8.5).
+ * limit (docs/rendezvous/REFERENCE.md).
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *

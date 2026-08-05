@@ -1,4 +1,4 @@
-//! Relay reservations and their stateless HMAC proofs (RENDEZVOUS.md §4.2/§8.4).
+//! Relay reservations and their stateless HMAC proofs (docs/rendezvous/REFERENCE.md).
 //!
 //! A peer that expects inbound relayed connects reserves a slot before advertising a relay
 //! candidate; the reservation carries expiry + byte/duration limits + an HMAC proof. The proof lets

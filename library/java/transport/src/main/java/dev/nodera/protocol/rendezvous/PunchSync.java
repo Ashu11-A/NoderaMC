@@ -10,9 +10,9 @@ import java.util.UUID;
 
 /**
  * A relayed observed-address exchange plus a synchronized go-signal (Task 29, wire tag 42;
- * RENDEZVOUS.md §4.6, DCUtR-style). Over an established relay circuit the peers swap observed
+ * docs/rendezvous/REFERENCE.md, DCUtR-style). Over an established relay circuit the peers swap observed
  * addresses and agree a shared T-minus; each then attempts a TCP simultaneous-open. Failure is not
- * an error — {@code RELAYED} is a legal steady state (RENDEZVOUS.md §7).
+ * an error — {@code RELAYED} is a legal steady state (docs/rendezvous/REFERENCE.md).
  *
  * <p>Thread-context: immutable record, safe for any thread.
  *

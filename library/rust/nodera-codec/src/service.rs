@@ -12,7 +12,7 @@
 //! * A peer asks a tracker for the directory, gets records **with their signatures**, and verifies
 //!   each one itself. The same signature validates whether a record arrived in an announce, a
 //!   directory answer, or a drain notice — the property that makes the tracker unable to lie about
-//!   *who* a service is (`RENDEZVOUS.md §8.1`, mirrored here for services).
+//!   *who* a service is (`docs/rendezvous/REFERENCE.md`, mirrored here for services).
 //! * A [`ServiceScore`] rides along, but its `composite_permille` is **derived**, not trusted:
 //!   [`ServiceScore::composite`] is mirrored byte-for-byte in Java, so a peer recomputes the number
 //!   from the components and ignores the field if they disagree. A lying tracker can hide services
@@ -231,7 +231,7 @@ pub const SCORE_WEIGHTS: [u32; 4] = [40, 30, 20, 10];
 ///
 /// A service 1.5 s away scores nothing for latency but can still win on availability — which is the
 /// intended ordering: a slow rendezvous that is always up beats a fast one that is usually down,
-/// because registration and discovery are latency-tolerant (`RENDEZVOUS.md §15`).
+/// because registration and discovery are latency-tolerant (`docs/rendezvous/REFERENCE.md`).
 pub const LATENCY_CEILING_MILLIS: u32 = 1_500;
 
 /// A tracker's aggregate opinion of one service (type tag 116).

@@ -222,7 +222,7 @@ final class RendezvousDirectoryTest {
     @Test
     void several_rendezvous_are_selected_not_just_the_best_one() throws IOException {
         // Registering with several and querying only the first converts redundancy into a silent
-        // single point of failure (RENDEZVOUS.md §9.1).
+        // single point of failure (docs/rendezvous/REFERENCE.md).
         SignedService best = signedService(25601, ServiceLifecycle.SERVING);
         SignedService second = signedService(25602, ServiceLifecycle.SERVING);
         SignedService third = signedService(25603, ServiceLifecycle.SERVING);
