@@ -1,4 +1,4 @@
-# App Task 7 — The Client Becomes the Way In
+# Frontend Task 7 — The Client Becomes the Way In
 
 <!-- AI-AGENT-INSTRUCTION: The sentence that must never be lost from this screen's copy: joining a
      world here does NOT download it. Every other client in this genre means "fetch the content" by
@@ -7,9 +7,9 @@
      shareable from the dashboard card. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 6](Task.6.md), [worker 7](../peer/Task.7.md), [worker 6](../peer/Task.6.md)
-**Consumed by:** [app 3](Task.3.md), [minecraft 7](../minecraft/Task.7.md)
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
+**Depends on:** [frontend 6](Task.6.md), [worker 7](../peer/Task.7.md), [worker 6](../peer/Task.6.md)
+**Consumed by:** [frontend 3](Task.3.md), [minecraft 7](../minecraft/Task.7.md)
 
 ---
 

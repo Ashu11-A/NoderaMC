@@ -31,7 +31,7 @@ public final class EntityRuleSet implements RuleSet {
         // An `instanceof` chain, not a type-pattern switch: those compile to an invokedynamic on
         // java.lang.runtime.SwitchBootstraps, which ART does not implement and D8 can neither run
         // nor desugar — so on Android the first execution of such a switch throws. See
-        // docs/mobile/LIMITATIONS.fixed.md M-8.
+        // docs/frontend/LIMITATIONS.fixed.md M-8.
         GameAction action = env.action();
         if (action instanceof PlaceBlockAction p) return blocks.validate(view, env);
         if (action instanceof BreakBlockAction b) return blocks.validate(view, env);

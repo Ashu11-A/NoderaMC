@@ -371,7 +371,7 @@ writing or editing any `.md` file.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) is the single central roadmap across every category.
 
 The tree is one folder per system category — `engine/` `network/` `tracker/` `rendezvous/`
-`minecraft/` `worker/` `app/` — each containing `Task.0.md` (the category charter), `Task.1..n.md`
+`minecraft/` `peer/` `frontend/` — each containing `Task.0.md` (the category charter), `Task.1..n.md`
 (one task per deliverable, with a completion status in the header), `PROGRESS.md`, `TESTING.md`,
 `LIMITATIONS.md`, and `LIMITATIONS.fixed.md`. Programme plans live in `docs/plans/`. Every package
 also carries its own `README.md` describing that package's architecture.

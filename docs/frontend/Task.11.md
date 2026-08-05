@@ -1,4 +1,4 @@
-# App Task 11 — A launcher, not a dashboard
+# Frontend Task 11 — A launcher, not a dashboard
 
 <!-- AI-AGENT-INSTRUCTION: Three rules this task exists to preserve. (1) The app has ONE front page
      and its job is getting into a world; every subsystem screen lives under Settings and stays
@@ -8,8 +8,9 @@
      prose. Reverting any of the three re-opens the defects below. Keep this header accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** L-91 … L-94 · **Last audit:** 2026-08-01
-**Depends on:** [app 10](Task.10.md), [app 9](Task.9.md)
+**Category:** frontend · **Owns:** L-91 … L-94 · **Last audit:** 2026-08-01
+**Depends on:** [frontend 10](Task.10.md), [frontend 9](Task.9.md)
+**Consumed by:** [frontend 17](Task.17.md)
 
 ---
 

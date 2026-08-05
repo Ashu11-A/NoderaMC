@@ -10,7 +10,7 @@
 **Status:** ✅ COMPLETED
 **Category:** worker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 2](Task.2.md), [worker 3](Task.3.md), [network 3](../network/Task.3.md)
-**Consumed by:** [app 2](../app/Task.2.md), [minecraft 4](../minecraft/Task.4.md)
+**Consumed by:** [frontend 2](../frontend/Task.2.md), [minecraft 4](../minecraft/Task.4.md)
 
 ---
 

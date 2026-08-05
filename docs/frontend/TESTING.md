@@ -1,11 +1,146 @@
-# Mobile — Building, Debugging and Testing
+# Frontend — Testing
 
-<!-- AI-AGENT-INSTRUCTION: This is the operational guide for the Android build. Two rules for edits:
-     (1) every command here must have been run, in this form, on a real device — no illustrative
-     invocations; (2) any claim about the worker must be evidenced by a control-socket answer FROM
-     THE DEVICE, never by what the app's own UI shows. Keep §0 (the device last used) accurate. -->
+<!-- AI-AGENT-INSTRUCTION: This file covers THREE surfaces and they are tested by different things.
+     The Tauri shell crate is WORKSPACE-EXCLUDED: `cargo test` at the root does NOT cover it, and
+     presenting the green workspace gate as covering it is a lie the register exists to prevent —
+     run it explicitly. `library/rust/nodera-core` IS in the root workspace. The desktop dashboard's
+     data path is asserted on the JAVA gate (the worker's STATE verb); keep it that way — no logic in
+     the UI worth testing beyond parsing. For Part B, two rules: every command must have been run, in
+     that form, on a real device — no illustrative invocations; and any claim about the worker must be
+     evidenced by a control-socket answer FROM THE DEVICE, never by what the app draws. Keep §0's
+     device and every count and Last run current. Part B's section numbers are cited from Java
+     sources (`docs/frontend/TESTING.md §3.2`) — do not renumber them. -->
 
-**Category:** mobile · **Last build:** 2026-08-01 · **Last physical run:** 2026-08-01
+**Category:** frontend
+
+| Surface | Last run | Result |
+|---|---|---|
+| Desktop launcher + shared core | 2026-08-01 | **303 tests** (270 shared core + 2 shell, one intentionally ignored + 31 frontend): 302 passed, 1 ignored |
+| Android | last build 2026-08-01 · last physical run 2026-08-01 | `scripts/android-e2e.sh` **5 passed, 0 failed** on a Xiaomi 2210129SG (Android 15 / API 35) |
+| Website | — | No gate yet; [task 18](Task.18.md) and [task 20](Task.20.md) name the ones that will close them |
+
+```bash
+cd app && cargo test        # REQUIRED — root workspace does not cover the Tauri shell
+cargo test                  # includes library/rust/nodera-core
+cd app/ui && bun run test   # type-check + bundle + emitted-CSS contracts
+cd app/ui && bun run build  # same production gate used by CI
+scripts/android-apk.sh      # the phone, end to end, including the dexed worker
+scripts/android-e2e.sh      # the only one that proves the phone is still a node
+```
+
+---
+
+## Part A — Desktop launcher and shared core
+
+### A1. The testing strategy
+
+The app is deliberately the thinnest layer in the project, and its test strategy follows from that:
+
+| Concern | Where it is tested | Why |
+|---|---|---|
+| The **numbers** on the dashboard | The Java gate, via the worker's `STATE` verb | They are produced by the worker; asserting them here would test the wrong component |
+| **Parsing** those numbers | Here | Byte order, tolerance, and error surfacing are genuinely the app's responsibility |
+| **Supervisor lifecycle** | Here | Spawn, attach, stop — including the rule that quitting never kills a worker the app did not spawn |
+| **Packaging and install** | CI ([`Task.3.md`](Task.3.md)) | Only a clean-checkout build catches gitignored build inputs |
+| **The product claim** | CI ([`Task.4.md`](Task.4.md)) | Install → gate both ways → host → close Minecraft → still joinable |
+| **Generated UI roles and shell padding** | Post-build Node regression over Vite's emitted CSS | Tailwind silently omits unknown utilities; mobile must resolve through dynamic Material 3 roles; desktop and mobile intentionally frame the shared component differently |
+
+### A2. Crate coverage
+
+- **Piece-bitmap decode** matching Java's `BitSet` byte order, plus bounded, short, and undecodable
+  bitmaps. A mis-decoded bitmap renders a *plausible but wrong* picture, which is worse than rendering
+  nothing — hence the explicit byte-order contract test.
+- **Additive-field tolerance** against a golden `STATE` JSON: unknown fields use serde defaults, so a
+  worker newer than its dashboard degrades to fewer panels rather than to an error.
+- **Control-socket error surfacing** and read timeout.
+- **`Settings → WorkerConfig` golden JSON** — the cross-language configuration-key contract, pinned on
+  both sides so a renamed key fails a test rather than silently doing nothing.
+- **Worker-environment spawn pairs** and a **power-state truth table**.
+- **Enforcement invariants:** every badge state is covered, and the "live only if confirmed" rule
+  holds — a control may not be shown as enforced unless the worker confirmed it.
+- **Log ring** and **system sampling**.
+
+#### Test counts (run 2026-08-01)
+
+A run count, not a source estimate. Shared behavior moved to root-workspace `nodera-core`; the Tauri
+shell now has only platform integration tests. Frontend tests run after production Vite output exists.
+
+| Suite | Tests |
+|---|---:|
+| `library/rust/nodera-core` | 270 |
+| `app` Tauri shell | 2 (1 ignored: opens a real browser) |
+| `app/ui/tests` | 31 |
+| **Total** | **303** |
+
+### A3. Manual smoke, per increment
+
+```bash
+scripts/dev.sh --with-app      # attach mode against an externally started worker
+```
+
+Checks:
+
+1. The dashboard shows live data, not zeros.
+2. Quitting the app leaves the externally started worker **running** (attach semantics).
+3. Stopping the worker makes the tray show offline and the dashboard show the daemon down — with no
+   crash loop.
+
+### A4. Conventions
+
+- **Never claim the workspace gate covers this crate.** It does not, and saying so would hide a real
+  coverage gap that [`Task.3.md`](Task.3.md) exists to close.
+- **No logic in the UI worth testing beyond parsing.** If a panel needs a rule, put the rule in the
+  worker where it is asserted headlessly.
+- **Three protocol mirrors, one commit.** A control-protocol change lands in the worker's
+  `ControlProtocol`, the mod's `CompanionProtocol`, and this crate's `control.rs` together, with the
+  version bumped — the mod's gate then classifies skew as "update the app" or "update the mod".
+- **Per-platform behaviour gets per-platform acceptance.** One OS passing is not evidence about
+  another.
+
+### A5. CI
+
+The companion job builds the app end to end from a clean checkout (UI build plus cargo release, with
+the worker distribution staged and bundled) and runs the gate in both directions. Its clean-checkout
+property is the point: the four packaging gaps it found on its first run were all files that worked
+locally and were gitignored.
+
+### A6. The launch lane
+
+`nodera-core/src/launch/` is unit-tested against fixtures — synthetic `versions/*.json` files written
+into a temp directory — so the parsers run on a machine with no Minecraft installed. That covers what
+actually breaks in a launcher: `inheritsFrom` resolution, classpath ordering, natives never reaching
+the classpath, the placeholder table, and the `has_quick_plays_support` gate that decides whether the
+player lands in the world or in the Multiplayer menu.
+
+What it cannot cover is a real game starting. That is a human protocol:
+
+1. Two sides. Two machines, or `scripts/dev.sh --play --with-app` with `NODERA_APP_MULTI=1`.
+2. Host: open a world to LAN from inside Minecraft, then Share when the app asks.
+3. Guest: **Discover** → the world appears → press **Play**. The shell returns to Play and restores
+   the coordinator's current correlated phase.
+4. Watch all four, not one:
+    - the `nodera://launch` phases arrive in order — `resolving`, `joining`, `preparing`, `spawning`,
+      `running`;
+   - `ss -ltnp` shows the loopback port bound between `joining` and `preparing`;
+   - `ps -ef | grep quickPlayMultiplayer` shows the flag **and the port matches**;
+   - the game window opens straight into the world, with no Multiplayer menu.
+5. Direct route: quit the game; `exited` fires and the port disappears. Delegated launcher route:
+    the screen says it handed off because launcher lifetime is not game lifetime; press **Close
+    connection**, observe `closing` while cleanup runs, then verify `exited` and the port disappears.
+
+Each failure path is scriptable through `NODERA_MINECRAFT_DIR`, and each must produce its own remedy
+button rather than a generic error:
+
+| Break this | Expect |
+|---|---|
+| rename the Nodera jar out of `mods/` | `install-mod` |
+| point `NODERA_MINECRAFT_DIR` at an empty directory | `pick-install` |
+| point `JAVA_HOME` at a Java 17 | `install-java`, naming the version the profile requires |
+
+
+---
+
+## Part B — Android: building, debugging and testing
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
@@ -13,9 +148,7 @@
 Last verified on a **Xiaomi 2210129SG** (`ziyi`), **Android 15 / API 35**, arm64-v8a, against a
 tracker on the development machine at `10.0.0.101:25600`.
 
----
-
-## 0. What you are building
+### 0. What you are building
 
 One APK containing two programs:
 
@@ -34,9 +167,33 @@ worker's control socket over `adb`.
 
 ---
 
-## 1. One-time setup
+### 0.1 Three gates before a device, in order
 
-### 1.1 The Android toolchain
+The phone is a Compose application now, not a webview, so the desktop's `bun run build` says nothing
+about it. Three gates, in order — each is cheap and each catches something the next one would only
+surface on a device:
+
+```sh
+scripts/check-android-bytecode.sh          # ART cannot run Java 21 type-pattern switches
+scripts/android-apk.sh --debug --skip-worker   # the fast loop: Compose + Kotlin + Rust, no re-dex
+scripts/android-apk.sh                     # the whole thing, including the dexed worker
+scripts/android-e2e.sh                     # the only one that proves the node still works
+```
+
+`android-e2e.sh` is the real gate. It verifies **from the tracker's side** that the phone announced —
+which is exactly the property a front-end rewrite can break with no screen looking wrong.
+
+Two things the build script asserts rather than assumes, because both have failed silently before:
+that every JNI-reachable class has an R8 `-keep` rule (a stripped method is a `NoSuchMethodError`
+from Rust at the moment a user taps something), and that `MainActivity` is `singleTask` (without it a
+`nodera://tracker-store` link arriving while the app is open starts a second activity and the offer
+is dropped).
+
+---
+
+### 1. One-time setup
+
+#### 1.1 The Android toolchain
 
 ```bash
 scripts/android-toolchain.sh            # install / verify everything
@@ -49,12 +206,12 @@ Installs under `$ANDROID_HOME` (default `~/Android/Sdk`); nothing lands in the r
 | Component | Pinned version | Why pinned |
 |---|---|---|
 | Command-line tools | 11076708 | reproducibility |
-| Platform | android-34 (toolchain) | compile target installed by the script. ⚠ The **generated** Gradle project now `compileSdk`/`targetSdk = 36` (`gen/android/app/build.gradle.kts:17,23`); AGP will pull platform 36 + its licences on the first build. Tracked as [M-9](LIMITATIONS.md) — the toolchain and the generated project disagree |
+| Platform | android-34 (toolchain) | compile target installed by the script. ⚠ The **generated** Gradle project now `compileSdk`/`targetSdk = 36` (`gen/android/app/build.gradle.kts:17,23`); AGP will pull platform 36 + its licences on the first build. Tracked as [M-9](LIMITATIONS.fixed.md) — the toolchain and the generated project disagree |
 | Build-tools | 34.0.0 **and 35.0.0** | 34 signs; **35 is required to dex** — see §1.2 |
 | NDK | 26.1.10909125 | Rust cross-compilation |
 | Rust targets | 4 Android triples | `aarch64`, `armv7`, `i686`, `x86_64` |
 
-### 1.2 The two version pins that will cost you a day if you change them
+#### 1.2 The two version pins that will cost you a day if you change them
 
 | Pin | Where | Symptom when wrong |
 |---|---|---|
@@ -66,9 +223,9 @@ yourself.
 
 ---
 
-## 2. Building
+### 2. Building
 
-### 2.1 The Android APK
+#### 2.1 The Android APK
 
 ```bash
 scripts/android-apk.sh                    # signed release APK → build/nodera-release.apk
@@ -98,7 +255,7 @@ The signing key is a **development** key at `~/.nodera/android-release.jks`, gen
 It exists so the APK installs; it is not a Play Store upload key. Override with
 `NODERA_ANDROID_KEYSTORE`, `NODERA_ANDROID_KEY_ALIAS`, `NODERA_ANDROID_KEY_PASS`.
 
-### 2.2 The desktop app, for comparison
+#### 2.2 The desktop app, for comparison
 
 ```bash
 cd app && cargo tauri build     # installer
@@ -107,7 +264,7 @@ cd app && cargo tauri dev       # window + tray + worker supervisor
 target/release/nodera-tracker          # a tracker to announce to
 ```
 
-### 2.3 Rebuild loops that do not waste time
+#### 2.3 Rebuild loops that do not waste time
 
 | You Changed | Run |
 |---|---|
@@ -125,9 +282,9 @@ then rebuild.
 
 ---
 
-## 3. Connecting the phone
+### 3. Connecting the phone
 
-### 3.1 USB
+#### 3.1 USB
 
 Enable **Developer options → USB debugging**, plug in, accept the RSA prompt.
 
@@ -135,7 +292,7 @@ Enable **Developer options → USB debugging**, plug in, accept the RSA prompt.
 adb devices -l          # must show `device` — not `unauthorized`, not empty
 ```
 
-### 3.2 Wi-Fi debugging — recommended, and why
+#### 3.2 Wi-Fi debugging — recommended, and why
 
 USB re-enumerates under load on some phones; an `adb install` then dies half-way with
 `adb: no devices/emulators found`, which looks like a build problem and is not. Wireless survives it,
@@ -169,7 +326,7 @@ Things that cost time when forgotten:
   default tracker for mobile builds; loopback is deliberately **not** in that list, because
   `127.0.0.1` on a handset is the handset.
 
-### 3.3 Reading logs
+#### 3.3 Reading logs
 
 ```bash
 adb logcat -s NoderaMC:V                 # the app AND the worker, one tag
@@ -185,9 +342,9 @@ without it, an abort leaves nothing behind at all.
 
 ---
 
-## 4. Testing
+### 4. Testing
 
-### 4.1 The end-to-end test
+#### 4.1 The end-to-end test
 
 ```bash
 target/release/nodera-tracker &          # something to announce to
@@ -219,7 +376,7 @@ returning worker `a3da8287-…` at `10.0.0.104:40675`.
 Row 6 was added for issue #86 and has not run on a physical phone yet. Until it passes, M-NET-2 is
 RETIRING rather than RETIRED.
 
-### 4.2 The mesh test — does the phone receive data from the Linux peers?
+#### 4.2 The mesh test — does the phone receive data from the Linux peers?
 
 ```bash
 scripts/nodera-test.sh run android-mesh                       # the whole thing
@@ -252,7 +409,7 @@ docker bridges still advertises the interface the phone can actually reach).
 Evidence lands in the run's log directory: `android-logcat.log`, `android-state.json`, plus every
 worker log the standard launcher collects.
 
-### 4.3 Querying the tracker yourself
+#### 4.3 Querying the tracker yourself
 
 ```bash
 cargo build --release -p nodera-tracker --bin nodera-query
@@ -264,7 +421,7 @@ Prints the world, its health, and every peer the tracker knows with its dial rou
 `nodera-codec` — the same frozen encoding the peers use — so it cannot drift from what it is
 checking.
 
-### 4.4 Talking to the worker on the phone
+#### 4.4 Talking to the worker on the phone
 
 ```bash
 adb shell 'printf "NODERA-PROBE 2\n" | timeout 5 toybox nc 127.0.0.1 25610'
@@ -280,7 +437,7 @@ adb shell '(printf "NODERA-WATCH 2 1000\n"; sleep 3) | timeout 6 toybox nc 127.0
 `self_route` is a LAN address, not loopback — other peers can dial this phone. The full verb list is
 in [`worker/Task.2.md`](../peer/Task.2.md).
 
-### 4.5 Memory, when something feels wrong
+#### 4.5 Memory, when something feels wrong
 
 ```bash
 adb shell dumpsys meminfo dev.nodera.app | head -12
@@ -291,7 +448,7 @@ Healthy is ~14 MB shortly after launch. Hundreds of megabytes and climbing is a 
 not normal growth: that is exactly how the `/dev/urandom` bug presented before it was found (2.5 GB
 in five seconds, then the OS killed the app).
 
-### 4.6 Unit and integration suites
+#### 4.6 Unit and integration suites
 
 ```bash
 cd app && cargo test              # the app's own tests, incl. storage and battery
@@ -316,7 +473,7 @@ The dex guard (`scripts/check-android-bytecode.sh`) now has a Java-level mirror 
 `SwitchBootstraps` type-switch. It covers only the transport module — the whole-closure guarantee is
 still the dex script — but it is what caught the M-5 regression's rewrite site at issue time.
 
-### 4.7 Manual checks with no script
+#### 4.7 Manual checks with no script
 
 | Check | How | Expected |
 |---|---|---|
@@ -334,7 +491,7 @@ still the dex script — but it is what caught the M-5 regression's rewrite site
 Driving these with `adb shell input tap` is possible but fragile: coordinates drift between builds,
 and a stray tap lands in whatever app happens to be in front. Prefer tapping the phone.
 
-### 4.8 The M-2 exit test — does the node survive an hour with the screen off?
+#### 4.8 The M-2 exit test — does the node survive an hour with the screen off?
 
 The one check no script drives, and the one that decides whether a phone is a peer other nodes can
 plan around. Before the foreground service, an app holding committee seats was killed roughly 25
@@ -370,7 +527,7 @@ doing real work the whole time, an archive seeder lookup every second.
 
 ---
 
-## 5. Script reference
+### 5. Script reference
 
 | Script | Purpose | Key flags |
 |---|---|---|
@@ -397,13 +554,13 @@ Environment variables the scripts read:
 
 ---
 
-## 6. Troubleshooting
+### 6. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Unsupported class file major version 69` | Gradle running on JDK 25 | The script picks JDK 21; set `NODERA_ANDROID_JAVA_HOME` if it cannot find one |
 | `Unsupported class file major version 65` | `d8` from build-tools 34 | Install build-tools 35 (`scripts/android-toolchain.sh`) |
-| `Failed to install … platforms;android-36` | Toolchain installs platform 34; the generated project compileSdk is 36 | Let AGP install 36, or `sdkmanager "platforms;android-36"`. Tracked as [M-9](LIMITATIONS.md) |
+| `Failed to install … platforms;android-36` | Toolchain installs platform 34; the generated project compileSdk is 36 | Let AGP install 36, or `sdkmanager "platforms;android-36"`. Tracked as [M-9](LIMITATIONS.fixed.md) |
 | Build killed, exit 137 | Out of memory while dexing | `./gradlew --stop`, then rebuild |
 | `adb: no devices/emulators found` mid-install | USB re-enumerated under load | Use Wi-Fi debugging (§3.2) |
 | `more than one device/emulator` | USB **and** wireless both connected | `export ANDROID_SERIAL=…` |
@@ -419,7 +576,7 @@ Environment variables the scripts read:
 
 ---
 
-## 7. A full session, start to finish
+### 7. A full session, start to finish
 
 ```bash
 # once
@@ -441,3 +598,24 @@ scripts/android-e2e.sh --no-install
 adb logcat -s NoderaMC:V
 target/release/nodera-query 10.0.0.101:25600
 ```
+
+---
+
+## Part C — The website
+
+There is no automated gate for `web/` today, and this file will not pretend otherwise. The site is
+three static files served by Caddy; what proves it is a human opening it.
+
+The gates that will close [task 18](Task.18.md) and [task 20](Task.20.md) are named in those task
+files, not here — a test list written before the tests exist is a list nobody updates when the tests
+turn out differently. What is already true and worth keeping in one place:
+
+```bash
+scripts/deploy-site.sh --dry-run     # what would be sent, changing nothing
+scripts/deploy-site.sh --status      # what that host is serving now
+```
+
+The one behaviour that must not regress while the site is rebuilt is the tracker-store hop:
+`https://noderamc.org/add-store?url=…` must still refuse a non-https index before offering it, show
+the address exactly as received, and invoke `nodera://tracker-store` **only from a real click** —
+never on load. See [task 9](Task.9.md) § The https hop.

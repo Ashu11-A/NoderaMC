@@ -1,4 +1,4 @@
-// Exit tests for the Task 10 app UX honesty bundle (docs/app/LIMITATIONS.md rows A-UX-1 and
+// Exit tests for the Task 10 UX honesty bundle (docs/frontend/LIMITATIONS.md rows A-UX-1 and
 // A-UX-5). Both rows are about the gap between what the app *has* and what it *says*, and both
 // regress silently: a screen that stops marking stale figures still renders, and a command that
 // loses its last caller still compiles. Nothing in `tsc` or `cargo` catches either, so the checks

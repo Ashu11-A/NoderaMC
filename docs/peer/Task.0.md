@@ -73,7 +73,7 @@ dials), [`engine/Task.5.md`](../engine/Task.5.md) (the validation stack for task
 
 **Consumed by:** [`minecraft/Task.7.md`](../minecraft/Task.7.md) (the gate probes it),
 [`minecraft/Task.4.md`](../minecraft/Task.4.md) and [`minecraft/Task.6.md`](../minecraft/Task.6.md)
-(they read it), [`app/`](../app/Task.0.md) (which supervises it).
+(they read it), [`frontend/`](../frontend/Task.0.md) (which supervises it).
 
 ## 5. Task index
 

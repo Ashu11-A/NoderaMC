@@ -1,13 +1,13 @@
-# App Task 1 — Tauri Scaffold + Worker Supervisor
+# Frontend Task 1 — Tauri Scaffold + Worker Supervisor
 
 <!-- AI-AGENT-INSTRUCTION: ATTACH SEMANTICS ARE LOAD-BEARING: the app must never kill a worker it did
      not spawn. Quitting in attach mode leaves the external worker running. Do not "simplify" the
      supervisor into an unconditional kill-on-exit. Keep this header's status accurate. -->
 
 **Status:** ✅ COMPLETED (scaffold; CI build → [task 3](Task.3.md))
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [worker 1](../peer/Task.1.md)
-**Consumed by:** [app 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md)
+**Consumed by:** [frontend 2](Task.2.md), [minecraft 7](../minecraft/Task.7.md)
 
 ---
 

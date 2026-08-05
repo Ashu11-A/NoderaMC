@@ -54,7 +54,7 @@ service speaks, and the `nodera-codec` crate that decodes it.
 
 **Consumed by:** [`minecraft/Task.4.md`](../minecraft/Task.4.md) (the multiplayer world list),
 [`worker/Task.3.md`](../peer/Task.3.md) (the announce loop that keeps a host's world listed with
-Minecraft closed), [`app/Task.2.md`](../app/Task.2.md) (the dashboard's trackers panel).
+Minecraft closed), [`frontend/Task.2.md`](../frontend/Task.2.md) (the dashboard's trackers panel).
 
 ## 4. Task index
 

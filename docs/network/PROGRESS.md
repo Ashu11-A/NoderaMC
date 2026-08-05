@@ -379,7 +379,7 @@ the full gate (`./gradlew check`, `cd rust && cargo test` — the codec mirror m
 
 ### 2026-07-28 — `MessageRouter.answerFor` no longer compiles to a `SwitchBootstraps` type-switch
 
-The Android bytecode guard (issue #94, [`mobile/LIMITATIONS.md`](../mobile/LIMITATIONS.md) M-5)
+The Android bytecode guard (issue #94, [`frontend/LIMITATIONS.md`](../frontend/LIMITATIONS.md) M-5)
 rejected `MessageRouter.answerFor`: its `switch (outcome) { case Outcome.UnknownKind u -> … }` is a
 Java-21 **type-pattern switch**, which compiles to an `invokedynamic` on
 `java.lang.runtime.SwitchBootstraps.typeSwitch` (verified in the class file — constant pool

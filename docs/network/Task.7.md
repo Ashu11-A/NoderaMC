@@ -9,7 +9,7 @@
 **Status:** ✅ COMPLETED (live wiring → [minecraft 2](../minecraft/Task.2.md))
 **Category:** network · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [network 6](Task.6.md)
-**Consumed by:** [network 10](Task.10.md), [tracker 1](../tracker/Task.1.md), [app 3](../app/Task.3.md)
+**Consumed by:** [network 10](Task.10.md), [tracker 1](../tracker/Task.1.md), [frontend 3](../frontend/Task.3.md)
 
 ---
 
@@ -102,4 +102,4 @@ surfaced deadline.
 
 None open. **L-36**, **L-37**, and **L-38** are RETIRED — see
 [`LIMITATIONS.fixed.md`](LIMITATIONS.fixed.md). **L-56** (two connection settings that cannot be
-honoured as specified) is owned by [`app/LIMITATIONS.md`](../app/LIMITATIONS.md).
+honoured as specified) is owned by [`frontend/LIMITATIONS.md`](../frontend/LIMITATIONS.md).

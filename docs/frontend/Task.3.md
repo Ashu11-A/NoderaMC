@@ -1,4 +1,4 @@
-# App Task 3 — Per-OS Packaging + CI
+# Frontend Task 3 — Per-OS Packaging + CI
 
 <!-- AI-AGENT-INSTRUCTION: Until this task lands, CI does NOT compile the app at all — never present
      the green workspace Rust gate as covering it. The bundle-vs-locate JVM decision must be
@@ -6,9 +6,9 @@
      header's status accurate. -->
 
 **Status:** 🚧 IN PROGRESS
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 1](Task.1.md)
-**Consumed by:** players (the install target), [app 4](Task.4.md)
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
+**Depends on:** [frontend 1](Task.1.md)
+**Consumed by:** players (the install target), [frontend 4](Task.4.md)
 
 ---
 
@@ -31,7 +31,7 @@ decision for the Java runtime the worker needs.
 
 ## Dependencies
 
-- [app 1](Task.1.md) — the application being packaged.
+- [frontend 1](Task.1.md) — the application being packaged.
 
 ## Deliverables
 

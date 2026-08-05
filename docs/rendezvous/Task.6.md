@@ -11,12 +11,12 @@
      rendezvous/src/config.rs (env twins) + main.rs (--print-env),
      .github/workflows/containers.yml, scripts/deploy-vps.sh. Operator doc: SELF-HOSTING.md.
      Depends on: Task.1.md, Task.5.md (the drain), ../tracker/Task.6.md (shared image reasoning).
-     Consumed by: ../network/Task.13.md, ../app/Task.9.md. -->
+     Consumed by: ../network/Task.13.md, ../frontend/Task.9.md. -->
 
 **Status:** ✅ DONE
 **Category:** rendezvous · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [rendezvous 1](Task.1.md), [rendezvous 5](Task.5.md), [tracker 6](../tracker/Task.6.md)
-**Consumed by:** [network 13](../network/Task.13.md), [app 9](../app/Task.9.md)
+**Consumed by:** [network 13](../network/Task.13.md), [frontend 9](../frontend/Task.9.md)
 
 ---
 

@@ -1,4 +1,4 @@
-# App Task 6 — The Dashboard API and the Live Link
+# Frontend Task 6 — The Dashboard API and the Live Link
 
 <!-- AI-AGENT-INSTRUCTION: One rule governs everything here and it is not a style preference: a value
      nobody has reported is NOT zero. `Option` in Rust, `null` on the wire, an em dash on screen.
@@ -8,9 +8,9 @@
      this header's status accurate. -->
 
 **Status:** ✅ COMPLETED
-**Category:** app · **Owns:** — · **Last audit:** 2026-07-28
-**Depends on:** [app 2](Task.2.md), [worker 2](../peer/Task.2.md), [worker 6](../peer/Task.6.md)
-**Consumed by:** [app 3](Task.3.md), [app 5](Task.5.md)
+**Category:** frontend · **Owns:** — · **Last audit:** 2026-07-28
+**Depends on:** [frontend 2](Task.2.md), [worker 2](../peer/Task.2.md), [worker 6](../peer/Task.6.md)
+**Consumed by:** [frontend 3](Task.3.md), [frontend 5](Task.5.md)
 
 ---
 

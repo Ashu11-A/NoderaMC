@@ -7,7 +7,7 @@
 **Status:** ✅ COMPLETED (periodic announce scheduling lives in [worker 3](../peer/Task.3.md))
 **Category:** tracker · **Owns:** — · **Last audit:** 2026-07-28
 **Depends on:** [tracker 1](Task.1.md), [network 5](../network/Task.5.md)
-**Consumed by:** [minecraft 4](../minecraft/Task.4.md), [worker 3](../peer/Task.3.md), [app 2](../app/Task.2.md)
+**Consumed by:** [minecraft 4](../minecraft/Task.4.md), [worker 3](../peer/Task.3.md), [frontend 2](../frontend/Task.2.md)
 
 ---
 
