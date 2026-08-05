@@ -101,6 +101,41 @@ public final class OwnershipScenario implements Scenario {
                             "region-evidence.log", line));
         });
 
+        context.stage("O2b", "a seeded region carries the real world, not sixty-four columns of air",
+                () -> {
+            // The exit test for the all-air base. Every region lane used to activate on
+            // EntityLaneBootstrap.initialSnapshot — 64 columns of air — because that is the only
+            // base every member can derive identically with no transfer. So the validated lane held
+            // air plus whatever edits it had witnessed, and a region seeded from it carried air:
+            // the one thing the whole content plane exists to move was not in it.
+            //
+            // Size is the assertion because size is what distinguishes them and nothing else does.
+            // An all-air region encodes to a few hundred bytes (64 uniform columns, no dense
+            // sections); a region of real terrain is megabytes. There is no threshold to tune here
+            // — the two differ by four orders of magnitude.
+            Path workerLog = stack.logDir().resolve("worker-player1.log");
+            java.util.regex.Pattern seeded = java.util.regex.Pattern.compile(
+                    "Seeding region .* — (\\d+) piece\\(s\\), (\\d+) byte\\(s\\)");
+            long largest = 0;
+            for (String line : HostWorldSupport.readLines(workerLog)) {
+                java.util.regex.Matcher m = seeded.matcher(line);
+                if (m.find()) {
+                    largest = Math.max(largest, Long.parseLong(m.group(2)));
+                }
+            }
+            HostWorldSupport.transcript(context, "region-terrain.log",
+                    "largest seeded region: " + largest + " byte(s)");
+            if (largest == 0) {
+                throw new AssertionError("the host's worker seeded no region at all, so there is "
+                        + "nothing to say about what a region carries");
+            }
+            if (largest < 100_000) {
+                throw new AssertionError("the largest region this host seeded is " + largest
+                        + " byte(s) — that is an all-air region, so the lane is still activating "
+                        + "on the derived base and the content plane is moving nothing");
+            }
+        });
+
         context.stage("O3", "player B kept the world and now hosts it", () -> {
             HostWorldSupport.stopClient(players[0].host(), HOST_RUN);
             // The prefix, not the whole sentence: the takeover has two endings — this peer was
