@@ -2383,6 +2383,35 @@ public final class WorkerValidationService {
     }
 
     /**
+     * The region's content has been replaced with what the network holds — it may participate again.
+     *
+     * <p>Called after a fetched region has been written into the world, which is the only thing that
+     * can honestly clear the flag: divergence is a statement about what this node's copy contains,
+     * so nothing short of replacing that copy resolves it. The replica's own snapshot is re-derived
+     * from the world so its head matches what was just applied.
+     *
+     * @param region the region that was re-fetched and applied.
+     * @Thread-context server main thread (after the apply).
+     */
+    public void repaired(RegionId region) {
+        Replica replica = replicas.get(region);
+        if (replica == null || !replica.diverged) {
+            return;
+        }
+        replica.snapshot = world.reExtract(
+                region, replica.snapshot.version(), replica.snapshot.tick());
+        replica.headRoot = world.regionRoot(
+                region, replica.snapshot.version(), replica.snapshot.tick());
+        replica.pendingBallot = null;
+        replica.pendingBatch = null;
+        replica.pendingProposal = null;
+        replica.diverged = false;
+        divergedReplicas.decrementAndGet();
+        LOG.info("replica for {} repaired from the network — head is now {}",
+                region, replica.headRoot.hash().toShortHex(8));
+    }
+
+    /**
      * @param region the region.
      * @return whether this node is {@code region}'s primary — the only member allowed to propose
      *         into it, or to certify a foreign write against it.

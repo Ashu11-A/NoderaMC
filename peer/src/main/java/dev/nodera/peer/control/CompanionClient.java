@@ -416,6 +416,42 @@ public final class CompanionClient implements CompanionProbe {
     }
 
     /**
+     * Ask the worker to fetch one region's committed state from the network into a local file.
+     *
+     * <p>The mirror of {@link #seedRegion}. The worker owns the piece plane and does the transfer;
+     * the caller owns the server thread and does the writing.
+     *
+     * @param worldId        hex world id.
+     * @param dimension      the region's dimension, in {@code namespace:path} form.
+     * @param regionX        region X.
+     * @param regionZ        region Z.
+     * @param destPath       absolute destination path for the encoded snapshot (same machine).
+     * @param haveIndexRoot  the chunk-index root this caller already holds, or {@code null} for
+     *                       "send whatever you have".
+     * @param timeoutSeconds the no-progress budget for the transfer.
+     * @return {@code "<byteCount> <snapshotHashHex>"} on success, or empty (unreachable worker, a
+     *         worker predating the verb, or no manifest known for that region).
+     */
+    public Optional<String> fetchRegion(String worldId, String dimension, int regionX, int regionZ,
+                                        java.nio.file.Path destPath, String haveIndexRoot,
+                                        long timeoutSeconds) {
+        String reply = exchange(ControlProtocol.FETCH_REGION + " "
+                        + ControlProtocol.PROTOCOL_VERSION
+                        + " " + worldId + " " + dimension + " " + regionX + " " + regionZ
+                        + " " + b64Path(destPath)
+                        // The sentinel, not an empty token: the line is split on whitespace, so an
+                        // empty argument silently shifts every later one along by a position.
+                        + " " + (haveIndexRoot == null || haveIndexRoot.isBlank()
+                                ? ControlProtocol.NO_VALUE : haveIndexRoot)
+                        + " " + timeoutSeconds,
+                (int) Math.max(15_000L, timeoutSeconds * 1000L + 5_000L));
+        if (reply == null || !reply.startsWith(ControlProtocol.OK + " ")) {
+            return Optional.empty();
+        }
+        return Optional.of(reply.substring(ControlProtocol.OK.length() + 1).trim());
+    }
+
+    /**
      * Ask the worker to fetch a world's newest archive from the network into a local file.
      *
      * @param worldId        hex world id.

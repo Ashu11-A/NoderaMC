@@ -170,6 +170,72 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
 
     private final dev.nodera.core.state.ChunkStampBook stamps;
 
+    /** Fetched regions being written into the level, a couple of columns per tick. */
+    private final dev.nodera.mod.server.shadow.RegionApplyQueue regionApplies =
+            new dev.nodera.mod.server.shadow.RegionApplyQueue();
+
+    /** Pulls a region's committed state from the worker when this node's copy is known-wrong. */
+    private final dev.nodera.mod.common.RegionFetchSpool regionFetches =
+            dev.nodera.mod.common.RegionFetchSpool.companion();
+
+    /**
+     * Queue a region fetched from the network to be written into the live level.
+     *
+     * <p>The consuming half of the content plane. Everything before this — extract, split, hash,
+     * announce, request, verify, reassemble — has existed for a long time and ended nowhere: no code
+     * anywhere could put a received region into a world, so the only way to receive one was to
+     * unpack a whole-save archive and re-open the save.
+     *
+     * @param snapshot the state that arrived.
+     * @param onDone   run on the server thread when the last column has landed, or {@code null}.
+     * @return whether it was queued; {@code false} when this node has no level bound for the region.
+     * @Thread-context any thread.
+     */
+    public boolean applyFetchedRegion(RegionSnapshot snapshot, Runnable onDone) {
+        ServerLevel level = boundLevels.get(snapshot.region());
+        if (level == null) {
+            LOG.warn("cannot apply fetched region {} — no level bound for it", snapshot.region());
+            return false;
+        }
+        regionApplies.offer(level, snapshot, onDone);
+        return true;
+    }
+
+    /** @return the apply queue, for diagnostics and tests. */
+    public dev.nodera.mod.server.shadow.RegionApplyQueue regionApplies() {
+        return regionApplies;
+    }
+
+    /** How often diverged regions are checked; a repair takes tens of seconds, so seconds will do. */
+    private static final int REPAIR_INTERVAL_TICKS = 100;
+
+    /**
+     * Ask the network for a region this node knows it has wrong, and write back what arrives.
+     *
+     * <p>The recovery that did not exist. A validator that re-executed a batch and got a different
+     * answer declined to vote — correctly — and then had no path back: its pending ballot stayed
+     * null, so every commit announce after that returned early, and it served state it knew was
+     * stale until the session ended.
+     *
+     * <p>Repair is a fetch, not a re-derivation, because the disagreement is precisely about what
+     * the region contains. Re-deriving it locally would produce the same wrong answer again.
+     */
+    private void repair(RegionId region) {
+        String haveRoot = null;
+        try {
+            haveRoot = world.chunkIndex(region, stamps).root().toHex();
+        } catch (RuntimeException notLoaded) {
+            // No local copy to diff against — ask for everything.
+            LOG.debug("no local index for {} to repair against: {}", region, notLoaded.toString());
+        }
+        regionFetches.request(region, haveRoot, snapshot -> {
+            // The apply queue is the server thread's; offering to it is not.
+            if (applyFetchedRegion(snapshot, () -> validation.repaired(region))) {
+                LOG.info("repairing diverged region {} from the network", region);
+            }
+        });
+    }
+
     private long currentTick;
 
     /**
@@ -789,6 +855,23 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         } catch (RuntimeException requiresResync) {
             metrics.recordResync();
         }
+        // Terrain that arrived from the network, written a couple of columns at a time. Inside the
+        // applier scope, or every block of it classifies as a foreign write, lands in the
+        // interference buffer, and is proposed back to the committee as this node's own edit.
+        if (!regionApplies.isEmpty()) {
+            regionApplies.tick(writeGuard::applierScope);
+        }
+        // A replica that knows its copy of a region is wrong could not previously do anything about
+        // it: it stopped voting and stayed stale for the rest of the session. Now it asks the
+        // network for the region and writes what comes back. Throttled inside the spool, so a
+        // condition that persists until the fetch lands does not ask once per tick.
+        if (currentTick % REPAIR_INTERVAL_TICKS == 0) {
+            for (RegionId region : regions) {
+                if (validation.isDiverged(region)) {
+                    repair(region);
+                }
+            }
+        }
         // Issue #46.1: a player whose client cannot keep up must not hold its regions — and every
         // other player's border crossing into them — hostage. Sustained unanswered forwards move
         // primacy to a member that can do the work. Network failures degrade, never crash a tick.
@@ -862,6 +945,9 @@ public final class LiveEntityLaneRuntime implements EntityCaptureBridge.Runtime,
         boundLevels.clear();
         regions.clear();
         ghosts.clear();
+        // Anything still waiting to be written has no level to be written into once this returns.
+        regionApplies.clear();
+        regionFetches.close();
         // Waits for an in-flight push: it is writing into the spool directory, and close() runs on
         // the world-unload path that is entitled to tear that down.
         regionSeeds.close();

@@ -652,6 +652,131 @@ public final class WorldArchiveService implements AutoCloseable {
     }
 
     /**
+     * Fetch one region's content from the swarm and hand back the state it describes.
+     *
+     * <h2>The half of the content plane that was missing</h2>
+     *
+     * <p>Regions have been seeded, split, hashed and announced since the piece plane landed, and
+     * their manifests travel on {@code WorldManifestAnswer} — but nothing ever downloaded one. The
+     * only way to receive somebody else's world was the whole-save archive, which costs a world
+     * reload. This is the region-granular path: ask for the columns that differ, get bytes back,
+     * and hand a {@link dev.nodera.core.state.RegionSnapshot} to a caller that can put it in a level.
+     *
+     * <p>The piece work is the archive lane's, unchanged — including
+     * {@code adoptPiecesAlreadyHere}, which reuses any piece whose <b>hash</b> this node already
+     * holds under any other manifest. That is what makes this cheap: regions are cut one piece per
+     * chunk column, so a column nobody touched is a byte-identical piece under a new root, found
+     * locally and never requested.
+     *
+     * @param worldIdHex   the world.
+     * @param region       the region wanted.
+     * @param wantRoot     the specific chunk-index root wanted, or {@code null} for the newest
+     *                     manifest this node knows of.
+     * @param seeders      peers that might hold it.
+     * @param timeout      the no-progress budget (a stall deadline, not a wall clock).
+     * @return the region's state.
+     * @throws IllegalStateException if no manifest is known, or the fetch stalls.
+     * @Thread-context any thread; blocking.
+     */
+    public dev.nodera.core.state.RegionSnapshot fetchRegion(
+            String worldIdHex, RegionId region, Bytes wantRoot, java.time.Duration timeout) {
+        return fetchRegionFrom(worldIdHex, region, wantRoot,
+                resolveSeeders(Bytes.fromHex(worldIdHex)), timeout);
+    }
+
+    /**
+     * As {@link #fetchRegion}, from an explicit candidate-seeder set — the tracker-free path for
+     * tests and pre-resolved callers.
+     *
+     * @Thread-context any thread except the runtime state thread (blocks).
+     */
+    public dev.nodera.core.state.RegionSnapshot fetchRegionFrom(
+            String worldIdHex, RegionId region, Bytes wantRoot,
+            Set<NodeId> seeders, java.time.Duration timeout) {
+        Objects.requireNonNull(worldIdHex, "worldIdHex");
+        Objects.requireNonNull(region, "region");
+        PieceManifest manifest = regionManifestFor(worldIdHex, region, wantRoot);
+        if (manifest == null) {
+            throw new IllegalStateException("no manifest known for region " + region
+                    + " of world " + shortId(worldIdHex)
+                    + (wantRoot == null ? "" : " at index root " + wantRoot.toShortHex(6)));
+        }
+        long deadline = System.nanoTime() + timeout.toNanos();
+        byte[] blob = download(worldIdHex, manifest, seeders, deadline, (verified, total) -> { });
+        // The blob must hash to the root the committee certified, or this is not the region it
+        // claims to be. The pieces were each verified on arrival; this checks that they were also
+        // the RIGHT pieces, assembled in the right order.
+        Bytes assembled = new dev.nodera.core.crypto.HashService().sha256(blob);
+        if (!assembled.equals(manifest.regionRoot().hash())) {
+            throw new IllegalStateException("fetched region " + region + " hashes to "
+                    + assembled.toShortHex(6) + ", not the certified "
+                    + manifest.regionRoot().hash().toShortHex(6));
+        }
+        dev.nodera.core.state.RegionSnapshot snapshot =
+                dev.nodera.core.state.RegionSnapshot.decode(
+                        new dev.nodera.core.crypto.CanonicalReader(Bytes.unsafeWrap(blob)));
+        // Take the provenance the columns arrived with rather than re-dating them to now: a chunk
+        // somebody edited an hour ago must not outrank one edited a minute ago merely because this
+        // node received the first one second. This is also the only place remote readings reach the
+        // local clock, which is why the clock bounds how far ahead it will follow one.
+        dev.nodera.core.state.RegionChunkIndex index = manifest.chunkIndex();
+        if (index != null) {
+            long refused = stampClock.rejectedReadings();
+            for (dev.nodera.core.state.ChunkStamp stamp : index.stamps()) {
+                stampClock.observe(stamp.stamp());
+            }
+            // The stamps themselves persist in the manifest this node now holds, so the next re-seed
+            // reads them back through restampAgainstPrevious; what has to happen here is that the
+            // local clock learns to answer "after" to what it has seen.
+            if (stampClock.rejectedReadings() > refused) {
+                LOG.warn("region {} of world {} carried {} clock reading(s) too far in the future "
+                                + "to adopt — a peer's clock is wrong, or somebody is trying it on",
+                        region, shortId(worldIdHex), stampClock.rejectedReadings() - refused);
+            }
+        }
+        LOG.info("Fetched region {} of world {} — {} column(s), root {}",
+                region, shortId(worldIdHex), snapshot.chunks().size(),
+                manifest.regionRoot().hash().toShortHex(6));
+        return snapshot;
+    }
+
+    /**
+     * The manifest this node knows for a region, by chunk-index root or newest-first.
+     *
+     * @return the manifest, or {@code null} when this node knows of none.
+     */
+    private PieceManifest regionManifestFor(String worldIdHex, RegionId region, Bytes wantRoot) {
+        Map<RegionId, NavigableMap<Long, PieceManifest>> byRegion = regionManifests.get(worldIdHex);
+        if (byRegion == null) {
+            return null;
+        }
+        NavigableMap<Long, PieceManifest> versions = byRegion.get(region);
+        if (versions == null || versions.isEmpty()) {
+            return null;
+        }
+        if (wantRoot == null) {
+            return versions.lastEntry().getValue();
+        }
+        for (PieceManifest candidate : versions.descendingMap().values()) {
+            dev.nodera.core.state.RegionChunkIndex index = candidate.chunkIndex();
+            if (index != null && index.root().equals(wantRoot)) {
+                return candidate;
+            }
+            if (candidate.manifestRoot().equals(wantRoot)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    /** What this node currently holds for a region, so a fetcher can be told what to send. */
+    public Optional<dev.nodera.core.state.RegionChunkIndex> regionIndex(
+            String worldIdHex, RegionId region) {
+        PieceManifest manifest = regionManifestFor(worldIdHex, region, null);
+        return manifest == null ? Optional.empty() : Optional.ofNullable(manifest.chunkIndex());
+    }
+
+    /**
      * Build the stamp book for a region about to be seeded, by comparing it with the newest version
      * of that region this node already holds.
      *

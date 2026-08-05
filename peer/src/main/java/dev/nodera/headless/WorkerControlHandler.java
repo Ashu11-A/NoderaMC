@@ -923,6 +923,60 @@ public final class WorkerControlHandler implements ControlHandler {
                 + " " + manifest.pieceCount();
     }
 
+    /**
+     * {@code NODERA-FETCH-REGION} — pull one region's committed state from the swarm and leave it
+     * in a file for the caller to apply.
+     *
+     * <p>The worker does the piece work because the piece plane lives here; the caller writes it
+     * into a level because the server thread lives there. Nothing new crosses a module boundary.
+     *
+     * @return {@code "<byteCount> <regionRootHex>"}, or {@code null} when there is no archive lane.
+     */
+    public String fetchRegion(String worldId, String dimension, String regionX, String regionZ,
+                              String destPathB64, String haveRootHex, String timeoutSeconds) {
+        if (archive == null) {
+            return null;
+        }
+        String dest = decodeB64(destPathB64);
+        if (worldId == null || worldId.isBlank() || dimension == null || dimension.isBlank()
+                || dest.isBlank()) {
+            throw new IllegalArgumentException("missing worldId/dimension/destination path");
+        }
+        // `namespace:path`, the form DimensionKey.toString produces and every log line already uses.
+        int colon = dimension.lastIndexOf(':');
+        if (colon <= 0 || colon == dimension.length() - 1) {
+            throw new IllegalArgumentException("dimension must be namespace:path, got " + dimension);
+        }
+        dev.nodera.core.region.RegionId region = new dev.nodera.core.region.RegionId(
+                dev.nodera.core.region.DimensionKey.of(
+                        dimension.substring(0, colon), dimension.substring(colon + 1)),
+                Integer.parseInt(regionX), Integer.parseInt(regionZ));
+        dev.nodera.core.Bytes wantRoot =
+                haveRootHex == null || haveRootHex.isBlank()
+                        || dev.nodera.peer.control.ControlProtocol.NO_VALUE.equals(haveRootHex)
+                        ? null : dev.nodera.core.Bytes.fromHex(haveRootHex);
+        java.time.Duration timeout = java.time.Duration.ofSeconds(
+                timeoutSeconds == null || timeoutSeconds.isBlank()
+                        ? 60L : Long.parseLong(timeoutSeconds));
+        dev.nodera.core.state.RegionSnapshot snapshot =
+                archive.fetchRegion(worldId, region, wantRoot, timeout);
+        dev.nodera.core.crypto.CanonicalWriter w = new dev.nodera.core.crypto.CanonicalWriter();
+        snapshot.encode(w);
+        byte[] encodedSnapshot = w.toByteArray();
+        java.nio.file.Path destFile = controlPaths.resolve(dest, "region destination path");
+        try {
+            java.nio.file.Path parent = destFile.getParent();
+            if (parent != null) {
+                java.nio.file.Files.createDirectories(parent);
+            }
+            java.nio.file.Files.write(destFile, encodedSnapshot);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("cannot write fetched region: " + e.getMessage());
+        }
+        return encodedSnapshot.length + " "
+                + new dev.nodera.core.crypto.HashService().sha256(encodedSnapshot).toHex();
+    }
+
     @Override
     public String fetchArchive(String worldId, String destPathB64, long timeoutSeconds,
                                ArchiveProgress progress) {

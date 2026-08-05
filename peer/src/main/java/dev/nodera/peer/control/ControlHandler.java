@@ -113,6 +113,26 @@ public interface ControlHandler {
     }
 
     /**
+     * Fetch one region's committed state from the network into a local file — the mirror of
+     * {@link #seedRegion}, and the direction the content plane never had.
+     *
+     * @param worldId        hex world id.
+     * @param dimension      the region's dimension as {@code namespace:path}.
+     * @param regionX        region X.
+     * @param regionZ        region Z.
+     * @param destPathB64    base64 of the destination path for the encoded snapshot (same machine).
+     * @param haveIndexRoot  the chunk-index root the caller already holds, or the
+     *                       {@link ControlProtocol#NO_VALUE} sentinel for "whatever you have".
+     * @param timeoutSeconds the no-progress budget for the transfer.
+     * @return {@code "<byteCount> <snapshotHashHex>"} on success, or {@code null} if unsupported; a
+     *         thrown {@link RuntimeException}'s message becomes the ERR line.
+     */
+    default String fetchRegion(String worldId, String dimension, String regionX, String regionZ,
+                               String destPathB64, String haveIndexRoot, String timeoutSeconds) {
+        return null;
+    }
+
+    /**
      * Fetch a world's newest archive from the network into a local file (the joiner half).
      *
      * @param worldId        hex world id.

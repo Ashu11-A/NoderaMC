@@ -352,6 +352,15 @@ public final class ControlServer implements AutoCloseable {
                 return seeded == null ? err("validated-lane seeding unavailable")
                         : ControlProtocol.OK + " " + seeded;
             }
+            if (ControlProtocol.FETCH_REGION.equals(verb)) {
+                // NODERA-FETCH-REGION <ver> <worldId> <dim> <rx> <rz> <destB64>
+                //                     [haveRootHex] [timeoutSeconds]
+                String fetched = handler.fetchRegion(arg(parts, 2), arg(parts, 3),
+                        arg(parts, 4), arg(parts, 5), arg(parts, 6), arg(parts, 7),
+                        arg(parts, 8));
+                return fetched == null ? err("region fetch unavailable")
+                        : ControlProtocol.OK + " " + fetched;
+            }
             // NODERA-ARCHIVE is not dispatched here: it writes progress before it answers, so it
             // is handled by #archive on the connection itself. See the branch in #handle.
             if (ControlProtocol.WORLDID.equals(verb)) {

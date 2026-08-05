@@ -152,6 +152,32 @@ public final class ControlProtocol {
     public static final String SEED_REGION = "NODERA-SEED-REGION";
 
     /**
+     * Fetch one region's committed state from the network:
+     * {@code NODERA-FETCH-REGION <ver> <worldId> <dim> <regionX> <regionZ> <destPathB64>
+     * [haveIndexRootHex] [timeoutSeconds]} — the worker downloads the region's pieces, verifies the
+     * assembled blob against the certified region root, and writes the canonical
+     * {@code RegionSnapshot} to {@code destPath}.
+     *
+     * <p>The exact mirror of {@link #SEED_REGION}, and the direction that did not exist. Regions
+     * were seeded, split, hashed and announced, and their manifests travelled — and nothing ever
+     * downloaded one, so the only way to receive somebody else's world was the whole-save archive
+     * and the world reload that comes with it.
+     *
+     * <p>{@code haveIndexRootHex} names what the caller already holds, so the worker can serve the
+     * matching version rather than whatever is newest; omit it for "whatever you have". Reuse is
+     * decided below this, by piece hash, so a caller that already holds most of the region pays for
+     * the columns that differ whether or not it names a root.
+     *
+     * <p><b>Why a file path and not the bytes.</b> Same as {@link #SEED_REGION}: this is a line
+     * protocol on loopback, and a region does not belong on a line.
+     *
+     * <p>Reply: {@code NODERA-OK <byteCount> <regionRootHex>}. Additive verb — an older worker
+     * answers {@code NODERA-ERR unknown verb}, which callers treat as "no region fetch here" and
+     * carry on without.
+     */
+    public static final String FETCH_REGION = "NODERA-FETCH-REGION";
+
+    /**
      * Mint a signed world identity (the worker is the author):
      * {@code NODERA-WORLDID <genesisRootB64> <createdAt> <shared> <listed> <encrypted>
      * <manifestRefB64> [pinnedWorldIdHex]}; reply is {@code NODERA-OK <worldIdentityBytesB64>}.
