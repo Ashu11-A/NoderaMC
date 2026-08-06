@@ -553,3 +553,77 @@ Behavioural, user-visible or security-relevant:
   written — and for the redstone and fluid tests a generator would assert only determinism, which
   `DeterminismPropertyTest` already covers.
 - Claim a re-bucketing as a reduction.
+
+---
+
+## Round 2 — what it delivered, and what round 3 must assume
+
+Executed 2026-08-06 by five agents in parallel worktrees (#225 frame helper, #226 frontend+gates,
+#227 rust services, #228 dead clusters, #229 test consolidation), then two reviewers, then three
+fixers (#234 gate + regression tests, #235 documentation truth). Merged into
+`refactor/reuse-driven-shrink` = PR #222.
+
+**Result: 167,711 → 158,551 code lines, −9,160, −5.46%.**
+
+| branch | claimed | measured |
+|---|---:|---:|
+| dead clusters | −7,947 | −7,947 ✅ |
+| test consolidation | −976 | −976 ✅ |
+| rust services | −426 | −426 ✅ |
+| frontend + gates | −132 | −132 ✅ |
+| frame helper | −204 | **−164 merged** (20 sites sat in files the deletion removed) |
+
+Gate on the merged tree: `./gradlew check` green, **2,243 Java passed / 0 failed / 0 skipped**,
+`cargo test` 730/0/1, clippy zero warnings, every script gate green.
+
+### The skip count reached zero
+
+Twelve tests had never once run in the main gate — each waited on a cargo binary or the peer
+distribution that the `java` job never built, and an `assumeTrue` on a missing artefact reports as a
+skip rather than a failure. The workflow now builds them before `check` and asserts `skipped == 0`,
+and `SpawnedService` turns a missing binary into a failure at the suite. **2,423 / 12 skipped
+became 2,243 / 0 skipped** — the fall in passes is 43 test files leaving with the design they
+tested, verified class-by-class: every one referenced a deleted class and could not have compiled,
+and every surviving class they also drove retains production callers and other tests.
+
+### What round 3 must assume
+
+Round 2 delivered −9,401 at merge against a re-baselined estimate of 11,100–14,800 — 85% of the
+conservative case, **but only because 4,236 of those lines were test files deleted alongside dead
+production code**, a windfall no lever in the estimate table accounted for and which is now
+permanently spent. Excluding it, the levers the plan actually budgeted returned **5,165 of 11,100 —
+47%**. The error is not random: every estimate built by *naming the specific files to change* was
+accurate or conservative (item 1: 3,560 estimated, 3,711 landed; item 9: 125 estimated, 241
+landed), and every estimate built by *extrapolating "this construct appears N times × M lines
+each"* was wrong by 3–14× (item 4: 2,500 → 274 against a true greedy ceiling of 1,330; item 13:
+450 → 32; item 3: 400 → 164; item 11's census of 25 dead TypeScript exports contained 13, and two
+of those were live lanes that needed wiring, not deletion). **Round 3 must price no lever it cannot
+express as a list of files, and must apply a ~50% discount to any construct-count extrapolation
+that survives that test.** Three levers are measured, named and now at zero conflict risk: the
+seven-into-one engine fixture consolidation (606 lines — never attempted; round 2 added an *eighth*
+fixture and did only the `executeTicks` preamble), the `@Nested` groups deferred solely to avoid
+conflicting with the deletion branch (~284 in `peer/…/validation` and `peer/…/distribution`), and
+~49 remaining frame-helper sites outside `:core`/`:transport` (~150 lines). Roughly 1,000 lines of
+*named-file* work, and it should be stated as such rather than grossed up.
+
+**The round's most valuable output was not lines.** `--tap`, the stamped zero-skip gate and the
+built service binaries brought 210 uncounted frontend tests and 12 never-executed integration tests
+under a gate for the first time; eight of the twelve listed defects were fixed and the remaining
+four are filed (#230 path traversal, #231 unguarded event handlers, #232 drain lane, #233 proposer
+validation), plus #236 for a contradiction the round created. Round 3 should be budgeted with the
+error-rate half first and the reduction half second, because that is the order in which round 2
+actually created value.
+
+### Traps this round confirmed
+
+- **A ratchet file cannot be merged.** `budget.json` carried one branch's stamp into the merge while
+  its own `measured` field claimed it had been re-measured. Both ratchets are now re-taken on the
+  merge commit, every time.
+- **`git stash` is shared across worktrees.** An agent ran it in its own worktree and popped a user's
+  parked work. Never use it in agent work.
+- **A test-count gate is only useful if it moves.** `test-counts.sh --check` failed on five stale
+  rows after the Rust consolidation, and again on three after the follow-up fixer added regression
+  tests. It said so both times.
+- **A read-only analysis cannot see a test that enforces a call site.** Twelve "dead" TypeScript
+  exports were held live by `ux-honesty.test.mjs` asserting every registered Tauri command has a
+  frontend caller.
