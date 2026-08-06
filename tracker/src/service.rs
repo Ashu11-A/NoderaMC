@@ -8,7 +8,6 @@
 use crate::announce::{self, within_window, IdentityBindings, Rejection};
 use crate::config::Config;
 use crate::deletion::DeletedWorlds;
-use crate::limits::AnnounceQuota;
 use crate::query;
 use crate::registry::{AnnounceOutcome, Registry};
 use crate::services::{ServiceDirectory, ServiceRejection};
@@ -19,6 +18,7 @@ use nodera_codec::service::{
 };
 use nodera_codec::tags::message_tags;
 use nodera_codec::tombstone::{WorldDeletionGossip, WorldRevivalGossip};
+use nodera_service::limits::Quota as AnnounceQuota;
 use std::net::IpAddr;
 
 /// What the tracker did with a frame — the caller logs this; the peer gets the reply.

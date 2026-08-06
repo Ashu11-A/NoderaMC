@@ -8,13 +8,13 @@
 
 use crate::config::Config;
 use crate::discover;
-use crate::limits::RequestQuota;
 use crate::punch::PunchCoordinator;
 use crate::register::{self, IdentityBindings};
 use crate::registry::{Namespace, Registry};
 use crate::reservation::ReservationKeeper;
 use nodera_codec::rendezvous::{ObservedAddress, PunchSync, RelayConnect, RendezvousMessage};
 use nodera_codec::types::NodeId;
+use nodera_service::limits::Quota as RequestQuota;
 use std::net::IpAddr;
 
 /// The lead time before a coordinated hole-punch go-signal fires, giving both peers time to receive

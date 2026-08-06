@@ -169,6 +169,10 @@ impl Default for Config {
 }
 
 /// Why a configuration was refused.
+///
+/// Its own type rather than the shared [`nodera_service::config::ConfigError`]: telemetry's refusals
+/// are about *what it will collect*, not about a file, and a test asserts on the variants by name.
+/// The file-reading half is shared; this half is genuinely this service's.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
     #[error("{0} must be greater than zero")]
@@ -205,26 +209,17 @@ impl Config {
     /// values, because one of them could be an operator secret for an adjacent service.
     pub fn apply_env(
         &mut self,
-        env: &impl EnvSource,
+        env: &dyn EnvSource,
     ) -> Result<nodera_service::env::Applied, ConfigError> {
         let mut overlay = EnvOverlay::new(ENV_PREFIX, env);
-        overlay.set("bind_addr", &mut self.bind_addr);
-        overlay.set("spool_dir", &mut self.spool_dir);
-        overlay.set("spool_max_bytes", &mut self.spool_max_bytes);
-        overlay.set("spool_max_seconds", &mut self.spool_max_seconds);
-        overlay.set("subject_rotation_days", &mut self.subject_rotation_days);
-        overlay.set_optional_path("geo_table_path", &mut self.geo_table_path);
-        overlay.set("max_frame_bytes", &mut self.max_frame_bytes);
-        overlay.set("max_events_per_batch", &mut self.max_events_per_batch);
-        overlay.set("max_attrs_per_event", &mut self.max_attrs_per_event);
-        overlay.set("max_event_age_seconds", &mut self.max_event_age_seconds);
-        overlay.set("max_clock_skew_seconds", &mut self.max_clock_skew_seconds);
-        overlay.set("quota_window_seconds", &mut self.quota_window_seconds);
-        overlay.set("per_ip_batch_quota", &mut self.per_ip_batch_quota);
-        overlay.set("per_ip_event_quota", &mut self.per_ip_event_quota);
-        overlay.set("report_interval_seconds", &mut self.report_interval_seconds);
-        overlay.set("public_endpoint", &mut self.public_endpoint);
-        overlay.set_list("trusted_proxy_cidrs", &mut self.trusted_proxy_cidrs);
+        nodera_service::env_overlay!(overlay, self,
+            set: bind_addr, spool_dir, spool_max_bytes, spool_max_seconds, subject_rotation_days,
+                 max_frame_bytes, max_events_per_batch, max_attrs_per_event, max_event_age_seconds,
+                 max_clock_skew_seconds, quota_window_seconds, per_ip_batch_quota,
+                 per_ip_event_quota, report_interval_seconds, public_endpoint;
+            set_list: trusted_proxy_cidrs;
+            set_optional_path: geo_table_path;
+        );
         overlay.finish().map_err(ConfigError::Env)
     }
 
@@ -236,9 +231,9 @@ impl Config {
             .declared
     }
 
+    /// Load a config file. Validation is the caller's, as it is in every service.
     pub fn load(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
-        let text = std::fs::read_to_string(path)?;
-        Ok(toml::from_str(&text)?)
+        Ok(nodera_service::config::load_toml(path)?)
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -270,6 +265,8 @@ impl Config {
         }
     }
 }
+
+nodera_service::service_config!(Config);
 
 #[cfg(test)]
 mod tests {

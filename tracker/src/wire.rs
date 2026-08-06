@@ -12,57 +12,13 @@
 //! makes an unbounded answer an amplification weapon.
 
 use crate::service::{Handled, Tracker};
-use nodera_codec::framing;
+pub use nodera_service::frame::now_millis;
+use nodera_service::frame::{read_frame, udp_reply_permitted, write_frame};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
-
-/// Wall-clock milliseconds. Used for announce freshness and the retention countdown only — never
-/// for anything a peer's correctness depends on.
-pub fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-/// Read one length-prefixed frame.
-///
-/// Returns `Ok(None)` at a clean end of stream. The length is validated against the protocol cap
-/// *before* the body buffer is allocated.
-pub async fn read_frame(
-    stream: &mut TcpStream,
-    max_frame_bytes: usize,
-) -> io::Result<Option<Vec<u8>>> {
-    let mut header = [0u8; 4];
-    match stream.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = framing::decode_length(header)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    if len > max_frame_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("frame of {len} bytes exceeds the configured limit {max_frame_bytes}"),
-        ));
-    }
-    let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
-    Ok(Some(body))
-}
-
-/// Write one length-prefixed frame.
-pub async fn write_frame(stream: &mut TcpStream, payload: &[u8]) -> io::Result<()> {
-    let framed = framing::frame(payload)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    stream.write_all(&framed).await
-}
 
 /// Serve one connection until the peer closes it or sends something unserviceable.
 ///
@@ -160,7 +116,7 @@ pub async fn serve_udp(tracker: Arc<Mutex<Tracker>>, socket: UdpSocket) {
         let Handled::Reply(reply) = handled else {
             continue;
         };
-        if reply.len() > max_reply || reply.len() > len.saturating_mul(max_amplification) {
+        if !udp_reply_permitted(len, reply.len(), max_reply, max_amplification) {
             // The answer exists but is too large to hand to an unverified source address.
             continue;
         }
@@ -210,26 +166,14 @@ pub async fn run(
         }
     });
 
-    tokio::pin!(shutdown);
-    loop {
-        tokio::select! {
-            accepted = listener.accept() => {
-                match accepted {
-                    Ok((stream, remote)) => {
-                        let tracker = Arc::clone(&tracker);
-                        tokio::spawn(async move {
-                            serve_connection(tracker, stream, remote, max_frame_bytes).await;
-                        });
-                    }
-                    Err(e) => eprintln!("nodera-tracker: accept error: {e}"),
-                }
-            }
-            _ = &mut shutdown => {
-                println!("nodera-tracker: draining on shutdown signal");
-                break;
-            }
-        }
-    }
+    nodera_service::serve::accept_loop("nodera-tracker", listener, shutdown, |stream, remote| {
+        let tracker = Arc::clone(&tracker);
+        tokio::spawn(async move {
+            serve_connection(tracker, stream, remote, max_frame_bytes).await;
+        });
+    })
+    .await;
+    println!("nodera-tracker: draining on shutdown signal");
     sweeper.abort();
     Ok(())
 }
@@ -239,6 +183,7 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use nodera_codec::messages::{DiscoveryMessage, TrackerQuery};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn spawn_test_tracker() -> (SocketAddr, Arc<Mutex<Tracker>>) {
         let config = Config {

@@ -10,26 +10,18 @@
 use crate::circuit::{CircuitLimits, CircuitMeter, TeardownReason};
 use crate::registry::Namespace;
 use crate::service::{Decision, Rendezvous};
-use nodera_codec::framing;
 use nodera_codec::rendezvous::{RelayConnect, RelayIncoming, RelayReservation, RendezvousMessage};
 use nodera_codec::types::NodeId;
+pub use nodera_service::frame::now_millis;
+use nodera_service::frame::{read_frame, write_frame};
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
-
-/// Wall-clock milliseconds. Used only for reservation freshness and circuit metering — never for
-/// anything a peer's correctness depends on.
-pub fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
 
 /// Something delivered to a reserved peer's control channel.
 pub enum ControlEvent {
@@ -94,37 +86,6 @@ pub fn broadcast_frame(channels: &ControlChannels, frame: &[u8]) -> usize {
         .into_iter()
         .filter(|tx| tx.try_send(ControlEvent::Frame(frame.to_vec())).is_ok())
         .count()
-}
-
-/// Read one length-prefixed frame; `Ok(None)` at a clean end of stream.
-pub async fn read_frame(
-    stream: &mut TcpStream,
-    max_frame_bytes: usize,
-) -> io::Result<Option<Vec<u8>>> {
-    let mut header = [0u8; 4];
-    match stream.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = framing::decode_length(header)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    if len > max_frame_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("frame of {len} bytes exceeds the configured limit {max_frame_bytes}"),
-        ));
-    }
-    let mut body = vec![0u8; len];
-    stream.read_exact(&mut body).await?;
-    Ok(Some(body))
-}
-
-/// Write one length-prefixed frame.
-pub async fn write_frame(stream: &mut TcpStream, payload: &[u8]) -> io::Result<()> {
-    let framed = framing::frame(payload)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    stream.write_all(&framed).await
 }
 
 /// Serve one connection: control request/reply until the peer reserves, connects, or hangs up.
@@ -486,31 +447,23 @@ pub async fn run(
         }
     });
 
-    tokio::pin!(shutdown);
-    loop {
-        tokio::select! {
-            accepted = listener.accept() => {
-                match accepted {
-                    Ok((stream, remote)) => {
-                        let rendezvous = Arc::clone(&rendezvous);
-                        let channels = Arc::clone(&channels);
-                        tokio::spawn(async move {
-                            serve_connection(rendezvous, channels, stream, remote, max_frame_bytes)
-                                .await;
-                        });
-                    }
-                    Err(e) => eprintln!("nodera-rendezvous: accept error: {e}"),
-                }
-            }
-            _ = &mut shutdown => {
-                // The drain already ran: this is the point at which the listener closes, after the
-                // peers have been told and the circuits have finished. The old code printed
-                // "draining" here and then dropped the runtime, which cut them instead.
-                println!("nodera-rendezvous: closing the listener");
-                break;
-            }
-        }
-    }
+    nodera_service::serve::accept_loop(
+        "nodera-rendezvous",
+        listener,
+        shutdown,
+        |stream, remote| {
+            let rendezvous = Arc::clone(&rendezvous);
+            let channels = Arc::clone(&channels);
+            tokio::spawn(async move {
+                serve_connection(rendezvous, channels, stream, remote, max_frame_bytes).await;
+            });
+        },
+    )
+    .await;
+    // The drain already ran: this is the point at which the listener closes, after the peers have
+    // been told and the circuits have finished. The old code printed "draining" here and then
+    // dropped the runtime, which cut them instead.
+    println!("nodera-rendezvous: closing the listener");
     sweeper.abort();
     Ok(())
 }

@@ -88,6 +88,22 @@ impl ServiceIdentity {
         }
     }
 
+    /// Load the identity at `path`, minting and announcing one on first run.
+    ///
+    /// The identity is minted once and preserved after that. A service that regenerated it would
+    /// present itself to every peer as a brand-new, unmeasured service after every restart —
+    /// exactly when the availability it has earned matters most. The line it prints is how an
+    /// operator confirms the file survived a redeploy.
+    pub fn load_or_generate(name: &str, path: &Path) -> io::Result<Self> {
+        let identity = Self::load_or_create(path, fresh_seed(), random_node_id())?;
+        println!(
+            "{name}: service identity {:016x}{:016x}",
+            identity.node_id().msb,
+            identity.node_id().lsb
+        );
+        Ok(identity)
+    }
+
     fn decode_file(bytes: &[u8]) -> Option<Self> {
         if bytes.len() != KEY_FILE_BYTES || bytes[0] != KEY_FILE_VERSION {
             return None;
@@ -189,6 +205,38 @@ pub struct RecordSnapshot {
     pub ttl_millis: u64,
     /// Intended stop time when draining; 0 otherwise.
     pub drain_deadline_epoch_millis: u64,
+}
+
+/// A fresh 32-byte secret for a first-run identity.
+///
+/// Uses the process' own entropy sources rather than adding a random crate to services whose only
+/// need for randomness is this one call: the address of a heap allocation, the wall clock, the
+/// sub-second remainder, and the pid, hashed. Identity generation is explicitly outside the
+/// deterministic engine path.
+pub fn fresh_seed() -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let marker = Box::new(0u8);
+    let mut hasher = Sha256::new();
+    hasher.update(crate::lifecycle::now_millis().to_be_bytes());
+    hasher.update(std::process::id().to_be_bytes());
+    hasher.update((marker.as_ref() as *const u8 as usize).to_be_bytes());
+    hasher.update(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or_default()
+            .to_be_bytes(),
+    );
+    hasher.finalize().into()
+}
+
+/// A fresh node id for a first-run identity.
+pub fn random_node_id() -> NodeId {
+    let seed = fresh_seed();
+    NodeId::new(
+        u64::from_be_bytes(seed[..8].try_into().expect("8 bytes")),
+        u64::from_be_bytes(seed[8..16].try_into().expect("8 bytes")),
+    )
 }
 
 #[cfg(unix)]

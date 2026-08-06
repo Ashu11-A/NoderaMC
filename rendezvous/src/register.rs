@@ -6,8 +6,7 @@
 
 use nodera_codec::rendezvous::SignedRecord;
 use nodera_codec::sig;
-use nodera_codec::types::NodeId;
-use std::collections::HashMap;
+pub use nodera_service::admission::{within_window, IdentityBindings};
 
 /// Why a registration was refused. The string form is stable and machine-readable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,45 +42,6 @@ impl Rejection {
     }
 }
 
-/// Remembers which public key first claimed each `NodeId` (trust-on-first-use).
-///
-/// Nodera's `NodeId` is random, not key-derived, so the service cannot check the binding
-/// cryptographically. The first key to claim an id keeps it while remembered, so an attacker cannot
-/// hijack a live peer's id — a directory-level protection, not an authority claim.
-#[derive(Debug, Default)]
-pub struct IdentityBindings {
-    bindings: HashMap<NodeId, Vec<u8>>,
-}
-
-impl IdentityBindings {
-    /// An empty binding table.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Check the claim, recording it when the id is new.
-    pub fn accept(&mut self, peer: NodeId, public_key: &[u8]) -> bool {
-        match self.bindings.get(&peer) {
-            Some(known) => known.as_slice() == public_key,
-            None => {
-                self.bindings.insert(peer, public_key.to_vec());
-                true
-            }
-        }
-    }
-
-    /// Forget a binding (used when a peer unregisters gracefully).
-    pub fn forget(&mut self, peer: &NodeId) {
-        self.bindings.remove(peer);
-    }
-
-    /// How many identities are remembered.
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.bindings.len()
-    }
-}
-
 /// Validate a signed record against the freshness window and identity table.
 ///
 /// The signature is verified over the record's own canonical bytes
@@ -103,7 +63,7 @@ pub fn admit(
     {
         return Err(Rejection::BadSignature);
     }
-    if record.issued_at_epoch_millis.abs_diff(now_millis) > clock_skew_millis {
+    if !within_window(record.issued_at_epoch_millis, now_millis, clock_skew_millis) {
         return Err(Rejection::StaleRecord);
     }
     if !bindings.accept(record.peer, &record.public_key) {

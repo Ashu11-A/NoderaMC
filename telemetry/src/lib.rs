@@ -17,7 +17,6 @@
 pub mod config;
 pub mod event;
 pub mod geo;
-pub mod limits;
 pub mod reporter;
 pub mod schema;
 pub mod service;
