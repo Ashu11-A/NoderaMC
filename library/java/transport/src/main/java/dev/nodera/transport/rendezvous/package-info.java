@@ -14,9 +14,13 @@
  *       others; records are Ed25519-signed and verified against the same canonical bytes on both
  *       sides, so the service introduces peers but never vouches for them.</li>
  *   <li><b>Connectivity control</b> — {@link dev.nodera.transport.rendezvous.CandidateDialer} tries
- *       direct candidates, {@link dev.nodera.transport.rendezvous.HolePunchCoordinator} coordinates
- *       DCUtR-style hole punching, and {@link dev.nodera.transport.rendezvous.TransportSelector}
- *       picks direct &gt; punched &gt; relayed per peer with transparent demotion.</li>
+ *       direct candidates and {@link dev.nodera.transport.rendezvous.TransportSelector} picks
+ *       direct &gt; relayed per peer with transparent demotion. There is no punched path:
+ *       {@code TransportSelector.Path} has exactly two values, so <b>Nodera relays where it cannot
+ *       dial</b>. A DCUtR-style hole-punch coordinator was written for Task 29 and never given a
+ *       path for the selector to choose; it was deleted on 2026-08-06 (Plan 11 round 2, issue
+ *       #210). Wiring NAT traversal is a capacity decision, not a correctness one, and should be
+ *       taken with a measurement showing relay load is the binding constraint.</li>
  *   <li><b>Data</b> — {@link dev.nodera.transport.rendezvous.RelayCircuitClient} establishes an
  *       {@link dev.nodera.transport.rendezvous.EndToEndCipher}-protected
  *       {@link dev.nodera.transport.rendezvous.RelayCircuit} when no direct path exists; the relay
