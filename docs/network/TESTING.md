@@ -6,26 +6,27 @@
      forced process kills; a graceful-stop test proves the wrong thing and must not be counted as
      crash coverage. -->
 
-**Category:** network · **Last run:** 2026-08-01 · **1,226 Java test cases + 73 Rust (`nodera-codec`)
-`#[test]` · 0 failing at the last gate** — Java counts come from Gradle XML reports and sum the module
-table below (187 + 158 + 881). Worker cases are also described under the worker category.
+**Category:** network · **Last run:** 2026-08-05 (`transport` + `nodera-codec`; `storage` and `peer`
+from the 2026-08-01 gate) · **1,228 Java test cases + 79 Rust (`nodera-codec`) `#[test]` · 0 failing**
+— Java counts come from Gradle XML reports and sum the module table below (189 + 158 + 881). Worker
+cases are also described under the worker category.
 
 > **The live suites are Java scenarios now.** Every `scripts/e2e-<id>.sh` became `dev.nodera.testkit.scenario.<Id>Scenario` and runs through one command:
 > `scripts/nodera-test.sh run <id>` (`list` shows them all). The stages, evidence strings and timeouts were carried over, so a report maps onto an old run line by line. The tooling is documented in [`docs/testing/`](../testing/Task.0.md).
 
 | Module | Scope | Tests | Status |
 |---|---|---:|:---:|
-| `transport` | The `NDR2` wire and both planes: all 75 kinds sampled, fixtured and dispatch-tested; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard | 187 | ✅ |
+| `transport` | The `NDR2` wire and both planes: all 76 kinds sampled, fixtured and dispatch-tested through the one `CodecRegistry` table; canonical TLV; negotiation and OBSERVER admission; the authorisation table and router; explicit enum codes; socket/rendezvous carriers; canonical mutation fuzz; the Android `SwitchBootstraps` guard | 189 | ✅ |
 | `storage` | Event-sourced, RocksDB, and client tiers; paired append; transfer stages; forced-kill WAL recovery; identity/permission stores; secure atomic writes including Android-denied store inspection | 158 | ✅ |
 | `peer` | Distribution, runtime, discovery, archival, diagnostics, validation lane, durable coordinator state, commons-safe replication, the endpoint tenant boundary, the L-16 prediction feed, and the NDR2 authorisation table **as the runtime applies it** (`SenderAuthorisationIsEnforcedTest` — a forged goodbye cannot evict, a forged join cannot enrol) | 881 | 🚧 |
-| `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 73 | ✅ |
+| `library/rust/nodera-codec` | Byte-exact canonical encoding port, the `NDR2` frame and TLV, Ed25519 verify, total parsed kind mirror against the Java schema, fixture conformance, canonical mutation fuzz | 79 | ✅ |
 
 `peer` is marked 🚧 because its scope is incomplete (task 2's migration lane), not because anything
 fails.
 
 ```bash
 ./gradlew :transport:test :storage:test :peer:test
-cd rust && cargo test -p nodera-codec
+cargo test -p nodera-codec
 
 # Task 14: accept a deliberate wire change after reviewing the bytes it emits.
 ./gradlew :transport:test --tests '*WireFixtureTest' -Dnodera.fixtures.regenerate=true
@@ -70,9 +71,11 @@ cd rust && cargo test -p nodera-codec
 | `ConfigVerbIT` | A pushed setting actually changes worker behaviour, over the real control socket |
 | `GrantGossipIT` (6) | Grants converge across co-hosts; a non-author's signed grant is refused everywhere and not even relayed |
 | `TrafficDirectionSplitTest` | Upload and download never share a field |
-| `MessageSamples.assertTotal` (task 14) | Every one of the 75 registry kinds has a deterministic sample; appending one without a sample fails the build at the commit that adds it |
+| `MessageSamples.assertTotal` (task 14) | Every one of the 76 registry kinds has a deterministic sample; appending one without a sample fails the build at the commit that adds it |
 | `WireFixtureTest` (5) | Every tag's golden bytes are committed and unchanged, across the 25-file cross-language corpus and the 52-file Java-only corpus. A **missing** fixture fails — it used to be written silently, which meant bytes nobody had reviewed |
-| `MessageCodecTypeTagTest` (75/75) | Every kind dispatches to its own type and round-trips by value; the registry is unique and contiguous. Coverage was 25 of 72 before task 14 |
+| `MessageCodecTypeTagTest` (76/76) | Every kind dispatches to its own type and round-trips by value; the registry is unique and contiguous. Coverage was 25 of 72 before task 14 |
+| `CodecRegistry` totality (class initialisation) | A kind `WireRegistry` declares but the codec table cannot encode fails when the class loads, not at the first send. Encoder and decoder are one row, so a tag cannot have one without the other — which is exactly the drift the two-dispatcher layout allowed |
+| `SessionKeepAliveCodecTest` (8) | Tag 23 is body version 2 and nothing else (0.2.0, issue #214): the golden v2 frame is byte-exact, progress is canonically sorted and duplicate-free on both the record and the decoder, and a **retired v1 frame is refused at the version** rather than reinterpreted as empty progress |
 | `CanonicalMutationFuzzTest` + `mutation.rs` | The same invariant in both languages on the same corpus: a mutated frame either fails to decode or re-encodes to exactly its own bytes. Found 999 pre-existing canonical violations across 30 message types, now 0 — **and the documented-exception list is now empty**, where it used to hold `RegionRefusal` and `PeerJoin` |
 | `ForwardCompatibilityTest` (10) | A field a newer peer appended is skipped — at the top level and inside a nested `NodeCapabilities` — and a field an older peer omitted takes its default. Consensus payloads cross as one opaque field. **These are the exit tests that retired L-86 and L-89 (2026-07-28, issue #97):** `aFieldAppendedByANewerPeerIsIgnored`, `aFieldAppendedInsideANestedStructureIsIgnored`, `aFieldTheSenderOmitsTakesItsDocumentedDefault`, `CrossVersionIT.aFutureFieldSurvivesARelay` (L-86); `aConsensusPayloadCrossesAsOpaqueBytes`, `theTwoPlanesAreExactlyPopulated` (L-89) — all green |
 | `NegotiationTest` (11) | A rules-version mismatch yields OBSERVER with a coded reason instead of an engine throw; a peer cannot name itself; the emitted feature set is the intersection. L-87 and L-88 |

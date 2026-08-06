@@ -26,16 +26,13 @@ final class SessionKeepAliveCodecTest {
     private static final RegionId OVERWORLD_ZERO =
             new RegionId(DimensionKey.overworld(), 0, 0);
 
-    /** Hand-built legacy frame: tag 23, v1, sender node 1, sequence 2, and no further body. */
-    private static final String LEGACY_V1_HEX =
+    /** Hand-built retired frame: tag 23, v1, sender node 1, sequence 2, and no further body. */
+    private static final String RETIRED_V1_HEX =
             "00170001"
                     + "0001000100000000000000000000000000000001"
                     + "0000000000000002";
 
-    /**
-     * Hand-derived v2 frame: the v1 fields followed by one overworld (0,0), epoch 3, primary node 4,
-     * last-applied tick 5 progress entry.
-     */
+    /** Hand-derived v2 frame: sender, sequence, then overworld (0,0) / epoch 3 / node 4 / tick 5. */
     private static final String V2_GOLDEN_HEX =
             "00170002"
                     + "0001000100000000000000000000000000000001"
@@ -47,13 +44,14 @@ final class SessionKeepAliveCodecTest {
                     + "0001000100000000000000000000000000000004"
                     + "0000000000000005";
 
+    /** Retired in 0.2.0 (#214): kind 23 crosses NDR2 as a TLV body, so nothing emits v1 any more. */
     @Test
-    void decodesHandBuiltLegacyV1AsEmptyProgress() {
-        SessionKeepAlive decoded =
-                (SessionKeepAlive) MessageCodec.decode(Bytes.fromHex(LEGACY_V1_HEX).toArray());
+    void refusesTheRetiredV1FrameRatherThanReadingItAsEmptyProgress() {
+        byte[] retired = Bytes.fromHex(RETIRED_V1_HEX).toArray();
 
-        assertThat(decoded).isEqualTo(new SessionKeepAlive(FROM, 2L));
-        assertThat(decoded.regionProgress()).isEmpty();
+        assertThatThrownBy(() -> MessageCodec.decode(retired))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unsupported SessionKeepAlive encoding version 1");
     }
 
     @Test
@@ -129,20 +127,20 @@ final class SessionKeepAliveCodecTest {
     }
 
     @Test
-    void rejectsUnsupportedVersionsAndTrailingDataForBothKeepAliveVersions() {
-        byte[] unsupported = Bytes.fromHex(V2_GOLDEN_HEX).toArray();
-        unsupported[3] = 3;
-        byte[] legacy = Bytes.fromHex(LEGACY_V1_HEX).toArray();
-        byte[] legacyTrailing = Arrays.copyOf(legacy, legacy.length + 1);
+    void rejectsVersionsEitherSideOfTwoAndTrailingData() {
+        byte[] tooNew = Bytes.fromHex(V2_GOLDEN_HEX).toArray();
+        tooNew[3] = 3;
+        byte[] tooOld = Bytes.fromHex(V2_GOLDEN_HEX).toArray();
+        tooOld[3] = 1;
         byte[] v2 = Bytes.fromHex(V2_GOLDEN_HEX).toArray();
         byte[] v2Trailing = Arrays.copyOf(v2, v2.length + 1);
 
-        assertThatThrownBy(() -> MessageCodec.decode(unsupported))
+        assertThatThrownBy(() -> MessageCodec.decode(tooNew))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("unsupported SessionKeepAlive encoding version 3");
-        assertThatThrownBy(() -> MessageCodec.decode(legacyTrailing))
+        assertThatThrownBy(() -> MessageCodec.decode(tooOld))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("trailing");
+                .hasMessageContaining("unsupported SessionKeepAlive encoding version 1");
         assertThatThrownBy(() -> MessageCodec.decode(v2Trailing))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("trailing");

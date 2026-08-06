@@ -36,6 +36,33 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — One codec dispatch, one keep-alive version, and the 0.2.0 bump
+
+`MessageCodec` dispatched twice: a chain of 76 `instanceof` arms for encoding and a 76-case
+`switch` for decoding, seven hundred lines apart in one 1,585-line file. That distance was the
+defect — a message could gain a field on one side and not the other, or an encode arm and no decode
+arm, and nothing in the language said so. The pair is now one row in `CodecRegistry`, the same shape
+`InfrastructureCodec`'s `shape(...)` rows already used for the TLV plane, and a kind the schema
+declares but the registry cannot encode fails at class initialisation rather than at the first send.
+The per-tag version chain in `decode` went with it: each row states the closed range of body
+versions it accepts.
+
+**No byte changed.** `fixtures/wire/*.bin` is unchanged in this commit and `WireFixtureTest` passed
+without `-Dnodera.fixtures.regenerate`; `WireSchemaGeneratorTest` passed without
+`-Dnodera.wire.regenerate`, so the generated Rust kind table needed no regeneration either — the
+schema this refactor dispatches through was never touched.
+
+`SessionKeepAlive` body version 1 is retired, which is the one thing in this change a version bump
+had to authorise (`AGENTS.md` §"Frozen contracts"). It is verifiable without a mixed-release run:
+kind 23 is on the **infrastructure** plane, so on the `NDR2` wire a keep-alive travels as a TLV body
+and never reaches this codec; nothing in the tree has emitted a v1 body since that flag day — the
+negotiated demotion in `PeerSession.shapeForEmit` empties the progress list rather than downgrading
+the version — and `nodera-codec` does not list tag 23 in `SUPPORTED_MESSAGE_TAGS` at all, so there is
+no second implementation to keep in step. A v1 frame is now refused at the version, before a byte of
+body is read. Evidence: `SessionKeepAliveCodecTest.refusesTheRetiredV1FrameRatherThanReadingItAsEmptyProgress`
+and `rejectsVersionsEitherSideOfTwoAndTrailingData`, `MessageCodecTypeTagTest` (76/76 dispatch and
+round-trip), `WireFixtureTest` (5), `cargo test -p nodera-codec` (79 tests) — all green.
+
 ### 2026-08-01 — Android storage inspection and commons catalog entries are handled explicitly
 
 Android denies `Files.getFileStore` even for app-private paths, so owner-only atomic writes now try
