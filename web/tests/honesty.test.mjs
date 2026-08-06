@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { declaredComponents, duplicateComponents } from "nodera-ui/component-audit";
 import { repositoryDirectory } from "nodera-ui/layout";
 import { sourceFiles } from "nodera-ui/token-audit";
 import { siteDirectory } from "./layout.mjs";
@@ -102,4 +103,23 @@ test("'unlimited' appears only where it is explained", () => {
     }
   }
   assert.deepEqual(offenders, [], `"unlimited" with no explanation of what zero means:\n  ${offenders.join("\n  ")}`);
+});
+
+/* ---------------------------------------------------------------------- one name, one component */
+
+test("no component name is declared in two of the site's modules", () => {
+  // The launcher's half of this rule found two `Banner`s that disagreed about `role="alert"`, so
+  // eleven of its thirteen banners announced a failure to a screen reader as ordinary text. The site
+  // had never been held to it: `frontendRoots()` names the launcher and the shared kit, and
+  // `web/src` is neither — 69 components that nothing was checking. The rule itself, and why its
+  // tempting second half is deliberately absent, are in `nodera-ui/component-audit`.
+  const roots = [path.join(siteDirectory, "src")];
+  const declaredIn = declaredComponents(roots);
+  // The count first, for the reason every rule in these suites now carries one: zero collisions out
+  // of zero components is what a walker pointed at a directory the code has left produces, and it
+  // renders identically to a clean tree.
+  assert.ok(declaredIn.size > 40, `only ${declaredIn.size} components were inspected`);
+
+  const collisions = duplicateComponents(roots);
+  assert.deepEqual(collisions, [], `two modules declare the same component:\n  ${collisions.join("\n  ")}`);
 });

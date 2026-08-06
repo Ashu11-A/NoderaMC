@@ -17,6 +17,7 @@
     },
     "./vite": "./vite/preset.mjs",
     "./layout": "./layout.mjs",
+    "./component-audit": "./tests/component-audit.mjs",
     "./token-audit": "./tests/token-audit.mjs",
     "./vacuity-audit": "./tests/vacuity-audit.mjs"
   },
