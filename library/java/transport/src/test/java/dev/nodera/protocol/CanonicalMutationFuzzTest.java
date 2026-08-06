@@ -70,10 +70,39 @@ final class CanonicalMutationFuzzTest {
      */
     private static final int HEADER_BYTES = NoderaFrame.HEADER_BYTES;
 
+    /**
+     * The cardinality this file was missing.
+     *
+     * <p>Every loop below produces a value and then asserts something about the survivors, and
+     * nothing asserted <b>how many things the value covered</b>. `unknownKind() -> continue` and
+     * `catch (RuntimeException rejected) { continue; }` are both correct outcomes and both silent:
+     * a change that made every mutated frame re-address itself, or made the decoder throw on
+     * everything, would leave `violations` empty and this test green while asserting nothing. That
+     * is the same shape as the magic-bytes bug already fixed in the Rust half of this pair.
+     *
+     * <p>So the loop counts. A mutation lands in exactly one of three buckets — rejected,
+     * re-addressed to an unknown kind, or decoded — and the decoded bucket is the only one the
+     * invariant can be checked on. It must not be empty, and it must not be a rounding error
+     * against the number of mutations attempted.
+     */
+    private static final class MutationTally {
+        int attempted;
+        int rejected;
+        int reAddressed;
+        int decoded;
+
+        @Override
+        public String toString() {
+            return attempted + " mutations: " + decoded + " decoded, " + rejected + " rejected, "
+                    + reAddressed + " re-addressed to an unknown kind";
+        }
+    }
+
     @Test
     void decodedMutationsReEncodeToTheirOwnBytes() {
         MessageSamples.assertTotal();
         List<String> violations = new ArrayList<>();
+        MutationTally tally = new MutationTally();
 
         for (Map.Entry<Integer, NoderaMessage> entry : MessageSamples.byTag().entrySet()) {
             String name = MessageCodec.typeName(entry.getKey());
@@ -90,16 +119,21 @@ final class CanonicalMutationFuzzTest {
                     if (java.util.Arrays.equals(mutated, encoded)) {
                         continue;
                     }
+                    tally.attempted++;
 
                     WireCodec.DecodedFrame decoded;
                     try {
                         decoded = WireCodec.decodeFrame(mutated);
                         if (decoded.unknownKind()) {
-                            continue; // Re-addressed, not corrupted; the header has its own tests.
+                            // Re-addressed, not corrupted; the header has its own tests.
+                            tally.reAddressed++;
+                            continue;
                         }
                     } catch (RuntimeException rejected) {
-                        continue; // A clean rejection is the expected outcome.
+                        tally.rejected++; // A clean rejection is the expected outcome.
+                        continue;
                     }
+                    tally.decoded++;
                     byte[] reencoded;
                     try {
                         // Re-encoded WITH whatever this build could not read, because that is what
@@ -123,10 +157,22 @@ final class CanonicalMutationFuzzTest {
         assertThat(violations)
                 .as("a frame that decodes must re-encode to itself; these do not")
                 .isEmpty();
+        assertThat(tally.attempted)
+                .as("the corpus has to actually be mutated: %s", tally)
+                .isGreaterThan(1_000);
+        assertThat(tally.decoded)
+                .as("a run in which nothing survives decoding asserts nothing about canonical "
+                        + "re-encoding, and would still report green: %s", tally)
+                .isGreaterThan(tally.attempted / 100);
+        assertThat(tally.rejected + tally.reAddressed + tally.decoded)
+                .as("every mutation lands in exactly one bucket: %s", tally)
+                .isEqualTo(tally.attempted);
     }
 
     @Test
     void everyTruncationIsRejectedCleanly() {
+        MessageSamples.assertTotal();
+        int truncations = 0;
         for (Map.Entry<Integer, NoderaMessage> entry : MessageSamples.byTag().entrySet()) {
             String name = MessageCodec.typeName(entry.getKey());
             if (DOCUMENTED_EXCEPTIONS.contains(name)) {
@@ -136,6 +182,7 @@ final class CanonicalMutationFuzzTest {
             int stride = Math.max(1, encoded.length / MAX_SITES);
 
             for (int cut = 0; cut < encoded.length; cut += stride) {
+                truncations++;
                 byte[] prefix = java.util.Arrays.copyOf(encoded, cut);
                 try {
                     WireCodec.decode(prefix);
@@ -154,11 +201,17 @@ final class CanonicalMutationFuzzTest {
                 }
             }
         }
+        assertThat(truncations)
+                .as("a corpus that produced no prefixes would pass this test by doing nothing")
+                .isGreaterThan(100);
     }
 
     @Test
     void appendingToAnyFrameIsRejected() {
+        MessageSamples.assertTotal();
+        int frames = 0;
         for (Map.Entry<Integer, NoderaMessage> entry : MessageSamples.byTag().entrySet()) {
+            frames++;
             String name = MessageCodec.typeName(entry.getKey());
             byte[] encoded = WireCodec.encode(entry.getValue());
             byte[] extended = java.util.Arrays.copyOf(encoded, encoded.length + 1);
@@ -167,6 +220,9 @@ final class CanonicalMutationFuzzTest {
                     .as("%s: a trailing byte must invalidate the frame", name)
                     .isNotNull();
         }
+        assertThat(frames)
+                .as("every known tag has to be exercised, not whatever the map happened to hold")
+                .isEqualTo(MessageCodec.KNOWN_TAGS.size());
     }
 
     private static RuntimeException catchDecode(byte[] frame) {
