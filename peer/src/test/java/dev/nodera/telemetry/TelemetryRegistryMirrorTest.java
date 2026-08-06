@@ -1,18 +1,13 @@
 package dev.nodera.telemetry;
 
-import dev.nodera.testkit.harness.LayoutManifest;
+import dev.nodera.testkit.harness.SpawnedService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,11 +32,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 final class TelemetryRegistryMirrorTest {
 
     @Test
-    void everyEventThisPeerCanEmitIsDeclaredByTheIngestService() throws Exception {
+    void everyEventThisPeerCanEmitIsDeclaredByTheIngestService() {
         String schema = printSchema();
         Assumptions.assumeTrue(schema != null,
-                "nodera-telemetry has not been built — run scripts/e2e-telemetry.sh or the "
-                        + "telemetry CI job, which build it first");
+                SpawnedService.buildHint("nodera-telemetry"));
 
         Set<String> declaredByIngest = eventNames(schema);
         assertThat(declaredByIngest).isNotEmpty();
@@ -64,7 +58,7 @@ final class TelemetryRegistryMirrorTest {
      * different meaning, so the names are checked for overlap rather than for equality.
      */
     @Test
-    void theServiceDeclaresTheServiceOnlyEventsThisPeerDoesNotEmit() throws Exception {
+    void theServiceDeclaresTheServiceOnlyEventsThisPeerDoesNotEmit() {
         String schema = printSchema();
         Assumptions.assumeTrue(schema != null, "nodera-telemetry has not been built");
 
@@ -75,25 +69,10 @@ final class TelemetryRegistryMirrorTest {
     }
 
     /** Run {@code nodera-telemetry --print-schema}, or {@code null} when no binary exists. */
-    private static String printSchema() throws IOException, InterruptedException {
-        Path root = repositoryRoot();
-        for (String profile : new String[] {"release", "debug"}) {
-            Path binary = LayoutManifest.load().dir("cargoTarget").resolve(profile)
-                    .resolve("nodera-telemetry");
-            if (!Files.isExecutable(binary)) {
-                continue;
-            }
-            Process process = new ProcessBuilder(binary.toString(), "--print-schema")
-                    .redirectErrorStream(false)
-                    .start();
-            String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!process.waitFor(30, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                return null;
-            }
-            return process.exitValue() == 0 ? out : null;
-        }
-        return null;
+    private static String printSchema() {
+        return SpawnedService.binary("nodera-telemetry")
+                .flatMap(binary -> SpawnedService.runOnce(binary, "--print-schema"))
+                .orElse(null);
     }
 
     /**
@@ -116,17 +95,5 @@ final class TelemetryRegistryMirrorTest {
             at = schema.indexOf(key, end);
         }
         return names;
-    }
-
-    /** Walk up from the working directory to the repository root (the one carrying VERSION). */
-    private static Path repositoryRoot() {
-        Path directory = Path.of("").toAbsolutePath();
-        while (directory != null) {
-            if (Files.isRegularFile(directory.resolve("VERSION"))) {
-                return directory;
-            }
-            directory = directory.getParent();
-        }
-        return Path.of("").toAbsolutePath();
     }
 }
