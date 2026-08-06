@@ -31,29 +31,32 @@ import java.util.stream.Stream;
  * so a reader does not have to trace an id back to its validation to see that the store cannot write
  * outside itself.
  *
- * <h2>What subclasses still own</h2>
+ * <h2>Held, not inherited</h2>
  *
- * <p>The suffix, the record type, and what verification means for it. Everything a subclass hands to
- * {@link #loadAll} is re-verified on the way in: a file on our own disk is not more trustworthy than
- * a frame off the wire, so an edited record reads as absent rather than as an unverifiable record we
- * hold.
+ * <p>A store <b>has</b> a directory of hex-named files; it is not one. That is the honest
+ * relationship — {@code WorldKeyStore} is a keyring and {@code WorldTombstoneStore} is a record of
+ * deletions, and neither is a kind of the other — and it is also what keeps the structural report
+ * able to see the calls. {@code DeadCodeAnalysis} resolves a reference by exact method id with no
+ * walk up the hierarchy, so an inherited {@code fileFor(...)} call is credited to the subclass and
+ * the declaration reads as referenced by nothing. Composition names the owner at the call site, so
+ * every method here is visibly used by the code that uses it.
+ *
+ * <p>What each caller still owns: the suffix, the record type, and what verification means for it.
+ * Everything handed to {@link #loadAll} is re-verified on the way in — a file on our own disk is not
+ * more trustworthy than a frame off the wire, so an edited record reads as absent rather than as an
+ * unverifiable record we hold.
  *
  * @Thread-context safe from any thread; blocking IO on the caller's thread.
  */
-abstract class HexKeyedStore {
+final class HexKeyedStore {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
     private final Path directory;
 
     /** @param directory where this store's files live; created on the first save. */
-    protected HexKeyedStore(Path directory) {
+    HexKeyedStore(Path directory) {
         this.directory = Objects.requireNonNull(directory, "directory").normalize();
-    }
-
-    /** @return the directory this store reads and writes. */
-    public Path directory() {
-        return directory;
     }
 
     /**
@@ -65,7 +68,7 @@ abstract class HexKeyedStore {
      * @param worldIdHex the id as it arrived.
      * @return the normalised id, or {@code null} when it is not a usable world id.
      */
-    protected static String normalise(String worldIdHex) {
+    static String normalise(String worldIdHex) {
         if (worldIdHex == null || worldIdHex.isBlank()) {
             return null;
         }
@@ -89,7 +92,7 @@ abstract class HexKeyedStore {
      *                                  check has already made it impossible — if the resolved path
      *                                  would escape the directory.
      */
-    protected Path fileFor(String worldIdHex, String suffix) {
+    Path fileFor(String worldIdHex, String suffix) {
         String name = normalise(worldIdHex);
         if (name == null) {
             throw new IllegalArgumentException("worldId must be hex: " + worldIdHex);
@@ -102,7 +105,7 @@ abstract class HexKeyedStore {
     }
 
     /** @return every id this store holds a {@code suffix} file for. */
-    protected List<String> idsWith(String suffix) {
+    List<String> idsWith(String suffix) {
         List<String> out = new ArrayList<>();
         if (!Files.isDirectory(directory)) {
             return out;
@@ -119,7 +122,7 @@ abstract class HexKeyedStore {
     }
 
     /** Best-effort removal; a file we cannot delete is logged, never thrown from a sweep. */
-    protected void delete(Path file) {
+    void delete(Path file) {
         try {
             Files.deleteIfExists(file);
         } catch (IOException e) {
@@ -137,7 +140,7 @@ abstract class HexKeyedStore {
      * @param <T>      the record type.
      * @return the record, or {@code null} when the file is unreadable or does not verify.
      */
-    protected <T> T read(Path file, Function<CanonicalReader, T> decode, Predicate<T> verifies,
+    <T> T read(Path file, Function<CanonicalReader, T> decode, Predicate<T> verifies,
                          String what) {
         try {
             T record = decode.apply(new CanonicalReader(Files.readAllBytes(file)));
@@ -166,7 +169,7 @@ abstract class HexKeyedStore {
      * @param <T>              the record type.
      * @return the survivors.
      */
-    protected <T> List<T> loadAll(String suffix, Function<CanonicalReader, T> decode,
+    <T> List<T> loadAll(String suffix, Function<CanonicalReader, T> decode,
                                   Predicate<T> verifies, String what, ToLongFunction<T> issuedAt,
                                   long floorEpochMillis) {
         if (!Files.isDirectory(directory)) {

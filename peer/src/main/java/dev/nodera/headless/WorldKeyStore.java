@@ -39,11 +39,14 @@ import static dev.nodera.headless.WorldIds.shortId;
  * @Thread-context safe from any thread; blocking IO on the caller's thread. The in-memory cache is
  *                 concurrent and is only ever populated from disk or from a fresh generation.
  */
-public final class WorldKeyStore extends HexKeyedStore {
+public final class WorldKeyStore {
 
     private static final Logger LOG = LoggerFactory.getLogger("NoderaWorker");
 
     private static final String SUFFIX = ".worldkey";
+
+    /** The hex-named file directory this keyring lives in; see {@link HexKeyedStore}. */
+    private final HexKeyedStore files;
 
     private final ConcurrentHashMap<String, PersistedWorldKey> cache = new ConcurrentHashMap<>();
 
@@ -52,7 +55,7 @@ public final class WorldKeyStore extends HexKeyedStore {
      * @throws NullPointerException if {@code directory} is null.
      */
     public WorldKeyStore(Path directory) {
-        super(directory);
+        this.files = new HexKeyedStore(directory);
     }
 
     /**
@@ -63,7 +66,7 @@ public final class WorldKeyStore extends HexKeyedStore {
      * @Thread-context any thread; blocking IO on a cache miss.
      */
     public Optional<PersistedWorldKey> load(String worldIdHex) {
-        String key = normalise(worldIdHex);
+        String key = HexKeyedStore.normalise(worldIdHex);
         if (key == null) {
             return Optional.empty();
         }
@@ -71,7 +74,7 @@ public final class WorldKeyStore extends HexKeyedStore {
         if (cached != null) {
             return Optional.of(cached);
         }
-        Path file = fileFor(key, SUFFIX);
+        Path file = files.fileFor(key, SUFFIX);
         if (!Files.exists(file)) {
             return Optional.empty();
         }
@@ -106,7 +109,7 @@ public final class WorldKeyStore extends HexKeyedStore {
      * @Thread-context any thread; blocking IO.
      */
     public PersistedWorldKey loadOrGenerate(String worldIdHex) {
-        String key = normalise(worldIdHex);
+        String key = HexKeyedStore.normalise(worldIdHex);
         if (key == null) {
             throw new IllegalArgumentException("missing worldId");
         }
@@ -135,12 +138,13 @@ public final class WorldKeyStore extends HexKeyedStore {
 
     /** @return every world this node administers, hex-encoded. */
     public List<String> administeredWorlds() {
-        return idsWith(SUFFIX);
+        return files.idsWith(SUFFIX);
     }
 
     private void save(PersistedWorldKey key) {
         CanonicalWriter w = new CanonicalWriter(256);
         key.encode(w);
-        LocalFiles.writeAtomically(fileFor(key.worldId().toHex(), SUFFIX), w.toByteArray());
+        LocalFiles.writeAtomically(files.fileFor(key.worldId().toHex(), SUFFIX),
+                w.toByteArray());
     }
 }

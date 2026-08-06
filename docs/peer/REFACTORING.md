@@ -37,7 +37,7 @@ listed here on structural grounds (god class / long method).
 | `peer/.../peer/control/WorkerEvent.java` | 159 | 22.0 | `worker/.../headless/WorkerControlHandler` (23) | **HALF DONE.** The `headless` half is retired: `headless/Json` now owns the escape and every reply is built through it, and `WorkerTelemetryService`'s third, *different* escape (it replaced `"` with `'`) is gone with it. `WorkerEvent` still carries its own copy — it lives in `peer/.../peer/control/`, which was another agent's territory this round. Promoting `Json.escape` to the control package, or having `WorkerEvent` call it, closes the row |
 | `worker/.../headless/WorldContinuityIT.java` | 392 | 19.1 | `RekeyVerbIT` (22), `CompanionCrashSurvivalIT` (20) | `ControlSocketHarness` + `WorkerDaemonFixture` |
 | `peer/.../peer/control/ControlWatchStreamTest.java` | 205 | 19.0 | `ControlServerTest` (12) | Shared "open control socket, assert reply line" scaffolding |
-| `worker/.../headless/WorldKeyStore.java` | 209 | 16.7 | `WorldTombstoneStore` (19), `WorldRegistryStore` (10) | **RETIRED for the two per-world stores** — `HexKeyedStore` extracted; see §3. `WorldRegistryStore` is deliberately not a subclass: it keeps one file for all worlds, so it has no file-for-id resolution and no traversal surface to guard. Its `key(...)` is normalisation only and now the only copy left |
+| `worker/.../headless/WorldKeyStore.java` | 209 | 16.7 | `WorldTombstoneStore` (19), `WorldRegistryStore` (10) | **RETIRED for the two per-world stores** — `HexKeyedStore` extracted; see §3. `WorldRegistryStore` deliberately does not hold one: it keeps one file for all worlds, so it has no file-for-id resolution and no traversal surface to guard. Its `key(...)` is normalisation only and now the only copy left |
 | `worker/.../headless/RegionPieceSeedingTest.java` | 222 | 12.2 | `engine/.../CrossRegionFluidTest` (11), `neoforge-mod/.../RegionSeedSpoolTest` (8) | Mostly the region-snapshot builder; leave unless the engine test also moves |
 | `worker/.../headless/WorkerTelemetryServiceTest.java` | 231 | 11.3 | `neoforge-mod/.../ModTelemetryTest` (10), `peer/.../SnapshotBuilder` (9) | Minor — the telemetry-event builder shape |
 | `worker/.../headless/WorldRegistryStoreTest.java` | 204 | 10.8 | `peer/.../DurableCoordinatorStateTest` (11), `WorldKeyStoreTest` (11) | The "second instance over the same file" pattern — fold into a `SecondInstanceFixture` |
@@ -71,6 +71,25 @@ The top-5 ordered so each makes the next cheaper:
    `PersistentIdentityStore` now delegate to one implementation with fail-closed POSIX creation and
    failure cleanup. See §3.
 
+### 2.1 A shared base class costs the structural budget; a held collaborator does not
+
+`HexKeyedStore` first landed as an abstract superclass, and `:peer:structureReport` went red:
+`never_referenced_methods` 136 → 137 and `unreachable_methods` 267 → 268. The three protected
+helpers were being called perfectly normally by both subclasses.
+
+The cause is in the analysis, and it is worth knowing before the next extraction here.
+`DeadCodeAnalysis.of` asks `graph.referencesTo(method.id())` — an **exact method-id lookup with no
+walk up the hierarchy**. An inherited call compiles with the subclass as the receiver, so the
+declaration on the base reads as referenced by nothing at all. (`reachableFromEntryPoints` *does*
+walk the hierarchy, via `dispatchTargets`, which is why only one of the two buckets moved for
+`directory()`.) A base class therefore silently charges this budget one entry per shared method,
+for methods that are in fact used.
+
+Composition costs two fields and names the owner at the call site, and it happens to be the more
+honest model: a keyring **has** a directory of hex-named files, it is not one. Both stores now hold
+a `HexKeyedStore`. Prefer that shape for anything extracted into this package while the budget is a
+gate.
+
 ## 3. Completed
 
 | Refactor | Evidence | Completed |
@@ -79,4 +98,4 @@ The top-5 ordered so each makes the next cheaper:
 | Extract `SignedGossipRelay` (§2 item 4) | `headless/SignedGossipRelay.java`; the four relay loops in `WorldOwnershipService`, `WorldGrantGossipService` and `WorldDeletionService` (deletion + revival) are each one `mesh.flood(frame, excluding, what)` call. `WorldReplicationService` audited and found not to carry the shape | 2026-08-05 |
 | Extract `WorldIds` (`key` + `shortId`) | `headless/WorldIds.java`; seven identical `shortId` copies and the `trim().toLowerCase(ROOT)` world-id normaliser now have one home. `WorldHostingService` keeps a one-line delegate because it also declares a `key(String, int)` overload, and a local overload hides a static import of the same name | 2026-08-05 |
 | Extract the `Json` reply builder (part of the `WorkerControlHandler` and `WorkerEvent` rows) | `headless/Json.java`; the ten hand-concatenated replies in `WorkerControlHandler` plus `WorkerTelemetryService.stateJson` are built through it, and the twice-written world row is one `content(...)`. Two of the three escape implementations in the category are gone; `WorkerEvent`'s remains | 2026-08-05 |
-| Extract `HexKeyedStore` | `headless/HexKeyedStore.java`; `WorldKeyStore` and `WorldTombstoneStore` extend it. The path-traversal guard now exists once and is strictly the stronger of the two former versions — the tombstone store gained the even-length check and the resolved-path containment re-check it did not have. `WorldTombstoneStore`'s two load sweeps and two read-and-verify methods, which differed only in record type, are one `loadAll` each | 2026-08-05 |
+| Extract `HexKeyedStore` | `headless/HexKeyedStore.java`; `WorldKeyStore` and `WorldTombstoneStore` each **hold** one. The path-traversal guard now exists once and is strictly the stronger of the two former versions — the tombstone store gained the even-length check and the resolved-path containment re-check it did not have. `WorldTombstoneStore`'s two load sweeps and two read-and-verify methods, which differed only in record type, are one `loadAll` each. Also retired two dead accessors: `WorldKeyStore#directory()` and `WorldTombstoneStore#directory()`, which nothing in the tree called | 2026-08-05 |

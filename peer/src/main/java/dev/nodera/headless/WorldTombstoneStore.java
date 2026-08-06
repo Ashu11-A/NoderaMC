@@ -32,7 +32,7 @@ import java.util.Objects;
  *
  * @Thread-context safe from any thread; blocking IO on the caller's thread.
  */
-public final class WorldTombstoneStore extends HexKeyedStore {
+public final class WorldTombstoneStore {
 
     private static final String SUFFIX = ".tombstone";
 
@@ -42,9 +42,12 @@ public final class WorldTombstoneStore extends HexKeyedStore {
     /** How long a deletion is remembered — the same window the trackers cache. */
     public static final Duration RETENTION = Duration.ofDays(120);
 
+    /** The hex-named file directory these tombstones live in; see {@link HexKeyedStore}. */
+    private final HexKeyedStore files;
+
     /** @param directory where accepted tombstones live; created on the first save. */
     public WorldTombstoneStore(Path directory) {
-        super(directory);
+        this.files = new HexKeyedStore(directory);
     }
 
     /**
@@ -58,7 +61,7 @@ public final class WorldTombstoneStore extends HexKeyedStore {
      * @return the surviving tombstones.
      */
     public List<WorldTombstone> load(long nowEpochMillis) {
-        return loadAll(SUFFIX, WorldTombstone::decode, WorldTombstone::verify, "deletion",
+        return files.loadAll(SUFFIX, WorldTombstone::decode, WorldTombstone::verify, "deletion",
                 WorldTombstone::issuedAtEpoch, nowEpochMillis - RETENTION.toMillis());
     }
 
@@ -77,7 +80,8 @@ public final class WorldTombstoneStore extends HexKeyedStore {
         }
         CanonicalWriter w = new CanonicalWriter(256);
         tombstone.encode(w);
-        LocalFiles.writeAtomically(fileFor(tombstone.worldIdHex(), SUFFIX), w.toByteArray());
+        LocalFiles.writeAtomically(files.fileFor(tombstone.worldIdHex(), SUFFIX),
+                w.toByteArray());
     }
 
     /**
@@ -97,8 +101,9 @@ public final class WorldTombstoneStore extends HexKeyedStore {
         }
         CanonicalWriter w = new CanonicalWriter(256);
         revival.encode(w);
-        LocalFiles.writeAtomically(fileFor(revival.worldIdHex(), REVIVAL_SUFFIX), w.toByteArray());
-        delete(fileFor(revival.worldIdHex(), SUFFIX));
+        LocalFiles.writeAtomically(files.fileFor(revival.worldIdHex(), REVIVAL_SUFFIX),
+                w.toByteArray());
+        files.delete(files.fileFor(revival.worldIdHex(), SUFFIX));
     }
 
     /**
@@ -108,7 +113,7 @@ public final class WorldTombstoneStore extends HexKeyedStore {
      * @return the surviving revivals, each re-verified on the way in.
      */
     public List<dev.nodera.storage.WorldRevival> loadRevivals(long nowEpochMillis) {
-        return loadAll(REVIVAL_SUFFIX, dev.nodera.storage.WorldRevival::decode,
+        return files.loadAll(REVIVAL_SUFFIX, dev.nodera.storage.WorldRevival::decode,
                 dev.nodera.storage.WorldRevival::verify, "restore",
                 dev.nodera.storage.WorldRevival::issuedAtEpoch,
                 nowEpochMillis - RETENTION.toMillis());
