@@ -52,7 +52,7 @@ public record ContainerAction(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.CONTAINER_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.CONTAINER_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 

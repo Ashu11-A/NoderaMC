@@ -6,7 +6,6 @@ import dev.nodera.core.state.PersistedEntityState;
 import dev.nodera.peer.validation.ObserverRefusals;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 
 /**

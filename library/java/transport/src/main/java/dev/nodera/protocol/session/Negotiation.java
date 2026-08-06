@@ -9,7 +9,6 @@ import dev.nodera.protocol.wire.WireRegistry;
 
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 
 /**
  * The handshake: ask, answer, and be bound by the answer (Task 14 phase 4, retiring

@@ -33,7 +33,7 @@ public record BlockChangedEvent(
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.BLOCK_CHANGED_EVENT).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.BLOCK_CHANGED_EVENT, ENCODING_VERSION);
         encodeBody(w);
     }
 

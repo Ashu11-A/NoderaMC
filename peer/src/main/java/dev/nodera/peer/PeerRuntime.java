@@ -3,7 +3,6 @@ package dev.nodera.peer;
 import dev.nodera.core.identity.NodeCapabilities;
 import dev.nodera.core.identity.NodeId;
 import dev.nodera.core.identity.NodeIdentity;
-import dev.nodera.core.region.RegionCommittee;
 import dev.nodera.diagnostics.metric.MessageCounters;
 import dev.nodera.diagnostics.model.PeerLink;
 import dev.nodera.diagnostics.model.SessionInfo;

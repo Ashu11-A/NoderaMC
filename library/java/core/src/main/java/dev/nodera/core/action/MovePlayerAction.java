@@ -31,7 +31,7 @@ public record MovePlayerAction(FixedVec3 to) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.MOVE_PLAYER_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.MOVE_PLAYER_ACTION, ENCODING_VERSION);
         to.encode(w);
     }
 

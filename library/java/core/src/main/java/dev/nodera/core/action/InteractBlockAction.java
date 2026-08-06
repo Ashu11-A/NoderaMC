@@ -30,7 +30,7 @@ public record InteractBlockAction(NBlockPos pos) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.INTERACT_BLOCK_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.INTERACT_BLOCK_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 

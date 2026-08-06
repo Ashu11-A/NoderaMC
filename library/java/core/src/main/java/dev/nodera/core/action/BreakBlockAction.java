@@ -28,7 +28,7 @@ public record BreakBlockAction(NBlockPos pos) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.BREAK_BLOCK_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.BREAK_BLOCK_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 

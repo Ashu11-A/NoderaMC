@@ -36,7 +36,7 @@ public record AttackEntityAction(NetworkEntityId target, FixedVec3 origin) imple
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.ATTACK_ENTITY_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.ATTACK_ENTITY_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 

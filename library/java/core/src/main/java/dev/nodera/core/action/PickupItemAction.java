@@ -30,7 +30,7 @@ public record PickupItemAction(NetworkEntityId entityId) implements GameAction {
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.PICKUP_ITEM_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.PICKUP_ITEM_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 

@@ -36,7 +36,7 @@ public record DropItemAction(int itemStackId, int count, FixedVec3 origin) imple
 
     @Override
     public void encode(CanonicalWriter w) {
-        w.writeU16(TypeTags.DROP_ITEM_ACTION).writeU16(ENCODING_VERSION);
+        w.writeFrame(TypeTags.DROP_ITEM_ACTION, ENCODING_VERSION);
         encodeBody(w);
     }
 
