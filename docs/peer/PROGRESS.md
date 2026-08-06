@@ -28,6 +28,29 @@ Tests: [`TESTING.md`](TESTING.md) · open gaps: [`LIMITATIONS.md`](LIMITATIONS.m
 
 ## 2. Milestone notes (newest first)
 
+### 2026-08-05 — Methods nothing in the tree names are gone from `:peer` (Plan 11 phase 1)
+
+Sixteen methods that `:peer:structureReport` §2.3 reported as referenced by nothing at all — tests
+and benchmarks included — were deleted from `dev.nodera.peer`: `PeerRuntime#messageCounters`/
+`#tickSync`, `SessionView#contains`, `GatewayHandoverListener#handover`,
+`PeerDiscoveryService#knownPeers`, `PersistentIdentityStore#file`, `CachedPeerStore#forget`,
+`CommonsPresence#leave`, `CompanionClient#joinWorld`, `CompanionLink#clear`,
+`RendezvousArchivePolicy#factors`, `LanWatcher#openWorlds`, `TunnelService#self` +
+`LocalEndpoint#sessionIdHex`, and `WorkerValidationService`'s eleven-argument constructor and
+`#reliability`. The report's budget drops from 136 never-referenced methods to 93 and from 267
+unreachable to 264.
+
+Two readers were deliberately kept rather than deleted. `PeerTrafficMeter#snapshot` is the meter's
+only reader AND its only eviction path, so deleting it would have made the per-peer table grow
+without bound — that is behaviour, not dead weight, and Plan 11 removes no behaviour. Nothing calls
+it today, which is a wiring defect worth its own issue rather than a deletion. `TickSync`'s own
+verbs stay too: they are reachable from production only through `PeerRuntime`'s delegates, and
+deleting those delegates would have PROMOTED the `TickSync` methods into the test-only column, which
+is a ratchet moving sideways rather than down.
+
+Evidence: `./gradlew :peer:test` green, `:peer:structureReport` green against the tightened
+`fixtures/structure/budget.json`, `scripts/loc-metrics.py --check` OK.
+
 ### 2026-08-03 — Replicated worlds reach the companion before their download completes
 
 `NODERA-STATE` built `connected_worlds` only from the local hosting registry. An Android worker

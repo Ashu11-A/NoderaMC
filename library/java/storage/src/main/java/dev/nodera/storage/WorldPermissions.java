@@ -168,14 +168,4 @@ public final class WorldPermissions {
     public Bytes worldId() {
         return worldId;
     }
-
-    /** @return the world author (implicit OWNER). */
-    public NodeId author() {
-        return author;
-    }
-
-    /** @return the world author's public key (the permission trust root). */
-    public Bytes authorPublicKey() {
-        return authorPublicKey;
-    }
 }

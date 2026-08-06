@@ -55,14 +55,6 @@ public final class BlockMutationBuffer {
     }
 
     /**
-     * @return {@code true} if no mutation has been recorded.
-     * @Thread-context thread-confined per call.
-     */
-    public boolean isEmpty() {
-        return entries.isEmpty();
-    }
-
-    /**
      * @return the recorded mutations, sorted by {@link NBlockPos#compareTo} ({@code (y, z, x)}).
      *         Unmodifiable; a fresh copy each call.
      * @Thread-context thread-confined per call.

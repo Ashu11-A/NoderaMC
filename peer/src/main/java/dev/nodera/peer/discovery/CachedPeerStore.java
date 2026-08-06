@@ -163,21 +163,6 @@ public final class CachedPeerStore {
         return List.copyOf(out);
     }
 
-    /**
-     * @param genesisHash the world.
-     * @param nodeId      the peer to forget.
-     * @Thread-context any thread.
-     */
-    public synchronized void forget(Bytes genesisHash, NodeId nodeId) {
-        LinkedHashMap<NodeId, CachedPeer> world = byWorld.get(genesisHash);
-        if (world != null) {
-            world.remove(nodeId);
-            if (world.isEmpty()) {
-                byWorld.remove(genesisHash);
-            }
-        }
-    }
-
     /** @return every remembered entry across all worlds, in canonical order. */
     public synchronized List<CachedPeer> all() {
         List<CachedPeer> out = new ArrayList<>();

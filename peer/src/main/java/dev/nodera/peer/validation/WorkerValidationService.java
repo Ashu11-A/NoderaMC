@@ -3,7 +3,6 @@ package dev.nodera.peer.validation;
 import dev.nodera.committee.CommitteeFailover;
 import dev.nodera.committee.CommitteeMember;
 import dev.nodera.consensus.Decision;
-import dev.nodera.consensus.EquivocationDetector;
 import dev.nodera.consensus.MajorityQuorumPolicy;
 import dev.nodera.consensus.ProposalKey;
 import dev.nodera.consensus.VoteCollector;
@@ -52,7 +51,6 @@ import dev.nodera.fallback.CrossRegionRouter;
 import dev.nodera.fallback.RoutingDecision;
 import dev.nodera.fallback.SoakMetrics;
 import dev.nodera.protocol.NoderaMessage;
-import dev.nodera.protocol.codec.MessageCodec;
 import dev.nodera.protocol.wire.WireCodec;
 import dev.nodera.protocol.simulationmsg.ActionBatchMsg;
 import dev.nodera.protocol.simulationmsg.CommitAnnounce;
@@ -325,18 +323,6 @@ public final class WorkerValidationService {
                 registryFingerprint, voteTimeoutMillis, VotePersistence.none(),
                 ActionAdmission.HEADLESS, new InMemoryWorldView(),
                 EntityTransferCoordinator.TransferJournal.NOOP);
-    }
-
-    /** Crash-safe/action-aware constructor used by live worker wiring. */
-    public WorkerValidationService(NodeIdentity identity, PeerTransport transport,
-                                   RegionEngine engine, HashService hashes,
-                                   CertificateStore certificates, long worldSeed,
-                                   int rulesVersion, long registryFingerprint,
-                                   long voteTimeoutMillis, VotePersistence persistence,
-                                   ActionAdmission actionAdmission) {
-        this(identity, transport, engine, hashes, certificates, worldSeed, rulesVersion,
-                registryFingerprint, voteTimeoutMillis, persistence, actionAdmission,
-                new InMemoryWorldView(), EntityTransferCoordinator.TransferJournal.NOOP);
     }
 
     /** Full live constructor with a server-backed canonical world and durable transfer journal. */
@@ -2033,14 +2019,6 @@ public final class WorkerValidationService {
 
     /** Set when a caller gives this lane somewhere durable to keep its view; may stay null. */
     private volatile DurableCoordinatorState durableState;
-
-    /**
-     * @return this node's reliability view, for diagnostics and for an assignment planner that
-     *         wants to skip a member below the floor. Never consensus state.
-     */
-    public dev.nodera.coordinator.ReliabilityLedger reliability() {
-        return reliability;
-    }
 
     /**
      * Give this lane a durable home for its epochs and reputations, and adopt whatever it already

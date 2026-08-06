@@ -26,9 +26,4 @@ public final class NondeterminismException extends RuntimeException {
                 + " then " + second + " on one JVM — this is an engine bug, not a client divergence");
         this.region = region;
     }
-
-    /** @return the region whose recomputes disagreed. */
-    public RegionId region() {
-        return region;
-    }
 }

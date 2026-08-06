@@ -56,7 +56,7 @@ import java.util.function.Supplier;
  * announced once per session unless it changes, so a stable swarm produces no repeated dialing.
  *
  * <p>Thread-context: {@link #start}/{@link #close} from any one thread; polling runs on a single
- * daemon scheduler; {@link #knownPeers()} is safe from any thread.
+ * daemon scheduler.
  */
 public final class PeerDiscoveryService implements AutoCloseable {
 
@@ -134,11 +134,6 @@ public final class PeerDiscoveryService implements AutoCloseable {
         if (s != null) {
             s.execute(this::sweepQuietly);
         }
-    }
-
-    /** @return the peers learned so far, keyed by node id. @Thread-context any thread. */
-    public Map<String, PeerAddress> knownPeers() {
-        return Map.copyOf(known);
     }
 
     @Override

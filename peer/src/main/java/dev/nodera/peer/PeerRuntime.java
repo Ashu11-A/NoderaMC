@@ -157,7 +157,7 @@ public final class PeerRuntime implements DiagnosticsSource {
     /**
      * Bootstrap factory with per-type message counters enabled (Task 18). The runtime records TX/RX
      * counts keyed by {@code MessageCodec} type name on every encoded send and decoded inbound
-     * message; the diagnostics collector reads them via {@link #messageCounters()}.
+     * message.
      */
     public static PeerRuntime bootstrap(NodeIdentity identity, NodeCapabilities capabilities,
                                         PeerTransport transport, Supplier<String> selfRouteSupplier,
@@ -362,16 +362,6 @@ public final class PeerRuntime implements DiagnosticsSource {
     /** @return {@code true} if this runtime is the bootstrap/full-archival peer. */
     public boolean isBootstrap() {
         return bootstrapCapable;
-    }
-
-    /** @return the per-type message counters (null if counting was not enabled). */
-    public MessageCounters messageCounters() {
-        return messageCounters;
-    }
-
-    /** @return the regional tick synchronizer, or {@code null} when not wired. */
-    public TickSync tickSync() {
-        return tickSync;
     }
 
     /**

@@ -34,10 +34,6 @@ public record RegisteredNode(
         return new RegisteredNode(id, capabilities, value, lastHeartbeatTick);
     }
 
-    RegisteredNode withHeartbeat(long tick) {
-        return new RegisteredNode(id, capabilities, connected, tick);
-    }
-
     RegisteredNode withCapabilities(NodeCapabilities caps) {
         return new RegisteredNode(id, caps, connected, lastHeartbeatTick);
     }
