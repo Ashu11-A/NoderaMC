@@ -1095,4 +1095,70 @@ mod tests {
             assert!(why.contains("restart it where you started it") || why.contains("reopen"));
         }
     }
+
+    /// One stray byte used to end the dashboard's log panel for the life of the app.
+    ///
+    /// `while let Ok(Some(line))` read an `Err` the same way it read a clean EOF, and a single
+    /// non-UTF-8 byte in the worker's output — a stack trace carrying a raw file name, a JVM crash
+    /// dump, anything mixing encodings — produces exactly that `Err`. The pump returned, the worker
+    /// carried on talking, and nobody was listening. Everything after the bad byte was lost with no
+    /// error anywhere.
+    ///
+    /// The pipe is a `tokio::io::duplex`, which is why `pump_lines` is generic over its reader:
+    /// spawning a real child process to print a `0xFF` would make this a live test of the operating
+    /// system rather than of the loop. The third line is the assertion that matters — it is the one
+    /// the old code never delivered.
+    #[tokio::test]
+    async fn a_non_utf8_log_line_is_skipped_rather_than_ending_the_pump() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut worker, pipe) = tokio::io::duplex(1024);
+        let logs = Arc::new(LogBuffer::new());
+        let pump = tokio::spawn(pump_lines(pipe, Arc::clone(&logs)));
+
+        worker.write_all(b"nodera-peer: listening\n").await.unwrap();
+        worker.write_all(b"nodera-peer: \xff\xfe\n").await.unwrap();
+        worker
+            .write_all(b"nodera-peer: still here\n")
+            .await
+            .unwrap();
+        drop(worker); // Only a closed pipe ends the pump.
+
+        pump.await
+            .expect("the pump ends with the pipe, not with the line it could not read");
+
+        let lines = logs.snapshot();
+        assert_eq!(
+            lines.len(),
+            3,
+            "one line per write, the bad one replaced by its report: {lines:?}"
+        );
+        assert_eq!(lines[0], "nodera-peer: listening");
+        assert!(
+            lines[1].contains("skipped an unreadable worker log line"),
+            "the skip is reported, not silent: {}",
+            lines[1]
+        );
+        assert_eq!(
+            lines[2], "nodera-peer: still here",
+            "the line after the bad byte is what the old loop threw away"
+        );
+    }
+
+    /// The other end of the same loop: a closed pipe is the only thing that ends it, and it ends
+    /// cleanly rather than by reporting a stream error.
+    #[tokio::test]
+    async fn a_closed_pipe_ends_the_pump_without_an_error_line() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut worker, pipe) = tokio::io::duplex(64);
+        let logs = Arc::new(LogBuffer::new());
+        let pump = tokio::spawn(pump_lines(pipe, Arc::clone(&logs)));
+
+        worker.write_all(b"nodera-peer: bye\n").await.unwrap();
+        drop(worker);
+
+        pump.await.expect("the pump returns on EOF");
+        assert_eq!(logs.snapshot(), vec!["nodera-peer: bye".to_owned()]);
+    }
 }

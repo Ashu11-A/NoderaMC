@@ -400,6 +400,150 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A scratch directory nothing else in this process uses. Named per test so the persist-failure
+    /// cases, which deliberately leave broken shapes on disk, cannot collide with each other.
+    fn scratch(label: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("nodera-deleted-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// The failure this whole guard exists for, stated as the operator sees it.
+    ///
+    /// The tombstone is the only durable record that an owner deleted their world. When the rename
+    /// into place fails — a full disk, a read-only mount, an `EXDEV` cross-device rename because
+    /// the persist directory is a bind mount — the tombstone lives in memory and nowhere else, and
+    /// the next restart **lists the deleted world again**. This was `let _ = std::fs::rename(…)`,
+    /// so the entire sequence happened in silence and the operator's only clue was that a deleted
+    /// world came back.
+    ///
+    /// The destination is made a directory, which makes `rename` fail with `EISDIR` for every user
+    /// including root — a read-only directory would not, and a test that quietly passes under
+    /// `sudo` or in a container is the kind of test this programme is about.
+    #[test]
+    fn a_failed_rename_is_reported_and_leaves_no_temp_file() {
+        let dir = scratch("rename");
+        let tombstone = tombstone();
+        let cache = DeletedWorlds::new(Some(dir.clone()));
+        let occupied = dir.join(format!("{}.tombstone", tombstone.world_id_hex()));
+        std::fs::create_dir_all(occupied.join("in-the-way")).expect("occupy the destination");
+
+        let report = cache
+            .try_persist(&tombstone.world_id_hex(), b"notice")
+            .expect_err("renaming a file over a directory cannot succeed");
+
+        assert!(report.contains("cannot move"), "{report}");
+        assert!(report.contains("forgotten at restart"), "{report}");
+        assert!(
+            report.contains(&tombstone.world_id_hex()),
+            "the report names the world: {report}"
+        );
+        assert!(
+            !occupied.with_extension("tombstone.tmp").exists(),
+            "a failed rename must not leave its temp file behind"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same silence one step earlier: the notice itself cannot be written. The temp path is
+    /// made a directory, so `write` fails with `EISDIR` for any user.
+    #[test]
+    fn a_failed_write_is_reported() {
+        let dir = scratch("write");
+        let tombstone = tombstone();
+        let cache = DeletedWorlds::new(Some(dir.clone()));
+        let temp = dir.join(format!("{}.tombstone.tmp", tombstone.world_id_hex()));
+        std::fs::create_dir_all(&temp).expect("occupy the temp path");
+
+        let report = cache
+            .try_persist(&tombstone.world_id_hex(), b"notice")
+            .expect_err("writing a file over a directory cannot succeed");
+
+        assert!(report.contains("cannot write"), "{report}");
+        assert!(report.contains("forgotten at restart"), "{report}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// And one step earlier again: the persist directory cannot be created, because a component of
+    /// its path is a regular file. `ENOTDIR` for any user.
+    #[test]
+    fn an_uncreatable_directory_is_reported() {
+        let blocker = scratch("mkdir");
+        std::fs::write(&blocker, b"not a directory").expect("write the blocker");
+        let cache = DeletedWorlds::new(Some(blocker.join("cache")));
+
+        let report = cache
+            .try_persist(&tombstone().world_id_hex(), b"notice")
+            .expect_err("a directory cannot be created under a regular file");
+
+        assert!(report.contains("cannot create"), "{report}");
+        assert!(report.contains("forgotten at restart"), "{report}");
+
+        let _ = std::fs::remove_file(&blocker);
+    }
+
+    /// The consequence, end to end: the write fails, the tracker keeps answering announces from
+    /// memory, and the restart that follows has nothing — the world is listed again. This is the
+    /// resurrection the world-deletion design exists to prevent, and it is what a revert to
+    /// `let _ = std::fs::rename(…)` restores without a single line in the log.
+    #[test]
+    fn a_deletion_that_could_not_be_written_is_gone_after_a_restart() {
+        let dir = scratch("resurrect");
+        let tombstone = tombstone();
+        std::fs::create_dir_all(
+            dir.join(format!("{}.tombstone", tombstone.world_id_hex()))
+                .join("in-the-way"),
+        )
+        .expect("occupy the destination");
+
+        let mut cache = DeletedWorlds::new(Some(dir.clone()));
+        assert!(cache.remember(&tombstone), "the tombstone still verifies");
+        assert!(
+            cache.is_deleted(&tombstone.world_id),
+            "and this process still answers announces for it"
+        );
+
+        assert!(
+            DeletedWorlds::new(Some(dir.clone())).is_empty(),
+            "the restart forgot it — which is why the failure has to be reported"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A memory-only cache is a configuration, not a broken write. `dir: None` documents that the
+    /// retention window then means "until this process restarts", and every `remember` on such a
+    /// tracker must stay quiet — otherwise the report that matters is buried in one per deletion.
+    #[test]
+    fn a_memory_only_cache_reports_nothing() {
+        let mut cache = DeletedWorlds::new(None);
+        assert_eq!(
+            cache.try_persist(&tombstone().world_id_hex(), b"notice"),
+            Ok(())
+        );
+        assert!(cache.remember(&tombstone()));
+    }
+
+    /// A world id that is not hex has no file name, and `file_for` refuses it rather than letting
+    /// it become a path component. That refusal is a silent forget unless it is said out loud.
+    #[test]
+    fn a_non_hex_world_id_is_reported() {
+        let dir = scratch("nonhex");
+        let cache = DeletedWorlds::new(Some(dir.clone()));
+
+        let report = cache
+            .try_persist("../../etc/passwd", b"notice")
+            .expect_err("not a hex id");
+
+        assert!(report.contains("not hex"), "{report}");
+        assert!(report.contains("forgotten at restart"), "{report}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn an_edited_file_on_disk_is_ignored() {
         let dir = std::env::temp_dir().join(format!("nodera-deleted-bad-{}", std::process::id()));
